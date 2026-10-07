@@ -7,8 +7,9 @@
  *
  * WHAT IT PROVES, AND WHAT IT DOES NOT. The player walks the EXACT collider
  * blocks the pack ships at the chosen size and quarter turn (the wand's own
- * re-lay arithmetic plus the shipped tread plan, engine/addon-walk.ts), so a
- * surface unreachable here is unreachable in game. It does NOT prove Bedrock's
+ * re-lay arithmetic plus the shipped tread plan, engine/addon-walk.ts).
+ * Reachability here is a simulation result, requiring native confirmation.
+ * It does NOT prove Bedrock's
  * rendering, its entity culling, form text, ride physics or memory limits — a
  * device round still decides those, and the banner on screen says so.
  *
@@ -26,7 +27,7 @@
 
 import * as THREE from 'three';
 import type { LDrawViewer } from '@viewer/ldraw/index.js';
-import { pivotRotation } from '@engine/bedrock-geometry-faces.js';
+import { BEDROCK_FACE_CORNERS, bedrockFaceUv, pivotRotation } from '@engine/bedrock-geometry-faces.js';
 
 /**
  * A geometry rotation (JSON degrees) about `pivot` as a three.js matrix: the
@@ -54,7 +55,7 @@ import {
   type CoasterPreviewCarFrame, type CoasterPreviewRouteInput, type CoasterPreviewState,
 } from '@engine/coaster-preview.js';
 import { MINIFIG_ANIMATIONS, MINIFIG_ANIMATION_IDS } from '@engine/minifig-rig.js';
-import type { AppearanceCube } from './addon-appearance.js';
+import type { AppearanceCube, AppearanceGroup } from './addon-appearance.js';
 import type { ReachWorkerRequest, ReachWorkerResponse } from './addon-reach-worker.js';
 import {
   columnBoxes, defaultLegendState, entitySpawnsAt, laidColliderBlocks, LEGEND_KINDS, LEGEND_LABELS, legendCounts, legendKindOf,
@@ -93,6 +94,69 @@ const LEGEND_COLOR: Record<LegendKind, number> = {
 };
 const COLOR_REACHED = 0x22c55e, COLOR_UNREACHED = 0xef4444, COLOR_STATION = 0xfde047, COLOR_CHAIN = 0xf97316;
 const hex = (c: number): string => `#${c.toString(16).padStart(6, '0')}`;
+
+/** Three.js material backed only by material evidence the loaded pack carries. */
+export function addonAppearanceMaterial(chunk: Pick<AppearanceGroup, 'colorHex' | 'alpha' | 'surface'>, texture?: THREE.Texture): THREE.Material {
+  const common = {
+    // A texture supplies its own RGB; multiplying it by the parser's neutral
+    // fallback grey would darken face artwork and alter its intended colour.
+    color: texture ? 0xffffff : chunk.colorHex,
+    flatShading: true,
+    ...(texture ? { map: texture, alphaTest: 0.5, side: THREE.DoubleSide } : {}),
+    ...(chunk.alpha < 1 ? { transparent: true, opacity: Math.max(0, Math.min(1, chunk.alpha)) } : {}),
+  };
+  if (!chunk.surface) return new THREE.MeshLambertMaterial(common);
+  return new THREE.MeshStandardMaterial({
+    ...common,
+    metalness: chunk.surface.metalness,
+    roughness: chunk.surface.roughness,
+    ...(chunk.surface.emissive > 0 ? {
+      emissive: texture ? 0xffffff : chunk.colorHex,
+      emissiveIntensity: chunk.surface.emissive,
+      ...(texture ? { emissiveMap: texture } : {}),
+    } : {}),
+  });
+}
+
+/** Build the one-face quads used by a face-atlas group in geometry-JSON space. */
+export function faceDecalGeometry(
+  tex: { width: number; height: number },
+  cubes: ReadonlyArray<AppearanceCube>,
+  bones: ReadonlyMap<string, THREE.Matrix4>,
+): THREE.BufferGeometry | null {
+  const positions: number[] = [], uvs: number[] = [];
+  const v = new THREE.Vector3();
+  for (const c of cubes) {
+    const f = c.faceUv;
+    if (!f || f.face === 'up' || f.face === 'down') continue;
+    const [ox, oy, oz] = c.origin, [sx, sy, sz] = c.size;
+    const x0 = ox, x1 = ox + sx, y0 = oy, y1 = oy + sy, z0 = oz, z1 = oz + sz;
+    const cubeCorners: Array<[number, number, number]> = [];
+    for (let i = 0; i < 8; i++) cubeCorners.push([i & 1 ? x1 : x0, i & 2 ? y1 : y0, i & 4 ? z1 : z0]);
+    const faceCorners = BEDROCK_FACE_CORNERS[f.face];
+    const bone = bones.get(c.bone) ?? new THREE.Matrix4();
+    // Per-face cubes may carry their own pose, just like box-UV cubes. Apply
+    // it before the parent without mutating the shared bone matrix.
+    const transform = c.rotation && c.pivot ? bone.clone().multiply(bedrockTurn(...c.rotation, ...c.pivot)) : bone;
+    // Shared geometry-JSON order is CCW from outside the cube: north -Z,
+    // south +Z, east -X and west +X. The holder's Z mirror has a negative
+    // determinant; Three.js accounts for that when choosing WebGL winding and
+    // transforming normals.
+    for (const k of [0, 1, 2, 0, 2, 3]) {
+      const corner = faceCorners[k]!;
+      v.set(...cubeCorners[corner]!).applyMatrix4(transform);
+      positions.push(v.x, v.y, v.z);
+      const uv = bedrockFaceUv(f, corner);
+      uvs.push(uv[0] / tex.width, uv[1] / tex.height);
+    }
+  }
+  if (!positions.length) return null;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.computeVertexNormals();
+  return geometry;
+}
 
 /** The pack's own sit pose (`MINIFIG_ANIMATIONS`'s `sit` animation, legs -90°),
  * read out as a bone-name -> rotation-degrees overlay for `buildModel`'s
@@ -314,6 +378,10 @@ class AddonWalk implements AddonPreviewHandle {
 
     this.scene.background = new THREE.Color(0x0b0d14);
     this.scene.fog = new THREE.Fog(0x0b0d14, 60, 220);
+    // Share the viewer's studio reflections. Without an environment, chrome
+    // has almost nothing to reflect and reads black despite correct MER data.
+    this.scene.environment = viewer.scene.environment;
+    this.scene.environmentIntensity = viewer.scene.environmentIntensity;
     const hemi = new THREE.HemisphereLight(0xdfe8ff, 0x1a1d2b, 1.1);
     const sun = new THREE.DirectionalLight(0xffffff, 1.6);
     sun.position.set(0.6, 1, 0.35);
@@ -590,14 +658,11 @@ class AddonWalk implements AddonPreviewHandle {
         if (!cubes.length) continue;
         if (chunk.texture) {
           // A face atlas: each decal cube draws ONE textured face, nothing else.
-          const faces = this.faceDecalMesh(chunk.texture, cubes, bones);
+          const faces = this.faceDecalMesh(chunk, cubes, bones);
           if (faces) holder.add(faces);
           continue;
         }
-        const material = new THREE.MeshStandardMaterial({
-          color: chunk.colorHex, roughness: 0.62, metalness: 0.04, flatShading: true,
-          ...(chunk.alpha < 1 ? { transparent: true, opacity: Math.max(0.25, chunk.alpha) } : {}),
-        });
+        const material = addonAppearanceMaterial(chunk);
         this.disposables.push(material);
         const mesh = new THREE.InstancedMesh(this.unitBox, material, cubes.length);
         cubes.forEach((c, i) => {
@@ -658,40 +723,16 @@ class AddonWalk implements AddonPreviewHandle {
    * UV names, textured from the atlas, alpha-tested. The corner a texel
    * rectangle's top-left lands on follows the rule the compiler lays the
    * atlas out by, in geometry-JSON terms: north u → +X, south u → −X,
-   * east u → +Z, west u → −Z, v → −Y (see `orientFace`).
+   * east u → −Z, west u → +Z, v → −Y. Numeric east is the −X
+   * plane and west the +X plane after Blockbench's export mirror.
    */
-  private faceDecalMesh(tex: { path: string; width: number; height: number }, cubes: ReadonlyArray<AppearanceCube>, bones: Map<string, THREE.Matrix4>): THREE.Mesh | null {
+  private faceDecalMesh(group: AppearanceGroup, cubes: ReadonlyArray<AppearanceCube>, bones: Map<string, THREE.Matrix4>): THREE.Mesh | null {
+    const tex = group.texture!;
     const texture = this.faceTexture(tex.path);
     if (!texture) return null;
-    const positions: number[] = [], uvs: number[] = [];
-    const v = new THREE.Vector3();
-    for (const c of cubes) {
-      const f = c.faceUv;
-      if (!f || f.face === 'up' || f.face === 'down') continue;
-      const [ox, oy, oz] = c.origin, [sx, sy, sz] = c.size;
-      const x0 = ox, x1 = ox + sx, y0 = oy, y1 = oy + sy, z0 = oz, z1 = oz + sz;
-      // Top-left, top-right, bottom-left, bottom-right of the texel rectangle.
-      const corners: Array<[number, number, number]> =
-        f.face === 'north' ? [[x0, y1, z0], [x1, y1, z0], [x0, y0, z0], [x1, y0, z0]]
-          : f.face === 'south' ? [[x1, y1, z1], [x0, y1, z1], [x1, y0, z1], [x0, y0, z1]]
-            : f.face === 'east' ? [[x1, y1, z0], [x1, y1, z1], [x1, y0, z0], [x1, y0, z1]]
-              : [[x0, y1, z1], [x0, y1, z0], [x0, y0, z1], [x0, y0, z0]];
-      const u0 = f.uv[0] / tex.width, u1 = (f.uv[0] + f.size[0]) / tex.width;
-      const w0 = f.uv[1] / tex.height, w1 = (f.uv[1] + f.size[1]) / tex.height;
-      const cornerUv: Array<[number, number]> = [[u0, w0], [u1, w0], [u0, w1], [u1, w1]];
-      const bone = bones.get(c.bone) ?? new THREE.Matrix4();
-      for (const k of [0, 2, 1, 1, 2, 3]) {
-        v.set(...corners[k]!).applyMatrix4(bone);
-        positions.push(v.x, v.y, v.z);
-        uvs.push(...cornerUv[k]!);
-      }
-    }
-    if (!positions.length) return null;
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-    geometry.computeVertexNormals();
-    const material = new THREE.MeshStandardMaterial({ map: texture, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.62, metalness: 0.04 });
+    const geometry = faceDecalGeometry(tex, cubes, bones);
+    if (!geometry) return null;
+    const material = addonAppearanceMaterial(group, texture);
     this.disposables.push(material);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = false;
@@ -1693,11 +1734,14 @@ class AddonWalk implements AddonPreviewHandle {
     ensureStyles();
     const root = document.createElement('div');
     root.className = 'ap-root';
+    const materialEvidence = this.model.appearance?.materialMode === 'pbr-assets'
+      ? 'Preview uses the pack\'s material values; lighting differs from Minecraft.'
+      : 'Preview uses classic diffuse shading because the pack has no enabled, supported uniform PBR assets.';
     root.innerHTML = `
       <div class="ap-look" tabindex="0" aria-label="Add-on walk view"></div>
       <div class="ap-labels"></div>
       <div class="ap-crosshair"></div>
-      <div class="ap-banner">Walks the <b>exact collider blocks</b> this pack lays at the chosen size and turn: unreachable here is unreachable in game. It does <b>not</b> prove Bedrock's rendering, entity culling, form text, ride physics or memory — a device round still decides those.</div>
+      <div class="ap-banner">Walks the <b>exact collider blocks</b> this pack lays at the chosen size and turn. Reachability is simulated; confirm it in Minecraft. ${materialEvidence} It does <b>not</b> prove Bedrock's rendering, entity culling, form text, ride physics or memory — a device round still decides those.</div>
       <div class="ap-interact"></div>
       <div class="ap-hud">
         <div class="ap-panel ap-legend"></div>

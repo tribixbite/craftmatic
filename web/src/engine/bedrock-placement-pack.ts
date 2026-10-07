@@ -699,6 +699,116 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
   };
   const setHistory = (p: any, h: any) => { histories.set(p.id, h); saveHistory(p, h); };
   const dropHistory = (p: any) => { histories.delete(p.id); clearHistory(p); };
+  // A vehicle can leave its placement's box and then unload. `world.getEntity`
+  // cannot see it at Undo/re-place time, so remember that exact retired
+  // placement until each missing actor next loads. One world property per
+  // placement (chunked over numbered properties when necessary) avoids an
+  // ever-growing aggregate string and is deleted as soon as all of its known
+  // actor ids have been removed.
+  const retiredPrefix = `craftmatic:${config.shortAlias}:retired:`, retiredTagPrefix = `cmu_${config.shortAlias}_`;
+  const RETIRED_CHUNK = 30000, RETIRED_MAX_CHUNKS = 64;
+  const retirements = new Map<string, { ids: Set<string> }>();
+  const retiredKey = (tag: string) => `${retiredPrefix}${tag}`;
+  const retiredChunks = (key: string): number => {
+    try {
+      const head = String(world.getDynamicProperty?.(key) ?? ''), colon = head.indexOf(':'), n = Number(head.slice(0, colon));
+      return Number.isInteger(n) && n > 0 ? Math.min(n, RETIRED_MAX_CHUNKS) : 0;
+    } catch { return 0; }
+  };
+  const clearRetirement = (key: string, knownChunks?: number): boolean => {
+    if (typeof world.setDynamicProperty !== 'function') return false;
+    const n = knownChunks ?? retiredChunks(key);
+    try {
+      world.setDynamicProperty(key, undefined);
+      for (let i = 1; i < n; i++) world.setDynamicProperty(`${key}:${i}`, undefined);
+      return true;
+    } catch { return false; }
+  };
+  const loadRetirements = (): boolean => {
+    try {
+      for (const key of world.getDynamicPropertyIds?.() || []) {
+        if (!key.startsWith(retiredPrefix) || key.slice(retiredPrefix.length).includes(':')) continue;
+        try {
+          const n = retiredChunks(key);
+          if (!n) continue;
+          const head = String(world.getDynamicProperty?.(key) ?? '');
+          let text = head.slice(head.indexOf(':') + 1);
+          for (let i = 1; i < n; i++) text += String(world.getDynamicProperty?.(`${key}:${i}`) ?? '');
+          const saved = JSON.parse(text);
+          if (!saved || saved.v !== 1 || typeof saved.tag !== 'string' || !saved.tag.startsWith(retiredTagPrefix) || retiredKey(saved.tag) !== key || !Array.isArray(saved.ids)) continue;
+          const ids = new Set<string>(saved.ids.filter((id: any) => typeof id === 'string'));
+          if (ids.size) retirements.set(saved.tag, { ids });
+        } catch { /* a corrupt record retires nothing */ }
+      }
+      return true;
+    } catch (e: any) {
+      console.warn(`BRICK_WAND_RETIRED_LOAD ${e?.message || e}`);
+      return false; // the saved properties remain intact; a later script start retries
+    }
+  };
+  const persistRetirement = (tag: string, ids: Set<string>): boolean => {
+    if (!tag.startsWith(retiredTagPrefix)) return false;
+    const key = retiredKey(tag);
+    if (!ids.size) {
+      retirements.delete(tag);
+      return clearRetirement(key);
+    }
+    const r = retirements.get(tag) || { ids };
+    if (r.ids !== ids) for (const id of ids) r.ids.add(id);
+    retirements.set(tag, r);
+    if (typeof world.setDynamicProperty !== 'function') return false;
+    const text = JSON.stringify({ v: 1, tag, ids: [...r.ids] }), n = Math.max(1, Math.ceil(text.length / RETIRED_CHUNK));
+    if (n > RETIRED_MAX_CHUNKS) return false;
+    const old = retiredChunks(key);
+    try {
+      world.setDynamicProperty(key, `${n}:${text.slice(0, RETIRED_CHUNK)}`);
+      for (let i = 1; i < n; i++) world.setDynamicProperty(`${key}:${i}`, text.slice(i * RETIRED_CHUNK, (i + 1) * RETIRED_CHUNK));
+      for (let i = n; i < old; i++) world.setDynamicProperty(`${key}:${i}`, undefined);
+      return true;
+    } catch { return false; }
+  };
+  const sweepRetiredEntity = (e: any): void => {
+    for (const [tag, r] of retirements) {
+      let match = r.ids.has(e?.id);
+      if (!match) try { match = e?.hasTag?.(tag) === true; } catch {}
+      if (!match) continue;
+      const id = e.id;
+      try { e.remove(); } catch { return; }
+      if (r.ids.delete(id)) persistRetirement(tag, r.ids);
+      return;
+    }
+  };
+  const retireActors = (h: any): { missing: Set<string>; persisted: boolean } => {
+    const missing = new Set<string>();
+    for (const id of h.entities || []) {
+      let e: any;
+      try { e = world.getEntity(id); } catch {}
+      if (e) { try { e.remove(); continue; } catch {} }
+      if (typeof id === 'string') missing.add(id);
+    }
+    // Also remove loaded actors whose ids are no longer resolvable from the
+    // saved record. Tags are unique to this one placement.
+    if (h.tag) try {
+      for (const e of world.getDimension(h.dimension).getEntities({ tags: [h.tag] }) || []) {
+        try { const id = e.id; e.remove(); missing.delete(id); } catch {}
+      }
+    } catch {}
+    const persisted = !!h.tag && (!missing.size || persistRetirement(h.tag, missing));
+    return { missing: h.tag && retirements.get(h.tag)?.ids || missing, persisted };
+  };
+  system.run(() => {
+    // World dynamic properties can reject reads during early module execution;
+    // the first scheduled turn is the earliest reliable startup point.
+    if (!loadRetirements()) return;
+    for (const [tag, r] of [...retirements]) {
+      // IDs catch a loaded actor even if another runtime stripped its tag.
+      for (const id of [...r.ids]) try { const e = world.getEntity(id); if (e) sweepRetiredEntity(e); } catch {}
+      for (const id of ['overworld', 'nether', 'the_end']) {
+        try { for (const e of world.getDimension(id).getEntities({ tags: [tag] }) || []) sweepRetiredEntity(e); } catch { /* no such dimension */ }
+      }
+    }
+  });
+  world.afterEvents.entityLoad?.subscribe((ev: any) => sweepRetiredEntity(ev.entity));
   const removeManualSeatEntities = (st: any) => {
     for (const id of st.manualSeatIds || []) try { world.getEntity(id)?.remove(); } catch {}
     st.manualSeatIds = [];
@@ -1467,10 +1577,8 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
       // Replacing a placement must retire its old actors too; otherwise every
       // re-place duplicated figures, mould seats and user-marked brick chairs.
       if (previous) {
-        for (const id of previous.entities) try { world.getEntity(id)?.remove(); } catch {}
-        // A record from an earlier session: its entities may not have been
-        // loaded by id; any of them in loaded chunks go by the placement's tag.
-        if (previous.tag) try { for (const e of world.getDimension(previous.dimension).getEntities({ tags: [previous.tag] }) || []) try { e.remove(); } catch {} } catch {}
+        const retired = retireActors(previous);
+        if (retired.missing.size && !retired.persisted) tell(p, `§e${retired.missing.size} old entit${retired.missing.size === 1 ? 'y is' : 'ies are'} unloaded and deferred cleanup could not be saved across a reload.`);
         for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
       }
       setHistory(p, { dimension: dim.id, backups, entities, bounds, tag });
@@ -1500,17 +1608,12 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
       // Entities first, by id where they are loaded; the rest are found by the
       // placement's tag as each area loads below (a reload leaves the chunks
       // unloaded until then, and world.getEntity sees only loaded ones).
-      const missing = new Set<string>();
-      for (const id of h.entities) {
-        let e: any;
-        try { e = world.getEntity(id); } catch {}
-        if (e) { try { e.remove(); } catch {} } else missing.add(id);
-      }
+      const retired = retireActors(h), missing = retired.missing;
       const sweep = () => {
         if (!h.tag || !missing.size) return;
         let found: any[] = [];
         try { found = dim.getEntities({ tags: [h.tag] }) || []; } catch {}
-        for (const e of found) { missing.delete(e.id); try { e.remove(); } catch {} }
+        for (const e of found) sweepRetiredEntity(e);
       };
       // This pack's colliders anywhere in the placement's box go first: a moving part lays its closed doorway
       // into cells no snapshot covers (at 100 % only the structure tiles are snapshotted, and 31141's upper
@@ -1546,7 +1649,11 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
         }
       }
       dropHistory(p);
-      tell(p, missing.size ? `§aUndo complete§r (${missing.size} entit${missing.size === 1 ? 'y was' : 'ies were'} not found - already removed, or outside the placement's box).` : '§aUndo complete.');
+      tell(p, missing.size
+        ? retired.persisted
+          ? `§aUndo complete§r (${missing.size} unloaded entit${missing.size === 1 ? 'y has' : 'ies have'} pending cleanup when ${missing.size === 1 ? 'its chunk loads' : 'their chunks load'}).`
+          : `§aUndo complete§r (${missing.size} entit${missing.size === 1 ? 'y was' : 'ies were'} not loaded, and deferred cleanup could not be saved across a reload).`
+        : '§aUndo complete.');
     } catch (e: any) { tell(p, `Undo stopped: ${e.message || e}`); }
     finally { await unload(); active = undefined; }
   }

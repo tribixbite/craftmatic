@@ -9,30 +9,334 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
-### Handoff (2026-10-01, main `bcfae5bc`; agents stopped on the monthly spend limit)
-Merged on main but in NO round yet (last round sent = 30i `fd91cf23`):
-yaw-turned collider corners + drop guards (76417 Gate 1), box-UV-safe cubes
-on EVERY entity (McLaren streaks: 22 % of its surface undrawn), brick
-separators dropped from exports, no floating name tags, and the spaceship
-controls / never-stuck / free look (section below). All gates green on
-`bcfae5bc` (2,964 tests, both typechecks, physics spec).
-Next, in order:
-1. Build round 30j: `mkdir output/device-round-2026-10-01j`, copy
-   `output/device-round-2026-09-30i/{build.sh,check.py}` with the folder names
-   changed (check.py REF = 30i `packs-fd91cf23`/`creator-fd91cf23`), run
-   `bash .../build.sh` from the clean tree, then `python .../check.py <packs> <creator>`
-   (expect parts to DIFFER: separators gone; uuids equal), then
-   `bun scripts/sim.ts --scenario=regressions --new=<packs>`, `--scenario=hop`
-   (needs `--coaster= --flyer= --slide= --car=`), and
-   `bun scripts/sim.ts <7140 76286 42172 packs> --scenario=vehicles` (the controls' course: NEVER RUN on built packs - the
-   agent died before building; record before/after numbers).
-2. Zip (`craftmatic-packs-<sha>.zip` + sha256 + pack-hashes.tsv, same as 30i)
-   and send.
-3. Device round: the "Spaceship controls" checklist below + McLaren body
-   solid + no name tags + 76417 Gate 1 stops you in the doorway + 10261
-   lift-hill route at 200 %. Saga reachable (192.168.1.243:5555); the PIXEL
-   needs the user (wireless debugging re-pair) and holds `output/.phone-lock`.
+### Fidelity audit hand-off (2026-10-06)
 
+Worktree C:/git/craftmatic/.worktrees/fidelity-audit-20261005, branch
+fix/fidelity-audit-20261005, based on b9966287. Main tracked source is untouched;
+main `output/` contains this round's ignored evidence.
+Current product source: 8929007e773123ed9ecc8eca009c1c77386d7f0a
+(`fix(bedrock): preserve legacy shells across pack upgrades`, signed GPT-6).
+Spatial geometry was introduced in 8e261f39; its exports are superseded for
+native deployment because they omitted saved-placement compatibility assets.
+Last native-accepted export baseline: 278adbf5. Clean affected exports packs-278adbf5:
+10261, 10326, 10796, 10797, 31084, 42639, 76417, 910004; unchanged core
+remainder stays in packs-62fe6c26. Main evidence root:
+C:/git/craftmatic/output/fidelity-audit-20261005/ (packs/reports/probes/logs).
+Audit-worktree evidence root:
+C:/git/craftmatic/.worktrees/fidelity-audit-20261005/output/;
+it owns device-zero-plane-20261005/ (earlier native rounds),
+bedrock-entity-qa/278adbf5-native/ (seat acceptance),
+bedrock-entity-qa/device-backups/20261005-224548/ and round-facet-yield/.
+
+**Live device state takes precedence over this committed checkpoint.** Before
+resuming, read audit-worktree
+`output/bedrock-entity-qa/8e261f39-spatial-native/native-progress.json` and contact
+the sole driver `/root/audit_device_qa`. Do not infer successful loading or
+acceptance from screenshot filenames. The directory name is historical;
+the installed candidate is **8929007e**, not 8e261f39.
+
+At the 2026-10-06 10:43 EDT handoff check, coaster placement is complete at
+200 percent, turn 0, exact origin7379,-60,7390 (root-reviewed form036).
+Player remains7422,-60,7411 while a free camera captures nearby geometry.
+Root reviewed043/044: nearby track/support/base geometry remains drawn at
+the farther camera, old-root distance77.046 versus prior absent75.82 bracket.
+Root also reviewed045/046 station alignment,047 chat showing each expected
+chunk once, and050 standing-worker face with readable print/no tall streak.
+Torso-front close-up054 is now independently root-reviewed: standing worker
+face and blue/light-blue torso are readable, no tall black glyph artifact.
+Worker `roller_10261_fig4` root7408.045394,-51.5,7419.280318, face outward+Z.
+Earlier view052 is gate-occluded and rejected; use054, not further retries.
+Root also reviewed016: retained legacy coaster shell/trains render intact
+after the final upgrade before new placement. Live checkpoint has exact
+cameras and current phase; visual/census checks are complete.
+These are observations; full interaction/Undo acceptance, Gringotts testing
+and final restoration are still pending. Device pack files and
+bindings have already changed. If interrupted,
+resume through the owner/checkpoint; do not leave the device in this state.
+The complete pre-placement world snapshot protects retained fixtures from
+the new placement's automatic retirement of the prior placement history.
+Restore it while Minecraft is closed, then restore the separately captured
+original pack bytes, bindings and options. Exact paths/hashes/steps follow
+below and are embedded in `native-progress.json`.
+Verify all twelve snapshot files while the app is closed **before** replacing
+the candidate bindings. Then verify the final closed-world files against the
+snapshot except the two binding JSON files, which must match the captured
+original binding hashes. Preserve that report before relaunch; the database
+and level metadata may change normally after loading the restored world.
+Root verified the snapshot's twelve saved files against its manifest with
+zero mismatches and verified the tar SHA256. The project entry guide links
+directly here; the testing guide preserves snapshot and input-routing lessons.
+The add-on guide uses the measured absent-distance bracket for native camera
+acceptance, rather than treating the estimated 70-block cap as exact.
+
+Acceptance measured:
+- Clean 278adbf5 exports: structural 8/8, nonquick child play 40/40,
+  doorway 180 rows/18 doors, zero FAIL/holes (96 OK, 10 STEP, 70 SEALED,
+  4 ONE-WAY, six short-approach notes). Reports in packs-278adbf5/278-*.
+  Headless simulator hold/Sneak/walk probes 10796/10797 pass. Direct watcher
+  probes 10261/10326 pass: open landing/walk versus safe remount with warning.
+  The latter two had no reachable physical hold approach; do not count those
+  approaches as tested. Historical affected subset: 8 OK/1 NOT TESTED.
+- Final source checks: 2,996 passed/31 skipped, both typechecks, physics spec
+  and web build pass; main output/fidelity-audit-seat-egress-final-{tests,build}.log.
+  Earlier core 15-pack gates, vehicle/transfer tests, renderer/face checks and
+  source-ownership acceptance are complete; evidence and limits live in the
+  add-on/testing guides and commit history. Eight current packs supersede
+  their older exports; there are sixteen distinct sets including 31084.
+- Both clean Gabby natural-seat exits pass in explicit Survival on Saga;
+  independently reviewed root-review1079{6,7}-survival-contact.png and videos
+  are in audit-worktree output/bedrock-entity-qa/278adbf5-native/. Installed runtime hashes match
+  the clean archives. Exact origins/turns and rejected controls are in the guide.
+  Final restoration report: that same native directory's final-restoration-report.json.
+  Baseline bindings and six pack folders match audit-worktree
+  output/bedrock-entity-qa/device-backups/20261005-224548/; Creative,
+  Fancy, logging off, camera/effects/telemetry and recorded world 925 focus
+  restored; own claim released. New Gabby folders remain unbound and QA
+  placements retained. Blank(1)'s position before the accidental teleport
+  was uncaptured and remains changed; do not invent a restoration position.
+
+Open acceptance work:
+- Active round (2026-10-06): implementation and source checks complete;
+  8e clean exports/offline gates COMPLETE (historical evidence only).
+  Final 892 native acceptance PENDING. Product
+  compatibility fix committed8929007e; both new clean exports/gates COMPLETE.
+  .worktrees/fidelity-export-8929007e is clean; main
+  output/fidelity-audit-20261005/packs-8929007e/ owns final packs and reports.
+  No export writer remains active; do not rebuild without a relevant change.
+  Detached .worktrees/fidelity-export-8e261f39 stays
+  clean, pipeline b3bfade8802e, dirty=false; outputs in main
+  output/fidelity-audit-20261005/packs-8e261f39/.
+  Walker visual checks complete; audit_device_qa completed world geometry
+  audit and owns the active Saga claim/native round. Consult its
+  live mailbox and audit-worktree output/bedrock-entity-qa/8e261f39-spatial-native/
+  progress checkpoint before touching the device; do not start a second driver.
+  Upgrade investigation and compatibility fix complete (checks/commit passed,
+  both clean packs passed). Saga claimed by audit_device_qa
+  at10:02:26-04:00; captured baselinefocus HUD5822,-60,5760 and original bindings,
+  captured baseline before input; clean89210261 is now installed, deviceMutation=true,
+  world925 bindings2610.614.624. Full protocol-B event4 tap including BTN_TOUCH
+  loaded925 at unchanged HUD5822,-60,5760 (012-protocolb-full-world-load.png).
+  Screenshots007 etc were failed input-routing attempts, despite filenames.
+  Owner then Save & Quit before ANY chat/placement and took a complete closed
+  world snapshot; existing histories/fixtures are protected from auto-retirement
+  by the new placement. Snapshot is in the native evidence directory:
+  world-snapshot-before-place-002.tar SHA7d280668e394813ef4c7b143fa3145f1e8e0675e1a69633ae15cb03261b33804,
+  12files/2484877bytes; manifest SHA9a0c74c8fb425d7d78ea081fb4ed0ac277721168ca07b06b6c6fe9d89ba7cd56.
+  native-progress.json has exact world restore steps; restore captured original
+  bindings separately because snapshot was taken after candidate binding. Native
+  visual/interaction/Undo acceptance remains PENDING. Fresh touched-pack backup:
+  AUDIT WORKTREE output/bedrock-entity-qa/device-backups/20261006-100930/.
+  native-progress.json now embeds deploy command/stagingdir/currentbindings,
+  exact backup/restore hashes and nextaction; confirm live phase before acting.
+  Main tracked source remains untouched. UI wording change committed951fe974
+  clarifies simulated reachability needs Minecraft confirmation; web typecheck
+  passed. This does not change exported pack geometry/runtime.
+  Superseded 8e exports remain historical geometry-comparison evidence;
+  deploy only the final 892 packs identified below. Coaster has no doorway
+  acceptance; Gringotts has 40 rows, 34 OK/2 SEALED/4 ONE-WAY, zero FAIL.
+  Expected spatial actor counts4/2, no buried/rejected/oversized warning.
+  Aggregate body cube counts42391/47862, opaque/translucent counts, mesh totals
+  and material/PBR cube multisets exactly conserved against278adbf5; Gringotts
+  has two extra face decals. Historical evidence: main
+  packs-8e261f39/{8e-spatial-shell-evidence.json,8e-pack-sha256.txt} under the
+  fidelity evidence root. Final evidence: packs-8929007e/892-legacy-shell-evidence.json,
+  892-pack-sha256.txt, 892-offline-summary.txt and per-pack gate logs.
+  Actual coaster world-face comparison:254326 faces at yaw0/90 × scale1/2;
+  zero non-numeric/material/UV mismatches, maximum drift2.9996e-12 <1e-8.
+  Main shell-spatial-pack-audit-8e261f39.{ts,json} contains replay and roots.
+  Near-geometry camera7370.0755,-58.38,7429: oldroot74.244, chunk1root49.477,
+  chunk2root61.118, nearest exact face15.702 blocks. This lies inside the old
+  visible/absent bracket and is not decisive alone. Also capture camera
+  7366.0755,-58.38,7429: oldroot77.046, nearest geometry19.646 blocks;
+  compare against the old measured absent distance75.82. Recalculate if pin differs.
+  Upgrade audit proved old Undo records lack anchor/turn/size and no automatic
+  rebuild exists. New fix retains original monolith BP/client/geo/render assets
+  but never spawns them in new placement CONFIG. spatialShell.legacy labels and
+  budgets the dormant geometry; active chunks stay exactly unchanged. Archive
+  regression passes51/51 including original assets retained/current actors only
+  and increased shipped cube/entity budgets. Both typechecks,154 focused tests,
+  and web build(6.69s) passed; logs spatial-shell-legacy-{focused-tests,build}.log
+  in main evidence. Initial Walker A/B proved expected4/2shells/all29/24holders,
+  but its model-only layer claim is SUPERSEDED: probe iterated detached NodeList
+  buttons after HUD rerender, leaving track overlay enabled (yellow stationbeam).
+  Source routeGroup visibility is correct; this was a test-harness bug, unrelated
+  to native glyph lines. Corrected final892 vs278200-percent Walker A/B COMPLETE:
+  effectivelegend model:on/all7others:off, routeGroup/reachGroup false, all29/24
+  holders read, shell counts4/2 and42391/47862 cubes; dormant legacytypes absent
+  from holders,19/14transparentmaterialmeshes. Root reviewed fullmodel captures:
+  true colours, aligned geometry and no visible seams. Pixelidentity full/station
+  10261:99.9582/99.9274%,76417:99.9176/99.9076%; no browser errors. Authoritative
+  main walker-spatial-8929007e-corrected/run-stamp.json includes effectiveflags,
+  hashes/dimensions and supersedes8e layerclaims. Node/Chrome source892/ea70d3e0c2cd;
+  all12PNGs <=1440x1000/358KB; owned4025/4023 stopped,4000 preserved. Native
+  remains independent of browser evidence.
+  # TODO(shell-migration): old saved placements keep old culling limitation;
+  future migration needs authoritative transforms persisted before upgrading.
+  No 8e pack was deployed. Final 892 clean-pack/archive gates are complete;
+  native acceptance is independent of the conserved active geometry proof.
+  Clean89210261 ready: SHA7d1f3967ecf1db7dcfaf574daf2cd3a21c2011db2b1694b801c6a079f5a6aa42,
+  1511238 bytes, pipelineea70d3e0c2cd, dirty=false. Structural1/1, nonquick5/5,
+  passabilityzero doorways/FAIL. All18activechunkfiles and204material/texture/UV
+  assets byte-identical to8e; original4BP/client/geo/controllerassets byte-identical
+  to278. CONFIG onlychunks1–4. Shippedbudget99703 =57312active+42391legacy,
+  entities24 =23previous+1legacy. Evidence newpackdir892-legacy-shell-evidence.json.
+  Clean89276417 ready: SHAc10a8782e8103372452c38a74a94a258bcbb05edfb907894eb8ed0709bdd31c4,
+  1572572 bytes, same cleanpipeline. Structural1/1, nonquick5/5, doorway40rows
+  34OK/2SEALED/4ONE-WAY/0FAIL. All10activechunkfiles and204material/texture/UV
+  assets byte-identical8e; all6legacyBP/client/geo/controller/facePNG/texture_set
+  files byte-identical278. CONFIG onlychunks1–2. Budget106731=58869active+47862legacy,
+  entities24. 892-offline-summary.txt and892-pack-sha256.txt summarize exactgates.
+  `bedrock-building-shell.ts` now partitions finished emitted cuboids AFTER
+  one global grain/cull/merge/coplanar plan; `playable-addon.ts` emits normal
+  PlacementActors with translated cube/bone pivots and local roots. No
+  compiler recompile or lifecycle fork. Aggregate colliders/budgets remain
+  original; actual entity counts and spatialShell diagnostics include chunks.
+  Small shells retain exact original output. Reach target is 54 blocks at
+  200 percent; oversized cubes are retained/warned and roots buried in other
+  chunks' drawn AABBs reject the partition in favour of the original shell.
+  Tests prove conservation, rotated/inflated geometry, UV/material identity,
+  100/200-percent placement and normal persistent Undo/reload pathways.
+  Simulator snapshots now apply actor scale to the complete rotated bone/cube
+  affine; a pixel comparison against an explicitly doubled model catches the
+  former always-100-percent rendering bug. Facet gate/probes share one selector;
+  they do not modify compiler output. Updated guide: docs/bedrock-addon-guide.md;
+  snapshot semantics: docs/sim-engine.md.
+  Checks: 3,008 passed/31 skipped (182 files passed/1 skipped), both typechecks,
+  physics spec and web build passed. Main evidence root:
+  spatial-shell-{full-tests,focused-tests,build}.log. Full suite 129.44 s;
+  build 8.36 s, existing bundle-size warning only. Latest diagnostic metadata
+  addition passed web typecheck and all 51 exporter tests before committing.
+  Final-cube measurement: 100/200/400-percent actor counts are 10261 1/4/56,
+  10326 1/1/8, 76417 1/2/63, 910004 1/1/3. At 200 percent no buried roots;
+  400-percent partitions introduce buried roots/oversized singletons, so are
+  not imposed. 300/400-percent native culling remains limited. Evidence:
+  shell-spatial-actor-{probe.ts,report.json}, report SHA
+  799af9855e4be55f4508c616e0e40d4757ff5300a411bd0482615e96aa11ed1e.
+  No supported client-entity render-distance override exists; do not invent one.
+- # TODO(facet-integration): broad curved-part integration remains gated on
+  hollow topology, prints/materials and rotated colliders. Corrected 10303
+  2-LDU measurement saves 472 hypothetical cubes (0.30%, 51 placements),
+  not 10.7%; worktree output/round-facet-yield/10303.json.
+  Audit rejects the current whole-disc generator for hollow 85861, printed
+  98138pb177 and per-view-regressing 24866 despite mean silhouette wins.
+  Shared conservative preflight now also rejects 4073/3062b for fine-grain
+  preserved air. New worktree output/round-facet-yield/
+  10303-preflight-20261006.json accepts four opaque 98138 placements, saving
+  only four hypothetical cubes (156242 to 156238, 0.00256 percent); no coarse
+  rung passes. Historical 10303.json remains unchanged. This is not compiler
+  integration or native facet acceptance. The gate's raster resolution is
+  finite and preserveSurface is caller-supplied; do not claim universal
+  topology/print preservation. Broad facet replacement remains unjustified.
+- # TODO(render-distance): the 200 percent coaster shell is visible at
+  root distance 50.34 and absent at 75.82 while its cars remain. This is a
+  bracket, not an exact cutoff; guide records camera/player-distance limits.
+  Ground-level Fancy/Vibrant pair 258/265 is valid in world 925, with mode
+  UI 263/264. It proves readable geometry/mode changes, not photorealistic
+  gloss; the earlier elevated-camera interpretation was withdrawn.
+- # TODO(sim-regression): recovered historical 10797 overhang route still
+  does not reproduce the old fall offline; keep NOT TESTED and nonzero exit.
+  Native old-fail/current-pass A/B is verified; details are in the guide.
+  Ideal replay ticks (60/6/50) differ materially from archived native travel;
+  a shorter diagnostic probe matches initial displacement but not turn/fall.
+  Native intervals/stick samples remain unmeasured. Probe parameters/results:
+  main output/fidelity-audit-20261005/native-cadence-probe-20261006.json.
+  Do not tune inferred cadence solely to force this gate green.
+  Archive: main .claude/worktrees/agent-a743597866bba6650/output/gabby-play-0929/.
+  Exact transcript/route and cadence limits are in the regression case.
+- Pixel read-only recheck2026-10-06 10:22:21EDT: connected, keyguardshowing=true,
+  screenoff/asleep, NotificationShade focus; underlying resumed app is
+  com.google.android.gms/.octarine.ui.OctarineActivity. No input/state changed.
+  It remains unavailable for second nativeQA; existing unlock request pending.
+  World 924 bindings
+  match September 30 backup hashes/mtimes; original app focus restored and
+  own phone-lock claim released. October 5 preflight files were error text
+  from omitting the world folder's trailing =, not backups. Evidence: pixel/.
+For further fixes, export affected packs from a clean committed revision and
+rerun applicable gates. Native world925 folder q-TUD3f7W6M=; Saga claim is held
+by audit_device_qa for the active892 round (read native-progress.json first).
+Owned Vite servers on 4015/4017/4019/4021 are stopped; preserve main server 4000.
+No push/tag/release.
+
+### Resume this round without transcript context
+
+1. Integrate product/docs only in the fidelity-audit worktree; inspect `git status --short`
+   and `git log -3`. Product commit8929007e is verified; exporter follow-up
+   `bun run test test/playable-addon.test.ts` passed51/51. Fullsuite3008/31skipped
+   passed at8e; follow-up154focusedtests/both typechecks/build passed at892.
+   Do not repeat them absent a relevant change or failure.
+2. New compatibility exports are completed: reconcile progress/evidence in
+   `.worktrees/fidelity-export-8929007e` and main `packs-8929007e/` before
+   continuing any export work. Do not launch a second writer. If a run is conclusively
+   abandoned, retain its files and use a NEW directory name for any new run.
+   Exports run only from a clean committed revision, separate from integration.
+   Do not deploy8e packs. Saga baseline/claim checkpoint remains at audit-worktree
+   output/bedrock-entity-qa/8e261f39-spatial-native/native-progress.json (directory
+   name records when capture began; actual candidate must be8929007e).
+   Fresh captured hashes: options4416d2096f29218d381160e337c896ff23dcf7fd07c7d209e6caacfe871cfa40,
+   BP2d3eb129d7cc35227941e92c0a54a527e75a3cdd1bb25bf9873f752d04cbf971,
+   RP5e15d3bdb3f3d54351ad7424e1b77f06a0de7d11538812f5ff42bad3c74388ae.
+   Sequential coaster recipe from the clean worktree:
+   `bun scripts/_playable_ref.ts "C:/git/clego/lego_sets/LDR/10261 Roller Coaster.mpd" "C:/git/craftmatic/output/fidelity-audit-20261005/packs-<hash>/10261-roller-coaster.mcaddon" "--label=Roller Coaster 10261" --quality=balanced --mode=auto --buildings=bricks --mirror=http://localhost:4000/ldraw-parts --faces=C:/git/craftmatic/output/faces-art-0926`.
+   Gringotts source `C:/git/clego/lego_sets/DbixConvV3/76417.ldr`, label
+   `Gringotts Wizarding Bank  Collectors Edition 76417`, same options; preserve
+   the two spaces before Collectors. Other canonical inputs/options are in
+   packs-278adbf5/*.log. Check provenance dirty=false and source revision.
+   Expected shell counts: coaster four, Gringotts two, museum/chalet unchanged.
+3. For each new pack: `python scripts/_mcaddon_check.py <pack>`;
+   `bun scripts/sim.ts <pack> --json=<new-report.json> --md=<new-report.md>`
+   (nonquick child play);
+   `bun scripts/_ix_passability.ts <pack> --sizes=100,150,200,300,400 --rotations=0,90`.
+   Verify actual chunk IDs/roots, conserved aggregate cube counts and materials
+   against baseline; use Node/Chrome Walker for visual alignment and 200-percent
+   snapshots. Snapshot scale is fixed; native culling remains an estimate.
+4. Native Saga acceptance only after clean-pack/offline gates. Continue through
+   the current sole device owner and checkpoint above; do not claim/drive it
+   concurrently. For a future round, capture fresh bindings/options/position/
+   focus and claim output/.saga-lock before input.
+   World 925 folder is `q-TUD3f7W6M=` (trailing = essential). This round's
+   target baseline to restore is 5822,-60,5760, Creative/Fancy, empty selected
+   slot, in-world focus; it is not the live state. Active restore source:
+   AUDIT WORKTREE output/bedrock-entity-qa/device-backups/20261006-100930/
+   plus 8e261f39-spatial-native/world-snapshot-before-place-002* and the captured
+   options/binding files in that native directory. The October 5 backup is
+   historical only. Recapture a fresh baseline before any subsequent round.
+   Candidate coaster anchor 7379,-60,7390, turn 0, 200 percent; read actual
+   placement origin/roots after placing. Approximate old root 7421.0755,-8,
+   7409.6875. Lower-corner camera 7370.0755,-58.38,7429 is
+   74.244 blocks from the old root and 15.702 from nearby geometry; it is inside
+   the old culling bracket, so also capture 7366.0755,-58.38,7429 (oldroot77.046,
+   nearestgeometry19.646) or perform exact baseline A/B at the same camera.
+   Recalculate from the actual pack. Keep the player nearby to load chunks. Confirm nearby
+   local chunk draws, alignment and lighting at near/station views, natural
+   mount/Sneak/walk, exact one entity per chunk, then complete Undo/collider
+   restoration. Far camera 7422,5,7335 alone is not a decisive test.
+   After coaster acceptance and Undo, test final 892 Gringotts to isolate the
+   tall shell's vertical-root case. Capture a fresh backup of its touched
+   folders/bindings before deploying; record those extra restoration sources
+   in the live checkpoint. Candidate origin8000,-60,8000, 200 percent, turn0.
+   Player `/tp @s 8001.5 -60 8054.489344`; camera
+   `/camera @s set minecraft:free pos 8001.5 -58.38 8054.489344 facing 8006.52443 -57.831258 8049.325594`.
+   Oldroot78.099 / lowerchunk49.530 / nearest actual face7.226 blocks.
+   Main `gringotts-native-camera-probe.{ts,json}` contains the derivation.
+   Read the actual pin; confirm nearby lower facade, alignment/lighting,
+   walk interaction, exactly two chunks and complete Undo. This check is
+   planned, not accepted; no Gringotts device mutation is recorded yet.
+   Save/quit before file restoration; app-only force-stop/relaunch allowed.
+   Restore captured bindings, baseline pack bytes, options, camera/effects,
+   telemetry/logging, position and focus; verify hashes and release own claim.
+   No reboot/framework restart/data clear/recursive delete. Pixel is locked.
+5. Update/prune this tracker with exact new pack hashes, report paths, native
+   results and restoration. Commit documentation and verify its hash. Retain
+   explicit open limits: 300/400-percent draw ceiling, historical offline 10797
+   NOT TESTED, facet compiler integration unjustified, Pixel secure lock.
+
+Device tooling: `_pixel_dev_deploy.py` Adb.read_bytes/write_in_place/fs handles
+root quoting and metadata; avoid PowerShell su/redirection. `_pixel_cmd.sh` via
+Git Bash needs ANDROID_SERIAL and MSYS_NO_PATHCONV=1. Saga taps use a stationary
+90 ms swipe; chat clears with MOVE_END plus 512 Backspaces (Gboard Ctrl+A fails).
+Node Playwright/CDP with Chrome is the browser lane; Bun WebSocket stalls.
+Resize screenshots below 2000 pixels in BOTH dimensions and 4 MB before viewing.
+Main mirror server 4000 must be preserved. No audit-owned server is running.
 
 | surface | command | URL |
 |---|---|---|
@@ -40,7 +344,7 @@ Next, in order:
 | Operator console (every runnable operation) | `bun run console` | http://localhost:4600 |
 
 A killed background server does NOT free its port (children re-parent):
-`netstat -ano | grep LISTENING | grep -E ':(4000|4600)'`, kill the owner PID
+PowerShell: `netstat -ano | Select-String ':(4000|4600)'`, kill only an owned PID
 before restarting. Neither surface proves Bedrock rendering, culling, form
 text or ride physics — those stay on the device.
 
@@ -66,10 +370,12 @@ should semi gradually automatically turn to point in the direction of travel
 "Never stuck", "Free look") and §9; add-on guide "Spaceship controls, never
 stuck, free look"; sim doc "The vehicle course".
 
-NOT YET BUILT OR COURSE-MEASURED: the agent stopped (spend limit) before
-building packs; its last uncommitted edits (brake 24, course lane gap) were
-salvaged as `391fc228` and merged (`bcfae5bc`). Measure with
-`bun scripts/sim.ts <packs> --scenario=vehicles` on round 30j's packs.
+Clean packs `354cb7b2` now exercise the course and simulated controls for
+42172, 7140 and 76286, with zero clipping violations. Both ships clear 8/8
+obstacles; the car clears 6/8, stops and escapes the tall wall, and remains
+trapped in the three-block pit (the existing course policy allows that).
+The device checklist below remains separate evidence; simulation does not
+settle touch input, native free look or actual device cost.
 
 ### Device checklist (one round, Pixel or Saga; world with the round's packs bound `--exclusive`)
 
@@ -837,10 +1143,11 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
   NOT shown to be visible on a device either way: a sliver is back-face culled
   and mostly shares its neighbour's colour. Evidence `output/fold-0928/`
   (`sweep2/`, `ix.log`), probe `scripts/_planar_cuboid_probe.ts`.
-  The `fix/bedrock-fidelity` worktree commit `ecc2c265` (thicken exact-zero
-  cuboids outward by one cell) is NOT merged: it changes none of 10261's
-  placed parts (their slivers are >1e-9 thick) and where it acts it pushes a
-  flat part's plane a whole cell (2-8 LDU) past its own bounds.
+- The zero-plane probe in the active audit supersedes the Oct 2 thickening
+  claim. `_render_fault_audit.ts` reports overlaps; it is not a pass gate.
+  The clean canonical 10261 `880a7195` pack reports 175 pairs / 1.62 block
+  faces, mostly cross-actor station/car contacts; four audit packs have 0%
+  UV-floor surface loss and pass structural validation.
 - [ ] 10261: 49 cross-actor coplanar pairs where the parked cars' grey floor
   (26021) lies in the station track's red top plane (`_render_fault_audit.ts`);
   the export's separation pass works within one actor only.
@@ -852,7 +1159,10 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
   emitted (constraints in `ldraw-entity-compiler.ts`: `worldBoxes` and
   `renderCuboids` are parallel; facets must not be `aligned`). Budget `high`
   was measured and not taken (2x memory).
-- [ ] Cull above 100 %: the LOD plan caps at ~72 blocks (`TODO(cull)`); 200-400 % unmeasured.
+- [ ] Native draw limits: old 200-percent coaster root-distance bracket measured
+  visible at 50.34 / absent at 75.82 blocks. Final 892 local-root native
+  acceptance is pending in the active round above; 300/400 percent remains
+  unmeasured. Geometry bounds do not override the native draw cap.
 - [ ] Walk preview: `world.simulated()`/`compareReach` not on the HUD; second
   train renders parked; car bank not animated; `three` chunk cost re-measure.
   The Z-mirror/rotation fix is verified in Chrome (2026-09-26: 76457 Door 1

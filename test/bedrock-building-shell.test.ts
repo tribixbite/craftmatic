@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import {
-  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, SHELL_BOX_WIDTH, SHELL_FRAME, actorCullDistance, actorCullFit, buildColliderGrid, clipParallelepiped, colliderBlockDefinition, colliderCellIndex, colliderState, gridParallelepiped, isSceneBlock, isTiltedBox, shellBehavior, shellCollisionBox, yawStepKept, YAW_STEP_MAX_BLOCKS,
+  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, SHELL_BOX_WIDTH, SHELL_FRAME, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, actorCullDistance, actorCullFit, buildColliderGrid, clipParallelepiped, colliderBlockDefinition, colliderCellIndex, colliderState, gridParallelepiped, isSceneBlock, isTiltedBox, shellBehavior, shellCollisionBox, splitStaticShell, yawStepKept, YAW_STEP_MAX_BLOCKS,
 } from '../web/src/engine/bedrock-building-shell.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { BlockTypes } from '../web/src/sim/world/block-types.js';
 import { ACTOR_DRAW_CEILING_BLOCKS } from '../web/src/engine/bedrock-lod-hull.js';
 import { toBedrockBlock } from '../web/src/engine/bedrock-blocks.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
-import { compileLdrawEntityGeometry } from '../web/src/engine/ldraw-entity-compiler.js';
+import { compileLdrawEntityGeometry, type CompiledLdrawGeometry } from '../web/src/engine/ldraw-entity-compiler.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
+import { drawnCubeBox, worldFaces, type BedrockFace, type GeoEntryLike, type Vec3 } from '../web/src/engine/bedrock-geometry-faces.js';
+import { resolveLdrawEntityMaterial } from '../web/src/engine/ldraw-entity-materials.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
@@ -359,6 +361,184 @@ const LIBRARY: Record<string, string> = {
 };
 const provider = () => createPartGeometryProvider({ fetchPartText: async id => LIBRARY[id.replace(/^.*\//, '')] ?? null });
 const I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+
+type TestCube = {
+  origin: [number, number, number]; size: [number, number, number]; inflate?: number;
+  rotation?: [number, number, number]; pivot?: [number, number, number]; uv?: unknown;
+};
+type TestBone = { name: string; parent?: string; pivot?: [number, number, number]; rotation?: [number, number, number]; cubes?: TestCube[] };
+type TestGeometry = { description: Record<string, unknown> & { identifier: string }; bones: TestBone[] };
+
+const material = (colorId: number, alpha = 1) => ({ ...resolveLdrawEntityMaterial(colorId), alpha });
+
+let compiledFixtureBase: Promise<CompiledLdrawGeometry> | undefined;
+const validFixtureBase = (): Promise<CompiledLdrawGeometry> => compiledFixtureBase ??= compileLdrawEntityGeometry(
+  'split_fixture', 'prop', [{ part: '3005.dat', color: 4, x: 0, y: 0, z: 0, rot: I }],
+  { partGeometry: provider(), frame: [...SHELL_FRAME], wholeModel: true, quality: { studFacets: 1 } },
+);
+
+async function compiledFixture(geometries: TestGeometry[], meshOptions: Array<{ color: number; alpha?: number; face?: boolean }>): Promise<CompiledLdrawGeometry> {
+  const base = await validFixtureBase();
+  const meshes = geometries.map((geometry, i) => ({
+    id: geometry.description.identifier,
+    material: material(meshOptions[i]!.color, meshOptions[i]!.alpha ?? 1),
+    translucent: (meshOptions[i]!.alpha ?? 1) < 1,
+    ...(meshOptions[i]!.face ? { faceAtlas: { png: new Uint8Array([1, 2, 3]), width: 8, height: 8 } } : {}),
+  }));
+  let opaqueCount = 0, translucentCount = 0;
+  geometries.forEach((geometry, i) => {
+    if (meshOptions[i]!.face) return;
+    const count = geometry.bones.reduce((n, bone) => n + (bone.cubes?.length ?? 0), 0);
+    if ((meshOptions[i]!.alpha ?? 1) < 1) translucentCount += count; else opaqueCount += count;
+  });
+  const bodyCount = opaqueCount + translucentCount;
+  return {
+    ...base,
+    value: { format_version: '1.12.0', 'minecraft:geometry': geometries }, meshes, meshIds: meshes.map(mesh => mesh.id),
+    materials: meshes.filter(mesh => !mesh.translucent).map(mesh => mesh.material), canopyMaterials: meshes.filter(mesh => mesh.translucent).map(mesh => mesh.material),
+    collisionBox: { width: 0.1, height: 1 }, sizeBlocks: { width: 80, height: 10, length: 10 }, keelBlocks: 0,
+    partBoxesLdu: base.partBoxesLdu,
+    diagnostics: {
+      ...base.diagnostics,
+      cubeCount: bodyCount, opaqueCubeCount: opaqueCount, translucentCubeCount: translucentCount,
+      meshCount: meshes.length,
+    },
+    warnings: ['aggregate warning'],
+  };
+}
+
+const faceNames: BedrockFace[] = ['west', 'east', 'up', 'down', 'south', 'north'];
+function entryOf(geo: CompiledLdrawGeometry): GeoEntryLike {
+  const geometries = (geo.value as { 'minecraft:geometry': TestGeometry[] })['minecraft:geometry'];
+  const bones = geometries[0]!.bones.map(bone => ({ name: bone.name, pivot: bone.pivot ?? [0, 0, 0], ...(bone.rotation ? { rotation: bone.rotation } : {}), ...(bone.parent ? { parent: bone.parent } : {}) }));
+  const groups = geometries.map((geometry, i) => {
+    const mesh = geo.meshes[i]!;
+    const cubes = geometry.bones.flatMap(bone => (bone.cubes ?? []).map(cube => {
+      const drawn = drawnCubeBox(cube);
+      const uv = cube.uv as Partial<Record<BedrockFace, { uv?: number[]; uv_size?: number[] }>> | undefined;
+      const face = faceNames.find(name => Array.isArray(uv?.[name]?.uv) && Array.isArray(uv?.[name]?.uv_size));
+      return {
+        bone: bone.name, origin: drawn.origin, size: drawn.size,
+        ...(cube.rotation ? { rotation: cube.rotation } : {}), ...(cube.pivot ? { pivot: cube.pivot } : {}),
+        ...(face ? { faceUv: { face, uv: uv![face]!.uv as [number, number], size: uv![face]!.uv_size as [number, number] } } : {}),
+      };
+    }));
+    return { ldrawColor: mesh.faceAtlas ? null : mesh.material.colorId, alpha: mesh.material.alpha, cubes, ...(mesh.faceAtlas ? { texture: { path: 'faces' } } : {}) };
+  });
+  return { bones, groups };
+}
+
+function scaledEntry(entry: GeoEntryLike, scale: number): GeoEntryLike {
+  const v = (p: readonly number[]): [number, number, number] => [p[0]! * scale, p[1]! * scale, p[2]! * scale];
+  return {
+    bones: entry.bones.map(bone => ({ ...bone, pivot: v(bone.pivot) })),
+    groups: entry.groups.map(group => ({ ...group, cubes: group.cubes.map(cube => ({ ...cube, origin: v(cube.origin), size: v(cube.size), ...(cube.pivot ? { pivot: v(cube.pivot) } : {}) })) })),
+  };
+}
+
+const turnedOffset = (offset: readonly number[], yaw: number, scale: number): { x: number; y: number; z: number } => {
+  const a = yaw * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), x = offset[0]! * scale, z = offset[2]! * scale;
+  return { x: c * x - s * z, y: offset[1]! * scale, z: s * x + c * z };
+};
+
+const faceSignature = (entry: GeoEntryLike, at: { x: number; y: number; z: number }, yaw: number) => worldFaces([{ typeId: 't', kind: 'shell', entry, at, yawDeg: yaw }]).map(face => ({
+  colour: face.colour, face: face.face,
+  corners: face.corners.map(p => p.map(v => Math.round(v * 1e6) / 1e6)),
+  uv: face.uv,
+})).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+
+describe('splitStaticShell', () => {
+  const fixture = () => compiledFixture([
+    {
+      description: { identifier: 'geometry.craftmatic.shell_mesh_0', texture_width: 16, texture_height: 16 },
+      bones: [
+        { name: 'body', pivot: [0, 0, 0], rotation: [0, 8, 0], cubes: [{ origin: [-560, -80, -20], size: [40, 40, 40] }, { origin: [520, -80, -20], size: [40, 40, 40] }] },
+        { name: 'turned', parent: 'body', pivot: [540, -60, 0], rotation: [12, -17, 8], cubes: [{ origin: [532, -70, -6], size: [16, 20, 12], rotation: [5, 9, -4], pivot: [540, -60, 0] }] },
+      ],
+    },
+    {
+      description: { identifier: 'geometry.craftmatic.shell_mesh_1', texture_width: 16, texture_height: 16 },
+      bones: [{ name: 'body', pivot: [0, 0, 0], rotation: [0, 8, 0], cubes: [{ origin: [-548, -52, -4], size: [18, 2.6, 8], inflate: -1 }] }],
+    },
+    {
+      description: { identifier: 'geometry.craftmatic.shell_mesh_2', texture_width: 8, texture_height: 8 },
+      bones: [{ name: 'body', pivot: [0, 0, 0], rotation: [0, 8, 0], cubes: [{ origin: [529, -66, -6], size: [0.3, 12, 12], uv: { east: { uv: [1, 2], uv_size: [5, 6] } } }] }],
+    },
+  ], [{ color: 4 }, { color: 40, alpha: 0.45 }, { color: 16, face: true }]);
+
+  it('returns the original geometry object and id exactly when its original root fits at 2x', async () => {
+    const small = await compiledFixture([{ description: { identifier: 'geometry.craftmatic.small_mesh_0' }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: [{ origin: [-8, -24, -8], size: [16, 16, 16] }] }] }], [{ color: 4 }]);
+    const result = splitStaticShell('small', small);
+    expect(result.warnings).toEqual([]);
+    expect(result.chunks).toHaveLength(1);
+    expect(result.chunks[0]).toMatchObject({ id: 'small', offsetBlocks: [0, 0, 0], oversizedCubes: 0, buriedRootCubes: 0 });
+    expect(result.chunks[0]!.geo).toBe(small);
+  });
+
+  it('splits final cubes deterministically, preserves bindings and reconstructs every face at yaw 0/90 and scale 2 without mutation', async () => {
+    const original = await fixture(), before = JSON.stringify(original);
+    const a = splitStaticShell('shell', original), b = splitStaticShell('shell', original);
+    expect(JSON.stringify(original)).toBe(before);
+    expect(a.chunks.length).toBeGreaterThan(1);
+    expect(a.chunks.map(c => ({ id: c.id, offset: c.offsetBlocks, radius: c.radiusBlocks }))).toEqual(b.chunks.map(c => ({ id: c.id, offset: c.offsetBlocks, radius: c.radiusBlocks })));
+    expect(new Set(a.chunks.map(c => c.id)).size).toBe(a.chunks.length);
+    expect(a.chunks.every(c => c.radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE <= STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-8)).toBe(true);
+    expect(a.chunks.every(c => c.geo.transform === original.transform && c.geo.originLdu === original.originLdu && c.geo.partBoxesLdu === undefined)).toBe(true);
+    expect(a.chunks.flatMap(c => c.geo.meshes).some(mesh => mesh.translucent)).toBe(true);
+    expect(a.chunks.flatMap(c => c.geo.meshes).some(mesh => mesh.faceAtlas?.png === original.meshes[2]!.faceAtlas!.png)).toBe(true);
+    expect(a.chunks.reduce((n, c) => n + c.geo.diagnostics.cubeCount, 0)).toBe(original.diagnostics.cubeCount);
+    const chunkRawCubes = a.chunks.flatMap(c => (c.geo.value as { 'minecraft:geometry': TestGeometry[] })['minecraft:geometry'].flatMap(g => g.bones.flatMap(bone => bone.cubes ?? [])));
+    expect(chunkRawCubes).toHaveLength(5);
+    expect(chunkRawCubes.some(cube => cube.inflate === -1)).toBe(true);
+    expect(chunkRawCubes.some(cube => (cube.uv as any)?.east?.uv_size?.join(',') === '5,6')).toBe(true);
+
+    for (const yaw of [0, 90]) for (const scale of [1, 2]) {
+      const expected = faceSignature(scaledEntry(entryOf(original), scale), { x: 0, y: 0, z: 0 }, yaw);
+      const actual = a.chunks.flatMap(chunk => faceSignature(scaledEntry(entryOf(chunk.geo), scale), turnedOffset(chunk.offsetBlocks, yaw, scale), yaw))
+        .sort((x, y) => JSON.stringify(x).localeCompare(JSON.stringify(y)));
+      expect(actual).toEqual(expected);
+    }
+  });
+
+  it('splits a tall finished shell and locally roots each piece above its own top', async () => {
+    const tall = await compiledFixture([{ description: { identifier: 'geometry.craftmatic.tall_mesh_0' }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: [
+      { origin: [-8, -608, -8], size: [16, 16, 16] }, { origin: [-8, 592, -8], size: [16, 16, 16] },
+    ] }] }], [{ color: 4 }]);
+    const result = splitStaticShell('tall', tall);
+    expect(result.chunks).toHaveLength(2);
+    expect(result.chunks.map(chunk => chunk.offsetBlocks[1]).sort((a, b) => a - b)).toEqual([-36, 39]);
+    expect(result.chunks.every(chunk => chunk.radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE <= STATIC_SHELL_RADIUS_LIMIT_BLOCKS)).toBe(true);
+  });
+
+  it('retains and diagnoses an indivisible oversized final cube', async () => {
+    const huge = await compiledFixture([{ description: { identifier: 'geometry.craftmatic.huge_mesh_0' }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: [{ origin: [-500, -8, -8], size: [1000, 16, 16] }] }] }], [{ color: 4 }]);
+    const result = splitStaticShell('huge', huge);
+    expect(result.chunks).toHaveLength(1);
+    expect(result.chunks[0]!.id).toBe('huge_chunk_1');
+    expect(result.chunks[0]!.oversizedCubes).toBe(1);
+    expect(result.chunks[0]!.radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toBeGreaterThan(STATIC_SHELL_RADIUS_LIMIT_BLOCKS);
+    expect(result.warnings).toEqual([expect.stringMatching(/indivisible final cube.*retained whole/)]);
+    expect((result.chunks[0]!.geo.value as { 'minecraft:geometry': TestGeometry[] })['minecraft:geometry'][0]!.bones[0]!.cubes).toHaveLength(1);
+  });
+
+  it('rejects a partition whose local root is conservatively enclosed by another chunk geometry', async () => {
+    const buried = await compiledFixture([{ description: { identifier: 'geometry.craftmatic.buried_mesh_0' }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: [
+      { origin: [-528, -16, -8], size: [16, 16, 16] },
+      // Its centre is at zero, so the median split owns it separately, while its transformed AABB covers the left root.
+      { origin: [-600, -32, -32], size: [1200, 64, 64] },
+      { origin: [512, -16, -8], size: [16, 16, 16] },
+    ] }] }], [{ color: 4 }]);
+    const result = splitStaticShell('buried', buried);
+    expect(result.chunks).toHaveLength(1);
+    expect(result.chunks[0]).toMatchObject({ id: 'buried', offsetBlocks: [0, 0, 0] });
+    expect(result.chunks[0]!.geo).toBe(buried);
+    const rawCubeCount = (result.chunks[0]!.geo.value as { 'minecraft:geometry': TestGeometry[] })['minecraft:geometry']
+      .reduce((n, geometry) => n + geometry.bones.reduce((m, bone) => m + (bone.cubes?.length ?? 0), 0), 0);
+    expect(rawCubeCount).toBe(3);
+    expect(result.warnings.some(warning => /candidate local lighting root is inside the transformed AABB/.test(warning))).toBe(true);
+    expect(result.warnings.some(warning => /rejected the spatial partition.*exact original actor was retained.*culling limit/.test(warning))).toBe(true);
+  });
+});
 
 describe('the building shell', () => {
   it('compiles on the grid frame: an LDraw +X, +Z brick lands at +X and, in the world at yaw 0, −Z (grid +Z is LDraw −Z), and every loose piece stays', async () => {

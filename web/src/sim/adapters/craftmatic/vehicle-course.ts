@@ -117,7 +117,7 @@ function obstacleCells(o: CourseObstacle, f: ScriptedTypeFacts): { solid: Array<
 
 /**
  * How deep (blocks) a vehicle's band may graze a block before it counts as going INTO it: the runtime
- * probes the band at up to `FOOTPRINT.MAX_LEVELS` heights along the boundary that moves, at 0.9-block
+ * probes the band at heights along the boundary that moves, at 0.9-block
  * spacing, so a graze of a few hundredths between two probes is the model's grain, not a hole.
  */
 export const CLIP_SLACK = 0.1;
@@ -135,7 +135,7 @@ function bandOverlaps(v: SimEntity, f: ScriptedTypeFacts, lo: number, hi: number
   /** Whether a point of the footprint, `a` blocks along the nose, has its band in the cell's height. */
   const bandAt = (a: number): boolean => {
     const lift = Math.max(0, a * tilt);
-    // A tenth of a block of slack: the runtime probes the band at up to `FOOTPRINT.MAX_LEVELS` heights along
+    // A tenth of a block of slack: the runtime probes the band at heights along
     // its perimeter, and a pitched band's interior grazes a kerb's top edge by a few hundredths as it climbs.
     return v.location.y + hi + lift > cy + CLIP_SLACK && v.location.y + lo + lift < cy + 1 - CLIP_SLACK;
   };

@@ -80,5 +80,9 @@ describe.skipIf(!HAVE)('the coaster sets detect cars on the source the picker ch
     expect(result.trains.length).toBeGreaterThanOrEqual(1);
     expect(result.trains[0]!.carIds.length).toBe(3);
     expect(result.trains[0]!.routeClosed).toBe(true);
+    // Model A's front car has 15 parts in `trainfront.ldr` plus all eleven
+    // parts in its descendant `trainfront/sharknose` assembly. Provenance
+    // filtering must not mistake that nested nose for nearby scenery.
+    expect(ride.map(car => car.bricks.length).sort((a, b) => b - a)).toEqual([26, 19, 16]);
   }, 120_000);
 });

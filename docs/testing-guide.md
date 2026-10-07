@@ -4,8 +4,52 @@ Read before validating renderer, resolver, alignment, or exporter changes. PDF-s
 
 [Project guide](../CLAUDE.md). Paths in code spans are relative to the repository root unless explicitly qualified.
 
-- Build: `bun run build:web`. Tests: `bun test` (vitest). LEGO unit tests are **offline + deterministic** — `test/ldraw-parser.test.ts` (transforms/steps/primitives), `test/io-zip.test.ts` (ZipCrypto + WinZip-AES decrypt, validated against Node's own crypto as an oracle — no large `.io` fixtures), `test/lego-colors.test.ts` (the don't-conflate-colour-systems invariant), and `test/ldraw-geometry.test.ts` (**geometry regression**: `resolvePartGeometry` triangle/edge/winding/transform signature, GPU-free via a mocked `fetch` serving synthetic `.dat` — the de-risked stand-in for visual regression), and `test/ldraw-frame.test.ts` (**the LDraw → scene/grid frame is a ROTATION**: `det = +scale³·det(R)` on the viewer's instance matrix, a printed-glyph winding check from the printed side, a baked STL's facets all outward, and the grid, `SHELL_FRAME`, `yawForFacing`, Java display entities and stair facings on the same half turn about X — the reflection that mirrored every model until 2026-09-22 cannot return silently). Export-side offline suites: `test/schem-pipeline.test.ts` (the shared export module's grid path — byte-identical to a direct encode, no re-voxelization), `test/schem-settings.test.ts` (resolution planning vs the legacy ladder as an oracle), `test/light-fill.test.ts` (sealed room lit / open porch untouched), `test/palette-lint.test.ts` (every emitted block id is a real Minecraft block), `test/schem-seeded-geometry.test.ts` (the seeded resolver short-circuits fetch and matches the networked bytes; per-part progress advances; geometry is independent of fetch timing). Prefer this pattern over the network-fetching `test/lego-pipeline.test.ts` (and the flaky live-API `test/import-*` tests). Two more from the 2026-09-08 audit: `test/part-cache-revision.test.ts` (persistent-cache identity + transitive geometry invalidation, over a fake IndexedDB that survives `vi.resetModules()` — the WARM-browser path, not an incognito one) and `test/schem-real-set.test.ts` (real set through the real export pipeline; skips without the local corpus).
+- Build: `bun run build:web`. Tests: `bun run test` (Vitest; bare `bun test` invokes a different runner). LEGO unit tests are **offline + deterministic** — `test/ldraw-parser.test.ts` (transforms/steps/primitives), `test/io-zip.test.ts` (ZipCrypto + WinZip-AES decrypt, validated against Node's own crypto as an oracle — no large `.io` fixtures), `test/lego-colors.test.ts` (the don't-conflate-colour-systems invariant), and `test/ldraw-geometry.test.ts` (**geometry regression**: `resolvePartGeometry` triangle/edge/winding/transform signature, GPU-free via a mocked `fetch` serving synthetic `.dat` — the de-risked stand-in for visual regression), and `test/ldraw-frame.test.ts` (**the LDraw → scene/grid frame is a ROTATION**: `det = +scale³·det(R)` on the viewer's instance matrix, a printed-glyph winding check from the printed side, a baked STL's facets all outward, and the grid, `SHELL_FRAME`, `yawForFacing`, Java display entities and stair facings on the same half turn about X — the reflection that mirrored every model until 2026-09-22 cannot return silently). Export-side offline suites: `test/schem-pipeline.test.ts` (the shared export module's grid path — byte-identical to a direct encode, no re-voxelization), `test/schem-settings.test.ts` (resolution planning vs the legacy ladder as an oracle), `test/light-fill.test.ts` (sealed room lit / open porch untouched), `test/palette-lint.test.ts` (every emitted block id is a real Minecraft block), `test/schem-seeded-geometry.test.ts` (the seeded resolver short-circuits fetch and matches the networked bytes; per-part progress advances; geometry is independent of fetch timing). Prefer this pattern over the network-fetching `test/lego-pipeline.test.ts` (and the flaky live-API `test/import-*` tests). Two more from the 2026-09-08 audit: `test/part-cache-revision.test.ts` (persistent-cache identity + transitive geometry invalidation, over a fake IndexedDB that survives `vi.resetModules()` — the WARM-browser path, not an incognito one) and `test/schem-real-set.test.ts` (real set through the real export pipeline; skips without the local corpus).
 ## The tiers of evidence for a Bedrock pack (2026-09-30)
+
+For spatial-shell/export changes, the focused source gate is
+`bun run test test/bedrock-building-shell.test.ts test/playable-addon.test.ts test/bedrock-placement-size.test.ts test/bedrock-placement-undo-reload.test.ts test/sim-engine.test.ts test/ldraw-round-facets.test.ts`.
+It checks cube/material/UV conservation, rotated/inflated local rebasing,
+normal size/placement and persistent Undo/reload, actual actor scale in
+snapshots, and conservative facet selection. Inspect the exported pack's
+`spatialShell` diagnostics for actual IDs/counts/radii and compare its world
+geometry against the baseline. These gates do not prove native culling or
+lighting; those require a camera near geometry but beyond the old shell root's
+draw range, station lighting/alignment, and complete native Undo. Evidence:
+main `output/fidelity-audit-20261005/spatial-shell-{focused-tests,full-tests,build}.log`.
+
+Walker HUD toggles rebuild their DOM. Do not capture a NodeList and click its
+nodes repeatedly: after the first toggle, later nodes are detached and their
+clicks silently miss the delegated listener. Capture kind strings, re-query a
+live selector before each click, and assert the actual `legend` flags plus
+`routeGroup.visible` before claiming a model-only screenshot. A yellow station
+beam is a route overlay, not shipped geometry. The first spatial A/B captures
+had this harness error; corrected captures must supersede their layer claims.
+
+Native placement QA can retire the player's previous placement even at a
+fresh anchor. Before testing Place in a retained world, Save & Quit and take
+a complete closed-world snapshot, including the database and placement
+history. A pack/options backup alone cannot restore retired fixtures; old
+Undo records do not contain enough transforms to reconstruct them. Exercise
+the candidate's Undo first, then restore the snapshot while Minecraft is
+closed and restore original bindings separately if the snapshot was taken
+after binding the candidate. Verify the complete snapshot manifest before
+overwriting its candidate bindings, then verify the final closed-world files
+against the snapshot with only the original binding hashes substituted.
+Save the report before relaunch, which can legitimately update world files.
+Verify pack/options hashes and remove only
+individually identified test-created files. Never recursively delete.
+
+Saga world-list input can be blocked by a rotated ActivityRecordInputSink.
+In the October 6 round, a root protocol-B event4 tap including `BTN_TOUCH`
+loaded the world; a partial sequence without `BTN_TOUCH` and ordinary mouse/
+touch taps did not. The validated panel point was 800,1950, with landscape
+mapping `(x,y) -> (y,2400-x)` on that captured 2400x1080 layout. Reconfirm
+the layout before reuse. A screenshot named "loaded" is not loading evidence:
+inspect the actual in-world HUD. Current owner, snapshot, baseline hashes and
+restore steps are recorded in the audit worktree's
+`output/bedrock-entity-qa/8e261f39-spatial-native/native-progress.json`;
+consult [the tracker](../TASKS-BEDROCK-ADDON.md) before driving a device.
 
 Answer a question at the cheapest tier that can answer it:
 
@@ -22,6 +66,15 @@ Answer a question at the cheapest tier that can answer it:
    re-judges the device-bug regression set; `test/sim-engine.test.ts` runs it
    in `bun run test` where the round packs are on the machine. An `unknown`
    result means scripts reached API the mock does not model - never a pass.
+   A vehicle course selecting zero scripted vehicles exits nonzero as
+   `NOT TESTED`; selected regressions missing either pack do the same. Use
+   `--only` for an intentional subset and report that subset. Render-fault
+   audit output is a measurement of remaining overlaps, not a green gate.
+   An old regression pack that does not reproduce its recorded symptom is
+   also NOT TESTED, even when the new pack passes. Hop scenarios reject an
+   empty selection and unmodelled execution just like child-play and courses.
+   Unreadable packs and unmodelled/error scenarios also make the CLI fail,
+   even when another pack in the same command passed.
    The runtime unit tests use the same engine: `test/_sim-host.ts`
    (`simHost`) loads one serialised runtime with its definitions as a pack
    and fails a test on a script error, an unmodelled member or a refused
@@ -39,6 +92,18 @@ treads help, is the model drawn at 60 blocks. Most were answerable offline.
 These two surfaces exist to answer them in seconds. Neither replaces the
 device: neither can prove Bedrock's rendering, its per-actor render cull, form
 text, ride physics, rider retention or memory.
+
+The current Walker dismount restores the saved pre-boarding player state;
+it does not exercise a scenery seat's native fallback or recovery watcher.
+Use a headless real-pack direct mount → Sneak → simulated walking scenario
+for that question. The 10796 regression in `test/bedrock-figure-life.test.ts` catches
+a landing that fits the body but traps it in a small pocket; static overlap
+checks and ordinary child-play alone missed it. An always-offline runtime
+fixture also guards the recovery policy when the source pack is unavailable.
+For native gravity/floor acceptance, explicitly set Survival and capture its
+health/hunger HUD. Saga's up/down arrow controls also appear in Survival;
+their shape alone does not identify Creative flying state. A Creative motion
+recording with uncaptured flight state proves collision escape, not gravity.
 
 ### The operator console — `bun run console` (`tools/console/`)
 
@@ -75,12 +140,22 @@ are wired but unexercised.
 ### The walkable add-on preview (LEGO tab → "Walk add-on")
 
 A first-person walk over a generated pack, borrowing the viewer's renderer.
+Its material preview reads the resource manifest's `pbr` capability and the
+actual texture-set MER values (inline bytes or uniform RGB8/RGBA8 PNG), with
+the viewer's studio reflections. ABS, rubber, pearl and metal therefore keep
+their separate roughness/metalness; printed faces retain their RGB and alpha.
+Missing, corrupt, non-uniform or unsupported maps use diffuse shading with a
+note. This is browser lighting, not a Vibrant Visuals reference image. Native
+graphics mode must be recorded separately; Saga's Fancy and Vibrant Visuals
+modes were both exercised in the October 5 audit.
 It is worth trusting because it collides against **the exact blocks the pack
 ships**: `web/src/engine/addon-walk.ts` over the runtime's own re-laid collider
 grid and the wand's own tread plan, at 20 Hz with Minecraft's numbers — a
 0.6 x 1.8 box, gravity 0.08 under 0.98 drag, a 0.42 jump peaking at 1.2522,
 4.317 blocks/s, and the reach walk's own 9/16 auto-step so the two models agree
-by construction. Unreachable here means unreachable in game.
+by construction. A blocked route is an offline defect to investigate; it is
+not independent proof of native behavior. Conversely, a browser pass cannot
+establish native mounting, dismount fallback, actor culling or interpolation.
 
 The key counts figures, seats, doors, track, vehicles, colliders and treads,
 each with show and highlight toggles for markers and perimeter boxes, alongside

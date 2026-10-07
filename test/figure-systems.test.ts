@@ -400,6 +400,36 @@ describe('figure systems: faces and hair through the compiler', () => {
     } finally { clearFaceArt(); }
   });
 
+  it.each([
+    { side: 'east', sign: 1, rot: [0, 0, -1, 0, 1, 0, 1, 0, 0] },
+    { side: 'west', sign: -1, rot: [0, 0, 1, 0, 1, 0, -1, 0, 0] },
+  ])('places an X-facing printed head on the native $side surface', async ({ side, sign, rot }) => {
+    // Blockbench exports an editor +X/east face under the SAME key while
+    // mirroring cube X coordinates. Native east is therefore minimum JSON X.
+    // Saga 10261 car 1: the former west key hid this print in the head; changing
+    // only that key to east restored it (2026-10-06, capture 138).
+    const result = await compileLdrawEntityGeometry('side_head', 'prop', [at('3626cp01', 14, 0, 0, 0, rot)], {
+      partGeometry: provider(), frame: I, quality: { studFacets: 1 },
+    });
+    type Cube = { origin: number[]; size: number[]; inflate?: number; uv: Record<string, unknown> | number[] };
+    const meshes = (result.value as { 'minecraft:geometry': Array<{ bones: Array<{ cubes: Cube[] }> }> })['minecraft:geometry'];
+    const index = result.meshes.findIndex(m => m.faceAtlas);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const decals = meshes[index]!.bones.flatMap(b => b.cubes);
+    expect(decals).toHaveLength(1);
+    const decal = decals[0]!;
+    expect(Object.keys(decal.uv)).toEqual([side]);
+    // The selected native face is proud of all skin, not the opposite side
+    // of its thin box. This checks emitted coordinates as well as the label.
+    const skin = meshes.flatMap((m, i) => result.meshes[i]!.material.colorId === 14 && i !== index ? m.bones.flatMap(b => b.cubes) : []);
+    expect(skin.length).toBeGreaterThan(0);
+    const plane = decal.origin[0]! + (sign < 0 ? decal.size[0]! : 0);
+    const boundary = sign > 0
+      ? Math.min(...skin.map(c => c.origin[0]! - (c.inflate ?? 0)))
+      : Math.max(...skin.map(c => c.origin[0]! + c.size[0]! + (c.inflate ?? 0)));
+    expect(sign * (boundary - plane)).toBeGreaterThan(0);
+  });
+
   it('compiles a big-fig and a mini-doll as jointed entities with faces', async () => {
     const big = await compileLdrawEntityGeometry('hagrid', 'figure', hagrid(), { partGeometry: provider(), quality: { studFacets: 1 } });
     expect(big.figure).toBeDefined();

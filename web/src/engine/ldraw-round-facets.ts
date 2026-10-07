@@ -19,11 +19,14 @@
  *
  * So it wins hugely on a GENUINE single cylinder and fails on a compound part
  * — the antenna has a base flange, the wheel is two rims on an axle. This
- * module therefore does two things and never guesses: it fits a profile only
- * when every slice along the axis really is the same disc, and it reports the
- * measured IoU so a caller can refuse the candidate when the lattice wins.
+ * `fitRoundProfile` is a deliberately broad profiling primitive: it recognizes
+ * the outer round envelope and can therefore also describe a tube. A caller
+ * that proposes replacement geometry must use `selectRoundFacetCandidate`,
+ * which applies a conservative raster topology/material preflight and checks
+ * every source view. It is a bounded gate, not a universal geometry proof.
  */
 import type { LdrawPartMesh, LdrawTriangle, Vec3 } from './ldraw-part-geometry.js';
+import type { CompiledPartPrototype, PartCuboid } from './ldraw-part-prototype.js';
 import { fillInterior, rasterizeSurface, silhouetteReference } from './ldraw-part-prototype.js';
 
 /** A part that is one disc swept along `axis`, centred on its own bounding box. */
@@ -47,11 +50,10 @@ const SECTORS = 16;
 /**
  * Fit a solid of revolution, or return null.
  *
- * The test is deliberately strict and per SLICE: a part passes only when every
- * cross-section perpendicular to the axis is the same disc. A flange, a second
- * rim, a bar through the middle or a notch all break at least one slice, which
- * is what keeps the antenna and the coaster wheel out — both of which the
- * measurement shows the lattice represents far better.
+ * The outer-envelope test is strict and per slice. A flange or a second rim
+ * breaks it, which keeps the antenna and coaster wheel out. Interiors are
+ * deliberately ignored here; the candidate selector separately rejects holes
+ * and notches whose air survives the production fill.
  */
 export function fitRoundProfile(mesh: LdrawPartMesh, cellLdu = 2): RoundProfile | null {
   if (!mesh.triangles.length) return null;
@@ -87,7 +89,7 @@ export function fitRoundProfile(mesh: LdrawPartMesh, cellLdu = 2): RoundProfile 
     //     is what rejects a narrower section such as an antenna's shaft or the
     //     axle between a wheel's two rims.
     // Interior cells are not examined at all, so a hollow brick or an anti-stud
-    // tube passes: the silhouette only sees the outer boundary.
+    // tube may be profiled. `selectRoundFacetCandidate` must decide replacement.
     const outer = radius + cellLdu, inner = radius - cellLdu;
     let solidSlices = 0, reach = 0, reachable = 0, failed = false;
 
@@ -232,4 +234,145 @@ export function roundFacetIoU(mesh: LdrawPartMesh, profile: RoundProfile, facets
     sum += union ? inter / union : 1;
   }
   return sum / ref.bitmaps.length;
+}
+
+export type RoundFacetRejectionReason =
+  | 'not-round'
+  | 'preserved-interior-air'
+  | 'explicit-triangle-colour'
+  | 'transparent-prototype'
+  | 'surface-preserving-prototype'
+  | 'print-fallback'
+  | 'fallback-prototype'
+  | 'not-fewer-cuboids'
+  | 'silhouette-view-regression'
+  | 'no-strict-silhouette-improvement';
+
+export interface RoundFacetCandidateOptions {
+  /** Number of rotated boxes in the candidate fan. */
+  facets: number;
+  /** The profile raster grain. Defaults to the profiler's stable 2 LDU grain. */
+  profileCellLdu?: number;
+  /** Caller-supplied: true when production used surface-preserving downsampling. */
+  preserveSurface?: boolean;
+  /** Numerical tolerance for the six per-view comparisons. */
+  silhouetteEpsilon?: number;
+}
+
+export interface RoundFacetCandidateMeasurement {
+  profile: RoundProfile;
+  boxes: FacetBox[];
+  sourceViewIoU: number[];
+  candidateViewIoU: number[];
+  cuboidsSaved: number;
+}
+
+export interface RoundFacetCandidateDecision {
+  accepted: boolean;
+  reasons: readonly RoundFacetRejectionReason[];
+  measurement?: RoundFacetCandidateMeasurement;
+}
+
+/** Rasterised per-view IoU. Both inputs use the same triangle path and bounds. */
+function meshViewIoUs(reference: LdrawPartMesh, triangles: LdrawTriangle[]): number[] {
+  const a = silhouetteReference(reference);
+  const b = silhouetteReference({
+    partId: reference.partId, resolvedAs: reference.resolvedAs, triangles,
+    studs: [], unresolvedRefs: [], description: '',
+    bounds: { min: [...reference.bounds.min], max: [...reference.bounds.max] },
+  });
+  if (a.px !== b.px) return a.bitmaps.map(() => 0);
+  return a.bitmaps.map((source, view) => {
+    const candidate = b.bitmaps[view]!;
+    let intersection = 0, union = 0;
+    for (let n = 0; n < source.length; n++) {
+      if (source[n] && candidate[n]) intersection++;
+      if (source[n] || candidate[n]) union++;
+    }
+    return union ? intersection / union : 1;
+  });
+}
+
+function cuboidTriangles(cuboid: PartCuboid): LdrawTriangle[] {
+  return facetBoxTriangles({ min: cuboid.min, max: cuboid.max, rotationDeg: 0, pivot: [0, 0, 0] }, 1)
+    .map(triangle => ({ ...triangle, color: cuboid.color }));
+}
+
+/**
+ * Whether production's own fill leaves air safely inside the fitted disc.
+ * Boundary cells and both end slices are excluded: their conservative surface
+ * raster is not evidence of a bore, open stud or anti-stud cavity.
+ */
+function hasPreservedInteriorAir(
+  mesh: LdrawPartMesh,
+  profile: RoundProfile,
+  prototype: CompiledPartPrototype,
+  profileCellLdu: number,
+): boolean {
+  // Inspect at the stable profile grain even when the baseline prototype was
+  // coarsened: a coarse majority must not erase the hole that decides whether
+  // a full-disc fan is topologically safe.
+  const cell = profileCellLdu / 2;
+  const lat = rasterizeSurface(mesh.triangles, mesh.bounds.min, mesh.bounds.max, cell);
+  fillInterior(lat, prototype.hollow);
+  const [i, j] = profile.axis === 0 ? [1, 2] : profile.axis === 1 ? [0, 2] : [0, 1];
+  const innerRadius = profile.radiusLdu - cell * 2;
+  if (innerRadius <= 0) return false;
+  const dims = [lat.nx, lat.ny, lat.nz];
+  for (let y = 0; y < lat.ny; y++) for (let z = 0; z < lat.nz; z++) for (let x = 0; x < lat.nx; x++) {
+    const index = [x, y, z];
+    const axisCoord = lat.origin[profile.axis]! + (index[profile.axis]! + 0.5) * cell;
+    if (axisCoord <= profile.loLdu + cell || axisCoord >= profile.hiLdu - cell) continue;
+    const ci = lat.origin[i]! + (index[i]! + 0.5) * cell - profile.centre[i]!;
+    const cj = lat.origin[j]! + (index[j]! + 0.5) * cell - profile.centre[j]!;
+    if (Math.hypot(ci, cj) > innerRadius) continue;
+    const n = (y * dims[2]! + z) * dims[0]! + x;
+    if (!lat.solid[n]) return true;
+  }
+  return false;
+}
+
+/**
+ * Select a rotated-facet replacement through conservative raster topology,
+ * material-mode, count and per-view checks. This is a bounded preflight, not a
+ * universal topology/material proof; callers must supply `preserveSurface`
+ * accurately and keep the original prototype unless `accepted` is true.
+ */
+export function selectRoundFacetCandidate(
+  mesh: LdrawPartMesh,
+  prototype: CompiledPartPrototype,
+  options: RoundFacetCandidateOptions,
+): RoundFacetCandidateDecision {
+  const reasons: RoundFacetRejectionReason[] = [];
+  const profileCellLdu = options.profileCellLdu ?? 2;
+  const profile = fitRoundProfile(mesh, profileCellLdu);
+  if (!profile) return { accepted: false, reasons: ['not-round'] };
+
+  if (hasPreservedInteriorAir(mesh, profile, prototype, profileCellLdu)) reasons.push('preserved-interior-air');
+  if (mesh.triangles.some(triangle => triangle.color !== 16)) reasons.push('explicit-triangle-colour');
+  if (prototype.hollow) reasons.push('transparent-prototype');
+  if (options.preserveSurface) reasons.push('surface-preserving-prototype');
+  if (mesh.printFallback) reasons.push('print-fallback');
+  if (prototype.source === 'aabb-fallback' || prototype.source === 'empty') reasons.push('fallback-prototype');
+
+  const boxes = roundFacetBoxes(profile, options.facets);
+  const sourceViewIoU = meshViewIoUs(mesh, prototype.cuboids.flatMap(cuboidTriangles));
+  const candidateViewIoU = meshViewIoUs(mesh, boxes.flatMap(box => facetBoxTriangles(box, profile.axis)));
+  const epsilon = options.silhouetteEpsilon ?? 1e-9;
+  if (boxes.length >= prototype.cuboids.length) reasons.push('not-fewer-cuboids');
+  if (candidateViewIoU.some((iou, view) => iou + epsilon < sourceViewIoU[view]!)) {
+    reasons.push('silhouette-view-regression');
+  }
+  if (!candidateViewIoU.some((iou, view) => iou > sourceViewIoU[view]! + epsilon)) {
+    reasons.push('no-strict-silhouette-improvement');
+  }
+
+  const measurement: RoundFacetCandidateMeasurement = {
+    profile,
+    boxes,
+    sourceViewIoU,
+    candidateViewIoU,
+    cuboidsSaved: prototype.cuboids.length - boxes.length,
+  };
+  return reasons.length ? { accepted: false, reasons, measurement } : { accepted: true, reasons: [], measurement };
 }

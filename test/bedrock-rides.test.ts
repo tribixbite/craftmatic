@@ -221,6 +221,21 @@ describe('ride runtime', () => {
     expect(player.location.x).toBeCloseTo(6.5, 6);
   });
 
+  it('reaches the first safe landing two blocks from a slide terminal when every nearer ring is obstructed (10797)', () => {
+    const path = [{ x: -3.5, y: 5, z: 0.5 }, { x: 0.5, y: 1.3, z: 0.5 }];
+    const { h, seat: place } = rideHost([{ kind: 'slide' }], { colliders: true });
+    // Floor under the whole search, with a three-block-tall 3x3 obstruction centred on the terminal. A
+    // 0.6-wide body still clips it at radius 1.75; the first sampled free pose is +x at radius 2.
+    h.fill({ x: -4, y: 0, z: -4 }, { x: 4, y: 0, z: 4 }, COLLIDER_BLOCK_ID);
+    h.fill({ x: -1, y: 1, z: -1 }, { x: 1, y: 3, z: 1 }, COLLIDER_BLOCK_ID);
+    const seat = place(0, path[0]!, { 'craftmatic:ride_path': JSON.stringify(path) });
+    const player = h.addPlayer('Rider', path[0]!);
+    h.seat(player, seat);
+    h.run(300);
+    expect(player.ridingOn).toBeUndefined();
+    expect(player.location).toMatchObject({ x: 2.5, y: 1, z: 0.5 });
+  });
+
   it('a lift goes to the next storey, sets the rider on that floor and stays there', () => {
     const path = [{ x: 0, y: 0, z: 0 }, { x: 0, y: 4, z: 0 }, { x: 0, y: 8, z: 0 }];
     const exits = [{ x: 2, y: -0.5, z: 0 }, { x: 2, y: 3.5, z: 0 }, { x: 2, y: 7.5, z: 0 }];

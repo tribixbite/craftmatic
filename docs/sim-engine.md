@@ -39,6 +39,19 @@ quirk marked `device-only`, an `unknown` scenario) is what the GameTest or
 the tap round is for, and the round's findings come back as quirks and
 regression scenarios (below).
 
+First-person raster snapshots use the exporter's measured collision-box
+draw-distance policy and full 3-D eye-to-actor-root distance. Horizontal
+distance alone is wrong for tall shells whose roots sit above their roofs.
+This policy remains an estimate from the documented 100% device measurements;
+it does not prove scaled actor visibility or reproduce every graphics setting.
+The interactive Walker's full model view is a separate rendering surface.
+Snapshots apply each entity's `minecraft:scale` to its final cubes and
+bone/cube pivots through the shared `worldFaces` actor transform. Placement
+and camera-to-root distance stay in world blocks. A rotated 200-percent
+actor matches a model with doubled dimensions in the regression test;
+this corrects the old snapshot-only 100-percent geometry limitation without
+establishing native scaled culling.
+
 ## Architecture
 
 ```
@@ -395,6 +408,17 @@ a new refusal the log shows becomes a check there.
 
 ## Acceptance: the 2026-09-29 regression set
 
+Replay corrections (2026-10-05): `gabby-lift-cap` targets the visible lift
+car, as normal child-play does; its invisible internal seat is not a legal
+touch target. The old pack still fails boarding and the new car carries all
+three trips. `door3-tap-10326` reconstructs the nearest legal standing pose
+within the recorded HUD block cell, preserving the original aim point; the
+former guessed fractional pose intersected real geometry in the newer
+pack. The chosen pose is recorded in the result. If no legal pose exists,
+the original supplied point remains the replay. Neither change suppresses
+the player-in-solid or tap invariants. An unreproduced old symptom is NOT
+TESTED and makes the CLI exit nonzero, regardless of the new pack's result.
+
 `bun scripts/sim.ts --scenario=regressions --new=<current builds>`, run at
 `671f0f3c` over packs built from `449abd0e` (`output/sim-regress-449abd0e/`):
 
@@ -428,10 +452,15 @@ reported in the step's note. `bun scripts/_cockpit_view.ts <packs> --out=<dir>`
 renders each vehicle's hotbar-9 view offline and prints both scores.
 
 Limits of this set: the slide's margin is small (the drawn slope is coarse;
-`TODO(sim-slide)`); where the Saga's 10797 car met its overhang is not
-recorded, and neither the model's own overhangs nor a fixture with the host
-test's geometry made the old runtime fall - the old ground scan's failing
-branch needs a geometry the simulator has not been given.
+`TODO(sim-slide)`). The archived Saga 10797 frames and subagent transcript
+recover the car route and swipes: mounted HUD 6986,-60,7017, then
+6986,-61,7018 and 6992,-63,7022; the car later reached 6992,-104,7021.
+The replay uses the archived pack's collider structure and aligns the rider
+with the car before the recorded forward/diagonal inputs. Neither ideal
+20 Hz timing nor shorter holds matching the observed movement reproduce
+the fall. The native mounted pose and tick cadence remain unknown; this
+case is **NOT TESTED**, not evidence that the simulator catches the bug.
+Exact archive and transcript paths are in the regression case's evidence.
 
 ## Not modelled (yet), and honest limits
 

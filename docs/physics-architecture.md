@@ -49,10 +49,10 @@ value.** Numbers (2026-09-25):
 | Model | Gravity | Frame | Physically right? |
 |---|---|---|---|
 | Coaster ride | 19.6 blocks/s² along the track tangent (`9.8 × pace²`, pace √2) | world blocks, real seconds | The law is right: `a = −g sin θ` for a point on frictionless rails, and a lossless run (no drag, rolling, ceiling, floor or chain) conserves `v²/2 + g h` to 1.1 % over 10303's drop and both loops, at 100 % and at 200 % (where the energy doubles, as the height does). The VALUE is 2 g: time-scaled, deliberately (below). |
-| Coaster preview | the same `COASTER_PHYSICS` object | the same | Same constants; formulas mirrored, not shared (§6). |
+| Coaster preview | the same `COASTER_PHYSICS` object | the same | Shares the pure `rideSubstep` integrator; preview route/state handling remains separate (§6). |
 | Pinball | 1,100 LDU/s² down the table plane | LDU in the table plane, seconds | A ball rolling on the real 8.6° playfield accelerates 2,630 LDU/s² (5/7 g sin θ; 3,680 if it slid). 1,100 is that slowed to 0.65 of real time. A game constant, not the world's gravity: it does not read the tilt and does not change with wand size. |
 | Walk-preview player | 0.08 blocks/tick² with 0.98 drag | world blocks, ticks | Minecraft's own player numbers; the integrator reproduces the 1.2522-block jump in 12 ticks. |
-| Figures | Bedrock's engine (entity `has_gravity`) | world | On device the engine applies Minecraft's own mob gravity. The host simulator only drops a figure 0.4 blocks a tick to the floor below: a stand-in, not gravity. |
+| Figures | Bedrock's engine (entity `has_gravity`) | world | On device the engine applies Minecraft's own mob gravity. The headless simulator runs its shared `tickBody` gravity, collision and friction; native engine behavior still needs device evidence. |
 | Vehicles | the scripted runtime (cars, hover craft, boats, ships); Bedrock's engine (rotorcraft, flyers) | world blocks, seconds | Scripted vehicles have no engine gravity: `carStep` falls at `CAR.GRAVITY` 20 blocks/s² (Minecraft's own 16-32 band), a hover craft sinks at 6, a boat falls at 20; a SHIP has none at all - it hovers (spaceship controls, §4.6). Native mounts hover with no gravity. |
 
 **Why the coaster is not at 9.8.** Real gravity was ridden on the Pixel
@@ -460,12 +460,15 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   a tree or a pier. Now the rectangle of the vehicle's half length and half
   width (`ScriptedVehicleType.noseReach` / `halfWidth`, from the shipped
   geometry, times the entity's `minecraft:scale`) is probed along its
-  perimeter at ≤ 0.9 blocks spacing and up to four heights of its clear band
+  perimeter and vertically through its clear band at ≤ 0.9 blocks spacing
   (a car: above its 1.05 step to its roof; a boat: from just above the
   waterline; an aircraft: its whole airframe aloft, above its gear on the
   ground), tilted by its pitch, at every ≤ 0.8-block substep between the old
   and the new pose. A probe blocks only when it ENTERS a solid (it was clear at
-  the old pose), so a vehicle placed half in a wall drives out.
+  the old pose), so a vehicle placed half in a wall drives out. At constant
+  height/pitch only outward-moving horizontal edges are checked. Any edge
+  changing height is checked too, including the tail during a forward descent;
+  otherwise a car drops its rear into a hill it has almost cleared.
 - **Never stuck** (`resolveMove`, `MOVE`, 2026-09-30: "it's too easy to get
   fully stuck in place by hills / blocks"). Until then a blocked move stopped
   the vehicle where it stood whatever the angle. Now a blocked move is tried
@@ -514,8 +517,10 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   (`VEHICLE_DYNAMIC.lookPitch`) for the ship's "look down + Jump", and logs
   `CMCAM` lines with telemetry on. A rotorcraft or a flyer (native mounts)
   already flies where its rider looks: its view is the direction of travel,
-  its seat keeps `lock_rider_rotation` 0. The device facts this rests on are
-  assumed (quirk `rider-free-look`, §11).
+  its seat keeps `lock_rider_rotation` 0. Saga's Milano chase-view recording
+  proves horizontal drag, hold at rest and recentering while moving on a
+  lock-181 scripted seat; other classes and cockpit look remain unmeasured
+  (quirk `rider-free-look`, §11).
 - **Headlights** (`HEADLIGHTS`, `isNightTime`, `headlightCell`): at night,
   with a rider, one `minecraft:light_block_14` stands `AHEAD` blocks past the
   nose, moved as the vehicle crosses cells, removed when the rider leaves, the
@@ -665,6 +670,18 @@ no forces: nothing is pushed, the player changes mount.
   settled by `colliderBodyProbe`, is searched `HOP.SETDOWN_REACH_BLOCKS` (times
   the size, at least 1) for a mountable's box; the rider is boarded onto the
   nearest (front-most of its train) instead of being set down.
+- **A scenery seat's set-down** (`figureLifeRuntime` with the same body probe):
+  a native dismount is left alone only when it has a walk exit. `ColliderBodyProbe.hasWalkExit`
+  requires a body-free point on a floor within one collider sixteenth, then a supported one-block
+  route in one of the eight compass directions. The route is sampled every 0.125 block; each sample
+  must fit the body and may step no more than the ordinary 9/16-block step up or down. A half-block
+  diagonal can still fit inside a sealed one-cell pocket, so egress requires a full cell. Thus a clear
+  endpoint beyond a thin wall, an unsupported gap, and the body-free pocket under 10796's slide are
+  not safe dismounts. If Bedrock's fallback has no exit, the runtime searches from the remembered
+  seat with `RIDE.SETDOWN_*`; `settle`'s optional acceptance predicate filters each candidate by the
+  same egress rule, while omitted predicates preserve ride and doorway settling exactly. With no
+  accepted point it restores the still-free seat; a transfer to another mount or dimension is never
+  pulled back.
 - **The new mount's runtime** sees the rider as it sees any boarding: the
   coaster starts its camera on the first tick a car reports a rider
   (`aimRider` creates the viewer, the loop animation is planned at the next
@@ -956,9 +973,8 @@ literal inside a function body (`§` marks the number).
 | `HOVER.RISE_MAX` | `web/src/engine/bedrock-vehicle.ts` | 1 | blocks | Most it lifts over a wall in one push (2.6 with its `STEP_UP`). |
 | `HOVER.GRAVITY` | `web/src/engine/bedrock-vehicle.ts` | 6 | blocks/s² | It sinks slowly off an edge. |
 | `HOVER.RIDE_HEIGHT` | `web/src/engine/bedrock-vehicle.ts` | 1 | blocks | Height above the ground or the water's surface. |
-| `FOOTPRINT.SPACING` | `web/src/engine/bedrock-vehicle.ts` | 0.9 | blocks | Most two perimeter probes are apart: under one block, so a one-block trunk cannot slip between them. |
+| `FOOTPRINT.SPACING` | `web/src/engine/bedrock-vehicle.ts` | 0.9 | blocks | Maximum ordinary perimeter and vertical probe spacing; covers one-block trunks and crowns. |
 | `FOOTPRINT.MAX_POINTS` | `web/src/engine/bedrock-vehicle.ts` | 128 | probes | A 36-block barge's 100-block perimeter still gets 0.9 spacing. |
-| `FOOTPRINT.MAX_LEVELS` | `web/src/engine/bedrock-vehicle.ts` | 4 | heights | Heights tested between the band's `lo` and `hi`. |
 | `FOOTPRINT.SWEEP_STEP` | `web/src/engine/bedrock-vehicle.ts` | 0.8 | blocks | Most a probe travels between two tested poses: a 32 blocks/s aircraft moves 1.6 a tick. |
 | `FOOTPRINT.MAX_SUBSTEPS` | `web/src/engine/bedrock-vehicle.ts` | 4 | poses/tick | Bounds the cost of a fast turn. |
 | `MOVE.DEFLECT_SHARE` | `web/src/engine/bedrock-vehicle.ts` | 0.7 | share of the tick's move | A vehicle whose one half meets a trunk or a post steps sideways by this share of its move: round a tree hit with a corner at full speed in two ticks. |
@@ -1013,6 +1029,9 @@ literal inside a function body (`§` marks the number).
 | `FLYER.DISMOUNT_SLOW_FALL_TICKS` | `web/src/engine/bedrock-flyer.ts` | 600 | ticks | 30 s of slow falling (Bedrock: ~3 blocks/s, no fall damage) covers a 90-block drop; the Saga rider fell 229 blocks from ALT 169 in one sneak, and a longer float only lands later. |
 | `DRIVER_SPEED_WINDOW_TICKS` | `web/src/engine/playable-addon.ts` | 20 | ticks | The HUD speed is the mean between the first and the last position CHANGE of the last second: a native mount's server position moves in bursts (one 2-tick delta read 0 / 24.9 / 60.2 / 99.0 mph at ~10 blocks/s on the Saga), and any burst cadence up to a second averages out; a second is also how long a stop takes to read 0. |
 | `DRIVER_TELEPORT_BLOCKS` | `web/src/engine/playable-addon.ts` | 5 | blocks per 2 ticks | A longer step between two samples is a teleport (the wand, a reload), not motion: 50 blocks/s, past the rotor's climb and cruise. |
+| `RIDE.SETDOWN_LIFT_BLOCKS` | `web/src/engine/bedrock-rides.ts` | 0.05 | blocks | A ride's terminal point starts just above its nominal path endpoint before the collider probe settles the rider. |
+| `RIDE.SETDOWN_REACH_BLOCKS` | `web/src/engine/bedrock-rides.ts` | 2 | blocks at 100 % | The collider probe may search this far sideways for a free standing pose, scaled with the ride but never below 100 %. 10797's nearest source-safe, representable landing is exactly 2 blocks from its chute terminal; every candidate through 1.5 blocks remains obstructed. |
+| `RIDE.SETDOWN_DROP_BLOCKS` | `web/src/engine/bedrock-rides.ts` | 3 | blocks | The collider probe may settle onto a floor this far below the terminal, within the ordinary no-damage fall range. |
 | `HOP.REACH_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 0.5 | blocks | Slack around the footprint and the rider's box: a child steering past a car's corner at arm's length still gets in. Not scaled: a player's reach, not the model's. |
 | `HOP.LEAD_TICKS` | `web/src/engine/bedrock-ride-hop.ts` | 2 | ticks | The last tick's relative motion carried this far ahead: a train at a block a tick is met a little early (0.1 s), never missed between two ticks. |
 | `HOP.SAMPLE_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 0.25 | blocks | The swept segment's sample spacing: under half the smallest target's box (a 0.6-block seat). |
@@ -1078,16 +1097,19 @@ an earlier "~5 forward" was read off a ramped touch stick).
   above ~1.4 blocks a tick is unproven), and scale `DRAG` by 1/size.
 - **The car is a point mass.** No wheel inertia, no normal or lateral force:
   a car cannot derail or valley, which is why the inversion floor exists.
-- **The preview mirrors the integrator** (§4.2) instead of sharing it.
+- **Preview state handling remains separate** (§4.2): the numeric speed step
+  shares `rideSubstep`, while substep bounds, station brake and lift hand-off
+  are preview-owned. Sharing the core does not prove all route transitions match.
 - **Pinball gravity ignores the table's tilt** and the wand size: every
   table plays at 1,100 LDU/s². # TODO: derive it from `tiltDeg` (5/7 g sin θ
   × a fixed time scale) if a second table needs a different feel.
-- **Figures walk at speed × size below 100 %**, not × sqrt(size); the
-  host simulator's gravity is a constant 0.4-block/tick drop.
+- **Figures walk at speed × size below 100 %**, not × sqrt(size). The
+  headless simulator uses `tickBody`, rather than the retired constant-drop
+  stand-in; client interpolation and native movement still need device checks.
 - **Vehicle speeds are fixed numbers**, not derived from the model; they do
   not change with the wand size (the footprint and probes do: the runtime
   reads the entity's `minecraft:scale`). The swept footprint is a
-  rectangle (length × width) swept at up to `FOOTPRINT.MAX_LEVELS` heights,
+  rectangle (length × width) swept at ≤ 0.9-block height intervals,
   not the model's silhouette: a car's corner is square, a wing's sweep is
   its span. Other ENTITIES are not collided with (another car, a figure);
   only blocks, the shell's collider blocks by their sixteenths included.
@@ -1099,14 +1121,16 @@ an earlier "~5 forward" was read off a ramped touch stick).
   `rider-seat-order`, `add-rider-after-eject`, `aabb-is-collision-box`).
   # TODO(hop): fly the Nimbus into 10261's moving train on a phone and read
   the seat, the camera and the cloud left hovering.
-- **Free look is offline-proved only** (§4.6): that `lock_rider_rotation`
-  181 lets a scripted vehicle's rider turn its yaw by a drag under the
-  script's free camera, whether the device carries that yaw round with the
-  vehicle (and how late), and that `setRotation` eases a seated rider's yaw
-  in the cockpit view are assumed (quirk `rider-free-look`; pinball measured
-  the pitch reported by a drag and the yaw `setRotation` applies). The pitch
-  of the cockpit view cannot be eased (`setRotation` pitch is ignored on the
-  phone). # TODO(free-look): the device probe in TASKS "Spaceship controls".
+- **Milano chase free look has native evidence** (§4.6): Saga's
+  `output/device-zero-plane-20261005/ContentLog-milano-controls.txt` and
+  `craftmatic-milano-controls.mp4` in the fidelity worktree show a lock-181
+  seat accepting horizontal drag, holding the offset at rest and easing back
+  while moving. Vehicle yaw stays 150.8 degrees during the clean stationary
+  drag. This does not establish pitch drag, rider-yaw lag under turning,
+  other vehicle classes or cockpit `setRotation` behavior (quirk
+  `rider-free-look`). The cockpit's pitch cannot be eased (`setRotation`
+  pitch is ignored on the phone). # TODO(free-look): native cockpit and
+  other-class coverage remain open.
 - **Never stuck is block-only and has a ceiling.** `resolveMove` steps round
   a one-sided obstacle, slides along an axis and climbs `RISE_MAX` +
   `STEP_UP` (a car: 2.15 blocks); a pit deeper than that, a wall higher, or a
@@ -1116,15 +1140,14 @@ an earlier "~5 forward" was read off a ramped touch stick).
   thinned wall is a full one to a vehicle. Boats only deflect and slide (no
   climb; they beach). # TODO(colliders): read every form's boxes (the kit's
   `formBoxes`) in `spanOf`.
-- **A tall vehicle's band is probed at only `FOOTPRINT.MAX_LEVELS` (4)
-  heights**: on the Milano (8.5 tall) they are 2.7 blocks apart, so a
-  one-block slab hung in the band's height (a tree's crown, a bridge deck)
-  can pass between two levels - the simulator course measured the Milano's
-  band in a crown for 28 ticks and the X-wing's (climbing) for 3. Not a
-  "stuck" case, a visual clip. # TODO(footprint-levels): levels at most a
-  block apart for an aircraft, if the Pixel's per-tick cost allows (a
-  36-block barge's 890 checks cost 20-24 ms there before the leading-edge
-  trim).
+- **Footprint sampling is not exact volume collision.** Vertical spacing now
+  covers full-block crowns at every height (October 5 audit reproduced the
+  old Milano's 28 clipped ticks and X-wing's 3), but sub-block slabs can still
+  fit between samples, very large perimeters spread the capped horizontal
+  probes, and a vertical move does not sample the footprint's entire interior.
+  # TODO(footprint-cost): measure tall/scaled ships on the phone after the
+  adaptive height sampling; block lookups are cached per tick, but a 36-block
+  barge's old 890 checks cost 20-24 ms before leading-edge trimming.
 - **Headlights are one light block** ahead of the nose, placed and removed
   as the vehicle crosses cells: the light is a sphere around that cell, not
   a beam, and a solid cell ahead keeps the previous one.
@@ -1259,7 +1282,7 @@ one of these files fails the check until its row is written.
 <!-- physics-spec:exports web/src/engine/coaster-preview.ts -->
 | Export | Kind | Role |
 |---|---|---|
-| `stepCoasterPreviewTick` | function | One tick of train 0 for the walk preview: MIRRORS the runtime integrator (§4.2). |
+| `stepCoasterPreviewTick` | function | One tick of train 0 for the walk preview, sharing `rideSubstep` with preview-owned route/state handling (§4.2). |
 | `initCoasterPreviewState` | function | Initial preview state at the station. |
 | `coasterCarEyePoint` | function | The rider's eye for the preview's board camera. |
 | `CoasterPreviewRouteInput`, `CoasterPreviewCarType`, `CoasterPreviewCarFrame`, `CoasterPreviewState`, `StepCoasterPreviewResult` | interface | Types. |
@@ -1356,7 +1379,7 @@ one of these files fails the check until its row is written.
 | `ROOM_PROBE_CELLS` | const | Cells explored to rate a spawn spot's room (64). |
 | `separateFigureSpawns` | function | Host only, at export: a standing figure a source recorded within `FIGURE_MIN_SEPARATION` of another is moved to the nearest standable column clear of every figure (76435's figures 1 and 8). |
 | `FIGURE_MIN_SEPARATION` | const | 0.6 blocks: a figure's box width; closer than this two standing figures share a body. |
-| `FigurePlanner`, `FigureLifeConfig`, `FigureHome`, `WalkCell`, `FigureSpawn` | interface | Types. |
+| `FigurePlanner`, `FigureLifeConfig`, `FigureHome`, `WalkCell`, `FigureSpawn` | interface | Types. `FigureLifeConfig.seatSafety` carries the shared measured ride set-down limits into scenery-seat-only packs too. |
 | `SpanLookup` | type | Collision-span lookup. |
 | `FIGURE_HOME_PROPERTY` | const | Dynamic property holding a figure's home. |
 | `FIGURE_SEATING_PROPERTY` | const | Dynamic property (`Date.now()` ms) the placement sets on a source-seated figure until its own seating pass is done with it; the runtime neither retakes nor reports a missing seat meanwhile (10261 spawns its kiosk figure ~2 min before the seat, Saga 2026-09-29c). |

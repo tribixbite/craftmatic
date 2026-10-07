@@ -28,7 +28,7 @@ import { CORE_HANDLERS, findEntity } from '../../scenario/runner.js';
 import { lookAngles, type Box, type Vec3 } from '../../core/vec.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { teleport } from '../../script-host/facades.js';
-import { findApproach } from '../../scenario/approach.js';
+import { approachSpots, findApproach, type ApproachSpot } from '../../scenario/approach.js';
 import { lookAt, pick } from '../../input/touch.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import { JUMP_PEAK, STEP_HEIGHT } from '../../physics/body.js';
@@ -320,7 +320,13 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       const part = findEntity(ctx.sim, ctx.player, { where: e => e.dynamic.get(IX_KEYS.index) === index });
       if (!part) throw new Error(`tapPartFrom: no ${label}`);
       const a = placed.anchor;
-      teleport(ctx.sim.host, ctx.player, { x: a.x + feet.x, y: a.y + feet.y, z: a.z + feet.z });
+      const recorded = { x: a.x + feet.x, y: a.y + feet.y, z: a.z + feet.z };
+      // A device HUD records only the block cell, not the player's fractional pose. For a historical replay whose
+      // exact fractional point is obstructed by a newer, more faithful collider, reconstruct the nearest legal
+      // standing/picking pose in that same recorded x/y/z cell. If the historical pack offers none, retain the exact
+      // supplied point so the old failure remains reproducible. The separately recorded aim stays exact either way.
+      const reconstructed = step['recordedCell'] ? nearestInRecordedCell(approachSpots(ctx.sim.engine, ctx.player, part), recorded) : undefined;
+      teleport(ctx.sim.host, ctx.player, reconstructed?.feet ?? recorded);
       await ctx.run(4);
       lookAt(ctx.player, { x: a.x + at.x, y: a.y + at.y, z: a.z + at.z });
       const state = (): string => JSON.stringify([part.dynamic.get(IX_KEYS.open), part.properties.get('craftmatic:angle')]);
@@ -330,7 +336,7 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       await ctx.run(10);
       const stood = pt({ x: ctx.player.location.x - a.x, y: ctx.player.location.y - a.y, z: ctx.player.location.z - a.z });
       const refused = part.dynamic.get('craftmatic:ix_refused');
-      if (state() !== before) { ctx.note(`${label}: the tap from ${JSON.stringify(stood)} (anchor-relative) moved it`); return; }
+      if (state() !== before) { ctx.note(`${label}: the tap from ${JSON.stringify(stood)} (anchor-relative) moved it${reconstructed ? `; reconstructed within the recorded HUD block cell from ${JSON.stringify(feet)}` : ''}`); return; }
       const what = picked.entity === part ? (refused ? `the runtime refused it: ${String(refused)}` : 'it did not move') : `the view picked ${picked.entity?.typeId ?? picked.blockedBy ?? 'nothing'}`;
       ctx.violate({ invariant: 'tap-in-plain-view', message: `${label}: a tap from ${JSON.stringify(stood)} (anchor-relative) did not move it - ${what}`, evidence: { feet: stood, at, refused: refused === undefined ? null : String(refused) } });
     },
@@ -388,6 +394,13 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       ctx.note(`figures lived ${ticks} ticks: ${figs.length} figures, ${figs.filter(fg => fg.ridingOn).length} seated at the end`);
     },
   };
+}
+
+/** Nearest legal target-picking spot in the same integer block cell a device HUD recorded. */
+export function nearestInRecordedCell(spots: readonly ApproachSpot[], recorded: Vec3): ApproachSpot | undefined {
+  return spots.filter(s => Math.floor(s.feet.x) === Math.floor(recorded.x) && Math.floor(s.feet.y) === Math.floor(recorded.y) && Math.floor(s.feet.z) === Math.floor(recorded.z))
+    .sort((p, q) => Math.hypot(p.feet.x - recorded.x, p.feet.y - recorded.y, p.feet.z - recorded.z)
+      - Math.hypot(q.feet.x - recorded.x, q.feet.y - recorded.y, q.feet.z - recorded.z))[0];
 }
 
 /**

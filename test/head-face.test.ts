@@ -122,9 +122,14 @@ describe('head-face: laying the print on a Bedrock cube face', () => {
     expect(texel(flipped, 0, 0)).toEqual([0, 0, 255, 255]);
   });
 
-  it('names the JSON face through the X mirror, and transposes a print turned about its normal', () => {
-    expect(orientFace(img, [1, 0, 0], [0, 0, -1], [0, -1, 0])!.face).toBe('west');
-    expect(orientFace(img, [-1, 0, 0], [0, 0, 1], [0, -1, 0])!.face).toBe('east');
+  it('preserves the face key through the codec X mirror, and transposes a print turned about its normal', () => {
+    const east = orientFace(img, [1, 0, 0], [0, 0, -1], [0, -1, 0])!;
+    const west = orientFace(img, [-1, 0, 0], [0, 0, 1], [0, -1, 0])!;
+    expect(east.face).toBe('east');
+    expect(west.face).toBe('west');
+    // Changing the selected surface must not mirror its asymmetric ink.
+    expect(east.rgba).toEqual(img.rgba);
+    expect(west.rgba).toEqual(img.rgba);
     expect(orientFace(img, [0, 0, 1], [1, 0, 0], [0, -1, 0])!.face).toBe('south');
     const turned = orientFace(img, [0, 0, -1], [0, -1, 0], [1, 0, 0])!;
     expect([turned.width, turned.height]).toEqual([1, 2]);

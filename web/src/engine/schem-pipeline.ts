@@ -589,7 +589,12 @@ export async function runSchemPipeline(
             const rideBricks = source.bricks.filter(b => !movable.has(b));
             const found = [...findSlides(rideBricks, scene.meshes), ...findLifts(rideBricks, scene.meshes, scene.figureBricks)];
             if (found.length) {
-              rides = { frame, items: found.map(r => ({ kind: r.kind, label: r.label, path: r.pathLdu.map(grid3), ...(r.exitsLdu ? { exits: r.exitsLdu.map(grid3) } : {}), ...(r.startStop !== undefined ? { startStop: r.startStop } : {}), ...(r.carBricks ? { carBricks: r.carBricks } : {}) })) };
+              rides = { frame, items: found.map(r => ({ kind: r.kind, label: r.label,
+                // A slide is part of the shell, so its running line uses the shell's exact grid frame. Measuring
+                // from the model underside can differ by the voxelizer's sub-cell row-0 rounding and float the
+                // rider over the rendered chute. Lift cars remain actor-grounded with their exits and figures.
+                path: r.pathLdu.map(p => r.kind === 'slide' ? sceneGridPoint(frame, p) : grid3(p)),
+                ...(r.exitsLdu ? { exits: r.exitsLdu.map(grid3) } : {}), ...(r.startStop !== undefined ? { startStop: r.startStop } : {}), ...(r.carBricks ? { carBricks: r.carBricks } : {}) })) };
               for (const r of found) for (const b of r.carBricks ?? []) movable.add(b);
               for (const r of found) if (r.carBricks?.length) census.owners.push({ label: r.label, use: 'ride', bricks: new Set(r.carBricks), reason: `the car of a ${r.kind}` });
               warnings.push(`Rides: ${found.map(r => r.kind === 'slide' ? `slide ${r.part} (${r.pathLdu.length} points)` : `lift on ${r.part} (${r.pathLdu.length} stops, car of ${r.carBricks?.length ?? 0} parts)`).join('; ')}.`);

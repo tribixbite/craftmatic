@@ -43,7 +43,9 @@ function world(actors: number) {
   const entities = () => h.spawned.filter(s => s.typeId === 'craftmatic:fig').map(s => { const sim = (s as any).sim; return { id: sim.id as string, removed: !sim.valid, tags: sim.tags as Set<string> }; });
   const messages = (): string[] => h.player.sendMessage.mock.calls.map((c: unknown[]) => String(c[0]));
   const undoKeys = (): string[] => [...h.playerProperties.keys()].filter(k => k.includes(':undo'));
-  return { h, saveModes, restores, deleted, saved, entities, messages, undoKeys };
+  const retiredKeys = (): string[] => h.world.getDynamicPropertyIds().filter((k: string) => k.includes(':retired:'));
+  const actor = (id: string): any => h.spawned.find((s: any) => s.sim?.id === id)?.entity;
+  return { h, saveModes, restores, deleted, saved, entities, messages, undoKeys, retiredKeys, actor };
 }
 
 describe('Brick Wand Undo survives a world reload', () => {
@@ -104,7 +106,72 @@ describe('Brick Wand Undo survives a world reload', () => {
     for (const e of fresh) expect(w.entities().find(x => x.id === e.id)!.removed).toBe(true);
   });
 
-  it('splits a record larger than one dynamic property (32,767 characters) over numbered keys and reads it back whole', async () => {
+  it('persists deferred Undo cleanup across a reload, then removes the flown-away actor when its chunk really loads', async () => {
+    const w = world(1);
+    const { h } = w;
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await h.open({ action: 'Place' }, { selection: 0 });
+    const old = w.entities()[0]!;
+    w.actor(old.id).teleport(FAR_AWAY);
+    h.engine.updateLoaded();
+    expect(h.world.getEntity(old.id)).toBeUndefined();
+
+    await h.open({ action: 'Undo last placement' });
+    expect(w.messages().at(-1)).toContain('pending cleanup when its chunk loads');
+    expect(w.entities().find(e => e.id === old.id)!.removed).toBe(false);
+    expect(w.retiredKeys()).toHaveLength(1);
+    expect(w.undoKeys()).toHaveLength(0);
+
+    // A fresh script must not read world properties during module evaluation:
+    // Bedrock can reject them that early. Permit reads only before the first
+    // scheduled turn; that turn reconstructs the tombstone, then the player's
+    // real loaded radius produces entityLoad at the remote chunk.
+    const getIds = h.world.getDynamicPropertyIds.bind(h.world), get = h.world.getDynamicProperty.bind(h.world);
+    let worldReady = false;
+    h.world.getDynamicPropertyIds = () => { if (!worldReady) throw new Error('world dynamic properties are not ready'); return getIds(); };
+    h.world.getDynamicProperty = (key: string) => { if (!worldReady) throw new Error('world dynamic properties are not ready'); return get(key); };
+    h.reload();
+    worldReady = true;
+    await h.flush();
+    h.player.location = FAR_AWAY;
+    h.engine.runSync(2);
+    expect(w.entities().find(e => e.id === old.id)!.removed).toBe(true);
+    expect(w.retiredKeys()).toHaveLength(0);
+  });
+
+  it('defers a flown-away old actor on re-place while preserving the active replacement through unload/load', async () => {
+    const w = world(1);
+    const { h } = w;
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await h.open({ action: 'Place' }, { selection: 0 });
+    const old = w.entities()[0]!;
+    w.actor(old.id).teleport(FAR_AWAY);
+    h.engine.updateLoaded();
+
+    h.engine.runSync(40); // make the replacement's placement tag distinct
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await h.open({ action: 'Place' }, { selection: 0 });
+    const active = w.entities().find(e => e.id !== old.id && !e.removed)!;
+    expect(w.entities().find(e => e.id === old.id)!.removed).toBe(false);
+    expect(w.retiredKeys()).toHaveLength(1);
+
+    h.reload();
+    await h.flush();
+    // The active replacement is loaded during the startup sweep and has a
+    // different, non-retired tag, so it must survive.
+    expect(w.entities().find(e => e.id === active.id)!.removed).toBe(false);
+    h.player.location = FAR_AWAY;
+    h.engine.runSync(2);
+    expect(w.entities().find(e => e.id === old.id)!.removed).toBe(true);
+    expect(w.retiredKeys()).toHaveLength(0);
+
+    // Loading the active actor again also leaves it alone.
+    h.player.location = { x: 10, y: 20, z: 30 };
+    h.engine.runSync(2);
+    expect(w.entities().find(e => e.id === active.id)!.removed).toBe(false);
+  });
+
+  it('splits large Undo and deferred-retirement records over 32,767-character properties and reads them back whole', async () => {
     // The record lists every spawned entity's id; the simulator's ids are the device's short
     // numeric strings, so 2,600 entities make a ~34,000-character record (the fake world padded 700 ids to 60 characters).
     const w = world(2600);
@@ -115,12 +182,28 @@ describe('Brick Wand Undo survives a world reload', () => {
     const keys = w.undoKeys();
     expect(keys.length).toBeGreaterThan(1);
     for (const k of keys) expect(String(h.playerProperties.get(k)).length).toBeLessThanOrEqual(32767);
-    // Nothing is near after the reload; the sweep finds every one by tag.
-    h.player.location = FAR_AWAY;
+
+    // Move every actor beyond the placement box and unload that chunk. Undo
+    // cannot see them, so its durable retirement record is also larger than a
+    // single dynamic property.
+    for (const e of w.entities()) w.actor(e.id).teleport(FAR_AWAY);
+    h.engine.updateLoaded();
     h.reload();
     await h.open({ action: 'Undo last placement' });
     await h.flushUntil(() => w.messages().some(m => m.includes('Undo complete')));
-    expect(w.entities().every(e => e.removed)).toBe(true);
+    expect(w.entities().every(e => !e.removed)).toBe(true);
     expect(w.undoKeys()).toHaveLength(0);
+    const retired = w.retiredKeys();
+    expect(retired.length).toBeGreaterThan(1);
+    for (const k of retired) expect(String(h.world.getDynamicProperty(k)).length).toBeLessThanOrEqual(32767);
+
+    // The chunked record survives another script reload; loading the remote
+    // chunk removes all 2,600 actors and clears every retirement chunk.
+    h.reload();
+    await h.flush();
+    h.player.location = FAR_AWAY;
+    h.engine.runSync(2);
+    expect(w.entities().every(e => e.removed)).toBe(true);
+    expect(w.retiredKeys()).toHaveLength(0);
   });
 });
