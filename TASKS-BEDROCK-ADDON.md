@@ -86,8 +86,16 @@ seat exits; 10326 Door 1; 10788 slide; Gringotts faces/hair; Milano cruise
    sills filled (`fillSunkenSills`), `SNEAK-STOP` in `_ix_passability.ts`.
    10261 at 200 %: late tread pass - straight lift walk 25.7 -> 39.7 (still
    stops, `TODO(tilted-colliders)`), west lanes z 22-24 climbable.
-Next: round 30k (fresh exports carry the new runtimes) and its device
-checklist - each fix agent's list is folded in below under "Round 30k".
+Round 30k BUILT from main `78e06246` (clean): `output/device-round-2026-10-07k/`
+(`packs-78e06246/`, `craftmatic-packs-78e06246.zip` sha256 `74fa33ca...`).
+Offline: check 0 bad of 23 (uuids equal), regressions 19 / 0 failed / 0 not
+tested / 1 known-unreproduced, course ships 9/9 car 6/9, hop 3/3, child play
+110/110, passability 340 rows 0 FAIL/HOLE. Device round 30k IN PROGRESS:
+Saga = ship lift-over off-square, turn pivot, park over player, chase camera
+vs wall, slot-9 recentre, Nimbus drag/ALT, hop head, Milano front cabin;
+Pixel = Door 3 sneak on/off, 10261 lift hill + west base at 200 %, Gate 1,
+seat exits, slide, Milano cockpit + ms/tick. Results ->
+`output/device-round-2026-10-07k/{saga,pixel}/notes.md` and REQUIREMENTS.md.
 Open: `TODO(car-oblique-kerb)` (McLaren slides 62 along an oblique kerb);
 11 other hull-leaving cockpit eyes not re-audited for `AHEAD_CABIN`.
 - # TODO(seat-sweep-memory): `_seat_egress_sweep.ts` on 76457 at 300/400 %
