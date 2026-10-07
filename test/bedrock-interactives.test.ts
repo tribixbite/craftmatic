@@ -1042,3 +1042,81 @@ describe('placement writes what the runtime reads', () => {
     expect(door.entity.getDynamicProperty('craftmatic:ix_scale')).toBe(1);
   });
 });
+
+describe('a sunken sill (10326 Door 3, Pixel round 2026-10-07j)', () => {
+  /**
+   * 10326's Door 3 in miniature: a corridor floor at 14/16 (z < 5), the WC's
+   * at 15/16 (z > 5), and the frame's sill under the leaf at 3/16 - a gutter
+   * 0.69 below the corridor - in a wall along x at z = 5. `sides` overrides
+   * the two floors (sixteenths).
+   */
+  function sunkenSill(sides: [number, number] = [14, 15], sill16 = 3) {
+    const g = new BlockGrid(12, 6, 10);
+    for (let x = 0; x < 12; x++) for (let z = 0; z < 10; z++) g.set(x, 0, z, colliderState(0, z < 5 ? sides[0] : z > 5 ? sides[1] : x === 3 || x === 4 ? sill16 : 16));
+    for (let x = 0; x < 12; x++) for (let y = 1; y <= 4; y++) g.set(x, y, 5, colliderState(0, 16));
+    const leaf = leafAt(3.25, 1.5, 5.5, 2.5, 0.2125);
+    const [plan] = planInteractiveColliders(g, [leaf], frame);
+    const item = { ...interactiveRuntimeItem(leaf, 'craftmatic:x_door_1', 'Door 1', plan!), passSize: 100, normal: [0, 0, 1] as [number, number, number] };
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < g.width; x++) for (let y = 0; y < g.height; y++) for (let z = 0; z < g.length; z++) {
+      const m = /\[lo=(\d+),hi=(\d+)\]$/.exec(g.get(x, y, z));
+      if (m) cells.push({ x, y, z, lo: Number(m[1]), hi: Number(m[2]) });
+    }
+    const cfg: InteractiveRuntimeConfig = { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label: 'Sill', dims: { width: g.width, height: g.height, length: g.length }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items: [item], turnProperty: INTERACTIVE_TURN_PROPERTY, sizeProperty: INTERACTIVE_SIZE_PROPERTY };
+    return { g, plan: plan!, pack: { cells, dims: cfg.dims, interactives: cfg } };
+  }
+  /** The same pack with the doorway columns' sill put back to `sill16`: the shape every pack before the fill shipped. */
+  function unfilled(pack: ReturnType<typeof sunkenSill>['pack'], sill16 = 3) {
+    const atSill = (x: number, y: number, z: number): boolean => z === 5 && y === 0 && (x === 3 || x === 4);
+    const cells = pack.cells.map(c => (atSill(c.x, c.y, c.z) ? { ...c, lo: 0, hi: sill16 } : c));
+    const items = pack.interactives.items.map(it => ({ ...it, neighbours: it.neighbours.map(n => (atSill(n[0], n[1], n[2]) ? [n[0], 0, 5, 0, sill16] as IxCell : n)) }));
+    return { ...pack, cells, interactives: { ...pack.interactives, items } };
+  }
+
+  it('raises the sill to a half-way tread under the higher floor, and the open state keeps it raised', () => {
+    const { g, plan } = sunkenSill();
+    expect(plan.sillTreads).toBe(2);
+    // Half a block under the WC's 15/16: 7/16, within the 9/16 step of both floors.
+    for (const x of [3, 4]) expect(g.get(x, 0, 5), `x ${x}`).toBe(colliderState(0, 7));
+    for (const x of [3, 4]) expect(plan.neighbours.some(n => n[0] === x && n[1] === 0 && n[2] === 5 && n[3] === 0 && n[4] === 7), `neighbour ${x}`).toBe(true);
+    // The wall beside the doorway is not touched.
+    expect(g.get(2, 0, 5)).toBe(colliderState(0, 16));
+  });
+
+  it('a SNEAKING player crosses the open doorway once the sill is filled, and stops at its edge without (the device\'s stop)', async () => {
+    const { doorwayColumnLines, doorwaySneakStops, walkThroughDoorway, verdictOf } = await import('../web/src/engine/interactive-walk.js');
+    const { pack } = sunkenSill();
+    for (const r of QUARTER_TURNS) {
+      const walking = doorwayColumnLines(pack, 0, 100, r), sneaking = doorwayColumnLines(pack, 0, 100, r, { sneak: true });
+      expect(walking.every(l => l.crossed), `walking at turn ${r}`).toBe(true);
+      expect(doorwaySneakStops(walking, sneaking), `sneaking at turn ${r}`).toEqual([]);
+      expect(verdictOf(walkThroughDoorway(pack, 0, 100, r, true), walkThroughDoorway(pack, 0, 100, r, false))).toBe('OK');
+    }
+    // The unfilled sill: walking still crosses, sneaking stops short on the lines from the corridor.
+    const before = unfilled(pack);
+    const walking = doorwayColumnLines(before, 0, 100, 0), sneaking = doorwayColumnLines(before, 0, 100, 0, { sneak: true });
+    expect(walking.every(l => l.crossed)).toBe(true);
+    const stops = doorwaySneakStops(walking, sneaking);
+    expect(stops.length).toBeGreaterThan(0);
+    expect(stops.every(l => !l.crossed && l.start !== null)).toBe(true);
+  });
+
+  it('closes over the raised sill as before: the closed doorway still blocks at every size', async () => {
+    const { walkThroughDoorway } = await import('../web/src/engine/interactive-walk.js');
+    const { pack } = sunkenSill();
+    for (const size of [100, 200, 400]) expect(walkThroughDoorway(pack, 0, size, 0, false).outcome, `closed at ${size}`).not.toBe('passed');
+  });
+
+  it('leaves a sill within a step of both floors alone, and one no single tread can split', () => {
+    // 3/16 under floors at 10/16: a 7/16 step, walked and sneaked as it is.
+    expect(sunkenSill([10, 10]).plan.sillTreads).toBe(0);
+    // The corridor level with the sill and the room 22/16 up: no tread is within the step of both.
+    const g = new BlockGrid(12, 6, 10);
+    for (let x = 0; x < 12; x++) for (let z = 0; z < 10; z++) g.set(x, 0, z, colliderState(0, z <= 5 && (z < 5 || x === 3 || x === 4) ? 3 : 16));
+    for (let x = 0; x < 12; x++) for (let z = 6; z < 10; z++) g.set(x, 1, z, colliderState(0, 6));
+    for (let x = 0; x < 12; x++) for (let y = 1; y <= 4; y++) g.set(x, y, 5, colliderState(0, 16));
+    const [plan] = planInteractiveColliders(g, [leafAt(3.25, 1.5, 5.5, 2.5, 0.2125)], frame);
+    expect(plan!.sillTreads).toBe(0);
+    expect(g.get(3, 0, 5)).toBe(colliderState(0, 3));
+  });
+});

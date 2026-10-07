@@ -253,6 +253,22 @@ and a 20 LDU frame straddling a cell boundary fills whole cells. So:
    on the floor beside it, both ways (`thresholdTreads` in the diagnostics), and
    the passability test now requires every OK doorway at 100 % to be walked
    through without a jump.
+6. **A sunken sill gets a tread too** (`fillSunkenSills`, 2026-10-07). A
+   leaf whose frame's sill lies more than the step below the floor on a side
+   is a gutter: 10326's Door 3 has its sill at 3/16 between the corridor's
+   tiles at 14/16 and the WC's at 15/16. A walking player crosses it in
+   stride (Saga 30i), but a SNEAKING one never steps off the corridor's edge
+   (Minecraft's sneak guard refuses a drop past the step) and stopped 0.24
+   before the leaf on every line (Pixel 30j; the tester's HUD sneak button
+   was lit from a seat exit on - the touch sneak button is a toggle, and a
+   seat says "sneak to get off"); a slow walk that does drop in meets a 0.75
+   riser out. The sill column is raised to half a block under the higher
+   floor, only where both sides are floors with headroom, both within the
+   step of the tread, and the doorway keeps 1.8 blocks over it. The cell is
+   the closed leaf's (clearance leaves it), and the open state restores it
+   raised. `_ix_passability.ts` walks each OK doorway's lines SNEAKING at
+   100 % and prints `SNEAK-STOP` where a line the walk crosses stops; the
+   regression `door3-sneak-10326` replays the Pixel's walk.
 
 Windows, cabinets, levers and turnables are not passages: their closed part
 boxes stay in the static colliders, so a closed-up window is still a wall.

@@ -31,11 +31,22 @@
  * walk's start points 0.9 out, but boxed in by the model's display cases).
  * It prints as `SHORT-APPROACH` after the verdict, is counted and written to
  * the JSON (`shortApproach`), and does not change the verdict.
+ *
+ * An OK doorway's lines are also walked SNEAKING (`doorwaySneakStops`): the
+ * touch sneak button is a toggle a child leaves on after a seat's "sneak to
+ * get off", and Minecraft's sneak guard never steps off an edge deeper than
+ * the step. A sneaking line that never crosses prints `SNEAK-STOP` (10326's
+ * Door 3 on the Pixel, round 2026-10-07j: stopped 0.24 before the leaf at
+ * the edge of the frame's sunken sill), is counted and written to the JSON
+ * (`sneakStops`), and does not change the verdict. Only at 100 %: above it
+ * every riser of the model doubles past the step, and a sneaking player stops
+ * at each step DOWN by design of the game - the scaled tread plan serves a
+ * walking player.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { loadAddonPreviewModel, treadBlocksAt } from '../web/src/ui/addon-preview-data.ts';
-import { SHORT_APPROACH_ROOM, doorwayColumnLines, doorwayHoles, verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.ts';
+import { SHORT_APPROACH_ROOM, doorwayColumnLines, doorwayHoles, doorwaySneakStops, verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.ts';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
 
 const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -45,7 +56,7 @@ const files = process.argv.slice(2).filter(a => !a.startsWith('--'));
 if (!files.length) { console.error('usage: bun scripts/_ix_passability.ts <pack.mcaddon…> [--sizes=100,200] [--rotations=0,90] [--json=out.json]'); process.exit(2); }
 
 const report: Array<Record<string, unknown>> = [];
-let failures = 0, holeRows = 0, shortRows = 0;
+let failures = 0, holeRows = 0, shortRows = 0, sneakRows = 0;
 for (const file of files) {
   const bytes = readFileSync(file);
   const model = await loadAddonPreviewModel(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
@@ -66,6 +77,9 @@ for (const file of files) {
     // The device's line through every leaf column of an OK doorway: a fall past the jump is a hole.
     const lines = verdict === 'OK' ? doorwayColumnLines(pack, i, size, rot) : [];
     const holes = doorwayHoles(lines, size);
+    // The same lines sneaking: one that never crosses stops at an edge a walking player takes in stride.
+    const sneakStops = verdict === 'OK' && size === 100 ? doorwaySneakStops(lines, doorwayColumnLines(pack, i, size, rot, { sneak: true })) : [];
+    if (sneakStops.length) sneakRows++;
     // A line that STARTS more than a jump under the doorway's floor (the approach 1.5 blocks out is
     // already the ground or a street: 41732's Door 1 at 150 %, 10326's Door 1 on the ground plate) says the
     // door hangs over that ground, not that its threshold opened; the note says which.
@@ -73,10 +87,11 @@ for (const file of files) {
     if (holes.length) holeRows++;
     const short = open.shortApproach ?? [];
     if (short.length) shortRows++;
-    rows.push({ label: it.label, kind: it.kind, opening: it.opening, passSize: it.passSize, size, rotation: rot, open: open.outcome, closed: closed.outcome, verdict, openDirections: open.directions, closedDirections: closed.directions, ...(lines.length ? { lines } : {}), ...(holes.length ? { holes: holes.map(h => ({ column: h.column, from: h.from, drop: h.dropNear, startUnder: startUnder(h) })) } : {}), ...(open.room ? { room: open.room } : {}), ...(short.length ? { shortApproach: short } : {}) });
+    rows.push({ label: it.label, kind: it.kind, opening: it.opening, passSize: it.passSize, size, rotation: rot, open: open.outcome, closed: closed.outcome, verdict, openDirections: open.directions, closedDirections: closed.directions, ...(lines.length ? { lines } : {}), ...(holes.length ? { holes: holes.map(h => ({ column: h.column, from: h.from, drop: h.dropNear, startUnder: startUnder(h) })) } : {}), ...(open.room ? { room: open.room } : {}), ...(short.length ? { shortApproach: short } : {}), ...(sneakStops.length ? { sneakStops: sneakStops.map(l => ({ column: l.column, from: l.from, end: l.end })) } : {}) });
     const holeNote = holes.length ? `  HOLE ${holes.map(h => `${h.column.x},${h.column.z} from ${h.from > 0 ? '+' : '-'}: ${h.dropNear} down${startUnder(h) > 1.25 * Math.max(1, size / 100) ? ` (starts ${startUnder(h)} under)` : ''}`).join('; ')}` : '';
     const shortNote = short.length ? `  SHORT-APPROACH ${short.map(sd => `from ${sd > 0 ? '+' : '-'}: room ${open.room![String(sd) as '-1' | '1']}`).join('; ')}` : '';
-    console.log(`  ${it.label.padEnd(9)} ${it.kind.padEnd(5)} ${JSON.stringify(it.opening ?? {}).padEnd(26)} pass>=${String(it.passSize).padEnd(3)} @${String(size).padEnd(3)}/${String(rot).padEnd(3)} open:${open.outcome.padEnd(11)} closed:${closed.outcome.padEnd(11)} ${verdict}${holeNote}${shortNote}`);
+    const sneakNote = sneakStops.length ? `  SNEAK-STOP ${sneakStops.map(l => `${l.column.x},${l.column.z} from ${l.from > 0 ? '+' : '-'}`).join('; ')}` : '';
+    console.log(`  ${it.label.padEnd(9)} ${it.kind.padEnd(5)} ${JSON.stringify(it.opening ?? {}).padEnd(26)} pass>=${String(it.passSize).padEnd(3)} @${String(size).padEnd(3)}/${String(rot).padEnd(3)} open:${open.outcome.padEnd(11)} closed:${closed.outcome.padEnd(11)} ${verdict}${holeNote}${shortNote}${sneakNote}`);
   }
   report.push({ pack: basename(file), counts, doorways: doorways.length, rows });
 }
@@ -84,4 +99,5 @@ const out = flag('json');
 if (out) writeFileSync(out, JSON.stringify(report, null, 1));
 if (holeRows) console.log(`${holeRows} OK row${holeRows === 1 ? '' : 's'} with a HOLE on a leaf column's line`);
 if (shortRows) console.log(`${shortRows} row${shortRows === 1 ? '' : 's'} with a SHORT-APPROACH side (a pocket under ${SHORT_APPROACH_ROOM} blocks from the doorway)`);
+if (sneakRows) console.log(`${sneakRows} OK row${sneakRows === 1 ? '' : 's'} where a SNEAKING player stops on a leaf column's line (SNEAK-STOP)`);
 if (failures) { console.log(`${failures} FAIL`); process.exit(1); }

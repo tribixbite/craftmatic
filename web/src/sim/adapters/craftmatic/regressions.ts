@@ -8,11 +8,11 @@
  */
 
 import type { Scenario, Step } from '../../scenario/types.js';
-import type { ScenarioResult } from '../../scenario/runner.js';
+import { CORE_HANDLERS, type ScenarioResult } from '../../scenario/runner.js';
 import type { RegressionRow } from '../../scenario/report.js';
 import type { CraftmaticPack } from './pack-facts.js';
 import { CRAFTMATIC_ALLOWED_LINES } from './child-play.js';
-import { doorwayFindings, tapPoseOf } from './play.js';
+import { doorwayFindings, placedOf, tapPoseOf } from './play.js';
 
 /** What the current tree's pack should do. */
 export type Expectation = 'pass' | 'reproduce-as-model';
@@ -258,16 +258,49 @@ export const REGRESSIONS: RegressionCase[] = [
     // centre 5386.5,-58.8,5382.35. The spot is inside the collider band (`collider_w10`, z 2..2.75 over y 1..2)
     // that a tilted handrail's bounding box leaves at head height; the device let the player stand there
     // (its Position read 5384,-60,5382), and every line of sight started inside it.
-    // The HUD gives a block cell, not the fractional pose: the tap is made from every FLOOR-LEVEL legal standing
-    // spot in that cell (a spot on the handrail band 0.68 higher is not the device's pose) with the exact historical
-    // aim, and must move the door from a majority of them. The old pack has none - the exact point stands inside the
-    // band - so it replays the supplied point and its refusal; a current pack with none is NOT TESTED.
-    scenario: () => ({ name: 'door3-tap-10326', steps: [...place, { kind: 'tapPartFrom', label: 'Door 3', feet: { x: 4.6, y: 0.2, z: 2.4 }, at: { x: 6.5, y: 1.2, z: 2.35 }, recordedCell: true }], allowLines: allow }),
+    // The pose is replayed EXACTLY: the notes give the /tp echo to a tenth of a block, not only a HUD cell. It lies
+    // inside cell (4,0,2)'s floor collider (0..14/16) in the 30h pack and in every pack since, so no legal spot of
+    // that cell is at its height. Until 2026-10-07 the case asked for floor-level spots within 2/16 of 0.2 - none
+    // exist in any pack - and read NOT TESTED on every current pack, while the device tapped the door open from
+    // that corridor at the next two rounds (Saga 30i from 5384.50,-59.12,5382.30, 2.0 blocks; Pixel 30j from
+    // 7705.0,-59.12,7702.3). A teleport into a floor is the device's own pose here, so the player-in-solid
+    // invariant is not run for this case (every other core invariant is).
+    scenario: () => ({ name: 'door3-tap-10326', invariants: ['no-unprotected-fall', 'nothing-below-ground', 'actionbar-not-stolen'], steps: [...place, { kind: 'tapPartFrom', label: 'Door 3', feet: { x: 4.6, y: 0.2, z: 2.4 }, at: { x: 6.5, y: 1.2, z: 2.35 } }], allowLines: allow }),
     judge: r => {
       const v = violated(r, 'tap-in-plain-view'), pose = tapPoseOf(r.state, 'Door 3');
       if (v) return { reproduced: true, evidence: v };
       const evidence = r.notes.find(n => /Door 3: the tap/.test(n)) ?? 'no tap note';
       return pose?.untested ? { reproduced: false, evidence, untested: pose.untested } : { reproduced: false, evidence };
+    },
+  },
+  {
+    id: 'door3-sneak-10326', title: '10326 Door 3: open by tap, but a SNEAKING player walking in stops 0.24 before the leaf ("Something is standing in the door 3")',
+    evidence: 'output/device-round-2026-10-07j/pixel/notes.md item 6 (shots 72*, cm30j-doors.mp4); the HUD sneak button is lit from 66-chalet100-seatD on (a seat\'s "Sneak" left the toggle on); docs/bedrock-interactivity.md "A sunken sill"',
+    oldPack: `${ROUND}/device-round-2026-10-07j/packs-f200ddc7/10326-natural-history-museum.mcaddon`, newStem: '10326-natural-history-museum', expectNew: 'pass',
+    // The Pixel's pose exactly (corner pinned at 7700,-60,7700): feet 7705.0,-59.12,7702.3, tap the leaf open, then
+    // hold the stick toward +x with sneak ON. On f200ddc7 the device stopped at x 7706.27-7706.28 on every line:
+    // the corridor's floor (14/16) ends at the frame's sill (3/16), and the sneak guard never steps off a 0.69 drop.
+    // A walking player crosses (Saga 30i reached 7.70 on the same pack data); the sneaking line must reach the WC.
+    scenario: () => ({
+      name: 'door3-sneak-10326', allowLines: allow, steps: [...place,
+        { kind: 'tapPartFrom', label: 'Door 3', feet: { x: 5.0, y: 0.875, z: 2.3 }, at: { x: 6.58, y: 1.46, z: 2.36 } },
+        { kind: 'expect', label: 'sneak-walk', check: async ctx => {
+          const a = placedOf(ctx).anchor;
+          ctx.sim.controls.set(ctx.player.id, { sneak: true });
+          await CORE_HANDLERS['walkLine']!({ kind: 'walkLine', label: 'Door 3 sneaking +x', from: { x: a.x + 5.0, y: a.y + 0.885, z: a.z + 2.3 }, to: { x: a.x + 7.4, y: a.y + 0.885, z: a.z + 2.3 }, arriveWithin: 0.3, maxTicks: 160 }, ctx);
+          ctx.sim.controls.set(ctx.player.id, { sneak: false });
+          const w = ctx.state['lastWalk'] as { end: { x: number; y: number; z: number } } | undefined;
+          ctx.note(`Door 3 sneaking +x: ended at ${w ? `${r3(w.end.x - a.x)},${r3(w.end.y - a.y)},${r3(w.end.z - a.z)}` : '?'} (anchor-relative)`);
+          return undefined;
+        } },
+      ],
+    }),
+    judge: r => {
+      const tap = violated(r, 'tap-in-plain-view'), walk = violated(r, 'walk-arrives', /Door 3 sneaking/);
+      const note = r.notes.find(n => /Door 3 sneaking/.test(n)) ?? 'no walk note';
+      // The tap must open it on both packs (the device opened it): a refused tap means the walk proved nothing.
+      if (tap) return { reproduced: false, evidence: `${tap}; ${note}`, untested: 'the tap did not open Door 3, so the walk ran into a closed door' };
+      return { reproduced: !!walk, evidence: walk ? `${walk}; ${note}` : note };
     },
   },
   {
