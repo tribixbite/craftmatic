@@ -50,7 +50,18 @@
  * (test/bedrock-figure-life.test.ts, scripts/_figure_roam_census.ts).
  */
 
-import { COLLIDER_STATES, colliderBodyProbe, colliderFormKit, type ColliderBodyProbe } from './collider-form.js';
+import { COLLIDER_STATES, ESCAPE_OPTIONS, colliderBodyProbe, colliderFormKit, type ColliderBodyProbe, type EscapeOptions } from './collider-form.js';
+
+/**
+ * The scenery-seat watcher's bounds (`safeSeatDismounts` in the runtime; docs/physics-architecture.md §9):
+ *   - `NATIVE_REACH_BLOCKS` 2: Bedrock sets a dismounted player down one block from the seat entity, diagonals
+ *     included (1.41), or 0.2 over it to fall (quirk `dismount-free-spot`); a player found farther than 2 blocks
+ *     away the tick after was moved on purpose (a /tp out of the seat) and is left where it went;
+ *   - `RESEAT_LIMIT` 2 within `RESEAT_WINDOW_TICKS` 100 (5 s): when nothing walkable can be found the player is put
+ *     back on the seat, but a held Sneak dismounts again at once, so after two re-seats in a row the player is left
+ *     where Bedrock set it down instead of looping seat, off, seat every tick.
+ */
+export const SEAT_EGRESS = { NATIVE_REACH_BLOCKS: 2, RESEAT_LIMIT: 2, RESEAT_WINDOW_TICKS: 100 } as const;
 
 /** Dynamic property holding a figure's home record (JSON string; see `FigureHome`). */
 export const FIGURE_HOME_PROPERTY = 'craftmatic:fig';
@@ -153,8 +164,21 @@ export interface FigureLifeConfig {
   /** Body height a figure needs clear, world blocks at 100 % (its collision box), per type; `bodyHeight` otherwise. */
   bodyHeights: Record<string, number>;
   bodyHeight: number;
-  /** Safe set-down search for players leaving this pack's scenery seats. Values come from the rides' measured policy. */
-  seatSafety?: { lift: number; reach: number; drop: number } | undefined;
+  /**
+   * Safe set-down search for players leaving this pack's scenery seats. `lift`/`reach`/`drop` come from the rides'
+   * measured policy (`RIDE.SETDOWN_*`); the rest `figureLifeScript` fills from `SEAT_EGRESS` / `ESCAPE` when a
+   * config (an older pack's) lacks them.
+   */
+  seatSafety?: {
+    lift: number; reach: number; drop: number;
+    /** The last-resort search (`ColliderBodyProbe.escape`). */
+    escape?: EscapeOptions | undefined;
+    /** `SEAT_EGRESS.NATIVE_REACH_BLOCKS`. */
+    nativeReach?: number | undefined;
+    /** `SEAT_EGRESS.RESEAT_LIMIT` / `RESEAT_WINDOW_TICKS`. */
+    reseatLimit?: number | undefined;
+    reseatWindowTicks?: number | undefined;
+  } | undefined;
   /**
    * Types whose entities carry the Minifig Creator's `craftmatic:draft`
    * property: while it is true the figure is being dressed or edited by the
@@ -492,7 +516,16 @@ export interface FigurePlanner {
 export function figureLifeRuntime(mc: { world: any; system: any }, config: FigureLifeConfig, planner: FigurePlanner, homeProperty: string, body?: ColliderBodyProbe): void {
   const { world, system } = mc;
   const T = config.tuning;
-  const watchedSeats = new Map<string, { seat: any; dimension: any; at: { x: number; y: number; z: number } }>();
+  const watchedSeats = new Map<string, { seat: any; dimension: any; at: { x: number; y: number; z: number }; k: number }>();
+  /** Re-seats in a row per player (`seatSafety.reseatLimit` within `reseatWindowTicks`): a held Sneak must not loop. */
+  const reseats = new Map<string, { n: number; tick: number }>();
+  /**
+   * A player who left a scenery seat must stand somewhere walkable (docs/physics-architecture.md §4.8, "A scenery
+   * seat's set-down"). In order: Bedrock's own set-down when it (or the floor it falls onto within the drop) has a
+   * walk exit; the nearest point within `reach` of the seat with a walk exit that the body WALKS to from the seat
+   * (never through a wall); the last-resort `escape` (a walk-connected flood, then the model's exterior). Only
+   * with none of those is the player put back on the seat, at most `reseatLimit` times in a row.
+   */
   const safeSeatDismounts = (): void => {
     if (!body || !config.seatSafety || !config.seatTypes.length) return;
     const S = config.seatSafety;
@@ -505,7 +538,11 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
       try { riding = player.getComponent('minecraft:riding')?.entityRidingOn; } catch { riding = undefined; }
       if (riding && config.seatTypes.includes(riding.typeId)) {
         const l = riding.location;
-        watchedSeats.set(player.id, { seat: riding, dimension: player.dimension, at: { x: l.x, y: l.y, z: l.z } });
+        // The wand's size (`minecraft:scale`, at least 1) scales the search as it scales the rides' set-down: a 400 %
+        // chair is four times as deep, and a 2-block reach never left its own seat cushion.
+        let k = 1;
+        try { const v = Number(riding.getComponent('minecraft:scale')?.value); if (Number.isFinite(v) && v > 1) k = v; } catch { k = 1; }
+        watchedSeats.set(player.id, { seat: riding, dimension: player.dimension, at: { x: l.x, y: l.y, z: l.z }, k });
         continue;
       }
       const left = watchedSeats.get(player.id);
@@ -515,28 +552,46 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
       if (player.dimension?.id !== left.dimension?.id) continue;
       let current: { x: number; y: number; z: number };
       try { current = player.location; } catch { continue; }
-      try { if (body.hasWalkExit(player.dimension, current)) continue; } catch { /* search from the remembered seat */ }
+      // Bedrock sets a dismounted player down a block from the seat (or just over it, to fall): anything farther
+      // is a deliberate move (a /tp out of the seat, a script) and is left alone. Scaled with the seat, since the
+      // device's set-down at 300-400 % is not measured (quirk `dismount-free-spot` is 100 %).
+      // (`figureLifeScript` always fills the `SEAT_EGRESS` fields; these literals only guard a hand-built config.)
+      const nativeReach = (S.nativeReach ?? 2) * left.k;
+      if (Math.hypot(current.x - left.at.x, current.z - left.at.z) > nativeReach || current.y > left.at.y + nativeReach || current.y < left.at.y - S.drop - 1) continue;
+      const dim = player.dimension;
+      try { if (body.hasWalkExit(dim, current, S.drop)) { reseats.delete(player.id); continue; } } catch { /* search from the remembered seat */ }
       const planned = { x: left.at.x, y: left.at.y + S.lift, z: left.at.z };
-      let safe = planned;
-      try { safe = body.settle(player.dimension, planned, S.reach, S.drop, q => body.hasWalkExit(player.dimension, q)); } catch { safe = planned; }
-      let fits = false;
-      try { fits = body.hasWalkExit(player.dimension, safe); } catch { fits = false; }
-      if (fits) {
-        let moved = false;
-        try { moved = player.tryTeleport(safe, { dimension: player.dimension, checkForBlocks: true, keepVelocity: false }) === true; } catch { moved = false; }
-        if (moved) continue;
+      const walkable = (q: { x: number; y: number; z: number }): boolean => body.routeClear(dim, planned, q, S.drop) && body.hasWalkExit(dim, q);
+      let safe: { x: number; y: number; z: number } | undefined;
+      try { const q = body.settle(dim, planned, S.reach * left.k, S.drop, walkable); if (walkable(q)) safe = q; } catch { safe = undefined; }
+      if (!safe && S.escape) {
+        try { safe = body.escape(dim, planned, { ...S.escape, seedReach: S.escape.seedReach * left.k })?.at; } catch { safe = undefined; }
       }
-      // With no validated destination, remain on the known seat instead of
-      // guessing through a wall. If it vanished or was taken, preserve the
-      // native pose and report that unresolved case explicitly.
+      if (safe) {
+        let moved = false;
+        try { moved = player.tryTeleport(safe, { dimension: dim, checkForBlocks: true, keepVelocity: false }) === true; } catch { moved = false; }
+        if (moved) { reseats.delete(player.id); continue; }
+      }
+      // Nothing walkable anywhere the probe can read (an unloaded world): back on the known seat rather than a guess
+      // through a wall - but never more than `reseatLimit` times in a row, or a held Sneak loops seat, off, seat.
+      const tick = system.currentTick ?? 0;
+      const prior = reseats.get(player.id);
+      const n = prior && tick - prior.tick <= (S.reseatWindowTicks ?? 100) ? prior.n : 0;
+      if (n >= (S.reseatLimit ?? 2)) {
+        console.warn(`[craftmatic seat] no safe dismount for ${player.id} after ${n} re-seats; left where Bedrock set it down at ${current.x},${current.y},${current.z}`);
+        reseats.delete(player.id);
+        continue;
+      }
       let restored = false;
       try {
         const valid = typeof left.seat.isValid === 'function' ? left.seat.isValid() : left.seat.isValid;
         const ride = valid ? left.seat.getComponent('minecraft:rideable') : undefined;
         restored = !!ride && (ride.getRiders?.() ?? []).length === 0 && ride.addRider?.(player) === true;
       } catch { restored = false; }
-      if (restored) { try { player.onScreenDisplay?.setActionBar?.('No safe place to get off here'); } catch { /* seated */ } }
-      else console.warn(`[craftmatic seat] no safe dismount for ${player.id}; seat unavailable at ${left.at.x},${left.at.y},${left.at.z}`);
+      if (restored) {
+        reseats.set(player.id, { n: n + 1, tick });
+        try { player.onScreenDisplay?.setActionBar?.('No safe place to get off here'); } catch { /* seated */ }
+      } else console.warn(`[craftmatic seat] no safe dismount for ${player.id}; seat unavailable at ${left.at.x},${left.at.y},${left.at.z}`);
     }
   };
   /** How far from its home (blocks) a seated figure looks for the seat to retake: 10261's kiosk seat entity sits ~2 below its home. */
@@ -977,5 +1032,18 @@ export function figureLifeScript(config: FigureLifeConfig): string {
   const body = config.seatSafety
     ? `(${colliderBodyProbe.toString()})((${colliderFormKit.toString()})(), ${JSON.stringify(config.colliders?.loState ?? COLLIDER_STATES.lo)}, ${JSON.stringify(config.colliders?.hiState ?? COLLIDER_STATES.hi)})`
     : 'undefined';
-  return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${figureLifeRuntime.toString()})({ world, system }, CONFIG, ${planner}, ${JSON.stringify(FIGURE_HOME_PROPERTY)}, ${body});\n`;
+  // The seat watcher's bounds that are not the rides' policy: this module's own, filled in where the config (an
+  // older pack's, rebuilt by the simulator's runtime swap) does not carry them.
+  const S = config.seatSafety;
+  const shipped: FigureLifeConfig = S ? {
+    ...config,
+    seatSafety: {
+      ...S,
+      escape: S.escape ?? ESCAPE_OPTIONS,
+      nativeReach: S.nativeReach ?? SEAT_EGRESS.NATIVE_REACH_BLOCKS,
+      reseatLimit: S.reseatLimit ?? SEAT_EGRESS.RESEAT_LIMIT,
+      reseatWindowTicks: S.reseatWindowTicks ?? SEAT_EGRESS.RESEAT_WINDOW_TICKS,
+    },
+  } : config;
+  return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(shipped)};\n(${figureLifeRuntime.toString()})({ world, system }, CONFIG, ${planner}, ${JSON.stringify(FIGURE_HOME_PROPERTY)}, ${body});\n`;
 }

@@ -600,7 +600,14 @@ column), never simulated. A tap on a lift's car, or on either ride's seat,
 boards it: on a touch screen a tap is a hit (`entityHitEntity`), not the
 held-press interact that mounts a vanilla rideable, so the runtime seats the
 tapping player itself (10788's slide boarded nobody over three taps until
-2026-09-29c). Tests: `test/bedrock-rides.test.ts` (path reading, lift detection
+2026-09-29c). The set-down (a slide's run-out end, a lift's exit) stands the
+rider where the body FITS (`colliderBodyProbe.settle`, `RIDE.SETDOWN_*`,
+times the size): the point itself lifted out of a floor it sits in, else the
+nearest free floor in reach that the rider WALKS to from the terminal
+(`routeClear`: out of what the terminal sits in, never into a wall after open
+floor - a reach of 8 blocks at 400 % otherwise set riders down through walls),
+else the scenery seats' last resort (`escape`, §4.8), else the planned point.
+Tests: `test/bedrock-rides.test.ts` (path reading, lift detection
 and the serialised runtime on the headless simulator, the tap on a seat included).
 
 An ORBIT (kind `orbit`, 2026-09-29) is the same runtime carrying the set's
@@ -675,21 +682,45 @@ no forces: nothing is pushed, the player changes mount.
   Hover rather than land: the user allowed either, and a hovering plane is one
   a child can hop back into.
 - **A slide's set-down** (`ridesRuntime` with the kit): the run-out's end,
-  settled by `colliderBodyProbe`, is searched `HOP.SETDOWN_REACH_BLOCKS` (times
-  the size, at least 1) for a mountable's box; the rider is boarded onto the
-  nearest (front-most of its train) instead of being set down.
-- **A scenery seat's set-down** (`figureLifeRuntime` with the same body probe):
-  a native dismount is left alone only when it has a walk exit. `ColliderBodyProbe.hasWalkExit`
-  requires a body-free point on a floor within one collider sixteenth, then a supported one-block
-  route in one of the eight compass directions. The route is sampled every 0.125 block; each sample
-  must fit the body and may step no more than the ordinary 9/16-block step up or down. A half-block
-  diagonal can still fit inside a sealed one-cell pocket, so egress requires a full cell. Thus a clear
-  endpoint beyond a thin wall, an unsupported gap, and the body-free pocket under 10796's slide are
-  not safe dismounts. If Bedrock's fallback has no exit, the runtime searches from the remembered
-  seat with `RIDE.SETDOWN_*`; `settle`'s optional acceptance predicate filters each candidate by the
-  same egress rule, while omitted predicates preserve ride and doorway settling exactly. With no
-  accepted point it restores the still-free seat; a transfer to another mount or dimension is never
-  pulled back.
+  settled by `colliderBodyProbe` (§4.7: `RIDE.SETDOWN_*`, every candidate a
+  `routeClear` walk from the terminal), is searched `HOP.SETDOWN_REACH_BLOCKS`
+  (times the size, at least 1) for a mountable's box; the rider is boarded onto
+  the nearest (front-most of its train) instead of being set down.
+- **A scenery seat's set-down** (`figureLifeRuntime` with the same body probe;
+  the rule a child needs: never trapped, never in a wall, never falling).
+  `ColliderBodyProbe.hasWalkExit` is the egress test: a body-free point on a
+  floor within one collider sixteenth (or in the air over one it falls onto
+  within the drop, through a clear column: Bedrock's fallback sets the player
+  0.2 over the seat and it lands a tick later), then a supported one-block
+  route in one of the eight compass directions, sampled every 1/8 block, each
+  sample fitting the body and stepping at most the 9/16 step. A clear endpoint
+  beyond a thin wall, an unsupported gap and the body-free pocket under 10796's
+  slide are not exits. In order:
+  1. Bedrock's own set-down, when it has a walk exit. A player found more than
+     `SEAT_EGRESS.NATIVE_REACH_BLOCKS` (times the seat's `minecraft:scale`)
+     from the seat was moved on purpose (a /tp out of it) and is left alone.
+  2. The nearest point within `RIDE.SETDOWN_REACH_BLOCKS` (times the seat's
+     scale) of the remembered seat that has a walk exit AND that the body walks
+     to from the seat (`routeClear`: out of the chair it sits in, then never
+     into a wall again). `settle`'s acceptance predicate carries both tests;
+     omitted, it keeps ride and doorway settling exactly as before.
+  3. The last resort, `escape` (`ESCAPE`): a breadth-first flood on a
+     half-block lattice from the seat, every edge a `routeClear` walk, to the
+     nearest floor with a walk exit; else the model's EXTERIOR - along sixteen
+     rays, ring by ring, a floor open to the sky over it, with a walk exit, at
+     or under the seat's level (the lowest of its ring: the ground beside the
+     model; a roof only when no ring has such a floor).
+  4. Only with none of those (a void, an unloaded world) is the player put back
+     on the still-free seat ("No safe place to get off here"), at most
+     `SEAT_EGRESS.RESEAT_LIMIT` times within `RESEAT_WINDOW_TICKS`: a held
+     Sneak dismounts again at once and would loop seat, off, seat; past the
+     limit the player is left where Bedrock set it down and the content log
+     says so. A transfer to another mount or dimension is never pulled back.
+  Measured over the favourites' 25 scenery seats at 100-400 % (125 placements,
+  `bun scripts/_seat_egress_sweep.ts <packs> --runtime=tree --sizes=100,150,200,300,400`):
+  27 re-seated traps before this order, 0 after; 23 placements end more than
+  3 blocks from the seat (21 of them at 200 % and up, at most 12 blocks out),
+  none by a fall.
 - **The new mount's runtime** sees the rider as it sees any boarding: the
   coaster starts its camera on the first tick a car reports a rider
   (`aimRider` creates the viewer, the loop animation is planned at the next
@@ -1038,8 +1069,21 @@ literal inside a function body (`§` marks the number).
 | `DRIVER_SPEED_WINDOW_TICKS` | `web/src/engine/playable-addon.ts` | 20 | ticks | The HUD speed is the mean between the first and the last position CHANGE of the last second: a native mount's server position moves in bursts (one 2-tick delta read 0 / 24.9 / 60.2 / 99.0 mph at ~10 blocks/s on the Saga), and any burst cadence up to a second averages out; a second is also how long a stop takes to read 0. |
 | `DRIVER_TELEPORT_BLOCKS` | `web/src/engine/playable-addon.ts` | 5 | blocks per 2 ticks | A longer step between two samples is a teleport (the wand, a reload), not motion: 50 blocks/s, past the rotor's climb and cruise. |
 | `RIDE.SETDOWN_LIFT_BLOCKS` | `web/src/engine/bedrock-rides.ts` | 0.05 | blocks | A ride's terminal point starts just above its nominal path endpoint before the collider probe settles the rider. |
-| `RIDE.SETDOWN_REACH_BLOCKS` | `web/src/engine/bedrock-rides.ts` | 2 | blocks at 100 % | The collider probe may search this far sideways for a free standing pose, scaled with the ride but never below 100 %. 10797's nearest source-safe, representable landing is exactly 2 blocks from its chute terminal; every candidate through 1.5 blocks remains obstructed. |
+| `RIDE.SETDOWN_REACH_BLOCKS` | `web/src/engine/bedrock-rides.ts` | 2 | blocks at 100 % | The collider probe may search this far sideways for a free standing pose, scaled with the ride but never below 100 %. 10797's nearest source-safe, representable landing is exactly 2 blocks from its chute terminal; every candidate through 1.5 blocks remains obstructed. Only a pose the rider WALKS to from the terminal counts (`routeClear`): at 400 % the reach is 8 blocks, and a point behind a wall was a set-down through it. With none, `escape` (`ESCAPE`). The scenery seats use the same reach (times the seat's scale). |
 | `RIDE.SETDOWN_DROP_BLOCKS` | `web/src/engine/bedrock-rides.ts` | 3 | blocks | The collider probe may settle onto a floor this far below the terminal, within the ordinary no-damage fall range. |
+| walk exit floor tolerance | `web/src/engine/collider-form.ts` `FLOOR_TOLERANCE = §,` | 0.0625 | blocks (1/16) | A body stands ON its floor within one collider sixteenth: forms and their tops are quantised to sixteenths, so a finer tolerance rejects a real floor and a coarser one accepts a hover. A body over its floor by more falls onto it (`hasWalkExit`'s `fall`). |
+| walk exit distance | `web/src/engine/collider-form.ts` `EXIT_DISTANCE = §,` | 1 | blocks | The exit is a whole block of walking: a half-block diagonal fits inside a sealed one-cell pocket when the start is near a corner (10796's slide pocket); a whole cell of walking does not. |
+| walk exit sample spacing | `web/src/engine/collider-form.ts` `EXIT_SAMPLE = §;` | 0.125 | blocks (1/8) | The route (and `routeClear`'s) is sampled far under the 0.6-block body width, so consecutive sampled bodies overlap and no wall, however thin, slips between two; each 1/8 rise or fall is judged against the 9/16 step on its own. |
+| `ESCAPE.SEED_REACH` | `web/src/engine/collider-form.ts` | 2 | blocks (times the seat's scale) | How far from the seat the flood's seeds may lie: the set-down reach, `RIDE.SETDOWN_REACH_BLOCKS`. |
+| `ESCAPE.RADIUS` | `web/src/engine/collider-form.ts` | 16 | blocks | How far the flood walks: a 4-block room at 400 %. |
+| `ESCAPE.MAX_NODES` | `web/src/engine/collider-form.ts` | 600 | lattice points | The flood's cost bound (a 12 x 12-block floor at half-block spacing): it runs inside the one tick a dismount fails, its block reads memoised for that call. |
+| `ESCAPE.DROP` | `web/src/engine/collider-form.ts` | 3 | blocks | A flood edge may drop this far: the rides' no-damage fall. |
+| `ESCAPE.EXTERIOR_REACH` | `web/src/engine/collider-form.ts` | 64 | blocks | How far out the exterior rays look; past the half-width of every favourite at 400 % (the sweep's farthest exterior set-down was 12 blocks). |
+| `ESCAPE.HEADROOM` | `web/src/engine/collider-form.ts` | 32 | blocks | An exterior floor is open to the sky up to this over the seat. |
+| `ESCAPE.DEPTH` | `web/src/engine/collider-form.ts` | 96 | blocks | An exterior floor may lie this far under the seat (a 400 % balcony seat over the ground: 76417's is 30 blocks up). |
+| `SEAT_EGRESS.NATIVE_REACH_BLOCKS` | `web/src/engine/bedrock-figure-life.ts` | 2 | blocks (times the seat's scale) | Bedrock sets a dismounted player one block from the seat (1.41 on a diagonal) or 0.2 over it (quirk `dismount-free-spot`); farther the tick after is a deliberate move, left alone. The 300-400 % set-down is not measured, hence the scale. |
+| `SEAT_EGRESS.RESEAT_LIMIT` | `web/src/engine/bedrock-figure-life.ts` | 2 | re-seats | When nothing walkable exists the player is put back on the seat, but a held Sneak dismounts again at once: after this many re-seats in a row (within `RESEAT_WINDOW_TICKS`) the player is left where Bedrock set it down. |
+| `SEAT_EGRESS.RESEAT_WINDOW_TICKS` | `web/src/engine/bedrock-figure-life.ts` | 100 | ticks | Re-seats this close together count as in a row (5 s). |
 | `HOP.REACH_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 0.5 | blocks | Slack around the footprint and the rider's box: a child steering past a car's corner at arm's length still gets in. Not scaled: a player's reach, not the model's. |
 | `HOP.LEAD_TICKS` | `web/src/engine/bedrock-ride-hop.ts` | 2 | ticks | The last tick's relative motion carried this far ahead: a train at a block a tick is met a little early (0.1 s), never missed between two ticks. |
 | `HOP.SAMPLE_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 0.25 | blocks | The swept segment's sample spacing: under half the smallest target's box (a 0.6-block seat). |
@@ -1047,7 +1091,7 @@ literal inside a function body (`§` marks the number).
 | `HOP.BOARD_GRACE_TICKS` | `web/src/engine/bedrock-ride-hop.ts` | 20 | ticks | No hop in the first second aboard: boarding a car parked by a chair, or landing in a coaster car, is not an instant second hop. |
 | `HOP.BACK_COOLDOWN_TICKS` | `web/src/engine/bedrock-ride-hop.ts` | 100 | ticks | The mount just left is not a target for 5 s: a plane hovering beside the track is not re-boarded as the coaster passes it on the same lap. |
 | `HOP.SCAN_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 4 | blocks at 100 % | Targets are queried this far past the vehicle's half length (times its size): past the reach and a lead at coaster speed. |
-| `HOP.SETDOWN_REACH_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 1.5 | blocks at 100 % | A car's box within this of a slide's set-down takes the rider: "parked at the bottom" is a car's length off the foot at most. The set-down search reaches as far (§4.7). |
+| `HOP.SETDOWN_REACH_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 1.5 | blocks at 100 % | A car's box within this of a slide's set-down takes the rider: "parked at the bottom" is a car's length off the foot at most. It bounds only the hop's search for a mountable; the set-down's own search for a standing pose is `RIDE.SETDOWN_REACH_BLOCKS` (2, §4.7). |
 | `HOP.TRAIN_REACH_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 16 | blocks | The front-most car is looked for this far from the touched one: a seven-car train of 1.7-block cars is ~12 long. |
 | `HOP.DEFAULT_EXTENT_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 0.5 | blocks | A target's half extent when `getAABB` gives none: a one-block seat. |
 | `FLYER_BOB.AMPLITUDE_UNITS` | `web/src/engine/bedrock-vehicle.ts` | 1 | geometry units (1/16 block) | The idle bob's amplitude: visible, never enough to move the seat visibly under the rider. |
@@ -1389,7 +1433,8 @@ one of these files fails the check until its row is written.
 | `ROOM_PROBE_CELLS` | const | Cells explored to rate a spawn spot's room (64). |
 | `separateFigureSpawns` | function | Host only, at export: a standing figure a source recorded within `FIGURE_MIN_SEPARATION` of another is moved to the nearest standable column clear of every figure (76435's figures 1 and 8). |
 | `FIGURE_MIN_SEPARATION` | const | 0.6 blocks: a figure's box width; closer than this two standing figures share a body. |
-| `FigurePlanner`, `FigureLifeConfig`, `FigureHome`, `WalkCell`, `FigureSpawn` | interface | Types. `FigureLifeConfig.seatSafety` carries the shared measured ride set-down limits into scenery-seat-only packs too. |
+| `FigurePlanner`, `FigureLifeConfig`, `FigureHome`, `WalkCell`, `FigureSpawn` | interface | Types. `FigureLifeConfig.seatSafety` carries the shared measured ride set-down limits into scenery-seat-only packs too, with the escape bounds and `SEAT_EGRESS` (filled by `figureLifeScript` where a config lacks them). |
+| `SEAT_EGRESS` | const | The scenery-seat watcher's own bounds (§4.8, §9): the native set-down's reach and the re-seat limit under a held Sneak. |
 | `SpanLookup` | type | Collision-span lookup. |
 | `FIGURE_HOME_PROPERTY` | const | Dynamic property holding a figure's home. |
 | `FIGURE_SEATING_PROPERTY` | const | Dynamic property (`Date.now()` ms) the placement sets on a source-seated figure until its own seating pass is done with it; the runtime neither retakes nor reports a missing seat meanwhile (10261 spawns its kiosk figure ~2 min before the seat, Saga 2026-09-29c). |

@@ -236,6 +236,28 @@ describe('ride runtime', () => {
     expect(player.location).toMatchObject({ x: 2.5, y: 1, z: 0.5 });
   });
 
+  it('never sets a rider down through a wall: a closed room beside a terminal it cannot walk from is not a landing', () => {
+    // The run-out ends over a hole in the floor (no floor within the 3-block drop), walled on three sides; across
+    // the fourth wall (x = 1) lies a CLOSED room (walls and a roof) whose floor is 2 blocks from the terminal - inside
+    // the 2-block search. Before the route check the set-down landed in that room, through its wall.
+    const path = [{ x: -3.5, y: 5, z: 0.5 }, { x: 0.5, y: 1.3, z: 0.5 }];
+    const { h, seat: place } = rideHost([{ kind: 'slide' }], { colliders: true });
+    for (let x = -6; x <= 8; x++) for (let z = -6; z <= 6; z++) if (x || z) h.setBlock(x, 0, z, COLLIDER_BLOCK_ID);
+    const wall = (x0: number, z0: number, x1: number, z1: number, y1 = 3) => h.fill({ x: x0, y: 1, z: z0 }, { x: x1, y: y1, z: z1 }, COLLIDER_BLOCK_ID);
+    wall(-1, -1, -1, 1); wall(0, -1, 0, -1); wall(0, 1, 0, 1); // the terminal's three walls
+    wall(1, -1, 1, 1); // the wall between
+    wall(5, -2, 5, 2); wall(2, -2, 4, -2); wall(2, 2, 4, 2); // the closed room x 2..4, z -1..1
+    h.fill({ x: 1, y: 4, z: -2 }, { x: 5, y: 4, z: 2 }, COLLIDER_BLOCK_ID); // and its roof
+    const seat = place(0, path[0]!, { 'craftmatic:ride_path': JSON.stringify(path) });
+    const player = h.addPlayer('Rider', path[0]!);
+    h.seat(player, seat);
+    h.run(300);
+    expect(player.ridingOn).toBeUndefined();
+    const { x, y, z } = player.location;
+    expect(x >= 2 && x < 5 && z >= -1 && z < 2, `set down at ${x},${y},${z}`).toBe(false);
+    expect(y).toBe(1);
+  });
+
   it('a lift goes to the next storey, sets the rider on that floor and stays there', () => {
     const path = [{ x: 0, y: 0, z: 0 }, { x: 0, y: 4, z: 0 }, { x: 0, y: 8, z: 0 }];
     const exits = [{ x: 2, y: -0.5, z: 0 }, { x: 2, y: 3.5, z: 0 }, { x: 2, y: 7.5, z: 0 }];

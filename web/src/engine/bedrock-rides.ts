@@ -54,7 +54,7 @@
 
 import type { ParsedBrick } from './ldraw-parser.js';
 import type { LdrawPartMesh, Vec3 } from './ldraw-part-geometry.js';
-import { colliderBodyProbe, colliderFormKit, type ColliderBodyProbe } from './collider-form.js';
+import { ESCAPE_OPTIONS, colliderBodyProbe, colliderFormKit, type ColliderBodyProbe, type EscapeOptions } from './collider-form.js';
 import { COLLIDER_HI_STATE, COLLIDER_LO_STATE } from './bedrock-building-shell.js';
 import { hopKit, type HopKit, type HopKitConfig } from './bedrock-ride-hop.js';
 
@@ -500,6 +500,8 @@ export interface RideRuntimeConfig {
   constants: typeof RIDE;
   /** The hop kit's config (bedrock-ride-hop.ts): a slide's set-down boards a mountable parked at its foot. */
   hop?: HopKitConfig;
+  /** The set-down's last resort (`ColliderBodyProbe.escape`); `ridesScript` fills `ESCAPE_OPTIONS` where a config lacks it. */
+  escape?: EscapeOptions;
 }
 
 declare const world: any;
@@ -627,8 +629,17 @@ function ridesRuntime(config: RideRuntimeConfig, body?: ColliderBodyProbe, hop?:
     // triage 2026-09-30). Without a probe (a test host) the planned point stands. The search reaches 2 blocks
     // (times the size) aside and a floor up to 3 blocks down - the most a player falls unhurt: 41395's slide foot
     // ends against the bus's bodywork, and the nearest room to stand is 1.25 blocks aside, at the foot's level.
-    let at = { x: off.x, y: off.y + R.SETDOWN_LIFT_BLOCKS, z: off.z };
-    if (body) { try { at = body.settle(run.seat.dimension, at, R.SETDOWN_REACH_BLOCKS * Math.max(1, run.f), R.SETDOWN_DROP_BLOCKS); } catch { /* keep the planned point */ } }
+    // Every candidate in that reach must be one the rider WALKS to from the terminal (`routeClear`: out of what
+    // the terminal sits in, then never into a wall again): at 400 % the reach is 8 blocks and a point beyond a
+    // wall was a set-down THROUGH it. With none, the last resort is the walk-connected flood, then the model's
+    // exterior (`escape`), the scenery seats' own; only with neither does the planned point stand.
+    const planned = { x: off.x, y: off.y + R.SETDOWN_LIFT_BLOCKS, z: off.z };
+    let at = planned;
+    if (body) {
+      const dim = run.seat.dimension;
+      try { at = body.settle(dim, planned, R.SETDOWN_REACH_BLOCKS * Math.max(1, run.f), R.SETDOWN_DROP_BLOCKS, q => body.routeClear(dim, planned, q, R.SETDOWN_DROP_BLOCKS)); } catch { at = planned; }
+      if (at === planned && config.escape) { try { at = body.escape(dim, planned, { ...config.escape, seedReach: config.escape.seedReach * Math.max(1, run.f) })?.at ?? planned; } catch { at = planned; } }
+    }
     // A HOP at a slide's foot (bedrock-ride-hop.ts): a mountable with a free seat parked where the rider is
     // set down (a car at the bottom of the slide, a coaster car, a chair) takes the rider instead - they slide
     // into it. Searched `HOP.SETDOWN_REACH_BLOCKS` about the set-down point (times the size, at least 1).
@@ -735,5 +746,7 @@ function ridesRuntime(config: RideRuntimeConfig, body?: ColliderBodyProbe, hop?:
 /** `scripts/rides.js`: the config and the runtime. */
 export function ridesScript(config: RideRuntimeConfig): string {
   const hopArg = config.hop ? `, (${hopKit.toString()})(CONFIG.hop)` : '';
-  return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${ridesRuntime.toString()})(CONFIG, (${colliderBodyProbe.toString()})((${colliderFormKit.toString()})(), ${JSON.stringify(COLLIDER_LO_STATE)}, ${JSON.stringify(COLLIDER_HI_STATE)})${hopArg});\n`;
+  // The set-down's last resort is the collider probe's own bound, filled where a config (an older pack's) lacks it.
+  const shipped: RideRuntimeConfig = { ...config, escape: config.escape ?? ESCAPE_OPTIONS };
+  return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(shipped)};\n(${ridesRuntime.toString()})(CONFIG, (${colliderBodyProbe.toString()})((${colliderFormKit.toString()})(), ${JSON.stringify(COLLIDER_LO_STATE)}, ${JSON.stringify(COLLIDER_HI_STATE)})${hopArg});\n`;
 }
