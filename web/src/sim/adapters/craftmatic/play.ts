@@ -28,7 +28,7 @@ import { CORE_HANDLERS, findEntity } from '../../scenario/runner.js';
 import { lookAngles, type Box, type Vec3 } from '../../core/vec.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { teleport } from '../../script-host/facades.js';
-import { approachSpots, findApproach, type ApproachSpot } from '../../scenario/approach.js';
+import { approachSpots, findApproach, standsAt, type ApproachSpot } from '../../scenario/approach.js';
 import { lookAt, pick } from '../../input/touch.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import { JUMP_PEAK, STEP_HEIGHT } from '../../physics/body.js';
@@ -309,9 +309,17 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
     /**
      * A device round's tap, replayed: stand at `feet`, look at `at` (both blocks from the placement's
      * anchor, the device's pinned corner, as the round's notes give them), tap what the view picks, and
-     * require the part labelled `label` to change: `{ label, feet, at }`. A tap that picks something else
-     * or that the runtime refuses is a `tap-in-plain-view` violation carrying the refusal record
-     * (`craftmatic:ix_refused`: the eyes, the part and the collider cell that cut the line).
+     * require the part labelled `label` to change: `{ label, feet, at, recordedCell? }`. A tap that picks
+     * something else or that the runtime refuses is a `tap-in-plain-view` violation carrying the refusal
+     * record (`craftmatic:ix_refused`: the eyes, the part and the collider cell that cut the line).
+     *
+     * `recordedCell`: the device HUD gave only the block cell, so the pose is every FLOOR-LEVEL legal standing
+     * spot in that cell (`floorLevelInRecordedCell`: feet within `FLOOR_LEVEL_TOLERANCE` of the recorded height -
+     * a spot on a step or a rim higher in the same cell is a different pose), the exact point first when it is
+     * legal itself, each tapped with the recorded aim; the tap must move the part from a strict MAJORITY of them.
+     * With no floor-level legal spot the exact point is replayed as the device stood (inside a collider: the old
+     * pack's case); a tap that then moves the part proves nothing about the device's pose, and the step records
+     * the replay as NOT TESTED (`tapPoseOf(state, label).untested`) for the regression's judge.
      */
     async tapPartFrom(step: AnyStep, ctx: StepContext) {
       const placed = placedOf(ctx), label = String(step['label']);
@@ -321,24 +329,33 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       if (!part) throw new Error(`tapPartFrom: no ${label}`);
       const a = placed.anchor;
       const recorded = { x: a.x + feet.x, y: a.y + feet.y, z: a.z + feet.z };
-      // A device HUD records only the block cell, not the player's fractional pose. For a historical replay whose
-      // exact fractional point is obstructed by a newer, more faithful collider, reconstruct the nearest legal
-      // standing/picking pose in that same recorded x/y/z cell. If the historical pack offers none, retain the exact
-      // supplied point so the old failure remains reproducible. The separately recorded aim stays exact either way.
-      const reconstructed = step['recordedCell'] ? nearestInRecordedCell(approachSpots(ctx.sim.engine, ctx.player, part), recorded) : undefined;
-      teleport(ctx.sim.host, ctx.player, reconstructed?.feet ?? recorded);
-      await ctx.run(4);
-      lookAt(ctx.player, { x: a.x + at.x, y: a.y + at.y, z: a.z + at.z });
+      const rel = (v: Vec3): Vec3 => pt({ x: v.x - a.x, y: v.y - a.y, z: v.z - a.z });
+      const legalExact = standsAt(ctx.sim.engine, ctx.player.dimension, recorded);
+      const poses: Vec3[] = !step['recordedCell'] ? [recorded]
+        : [...(legalExact ? [recorded] : []), ...floorLevelInRecordedCell(approachSpots(ctx.sim.engine, ctx.player, part), recorded).map(s => s.feet)];
+      const replayIllegal = !poses.length;
+      if (replayIllegal) poses.push(recorded);
       const state = (): string => JSON.stringify([part.dynamic.get(IX_KEYS.open), part.properties.get('craftmatic:angle')]);
-      const before = state();
-      const picked = pick(ctx.sim.engine, ctx.player);
-      if (picked.entity) ctx.sim.engine.emit('entityHitEntity', { damagingEntity: ctx.player, hitEntity: picked.entity });
-      await ctx.run(10);
-      const stood = pt({ x: ctx.player.location.x - a.x, y: ctx.player.location.y - a.y, z: ctx.player.location.z - a.z });
-      const refused = part.dynamic.get('craftmatic:ix_refused');
-      if (state() !== before) { ctx.note(`${label}: the tap from ${JSON.stringify(stood)} (anchor-relative) moved it${reconstructed ? `; reconstructed within the recorded HUD block cell from ${JSON.stringify(feet)}` : ''}`); return; }
-      const what = picked.entity === part ? (refused ? `the runtime refused it: ${String(refused)}` : 'it did not move') : `the view picked ${picked.entity?.typeId ?? picked.blockedBy ?? 'nothing'}`;
-      ctx.violate({ invariant: 'tap-in-plain-view', message: `${label}: a tap from ${JSON.stringify(stood)} (anchor-relative) did not move it - ${what}`, evidence: { feet: stood, at, refused: refused === undefined ? null : String(refused) } });
+      const failures: string[] = [];
+      let moved = 0;
+      for (const pose of poses) {
+        teleport(ctx.sim.host, ctx.player, pose);
+        await ctx.run(4);
+        lookAt(ctx.player, { x: a.x + at.x, y: a.y + at.y, z: a.z + at.z });
+        const before = state();
+        const picked = pick(ctx.sim.engine, ctx.player);
+        if (picked.entity) ctx.sim.engine.emit('entityHitEntity', { damagingEntity: ctx.player, hitEntity: picked.entity });
+        await ctx.run(10);
+        if (state() !== before) { moved++; continue; }
+        const refused = part.dynamic.get('craftmatic:ix_refused');
+        const what = picked.entity === part ? (refused ? `the runtime refused it: ${String(refused)}` : 'it did not move') : `the view picked ${picked.entity?.typeId ?? picked.blockedBy ?? 'nothing'}`;
+        failures.push(`from ${JSON.stringify(rel(ctx.player.location))} - ${what}`);
+      }
+      const record: TapPose = { spots: poses.length, moved, exactLegal: legalExact, ...(replayIllegal ? { untested: `no floor-level legal standing spot in the recorded HUD cell of ${JSON.stringify(feet)}; the exact point (inside a collider) was replayed` } : {}) };
+      ctx.state[`tapPose:${label}`] = record;
+      const tally = `${moved} of ${poses.length} ${step['recordedCell'] ? 'floor-level spot(s) in the recorded HUD cell' : 'spot(s)'}${replayIllegal ? ' (the exact, illegal point)' : ''}`;
+      if (moved * 2 > poses.length) { ctx.note(`${label}: the tap moved it from ${tally}`); return; }
+      ctx.violate({ invariant: 'tap-in-plain-view', message: `${label}: a tap moved it from only ${tally}: ${failures.slice(0, 3).join('; ')}`, evidence: { recorded: feet, at, record, failures } });
     },
 
     /**
@@ -396,11 +413,30 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
   };
 }
 
-/** Nearest legal target-picking spot in the same integer block cell a device HUD recorded. */
-export function nearestInRecordedCell(spots: readonly ApproachSpot[], recorded: Vec3): ApproachSpot | undefined {
-  return spots.filter(s => Math.floor(s.feet.x) === Math.floor(recorded.x) && Math.floor(s.feet.y) === Math.floor(recorded.y) && Math.floor(s.feet.z) === Math.floor(recorded.z))
+/**
+ * How far (blocks) a reconstructed standing spot's feet may sit from the recorded height and still be the device's
+ * pose: two collider sixteenths, a plate's top (3/16) against a rounded HUD height. A spot on a rim or a step in the
+ * same block cell (0.68 higher on 10326's Door 3 handrail band) is a different pose, never the device's.
+ */
+export const FLOOR_LEVEL_TOLERANCE = 2 / 16;
+
+/** What `tapPartFrom` tapped from (`ctx.state['tapPose:<label>']`). */
+export interface TapPose { spots: number; moved: number; exactLegal: boolean; untested?: string }
+
+/** The `tapPartFrom` record of a part's tap, if the scenario ran one. */
+export function tapPoseOf(state: Record<string, unknown>, label: string): TapPose | undefined {
+  return state[`tapPose:${label}`] as TapPose | undefined;
+}
+
+/**
+ * Every legal target-picking spot in the integer block cell a device HUD recorded whose feet stand at the recorded
+ * FLOOR level (within `FLOOR_LEVEL_TOLERANCE`), nearest first.
+ */
+export function floorLevelInRecordedCell(spots: readonly ApproachSpot[], recorded: Vec3): ApproachSpot[] {
+  return spots.filter(s => Math.floor(s.feet.x) === Math.floor(recorded.x) && Math.floor(s.feet.z) === Math.floor(recorded.z)
+    && Math.abs(s.feet.y - recorded.y) <= FLOOR_LEVEL_TOLERANCE + 1e-9)
     .sort((p, q) => Math.hypot(p.feet.x - recorded.x, p.feet.y - recorded.y, p.feet.z - recorded.z)
-      - Math.hypot(q.feet.x - recorded.x, q.feet.y - recorded.y, q.feet.z - recorded.z))[0];
+      - Math.hypot(q.feet.x - recorded.x, q.feet.y - recorded.y, q.feet.z - recorded.z));
 }
 
 /**

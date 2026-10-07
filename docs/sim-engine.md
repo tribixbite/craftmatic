@@ -411,13 +411,35 @@ a new refusal the log shows becomes a check there.
 Replay corrections (2026-10-05): `gabby-lift-cap` targets the visible lift
 car, as normal child-play does; its invisible internal seat is not a legal
 touch target. The old pack still fails boarding and the new car carries all
-three trips. `door3-tap-10326` reconstructs the nearest legal standing pose
-within the recorded HUD block cell, preserving the original aim point; the
-former guessed fractional pose intersected real geometry in the newer
-pack. The chosen pose is recorded in the result. If no legal pose exists,
-the original supplied point remains the replay. Neither change suppresses
-the player-in-solid or tap invariants. An unreproduced old symptom is NOT
-TESTED and makes the CLI exit nonzero, regardless of the new pack's result.
+three trips.
+
+**A recorded HUD cell is replayed at its FLOOR, from every legal spot.**
+`tapPartFrom` with `recordedCell` taps from every legal standing spot in the
+recorded block cell whose feet are within `FLOOR_LEVEL_TOLERANCE` (2/16) of
+the recorded height - the exact point first when it is legal - with the
+recorded aim, and the part must move from a strict majority of them. A spot
+higher in the same cell (on a rim, a step, 10326's handrail band 0.68 up) is
+a different pose, never the device's: picking the best one there made the
+case pass from a pose the device never had. With no floor-level legal spot
+the exact point is replayed (inside a collider, as the device stood on the
+old pack); a tap that moves the part from there proves nothing, so the
+judge returns `untested` and the verdict is NOT TESTED.
+
+**Verdicts** (`regressionVerdict`, pure and unit-tested): OK / FAIL when the
+old pack reproduced; NOT TESTED - failing the run - when a side could not
+run, a judge said the device's conditions could not be set up, or the old
+pack did not reproduce without the case knowing why. A case that records
+WHY the simulator cannot reproduce it (`knownUnreproduced` + `limits`) is
+KNOWN-UNREPRODUCED when the current pack passes the scenario: printed apart
+(a line of its own and a banner over the markdown table) and not failing
+the run by itself; its current pack failing is still a FAIL.
+
+**`--runtime=tree`** runs the CURRENT pack's figures/rides/vehicles scripts
+as this tree builds them from the pack's own CONFIG
+(`adapters/craftmatic/runtime-swap.ts`); the old side always runs as the
+device ran it. It measures a runtime fix on the packs a round used without
+re-exporting them (which changes the world too); a fix in the export
+pipeline still needs fresh packs.
 
 `bun scripts/sim.ts --scenario=regressions --new=<current builds>`, run at
 `671f0f3c` over packs built from `449abd0e` (`output/sim-regress-449abd0e/`):
@@ -459,8 +481,30 @@ The replay uses the archived pack's collider structure and aligns the rider
 with the car before the recorded forward/diagonal inputs. Neither ideal
 20 Hz timing nor shorter holds matching the observed movement reproduce
 the fall. The native mounted pose and tick cadence remain unknown; this
-case is **NOT TESTED**, not evidence that the simulator catches the bug.
-Exact archive and transcript paths are in the regression case's evidence.
+case is **KNOWN-UNREPRODUCED**, not evidence that the simulator catches the
+bug. After the route the car is driven under the host test's overhang
+(`driveUnderFixture`, a row of the pack's own collider blocks 1.25 over the
+road), so the current pack is still checked against the geometry that pins
+the fix. Exact archive and transcript paths are in the regression case's
+evidence.
+
+`door3-tap-10326` is **NOT TESTED** on the current 10326 build (278adbf5):
+the recorded cell has no legal standing spot at its floor (0 of 100 points
+on a 0.1 grid at heights 0 to 0.25; every legal spot is on the band 0.875
+up), so the device's pose cannot be stood in - the band that refused the
+device's tap is still a collider over that floor. A shell fix, not a replay
+change, closes it.
+
+## Scenery-seat egress sweep (`scripts/_seat_egress_sweep.ts`)
+
+`bun scripts/_seat_egress_sweep.ts <packs | dir> [--runtime=pack|tree]
+[--sizes=100,150,200,300,400] [--json=] [--md=]` places each pack at each
+size and, for EVERY scenery seat (figures.js `seatTypes`), mounts the player
+(`addRider`), presses Sneak up to three times and judges: OK (off, and a
+forward walk of 8 ticks gets a block in one of four headings), RESEATED or
+STUCK (a trap), FELL (a landing fall over 3 blocks). Each row records how far
+from the seat the player ended (`shift`). Exit 1 on any trap or fall. The
+seats' set-down order is physics spec §4.8.
 
 ## Not modelled (yet), and honest limits
 

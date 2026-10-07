@@ -435,6 +435,37 @@ describe('swept footprint (sweepFootprint)', () => {
     const heights = Math.ceil((13 - 0.1) / FOOTPRINT.SPACING) + 1;
     expect(r.checks).toBeLessThanOrEqual((FOOTPRINT.MAX_POINTS + 8) * heights);
   });
+  describe('probes a vertical move only at the face that leads it (the Pixel paid 20-24 ms of a 50 ms tick for 890 probes)', () => {
+    // The Milano as shipped (76286: noseReach 8.02, halfWidth 15, height 8.48), its ship band at scale k.
+    const milano = (k: number) => ({ halfLength: 8.02 * k, halfWidth: 15 * k, lo: 0.1, hi: 8.48 * k - 0.1 });
+    const at = { x: 0.5, y: 64, z: 0.5, yaw: 0, pitch: 0 };
+    const checks = (band: { halfLength: number; halfWidth: number; lo: number; hi: number }, to: Partial<typeof at>, from: Partial<typeof at> = {}): number =>
+      sweepFootprint({ ...at, ...from }, { ...at, ...to }, band, () => false, FOOTPRINT).checks;
+    /** Perimeter probe points of a band (each edge at <= SPACING, both corners), the count a whole-perimeter, one-level sweep makes. */
+    const perimeterPoints = (band: { halfLength: number; halfWidth: number }): number => {
+      const spacing = Math.max(FOOTPRINT.SPACING, 4 * (band.halfLength + band.halfWidth) / FOOTPRINT.MAX_POINTS);
+      const n = (len: number): number => Math.max(1, Math.ceil(len / spacing)) + 1;
+      return 2 * n(2 * band.halfWidth) + 2 * n(2 * band.halfLength);
+    };
+    it.each([1, 2])('a cruising, climbing Milano at %sx adds at most one probe per perimeter point per pose to its level cruise', k => {
+      const level = checks(milano(k), { z: at.z + 0.9 * k });
+      const climbing = checks(milano(k), { z: at.z + 0.9 * k, y: at.y + 0.05 * k, pitch: 2.1 }, { pitch: 2 });
+      const poses = Math.ceil(Math.hypot(0.9 * k, 0.05 * k) / FOOTPRINT.SWEEP_STEP);
+      expect(climbing).toBeLessThanOrEqual(level + perimeterPoints(milano(k)) * poses);
+      // The measured counts (scripts/_sweep_checks.ts): 916 at 1x and 2,853 at 2x, where every level at every point was 2,376 and 8,040.
+      expect(climbing).toBeLessThan(k === 1 ? 1000 : 3000);
+    });
+    it('a straight drop or lift probes every perimeter point once per pose: the floor going down, the roof going up', () => {
+      const car = { halfLength: 3.49, halfWidth: 2.24, lo: 1.1, hi: 1.69 };
+      expect(checks(car, { y: at.y - 0.4 })).toBe(perimeterPoints(car));
+      expect(checks(car, { y: at.y + 0.4 })).toBe(perimeterPoints(car));
+      // And it is the floor / roof that is probed: a block under the floor stops the drop, one level with the roof the lift.
+      const below = (x: number, y: number): boolean => Math.floor(y) === 64 && Math.abs(x - at.x) < 3;
+      expect(sweepFootprint({ ...at, y: 64.5 }, { ...at, y: 64.5 - 0.4 }, { ...car, lo: 0.6 }, below, FOOTPRINT).blocked).toBe(true);
+      const above = (x: number, y: number): boolean => Math.floor(y) === 66 && Math.abs(x - at.x) < 3;
+      expect(sweepFootprint({ ...at, y: 64 }, { ...at, y: 64.4 }, { ...car, hi: 1.8 }, above, FOOTPRINT).blocked).toBe(true);
+    });
+  });
 });
 
 describe('the collision response (resolveMove): never stuck', () => {

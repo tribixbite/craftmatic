@@ -15,7 +15,7 @@ import { simulateFigureLife, type SimWorld } from '../web/src/sim/adapters/craft
 import { seatBehavior } from '../web/src/engine/playable-addon.js';
 import { RIDE } from '../web/src/engine/bedrock-rides.js';
 import { COLLIDER_BLOCK_ID, COLLIDER_HI_STATE, COLLIDER_LO_STATE } from '../web/src/engine/bedrock-building-shell.js';
-import { COLLIDER_KIT, colliderBodyProbe, type Box16 } from '../web/src/engine/collider-form.js';
+import { COLLIDER_KIT, ESCAPE_OPTIONS, colliderBodyProbe, type Box16 } from '../web/src/engine/collider-form.js';
 import { packText, readAddon, type Addon } from '../web/src/sim/pack/pack.js';
 import { extractJsonAfter } from '../web/src/sim/pack/script-config.js';
 import { runScenario } from '../web/src/sim/scenario/runner.js';
@@ -211,6 +211,53 @@ describe('collider body walk exits', () => {
     expect(walls.hasWalkExit(h.dimension(), q)).toBe(false);
   });
 
+  it('counts a body a little over its floor as landing there, within the allowed fall and through a clear column', () => {
+    const h = simHost({ colliders: true, terrain: solidBelow(0) });
+    const air = { x: 0.5, y: 0.4, z: 0.5 };
+    expect(BODY_PROBE.hasWalkExit(h.dimension(), air)).toBe(false);
+    expect(BODY_PROBE.hasWalkExit(h.dimension(), air, 3)).toBe(true);
+    // Too high to fall unhurt: no landing.
+    expect(BODY_PROBE.hasWalkExit(h.dimension(), { x: 0.5, y: 3.5, z: 0.5 }, 3)).toBe(false);
+  });
+
+  it('walks a route out of the obstruction it starts in, but never through a wall after open floor', () => {
+    const h = simHost({ colliders: true, terrain: solidBelow(0) });
+    h.fill({ x: 0, y: 0, z: -1 }, { x: 0, y: 2, z: 1 }, COLLIDER_BLOCK_ID); // a wall across x = 0..1
+    const west = { x: -1.5, y: 0, z: 0.5 }, east = { x: 2.5, y: 0, z: 0.5 }, inWall = { x: 0.5, y: 0, z: 0.5 };
+    expect(BODY_PROBE.routeClear(h.dimension(), west, { x: -1, y: 0, z: 0.5 }, 3)).toBe(true);
+    expect(BODY_PROBE.routeClear(h.dimension(), west, east, 3)).toBe(false); // through the wall
+    expect(BODY_PROBE.routeClear(h.dimension(), inWall, east, 3)).toBe(true); // out of the wall it starts in
+    h.fill({ x: 3, y: 0, z: -1 }, { x: 3, y: 2, z: 1 }, COLLIDER_BLOCK_ID); // a second wall beyond open floor
+    expect(BODY_PROBE.routeClear(h.dimension(), inWall, { x: 4.5, y: 0, z: 0.5 }, 3)).toBe(false);
+  });
+
+  describe('escape (the last resort)', () => {
+    it('walks off a pin\'s top (no walk exit: every step off it is a drop) to the first floor with one', () => {
+      // Every collider here is a 1/16 pin a block tall; a body balanced on its top has no one-block route.
+      const pins = shapedProbe([[7.5, 8.5, 0, 16, 7.5, 8.5]]);
+      const h = simHost({ colliders: true, terrain: solidBelow(0) });
+      h.setBlock(0, 0, 0, COLLIDER_BLOCK_ID, { [COLLIDER_LO_STATE]: 0, [COLLIDER_HI_STATE]: 16 });
+      const top = { x: 0.5, y: 1, z: 0.5 };
+      expect(pins.hasWalkExit(h.dimension(), top)).toBe(false);
+      const r = pins.escape(h.dimension(), top, { ...ESCAPE_OPTIONS, seedReach: 0.5 });
+      expect(r?.how).toBe('walk');
+      expect(r?.at.y).toBe(0);
+      expect(pins.hasWalkExit(h.dimension(), r!.at)).toBe(true);
+    });
+    it('takes a sealed pocket to the ground outside, not onto the top of its own wall', () => {
+      const h = simHost({ colliders: true, terrain: solidBelow(0) });
+      for (let x = -1; x <= 1; x++) for (let z = -1; z <= 1; z++) if (x || z) h.fill({ x, y: 0, z }, { x, y: 1, z }, COLLIDER_BLOCK_ID);
+      const r = BODY_PROBE.escape(h.dimension(), { x: 0.5, y: 0, z: 0.5 }, ESCAPE_OPTIONS);
+      expect(r).toMatchObject({ how: 'exterior', at: { x: 2.5, y: 0, z: 0.5 } });
+    });
+    it('takes a roof only when no ring has a floor at the seat\'s level, and finds nothing in a void', () => {
+      const roofOnly = simHost({ colliders: true });
+      roofOnly.fill({ x: -3, y: 0, z: -3 }, { x: 3, y: 2, z: 3 }, COLLIDER_BLOCK_ID);
+      expect(BODY_PROBE.escape(roofOnly.dimension(), { x: 0.5, y: 0, z: 0.5 }, ESCAPE_OPTIONS)).toMatchObject({ how: 'exterior', at: { y: 3 } });
+      expect(BODY_PROBE.escape(simHost({ colliders: true }).dimension(), { x: 0.5, y: 0, z: 0.5 }, ESCAPE_OPTIONS)).toBeUndefined();
+    });
+  });
+
   it('lets settle reject a nearer trapped point without changing its default choice', () => {
     const h = simHost({ colliders: true, terrain: solidBelow(0) });
     const at = { x: 0.5, y: 0, z: 0.5 };
@@ -265,10 +312,11 @@ describe('the serialised runtime', () => {
     expect(h.lines('actionbar', 'Rider')).toEqual([]);
   });
 
-  it('searches past a body-free but sealed native scenery-seat fallback', () => {
+  it('takes a sealed pocket\'s seat out to the ground beyond it, never through its wall and never onto its wall\'s top', () => {
     const h = seatSafetyHost();
-    // Unlike the occupied-body fixture above, the centre fits a standing
-    // player. Its surrounding walls still prevent walking out of that cell.
+    // The centre fits a standing player; the ring around it (two blocks high) seals it. Nothing within reach is
+    // walk-connected to the pocket, so the last resort is the exterior: the ground at the first ring outside
+    // (x 2.5), not the ring's own top one block out (a roof two blocks over the seat's level).
     for (let x = -1; x <= 1; x++) for (let z = -1; z <= 1; z++) {
       if (x || z) h.fill({ x, y: 0, z }, { x, y: 1, z }, COLLIDER_BLOCK_ID);
     }
@@ -279,56 +327,112 @@ describe('the serialised runtime', () => {
     h.controls(player, { sneak: true }); h.run(1); h.controls(player, { sneak: false });
     expect(player.ridingOn).toBeUndefined();
     expect(player.location).toMatchObject({ x: 2.5, y: 0, z: 0.5 });
+    expect(h.lines('actionbar', 'Rider')).toEqual([]);
     player.rotation.y = -90; // walk farther east, away from the ring
     h.controls(player, { forward: 1 }); h.run(20);
     expect(player.location.x).toBeGreaterThan(3.5);
   });
 
-  it('re-seats when no bounded safe floor exists, and leaves a transfer to another mount alone', () => {
+  it('never re-seats a player whose seat is inside a solid block when ground exists outside it (the 10326 / 910004 traps)', () => {
     const h = seatSafetyHost();
     h.fill({ x: -3, y: 0, z: -3 }, { x: 3, y: 2, z: 3 }, COLLIDER_BLOCK_ID);
     const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
-    const other = h.spawn('craftmatic:other_seat', { x: 8.5, y: 0, z: 0.5 });
     const player = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
     h.seat(player, seat); h.run(1);
     h.controls(player, { sneak: true }); h.run(1); h.controls(player, { sneak: false });
-    expect(player.ridingOn).toBe(seat);
-    expect(h.lines('actionbar', 'Rider')).toContain('No safe place to get off here');
-    h.unseat(player); h.seat(player, other); h.run(1);
-    expect(player.ridingOn).toBe(other);
-    expect(player.location).toMatchObject({ x: other.location.x, z: other.location.z });
+    expect(player.ridingOn).toBeUndefined();
+    expect(h.lines('actionbar', 'Rider')).toEqual([]);
+    // On the ground beside the 7 x 7 block (its top, three blocks over the seat, is a roof: not chosen).
+    expect(player.location.y).toBe(0);
+    expect(Math.max(Math.abs(player.location.x - 0.5), Math.abs(player.location.z - 0.5))).toBeGreaterThan(3.3);
+    expect(BODY_PROBE.hasWalkExit(h.dimension(), player.location)).toBe(true);
   });
 
-  it('does not mistake a body-free point with no floor for a safe landing', () => {
-    const h = simHost({
-      script: figureLifeScript(seatSafetyConfig), colliders: true,
-      entities: { 'craftmatic:a_seat': seatBehavior('a_seat') as Record<string, unknown> },
-    });
+  /**
+   * A void: nothing anywhere a body can stand. Any block at all would do as a floor - even a 1 x 1 plinth's top is
+   * a walk exit across itself for a 0.6-wide body, and a sealed box's roof is an exterior floor - so only a world
+   * with no floor (or none loaded) leaves the watcher nothing but the seat.
+   */
+  const voidHost = () => simHost({
+    script: figureLifeScript(seatSafetyConfig), colliders: true,
+    entities: {
+      'craftmatic:a_seat': seatBehavior('a_seat') as Record<string, unknown>,
+      'craftmatic:other_seat': seatBehavior('other_seat') as Record<string, unknown>,
+    },
+  });
+
+  it('re-seats only when nothing walkable exists, at most twice in a row under a held Sneak, and leaves a transfer alone', () => {
+    const h = voidHost();
+    const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
+    const other = h.spawn('craftmatic:other_seat', { x: 0.5, y: 0, z: 2.5 });
+    const player = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    h.seat(player, seat); h.run(1);
+    // Each press: Bedrock sets the player down in the air over nothing, so it is re-seated - twice. The third press in a row is left where Bedrock put it (a held Sneak must not loop seat, off, seat).
+    for (const expected of [seat, seat, undefined]) {
+      h.controls(player, { sneak: true }); h.run(1); h.controls(player, { sneak: false }); h.run(1);
+      expect(player.ridingOn).toBe(expected);
+    }
+    expect(h.lines('actionbar', 'Rider').filter(l => l === 'No safe place to get off here')).toHaveLength(2);
+    expect(h.lines('console').some(l => l.includes('after 2 re-seats'))).toBe(true);
+    // A transfer to another mount is never pulled back.
+    h.seat(player, seat); h.run(1);
+    h.unseat(player); h.seat(player, other); h.run(1);
+    expect(player.ridingOn).toBe(other);
+  });
+
+  it('leaves a deliberate move out of the seat alone (a /tp more than 2 blocks away)', () => {
+    const h = seatSafetyHost();
+    h.fill({ x: -3, y: 0, z: -3 }, { x: 3, y: 2, z: 3 }, COLLIDER_BLOCK_ID);
     const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
     const player = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
     h.seat(player, seat); h.run(1);
-    // The remembered seat point is empty air. Move the live seat and rider into
-    // a collider before the next tick so settle returns that floorless point.
-    seat.location = { x: 10.5, y: 0, z: 0.5 };
-    h.unseat(player); player.location = { x: 10.5, y: 0.2, z: 0.5 };
-    h.setBlock(10, 0, 0, COLLIDER_BLOCK_ID);
+    // Teleported 11 blocks off the seat into a sealed pocket of its own (no walk exit there either): not Bedrock's
+    // set-down, so nothing is searched or re-seated - the move was meant.
+    for (let x = 10; x <= 12; x++) for (let z = -1; z <= 1; z++) if (x !== 11 || z !== 0) h.fill({ x, y: 0, z }, { x, y: 1, z }, COLLIDER_BLOCK_ID);
+    h.unseat(player); const tp = { x: 11.5, y: 0, z: 0.5 }; player.location = { ...tp };
+    h.run(1);
+    expect(player.ridingOn).toBeUndefined();
+    expect(player.location).toEqual(tp);
+  });
+
+  it('accepts a set-down a little over a walkable floor: the body lands on it a tick later', () => {
+    const h = seatSafetyHost();
+    const seat = h.spawn('craftmatic:a_seat', { x: 5.5, y: 0, z: 5.5 });
+    const player = h.addPlayer('Rider', { x: 5.5, y: 0, z: 5.5 });
+    h.seat(player, seat); h.run(1);
+    // Set down a block aside and 0.4 up, in the air over open floor: it lands there. The watcher must not judge it
+    // unsupported and move it back to the seat (the 1/16 floor test alone did).
+    h.unseat(player); player.location = { x: 6.5, y: 0.4, z: 5.5 };
+    h.run(1);
+    expect(player.location.x).toBe(6.5);
+    expect(player.location.z).toBe(5.5);
+    expect(h.lines('actionbar', 'Rider')).toEqual([]);
+  });
+
+  it('does not mistake a body-free point with no floor for a safe landing', () => {
+    const h = voidHost();
+    const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
+    const player = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    h.seat(player, seat); h.run(1);
+    // Set down beside the seat over the void: body-free, but nothing under it to land on.
+    h.unseat(player); player.location = { x: 1.5, y: 0, z: 0.5 };
     h.run(1);
     expect(player.ridingOn).toBe(seat);
     expect(h.lines('actionbar', 'Rider')).toContain('No safe place to get off here');
   });
 
   it('preserves an unresolved pose when the remembered seat was taken, and ignores cross-dimension exits', () => {
-    const h = seatSafetyHost();
-    h.fill({ x: -3, y: 0, z: -3 }, { x: 3, y: 2, z: 3 }, COLLIDER_BLOCK_ID);
+    const h = voidHost();
     const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
     const rider = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
-    const taker = h.addPlayer('Taker', { x: 8.5, y: 0, z: 0.5 });
+    const taker = h.addPlayer('Taker', { x: 0.5, y: 0, z: 8.5 });
     h.seat(rider, seat); h.run(1);
     h.unseat(rider); h.seat(taker, seat);
-    const unresolved = { x: 0.5, y: 0.2, z: 0.5 }; rider.location = { ...unresolved };
+    const unresolved = { x: 0.5, y: 0.2, z: 1.5 }; rider.location = { ...unresolved };
     h.run(1);
     expect(rider.ridingOn).toBeUndefined();
-    expect(rider.location).toEqual(unresolved);
+    expect(rider.location.x).toBe(unresolved.x);
+    expect(rider.location.z).toBe(unresolved.z);
     expect(h.lines('console').some(l => l.includes('[craftmatic seat] no safe dismount'))).toBe(true);
 
     h.unseat(taker); h.seat(rider, seat); h.run(1);

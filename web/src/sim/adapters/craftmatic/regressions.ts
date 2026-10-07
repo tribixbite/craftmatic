@@ -9,9 +9,10 @@
 
 import type { Scenario, Step } from '../../scenario/types.js';
 import type { ScenarioResult } from '../../scenario/runner.js';
+import type { RegressionRow } from '../../scenario/report.js';
 import type { CraftmaticPack } from './pack-facts.js';
 import { CRAFTMATIC_ALLOWED_LINES } from './child-play.js';
-import { doorwayFindings } from './play.js';
+import { doorwayFindings, tapPoseOf } from './play.js';
 
 /** What the current tree's pack should do. */
 export type Expectation = 'pass' | 'reproduce-as-model';
@@ -28,10 +29,50 @@ export interface RegressionCase {
   newStem: string;
   expectNew: Expectation;
   scenario(pack: CraftmaticPack): Scenario;
-  /** Whether a result shows the fault, with the evidence line. */
-  judge(result: ScenarioResult, pack: CraftmaticPack): { reproduced: boolean; attribution?: 'model' | 'pack'; evidence: string };
+  /**
+   * Whether a result shows the fault, with the evidence line. `untested`: the run could not put the device's
+   * conditions in place (no legal pose matching the recorded one), so a clean result proves nothing.
+   */
+  judge(result: ScenarioResult, pack: CraftmaticPack): { reproduced: boolean; attribution?: 'model' | 'pack'; evidence: string; untested?: string };
   /** Why the simulator cannot reproduce it, when that is known up front (a missing engine behaviour). */
   limits?: string;
+  /**
+   * The old pack is KNOWN not to reproduce in the simulator (`limits` says why). Its verdict is then
+   * KNOWN-UNREPRODUCED - listed on its own, not failing the run by itself - provided the current tree's pack
+   * passes the same scenario; a new-pack failure is still a FAIL.
+   */
+  knownUnreproduced?: boolean;
+}
+
+/** One side's outcome as the CLI hands it to the verdict (an error when the pack could not be run). */
+export type RegressionSide = RegressionRow['old'];
+
+/** A case's verdict and how it counts: `failing` cases exit the run 1; `known` ones are listed apart. */
+export interface RegressionVerdict { verdict: string; failing: boolean; notTested: boolean; known: boolean }
+
+/**
+ * The verdict of one regression case from its two sides (pure, so the rules are unit-tested):
+ *   - NOT TESTED: a side could not run, a side's judge said the conditions were not met, or the old pack did not
+ *     reproduce and the case does not know why - fails the run (an unproven case is never a pass);
+ *   - KNOWN-UNREPRODUCED: the old pack does not reproduce for a reason the case records (`knownUnreproduced`) and the
+ *     new pack passes the scenario - does not fail the run, and is listed apart;
+ *   - OK / FAIL: the old pack reproduced and the new one met (or missed) `expectNew`; a known-unreproduced case
+ *     whose new pack fails is a FAIL too.
+ */
+export function regressionVerdict(c: Pick<RegressionCase, 'expectNew' | 'limits' | 'knownUnreproduced'>, oldR: RegressionSide, newR: RegressionSide): RegressionVerdict {
+  if ('error' in oldR || 'error' in newR) {
+    const why = [['old', oldR] as const, ['new', newR] as const].flatMap(([side, r]) => ('error' in r ? [`${side}: ${r.error}`] : []));
+    return { verdict: `NOT TESTED (${why.join('; ')})`, failing: true, notTested: true, known: false };
+  }
+  const o = oldR, n = newR;
+  if (n.untested) return { verdict: `NOT TESTED (new: ${n.untested})`, failing: true, notTested: true, known: false };
+  const newOk = c.expectNew === 'pass' ? n.status === 'pass' && !n.reproduced : n.reproduced && n.attribution === 'model';
+  if (!o.reproduced) {
+    if (c.knownUnreproduced && newOk) return { verdict: `KNOWN-UNREPRODUCED (${c.limits ?? 'not reproduced on the old pack'}; the current pack passes the scenario)`, failing: false, notTested: false, known: true };
+    if (c.knownUnreproduced) return { verdict: 'FAIL (the current pack fails a case the old pack does not reproduce)', failing: true, notTested: false, known: false };
+    return { verdict: `NOT TESTED (not reproduced on the old pack${o.untested ? `: ${o.untested}` : ''}${c.limits ? `; ${c.limits}` : ''})`, failing: true, notTested: true, known: false };
+  }
+  return newOk ? { verdict: 'OK', failing: false, notTested: false, known: false } : { verdict: 'FAIL', failing: true, notTested: false, known: false };
 }
 
 const ROUND = 'C:/git/craftmatic/output';
@@ -128,11 +169,16 @@ export const REGRESSIONS: RegressionCase[] = [
             return undefined;
           },
         },
+        // The host test's overhang (test/bedrock-vehicle.test.ts "drives a low car under an overhang"), laid in
+        // front of the car and driven under: the geometry that pins the fix. The old pack does not fall here
+        // either, but the CURRENT pack must not - the coverage the route replay alone does not give.
+        { kind: 'driveUnderFixture', type: pack.vehicleTypes[0] ?? '-' },
       ],
       allowLines: allow,
     }),
-    judge: r => { const v = violated(r, 'nothing-below-ground'); return { reproduced: !!v, evidence: v ?? (r.notes.filter(n => /archived 10797 (route|forward|diagonal)/.test(n)).join(' / ') || 'the archived route produced no below-ground violation') }; },
+    judge: r => { const v = violated(r, 'nothing-below-ground'); return { reproduced: !!v, evidence: v ?? (r.notes.filter(n => /archived 10797 (route|forward|diagonal)|fixture/.test(n)).join(' / ') || 'the archived route and the fixture produced no below-ground violation') }; },
     limits: 'the archived pack replay uses the recovered route, but the simulator does not reproduce the Saga fall; the native mounted-player pose and native tick cadence under device load were not recorded',
+    knownUnreproduced: true,
   },
   {
     id: 'gabby-car-eye', title: '10797 car: the driver\'s eye is inside the bodywork (0 of 15 forward rays clear)',
@@ -212,11 +258,17 @@ export const REGRESSIONS: RegressionCase[] = [
     // centre 5386.5,-58.8,5382.35. The spot is inside the collider band (`collider_w10`, z 2..2.75 over y 1..2)
     // that a tilted handrail's bounding box leaves at head height; the device let the player stand there
     // (its Position read 5384,-60,5382), and every line of sight started inside it.
-    // The HUD gives a block cell, not the fractional pose. Reconstruct a legal standing point within the recorded
-    // x/y/z cell on a newer collider while preserving the exact historical aim; the old pack has no such point and
-    // therefore replays the supplied point and refusal.
+    // The HUD gives a block cell, not the fractional pose: the tap is made from every FLOOR-LEVEL legal standing
+    // spot in that cell (a spot on the handrail band 0.68 higher is not the device's pose) with the exact historical
+    // aim, and must move the door from a majority of them. The old pack has none - the exact point stands inside the
+    // band - so it replays the supplied point and its refusal; a current pack with none is NOT TESTED.
     scenario: () => ({ name: 'door3-tap-10326', steps: [...place, { kind: 'tapPartFrom', label: 'Door 3', feet: { x: 4.6, y: 0.2, z: 2.4 }, at: { x: 6.5, y: 1.2, z: 2.35 }, recordedCell: true }], allowLines: allow }),
-    judge: r => { const v = violated(r, 'tap-in-plain-view'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /Door 3: the tap/.test(n)) ?? 'no tap note') }; },
+    judge: r => {
+      const v = violated(r, 'tap-in-plain-view'), pose = tapPoseOf(r.state, 'Door 3');
+      if (v) return { reproduced: true, evidence: v };
+      const evidence = r.notes.find(n => /Door 3: the tap/.test(n)) ?? 'no tap note';
+      return pose?.untested ? { reproduced: false, evidence, untested: pose.untested } : { reproduced: false, evidence };
+    },
   },
   {
     id: 'door3-910004', title: '910004 Door 3: walking out stops one cell before the doorway on a collider at head height',

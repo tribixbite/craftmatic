@@ -218,14 +218,67 @@ export const COLLIDER_KIT: ColliderFormKit = colliderFormKit();
 /** Number of collider variants (43): block ids the pack defines. */
 export const COLLIDER_VARIANT_COUNT = COLLIDER_KIT.VARIANTS.length;
 
+/** The bounds of `ColliderBodyProbe.escape`, blocks unless named otherwise (`ESCAPE` gives the shipped values). */
+export interface EscapeOptions {
+  /** How far from `from` the flood's seeds may lie: points the body steps out to from where it sat. */
+  seedReach: number;
+  /** How far from `from` the flood walks. */
+  radius: number;
+  /** Lattice points the flood visits at most (its cost bound: the escape runs inside one game tick). */
+  maxNodes: number;
+  /** How far a walk may drop onto a floor below (a fall without damage). */
+  drop: number;
+  /** How far out the exterior rays reach. */
+  exteriorReach: number;
+  /** How far over `from` an exterior floor must be open to the sky, and how far below `from` it may lie. */
+  headroom: number;
+  depth: number;
+}
+
+/**
+ * The shipped escape bounds (§9 of docs/physics-architecture.md). `SEED_REACH` is the ride set-down reach
+ * (`RIDE.SETDOWN_REACH_BLOCKS`, 10797's nearest landing is 2 blocks from its terminal); `RADIUS` 16 covers a
+ * 400 % room (a 4-block room at 100 %); `MAX_NODES` 600 half-block cells is a 12 x 12-block floor, a few tens of
+ * thousands of cached block reads on the one tick a dismount fails; `DROP` 3 is the no-damage fall the rides use;
+ * `EXTERIOR_REACH` 64 is past the half-width of the widest favourite at 400 % (10326's 31 blocks x 4 / 2);
+ * `HEADROOM` 32 / `DEPTH` 96 span every favourite's height at 400 % above and below a seat.
+ */
+export const ESCAPE = { SEED_REACH: 2, RADIUS: 16, MAX_NODES: 600, DROP: 3, EXTERIOR_REACH: 64, HEADROOM: 32, DEPTH: 96 } as const;
+
+/** `ESCAPE` as the probe's options. */
+export const ESCAPE_OPTIONS: EscapeOptions = {
+  seedReach: ESCAPE.SEED_REACH, radius: ESCAPE.RADIUS, maxNodes: ESCAPE.MAX_NODES, drop: ESCAPE.DROP,
+  exteriorReach: ESCAPE.EXTERIOR_REACH, headroom: ESCAPE.HEADROOM, depth: ESCAPE.DEPTH,
+};
+
 /** What a runtime asks of a standing body over the pack's colliders (`colliderBodyProbe`). */
 export interface ColliderBodyProbe {
   /** Whether a 0.6 x 1.8 body with its feet at `q` meets no collider form box and no other non-air block (unloaded counts as solid). */
   bodyFree(dim: any, q: { x: number; y: number; z: number }): boolean;
   /** The highest collision top under the body's footprint at (x, z), at most `fromY` and at least `fromY - depth`; undefined for none. */
   floorTop(dim: any, x: number, z: number, fromY: number, depth: number): number | undefined;
-  /** Whether `q` is a supported, body-free standing point with a swept one-block walking exit in one of the eight compass directions. */
-  hasWalkExit(dim: any, q: { x: number; y: number; z: number }): boolean;
+  /**
+   * Whether `q` is a supported, body-free standing point with a swept one-block walking exit in one of the eight
+   * compass directions. A body still in the air at `q` (a dismount set it a little up; it lands a tick or two
+   * later) counts when it falls at most `fall` blocks (default 0), through a clear column, onto such a point.
+   */
+  hasWalkExit(dim: any, q: { x: number; y: number; z: number }, fall?: number): boolean;
+  /**
+   * Whether a body WALKS from `from` to `to` in a straight line: sampled every 1/8 block, each sample's floor within a
+   * step up and `drop` down of the last and the body free on it. A start inside an obstruction (a seat in its chair,
+   * a slide's run-out against bodywork) may first leave it; once free the line may not enter an obstruction again,
+   * so a point beyond a wall is never reached THROUGH the wall. The end must be free.
+   */
+  routeClear(dim: any, from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }, drop: number): boolean;
+  /**
+   * The last-resort way out from `from` when no nearby point has a walk exit (`ESCAPE`): first the nearest standing
+   * point WALK-CONNECTED to it (a breadth-first flood on a half-block lattice, every edge a `routeClear` walk, seeded
+   * by the points within `seedReach` the body can step out to) that has a walk exit; else the model's EXTERIOR - the
+   * nearest ring, along sixteen rays, holding a floor open to the sky over it with a walk exit at or under `from`'s
+   * level, its lowest such floor (a roof over that level only when no ring has one). Undefined when neither exists
+   * (an unloaded world, a void).
+   */
+  escape(dim: any, from: { x: number; y: number; z: number }, o: EscapeOptions): { at: { x: number; y: number; z: number }; how: 'walk' | 'exterior' } | undefined;
   /**
    * The nearest spot to `at` where a body stands FREE on a floor: the point itself lifted within a step
    * (9/16) out of a floor it sits in, else the nearest point on rings out to `reach` blocks (a floor within a
@@ -248,9 +301,15 @@ export interface ColliderBodyProbe {
  */
 export function colliderBodyProbe(kit: ColliderFormKit, loState: string, hiState: string): ColliderBodyProbe {
   const HALF = 0.3, HEIGHT = 1.8, STEP = 9 / 16;
-  // A half-block diagonal fits inside a sealed one-cell pocket when the
-  // starting point is near a corner. Require a whole cell of actual egress.
-  const FLOOR_TOLERANCE = 1 / 16, EXIT_DISTANCE = 1, EXIT_SAMPLE = 0.125;
+  // The walk exit (docs/physics-architecture.md §9, "Collider body probe"):
+  //   FLOOR_TOLERANCE 1/16 - a body stands ON its floor within one collider sixteenth: forms and their tops are
+  //     quantised to sixteenths, so a finer tolerance rejects a real floor and a coarser one accepts a hover;
+  //   EXIT_DISTANCE 1 - the exit is a whole block: a half-block diagonal fits inside a sealed one-cell pocket
+  //     when the start is near a corner (10796's slide pocket), a whole cell of walking does not;
+  //   EXIT_SAMPLE 1/8 - the route is sampled far under the 0.6-block body width, so consecutive sampled bodies
+  //     overlap and no wall, however thin, slips between two of them; and each 1/8 rise or fall is judged on
+  //     its own against the 9/16 step, so a kerb is not averaged away.
+  const FLOOR_TOLERANCE = 0.0625, EXIT_DISTANCE = 1, EXIT_SAMPLE = 0.125;
   /** The world boxes of the block at (bx, by, bz): a collider's form boxes, a full box for any other non-air block, [] for air; undefined when unloaded. */
   const boxesAt = (dim: any, bx: number, by: number, bz: number): Array<[number, number, number, number, number, number]> | undefined => {
     let b: any;
@@ -284,10 +343,25 @@ export function colliderBodyProbe(kit: ColliderFormKit, loState: string, hiState
     }
     return top;
   };
-  const hasWalkExit = (dim: any, q: { x: number; y: number; z: number }): boolean => {
-    if (!bodyFree(dim, q)) return false;
+  /**
+   * Where a body at `q` comes to stand: `q` on its floor (within a sixteenth), else - for a body in the air - the
+   * floor at most `fall` under it, the body free all the way down (checked a block at a time: the 1.8-block body
+   * overlaps every step). Undefined for neither.
+   */
+  const landing = (dim: any, q: { x: number; y: number; z: number }, fall: number): { x: number; y: number; z: number } | undefined => {
+    if (!bodyFree(dim, q)) return undefined;
     const support = floorTop(dim, q.x, q.z, q.y + FLOOR_TOLERANCE, FLOOR_TOLERANCE * 2);
-    if (support === undefined || Math.abs(support - q.y) > FLOOR_TOLERANCE) return false;
+    if (support !== undefined && Math.abs(support - q.y) <= FLOOR_TOLERANCE) return q;
+    if (!(fall > 0)) return undefined;
+    const top = floorTop(dim, q.x, q.z, q.y, fall);
+    if (top === undefined) return undefined;
+    for (let y = q.y - 1; y > top; y--) if (!bodyFree(dim, { x: q.x, y, z: q.z })) return undefined;
+    const at = { x: q.x, y: top, z: q.z };
+    return bodyFree(dim, at) ? at : undefined;
+  };
+  const hasWalkExit = (dim: any, q0: { x: number; y: number; z: number }, fall = 0): boolean => {
+    const q = landing(dim, q0, fall);
+    if (!q) return false;
     const directions = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
     const samples = Math.ceil(EXIT_DISTANCE / EXIT_SAMPLE);
     for (const d of directions) {
@@ -303,6 +377,102 @@ export function colliderBodyProbe(kit: ColliderFormKit, loState: string, hiState
       if (open) return true;
     }
     return false;
+  };
+  const routeClear = (dim: any, from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }, drop: number): boolean => {
+    const n = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / EXIT_SAMPLE));
+    let y = from.y, free = bodyFree(dim, from);
+    for (let i = 1; i <= n; i++) {
+      const x = from.x + (to.x - from.x) * i / n, z = from.z + (to.z - from.z) * i / n;
+      const floor = floorTop(dim, x, z, y + STEP, STEP + drop);
+      if (floor !== undefined && bodyFree(dim, { x, y: floor, z })) { y = floor; free = true; continue; }
+      // Blocked here: still leaving the obstruction the start sat in, or a wall met after open floor.
+      if (free) return false;
+    }
+    return free;
+  };
+  const escape = (dim0: any, from: { x: number; y: number; z: number }, o: EscapeOptions): { at: { x: number; y: number; z: number }; how: 'walk' | 'exterior' } | undefined => {
+    // One escape reads the same blocks many times over: memoise them for this call only (the world may change by the next tick).
+    const memo = new Map<string, any>();
+    const dim = { getBlock: (p: { x: number; y: number; z: number }): any => {
+      const k = `${p.x},${p.y},${p.z}`;
+      if (memo.has(k)) return memo.get(k);
+      let b: any;
+      try { b = dim0.getBlock(p); } catch { b = undefined; }
+      memo.set(k, b);
+      return b;
+    } };
+    // 1. The walk-connected flood on a half-block lattice about `from`.
+    const G = 0.5, R = Math.ceil(o.radius / G), S = o.seedReach / G;
+    const standAt = (x: number, z: number, nearY: number): { x: number; y: number; z: number } | undefined => {
+      const t = floorTop(dim, x, z, nearY + STEP, STEP + o.drop);
+      if (t === undefined) return undefined;
+      const q = { x, y: t, z };
+      return bodyFree(dim, q) ? q : undefined;
+    };
+    const queue: Array<{ i: number; k: number; q: { x: number; y: number; z: number } }> = [];
+    const seen = new Set<string>();
+    const seeds: Array<{ i: number; k: number; d: number }> = [];
+    for (let i = -Math.ceil(S); i <= Math.ceil(S); i++) for (let k = -Math.ceil(S); k <= Math.ceil(S); k++) {
+      const d = Math.hypot(i, k);
+      if (d <= S + 1e-9) seeds.push({ i, k, d });
+    }
+    seeds.sort((a, b) => a.d - b.d);
+    for (const s of seeds) {
+      const q = standAt(from.x + s.i * G, from.z + s.k * G, from.y);
+      if (!q || !routeClear(dim, from, q, o.drop)) continue;
+      seen.add(`${s.i},${s.k}`);
+      queue.push({ i: s.i, k: s.k, q });
+    }
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+    for (let head = 0; head < queue.length && head < o.maxNodes; head++) {
+      const c = queue[head]!;
+      if (hasWalkExit(dim, c.q)) return { at: c.q, how: 'walk' };
+      for (const d of dirs) {
+        const i = c.i + d[0]!, k = c.k + d[1]!, key = `${i},${k}`;
+        if (seen.has(key) || Math.hypot(i, k) > R) continue;
+        const q = standAt(from.x + i * G, from.z + k * G, c.q.y);
+        if (!q || !routeClear(dim, c.q, q, o.drop)) continue;
+        seen.add(key);
+        queue.push({ i, k, q });
+      }
+    }
+    // 2. The exterior: along sixteen rays, ring by ring, the highest floor under each column, open over it up to
+    //    `headroom` above `from` (nothing of the model overhead), with a walk exit; the lowest of a ring's floors
+    //    (the ground beside the model rather than a roof).
+    const footprintBoxes = (x: number, z: number, by: number): number | undefined | null => {
+      // The top of the highest box in block layer `by` under a body's footprint at (x, z); null for none; undefined unloaded.
+      let top: number | null = null;
+      for (let bx = Math.floor(x - HALF); bx <= Math.floor(x + HALF); bx++) for (let bz = Math.floor(z - HALF); bz <= Math.floor(z + HALF); bz++) {
+        const boxes = boxesAt(dim, bx, by, bz);
+        if (!boxes) return undefined;
+        for (const w of boxes) if (w[1] > x - HALF && w[0] < x + HALF && w[5] > z - HALF && w[4] < z + HALF && (top === null || w[3] > top)) top = w[3];
+      }
+      return top;
+    };
+    const skyFloor = (x: number, z: number): number | undefined => {
+      for (let by = Math.floor(from.y + o.headroom); by >= Math.floor(from.y - o.depth); by--) {
+        const top = footprintBoxes(x, z, by);
+        if (top === undefined) { if (by < from.y) return undefined; continue; } // unloaded overhead reads as sky; underfoot it is no floor
+        if (top !== null) return top;
+      }
+      return undefined;
+    };
+    // A floor more than a step over `from` is a roof (the top of the very wall that sealed the pocket, at the first
+    // ring): it is taken only when no ring out to `exteriorReach` holds a floor at or under the seat's level.
+    let roof: { x: number; y: number; z: number } | undefined;
+    for (let r = 1; r <= o.exteriorReach; r++) {
+      let best: { x: number; y: number; z: number } | undefined;
+      for (let a = 0; a < 16; a++) {
+        const t = (a / 16) * Math.PI * 2, x = from.x + Math.cos(t) * r, z = from.z + Math.sin(t) * r;
+        const y = skyFloor(x, z);
+        if (y === undefined) continue;
+        const q = { x, y, z };
+        if (y > from.y + STEP) { if (!roof && hasWalkExit(dim, q)) roof = q; continue; }
+        if ((!best || y < best.y) && hasWalkExit(dim, q)) best = q;
+      }
+      if (best) return { at: best, how: 'exterior' };
+    }
+    return roof ? { at: roof, how: 'exterior' } : undefined;
   };
   const settle = (
     dim: any,
@@ -328,7 +498,7 @@ export function colliderBodyProbe(kit: ColliderFormKit, loState: string, hiState
     }
     return at;
   };
-  return { bodyFree, floorTop, hasWalkExit, settle };
+  return { bodyFree, floorTop, hasWalkExit, routeClear, escape, settle };
 }
 
 // ─── The blocks' definitions (the pack's `blocks/*.json`) ─────────────────────

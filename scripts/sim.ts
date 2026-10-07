@@ -7,6 +7,8 @@
  *   bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|<file.ts>]
  *        [--json=<out.json>] [--md=<out.md>] [--quick] [--only=<scenario substring>] [--shots=<dir>]
  *        [--new=<dir>]   (regressions: the current tree's packs, `<dir>/<stem>.mcaddon`)
+ *        [--runtime=pack|tree]   (tree: each pack's figures/rides/vehicles scripts rebuilt from its own
+ *                                 CONFIG with THIS tree's runtimes; regressions: the new side only)
  *   bun scripts/sim.ts --scenario=hop --coaster=<10261> --flyer=<nimbus> [--car=<42639>|same] [--slide=<10788>] [--json=] [--md=]
  *
  *   child-play   (default) every craftmatic pack's generated scenarios: place at
@@ -26,7 +28,9 @@
  *                the figures lived) and writes them there as PNG.
  *
  * Exit 1 for a failed, errored or unmodelled scenario, an unreadable pack,
- * a regression verdict FAIL / NOT TESTED, or no applicable selected cases.
+ * a regression verdict FAIL / NOT TESTED, or no applicable selected cases. A
+ * KNOWN-UNREPRODUCED regression (the case records why the simulator cannot show
+ * the device bug, and the current pack passes) is listed apart and does not.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import sharp from 'sharp';
@@ -37,7 +41,8 @@ import { runScenario, type ScenarioResult } from '../web/src/sim/scenario/runner
 import { markdownReport, regressionMarkdown, unmodelledTotals, type PackReport, type RegressionRow } from '../web/src/sim/scenario/report.ts';
 import { childPlay, craftmaticHandlers, type Snapshot } from '../web/src/sim/adapters/craftmatic/child-play.ts';
 import { readCraftmaticPack, type CraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.ts';
-import { REGRESSIONS } from '../web/src/sim/adapters/craftmatic/regressions.ts';
+import { REGRESSIONS, regressionVerdict } from '../web/src/sim/adapters/craftmatic/regressions.ts';
+import { swapTreeRuntimes } from '../web/src/sim/adapters/craftmatic/runtime-swap.ts';
 import { hopCases } from '../web/src/sim/adapters/craftmatic/hop.ts';
 import { courseMarkdown, vehicleCourseHandlers, vehicleScenarios, type CourseRow } from '../web/src/sim/adapters/craftmatic/vehicle-course.ts';
 import type { Scenario } from '../web/src/sim/scenario/types.ts';
@@ -51,9 +56,15 @@ const shotsDir = flag('shots');
 const inputs = args.filter(a => !a.startsWith('--'));
 const packs = inputs.flatMap(p => (existsSync(p) && statSync(p).isDirectory() ? readdirSync(p).filter(f => f.endsWith('.mcaddon')).sort().map(f => join(p, f)) : [p]));
 
-const load = async (file: string): Promise<Awaited<ReturnType<typeof readAddon>>> => {
+// `--runtime=tree`: run each pack's figures/rides/vehicles scripts as THIS tree builds them from the
+// pack's own CONFIG (adapters/craftmatic/runtime-swap.ts) - a runtime fix measured on the packs a device ran.
+const runtime = flag('runtime') ?? 'pack';
+if (runtime !== 'pack' && runtime !== 'tree') { console.error('--runtime= is pack (as shipped) or tree (this tree\'s runtimes)'); process.exit(2); }
+const load = async (file: string, swap = runtime === 'tree'): Promise<Awaited<ReturnType<typeof readAddon>>> => {
   const b = readFileSync(file);
-  return readAddon(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer, file);
+  const addon = await readAddon(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer, file);
+  if (swap) swapTreeRuntimes(addon);
+  return addon;
 };
 const statusLine = (r: ScenarioResult): string => `  ${r.name.padEnd(28)} ${r.status.padEnd(7)} ${String(r.violations.length).padStart(3)} violation(s) ${String(r.ticks).padStart(6)} ticks ${(r.ms / 1000).toFixed(1).padStart(6)} s${r.unmodelled.length ? `  unmodelled: ${r.unmodelled.map(u => u.member).join(', ')}` : ''}`;
 
@@ -67,10 +78,12 @@ if (mode === 'regressions') {
   console.log(`Regression selection: ${selected.length}/${REGRESSIONS.length} case(s)${only ? ` (--only=${only})` : ''}`);
   const rows: RegressionRow[] = [];
   let notTested = 0;
+  const known: string[] = [];
   for (const c of selected) {
-    const run = async (file: string): Promise<RegressionRow['old']> => {
+    // The OLD side is always the pack as the device ran it (it must reproduce); only the new side takes `--runtime`.
+    const run = async (file: string, swap: boolean): Promise<RegressionRow['old']> => {
       if (!existsSync(file)) return { error: `missing ${file}` };
-      const addon = await load(file);
+      const addon = await load(file, swap);
       const pack = readCraftmaticPack(addon);
       if (!pack) return { error: `${file} is not a craftmatic pack` };
       const r = await runScenario(c.scenario(pack), [addon], { handlers: craftmaticHandlers(pack, addon) });
@@ -85,18 +98,13 @@ if (mode === 'regressions') {
         ? r.violations.map(v => `[${v.invariant}] ${v.message}`).join('; ')
         : '';
       const evidence = otherFailures ? `${otherFailures}; targeted check: ${j.evidence}` : j.evidence;
-      return { reproduced: j.reproduced, ...(j.attribution ? { attribution: j.attribution } : {}), evidence, status: r.status, ms: r.ms };
+      return { reproduced: j.reproduced, ...(j.attribution ? { attribution: j.attribution } : {}), ...(j.untested ? { untested: j.untested } : {}), evidence, status: r.status, ms: r.ms };
     };
-    const oldR = await run(c.oldPack), newR = await run(resolve(newDir, `${c.newStem}.mcaddon`));
-    const unavailable = [['old', oldR], ['new', newR]].filter((x): x is [string, { error: string }] => 'error' in x[1]);
-    const oldOk = !('error' in oldR) && oldR.reproduced;
-    const newOk = !('error' in newR) && (c.expectNew === 'pass' ? newR.status === 'pass' && !newR.reproduced : newR.reproduced && newR.attribution === 'model');
-    const verdict = unavailable.length
-      ? `NOT TESTED (${unavailable.map(([side, result]) => `${side}: ${result.error}`).join('; ')})`
-      : !oldOk ? `NOT TESTED (not reproduced on the old pack${c.limits ? `; ${c.limits}` : ''})`
-        : newOk ? 'OK' : 'FAIL';
-    if (verdict === 'FAIL' || verdict.startsWith('NOT TESTED')) failed++;
-    if (verdict.startsWith('NOT TESTED')) notTested++;
+    const oldR = await run(c.oldPack, false), newR = await run(resolve(newDir, `${c.newStem}.mcaddon`), runtime === 'tree');
+    const v = regressionVerdict(c, oldR, newR), verdict = v.verdict;
+    if (v.failing) failed++;
+    if (v.notTested) notTested++;
+    if (v.known) known.push(c.id);
     rows.push({ id: c.id, title: c.title, evidence: c.evidence, expectNew: c.expectNew, old: oldR, new: newR, verdict, ...(c.limits ? { limits: c.limits } : {}) });
     console.log(`${c.id}: old ${'error' in oldR ? oldR.error : oldR.reproduced ? `REPRODUCED${oldR.attribution ? ` (${oldR.attribution})` : ''}` : 'not reproduced'}; new ${'error' in newR ? newR.error : newR.reproduced ? `REPRODUCED${newR.attribution ? ` (${newR.attribution})` : ''}` : 'not reproduced'} -> ${verdict}`);
     for (const [k, x] of [['old', oldR], ['new', newR]] as const) if (!('error' in x)) console.log(`    ${k}: ${x.evidence.slice(0, 300)}`);
@@ -104,7 +112,9 @@ if (mode === 'regressions') {
   const md = regressionMarkdown(rows);
   if (flag('md')) writeFileSync(flag('md')!, md);
   if (flag('json')) writeFileSync(flag('json')!, JSON.stringify(rows, null, 1));
-  console.log(`\n${rows.length} selected regression(s); ${failed - notTested} failed; ${notTested} not tested.`);
+  console.log(`\n${rows.length} selected regression(s); ${failed - notTested} failed; ${notTested} not tested; ${known.length} known-unreproduced.`);
+  // Listed on their own: these pass only their current-pack check (the old pack never showed the device bug here).
+  if (known.length) console.log(`KNOWN-UNREPRODUCED (not failing the run): ${known.join(', ')}`);
   process.exit(failed ? 1 : 0);
 }
 
@@ -133,7 +143,7 @@ if (mode === 'hop') {
   process.exit(failed || !report.results.length ? 1 : 0);
 }
 
-if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>]'); process.exit(2); }
+if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>] [--runtime=pack|tree]'); process.exit(2); }
 
 if (mode === 'vehicles') {
   const reports: PackReport[] = [], rows: CourseRow[] = [];

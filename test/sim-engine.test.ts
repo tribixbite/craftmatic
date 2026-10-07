@@ -23,12 +23,15 @@ import { PLAYER_WIDTH_BLOCKS } from '../web/src/engine/addon-scale.js';
 import { PLAYER_HEIGHT_BLOCKS } from '../web/src/engine/lego-scale.js';
 import { STEP16 } from '../web/src/engine/bedrock-collider-scale.js';
 import { FLAT_GROUND_Y } from '../web/src/sim/world/voxel-world.js';
-import { REGRESSIONS } from '../web/src/sim/adapters/craftmatic/regressions.js';
+import { REGRESSIONS, regressionVerdict } from '../web/src/sim/adapters/craftmatic/regressions.js';
 import { craftmaticHandlers, figureMode } from '../web/src/sim/adapters/craftmatic/child-play.js';
-import { judgeSide, nearestInRecordedCell, onRunout } from '../web/src/sim/adapters/craftmatic/play.js';
+import { FLOOR_LEVEL_TOLERANCE, floorLevelInRecordedCell, judgeSide, onRunout } from '../web/src/sim/adapters/craftmatic/play.js';
 import { relayRounding } from '../web/src/engine/bedrock-collider-scale.js';
 import { findApproach } from '../web/src/sim/scenario/approach.js';
 import { readCraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.js';
+import { swapTreeRuntimes } from '../web/src/sim/adapters/craftmatic/runtime-swap.js';
+import { extractJsonAfter } from '../web/src/sim/pack/script-config.js';
+import { ESCAPE_OPTIONS } from '../web/src/engine/collider-form.js';
 import { firstPersonSnapshot } from '../web/src/sim/adapters/craftmatic/snapshot.js';
 import type { AddonAppearance } from '../web/src/sim/adapters/craftmatic/appearance.js';
 
@@ -355,7 +358,7 @@ describe('the quirk registry', () => {
 const regressionPacks = REGRESSIONS.every(c => existsSync(c.oldPack));
 
 describe('historical regression replay inputs', () => {
-  it('boards the lift car and reconstructs a legal tap pose only inside the recorded HUD cell', () => {
+  it('boards the lift car and replays a tap only from floor-level legal spots inside the recorded HUD cell', () => {
     const lift = REGRESSIONS.find(c => c.id === 'gabby-lift-cap')!;
     const liftStep = lift.scenario({ rides: { rides: [{ index: 0, kind: 'lift' }] } } as never).steps.find(s => s.kind === 'rideLift');
     expect(liftStep).toMatchObject({ kind: 'rideLift', on: 'car' });
@@ -365,14 +368,48 @@ describe('historical regression replay inputs', () => {
 
     const recorded = { x: 10.6, y: -59.8, z: -3.6 };
     const spot = (x: number, y: number, z: number) => ({ feet: { x, y, z }, aim: { x: 12, y: -58, z: -3 }, distance: 2 });
-    const nearest = nearestInRecordedCell([
-      spot(11.01, -59.2, -3.4), // adjacent x cell: never a reconstruction of this HUD cell
-      spot(10.65, -58.99, -3.55), // a different vertical block cell is a different floor
-      spot(10.9, -59.1, -3.1),
-      spot(10.7, -59.7, -3.5),
+    const floor = floorLevelInRecordedCell([
+      spot(11.01, -59.8, -3.4), // adjacent x cell: never a reconstruction of this HUD cell
+      spot(10.65, -59.12, -3.55), // 0.68 higher in the same cell (10326's handrail band): not the device's pose
+      spot(10.9, -59.1, -3.1), // a step up in the same cell: not the device's pose either
+      spot(10.7, -59.8125, -3.5), // a plate top: the floor the device stood on
+      spot(10.2, -59.75, -3.9),
     ], recorded);
-    expect(nearest?.feet).toEqual({ x: 10.7, y: -59.7, z: -3.5 });
-    expect(nearestInRecordedCell([spot(11.01, -59.2, -3.4)], recorded)).toBeUndefined();
+    expect(floor.map(s => s.feet)).toEqual([{ x: 10.7, y: -59.8125, z: -3.5 }, { x: 10.2, y: -59.75, z: -3.9 }]);
+    expect(FLOOR_LEVEL_TOLERANCE).toBeLessThan(0.68);
+    expect(floorLevelInRecordedCell([spot(11.01, -59.8, -3.4)], recorded)).toEqual([]);
+  });
+
+  it('judges a regression: NOT TESTED fails, KNOWN-UNREPRODUCED passes only on a passing current pack', () => {
+    const side = (reproduced: boolean, extra: { status?: string; untested?: string; attribution?: string } = {}) => ({ reproduced, evidence: 'e', status: extra.status ?? (reproduced ? 'fail' : 'pass'), ms: 1, ...extra });
+    const pass = { expectNew: 'pass' as const };
+    expect(regressionVerdict(pass, side(true), side(false))).toMatchObject({ verdict: 'OK', failing: false });
+    expect(regressionVerdict(pass, side(true), side(true))).toMatchObject({ verdict: 'FAIL', failing: true });
+    // An old pack that does not reproduce proves nothing unless the case knows why.
+    expect(regressionVerdict(pass, side(false), side(false))).toMatchObject({ failing: true, notTested: true });
+    const known = { ...pass, knownUnreproduced: true, limits: 'the device cadence is not modelled' };
+    expect(regressionVerdict(known, side(false), side(false))).toMatchObject({ failing: false, known: true });
+    expect(regressionVerdict(known, side(false), side(false)).verdict).toMatch(/^KNOWN-UNREPRODUCED/);
+    expect(regressionVerdict(known, side(false), side(true))).toMatchObject({ failing: true, known: false });
+    // A current pack whose run could not set up the device's conditions is NOT TESTED, never a pass.
+    expect(regressionVerdict(pass, side(true), side(false, { untested: 'no floor-level spot' }))).toMatchObject({ failing: true, notTested: true });
+    expect(regressionVerdict(pass, { error: 'missing' }, side(false))).toMatchObject({ failing: true, notTested: true });
+  });
+});
+
+describe('the runtime swap (--runtime=tree)', () => {
+  it('rebuilds a shipped figures.js from its own CONFIG with the current runtime, filling what an older config lacks', () => {
+    // A figures.js as an older build shipped it: its CONFIG has the rides' set-down limits and no escape bounds.
+    const config = { figureTypes: [], seatTypes: ['craftmatic:a_seat'], interactiveFamily: 'craftmatic_interactive', bodyHeights: {}, bodyHeight: 1.8,
+      tuning: {}, seatSafety: { lift: 0.05, reach: 2, drop: 3 } };
+    const old = ["import { world, system } from '@minecraft/server';", `const CONFIG = ${JSON.stringify(config)};`, '(function old() {})();', ''].join('\n');
+    const files = new Map([['scripts/figures.js', new TextEncoder().encode(old)], ['scripts/other.js', new TextEncoder().encode('// untouched')]]);
+    const addon = { source: 'fixture', packs: [{ kind: 'behavior' as const, folder: '', name: 'bp', uuid: '', version: [], scriptModules: {}, files }] };
+    expect(swapTreeRuntimes(addon)).toEqual(['scripts/figures.js']);
+    const text = new TextDecoder().decode(files.get('scripts/figures.js')!);
+    expect(text).toContain('routeClear');
+    expect((extractJsonAfter(text, 'const CONFIG') as typeof config & { seatSafety: { escape: unknown } }).seatSafety.escape).toEqual(ESCAPE_OPTIONS);
+    expect(new TextDecoder().decode(files.get('scripts/other.js')!)).toBe('// untouched');
   });
 });
 
@@ -386,6 +423,7 @@ describe.skipIf(!regressionPacks)('the 2026-09-29 regression set reproduces on t
       const j = c.judge(r, pack);
       // A case whose device situation the simulator cannot build says so in `limits`; it must not claim a reproduction.
       expect(j.reproduced).toBe(!c.limits);
+      expect(j.untested).toBeUndefined();
       if (c.expectNew === 'reproduce-as-model') expect(j.attribution).toBe('model');
     });
   }
