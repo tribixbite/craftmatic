@@ -9,14 +9,38 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
-### Handoff (2026-10-07, main `c8677cdf`)
+### Handoff (2026-10-07, main after the review merges)
 
-**State on main.** The GPT-6 fidelity audit (branch
-`fix/fidelity-audit-20261005`) is merged at `c8677cdf` for review. Review
-fixes are pending merge from three agents: shells (stable lattice chunks +
-legacy-shell migration), rides (seat traps, probe cost, the door-3
-regression) and cleanup (docs, DRY, sim quirk drift). Their outcome is not
-known here; read `git log` before building anything.
+**Read [REQUIREMENTS.md](REQUIREMENTS.md) first**: every user request with
+status, guards and device evidence (`bun scripts/requirements-ledger.ts --open`).
+
+**State on main.** The GPT-6 fidelity audit (`fix/fidelity-audit-20261005`)
+was reviewed and merged with three fix branches (2026-10-07), all gates green
+(3,058 tests, both typechecks, physics spec, build):
+- Shells: chunks on a fixed 20-block lattice (`<shell>_c<ix>_<iy>_<iz>`,
+  stable across recompiles); old whole-model shells MIGRATE at runtime
+  (`shellMigrations` in placement.js) instead of shipping a dormant monolith.
+  10261 shell geo 7.42 -> 3.14 MB, 99,703 -> 57,027 cuboids; 12 actors
+  (76417: 8). `bun scripts/_shell_chunk_report.ts <before> <after>`.
+- Seats/rides: scenery-seat traps 27/125 -> 0/125
+  (`scripts/_seat_egress_sweep.ts`); escape = walk-connected exit, then
+  flood/exterior; re-seat capped at 2; /tp out of a seat left alone; slide
+  set-downs must be walkable from the chute end.
+- Vehicles: vertical sweep probes only at the leading face (Milano climb
+  2,376 -> 916 checks/tick; `scripts/_sweep_checks.ts`).
+- Sim: KNOWN-UNREPRODUCED status (10797 overhang); `--runtime=tree` re-runs
+  shipped packs with this tree's scripts.
+Device-unverified, all of it. Open from the fixes:
+- `door3-tap-10326` is NOT TESTED: no legal floor-level spot in the device's
+  cell - the handrail band is still a collider over that floor (shell/collider fix).
+- Level-cruise Milano 770 checks/tick vs the Pixel's 890 = 20-24 ms: measure
+  ms/tick on a phone (`TODO(footprint-cost)`).
+- Seat exits at 300-400 % can land up to 12 blocks out (76417 balcony to the
+  ground ~30 below); native set-down at those sizes unmeasured.
+- `hop-slide-into-car` with 10797 `--car=same` fails on the shipped runtime too.
+- Branch `fix/bedrock-fidelity` (`ecc2c265`, thicken planar cuboids) is
+  unmerged and SUPERSEDED by `880a7195`; merging it would re-thicken flat
+  parts a whole cell. Delete it when the user agrees.
 
 **DEVICE WARNING - the Saga is NOT in a clean state.** On 2026-10-06 the
 audit agent left the Saga (`192.168.1.243:5555`) mid-round: coaster 10261
@@ -62,9 +86,9 @@ Recipe, after the review fixes land and from a clean committed tree:
   tune the inferred cadence to force it green.
 - # TODO(facet-integration): not justified. The 10303 preflight saves 4 of
   156,242 cubes (0.00256 %); `selectRoundFacetCandidate` is research-only.
-- # TODO(shell-migration): placements saved before the spatial shell keep the
-  old monolith (and its cull limit); migrating them needs anchor, turn and
-  size persisted in the Undo record, which old records lack.
+- Shell migration is now automatic for placements saved with a whole-model
+  shell (runtime `shellMigrations`); a model whose SOURCE changed between packs
+  lands its chunks off its old colliders - inherent to any re-export.
 - Pixel: locked; the user must unlock it and re-pair wireless debugging.
 
 | surface | command | URL |
