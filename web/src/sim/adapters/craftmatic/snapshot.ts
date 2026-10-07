@@ -4,8 +4,11 @@
  * offline renderer (`scripts/_pack_render.ts`) and the simulator's
  * first-person snapshots share the painting here.
  *
- * A snapshot applies the device's draw ceiling (quirk `actor-draw-ceiling`):
- * an actor farther than it from the eye is not drawn, as on the phones.
+ * A snapshot applies the device's actor cull through `entityRenderCullBlocks`
+ * (quirks `actor-draw-ceiling` and `cull-by-collision-box`, whose registry
+ * values ARE that function's constants `ACTOR_DRAW_CEILING_BLOCKS` and
+ * `RENDER_CULL_BLOCKS_PER_UNIT`): an actor farther than its cull from the eye
+ * is not drawn, as on the phones.
  * Cuboid faces only - the colliders are invisible and the ground is not drawn.
  */
 
@@ -42,8 +45,12 @@ export function firstPersonSnapshot(engine: SimEngine, appearance: AddonAppearan
   for (const e of engine.loadedEntities(player.dimension)) {
     if (e.isPlayer) continue;
     const entry = appearance.byType.get(e.typeId);
-    // Device evidence is camera-to-entity-ROOT distance in all three axes. At
-    // 100 %, a small box uses the 64-block floor and no actor exceeds the
+    // Measured: the cull follows the CAMERA, not the player (the 200 % shell
+    // was drawn 50.34 blocks from its root and gone at 75.82). Whether the
+    // device measures that distance in 3D or horizontally is NOT separated by
+    // that evidence; the snapshot takes the 3D camera-to-root distance.
+    // TODO(cull): settle 3D vs horizontal with a probe that varies only height.
+    // At 100 % a small box uses the 64-block floor and no actor exceeds the
     // measured 70-block ceiling; geometry and visible_bounds do not extend it.
     const rootDistance = Math.hypot(e.location.x - eye.x, e.location.y - eye.y, e.location.z - eye.z);
     if (!entry || rootDistance > entityRenderCullBlocks(e.collisionSize())) continue;
