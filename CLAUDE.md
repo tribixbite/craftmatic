@@ -5,6 +5,34 @@ Minecraft schematic toolkit **and** an LDraw (LEGO) 3D viewer, web UI in `web/`
 truth for architecture + hard-won conventions. Keep it current; do not keep
 durable project knowledge only in private/agent memory.
 
+## Requirements ledger — every user request, tracked to a test
+
+**[REQUIREMENTS.md](REQUIREMENTS.md)** is the master checklist of everything
+the user has asked for. It has one row per requirement with:
+- a stable id;
+- a status (`DONE-DEVICE` / `DONE-OFFLINE` / `PARTIAL` / `OPEN` / `REGRESSED` / `WONTFIX`);
+- the guards that fail if it breaks;
+- the last device evidence;
+- the gap.
+
+**[docs/product-spec.md](docs/product-spec.md)** explains what each
+requirement means. Read both before planning work. Every agent, every turn:
+1. **Record each new request.** Add a row in the same turn (next free id in
+   its area, status `OPEN`). A repeated ask or a "broken again" report appends
+   its date to the row, and sets `REGRESSED` if the row was done. Unlocking the
+   camera while driving (`VEH-06`) and sitting in the cockpit, not on top
+   (`SEAT-01`), are examples of rows.
+2. **Give every fix a guard.** Each fix cites its id in the commit message and
+   adds a guard to the row, normally a test named in the guards cell as
+   `test/<file>.test.ts :: <name substring>`. `test/requirements-ledger.test.ts`
+   (in `bun run test`, so CI) fails if a `DONE-*` row has no guard, or a guard
+   names a test that no longer exists. Renaming a test means updating the row.
+3. **Devices set the status.** A device round updates the device cell. A later
+   change to the mechanism demotes `DONE-DEVICE` to `DONE-OFFLINE`.
+4. **Never delete a row.** Mark it `WONTFIX`, citing the user's decision.
+
+`bun scripts/requirements-ledger.ts --open` lists what is not done.
+
 ## Topic guides — read when relevant
 
 Load the relevant guide before working on its pipeline. Keep detailed findings
