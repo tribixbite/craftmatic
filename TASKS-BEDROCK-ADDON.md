@@ -90,12 +90,21 @@ Round 30k BUILT from main `78e06246` (clean): `output/device-round-2026-10-07k/`
 (`packs-78e06246/`, `craftmatic-packs-78e06246.zip` sha256 `74fa33ca...`).
 Offline: check 0 bad of 23 (uuids equal), regressions 19 / 0 failed / 0 not
 tested / 1 known-unreproduced, course ships 9/9 car 6/9, hop 3/3, child play
-110/110, passability 340 rows 0 FAIL/HOLE. Device round 30k IN PROGRESS:
-Saga = ship lift-over off-square, turn pivot, park over player, chase camera
-vs wall, slot-9 recentre, Nimbus drag/ALT, hop head, Milano front cabin;
-Pixel = Door 3 sneak on/off, 10261 lift hill + west base at 200 %, Gate 1,
-seat exits, slide, Milano cockpit + ms/tick. Results ->
-`output/device-round-2026-10-07k/{saga,pixel}/notes.md` and REQUIREMENTS.md.
+110/110, passability 340 rows 0 FAIL/HOLE. Device round 30k DONE
+(`output/device-round-2026-10-07k/{saga,pixel}/notes.md`). PASS: ships lift
+over hill/wall square and 19 deg (8/8), turns never climb, park holds over the
+player, chase camera clear of walls, slot-9 recentres, no head after hop,
+Milano front cabin at 100 %, Door 3 sneak on/off, seat exits, slide, Milano
+cruise 14.45 ms/tick. FAIL, fixes in progress (round 30l):
+1. Milano at 200 %: rider ~6 above the hull, 14 forward - seat offset
+   double-scaled? (check every vehicle at every size) - SEAT-01 REGRESSED.
+2. Nimbus still ignores drags (lock 181 did not help).
+3. Cockpit eye runs ahead of the seat at top speed; first mount's chase
+   camera faces the player's look, not the nose.
+4. 76417 Gate 1: standing just inside the open gate the player is moved
+   out and falls 17 blocks (Pixel, twice).
+5. 10261 lift hill at 200 % stops at pin+28.2 (offline walks jump; the
+   Pixel had auto-jump only); west base climbs only on z+22.5/23.5.
 Open: `TODO(car-oblique-kerb)` (McLaren slides 62 along an oblique kerb);
 11 other hull-leaving cockpit eyes not re-audited for `AHEAD_CABIN`.
 - # TODO(seat-sweep-memory): `_seat_egress_sweep.ts` on 76457 at 300/400 %
