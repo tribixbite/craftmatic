@@ -66,10 +66,25 @@ dropped separator; regressions 0 failed, 1 NOT TESTED (`door3-tap-10326`),
 1 KNOWN-UNREPRODUCED; hop 3/3; vehicle course 7140 8/8, 76286 8/8, 42172 6/8
 (wall3 escaped, pit3 trapped - course policy); child play 110/110; seat sweep
 0 trapped over 248 seat x size runs.
-Device round 30j IN PROGRESS (2026-10-07): Saga = vehicle checklist below +
-cockpit seating (SEAT-01); Pixel = McLaren body, 10261 chunks at 200 %,
-76417 Gate 1, seat exits, doors, slide, Milano ms/tick. Results go to
-`output/device-round-2026-10-07j/{saga,pixel}/` and into REQUIREMENTS.md.
+Device round 30j DONE 2026-10-07 (evidence `output/device-round-2026-10-07j/{saga,pixel}/notes.md`):
+PASS - X-wing/Milano up/hover/back/down/turn-on-spot, look-down+Jump; car
+kerb/hole/wall/slide; chase free look on 4 vehicles (no twitch, eases back);
+never inside geometry; no name tags; McLaren body solid; 10261 at 200 % = 12
+chunks + base, no seams, drawn from 78-83 blocks; Undo; 76417 Gate 1; 6/6
+seat exits; 10326 Door 1; 10788 slide; Gringotts faces/hair; Milano cruise
+770 checks = 14.5 ms/tick (Pixel). FAIL / open, being fixed:
+1. Ships SLIDE along hills/walls instead of lifting over (sim said 8/8 - the
+   sim disagrees with the device); a turn against a wall lifts the ship 4-6
+   blocks; a ship left in the air parks ON the player; chase camera ends up
+   behind a wall.
+2. Slot-9 cockpit view never recentres and keeps its pitch; slot 1 resumes
+   the dragged yaw; the Nimbus ignores drags (its HUD ALT is world y);
+   player's own head fills the view ~6 s after a hop into 10261.
+3. 10326 Door 3: opens, but the walk stops 0.24 short of the leaf
+   ("Something is standing in the door 3") - REGRESSED since Saga 30i;
+   10261 at 200 % lift-hill step (TODO(tilted-colliders)), base unclimbable
+   from the west.
+4. Milano eye on top of the spine, not the cockpit (SEAT-01).
 - # TODO(seat-sweep-memory): `_seat_egress_sweep.ts` on 76457 at 300/400 %
   (and on a whole pack directory) grows to 64 GB and crashes Bun; run it per
   pack and per size until fixed. 76457 at 100/200 %: 9 seats, 0 trapped.
