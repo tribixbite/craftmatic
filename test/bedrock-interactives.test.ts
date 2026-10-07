@@ -458,6 +458,10 @@ describe('interactives runtime (scripts/interactives.js)', () => {
       expect(h.blocks.get(k)?.states, k).toEqual({ [cfg.colliders.loState]: st[0], [cfg.colliders.hiState]: st[1] });
     }
   };
+  /** A floor (full colliders) one block under the doorway cell at (x, y, z), three wide, on the given z offsets from it. */
+  const layFloor = (h: ReturnType<typeof runtimeHost>, x: number, y: number, z: number, dzs: readonly number[] = [-3, -2, -1, 0, 1, 2, 3]): void => {
+    for (const dx of [-1, 0, 1]) for (const dz of dzs) h.setCollider(x + dx, y - 1, z + dz, 0, 16);
+  };
   const keysOf = (cfg: InteractiveRuntimeConfig, i: number, f = 1, r = 0) => [...ixWorldBlocks(cfg.items[i]!.blocking, cfg.dims, f, r, COLLIDER_KIT).keys()].map(k => { const [x, y, z] = k.split(',').map(Number) as [number, number, number]; return `${anchor.x + x},${anchor.y + y},${anchor.z + z}`; });
   it('lays a freshly placed door closed, opens both leaves of a double door on one tap, restores the static state and plays the door sound', () => {
     const cfg = doubleDoorConfig();
@@ -651,7 +655,9 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     h.tap(a);
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
     expect(h.lastBar()).toMatch(/standing in the door 1/);
-    // Inside the doorway's block but clear of the leaf (device 2026-09-24d: "outside the leaves"): it closes, and the player is stepped out of the block.
+    // Inside the doorway's block but clear of the leaf (device 2026-09-24d: "outside the leaves"): it closes, and the player is stepped out of the block
+    // onto the floor in front of it (a step-out lands only on a floor: `stepOutPlan`).
+    layFloor(h, x, y, z);
     h.player.location = { x: x + 0.5, y, z: z + 0.12 };
     h.tap(a);
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(false);
@@ -675,6 +681,7 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     // (The player is in the world: an occupant wherever it stands.)
     // A wall two blocks tall right outside the doorway on the player's side: the first point out of the doorway's
     // block (z - 0.3) puts the body in it. The player must land past it (or on the other side), never inside it.
+    layFloor(h, x, y, z);
     for (const dx of [-1, 0, 1]) for (const dy of [0, 1]) h.setCollider(x + dx, y + dy, z - 1, 0, 16);
     h.player.location = { x: x + 0.5, y, z: z + 0.12 };
     h.tap(a);
@@ -682,6 +689,52 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     const l = h.player.location;
     const inWall = l.z - 0.3 < z && l.z + 0.3 > z - 1;
     expect(inWall).toBe(false);
+  });
+
+  it('never steps a player out of a closing doorway over a drop: the floor side, else the close is refused (76417 Gate 1, Pixel round 30k)', () => {
+    const cfg = doubleDoorConfig();
+    const h = runtimeHost(cfg);
+    const a = h.spawn(0, anchor);
+    h.sync();
+    h.tap(a);
+    const [k0] = keysOf(cfg, 0);
+    const [x, y, z] = k0!.split(',').map(Number) as [number, number, number];
+    // The player stands in the doorway's block on the -z side of the leaf (its plane is z + 0.5). A floor only on
+    // the FAR side (+z, past the doorway's block): the near side is a drop, so the step-out takes the far side.
+    layFloor(h, x, y, z, [1, 2, 3]);
+    h.player.location = { x: x + 0.5, y, z: z + 0.12 };
+    h.tap(a);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(false);
+    expect(h.teleports.at(-1)).toBeDefined();
+    expect(h.player.location.z - 0.3).toBeGreaterThanOrEqual(z + 1 - 1 / 64);
+    expect(h.player.location.y).toBe(y);
+    // No floor beyond the doorway on either side (the gate's case: wall inside, the bank's drop outside): the close
+    // is refused, the player is not moved, and the action bar says why.
+    const h2 = runtimeHost(cfg);
+    const b = h2.spawn(0, anchor);
+    h2.sync();
+    h2.tap(b);
+    h2.player.location = { x: x + 0.5, y, z: z + 0.12 };
+    h2.tap(b);
+    expect(b.getDynamicProperty('craftmatic:ix_open')).toBe(true);
+    expect(h2.teleports.length).toBe(0);
+    expect(h2.player.location).toEqual({ x: x + 0.5, y, z: z + 0.12 });
+    expect(h2.lastBar()).toMatch(/Step out of the door 1 to close it - there is no floor/);
+  });
+
+  it('closes past a player only TOUCHING the doorway\'s block without moving them (float32 contact, 76417 Gate 1 at 7153.30)', () => {
+    const cfg = doubleDoorConfig();
+    const h = runtimeHost(cfg);
+    const a = h.spawn(0, anchor);
+    h.sync();
+    h.tap(a);
+    const [k0] = keysOf(cfg, 0);
+    const [x, y, z] = k0!.split(',').map(Number) as [number, number, number];
+    // The body's +z face 0.0002 into the doorway's block, as 7153.30 reads in float32 against a cell face at 7153.
+    h.player.location = { x: x + 0.5, y, z: z - 0.3 + 0.0002 };
+    h.tap(a);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(false);
+    expect(h.teleports.length).toBe(0);
   });
 
   it('keeps a too-small doorway blocked when it opens, and says which size passes', () => {

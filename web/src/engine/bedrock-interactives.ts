@@ -2189,7 +2189,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
    * the doorway's whole blocks: a player just outside the leaf was told
    * "something is standing in the door" at 76417's entrance (device
    * 2026-09-24d) and the doors stayed open. A player inside the doorway's
-   * blocks but clear of the leaf is stepped out of them instead (`stepOut`).
+   * blocks but clear of the leaf is stepped out of them instead (`stepOutPlan`).
    */
   const obstructed = (e: any, i: number, pl: any): boolean => {
     const it = config.items[i]!;
@@ -2213,34 +2213,57 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     return false;
   };
   /**
-   * After closing: a player or figure standing in the doorway's laid blocks (not on the leaf) is stepped out
-   * along the leaf's normal to the side it stands on - to the first point out of the doorway's blocks where its
-   * body is FREE of colliders, else the other side's, else (nowhere free within reach) the first point out of the
-   * doorway as before. Until 2026-09-30 it took the first point out of the doorway whatever stood there: at
-   * 150 % 76417's Door 3 stepped a player 0.29 block into the wall beside it (simulator triage).
+   * Where closing item `i` must step its occupants: every player or figure standing in the doorway's laid blocks
+   * (not on the leaf - `obstructed` refuses that) is stepped along the leaf's normal, the side it stands on first,
+   * then the other, to the first point out of the doorway's blocks where its body is FREE of colliders AND stands
+   * on a floor at most `STEP_OUT_DROP` under its feet (`landing`). `stranded` holds the occupants with no such
+   * point on either side within reach: the close is then refused (`toggle`), never resolved by a step into the air.
+   *
+   * History: until 2026-09-30 it took the first point out of the doorway whatever stood there (at 150 % 76417's
+   * Door 3 stepped a player 0.29 block into the wall beside it); until 2026-10-07 it took the first point its body
+   * was free at, floor or not, and fell back to the first point out of the doorway. Pixel round 30k: a tap closed
+   * 76417's Gate 1 on a player standing just inside it, the inner side's 3 blocks were all wall, and the outer
+   * side's first free point was 2.3 blocks out over the bank's 17-block drop - the player landed at
+   * 7513.33,-60,7151.67, exactly that point (regression `gate1-throwout-76417`). And the player was only TOUCHING the
+   * doorway's cells (float32 coordinates: 0.0002 of overlap): a body within `TOUCH` of a cell is beside it, not in it.
    */
-  const stepOut = (e: any, i: number, pl: any): void => {
+  const stepOutPlan = (e: any, i: number, pl: any): { moves: Array<{ o: any; q: any }>; stranded: any[] } => {
+    const out = { moves: [] as Array<{ o: any; q: any }>, stranded: [] as any[] };
     const it = config.items[i]!;
-    if (!it.blocking.length || !it.leaf) return;
+    if (!it.blocking.length || !it.leaf) return out;
+    // Overlap below 1/64 block is contact, not occupation (the sight test's own sliver, `sightClear`).
+    const TOUCH = 1 / 64;
+    // The body's step (Bedrock's 9/16, the probe's STEP) and the deepest floor a step-out may set it down onto:
+    // one block - a fall that hurts nobody and that the player walks back up with a jump; anything deeper is a ledge.
+    const STEP = 9 / 16, STEP_OUT_DROP = 1;
     const own = [...worldBlocks(it.blocking, config.dims, pl.f, pl.r, kit).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number); return { x: pl.anchor.x + x!, y: pl.anchor.y + y! + span[0] / 16, z: pl.anchor.z + z!, top: pl.anchor.y + y! + span[1] / 16 }; });
-    const inside = (l: any): boolean => own.some(bk => l.x + 0.3 > bk.x && l.x - 0.3 < bk.x + 1 && l.z + 0.3 > bk.z && l.z - 0.3 < bk.z + 1 && l.y + 1.8 > bk.y && l.y < bk.top);
+    const inside = (l: any): boolean => own.some(bk => l.x + 0.3 > bk.x + TOUCH && l.x - 0.3 < bk.x + 1 - TOUCH && l.z + 0.3 > bk.z + TOUCH && l.z - 0.3 < bk.z + 1 - TOUCH && l.y + 1.8 > bk.y + TOUCH && l.y < bk.top - TOUCH);
     const n = turnDir(pl, it.leaf.n), centre = toWorld(pl, [it.leaf.c[0]! + it.leaf.a[0]! / 2, it.leaf.c[1]!, it.leaf.c[2]! + it.leaf.a[2]! / 2]);
     const reach = 3 * Math.max(1, pl.f);
+    /** `q` set down on its floor (a step over it to `STEP_OUT_DROP` under it) when the body is free there and clear of the doorway; else undefined. */
+    const landing = (q: any): any => {
+      const top = body.floorTop(e.dimension, q.x, q.z, q.y + STEP, STEP + STEP_OUT_DROP);
+      if (top === undefined) return undefined;
+      const at = { x: q.x, y: top, z: q.z };
+      return !inside(at) && body.bodyFree(e.dimension, at) ? at : undefined;
+    };
     for (const o of occupants(e, centre, 4 * Math.max(1, pl.f))) {
       const l = o.location;
       if (!inside(l)) continue;
       const side = (l.x - centre.x) * n.x + (l.z - centre.z) * n.z >= 0 ? 1 : -1;
-      const along = (sd: number, free: boolean): any => {
+      const along = (sd: number): any => {
         for (let d = 0.1; d <= reach; d += 0.1) {
           const q = { x: l.x + n.x * sd * d, y: l.y, z: l.z + n.z * sd * d };
           if (inside(q)) continue;
-          if (!free || body.bodyFree(e.dimension, q)) return q;
+          const at = landing(q);
+          if (at) return at;
         }
         return undefined;
       };
-      const q = along(side, true) ?? along(-side, true) ?? along(side, false);
-      if (q) { try { o.teleport(q); } catch { /* not movable */ } }
+      const q = along(side) ?? along(-side);
+      if (q) out.moves.push({ o, q }); else out.stranded.push(o);
     }
+    return out;
   };
   /** Select the tap boxes for this placement's turn and size and the part's state (`hitGroupName`), and turn/scale the rig's root to match. */
   const place = (e: any, pl: any, open: boolean): void => {
@@ -2266,6 +2289,10 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     // A double door's leaves move together: the tapped one and its other leaf at this placement.
     const group: Array<{ e: any; i: number }> = [{ e, i }, ...[...siblings(e, i, pl, 'pairs')].map(([j, s]) => ({ e: s, i: j }))];
     if (!open && group.some(g => obstructed(g.e, g.i, pl))) { refuse(e, player, `Something is standing in the ${it.label.toLowerCase()} - step out to close it.`); return; }
+    // Where the close steps its occupants, decided BEFORE anything moves: one with no floor to step onto on
+    // either side (only a drop beyond the doorway) refuses the close instead (`stepOutPlan`).
+    const plans = open ? [] : group.map(g => stepOutPlan(g.e, g.i, pl));
+    if (plans.some(p => p.stranded.length)) { refuse(e, player, `Step out of the ${it.label.toLowerCase()} to close it - there is no floor to step onto.`); return; }
     const before = group.map(g => isOpen(g.e));
     for (const g of group) { try { g.e.setDynamicProperty(K.open, open); } catch { /* keep going */ } }
     if (!group.every(g => layDoorway(g.e, g.i, pl, open))) {
@@ -2274,7 +2301,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
       return;
     }
     for (const g of group) { setAngle(g.e, open ? config.items[g.i]!.angle : 0); place(g.e, pl, open); }
-    if (!open) for (const g of group) stepOut(g.e, g.i, pl);
+    for (const p of plans) for (const m of p.moves) { try { m.o.teleport(m.q); } catch { /* not movable */ } }
     sound(e, open ? it.sounds.open : it.sounds.close);
     if (open && it.passSize !== undefined && !passable(it, pl)) {
       const size = it.opening ? `${it.opening.width} x ${it.opening.height} blocks at 100 percent` : 'too small';

@@ -8,7 +8,9 @@
  * <packs> --runtime=tree`, `scripts/_seat_egress_sweep.ts --runtime=tree`.
  *
  * Swapped: `scripts/figures.js` (`figureLifeScript`), `scripts/rides.js`
- * (`ridesScript`), `scripts/vehicles.js` (`scriptedVehicleScript`). Every
+ * (`ridesScript`), `scripts/vehicles.js` (`scriptedVehicleScript`),
+ * `scripts/interactives.js` (`interactivesScript`, since 2026-10-07: the
+ * doors' step-out fix measured on round 30k's packs). Every
  * other script runs as shipped. A pack whose CONFIG predates a field the
  * tree's runtime reads gets that runtime's own default for it - the swap is a
  * code change, never a data migration.
@@ -18,6 +20,7 @@ import { behaviorPacks, packText, type Addon } from '../../pack/pack.js';
 import { extractJsonAfter } from '../../pack/script-config.js';
 import { figureLifeScript, type FigureLifeConfig } from '../../../engine/bedrock-figure-life.js';
 import { ridesScript, type RideRuntimeConfig } from '../../../engine/bedrock-rides.js';
+import { interactivesScript, type InteractiveRuntimeConfig } from '../../../engine/bedrock-interactives.js';
 import { BOAT, CAR, FLIGHT, FOOTPRINT, HEADLIGHTS, HOVER, MOVE, scriptedVehicleScript, type ScriptedVehicleConfig } from '../../../engine/bedrock-vehicle.js';
 
 /** One swappable script: where its CONFIG sits in the shipped text and the tree's builder. */
@@ -40,6 +43,7 @@ function vehicleConfigWithTreeDefaults(c: ScriptedVehicleConfig): ScriptedVehicl
 const SWAPS: readonly Swap[] = [
   { path: 'scripts/figures.js', read: t => extractJsonAfter(t, 'const CONFIG'), build: (c: FigureLifeConfig) => figureLifeScript(c) },
   { path: 'scripts/rides.js', read: t => extractJsonAfter(t, 'const CONFIG'), build: (c: RideRuntimeConfig) => ridesScript(c) },
+  { path: 'scripts/interactives.js', read: t => extractJsonAfter(t, 'const CONFIG'), build: (c: InteractiveRuntimeConfig) => interactivesScript(c) },
   // vehicles.js passes its CONFIG inline as the runtime's first argument: `(function ...)({"types": ...}, ...)`.
   { path: 'scripts/vehicles.js', read: t => { const at = t.indexOf('({"types":'); return at < 0 ? undefined : extractJsonAfter(t.slice(at), '('); }, build: (c: ScriptedVehicleConfig) => scriptedVehicleScript(vehicleConfigWithTreeDefaults(c)) },
 ];

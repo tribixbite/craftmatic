@@ -246,7 +246,12 @@ and a 20 LDU frame straddling a cell boundary fills whole cells. So:
    (its slab, sampled every 0.15 block) - the first build refused anyone in
    the doorway's whole blocks, and 76417's front doors stayed open for a player
    standing just outside them (device 2026-09-24d). Anyone else inside the
-   doorway's blocks is stepped out along the leaf's normal to their own side.
+   doorway's blocks is stepped out along the leaf's normal - their own side
+   first, then the other - onto the first point where the body is free AND
+   stands on a floor at most a block under its feet; with no such point on
+   either side the close is refused ("Step out of the gate to close it")
+   (`stepOutPlan`, "A step-out onto a floor" below). A body only touching a
+   doorway cell (under 1/64 block of overlap) is beside it, not in it.
 5. **A raised threshold gets a tread.** A leaf standing on a plate or two over
    the floors either side is a rise past the 9/16 auto-step: walking at
    41732's shop door the device player stopped short. A half-way tread is laid
@@ -1357,6 +1362,44 @@ the guard and no Gate 1 line falls.
 **Device-only:** Gate 1 opened on the Saga (the guard is invisible: does a
 child read an open gate it cannot walk through as broken?), and the 76417
 diamond edge at the bank's other doors (Doors 2/3 walked fine in 30i).
+
+### A step-out onto a floor (Pixel round 30k, 2026-10-07)
+
+Standing just inside 76417's OPEN Gate 1 (7511.70,-43.0,7153.30, pin
+7500,-60,7150), the Pixel player was moved out to ~7513,-44,7151 and fell 17
+blocks; the gate was closed afterwards. The cause is the door's own close
+path, not the guard and not a figure: the round's chat helper
+(`_pixel_cmd.sh`) taps the chat's Exit at raw 45,39 after each command, and
+when the chat had already closed that tap landed on the world - the frame
+before each fall shows its touch marker, then the "Open / close" hint and the
+leaf swinging shut. A tap closed the gate; the step-out then ran. The player's
+body was only TOUCHING the doorway's cells (7153.30 is 7153.2998 in float32:
+0.0002 of overlap with the z 2..3 cells), which counted as inside; the side it
+stood on (into the bank) is wall for all 3 blocks of the search; and the other
+side's first point where the body was free - floor or no floor - is 2.3 blocks
+out along the gate's diagonal normal, over the drop: (11.70 + 0.707 x 2.3,
+3.30 - 0.707 x 2.3) = (13.33, 1.67), exactly where the device landed
+(7513.33,-60,7151.67).
+
+`stepOutPlan` (bedrock-interactives.ts) now (a) counts a body overlapping a
+doorway cell by under 1/64 block as beside it, (b) accepts a point only where
+the body is free AND a floor lies within a step over to one block under its
+feet (`STEP_OUT_DROP`), set down on that floor, the occupant's own side first,
+then the other, and (c) plans the moves BEFORE the close: an occupant with no
+such point on either side refuses the close with "Step out of the <door> to
+close it - there is no floor to step onto." Regression
+`gate1-throwout-76417` replays the Pixel's poses on the 30k pack: the device
+pose and one a tenth of a block further in both fall 17.02 blocks on the old
+runtime; on this one the device pose closes without moving the player and the
+deeper pose steps into the bank, onto its floor at 10.14,17.06,4.76. Gate 1's
+drop guard is unchanged (`gate1-invisible-floor-76417` still OK).
+
+Not caused by this, seen on the way: both of the round's Gate 1 poses
+(the `/tp` to 10.5,17.5,4.5 it tapped from, and 11.70,17.0,3.30) overlap
+static colliders in the pack (the f5 wall at 10,17,4, the full cell at
+11,17,3). Bedrock let a teleported player stand there, and the round's
+diagonal walk that ended at the second pose STARTED inside the first; a walk
+from a legal spot does not reach either.
 
 ### Known limits
 

@@ -14,6 +14,10 @@ import type { CraftmaticPack } from './pack-facts.js';
 import { CRAFTMATIC_ALLOWED_LINES } from './child-play.js';
 import { doorwayFindings, placedOf, tapPoseOf } from './play.js';
 import { scriptedVehicleTypes, type CourseRow } from './vehicle-course.js';
+import { teleport } from '../../script-host/facades.js';
+import { lookAt } from '../../input/touch.js';
+import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
+import type { Vec3 } from '../../core/vec.js';
 
 /** What the current tree's pack should do. */
 export type Expectation = 'pass' | 'reproduce-as-model';
@@ -86,6 +90,9 @@ const violated = (r: ScenarioResult, invariant: string, text?: RegExp): string |
   const v = r.violations.find(x => x.invariant === invariant && (!text || text.test(x.message)));
   return v ? `${v.invariant}: ${v.message}` : undefined;
 };
+
+/** One replayed tap from inside 76417's Gate 1 (`gate1-throwout-76417`), anchor-relative. */
+interface GateThrowout { pose: 'device' | 'deeper'; before: Vec3; end: Vec3; wasOpen: boolean; nowOpen: boolean; refusal: string }
 
 /** The lines a driven vehicle's HUD prints (the course's own allowance). */
 const vehicleAllow = [...allow, /CAR|HOVER|FLY|PLANE|BOAT|mph|Hotbar slot 9/];
@@ -368,6 +375,68 @@ export const REGRESSIONS: RegressionCase[] = [
     oldPack: `${ROUND}/device-round-2026-10-07j/packs-f200ddc7/7140-xwing-fighter.mcaddon`, newStem: '7140-xwing-fighter', expectNew: 'pass',
     scenario: pack => ({ name: 'xwing-parks-on-rider-30j', steps: [{ kind: 'parkOverRider', type: shipType(pack) }], allowLines: vehicleAllow }),
     judge: r => { const v = violated(r, 'ship-parks-on-player'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /after a sneak off/.test(n)) ?? 'no park note') }; },
+  },
+  // ─── Round 30k (Pixel, 2026-10-07, packs-78e06246): Gate 1 throws the player out over the drop ───
+  {
+    id: 'gate1-throwout-76417', title: '76417 Gate 1 (30k): a tap closing the gate on a player standing just inside it steps the player OUT over the 17-block drop (COL-01, DOOR-01)',
+    evidence: '`output/device-round-2026-10-07k/pixel/notes.md` item 3 "DEFECT gate-eject" (shots 43e-gate-fall-frames.jpg, 44d-gatefall-frames.jpg, rec/cm30k-gatefall.mp4): standing at 7511.70,-43.0,7153.30 (pin 7500,-60,7150) with the gate open, the player is moved to ~7513,-44,7151 and lands at 7513.33,-60,7151.67; the gate is closed afterwards. The frame before the fall shows the touch marker of `_pixel_cmd.sh`\'s chat-Exit tap (raw 45,39) landing on the world and the leaf swinging shut ("Open / close" hint): a tap closed it, and the step-out took the outside',
+    oldPack: `${ROUND}/device-round-2026-10-07k/packs-78e06246/76417-gringotts-wizarding-bank-collectors-edition.mcaddon`, newStem: '76417-gringotts-wizarding-bank-collectors-edition', expectNew: 'pass',
+    // The Pixel's poses exactly: open from 10.5,17.5,4.5 (anchor-relative) looking at the leaf, then stand at
+    // 11.70,17.1,3.30 (the `/tp` of 44ab) and tap the gate again - a touch hit on the part, as the stray Exit tap was.
+    // The new pack must either refuse to close (nowhere safe to step out to) or step the player onto a FLOOR.
+    // Both device poses overlap static colliders in every pack (the tap spot the f5 wall at 10,17,4, the doorway spot
+    // the full cell at 11,17,3): the device let a `/tp` stand there, so player-in-solid is not run for this case.
+    scenario: () => ({
+      name: 'gate1-throwout-76417', allowLines: allow, invariants: ['no-unprotected-fall', 'nothing-below-ground', 'actionbar-not-stolen'], steps: [...place,
+        { kind: 'tapPartFrom', label: 'Gate 1', feet: { x: 10.5, y: 17.5, z: 4.5 }, at: { x: 10.84, y: 18.4, z: 2.17 } },
+        { kind: 'expect', label: 'tap-close-in-doorway', check: async ctx => {
+          const a = placedOf(ctx).anchor, p = ctx.player;
+          const part = [...ctx.sim.engine.entities.values()].find(e => e.valid && /_gate_1$/.test(e.typeId));
+          if (!part) return 'no Gate 1 entity';
+          const rel = (v: Vec3): Vec3 => ({ x: r3(v.x - a.x), y: r3(v.y - a.y), z: r3(v.z - a.z) });
+          const isOpen = (): boolean => part.dynamic.get(IX_KEYS.open) === true;
+          const rows: GateThrowout[] = [];
+          // The device's coordinates are float32: 7511.70 / 7153.30 are 7511.7002 / 7153.2998, so the body's +x face
+          // touches the wall at x 12 and its -z face reaches 0.0002 into the doorway's z 2..3 cells (which is what
+          // made the device's step-out act). In doubles 11.7 / 3.3 land a hair the other way; the pose keeps the device's
+          // side. The second pose stands a tenth of a block further in (a child who walked on), the same spot otherwise.
+          for (const [name, z] of [['device', 3.2998], ['deeper', 3.2]] as const) {
+            if (!isOpen()) {
+              // Reopen from the device's tap spot, as the first step did.
+              teleport(ctx.sim.host, p, { x: a.x + 10.5, y: a.y + 17.5, z: a.z + 4.5 });
+              await ctx.run(4);
+              lookAt(p, { x: a.x + 10.84, y: a.y + 18.4, z: a.z + 2.17 });
+              ctx.sim.engine.emit('entityHitEntity', { damagingEntity: p, hitEntity: part });
+              await ctx.run(10);
+              if (!isOpen()) { ctx.note(`Gate 1 (${name}): could not reopen it`); continue; }
+              await ctx.run(6);
+            }
+            teleport(ctx.sim.host, p, { x: a.x + 11.6995, y: a.y + 17.1, z: a.z + z });
+            // Tapped at once: the simulator's push out of blocks (quirk `teleport-into-floor`) would walk the body off the
+            // pose within a second, while the device stood there ~20 s (the spot overlaps the static collider at 11,17,3).
+            await ctx.run(1);
+            const before = p.location;
+            ctx.sim.engine.emit('entityHitEntity', { damagingEntity: p, hitEntity: part });
+            await ctx.run(80);
+            const row: GateThrowout = { pose: name, before: rel(before), end: rel(p.location), wasOpen: true, nowOpen: isOpen(), refusal: String(part.dynamic.get('craftmatic:ix_refused') ?? '-') };
+            rows.push(row);
+            ctx.note(`Gate 1 tapped from inside the doorway (${name}): open -> ${row.nowOpen ? 'open' : 'closed'}; player ${JSON.stringify(row.before)} -> ${JSON.stringify(row.end)} (anchor-relative); refusal ${row.refusal}`);
+            await ctx.run(6);
+          }
+          ctx.state['gate1Throwout'] = rows;
+          return undefined;
+        } },
+      ],
+    }),
+    judge: r => {
+      const rows = (r.state['gate1Throwout'] as GateThrowout[] | undefined) ?? [];
+      const notes = r.notes.filter(n => /Gate 1 tapped from inside|Gate 1 \(/.test(n)).join('; ') || 'no tap note';
+      if (!rows.some(t => t.pose === 'device')) return { reproduced: false, evidence: notes, untested: 'the device pose was not replayed with the gate open' };
+      const fall = violated(r, 'no-unprotected-fall');
+      // Dropped more than a step below where it stood (17 blocks on the device) = thrown out over the drop.
+      const dropped = rows.some(t => t.end.y < t.before.y - 3);
+      return { reproduced: !!fall || dropped, attribution: 'pack', evidence: `${fall ? `${fall}; ` : ''}${notes}` };
+    },
   },
 ];
 
