@@ -14,6 +14,8 @@ import { bedrockJsonText } from '../web/src/engine/bedrock-json.js';
 import { HOP, HOP_TAGS, hopContact, hopKitConfig, hopRuntimeConfig, hopScript, type HopShape, type HopSource } from '../web/src/engine/bedrock-ride-hop.js';
 import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, MOVE, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript } from '../web/src/engine/bedrock-vehicle.js';
 import { RIDE, ridesScript } from '../web/src/engine/bedrock-rides.js';
+import { vehicleCameraScript } from '../web/src/engine/playable-addon.js';
+import { FREE_LOOK } from '../web/src/engine/vehicle-free-look.js';
 import { Simulation } from '../web/src/sim/core/simulation.js';
 import { readAddon, type Addon } from '../web/src/sim/pack/pack.js';
 import { FLAT_GROUND_Y } from '../web/src/sim/world/voxel-world.js';
@@ -254,6 +256,46 @@ describe('the hop runtime, serialised, in the simulator', () => {
     await sweep(-6, 6);
     expect(child.ridingOn).toBe(a);
   }, 30000);
+
+  it('the rider the plane\'s camera hid stays hidden by the coaster after the hop, whichever pack runs first (Saga 30j: the rider\'s own head filled the coaster camera)', async () => {
+    // The plane's camera hides its rider (a body that fits at no size, as 7140's at 100 %); the "coaster" hides
+    // a new rider ONCE, for an hour, as bedrock-coaster.ts `aimRider` does.
+    const camera = vehicleCameraScript({
+      vehicles: [{ typeId: PLANE, preset: 'craftmatic:test_plane_chase', kind: 'plane', radius: 6, height: 2, pivotY: 0.5, scripted: true, riderVisibleSizes: [] }],
+      pitchProperty: FLIGHT_PROPS.pitch, hop: { claimTag: HOP_TAGS.claim, graceTicks: HOP.BOARD_GRACE_TICKS, hiddenTag: HOP_TAGS.hidden },
+      freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, telemetryEvent: VEHICLE_TELEMETRY_EVENT,
+    });
+    const coaster = `import { world, system } from '@minecraft/server';
+const seen = new Set();
+system.runInterval(() => {
+  for (const car of world.getDimension('overworld').getEntities({ type: '${CAR_T}' })) {
+    for (const r of car.getComponent('minecraft:rideable').getRiders()) {
+      if (r.typeId === 'minecraft:player' && !seen.has(r.id)) { seen.add(r.id); r.addEffect('invisibility', 72000, { amplifier: 0, showParticles: false }); }
+    }
+  }
+}, 1);
+`;
+    for (const order of ['plane-first', 'coaster-first'] as const) {
+      // The shipped pack's import order (main.js): the camera script runs before hop.js in a tick.
+      const planePack = await pack('hopP', { 'vehicle-camera.js': camera, 'vehicles.js': VEHICLES, 'hop.js': HOP_JS });
+      const coasterPack = await pack('hopC', { 'coaster.js': coaster });
+      const { sim, child } = await world(order === 'plane-first' ? [planePack, coasterPack] : [coasterPack, planePack]);
+      const plane = spawn(sim, PLANE, 0.5, FLAT_GROUND_Y, 0.5);
+      await sim.run(2);
+      plane.addRider(child, sim.engine.tick);
+      await sim.run(25);
+      expect(child.effects.has('minecraft:invisibility'), order).toBe(true);
+      expect(child.tags.has(HOP_TAGS.hidden), order).toBe(true);
+      const cars = train(sim, 0.5, FLAT_GROUND_Y, -12);
+      for (let t = 0; t < 80 && child.ridingOn === plane; t++) { moveTrain(cars, 0.5); await sim.run(1); }
+      expect(child.ridingOn, order).toBe(cars[0]);
+      // Long past the plane camera's own 3-second effect: the coaster's is the one left, and the plane's tag is gone.
+      for (let t = 0; t < 100; t++) { moveTrain(cars, 0.5); await sim.run(1); }
+      expect(child.effects.has('minecraft:invisibility'), order).toBe(true);
+      expect(child.tags.has(HOP_TAGS.hidden), order).toBe(false);
+      expect(sim.engine.timeline.of('script-error'), order).toHaveLength(0);
+    }
+  }, 60000);
 
   it('a car parked at a slide\'s foot takes the rider at the set-down (they slide into it)', async () => {
     const { sim, child } = await world([await pack('hopA', { 'rides.js': RIDES_JS })]);

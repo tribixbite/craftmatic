@@ -38,7 +38,7 @@ import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, pressFlashOv
 import { bedrockJsonText } from './bedrock-json.js';
 import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
-import { FREE_LOOK, freeLookStart, freeLookStep, type FreeLookParams } from './vehicle-free-look.js';
+import { FREE_LOOK, cockpitCamera, freeLookStart, freeLookStep, type FreeLookParams } from './vehicle-free-look.js';
 import { figureLifeScript, FIGURE_TUNING, resolveFigureSpawn, separateFigureSpawns, type FigureSpawn, type SpanLookup } from './bedrock-figure-life.js';
 import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, accessAvoidCells, captureDoorwayNeighbours, type InteractiveColliderPlan, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
 declare const world: any;
@@ -650,9 +650,12 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     // sized to the vehicle so the player's own camera toggle is usable too.
     // A brick-compiled entity is at player scale (0.2 blocks per stud); the
     // scene grid is 12x that, so its size only stands in for the grid fallback.
-    // A scripted vehicle's rider may look all round (free look, vehicle-free-look.ts: the camera orbits by the
-    // rider's drag and eases back behind the nose); a native mount flies where its rider looks, held to the seat.
-    const cameraSeat = { lock_rider_rotation: scripted ? FREE_LOOK.SEAT_LOCK_DEG : 0, third_person_camera_radius: chaseRadius(entitySize ?? { width: layout.width, height: layout.height, length: layout.length }), camera_relax_distance_smoothing: 6 };
+    // Every rider may look all round. A scripted vehicle's camera orbits by the rider's drag and eases back
+    // behind the nose (free look, vehicle-free-look.ts); a native mount (a rotorcraft, a flyer's cloud) flies
+    // where its rider looks, so a drag steers it and tips the view for "look down + Jump". Its seat held the
+    // rider at 0 until 2026-10-07, and on the Saga (round 30j) a drag on the Nimbus moved nothing: its HUD's
+    // "LOOK DOWN + JUMP: DIVE" could not be done (quirk `native-mount-locked-look`).
+    const cameraSeat = { lock_rider_rotation: FREE_LOOK.SEAT_LOCK_DEG, third_person_camera_radius: chaseRadius(entitySize ?? { width: layout.width, height: layout.height, length: layout.length }), camera_relax_distance_smoothing: 6 };
     // Passenger seats the model itself has (its free seat moulds, ldraw-entity-compiler `passengerSeats`):
     // the driver in seat 0, each passenger where the source put a seat; a model the rider sits ON sits them on it too.
     const measured = (passengerSeats ?? []).map(([x, y, z]) => [x, y, z] as [number, number, number]);
@@ -1618,6 +1621,8 @@ interface VehicleDriverConfig {
   speedWindowTicks: number;
   /** A position change longer than this between two samples is a teleport, not motion (`DRIVER_TELEPORT_BLOCKS`). */
   teleportBlocks: number;
+  /** How far under the mount the HUD looks for the ground its ALT is measured from (`DRIVER_ALT_SCAN_BLOCKS`). */
+  altScanBlocks: number;
 }
 /** Ticks between two Jump effects (sound and flame) of a rotorcraft. */
 export const ROTOR_BOOST_COOLDOWN_TICKS = 30;
@@ -1634,6 +1639,13 @@ export const ROTOR_BOOST_COOLDOWN_TICKS = 30;
 export const DRIVER_SPEED_WINDOW_TICKS = 20;
 /** A jump longer than this between two consecutive samples (2 ticks apart) is a teleport - the wand, a reload - and resets the window. */
 export const DRIVER_TELEPORT_BLOCKS = 5;
+/**
+ * The native driver HUD's ALT is the height over the first solid block or
+ * liquid within this many blocks under the mount (`--` past it, or over an
+ * unloaded block), as a ship's is its height over the ground: the Nimbus
+ * showed the world y (`ALT -59` on the ground of a flat world, Saga 30j).
+ */
+export const DRIVER_ALT_SCAN_BLOCKS = 64;
 /**
  * The vanilla particle a flyer puffs: the white cloud an entity's water
  * evaporation makes (`minecraft:water_evaporation_actor_emitter`); the summon
@@ -1700,6 +1712,17 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
   const dimensions = () => ['overworld', 'nether', 'the_end'].flatMap(id => {
     try { return [world.getDimension(id)]; } catch { return []; }
   });
+  /** Height of `loc` over the first solid or liquid block under it within `altScanBlocks`, rounded; '--' when none is known (an unloaded block is not ground). */
+  const altitude = (dim: any, loc: any): string => {
+    const x = Math.floor(loc.x), z = Math.floor(loc.z), top = Math.floor(loc.y);
+    for (let dy = 0; dy <= config.altScanBlocks; dy++) {
+      let b: any;
+      try { b = dim.getBlock({ x, y: top - dy, z }); } catch { return '--'; }
+      if (!b) return '--';
+      if (!b.isAir) return String(Math.max(0, Math.round(loc.y - (top - dy + 1))));
+    }
+    return '--';
+  };
   const activeVehicles = () => dimensions().flatMap(d => config.vehicles.flatMap(v => {
     try { return d.getEntities({ type: v.typeId }).filter((e: any) => e.typeId === v.typeId).map((e: any) => ({ vehicle: e, config: v })); } catch { return []; }
   }));
@@ -1773,9 +1796,9 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
       if (telemetry.on && tick % telemetry.every === 0) {
         try {
           const l = vehicle.location, r = vehicle.getRotation?.() ?? { y: 0 };
-          let riderYaw = NaN;
-          try { riderYaw = Math.round(rider.getRotation().y); } catch {}
-          console.warn(`CMVT ${JSON.stringify({ type: vehicle.typeId, t: tick, x: Math.round(l.x * 100) / 100, y: Math.round(l.y * 100) / 100, z: Math.round(l.z * 100) / 100, yaw: Math.round(r.y), riderYaw, mph: Math.round(mph * 10) / 10, input: { x: Math.round(steerInput * 100) / 100, y: Math.round(forwardInput * 100) / 100, jump } })}`);
+          let riderYaw = NaN, riderPitch = NaN;
+          try { const rr = rider.getRotation(); riderYaw = Math.round(rr.y); riderPitch = Math.round(rr.x); } catch {}
+          console.warn(`CMVT ${JSON.stringify({ type: vehicle.typeId, t: tick, x: Math.round(l.x * 100) / 100, y: Math.round(l.y * 100) / 100, z: Math.round(l.z * 100) / 100, yaw: Math.round(r.y), riderYaw, riderPitch, descending: !!state.descending, mph: Math.round(mph * 10) / 10, input: { x: Math.round(steerInput * 100) / 100, y: Math.round(forwardInput * 100) / 100, jump } })}`);
         } catch {}
       }
       // The HUD (ASCII only: the Pixel's HUD font drew emoji as empty boxes, 2026-09-25).
@@ -1788,7 +1811,7 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
         const tag = state.descending ? ' · §a[JUMP: DESCEND]§r' : ' · §a[STICK: TURN · JUMP: CLIMB · LOOK DOWN + JUMP: DIVE]§r';
         const aboard = riders.length > 1 ? ` · §d[${riders.length} ABOARD]§r` : '';
         const hud = hint ? `§e${word}!§r Jump climbs, look down + Jump dives, sneak gets off`
-          : `§l${word}§r §e${mph.toFixed(1)} mph§r · §bALT ${Math.floor(vehicle.location?.y ?? 0)}§r${aboard}${tag}`;
+          : `§l${word}§r §e${mph.toFixed(1)} mph§r · §bALT ${altitude(vehicle.dimension, vehicle.location)}§r${aboard}${tag}`;
         for (const r of riders) { try { r.onScreenDisplay?.setActionBar?.(hud); } catch {} }
       }
     }
@@ -1807,6 +1830,7 @@ export function vehicleDriverConfig(vehicles: VehicleDriverConfig['vehicles']): 
   return {
     vehicles, boostCooldownTicks: ROTOR_BOOST_COOLDOWN_TICKS, descendOn: AIRCRAFT_DESCEND_ON, descendOff: AIRCRAFT_DESCEND_OFF, puffParticle: FLYER_PUFF_PARTICLE,
     divePitchDeg: FLYER.DIVE_PITCH_DEG, rideHintTicks: FLYER.RIDE_HINT_TICKS, speedWindowTicks: DRIVER_SPEED_WINDOW_TICKS, teleportBlocks: DRIVER_TELEPORT_BLOCKS,
+    altScanBlocks: DRIVER_ALT_SCAN_BLOCKS,
   };
 }
 
@@ -1889,13 +1913,25 @@ export interface VehicleCameraConfig {
      * filled the view ahead (Saga, 2026-09-29).
      */
     eyeY?: number;
+    /**
+     * The driver's eye in the rideable seat's frame at 100 % (x across, y up, z toward the nose;
+     * cockpit-seat.ts `SeatPlan.eye` turned by `renderSeatToEntity`): where the cockpit view's
+     * camera stands (vehicle-free-look.ts `cockpitCamera`). Absent: the rider's own head.
+     */
+    eye?: [number, number, number];
+}
+
+/** The camera fields a compiled vehicle's seat plan gives its `VehicleCameraConfig`: when the body is drawn, the eye height the chase camera clears, the cockpit view's eye. */
+export function cameraSeatFields(plan: SeatPlan | undefined): Pick<VehicleCameraConfig, 'riderVisibleSizes' | 'eyeY' | 'eye'> {
+    return { riderVisibleSizes: riderVisibleSizes(plan), ...(plan ? { eyeY: plan.eye[1], eye: renderSeatToEntity(plan.eye) } : {}) };
 }
 
 /** What the camera runtime is told: its vehicles, the scripted vehicles' pitch property, the hop's claim, and the free look's numbers and outputs. */
 export interface VehicleCameraRuntimeConfig {
     vehicles: VehicleCameraConfig[];
     pitchProperty?: string;
-    hop?: { claimTag: string; graceTicks: number };
+    /** The hop's claim tag and grace (bedrock-ride-hop.ts), and the tag this runtime marks a rider it made invisible with (`HOP_TAGS.hidden`: hop.js lifts it). */
+    hop?: { claimTag: string; graceTicks: number; hiddenTag?: string };
     /** FREE_LOOK (vehicle-free-look.ts). */
     freeLook: FreeLookParams;
     /** The vehicle's dynamic property the view's pitch is written to (`VEHICLE_DYNAMIC.lookPitch`). */
@@ -1914,14 +1950,18 @@ export interface VehicleCameraRuntimeConfig {
  * every tick (eased). Since 2026-09-30 that camera has FREE LOOK
  * (vehicle-free-look.ts): a drag orbits it round the vehicle (yaw and pitch),
  * and a second after the last drag, while the vehicle moves, it eases back
- * behind the nose; in the cockpit view (hotbar slot 9) the rider's own look
- * is free and its yaw eases back the same way. Native mounts (a rotorcraft,
- * a flyer's cloud) fly where the rider looks, so their camera follows the
- * rider's look as before - the view IS the direction of travel. Everything is
- * cleared on dismount. If the free camera is rejected, the vanilla third
- * person stands in.
+ * behind the nose. The cockpit view (hotbar slot 9) of a scripted vehicle is
+ * a free camera at the driver's eye (`cockpitCamera`) turned by the same
+ * offsets, so it looks round and eases back to the front in yaw and pitch;
+ * the rider is made invisible while it is theirs (a camera at the eye draws
+ * the rider's own head round it, as the coaster's). Switching views starts
+ * the new one on the nose. Native mounts (a rotorcraft, a flyer's cloud) fly
+ * where the rider looks, so their camera follows the rider's look as before -
+ * the view IS the direction of travel - and their cockpit view is the rider's
+ * own first person. Everything is cleared on dismount. If the free camera is
+ * rejected, the vanilla third person stands in.
  */
-function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof freeLookStep, lookStart: typeof freeLookStart) {
+function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof freeLookStep, lookStart: typeof freeLookStart, cockpitView: typeof cockpitCamera) {
   const byType = new Map(config.vehicles.map((v: any) => [v.typeId, v] as const));
   /**
    * Whether the player HOPPED off within the grace (scripts/hop.js, bedrock-ride-hop.ts): the hop handed
@@ -1937,8 +1977,11 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
     } catch { return false; }
   };
   const tracked = new Map<string, { typeId: string; chase: boolean }>();
-  /** Each rider's free look (vehicle-free-look.ts), the vehicle position it last saw (for the speed), and the yaw it set on the rider. */
-  const looks = new Map<string, { look: any; at?: { x: number; y: number; z: number }; selfYaw: number; lookPitch?: number }>();
+  /**
+   * Each rider's free look (vehicle-free-look.ts), the vehicle position it last saw (for the speed), the view it
+   * was in last tick (a switch starts the new view on the nose), and the vehicle's last poses (the cockpit camera's lag).
+   */
+  const looks = new Map<string, { look: any; at?: { x: number; y: number; z: number }; view?: 'chase' | 'cockpit'; poses: any[]; lookPitch?: number }>();
   const telemetry = { on: false, every: 20 };
   try {
     system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
@@ -2018,6 +2061,19 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
   const sizeOf = (vehicle: any): number => {
     try { const s = Number(vehicle.getComponent('minecraft:scale')?.value); return Number.isFinite(s) && s > 0 ? s : 1; } catch { return 1; }
   };
+  const hiddenTag = config.hop?.hiddenTag;
+  /** Make a rider invisible (refreshed: the effect is short, so a rider this runtime loses track of shows again). */
+  const hide = (player: any, id: string): void => {
+    if (!hidden.has(id) || schemeTick % 20 === 0) { try { player.addEffect('invisibility', 60, { amplifier: 0, showParticles: false }); } catch {} }
+    if (!hidden.has(id) && hiddenTag) { try { player.addTag(hiddenTag); } catch {} }
+    hidden.add(id);
+  };
+  /** Show a rider this runtime hid. */
+  const show = (player: any, id: string): void => {
+    try { player.removeEffect('invisibility'); } catch {}
+    if (hiddenTag) { try { player.removeTag(hiddenTag); } catch {} }
+    hidden.delete(id);
+  };
   system.runInterval(() => {
     const riding = new Map<string, { player: any; vehicle: any; cfg: any }>();
     for (const d of dimensions()) {
@@ -2035,42 +2091,34 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
       const t = tracked.get(id);
       // The free look (scripted vehicles): read the rider's look and the vehicle's motion, move or ease the offsets.
       let fl = looks.get(id);
-      if (!t || t.typeId !== cfg.typeId || !fl) { fl = { look: lookStart(), selfYaw: 0 }; looks.set(id, fl); }
+      if (!t || t.typeId !== cfg.typeId || !fl) { fl = { look: lookStart(), poses: [] }; looks.set(id, fl); }
       let offset = { yaw: 0, pitch: 0 }, dragging = false, recentring = false;
       let cockpit = false;
       try { cockpit = player.selectedSlotIndex === 8; } catch {}
+      // Entering either view starts it on the nose (Saga 30j: the chase camera came back where the cockpit's drag left it).
+      const view: 'chase' | 'cockpit' = cockpit ? 'cockpit' : 'chase';
+      if (fl.view !== undefined && fl.view !== view) fl.look = lookStart();
+      fl.view = view;
       if (cfg.scripted) {
-        let pr: any = { x: 0, y: 0 }, vy = 0, at: any;
+        let pr: any = { x: 0, y: 0 }, vy = 0, at: any, nose = 0;
         try { pr = player.getRotation(); } catch {}
         try { vy = vehicle.getRotation().y; at = vehicle.location; } catch {}
+        try { nose = -Number(vehicle.getProperty(config.pitchProperty)) || 0; } catch {}
         const speed = fl.at && at ? Math.hypot(at.x - fl.at.x, at.z - fl.at.z) * 20 : 0;
         fl.at = at ? { x: at.x, y: at.y, z: at.z } : fl.at;
-        const step = look(fl.look, { playerYaw: Number(pr.y) || 0, playerPitch: Number(pr.x) || 0, vehicleYaw: vy, speed, selfYaw: fl.selfYaw }, config.freeLook, 0.05);
-        fl.look = step.state; fl.selfYaw = 0;
+        if (at) { fl.poses.push({ x: at.x, y: at.y, z: at.z, yaw: vy, pitch: nose }); if (fl.poses.length > config.freeLook.COCKPIT_HISTORY) fl.poses.shift(); }
+        // Both views: a drag moves the offsets, and they ease back to the nose a second after the last drag while moving.
+        const step = look(fl.look, { playerYaw: Number(pr.y) || 0, playerPitch: Number(pr.x) || 0, vehicleYaw: vy, speed }, config.freeLook, 0.05);
+        fl.look = step.state;
         dragging = step.dragging; recentring = step.recentring;
         offset = { yaw: fl.look.yaw, pitch: fl.look.pitch };
-        if (cockpit) {
-          // First person: the rider's own look IS the view. Ease its yaw back by turning the rider (yaw
-          // applies on a seated player; pitch does not, pinball 2026-09-25) and keep the offsets on it,
-          // so the chase camera takes over from the same view.
-          const rel = ((Number(pr.y) - vy + 540) % 360) - 180;
-          if (recentring && Math.abs(rel) > config.freeLook.MIN_STEP_DEG) {
-            const k = 1 - Math.exp(-0.05 / config.freeLook.RECENTRE_SECONDS);
-            const next = rel - Math.sign(rel) * Math.max(Math.abs(rel) * k, config.freeLook.MIN_STEP_DEG);
-            try { player.setRotation({ x: Number(pr.x) || 0, y: vy + next }); fl.selfYaw = next - rel; } catch {}
-          }
-          fl.look = { ...fl.look, yaw: rel + fl.selfYaw };
-        }
-        // The view's pitch for a ship's "look down + Jump" (bedrock-vehicle.ts `flightStep`): the chase
-        // camera's dragged pitch over the vehicle's nose, or in first person the rider's own.
-        let nose = 0;
-        try { nose = -Number(vehicle.getProperty(config.pitchProperty)) || 0; } catch {}
-        const viewPitch = Math.round((cockpit ? Number(pr.x) || 0 : nose + fl.look.pitch) * 10) / 10;
+        // The view's pitch for a ship's "look down + Jump" (bedrock-vehicle.ts `flightStep`): the dragged pitch over the vehicle's nose.
+        const viewPitch = Math.round((nose + fl.look.pitch) * 10) / 10;
         if (fl.lookPitch === undefined || Math.abs(viewPitch - fl.lookPitch) >= 0.5) {
           try { vehicle.setDynamicProperty(config.lookPitchProperty, viewPitch); fl.lookPitch = viewPitch; } catch {}
         }
         if (telemetry.on && Number(system.currentTick) % telemetry.every === 0) {
-          try { console.warn(`CMCAM ${JSON.stringify({ type: vehicle.typeId, t: Number(system.currentTick), mode: cockpit ? 'cockpit' : 'chase', riderYaw: Math.round(Number(pr.y) * 10) / 10, riderPitch: Math.round(Number(pr.x) * 10) / 10, vehicleYaw: Math.round(vy * 10) / 10, yawOff: Math.round(fl.look.yaw * 10) / 10, pitchOff: Math.round(fl.look.pitch * 10) / 10, dragging, recentring, speed: Math.round(speed * 10) / 10, viewPitch })}`); } catch {}
+          try { console.warn(`CMCAM ${JSON.stringify({ type: vehicle.typeId, t: Number(system.currentTick), mode: view, riderYaw: Math.round(Number(pr.y) * 10) / 10, riderPitch: Math.round(Number(pr.x) * 10) / 10, vehicleYaw: Math.round(vy * 10) / 10, yawOff: Math.round(fl.look.yaw * 10) / 10, pitchOff: Math.round(fl.look.pitch * 10) / 10, dragging, recentring, speed: Math.round(speed * 10) / 10, viewPitch })}`); } catch {}
         }
       }
       // Every vehicle, aircraft included, is steered with the joystick under
@@ -2082,29 +2130,31 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
       if (!t || t.typeId !== cfg.typeId) {
         scheme(player, cfg.scripted ? 'clear' : `set ${NATIVE_SCHEME}`);
         tracked.set(id, { typeId: cfg.typeId, chase: true });
-        try { player.sendMessage(cfg.scripted ? '§7Drag the screen to look around. Hotbar slot 9: cockpit view. Any other slot: chase camera.' : '§7Hotbar slot 9: cockpit view. Any other slot: chase camera.'); } catch {}
+        try { player.sendMessage('§7Drag the screen to look around. Hotbar slot 9: cockpit view. Any other slot: chase camera.'); } catch {}
       } else if (schemeTick % 10 === 0 && !cfg.scripted) {
         scheme(player, `set ${NATIVE_SCHEME}`);
       }
-      // A body that does not fit the driver's seat at this size is hidden; the eye stays the driver's.
+      // A body that does not fit the driver's seat at this size is hidden; the eye stays the driver's. A scripted
+      // vehicle's cockpit view hides it too: its camera stands at the eye, inside the rider's own head.
       const size = sizeOf(vehicle);
-      if (Array.isArray(cfg.riderVisibleSizes) && !cfg.riderVisibleSizes.some((v: number) => Math.abs(v - size) < 0.01)) {
-        if (!hidden.has(id) || schemeTick % 20 === 0) { try { player.addEffect('invisibility', 60, { amplifier: 0, showParticles: false }); } catch {} }
-        hidden.add(id);
-      } else if (hidden.has(id)) {
-        try { player.removeEffect('invisibility'); } catch {}
-        hidden.delete(id);
-      }
-      // Hotbar slot 9 is the COCKPIT view: the chase camera steps aside and the
-      // rider sees from the seat (their own first person). Sneak is Dismount and
-      // Jump is the vehicle's, so a hotbar slot is the one free touch input.
+      const unfit = Array.isArray(cfg.riderVisibleSizes) && !cfg.riderVisibleSizes.some((v: number) => Math.abs(v - size) < 0.01);
+      if (unfit || (cockpit && cfg.scripted)) hide(player, id);
+      else if (hidden.has(id)) show(player, id);
+      // Hotbar slot 9 is the COCKPIT view: the rider sees from the seat. Sneak is Dismount and Jump is the
+      // vehicle's, so a hotbar slot is the one free touch input. A native mount's is the rider's own first person.
       const now = tracked.get(id);
       if (cockpit) {
-        if (now && now.chase) { try { player.camera.clear(); } catch {} now.chase = false; }
+        const cam = cfg.scripted ? cockpitView(fl.poses, config.freeLook.COCKPIT_TICK_LAG, Array.isArray(cfg.eye) ? cfg.eye : [0, 0, 0], size, offset, config.freeLook.COCKPIT_PITCH_MAX) : null;
+        // Without a measured eye, the camera stands at the rider's own head (the seat the game put it in).
+        if (cam && !Array.isArray(cfg.eye)) { try { cam.location = player.getHeadLocation(); } catch {} }
+        let placed = false;
+        if (cam) { try { player.camera.setCamera('minecraft:free', { location: cam.location, rotation: cam.rotation, easeOptions: { easeTime: config.freeLook.COCKPIT_EASE_SECONDS, easeType: 'Linear' } }); placed = true; } catch {} }
+        if (!placed && now && now.chase) { try { player.camera.clear(); } catch {} }
+        if (now) now.chase = false;
         continue;
       }
       if (now) now.chase = true;
-      if (!chase(player, vehicle, cfg, size, !hidden.has(id), offset) && !t) applyPreset(player, cfg.preset);
+      if (!chase(player, vehicle, cfg, size, !unfit, offset) && !t) applyPreset(player, cfg.preset);
     }
     schemeTick++;
     if (tracked.size) {
@@ -2113,8 +2163,14 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
       for (const id of [...tracked.keys()]) {
         if (riding.has(id)) continue;
         const player = players.find((p: any) => p.id === id);
-        if (player && !hopped(player)) { try { player.camera.clear(); } catch {} scheme(player, 'clear'); }
-        if (player && hidden.has(id)) { try { player.removeEffect('invisibility'); } catch {} }
+        const hop = player ? hopped(player) : false;
+        if (player && !hop) { try { player.camera.clear(); } catch {} scheme(player, 'clear'); }
+        // A rider who HOPPED is the new mount's now, its invisibility too: hop.js lifted ours before the new
+        // mount saw the rider, and that mount (a coaster car, whose camera stands at the eye) may have hidden it
+        // again already - removing the effect here showed the rider's own head round the coaster's camera for
+        // ~6 s (Saga 30j, the X-wing flown into 10261's train).
+        if (player && hidden.has(id) && !hop) show(player, id);
+        else if (player && hidden.has(id) && hiddenTag) { try { player.removeTag(hiddenTag); } catch {} }
         hidden.delete(id);
         tracked.delete(id);
         looks.delete(id);
@@ -2126,7 +2182,7 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
 
 /** `scripts/vehicle-camera.js`: the chase camera and free look runtime with its config (exported for the runtime tests). */
 export const vehicleCameraScript = (config: VehicleCameraRuntimeConfig) =>
-  `import { world, system } from "@minecraft/server";\n(${vehicleCameraRuntime.toString()})(${JSON.stringify(config)}, ${freeLookStep.toString()}, ${freeLookStart.toString()});\n`;
+  `import { world, system } from "@minecraft/server";\n(${vehicleCameraRuntime.toString()})(${JSON.stringify(config)}, ${freeLookStep.toString()}, ${freeLookStart.toString()}, ${cockpitCamera.toString()});\n`;
 
 function blockRgb(state: string): [
     number,
@@ -2907,7 +2963,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             const mainBehavior = behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, ldrawGeo.seatPlan);
             emitCompiledEntity(cid, ldrawGeo, mainBehavior, emitDriveAnimation(cid, motion, ldrawGeo, scripted), true);
             vehicleSeats.push(vehicleSeatReport(c.label, cid, c.kind, c.bricks!, i => c.bricks![i]!, ldrawGeo, mainBehavior, `${scripted ? 'scripted' : 'native'} ${motion}`));
-            cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(scripted ? { scripted: true } : {}), riderVisibleSizes: riderVisibleSizes(ldrawGeo.seatPlan), ...(ldrawGeo.seatPlan ? { eyeY: ldrawGeo.seatPlan.eye[1] } : {}) });
+            cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(scripted ? { scripted: true } : {}), ...cameraSeatFields(ldrawGeo.seatPlan) });
 
             // Secondary objects the compiler found beside the vehicle (see
             // EntityExtra): figures wander as minifig NPCs, a wheeled second
@@ -2946,7 +3002,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 addEntityName(`${PACK_NAMESPACE}:${ecid}`, elabel, true);
                 if (ekind === 'car') {
                     scriptedTypes[`${PACK_NAMESPACE}:${ecid}`] = scriptedTypeOf('car', 'car', egeo.sizeBlocks);
-                    cameraVehicles.push({ ...emitCameraPresets(ecid, 'car', egeo.sizeBlocks), scripted: true, riderVisibleSizes: riderVisibleSizes(egeo.seatPlan), ...(egeo.seatPlan ? { eyeY: egeo.seatPlan.eye[1] } : {}) });
+                    cameraVehicles.push({ ...emitCameraPresets(ecid, 'car', egeo.sizeBlocks), scripted: true, ...cameraSeatFields(egeo.seatPlan) });
                 }
                 // A rigged figure faces exactly where its torso pointed (not the nearest axis).
                 const place = extraPlacement(ldrawGeo, extra, egeo.facing, layout.actorYaw, egeo.figure?.facingLdu, lduPerBlock);
@@ -3564,7 +3620,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     if (timeMachineConfig) files.push({ name: `${bp}scripts/time-machine.js`, data: text(timeMachineScript(timeMachineConfig)) });
     if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript(vehicleDriverConfig(driverVehicles))) });
     if (flyerConfig) files.push({ name: `${bp}scripts/flyer.js`, data: text(flyerScript(flyerConfig)) });
-    if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles, pitchProperty: FLIGHT_PROPS.pitch, hop: { claimTag: HOP_TAGS.claim, graceTicks: HOP.BOARD_GRACE_TICKS }, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, telemetryEvent: VEHICLE_TELEMETRY_EVENT })) });
+    if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles, pitchProperty: FLIGHT_PROPS.pitch, hop: { claimTag: HOP_TAGS.claim, graceTicks: HOP.BOARD_GRACE_TICKS, hiddenTag: HOP_TAGS.hidden }, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, telemetryEvent: VEHICLE_TELEMETRY_EVENT })) });
     // HOP (bedrock-ride-hop.ts): fly or drive one of this pack's driveables into another mountable and ride that.
     const hopSources: Record<string, HopSource> = { ...nativeHopSources, ...Object.fromEntries(Object.entries(scriptedTypes).map(([t, v]) => [t, scriptedHopSource(v)])) };
     const hasHop = Object.keys(hopSources).length > 0;

@@ -3,11 +3,12 @@
  * drag / ease-back model, and the shipped camera runtime
  * (`scripts/vehicle-camera.js`) on the headless simulator - a drag orbits the
  * chase camera, it holds at rest, it eases back behind the nose a second
- * after the last drag while the vehicle moves, the cockpit view eases the
- * rider's own yaw, and the view's pitch reaches the ship's "look down + Jump".
+ * after the last drag while the vehicle moves, the cockpit view is a camera at
+ * the driver's eye that looks round and eases back to the front the same way,
+ * and the view's pitch reaches the ship's "look down + Jump".
  */
 import { describe, expect, it } from 'vitest';
-import { FREE_LOOK, freeLookStart, freeLookStep, type FreeLookState } from '../web/src/engine/vehicle-free-look.js';
+import { FREE_LOOK, cockpitCamera, freeLookStart, freeLookStep, type CockpitPose, type FreeLookState } from '../web/src/engine/vehicle-free-look.js';
 import { vehicleCameraScript, type VehicleCameraConfig } from '../web/src/engine/playable-addon.js';
 import { FLIGHT_PROPS, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties } from '../web/src/engine/bedrock-vehicle.js';
 import { simHost, solidBelow } from './_sim-host.js';
@@ -62,22 +63,43 @@ describe('free look (pure)', () => {
     expect(s[2]!.yaw).toBeCloseTo(s[0]!.yaw - 20, 6);
     expect(s[2]!.idle).toBe(0);
   });
-  it('clamps the dragged pitch, and the yaw the runtime set itself (the cockpit ease) is no drag', () => {
+  it('clamps the dragged pitch', () => {
     const s = run(ticks(40, t => ({ playerYaw: 0, playerPitch: t * 5, vehicleYaw: 0, speed: 0 })));
     expect(s.at(-1)!.pitch).toBe(FREE_LOOK.PITCH_DOWN_MAX);
-    const a = run(ticks(2, () => ({ playerYaw: 30, vehicleYaw: 0, speed: 0 })));
-    const b = freeLookStep(a.at(-1)!, { playerYaw: 25, playerPitch: 0, vehicleYaw: 0, speed: 0, selfYaw: -5 }, FREE_LOOK, DT);
-    expect(b.dragging).toBe(false);
+  });
+});
+
+describe('cockpitCamera (pure)', () => {
+  const pose = (x: number, z: number, yaw: number, pitch = 0): CockpitPose => ({ x, y: 64, z, yaw, pitch });
+  it('stands at the driver\'s eye turned by the heading and scaled by the size, looking along the nose turned by the offsets', () => {
+    // Yaw 90 faces -x: the seat frame's +z (nose) is world -x, its +x is world +z.
+    const c = cockpitCamera([pose(10, 20, 90)], 0, [0.5, 2, 1], 2, { yaw: 30, pitch: 10 }, FREE_LOOK.COCKPIT_PITCH_MAX)!;
+    expect(c.location.x).toBeCloseTo(10 - 2, 6);
+    expect(c.location.y).toBeCloseTo(68, 6);
+    expect(c.location.z).toBeCloseTo(20 + 1, 6);
+    expect(c.rotation).toEqual({ x: 10, y: 120 });
+  });
+  it('shows the pose COCKPIT_TICK_LAG ticks back (the client draws the vehicle behind the server), the yaw the short way round', () => {
+    const poses = [pose(0, 0, 170), pose(0, 1, 178), pose(0, 2, -174), pose(0, 3, -166)];
+    const c = cockpitCamera(poses, 1.5, [0, 0, 0], 1, { yaw: 0, pitch: 0 }, FREE_LOOK.COCKPIT_PITCH_MAX)!;
+    expect(c.location.z).toBeCloseTo(1.5, 6);
+    expect(c.rotation.y).toBeCloseTo(-178, 6);
+    // Fewer poses than the lag: the oldest.
+    expect(cockpitCamera([pose(0, 5, 0)], 1.5, [0, 0, 0], 1, { yaw: 0, pitch: 0 }, 89)!.location.z).toBe(5);
+    expect(cockpitCamera([], 1.5, [0, 0, 0], 1, { yaw: 0, pitch: 0 }, 89)).toBeNull();
+  });
+  it('keeps the pitch inside what setCamera accepts', () => {
+    expect(cockpitCamera([pose(0, 0, 0, 60)], 0, [0, 0, 0], 1, { yaw: 0, pitch: 60 }, FREE_LOOK.COCKPIT_PITCH_MAX)!.rotation.x).toBe(FREE_LOOK.COCKPIT_PITCH_MAX);
   });
 });
 
 // ─── The shipped camera runtime on the simulator ───
 
 const CAR = 'craftmatic:t_car';
-const cameraCfg: VehicleCameraConfig = { typeId: CAR, preset: 'craftmatic:t_car_chase', kind: 'car', radius: 6, height: 2.6, pivotY: 0.75, scripted: true, riderVisibleSizes: null };
-function cameraHost() {
+const cameraCfg: VehicleCameraConfig = { typeId: CAR, preset: 'craftmatic:t_car_chase', kind: 'car', radius: 6, height: 2.6, pivotY: 0.75, scripted: true, riderVisibleSizes: null, eye: [0, 1.62, -0.4] };
+function cameraHost(cfg: VehicleCameraConfig = cameraCfg) {
   const h = simHost({
-    script: vehicleCameraScript({ vehicles: [cameraCfg], pitchProperty: FLIGHT_PROPS.pitch, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, telemetryEvent: VEHICLE_TELEMETRY_EVENT }),
+    script: vehicleCameraScript({ vehicles: [cfg], pitchProperty: FLIGHT_PROPS.pitch, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, telemetryEvent: VEHICLE_TELEMETRY_EVENT }),
     entities: { [CAR]: { properties: flightProperties() as Record<string, Record<string, unknown>>, components: {
       'minecraft:type_family': { family: ['craftmatic_vehicle', 'car'] },
       'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: [{ position: [0, 0.5, 0], lock_rider_rotation: FREE_LOOK.SEAT_LOCK_DEG }] },
@@ -152,20 +174,45 @@ describe('the camera runtime with free look (scripts/vehicle-camera.js on the si
     expect(view()!.pitch).toBeGreaterThan(level + 30);
     expect(car.dynamic.get(VEHICLE_DYNAMIC.lookPitch)).toBeCloseTo(40, 0);
   });
-  it('in the cockpit view (hotbar slot 9) the rider\'s own look is free, and its yaw eases back to the nose while moving', () => {
+  it('in the cockpit view (hotbar slot 9) the camera stands at the driver\'s eye, looks round by a drag and eases back to the front in yaw AND pitch while moving (Saga 30j)', () => {
+    const { h, car, rider, drive, drag } = cameraHost();
+    const cam = () => h.host.playerState(rider).camera;
+    drive(2, 0);
+    h.host.playerState(rider).selectedSlot = 8;
+    drive(3, 0);
+    // A free camera at the eye (the car at rest: no lag to show), level along the nose; the rider hidden round it.
+    expect(cam().preset).toBe('minecraft:free');
+    expect(cam().location!.y).toBeCloseTo(car.location.y + 1.62, 6);
+    expect(cam().location!.z).toBeCloseTo(car.location.z - 0.4, 6);
+    expect(wrap(cam().rotation!.y - car.rotation.y)).toBeCloseTo(0, 6);
+    expect(cam().rotation!.x).toBeCloseTo(0, 6);
+    expect(rider.effects.has('minecraft:invisibility')).toBe(true);
+    // Drag right and down at rest: the view follows and holds.
+    drag(10, 5, 2);
+    expect(wrap(cam().rotation!.y - car.rotation.y)).toBeCloseTo(50, 0);
+    expect(cam().rotation!.x).toBeCloseTo(20, 0);
+    drive(40, 0);
+    expect(wrap(cam().rotation!.y - car.rotation.y)).toBeCloseTo(50, 0);
+    // Driving: back to the front, yaw and pitch, within ~4 s.
+    drive(FREE_LOOK.IDLE_TICKS + 60, 8);
+    expect(Math.abs(wrap(cam().rotation!.y - car.rotation.y))).toBeLessThan(1);
+    expect(Math.abs(cam().rotation!.x)).toBeLessThan(1);
+  });
+  it('switching views starts the new one on the nose, and the cockpit\'s hiding ends with it (Saga 30j: the chase camera came back where the cockpit drag left it)', () => {
     const { h, car, rider, view, drive, drag } = cameraHost();
     drive(2, 0);
     h.host.playerState(rider).selectedSlot = 8;
-    drive(1, 0);
-    expect(view()).toBeUndefined();
+    drive(2, 0);
     drag(10, 5);
-    expect(wrap(rider.rotation.y - car.rotation.y)).toBeCloseTo(50, 0);
-    drive(FREE_LOOK.IDLE_TICKS + 60, 8);
-    expect(Math.abs(wrap(rider.rotation.y - car.rotation.y))).toBeLessThan(1);
-    // Back to the chase camera: behind the nose, where the cockpit view left it.
     h.host.playerState(rider).selectedSlot = 0;
-    drive(2, 8);
-    expect(Math.abs(wrap(view()!.yaw - car.rotation.y))).toBeLessThan(2);
+    drive(2, 0);
+    expect(Math.abs(wrap(view()!.yaw - car.rotation.y))).toBeLessThan(1);
+    expect(rider.effects.has('minecraft:invisibility')).toBe(false);
+    // And a chase drag does not carry into the cockpit view.
+    drag(10, -6);
+    h.host.playerState(rider).selectedSlot = 8;
+    drive(2, 0);
+    expect(Math.abs(wrap(h.host.playerState(rider).camera.rotation!.y - car.rotation.y))).toBeLessThan(1);
   });
   it('logs a CMCAM line per rider with telemetry on (the device probe reads the drag and the ease from it)', () => {
     const { h, drive, drag } = cameraHost();

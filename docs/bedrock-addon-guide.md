@@ -3778,8 +3778,8 @@ camera runtime in `playable-addon.ts`; numbers and reasons in
 | ship (every scripted aircraft: 7140, 76286, ...) | fly forward / straight BACKWARDS | turn, at rest too | straight UP | back + Jump, or a Jump pressed while the view looks down (25 degrees), straight DOWN; hands off it stops and hovers; got out of in the air, it floats down and parks |
 | car, hover craft | drive / brake, reverse | steer; stopped, turn on the spot | boost | slides along walls, steps round trees, scrambles up to 2.15 blocks (two-block kerbs and pits) |
 | boat | throttle / astern | rudder | boost | deflects round posts, slides along piers |
-| every scripted vehicle | | | | DRAG the screen to look around; let go and while moving the view swings back behind the nose after 1 s (95 % in ~1.8 s more); at rest it stays; hotbar slot 9 is the view from the seat (its yaw eases back the same way) |
-| rotorcraft, Nimbus (native) | unchanged: they fly where the rider looks, so the view IS the direction of travel | | | |
+| every scripted vehicle | | | | DRAG the screen to look around; let go and while moving the view swings back behind the nose after 1 s (95 % in ~1.8 s more); at rest it stays; hotbar slot 9 is the view from the seat, a camera at the driver's eye that looks round and swings back to the front (yaw and pitch) the same way; either view starts on the nose |
+| rotorcraft, Nimbus (native) | they fly where the rider looks, so the view IS the direction of travel; a drag turns the look (seat `lock_rider_rotation` 181 since 2026-10-07), so "look down + Jump" dives | | | |
 
 Sneak stays the dismount on every vehicle, so "down" had to be a
 combination: the Nimbus's own back + Jump and look down + Jump, so one rule
@@ -3807,6 +3807,34 @@ gone (a child bumps into things all the time): a soft thud.
   rider's yaw round or not. Nothing moves the player in the chase view, so
   the ease cannot fight the client. The camera writes the view's pitch to the
   vehicle (`craftmatic:look_pitch`) for the ship's look-down + Jump.
+
+### The cockpit view is a camera; native seats look round (2026-10-07)
+
+Saga 30j (`output/device-round-2026-10-07j/saga/`): the chase free look
+passed on 42172, 7140, the 10797 car and 60221, but the cockpit view (hotbar
+slot 9) never came back to the front - the McLaren stayed 56 degrees off its
+nose, the X-wing 17, and the X-wing opened looking up at its canopy - and
+back on slot 1 the chase camera resumed where the drag had left it. CMCAM
+shows why: `riderYaw` held 11.9 through every `recentring` sample while the
+McLaren drove at 19 blocks/s. `setRotation` on a rider of a lock-181 seat
+does nothing on 26.52, and the runtime then read its own expected turn as an
+opposite drag. The cockpit view is now a free camera at the driver's eye
+(`cockpitCamera`, vehicle-free-look.ts): the vehicle's pose
+`COCKPIT_TICK_LAG` ticks back (the coaster's measured client lag), eased
+0.1 s, turned by the same offsets as the chase camera, so a drag looks round
+and the view eases back to the front in yaw and pitch; the rider is invisible
+while it is theirs; a switch of view restarts the free look on the nose. The
+eye is the seat plan's (`VehicleCameraConfig.eye`), so the cockpit view and
+`_cockpit_view.ts` show the same point.
+
+The Nimbus (a native hover mount) ignored drags while ridden, so its HUD's
+"LOOK DOWN + JUMP: DIVE" could not be done: its seat held the rider at
+`lock_rider_rotation` 0. Every vehicle seat is 181 now (quirk
+`native-mount-locked-look`); back + Jump still descends. Its HUD's ALT read
+the world y (`ALT -59` on the ground); it is the height over the first solid
+or liquid block under it now (`DRIVER_ALT_SCAN_BLOCKS`, `--` past 64 or over
+an unloaded block), as a ship's. CMVT for a native mount logs `riderPitch`
+and `descending`, so the next round can see a drag reach the dive.
 
 ### Native evidence and remaining assumptions (quirk `rider-free-look`)
 
@@ -4276,6 +4304,26 @@ so the camera IS the seat's eye: moving the eye moves the seat.
 - The cabin search (`AHEAD_SEARCH`, under the roof it sat under) prefers a
   point that sees out; the sides never move an eye that already sees ahead
   when no such point exists.
+- **`AHEAD_CABIN`** (2026-10-07): before the eye leaves, the rest of the
+  vehicle's INSIDE is searched for a cockpit that sees out - an eye in air on
+  the seat's line or the centre line, anywhere along the length but the
+  ends, within 1.2 blocks up or down of the evidence's eye (its deck), with
+  something over it (roof or glass, within 2), a wall level with the eye on
+  both sides (within 2.5), the model beside the torso and a floor under the
+  hips; of those that see out, the widest `VIEW` wins, then the nearest. The
+  Saga 30j finding it answers: 76286's only glass is a rear window, its
+  cabin looks forward at the two brick-built pilot seats, and the eye left
+  the hull 3.1 blocks up onto the spine (7.6 of 8.48 up, body hidden; "sit IN
+  the cockpit, not on top"). Now the eye is in the front cabin under its
+  roof, looking out of the open nose: seat frame (0, 7.6, -3.66) -> (0, 5.7,
+  +3.6) (+z the nose; `_cockpit_view.ts`: ahead 6/6, sides 26/28 each, `VIEW`
+  11/15 against 5/15 on the spine), body drawn from 200 %. The deck limit is
+  what keeps the eye off the spine: there a fin 0.4 over it "covers" it and
+  the part boxes of the swept wing roots stand beside it (the drawn cuboids
+  alone would tell them apart - nothing level with the eye on the spine,
+  walls 1.2 either side in the front cabin - but a slanted part's box is its
+  whole bounds). `_cockpit_view.ts --yaw=<deg>` turns the picture (to look
+  back or round from a candidate eye) without changing the judged rays.
 - **`AHEAD_FALLBACK`**: when no eye in the cabin sees ahead, the eye leaves
   it - the nearest point up (to the model's top + 1.4) or back (2 blocks, not
   past the tail) that does, in air, on the seat's own line, preferring one
@@ -5228,3 +5276,22 @@ gives on a multi-seat vehicle, an `addRider` in the tick after an
 whether the coaster's camera takes over without a flash when the chase camera
 is handed back mid-run; the chime (`note.chime`). The flyer GameTest
 (`flyer_<id>`) now sweeps a second cloud through the first and records `hop`.
+
+### The rider's own head after a hop (2026-10-07)
+
+Saga 30j: after the X-wing (7140, its rider hidden at 100 %) was flown into
+10261's train, the player's own see-through head filled the coaster's view
+for ~6 s (`saga/s272-276.jpg`, `rec/r30j-hop-10261.mp4` 5-12 s).
+Invisibility is one effect per player shared by every pack: the coaster
+hides a new rider once, for an hour (its camera stands at the eye), and the
+plane pack's camera script - which runs BEFORE hop.js in a tick (main.js
+import order) - removed the invisibility it had given the rider a tick after
+the hop, wiping the coaster's. Now hop.js lifts the camera's invisibility as
+it boards (the camera marks a rider it hid with `HOP_TAGS.hidden`), before
+the new mount sees the rider, and the camera script leaves a hopped rider's
+effect alone. Test: `test/bedrock-ride-hop.test.ts` "the rider the plane's
+camera hid stays hidden by the coaster after the hop, whichever pack runs
+first" (fails on the old runtimes in the shipped order). Why the head then
+faded after ~6 s on the device is not explained (quirk
+`hop-invisibility-handoff`).
+

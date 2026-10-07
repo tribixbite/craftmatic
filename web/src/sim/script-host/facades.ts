@@ -117,7 +117,16 @@ export function entityFacade(host: FacadeHost, sim: SimEntity): Record<string, u
     get isSleeping() { return false; },
     get localizationKey() { return `entity.${sim.typeId.replace(/^minecraft:/, '')}.name`; },
     getRotation: () => ({ ...live().rotation }),
-    setRotation: (r: { x?: number; y?: number }) => { const s = live(); s.rotation = { x: r.x ?? s.rotation.x, y: r.y ?? s.rotation.y }; },
+    setRotation: (r: { x?: number; y?: number }) => {
+      const s = live();
+      // A player riding a seat that lets it look round (`lock_rider_rotation` not 0) is not turned (quirk `rider-free-look`, Saga 30j).
+      const m = s.isPlayer ? s.ridingOn : undefined;
+      if (m) {
+        const lock = m.rideable()?.seats[Math.max(0, m.riders.indexOf(s))]?.lockRiderRotation;
+        if (lock !== 0) { timeline.add('note', `setRotation on ${s.typeId} riding ${m.typeId} ignored (quirk rider-free-look)`, withSource(timeline)); return; }
+      }
+      s.rotation = { x: r.x ?? s.rotation.x, y: r.y ?? s.rotation.y };
+    },
     teleport: (loc: Vec3, opts?: Record<string, unknown>) => { teleport(host, live(), loc, opts); },
     tryTeleport: (loc: Vec3, opts?: Record<string, unknown>) => {
       const s = live();
