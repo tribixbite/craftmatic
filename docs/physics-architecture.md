@@ -465,10 +465,18 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   waterline; an aircraft: its whole airframe aloft, above its gear on the
   ground), tilted by its pitch, at every ≤ 0.8-block substep between the old
   and the new pose. A probe blocks only when it ENTERS a solid (it was clear at
-  the old pose), so a vehicle placed half in a wall drives out. At constant
-  height/pitch only outward-moving horizontal edges are checked. Any edge
-  changing height is checked too, including the tail during a forward descent;
-  otherwise a car drops its rear into a hill it has almost cleared.
+  the old pose), so a vehicle placed half in a wall drives out. Only the
+  boundary that enters NEW space is probed: a point moving outward
+  horizontally (the bow, the outward-swinging half in a turn) at every level;
+  any other point whose height changes (the tail during a forward descent, the
+  whole perimeter in a straight drop, a pitching nose) only at the face that
+  leads vertically - the band's floor level going down, its roof level going
+  up - because the rest of its column was the vehicle's own. Skipping those
+  points lets a car drop its rear into a hill it has almost cleared; probing
+  them at every level cost a climbing Milano 2,376 probes a tick (8,040 at
+  2x) where the leading faces need 916 (2,853). `bun scripts/_sweep_checks.ts
+  [--impl=<older bedrock-vehicle.ts>]…` prints the per-tick count of fixed
+  moves for any implementation; `test/bedrock-vehicle.test.ts` bounds it.
 - **Never stuck** (`resolveMove`, `MOVE`, 2026-09-30: "it's too easy to get
   fully stuck in place by hills / blocks"). Until then a blocked move stopped
   the vehicle where it stood whatever the angle. Now a blocked move is tried
@@ -1145,9 +1153,11 @@ an earlier "~5 forward" was read off a ramped touch stick).
   old Milano's 28 clipped ticks and X-wing's 3), but sub-block slabs can still
   fit between samples, very large perimeters spread the capped horizontal
   probes, and a vertical move does not sample the footprint's entire interior.
-  # TODO(footprint-cost): measure tall/scaled ships on the phone after the
-  adaptive height sampling; block lookups are cached per tick, but a 36-block
-  barge's old 890 checks cost 20-24 ms before leading-edge trimming.
+  The full-height leading face is the price of the crown coverage: a level
+  Milano cruise is 770 probes a tick (280 with the old four levels), near the
+  890 a 36-block barge spent in 20-24 ms on the Pixel.
+  # TODO(footprint-cost): measure tall/scaled ships' ms per tick on the phone
+  (CMVT `msPerTick`); block lookups are cached per tick.
 - **Headlights are one light block** ahead of the nose, placed and removed
   as the vehicle crosses cells: the light is a sphere around that cell, not
   a beam, and a solid cell ahead keeps the previous one.

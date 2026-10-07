@@ -541,41 +541,48 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
   let dyaw = to.yaw - from.yaw;
   while (dyaw > 180) dyaw -= 360;
   while (dyaw < -180) dyaw += 360;
-  // Perimeter probes as (along, side) offsets, each edge at <= SPACING, with the
-  // edge's outward normal. At constant height/pitch only the LEADING boundary
-  // is probed: a point moving inward (or along its edge) sweeps space the
-  // vehicle itself covered, which was clear: straight ahead that is the front
-  // edge alone; in a turn, the half of the perimeter that swings outward. A 36-block barge probed
-  // its whole perimeter at 890 checks and 20-24 ms a tick on the Pixel
-  // (world 924, 2026-09-25); its bow alone is a sixth of that.
-  const perimeter = 4 * (L + W);
-  const spacing = Math.max(P.SPACING, perimeter / P.MAX_POINTS);
-  const offsets: Array<[number, number]> = [];
-  /** Whether the boundary point (a, s) with outward normal (na, ns) moves outward between the poses. */
-  const outward = (a: number, s: number, na: number, ns: number): boolean => {
-    const p0 = pointAt(from, a, s, 0), p1 = pointAt(to, a, s, 0);
-    // A falling/rising or pitching edge meets new vertical space even while
-    // moving inward horizontally. Skipping the tail here let a car descending
-    // a hill drop its rear band into the ledge behind it (42172 course).
-    if (Math.abs(p1[1] - p0[1]) > 1e-6) return true;
-    const r = rad(from.yaw), fx = -Math.sin(r), fz = Math.cos(r), rx = -Math.cos(r), rz = -Math.sin(r);
-    const nx = fx * na + rx * ns, nz = fz * na + rz * ns;
-    return (p1[0] - p0[0]) * nx + (p1[2] - p0[2]) * nz > 1e-6;
-  };
-  const edge = (a0: number, s0: number, a1: number, s1: number, na: number, ns: number): void => {
-    const n = Math.max(1, Math.ceil(Math.hypot(a1 - a0, s1 - s0) / spacing));
-    for (let k = 0; k <= n; k++) {
-      const a = a0 + (a1 - a0) * k / n, s = s0 + (s1 - s0) * k / n;
-      if (outward(a, s, na, ns)) offsets.push([a, s]);
-    }
-  };
-  edge(L, -W, L, W, 1, 0); edge(L, W, -L, W, 0, 1); edge(-L, W, -L, -W, -1, 0); edge(-L, -W, L, -W, 0, -1);
   const span = Math.max(0, fp.hi - fp.lo);
   const levels: number[] = [];
   // Four samples over a tall ship left multi-block gaps (the Milano crossed
   // a tree crown for 28 ticks). Keep height spacing independent of hull size.
   const nLevels = Math.max(1, Math.ceil(span / P.SPACING) + 1);
   for (let k = 0; k < nLevels; k++) levels.push(fp.lo + (nLevels === 1 ? 0 : span * k / (nLevels - 1)));
+  // Perimeter probes as (along, side) offsets, each edge at <= SPACING, with the
+  // edge's outward normal, and the heights each is probed at. Only the boundary
+  // that enters NEW space is probed - a point moving inward (or along its edge)
+  // sweeps space the vehicle itself covered, which was clear:
+  //   - a point moving OUTWARD horizontally (the bow straight ahead, the half of
+  //     the perimeter that swings outward in a turn): its whole face, every level;
+  //   - any other point whose height changes (falling, rising, pitching): only
+  //     the face that leads vertically - the band's FLOOR level going down, its
+  //     ROOF level going up. The rest of its column was the vehicle's own. Skipping
+  //     these points let a car descending a hill drop its rear band into the
+  //     ledge behind it (42172 course); probing them at every level multiplied a
+  //     cruising Milano's probes nine-fold (2,376 a tick, 8,040 at 2x, where the
+  //     Pixel measured 890 probes at 20-24 ms of a 50 ms tick, world 924,
+  //     2026-09-25). `scripts/_sweep_checks.ts` prints the counts per move.
+  const perimeter = 4 * (L + W);
+  const spacing = Math.max(P.SPACING, perimeter / P.MAX_POINTS);
+  const allLevels = levels, floorLevel = [levels[0]!], roofLevel = [levels[levels.length - 1]!];
+  const offsets: Array<[number, number, number[]]> = [];
+  /** The levels the boundary point (a, s) with outward normal (na, ns) must be probed at, or undefined for none. */
+  const leading = (a: number, s: number, na: number, ns: number): number[] | undefined => {
+    const p0 = pointAt(from, a, s, 0), p1 = pointAt(to, a, s, 0);
+    const r = rad(from.yaw), fx = -Math.sin(r), fz = Math.cos(r), rx = -Math.cos(r), rz = -Math.sin(r);
+    const nx = fx * na + rx * ns, nz = fz * na + rz * ns;
+    if ((p1[0] - p0[0]) * nx + (p1[2] - p0[2]) * nz > 1e-6) return allLevels;
+    const dy = p1[1] - p0[1];
+    return dy < -1e-6 ? floorLevel : dy > 1e-6 ? roofLevel : undefined;
+  };
+  const edge = (a0: number, s0: number, a1: number, s1: number, na: number, ns: number): void => {
+    const n = Math.max(1, Math.ceil(Math.hypot(a1 - a0, s1 - s0) / spacing));
+    for (let k = 0; k <= n; k++) {
+      const a = a0 + (a1 - a0) * k / n, s = s0 + (s1 - s0) * k / n;
+      const at = leading(a, s, na, ns);
+      if (at) offsets.push([a, s, at]);
+    }
+  };
+  edge(L, -W, L, W, 1, 0); edge(L, W, -L, W, 0, 1); edge(-L, W, -L, -W, -1, 0); edge(-L, -W, L, -W, 0, -1);
   const travel = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) + Math.abs(rad(dyaw)) * Math.hypot(L, W);
   const steps = Math.min(P.MAX_SUBSTEPS, Math.max(1, Math.ceil(travel / P.SWEEP_STEP)));
   // `checks` is the number of target boundary samples tested. It intentionally
@@ -587,6 +594,7 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
   const originalOccupiedCells = (): Set<string> => {
     if (occupiedAtFrom) return occupiedAtFrom;
     occupiedAtFrom = new Set<string>();
+    // Every probed point's whole column at the old pose: "already occupied" means by any of the old boundary.
     for (const [a, s] of offsets) for (const h of levels) {
       const p = pointAt(from, a, s, h);
       if (solid(p[0], p[1], p[2])) occupiedAtFrom.add(cellKey(p));
@@ -596,7 +604,7 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
   for (let k = 1; k <= steps; k++) {
     const t = k / steps;
     const pose: FootprintPose = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, z: from.z + (to.z - from.z) * t, yaw: from.yaw + dyaw * t, pitch: from.pitch + (to.pitch - from.pitch) * t };
-    for (const [a, s] of offsets) for (const h of levels) {
+    for (const [a, s, at] of offsets) for (const h of at) {
       const p = pointAt(pose, a, s, h);
       checks++;
       if (!solid(p[0], p[1], p[2])) continue;
