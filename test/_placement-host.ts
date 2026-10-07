@@ -61,6 +61,12 @@ export interface PlacementHostOptions {
   modules?: Record<string, string>;
   /** Fresh terrain (default: air everywhere). */
   terrain?: TerrainGenerator;
+  /**
+   * Whole entity definitions (JSON text) by identifier, over the bare ones:
+   * a test that needs a real component (a shell's `minecraft:scale` size
+   * groups, which the migration reads) ships the exporter's own document.
+   */
+  definitions?: Record<string, string>;
 }
 
 export function host(spec: Parameters<typeof buildPlacementPackAssets>[0], options: PlacementHostOptions = {}) {
@@ -69,6 +75,7 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0], optio
   const files: Record<string, FixtureFile> = { 'scripts/placement.js': assets.script, ...colliderKitFiles(), ...(options.modules ?? {}) };
   const types = new Set([...(spec.actors ?? []).map(a => a.typeId), ...(spec.preview ? [spec.preview.typeId] : []), ...(spec.manualSeatTypeId ? [spec.manualSeatTypeId] : [])]);
   for (const t of types) files[`entities/${t.replace(/[^a-z0-9_]/gi, '_')}.json`] = bareDefinition(t);
+  for (const [t, doc] of Object.entries(options.definitions ?? {})) files[`entities/${t.replace(/[^a-z0-9_]/gi, '_')}.json`] = doc;
   const addon: Addon = { source: 'test', packs: [fixturePack({ name: 'placement test', folder: 'placement_test_BP', scriptEntry: 'scripts/placement.js', files })] };
 
   const responses: any[] = [];

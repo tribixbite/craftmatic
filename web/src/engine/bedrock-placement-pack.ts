@@ -113,12 +113,30 @@ export interface PlacementAccess {
   reason: string;
 }
 
+/**
+ * How the runtime turns an OLD whole-model building shell, still standing in
+ * a saved world, into the lattice chunks a newer pack draws it with
+ * (`splitStaticShell`, bedrock-building-shell.ts). The old entity type stays
+ * defined with no geometry; when one loads, the runtime spawns every chunk at
+ * `location + scale · R(yaw) · offset`, gives it the old actor's yaw, size
+ * step, label and tags (so the tag-based Undo retires it), and removes the
+ * old actor. `offset` is the chunk's `offsetBlocks`: blocks at 100 % in the
+ * world frame at yaw 0.
+ */
+export interface ShellMigration {
+  /** The old whole-model shell's entity type (`craftmatic:b_<set>_shell`). */
+  legacyTypeId: string;
+  chunks: Array<{ typeId: string; offset: [number, number, number] }>;
+}
+
 export interface PlacementPackSpec {
   stem: string;
   label: string;
   width: number; height: number; length: number;
   tiles: PlacementTile[];
   actors?: PlacementActor[];
+  /** Old whole-model shells this pack migrates into chunks on load (`ShellMigration`). */
+  shellMigrations?: ShellMigration[];
   /** Enable controls supplied by the playable DeLorean runtime. */
   vehicleControls?: boolean;
   /** Sparse non-air model points used to make rotation obvious in preview (drawn only when no ghost entity ships). */
@@ -778,9 +796,25 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
       return;
     }
   };
+  /** The world property mapping an old whole-model shell actor's id to the chunk ids it was migrated into (`migrateShell`). */
+  const migratedKey = (legacyEntityId: string) => `craftmatic:${config.shortAlias}:migrated:${legacyEntityId}`;
   const retireActors = (h: any): { missing: Set<string>; persisted: boolean } => {
     const missing = new Set<string>();
+    // An old whole-model shell that `migrateShell` replaced is gone; its
+    // record maps to the chunk actors that stand in its place, so those are
+    // what this placement retires (by id now, by tag or id when they load).
+    const ids: any[] = [];
     for (const id of h.entities || []) {
+      let mapped: string[] | undefined;
+      if (typeof id === 'string') try {
+        const saved = world.getDynamicProperty?.(migratedKey(id));
+        if (typeof saved === 'string') { const parsed = JSON.parse(saved); if (Array.isArray(parsed)) mapped = parsed.filter((v: any) => typeof v === 'string'); }
+      } catch {}
+      if (!mapped) { ids.push(id); continue; }
+      ids.push(...mapped);
+      try { world.setDynamicProperty(migratedKey(id), undefined); } catch {}
+    }
+    for (const id of ids) {
       let e: any;
       try { e = world.getEntity(id); } catch {}
       if (e) { try { e.remove(); continue; } catch {} }
@@ -809,6 +843,77 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     }
   });
   world.afterEvents.entityLoad?.subscribe((ev: any) => sweepRetiredEntity(ev.entity));
+  // ── Old whole-model shells → lattice chunks ──
+  // A pack that draws its building with locally rooted chunks (splitStaticShell,
+  // bedrock-building-shell.ts) keeps the old shell's entity type defined with
+  // no geometry, and this turns each old actor a saved world still holds into
+  // the chunks: spawned at the old root plus the chunk's offset turned by the
+  // old actor's yaw and sized by its `minecraft:scale`, carrying its yaw, size
+  // step, label and tags - the placement's tag is what Undo retires by.
+  // Idempotent: the chunk ids already spawned are listed ON the old actor
+  // (`craftmatic:shell_migrated`), so a reload between a spawn and the removal
+  // never doubles one; a chunk whose spot is not loaded yet is retried while
+  // the old actor lives. The old actor's id stays in its placement's Undo
+  // record; `retireActors` reads the chunk ids it maps to (one world property
+  // per migrated actor, `migratedKey`) and retires those instead.
+  const shellMigrationOf = new Map<string, any>();
+  for (const m of config.shellMigrations || []) shellMigrationOf.set(m.legacyTypeId, m);
+  const MIGRATED_KEY = 'craftmatic:shell_migrated', MIGRATION_RETRY_TICKS = 20, MIGRATION_RETRIES = 30;
+  /** The wand's size step nearest a read `minecraft:scale` (an old actor at 200 % reads 2). */
+  const sizeStepOf = (f: number): number => { let best = sizes[0]!; for (const s of sizes) if (Math.abs(s - f * 100) < Math.abs(best - f * 100)) best = s; return best; };
+  const migrateShell = (e: any, attempt = 0): void => {
+    let m: any, loc: any, yaw = 0, f = 1, tags: string[] = [], label: any, done: Array<string | null> = [];
+    try {
+      if (!e) return;
+      const valid = typeof e.isValid === 'function' ? e.isValid() : e.isValid !== false;
+      if (!valid) return;
+      m = shellMigrationOf.get(e.typeId);
+      if (!m) return;
+      loc = e.location; yaw = Number(e.getRotation?.()?.y) || 0;
+      const scale = e.getComponent?.('minecraft:scale');
+      if (scale && Number.isFinite(scale.value) && scale.value > 0) f = scale.value;
+      try { tags = e.getTags?.() || []; } catch {}
+      try { label = e.getDynamicProperty?.('craftmatic:label'); } catch {}
+      try { const saved = JSON.parse(String(e.getDynamicProperty?.(MIGRATED_KEY) || '[]')); if (Array.isArray(saved)) done = saved.map((v: any) => (typeof v === 'string' ? v : null)); } catch {}
+    } catch { return; } // removed under us (a retirement sweep runs first on the same load)
+    const pct = sizeStepOf(f);
+    const a = yaw * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+    let pending = 0;
+    m.chunks.forEach((chunk: any, i: number) => {
+      if (typeof done[i] === 'string') return;
+      const o = chunk.offset;
+      // Bedrock's yaw turns +X toward +Z (the sense `pointAt` turns a placement by).
+      const at = { x: loc.x + (c * o[0] - s * o[2]) * f, y: loc.y + o[1] * f, z: loc.z + (s * o[0] + c * o[2]) * f };
+      try {
+        const spawned = e.dimension.spawnEntity(chunk.typeId, at);
+        done[i] = spawned.id;
+        // Written at once: a failure after this spawn must not spawn it again.
+        try { e.setDynamicProperty(MIGRATED_KEY, JSON.stringify(done)); } catch {}
+        try { spawned.setRotation({ x: 0, y: yaw }); } catch {}
+        for (const t of tags) try { spawned.addTag?.(t); } catch {}
+        if (label !== undefined) try { spawned.setDynamicProperty('craftmatic:label', label); } catch {}
+        if (pct !== 100) try { spawned.triggerEvent(sizeEvent(pct)); } catch {}
+      } catch { pending++; }
+    });
+    if (pending) {
+      if (attempt < MIGRATION_RETRIES) system.runTimeout(() => migrateShell(e, attempt + 1), MIGRATION_RETRY_TICKS);
+      else console.warn(`BRICK_WAND_SHELL_MIGRATION ${e.typeId}: ${pending} chunk${pending === 1 ? '' : 's'} could not be spawned (unloaded?); the old actor stays and is retried on its next load`);
+      return;
+    }
+    // Every chunk stands: record the mapping for Undo, then retire the old actor.
+    if (typeof world.setDynamicProperty === 'function') try { world.setDynamicProperty(migratedKey(e.id), JSON.stringify(done.filter((v: any) => typeof v === 'string'))); } catch {}
+    try { e.remove(); } catch {}
+  };
+  if (shellMigrationOf.size) {
+    world.afterEvents.entityLoad?.subscribe((ev: any) => migrateShell(ev.entity));
+    world.afterEvents.entitySpawn?.subscribe((ev: any) => migrateShell(ev.entity));
+    // Actors already loaded when the script starts raise no entityLoad.
+    system.run(() => {
+      for (const [typeId] of shellMigrationOf) for (const id of ['overworld', 'nether', 'the_end']) {
+        try { for (const e of world.getDimension(id).getEntities({ type: typeId }) || []) migrateShell(e); } catch { /* no such dimension */ }
+      }
+    });
+  }
   const removeManualSeatEntities = (st: any) => {
     for (const id of st.manualSeatIds || []) try { world.getEntity(id)?.remove(); } catch {}
     st.manualSeatIds = [];
@@ -1766,7 +1871,9 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
   // pack carries them without the pipeline knowing (bedrock-collider-scale.ts).
   const treads = spec.colliders && spec.treads !== false ? withColliderTreads(spec.colliders, spec.reachTargets ?? [], spec.doorCells ?? []) : undefined;
   const config = { id, shortAlias, vehicleControls: spec.vehicleControls === true, label: spec.label, itemId, width: spec.width, height: spec.height, length: spec.length, tiles: spec.tiles, actors: spec.actors ?? [], previewPoints: (spec.previewPoints ?? []).slice(0, 120),
-    preview: spec.preview ?? null, colliders: treads ? treads.colliders : spec.colliders ?? null, interactionNote: spec.interactionNote ?? '', access: spec.access ?? null, manualSeatTypeId: spec.manualSeatTypeId ?? '', runtimeDoorCandidates: spec.runtimeDoorCandidates ?? [], sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40 };
+    preview: spec.preview ?? null, colliders: treads ? treads.colliders : spec.colliders ?? null, interactionNote: spec.interactionNote ?? '', access: spec.access ?? null, manualSeatTypeId: spec.manualSeatTypeId ?? '', runtimeDoorCandidates: spec.runtimeDoorCandidates ?? [], sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40,
+    // Last, so a reader keying on the older fields' order (a test's regex) reads unchanged.
+    shellMigrations: spec.shellMigrations ?? [] };
   const controlsImport = spec.vehicleControls ? 'import { showTimeMachineControls } from "./time-machine.js";\n' : '';
   const script = `${controlsImport}import { world, system, StructureSaveMode, BlockPermutation, BlockVolume } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG, ${spec.vehicleControls ? "showTimeMachineControls" : "undefined"}, (${colliderFormKit.toString()})());\n`;
   const item = {

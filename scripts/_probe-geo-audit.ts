@@ -34,6 +34,7 @@ import { readFileSync, readdirSync, existsSync, statSync, writeFileSync } from '
 import { join, basename } from 'node:path';
 import { mergeAlignedCuboids, cullHiddenCuboids, BEDROCK_UNITS_PER_LDU } from '../web/src/engine/ldraw-entity-compiler.ts';
 import { drawnCubeBox } from '../web/src/engine/bedrock-geometry-faces.ts';
+import { isShellEntityId } from '../web/src/engine/bedrock-building-shell.ts';
 
 type Vec3 = [number, number, number];
 
@@ -355,7 +356,7 @@ for (const dir of dirs) {
   }
   const packCubes = entities.filter(e => !/_preview$/.test(e.id)).reduce((a, e) => a + e.cubes.length, 0);
   console.log(`pack cuboids (excluding the wand ghost): ${packCubes}; entities ${entities.filter(e => !/_preview$/.test(e.id)).length}`
-    + `; shell actors ${entities.filter(e => /_shell$/.test(e.id)).length}`);
+    + `; shell actors ${entities.filter(e => isShellEntityId(e.id)).length}`);
 
   // Q1 on the biggest entity (the shell/vehicle) and on the whole pack
   const targets = entities.filter(e => !/_preview$/.test(e.id)).sort((a, b) => b.cubes.length - a.cubes.length).slice(0, 1);

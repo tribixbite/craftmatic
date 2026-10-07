@@ -15,6 +15,8 @@ import { CREATOR_POSES, minifigCreatorLibrary } from '../web/src/engine/minifig-
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { SceneGridFrame } from '../web/src/engine/bedrock-scene-actors.js';
 import { RIDE } from '../web/src/engine/bedrock-rides.js';
+import { STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, shellChunkCell } from '../web/src/engine/bedrock-building-shell.js';
+import { LOD_EMPTY_GEOMETRY_ID } from '../web/src/engine/bedrock-lod-hull.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const model = () => { const g=new BlockGrid(6,3,4);g.fill(0,0,0,5,0,3,'minecraft:black_concrete');g.fill(1,1,1,4,1,2,'minecraft:red_concrete');return g; };
@@ -895,51 +897,67 @@ describe('playable add-on — brick-compiled entities', () => {
     expect(lang).toContain('item.spawn_egg.entity.craftmatic:shed_manual_seat.name=Shed Seat Spawn Egg');
   });
 
-  it('places locally rooted shells and retains budgeted legacy assets for saved placements', async () => {
-    const C = LDU_PER_BLOCK, I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
-    const grid = new BlockGrid(83, 2, 3);
-    grid.set(1, 0, 1, 'minecraft:red_concrete');
-    grid.set(81, 0, 1, 'minecraft:red_concrete');
+  it('places lattice-rooted shell chunks and keeps the old whole-model type as a geometry-less definition the runtime migrates', async () => {
+    const C = LDU_PER_BLOCK, I = [1, 0, 0, 0, 1, 0, 0, 0, 1], S = STATIC_SHELL_CELL_BLOCKS;
+    // Two bricks 60 blocks apart, each well inside a lattice cell (x = +-30, z = +-3 of the model's centre: a cube
+    // centred ON a cell plane would belong to either side by float noise), so each is one chunk.
+    const grid = new BlockGrid(83, 2, 9);
+    grid.set(11, 0, 2, 'minecraft:red_concrete');
+    grid.set(71, 0, 8, 'minecraft:red_concrete');
     const frame: SceneGridFrame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: C, cellY: C };
     const result = await buildPlayableAddon(grid, {
       stem: 'long-shell', partGeometry: await providerFor(), pbr: false,
-      shell: { bricks: [1, 81].map(x => ({ part: '3001.dat', color: 4, x: x * C, y: 0, z: -C, rot: I })), frame },
+      shell: { bricks: [[11, -2], [71, -8]].map(([x, z]) => ({ part: '3001.dat', color: 4, x: x! * C, y: 0, z: z! * C, rot: I })), frame },
     });
     const buffer = ab(result.bytes), entries = listZipEntries(buffer);
     const diag = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_long_shell_BP/craftmatic-diagnostics.json'))) as {
-      pack: { cuboids: number; entities: number }; spatialShell: { aggregateId: string; maxScale: number; legacy: { id: string; cubes: number; meshes: number }; actors: Array<{ id: string; cubes: number; radiusBlocks: number }> };
+      pack: { cuboids: number; entities: number };
+      spatialShell: { aggregateId: string; maxScale: number; cellBlocks: number; legacy: { id: string; cubes: number; migration: string }; actors: Array<{ id: string; cell: [number, number, number]; cubes: number; bones: number; radiusBlocks: number; offsetBlocks: [number, number, number] }> };
     };
     expect(diag.spatialShell.aggregateId).toBe('long_shell_shell');
-    expect(diag.spatialShell.maxScale).toBe(2);
+    expect(diag.spatialShell.maxScale).toBe(STATIC_SHELL_CULL_MAX_SCALE);
+    expect(diag.spatialShell.cellBlocks).toBe(S);
     expect(diag.spatialShell.actors).toHaveLength(2);
     const globalCubes = result.diagnostics.long_shell_shell!.cubeCount;
-    expect(diag.spatialShell.legacy).toMatchObject({ id: 'long_shell_shell', cubes: globalCubes });
-    expect(diag.pack.cuboids).toBe(globalCubes * 2);
+    // The old type ships as a definition with no geometry: no cuboids counted twice, one more entity.
+    expect(diag.spatialShell.legacy).toMatchObject({ id: 'long_shell_shell', cubes: 0 });
+    expect(diag.pack.cuboids).toBe(globalCubes);
     expect(diag.spatialShell.actors.reduce((sum, actor) => sum + actor.cubes, 0)).toBe(globalCubes);
     expect(diag.pack.entities).toBe(3);
     const placement = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_long_shell_BP/scripts/placement.js'));
     expect(placement).not.toContain('"typeId":"craftmatic:long_shell_shell"');
+    // The runtime's migration table: the old type and every chunk with its offset.
+    const config = JSON.parse(/const CONFIG = (\{.*?\});\n/s.exec(placement)![1]!) as { shellMigrations: Array<{ legacyTypeId: string; chunks: Array<{ typeId: string; offset: number[] }> }> };
+    expect(config.shellMigrations).toEqual([{ legacyTypeId: 'craftmatic:long_shell_shell', chunks: diag.spatialShell.actors.map(a => ({ typeId: `craftmatic:${a.id}`, offset: a.offsetBlocks })) }]);
     expect(entries).toContain('Craftmatic_long_shell_BP/entities/long_shell_shell.json');
     expect(entries).toContain('Craftmatic_long_shell_RP/entity/long_shell_shell.entity.json');
-    expect(entries).toContain('Craftmatic_long_shell_RP/models/entity/long_shell_shell.geo.json');
+    expect(entries).not.toContain('Craftmatic_long_shell_RP/models/entity/long_shell_shell.geo.json');
+    expect(entries).not.toContain('Craftmatic_long_shell_RP/models/entity/long_shell_shell_lod.geo.json');
     expect(entries).toContain('Craftmatic_long_shell_RP/render_controllers/long_shell_shell.render_controllers.json');
+    expect(entries).toContain('Craftmatic_long_shell_RP/models/entity/craftmatic_lod_empty.geo.json');
+    const stub = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_long_shell_RP/entity/long_shell_shell.entity.json'))) as { 'minecraft:client_entity': { description: { geometry: Record<string, string> } } };
+    expect(Object.values(stub['minecraft:client_entity'].description.geometry)).toEqual([LOD_EMPTY_GEOMETRY_ID]);
+    // The old behaviour document keeps its size groups, so a saved actor's `minecraft:scale` still reads.
+    const stubBehavior = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_long_shell_BP/entities/long_shell_shell.json'))) as { 'minecraft:entity': { component_groups: Record<string, { 'minecraft:scale': { value: number } }> } };
+    expect(stubBehavior['minecraft:entity'].component_groups['craftmatic:size_200']!['minecraft:scale'].value).toBe(2);
     const placed = diag.spatialShell.actors.map(chunk => {
+      expect(shellChunkCell(chunk.id)).toEqual(chunk.cell);
       expect(entries).toContain(`Craftmatic_long_shell_BP/entities/${chunk.id}.json`);
       expect(entries).toContain(`Craftmatic_long_shell_RP/models/entity/${chunk.id}.geo.json`);
-      expect(chunk.radiusBlocks * 2).toBeLessThanOrEqual(54);
-      return JSON.parse(new RegExp(`\\{"typeId":"craftmatic:${chunk.id}"[^}]*\\}`).exec(placement)![0]) as { x: number; y: number; z: number; yaw: number };
+      expect(chunk.radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toBeLessThanOrEqual(STATIC_SHELL_RADIUS_LIMIT_BLOCKS);
+      // The root is the cell's top-face centre, fixed by the cell alone (the world mirrors the JSON frame's z).
+      expect(chunk.offsetBlocks).toEqual([(chunk.cell[0] + 0.5) * S, (chunk.cell[1] + 1) * S, -(chunk.cell[2] + 0.5) * S]);
+      return { ...JSON.parse(new RegExp(`\\{"typeId":"craftmatic:${chunk.id}"[^}]*\\}`).exec(placement)![0]) as { x: number; y: number; z: number; yaw: number }, offset: chunk.offsetBlocks };
     });
+    // Both chunks are placed from the ONE old root (where the whole-model actor stood) plus their offsets.
+    const roots = placed.map(a => [a.x - a.offset[0], a.y - a.offset[1], a.z - a.offset[2]]);
+    expect(roots[1]!.map((v, i) => Math.abs(v - roots[0]![i]!) < 1e-6)).toEqual([true, true, true]);
+    // The bricks stand 60 blocks apart (x = 11 and 71): their chunks sit three cells apart on the lattice, roots that far apart.
+    const byX = [...diag.spatialShell.actors].sort((a, b) => a.cell[0] - b.cell[0]);
+    expect(byX[1]!.cell[0] - byX[0]!.cell[0]).toBe(3);
     const xs = placed.map(actor => actor.x).sort((a, b) => a - b);
-    expect(xs[0]).toBeCloseTo(1, 4);
-    expect(xs[1]).toBeCloseTo(81, 4);
-    for (const actor of placed) {
-      expect(actor.y).toBeCloseTo(2, 4);
-      expect(actor.z).toBeCloseTo(1, 4);
-      expect(actor.yaw).toBe(0);
-    }
-    // The old single root was forty blocks away from either visible island:
-    // at 200 percent it could cull while the player stood on that island.
-    expect(Math.abs(placed[1]!.x - placed[0]!.x)).toBeCloseTo(80, 4);
+    expect(xs[1]! - xs[0]!).toBeCloseTo((byX[1]!.cell[0] - byX[0]!.cell[0]) * S, 4);
+    for (const actor of placed) expect(actor.yaw).toBe(0);
   });
 });
 

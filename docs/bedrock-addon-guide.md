@@ -540,36 +540,60 @@ standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
   reviewed 2026-10-06): do not emit a speculative `render_distance_multiplier`;
   `visible_bounds` and the similarly named camera/nameplate/debug/ticking
   fields do not change model culling.
-- **Large static shells now use local actor roots.** `splitStaticShell` partitions
-  finished emitted cubes after the single global grain/cull/merge/coplanar plan;
-  it translates cube origins, cube pivots and all bone pivots together, preserving
-  UVs, inflate, materials and world geometry. Colliders and aggregate diagnostics
-  stay on the original model; `spatialShell` diagnostics map actual actor IDs,
-  roots, radii, meshes and oversized cubes. Small shells retain the exact original
-  output. The target is 54 blocks of drawn reach through 200 percent size
-  (70-block estimated ceiling minus 16-block LOD margin). An indivisible oversized
-  cube is retained and warned; a candidate root inside another chunk's drawn cube
-  AABB rejects the partition and retains the original shell to avoid buried-root
-  lighting regressions. Split exports also retain the original monolith behavior,
-  client, geometry and render assets as dormant compatibility definitions:
-  existing saves reference that type, and old Undo records lack anchor/size/turn
-  needed to migrate safely. New placement CONFIG spawns only chunks. Old saved
-  placements retain their old culling limitation; placing again uses local roots.
-  `spatialShell.legacy` identifies the retained geometry, which counts in shipped
-  cube/entity budgets in addition to the unchanged active shell compile.
-  Measured 200-percent actor counts for 10261/10326/76417/
-  910004 are 4/1/2/1; imposing a 400-percent target would require 56/8/63/3 actors
-  and introduce buried roots and oversized singletons. Native acceptance remains
-  pending: test nearby ground-level geometry beyond the old observed absence
-  distance of 75.82 blocks from the whole-shell root, or perform exact baseline
-  A/B at the same camera; the estimated 70-block cap alone is not decisive.
-  Also check station alignment, lighting and complete Undo. An old
-  distant free-camera view may remain beyond every new root and is insufficient
-  alone to judge the improvement.
-  Measurement evidence is in main checkout
-  `output/fidelity-audit-20261005/shell-spatial-actor-{probe.ts,report.json}`
-  (report SHA `799af9855e4be55f4508c616e0e40d4757ff5300a411bd0482615e96aa11ed1e`);
-  source checks are `spatial-shell-{focused-tests,full-tests,build}.log` there.
+- **A large static shell is drawn by lattice-cell actors.** `splitStaticShell`
+  (bedrock-building-shell.ts) partitions the FINISHED cubes - after the one
+  global grain/cull/merge/coplanar plan, never recompiling a part - by the cell
+  holding each cube's drawn centre on a fixed lattice in the model's JSON
+  frame: `STATIC_SHELL_CELL_BLOCKS` (20) per edge, derived from the 54-block
+  reach target (`STATIC_SHELL_RADIUS_LIMIT_BLOCKS`: the 70-block draw ceiling
+  less the 16-block LOD margin) at the 200 % planning scale with a 2-block
+  straddle margin, so every cube inside a cell is within reach of the cell's
+  root, the centre of its TOP face. A shell whose whole radius fits at 200 %
+  keeps its single actor and id. Chunk id and root depend on the cell alone -
+  `<shell>_c<ix>_<iy>_<iz>` (`n` spells a negative index; `shellChunkId`,
+  `shellChunkCell`, `isShellEntityId` and `SHELL_ENTITY_ID_PATTERN` are the one
+  classifier the Walk preview, the geometry audit and the reports use) - so a
+  later compile of the same model keeps every placed chunk's id and root
+  (a list-position id and a median-split root moved 1.4 blocks on one added
+  cube). Roots are whole geometry units and every shifted origin and pivot is
+  rounded to the compiler's two decimals; a chunk keeps only the bones with a
+  cube in it plus their ancestors; the chunks of one shell bind one face atlas
+  (`<shell>_faces.png`); a rotated cube without a pivot is refused. A cube
+  straddling its cell past the target is retained and counted
+  (`oversizedCubes`); a root inside a drawn cube is reported
+  (`buriedRootCubes`), not avoided: an entity is lit by the WORLD block at its
+  root, entity cubes dampen no light, the colliders dampen none, and every
+  cell root is above the model's floor. Colliders and the aggregate
+  diagnostics stay keyed by the whole-model id; `spatialShell` lists every
+  chunk's cell, root offset, radius, cubes, meshes and bones. Measured on the
+  shipped packs (`bun scripts/_shell_chunk_report.ts <before> <after>`): 10261
+  draws as 12 chunks and 76417 as 8 at every size; shell geo.json bytes
+  7.42 MB -> 3.14 MB (10261) and 9.78 MB -> 4.02 MB (76417) against the
+  median-split build that also shipped the whole monolith, with no empty
+  bone and no literal longer than 7 characters (was 20-22); two 10261 chunks
+  carry one straddling cube each reaching ~59 blocks at 200 % (warned,
+  retained; under the 70-block ceiling).
+- **An old whole-model shell migrates into the chunks when it loads.** The old
+  type `<shell>` stays defined with its behaviour document unchanged (so a
+  saved actor's size group and `minecraft:scale` still read) and a client
+  entity bound to the shared empty geometry: no cuboids, no LOD hull. The pack
+  budget counts it as an entity only. `placement.js` carries `shellMigrations`
+  (`ShellMigration`, bedrock-placement-pack.ts); on `entityLoad`,
+  `entitySpawn` and a startup scan the runtime spawns each chunk at
+  `root + scale · R(yaw) · offset` with the old actor's yaw, size event, label
+  and tags, records each spawned chunk id ON the old actor
+  (`craftmatic:shell_migrated`, so a reload between a spawn and the removal
+  never doubles one, and a chunk whose spot is unloaded is retried while the
+  old actor lives), writes the old id -> chunk ids mapping as a world property
+  (`craftmatic:<alias>:migrated:<id>`) that `retireActors` resolves - so Undo
+  or a re-place of the OLD placement retires every chunk by id, with nothing
+  pending - and removes the old actor. `test/bedrock-shell-migration.test.ts`
+  runs the serialised runtime on the simulator at yaw 0/90 and 100/200 %,
+  across reloads, from an interrupted migration, and through Undo. Device
+  acceptance of the cull fix is pending: stand near ground-level geometry
+  more than ~75 blocks from where the old whole-shell root stood (the measured
+  absence distance), check station alignment, lighting and a complete Undo; a
+  distant free-camera view beyond every root proves nothing.
 - **Round facets remain a conservative preflight, not a compiler replacement.**
   The shared selector rejects preserved fine-grain interior air, explicit triangle
   colours, transparency, caller-supplied surface-preserving mode, print fallback,
