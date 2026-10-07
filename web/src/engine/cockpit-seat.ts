@@ -164,9 +164,11 @@ export interface SeatPlan {
    * to see it (x, y, z; null = not moved). Every seat has it. `sides`: the
    * view to either side (`SIDES`, share of each side's rays clear) before and
    * after. `fallback`: no eye in the cabin saw ahead, so the eye left it
-   * (`AHEAD_FALLBACK`) and the rider is hidden at every size.
+   * (`AHEAD_FALLBACK`) and the rider is hidden at every size. `cabin`: no
+   * eye near the evidence saw ahead, and the eye moved along the vehicle's
+   * inside to a cockpit that does (`AHEAD_CABIN`).
    */
-  ahead?: { before: number; after: number; moved: Vec3 | null; sides?: { before: SideView; after: SideView }; fallback?: boolean };
+  ahead?: { before: number; after: number; moved: Vec3 | null; sides?: { before: SideView; after: SideView }; fallback?: boolean; cabin?: boolean };
 }
 
 /**
@@ -372,6 +374,34 @@ export const seesOut = (boxes: readonly BoxBlocks[], eye: Vec3): boolean => driv
  */
 export const AHEAD_FALLBACK = { back: 2, step: 0.1, sideSlack: 0.5 } as const;
 
+/**
+ * Before the eye leaves the cabin (`AHEAD_FALLBACK`), the rest of the vehicle's
+ * INSIDE is searched for a cockpit that sees out: an eye in air, on the seat's
+ * own line or the centre line, anywhere along the length but the ends
+ * (`SEAT_END_MARGIN`), on the evidence's own deck (its eye within `deck`
+ * blocks up or down), that is IN the vehicle - something over it (`cover`
+ * blocks: a roof or glass), a wall level with the eye on both sides within
+ * `wall` blocks, the model beside the torso (`sided`, the cabin test the seat
+ * search uses) and a floor under the hips - and passes
+ * `driverSeesOut` (else, nearest of all, the horizon ahead only). Of those
+ * that see out, the one with the widest view ahead (`VIEW`'s fan, exact rays)
+ * wins, then the nearest to the evidence's eye, in `step`s: the first cabin
+ * eye the Milano search met, 5.4 blocks ahead of the evidence, saw out of a
+ * slot (3 of `VIEW`'s 15 rays) where its open nose 1.8 further on sees 9.
+ * 76286's only glass (84954) is a rear
+ * window: the cabin under it looks forward down the fuselage at the two
+ * brick-built pilot seats, so its eye left the hull 3.1 blocks up onto the
+ * spine (7.6 of 8.48 up, Saga 30j: "sit IN the cockpit, not on top"); the
+ * front cabin 7.2 blocks ahead, roofed, looks out of the open nose. The
+ * deck is what tells the two apart: on the spine (3.3 over the evidence) a
+ * fin 0.4 over the eye "covers" it and the part boxes of the swept wing roots
+ * stand beside it, while the front cabin is 1.0 over the evidence. (Over the
+ * DRAWN cuboids the walls alone tell them apart - nothing level with the eye
+ * within 6 blocks on the spine, walls 1.2 either side in the front cabin,
+ * simulator scan 2026-10-07 - but a slanted part's box is its whole bounds.)
+ */
+export const AHEAD_CABIN = { step: 0.1, cover: 2, wall: 2.5, deck: 1.2 } as const;
+
 /** Measure a driver's seat against the model's boxes (entity frame, blocks). */
 export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evidence: SeatEvidence = 'seat'): SeatPlan {
   // At wand factor f the seat is `seatPositionAt(s, f)`, i.e. in the model's
@@ -499,7 +529,8 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
   // air, under the roof it sat under. A body drawn in the seat is kept drawn
   // if any such point allows it. Where no such point sees out to the sides,
   // the nearest that sees ahead will do; where none sees ahead either, the eye
-  // leaves the cabin (`AHEAD_FALLBACK`).
+  // looks for another cockpit along the vehicle's inside (`AHEAD_CABIN`), and
+  // only then leaves the cabin (`AHEAD_FALLBACK`).
   const r2 = (v: number): number => Math.round(v * 100) / 100;
   const eyeOf = (s: Vec3): Vec3 => [s[0], r2(s[1] + RIDER_EYE_ABOVE_SEAT), s[2]];
   const seatOf = (e: Vec3): Vec3 => [e[0], r2(e[1] - RIDER_EYE_ABOVE_SEAT), e[2]];
@@ -507,9 +538,49 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
   const aheadOf = (e: Vec3): boolean => fanView(boxes, e, AHEAD) >= AHEAD.minClear - 1e-9;
   const aheadBefore = fanView(boxes, from, AHEAD), sidesBefore = sideView(boxes, from);
   let ahead: NonNullable<SeatPlan['ahead']> = { before: aheadBefore, after: aheadBefore, moved: null, sides: { before: sidesBefore, after: sidesBefore } };
-  const take = (e: Vec3, steps: SeatPlan['steps'], fallback: boolean): void => {
-    ahead = { before: aheadBefore, after: fanView(boxes, e, AHEAD), moved: [0, r2(e[1] - from[1]), r2(e[2] - from[2])], sides: { before: sidesBefore, after: sideView(boxes, e) }, ...(fallback ? { fallback } : {}) };
+  const take = (e: Vec3, steps: SeatPlan['steps'], fallback: boolean, cabin = false): void => {
+    ahead = { before: aheadBefore, after: fanView(boxes, e, AHEAD), moved: [r2(e[0] - from[0]), r2(e[1] - from[1]), r2(e[2] - from[2])], sides: { before: sidesBefore, after: sideView(boxes, e) }, ...(fallback ? { fallback } : {}), ...(cabin ? { cabin } : {}) };
     best = { seat: seatOf(e), eye: e, steps, moved: best.moved };
+  };
+  /**
+   * The nearest eye IN the vehicle, anywhere along its inside, that sees out
+   * (`AHEAD_CABIN`), else the nearest there that sees ahead; null when none.
+   */
+  const cabinEye = (): Vec3 | null => {
+    const c = AHEAD_CABIN, opaque = boxes.filter(b => !b.glass);
+    const zs = boxes.flatMap(b => [b.min[2], b.max[2]]);
+    const z0 = Math.min(...zs), z1 = Math.max(...zs), margin = (z1 - z0) * SEAT_END_MARGIN;
+    const top = Math.max(...boxes.map(b => b.max[1]));
+    const over = (b: BoxBlocks, e: Vec3, dx: number, dz0: number, dz1: number): boolean => b.min[0] <= e[0] + dx && b.max[0] >= e[0] - dx && b.min[2] <= e[2] + dz1 && b.max[2] >= e[2] - dz0;
+    // Something over the eye (a roof or glass), and a floor under the hips (the seat less 0.4 to the eye less 0.5).
+    const covered = (e: Vec3): boolean => boxes.some(b => over(b, e, 0, 0, 0) && b.min[1] > e[1] + 0.05 && b.min[1] < e[1] + c.cover);
+    const floored = (e: Vec3): boolean => opaque.some(b => over(b, e, 0.2, 0.1, 0.25) && b.max[1] <= e[1] - 0.5 && b.max[1] >= e[1] - RIDER_EYE_ABOVE_SEAT - 0.4);
+    // A wall level with the eye on each side (the cabin's, not a fin over a spine).
+    const walled = (e: Vec3): boolean => {
+      const level = opaque.filter(b => b.min[1] <= e[1] && b.max[1] >= e[1] && b.min[2] <= e[2] && b.max[2] >= e[2]);
+      return level.some(b => b.max[0] <= e[0] && b.max[0] >= e[0] - c.wall) && level.some(b => b.min[0] >= e[0] && b.min[0] <= e[0] + c.wall);
+    };
+    const n = (v: number): number => Math.round(v / c.step);
+    const list: Array<{ e: Vec3; d: number }> = [];
+    for (const x of [...new Set([from[0], 0])]) {
+      for (let k = Math.ceil((z0 + margin) / c.step); k * c.step <= z1 - margin + 1e-9; k++) {
+        for (let j = Math.max(n(RIDER_EYE_ABOVE_SEAT), n(from[1] - c.deck)); j * c.step <= Math.min(top, from[1] + c.deck) + 1e-9; j++) {
+          const e: Vec3 = [x, r2(j * c.step), r2(k * c.step)];
+          list.push({ e, d: Math.hypot(e[0] - from[0], e[1] - from[1], e[2] - from[2]) });
+        }
+      }
+    }
+    list.sort((a, b) => a.d - b.d);
+    let aheadOnly: Vec3 | null = null, out: { e: Vec3; view: number } | null = null;
+    for (const { e } of list) {
+      if (!covered(e) || !walled(e) || !floored(e) || !sided(boxes, seatOf(e)) || eyeOverlap(boxes, e) > 0 || !aheadOf(e)) continue;
+      aheadOnly ??= e;
+      if (!driverSeesOut(1, sideView(boxes, e))) continue;
+      // Nearest first, so a tie keeps the nearer eye.
+      const view = fanView(boxes, e, VIEW);
+      if (!out || view > out.view + 1e-9) out = { e, view };
+    }
+    return out?.e ?? aheadOnly;
   };
   if (!driverSeesOut(aheadBefore, sidesBefore)) {
     const n = (v: number): number => Math.round(v / AHEAD_SEARCH.step);
@@ -527,7 +598,7 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
     candidates.sort((a, b) => a.move - b.move);
     // The nearest point that sees out (ahead AND to the sides), unless a body drawn in the seat could stay
     // drawn a little further on; beside it, the nearest point that sees ahead only.
-    let pick: { e: Vec3; drawn: boolean } | null = null, aheadOnly: { e: Vec3; drawn: boolean } | null = null;
+    let pick: { e: Vec3; drawn: boolean } | null = null, aheadOnly: { e: Vec3; drawn: boolean } | null = null, cabin: Vec3 | null = null;
     for (const { e } of candidates) {
       if (e[1] > modelTop + VIEW.overTop || eyeOverlap(boxes, e) > 0 || (roofed0 && !underRoof(e))) continue;
       if (!aheadOf(e)) continue;
@@ -540,6 +611,7 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
     if (pick) take(pick.e, measure(seatOf(pick.e)), false);
     // The sides are a preference: an eye that already saw ahead stays where it was rather than trade the cabin for them.
     else if (!seesAheadBefore && aheadOnly) take(aheadOnly.e, measure(seatOf(aheadOnly.e)), false);
+    else if (!seesAheadBefore && (cabin = cabinEye())) take(cabin, measure(seatOf(cabin)), false, true);
     else if (!seesAheadBefore) {
       // No eye in the cabin sees ahead: leave it, the nearest point up or back that does (`AHEAD_FALLBACK`).
       const f = AHEAD_FALLBACK, zs = boxes.flatMap(b => [b.min[2], b.max[2]]), tail = Math.max(...zs);

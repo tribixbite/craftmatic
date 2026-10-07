@@ -12,7 +12,7 @@ import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile } from '../web/src/engine/zip-utils.js';
 import { simHost } from './_sim-host.js';
-import { AHEAD, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
+import { AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const box = (min: Vec3, max: Vec3): BoxBlocks => ({ min, max });
@@ -546,6 +546,37 @@ describe('every seat sees the horizon ahead (AHEAD), whatever its evidence', () 
     expect(plan.steps.every(s => !s.fits)).toBe(true);
     expect(riderVisibleSizes(plan)).toEqual([]);
     expect(riderVisibleAt(plan, 1)).toBe(false);
+  });
+
+  it('finds the FRONT cockpit along the inside before leaving the hull, never the top of the spine (76286, Saga 30j: "sit IN the cockpit, not on top")', () => {
+    // A walled, roofed hull, nose at -Z and open there; its only glass (the evidence) is a REAR window over a
+    // rear cabin whose bulkhead, taller than the cabin search can rise, shuts it off from the front cabin.
+    // A fin stands on the roof over the rear cabin: the spine's "cover" the deck limit keeps the eye out of.
+    const hull = [
+      box([-2, 0, -6], [2, 0.3, 6]),
+      box([-2, 0, -6], [-1.2, 3, 6]), box([1.2, 0, -6], [2, 3, 6]),
+      box([-2, 2.6, -5], [2, 2.8, 6]),
+      box([-1.2, 0.3, 0], [1.2, 2.6, 0.2]),
+      box([-0.3, 3.2, 1], [0.3, 3.4, 3]),
+    ];
+    const eye: Vec3 = [0, 1.42, 2];
+    const seat: Vec3 = [0, eye[1] - RIDER_EYE_ABOVE_SEAT, 2];
+    expect(seesAhead(hull, eye)).toBe(false);
+    const plan = planSeat(hull, eye, seat, 'volume');
+    expect(plan.ahead!.before).toBe(0);
+    expect(plan.ahead!.cabin).toBe(true);
+    expect(plan.ahead!.fallback).toBeUndefined();
+    // In the front cabin: ahead of the bulkhead, under the roof, on the evidence's deck, seeing out.
+    expect(plan.eye[2]).toBeLessThan(0);
+    expect(plan.eye[1]).toBeLessThan(2.6);
+    expect(Math.abs(plan.eye[1] - eye[1])).toBeLessThanOrEqual(AHEAD_CABIN.deck + 1e-9);
+    expect(seesOut(hull, plan.eye)).toBe(true);
+    expect(plan.seat[1]).toBeCloseTo(plan.eye[1] - RIDER_EYE_ABOVE_SEAT, 5);
+    // The same hull with the front cabin's roof gone: nothing IN the vehicle sees out, so the eye leaves it as before.
+    const open = hull.filter((_, i) => i !== 3).concat([box([-2, 2.6, 0], [2, 2.8, 6])]);
+    const out = planSeat(open, eye, seat, 'volume');
+    expect(out.ahead!.cabin).toBeUndefined();
+    expect(out.ahead!.fallback).toBe(true);
   });
 
   it('judges the simulator\'s drawn view and the compiler\'s boxes by the same numbers (driverSeesOut)', () => {
