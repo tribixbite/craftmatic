@@ -53,28 +53,26 @@ pack bytes, bindings and options, with hashes) are in
 (ignored local evidence in the main checkout; do not delete it). Restoring
 needs the user's go-ahead: ask before touching the device or the lock.
 
-**Round 30j has never been built or device-tested.** Merged since 30i
-(`fd91cf23`) and in no round yet: yaw-turned collider corners + drop guards
-(76417 Gate 1), box-UV-safe cubes on every entity (McLaren streaks), brick
-separators dropped from exports, no floating name tags, spaceship controls /
-never stuck / free look (section below), plus everything the audit merged.
-Recipe, after the review fixes land and from a clean committed tree:
-1. `mkdir output/device-round-<date>j`; copy
-   `output/device-round-2026-09-30i/{build.sh,check.py}` (main checkout) with
-   the folder names changed and check.py's `REF_ROUND`/`REF_PACKS`/
-   `REF_CREATOR` pointing at 30i (`packs-fd91cf23`, `creator-fd91cf23`).
-2. `bash <round>/build.sh`, then `python <round>/check.py <packs> <creator>`
-   (parts DIFFER: separators gone; uuids equal).
-3. `bun scripts/sim.ts --scenario=regressions --new=<packs>`;
-   `bun scripts/sim.ts --scenario=hop --coaster=<10261> --flyer=<nimbus> --car=<42639> --slide=<10788>`;
-   `bun scripts/sim.ts <7140> <76286> <42172> --scenario=vehicles` (the
-   audit ran the course only on its own `354cb7b2` packs - section below;
-   record 30j's numbers beside those).
-4. Zip as 30i did (`craftmatic-packs-<sha>.zip` + `.sha256` +
-   `pack-hashes.tsv`) and hand it over.
-5. Device round (only after the Saga is restored or the user decides): the
-   "Spaceship controls" checklist below, McLaren body solid, no name tags,
-   76417 Gate 1 stops you in the doorway, 10261 lift-hill route at 200 %.
+**Round 30j built 2026-10-07 from main `f200ddc7` (clean, pipeline `80087794a186`)**:
+`output/device-round-2026-10-07j/` (main checkout): `build.sh`, `check.py`,
+`packs-f200ddc7/` (22) + `creator-f200ddc7/`, `craftmatic-packs-f200ddc7.zip`
+(sha256 `6005ac81...`, `pack-hashes.tsv`). Contents: everything since 30i
+(`fd91cf23`) - yaw-turned colliders + drop guards, box-UV-safe cubes on every
+entity, separators dropped, no name tags, spaceship controls / never stuck /
+free look, the audit's fixes, lattice shell chunks + runtime migration, seat
+egress, cheaper swept probes.
+Offline: `check.py` 0 bad of 23, uuids equal to 30i, parts differ only by the
+dropped separator; regressions 0 failed, 1 NOT TESTED (`door3-tap-10326`),
+1 KNOWN-UNREPRODUCED; hop 3/3; vehicle course 7140 8/8, 76286 8/8, 42172 6/8
+(wall3 escaped, pit3 trapped - course policy); child play 110/110; seat sweep
+0 trapped over 248 seat x size runs.
+Device round 30j IN PROGRESS (2026-10-07): Saga = vehicle checklist below +
+cockpit seating (SEAT-01); Pixel = McLaren body, 10261 chunks at 200 %,
+76417 Gate 1, seat exits, doors, slide, Milano ms/tick. Results go to
+`output/device-round-2026-10-07j/{saga,pixel}/` and into REQUIREMENTS.md.
+- # TODO(seat-sweep-memory): `_seat_egress_sweep.ts` on 76457 at 300/400 %
+  (and on a whole pack directory) grows to 64 GB and crashes Bun; run it per
+  pack and per size until fixed. 76457 at 100/200 %: 9 seats, 0 trapped.
 
 **Open items from the audit that are still real:**
 - # TODO(cull): the 300/400 % draw ceiling is unmeasured. At 200 % the
