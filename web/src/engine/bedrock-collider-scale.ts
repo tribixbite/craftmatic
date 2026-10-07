@@ -50,6 +50,16 @@
  * so the emitted set of reachable surfaces is a strict superset of the
  * unassisted one whenever any tread is emitted.
  *
+ * THE LATE PASS (2026-10-07, `latePass`). After the main plan and the
+ * doorway pass the laying walk runs again, judging "reached" by a walk that
+ * never drops more than 3 blocks (`SAFE_DROP16`), keying refused edges
+ * exactly (source to target surface), targeting a tread-holding column at
+ * another level, and laying a run from the GROUND onto the model wherever the
+ * 100 % grid walks it (`edgeSweep`), all verified never to block. It only adds
+ * to the main plan: 10261's lift hill and its west rim at 200 % (Pixel round
+ * 2026-10-07j) were left as walls by the main rule because the grid walk
+ * reached them by a 10-block drop off the track or round a corner.
+ *
  * AT 100 % nothing changes: no rise can exceed the jump at the chosen size
  * while being within it at 100 %, so the planner emits nothing and the
  * structure tiles are untouched (the pipeline never sees the planner).
@@ -174,6 +184,15 @@ export const GENTLE_HOP16 = 8;
 export const MAX_TREADS_PER_RUN = 10;
 /** Refused edges listed in a plan (the counts are complete; the list is a sample for diagnosis). */
 export const MAX_REFUSED_REPORTED = 64;
+/**
+ * The deepest drop (sixteenths, 3 blocks: Minecraft's fall damage starts past
+ * it) the late tread pass counts as a way a child walks. The reach walk takes
+ * ANY drop, so a surface it reaches only by jumping off a coaster's track ten
+ * blocks down reads as reachable and its riser is never restored: 10261's
+ * lift hill at 200 % (x 27 -> 28, 9.38 -> 11.13 on z 4-5) - the Pixel player
+ * stopped there on every try (round 2026-10-07j).
+ */
+const SAFE_DROP16 = 48;
 
 /** One world block of a scaled column, with the 100 % surface it came from. */
 export interface ColumnBlock {
@@ -418,6 +437,7 @@ export interface Surface { x: number; z: number; t: number }
 export function walkScaledColliders(
   grid: ScaledColliderGrid,
   onBlocked?: (from: Surface, to: Surface, push: (s: Surface) => void, visited: ReadonlySet<number>) => boolean,
+  maxDrop16 = Infinity,
 ): ReachResult {
   const visited = new Set<number>();
   const queue: Surface[] = [];
@@ -437,6 +457,8 @@ export function walkScaledColliders(
       if (!grid.inRing(nx, nz)) continue;
       for (const t of grid.surfaces(nx, nz)) {
         if (visited.has(grid.key(nx, nz, t))) continue;
+        // A bounded walk (`maxDrop16`) never steps down further than that: neither moves nor offers the edge.
+        if (s.t - t > maxDrop16) continue;
         if (grid.canMove(s.x, s.z, s.t, nx, nz, t)) { push({ x: nx, z: nz, t }); continue; }
         if (onBlocked && onBlocked(s, { x: nx, z: nz, t }, push, visited)) push({ x: nx, z: nz, t });
       }
@@ -559,8 +581,12 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
   const unrestored: Record<UnrestoredReason, number> = { 'no-run': 0, headroom: 0, verify: 0 };
   const refused: TreadPlan['refused'] = [];
   const refusedTargets: Surface[] = [];
+  /** Each refused edge's reason (`refuseKey`), so a late-pass restoration can take it back out of `unrestored`. */
+  const failedReason = new Map<string, UnrestoredReason>();
+  const refuseKey = (p: Surface, q: Surface): string => `${p.x},${p.z},${p.t}>${q.x},${q.z},${q.t}`;
   const refuse = (p: Surface, q: Surface, reason: UnrestoredReason): void => {
     unrestored[reason]++;
+    failedReason.set(refuseKey(p, q), reason);
     refusedTargets.push(q);
     if (refused.length < MAX_REFUSED_REPORTED) refused.push({ from: p, to: q, rise100: (q.t - p.t) / 16 / f, reason });
   };
@@ -571,6 +597,8 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
   }
   const grid = new ScaledColliderGrid(cells, dims, f, rotation);
   const before = walkScaledColliders(grid);
+  /** The unassisted walk taking no drop past `SAFE_DROP16`: what the late pass counts as reached already. */
+  const beforeSafe = walkScaledColliders(grid, undefined, SAFE_DROP16);
   const report = (after: ReachResult, edits: readonly RunEdit[], verified: boolean): TreadPlan => {
     const finalBlocks = new Map<string, TreadBlock>();
     for (const e of edits) for (const w of e.writes) finalBlocks.set(`${w.x},${w.block.row},${w.z}`, { x: w.x, y: w.block.row, z: w.z, lo: w.block.lo, hi: w.block.hi });
@@ -593,6 +621,10 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
   const failed = new Set<number>();               // edges refused, never retried
   const edgeKey = (p: Surface, q: Surface): number => grid.key(p.x, p.z, p.t) * 4 + (q.x > p.x ? 0 : q.x < p.x ? 1 : q.z > p.z ? 2 : 3);
   const edits: RunEdit[] = [];
+  /** Whether a surface is the top of a tread some run laid (a tread is never another run's target). */
+  const isTreadTop = (s: Surface): boolean => treadFloor.has(colKey(s.x, s.z)) && edits.some(e => e.columns.some(c => c.x === s.x && c.z === s.z && c.top16 === s.t));
+  /** Set only during `latePass`: a column holding a tread is then a target at another level. */
+  let stackedTargets = false;
 
   /**
    * The 100 % rule and the geometry of one run; a reason when the rule applies
@@ -619,7 +651,8 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
   const planRunCore = (p: Surface, q: Surface, visited: ReadonlySet<number>): RunEdit | UnrestoredReason | 'no-rule' => {
     // A tread is reached by its own run and is never a target; a column another run arrives at (its
     // `to` or its landing) is never converted, so a later run cannot break an earlier one's approach.
-    if (!grid.inside(q.x, q.z) || treadFloor.has(colKey(q.x, q.z))) return 'no-rule';
+    // (`latePass` lifts the column rule for a surface at another level than the column's tread.)
+    if (!grid.inside(q.x, q.z) || (treadFloor.has(colKey(q.x, q.z)) && (!stackedTargets || isTreadTop(q)))) return 'no-rule';
     const qb = grid.blockWithTop(q.x, q.z, q.t);
     if (!qb) return 'no-rule';
     const pSrc = p.t > 0 ? grid.blockWithTop(p.x, p.z, p.t)?.src16 : 0;
@@ -723,23 +756,36 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     }
     return true;
   };
-  /** One walk that lays a run at every blocked rise the rule covers; `verifyEach` checks the invariant per run and reverts breakers. */
-  const layingWalk = (verifyEach: boolean): void => {
+  /**
+   * One walk that lays a run at every blocked rise the rule covers; `verifyEach` checks the invariant per run and
+   * reverts breakers. `retry` (the late pass) keys edges EXACTLY - source surface to target surface - and tries
+   * each once: the main walk's `failed` key is per source surface and direction, so one refusal toward a
+   * neighbour column (its lower level, say) silently skipped every other level of it - 10261's lift hill at
+   * 200 %, where the riser 53 -> 54 shares its key with the platform level under it. An edge the main walk
+   * refused is retried against the grid as it now stands and is not counted twice.
+   */
+  const layingWalk = (verifyEach: boolean, retry?: Set<string>): void => {
     walkScaledColliders(grid, (p, q, push, visited) => {
       // Only a surface the unassisted walk cannot reach AT ALL is restored: a
       // stair's second step is reached by its first even when a side hop onto
       // it is past the jump, and a tread there would be clutter, not a way up.
-      if (before.visited.has(grid.key(q.x, q.z, q.t))) return false;
-      const ek = edgeKey(p, q);
-      if (failed.has(ek)) return false;
+      // The late pass walks and judges "reached" without a drop past `SAFE_DROP16`.
+      if ((retry ? beforeSafe : before).visited.has(grid.key(q.x, q.z, q.t))) return false;
+      const ek = edgeKey(p, q), rk = refuseKey(p, q);
+      if (retry) { if (retry.has(rk)) return false; retry.add(rk); }
+      else if (failed.has(ek)) return false;
+      // Refused before (counted in `unrestored`): a second refusal is not counted again.
+      const counted = !!retry && failedReason.has(rk);
       const e = planRun(p, q, visited);
       if (e === 'no-rule') return false;
-      if (typeof e === 'string') { refuse(p, q, e); failed.add(ek); return false; }
+      if (typeof e === 'string') { if (!counted) { refuse(p, q, e); failed.add(ek); } return false; }
       apply(e); edits.push(e);
-      if (verifyEach && !holds(walkScaledColliders(grid))) { revert(e); edits.pop(); refuse(p, q, 'verify'); failed.add(ek); return false; }
+      if (verifyEach && !holds(walkScaledColliders(grid))) { revert(e); edits.pop(); if (!counted) { refuse(p, q, 'verify'); failed.add(ek); } return false; }
+      // A refused edge restored now is no longer unrestored.
+      if (counted) { const was = failedReason.get(rk)!; if (unrestored[was] > 0) unrestored[was]--; failedReason.delete(rk); }
       for (const s of e.treadSurfaces) push(s);
       return true;
-    });
+    }, retry ? SAFE_DROP16 : Infinity);
   };
   /**
    * DOORWAY THRESHOLDS. A doorway joins two places, and the walk above counts
@@ -787,22 +833,110 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       }
     }
   };
+  /**
+   * THE LATE PASS. The main laying walk restores the rises it meets as it
+   * walks; a surface it reaches only through a LATER run (the doorway pass)
+   * has its own blocked rises never looked at, and the main plan never
+   * targets a column holding a tread at any height. Both left 10261's lift
+   * hill at 200 % with one riser unrestored (x 53 -> 54, 1.375 in the shipped
+   * forms, 1.875 as the planner reads them): the hill's top is reached only
+   * after the doorway pass, and the device player stopped there on every try
+   * (Pixel round 2026-10-07j). So after the main plan and the doorway pass,
+   * the laying walk runs again - verified run by run against the unassisted
+   * walk (never block), reverted where it fails - with a tread-holding column
+   * a target at another level than its tread's top (the run writes behind
+   * `p`, never in the target's column), until a pass lays nothing new. It runs
+   * last, so it only adds to the main plan.
+   * TODO(tilted-colliders): a player walking STRAIGHT up a lane of 10261's lift
+   * hill still stops at x 39.7 at 200 % (that lane rises 1.75 every second
+   * column; the plan reaches the top from the next lane). A run at each such
+   * riser, planned over full cells, raised lanes the shipped forms keep lower
+   * and made the same walk worse (x 30.7): it needs the forms' own tops.
+   */
+  const latePass = (): void => {
+    stackedTargets = true;
+    const mark = edits.length, stats = { ...unrestored }, reasons = new Map(failedReason);
+    /**
+     * THE MODEL'S EDGE FROM THE GROUND. A rise from the ground (the pin plane)
+     * onto the model that the 100 % rule covers but this size breaks is
+     * restored even where the surface is reached some other way: a child
+     * walks up to a model from wherever it stands. 10261's base at 200 % is a
+     * 1.5-block rim along its west side (0.75 at 100 %), reached by the grid
+     * walk only round the corner, and the Pixel player could not climb it at
+     * z 7339-7344 (round 2026-10-07j). Only from the ground: there the walk
+     * and the device read the same flat floor, so a tread cannot hide a riser
+     * the planner's full-cell reading of a clearance form does not see. A
+     * refusal is not counted: the surface is reached.
+     */
+    const edgeSweep = (retried: Set<string>): void => {
+      const reach = walkScaledColliders(grid, undefined, SAFE_DROP16);
+      for (const k of reach.visited) {
+        const p = grid.unkey(k);
+        if (p.t !== 0) continue;
+        for (const [nx, nz] of [[p.x + 1, p.z], [p.x - 1, p.z], [p.x, p.z + 1], [p.x, p.z - 1]] as const) {
+          if (!grid.inside(nx, nz)) continue;
+          for (const t of grid.surfaces(nx, nz)) {
+            const q = { x: nx, z: nz, t };
+            if (t <= 0 || !reach.visited.has(grid.key(nx, nz, t)) || grid.canMove(p.x, p.z, 0, nx, nz, t)) continue;
+            const rk = refuseKey(p, q);
+            if (retried.has(rk)) continue;
+            retried.add(rk);
+            if (!grid.surfaces(p.x, p.z).includes(0)) continue;
+            // The core planner, never `planRun`: its merge with an earlier run could not be undone by `until`'s revert.
+            const e = planRunCore(p, q, reach.visited);
+            if (typeof e === 'string') continue;
+            apply(e); edits.push(e);
+          }
+        }
+      }
+    };
+    const until = (verifyEach: boolean): void => {
+      const retried = new Set<string>(), edged = new Set<string>();
+      for (let pass = 0; pass < 16; pass++) {
+        const count = edits.length;
+        layingWalk(verifyEach, retried);
+        // Verified as a batch by `latePass` (and, on its slow path, run by run below).
+        if (!verifyEach) edgeSweep(edged);
+        else {
+          const mark = edits.length;
+          edgeSweep(edged);
+          for (let i = edits.length - 1; i >= mark; i--) {
+            const e = edits[i]!;
+            if (holds(walkScaledColliders(grid))) break;
+            revert(e); edits.splice(i, 1);
+          }
+        }
+        if (edits.length === count) break;
+      }
+    };
+    // Fast: lay every late run, then verify once; only when that fails, again one verified run at a time.
+    until(false);
+    if (edits.length > mark && !holds(walkScaledColliders(grid))) {
+      for (let i = edits.length - 1; i >= mark; i--) revert(edits[i]!);
+      edits.length = mark;
+      Object.assign(unrestored, stats);
+      failedReason.clear();
+      for (const [k, v] of reasons) failedReason.set(k, v);
+      until(true);
+    }
+    stackedTargets = false;
+  };
   // Fast path: one laying walk, then a single verification from scratch.
   layingWalk(false);
   let after = walkScaledColliders(grid);
-  if (holds(after)) { doorwayPass(); return report(walkScaledColliders(grid), edits, true); }
+  if (holds(after)) { doorwayPass(); latePass(); return report(walkScaledColliders(grid), edits, true); }
   // Slow path: undo everything and re-plan one run at a time, each verified
   // against the unassisted walk, until a pass lays nothing new.
   for (let i = edits.length - 1; i >= 0; i--) revert(edits[i]!);
   edits.length = 0; failed.clear(); arrivals.clear();
-  unrestored['no-run'] = 0; unrestored.headroom = 0; unrestored.verify = 0; refused.length = 0; refusedTargets.length = 0;
+  unrestored['no-run'] = 0; unrestored.headroom = 0; unrestored.verify = 0; refused.length = 0; refusedTargets.length = 0; failedReason.clear();
   for (let pass = 0; pass < 64; pass++) {
     const count = edits.length;
     layingWalk(true);
     if (edits.length === count) break;
   }
   after = walkScaledColliders(grid);
-  if (holds(after)) { doorwayPass(); return report(walkScaledColliders(grid), edits, true); }
+  if (holds(after)) { doorwayPass(); latePass(); return report(walkScaledColliders(grid), edits, true); }
   for (let i = edits.length - 1; i >= 0; i--) revert(edits[i]!);
   edits.length = 0;
   return report(walkScaledColliders(grid), [], false);
