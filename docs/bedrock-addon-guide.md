@@ -714,11 +714,12 @@ round settles them.
     the anchor floored, the ghost teleported. Any pin/edit/place clears `aim`.
   - *Size* (menu 10, steps 150/200/300/400/25/50/75/100 %): actor positions scale
     about the pin (`worldPoint`), each spawned actor gets `craftmatic:size_<pct>`
-    (`withSizeGroups`: one component group per step with `minecraft:scale`, a scaled
-    `collision_box` and, for a mount, `minecraft:rideable` with every seat declared in
-    the entity's UNSCALED frame and the camera radius scaled - `minecraft:scale`
-    MULTIPLIES a declared seat position, measured on the Saga 2026-10-07; see "A seat
-    is declared unscaled" under "Where the player sits"), the
+    (`withSizeGroups`: one component group per step with `minecraft:scale`, the
+    `collision_box` and, for a mount, `minecraft:rideable`, the box and every seat
+    declared in the entity's UNSCALED frame and the camera radius scaled -
+    `minecraft:scale` MULTIPLIES a declared seat position and the collision box,
+    measured on the Saga 2026-10-07, rounds 30k and 30l; see "A seat is declared
+    unscaled" under "Where the player sits"), the
     ghost gets the same event. Blocks: a brick-shell pack ships its collider grid as
     run-length text (`encodeColliderRuns`, value 0..136 = air or a `(lo,hi)` pair,
     `[valueChar][countChar]` pairs, chalet ≈ a few KB) and the script re-lays it at the
@@ -4406,6 +4407,51 @@ round's packs (78e06246) every 100 % row is in or on its vehicle and the
 150-400 % rows of every vehicle, coaster car, ship, Gabby car and the Nimbus
 cloud drift by (f - 1) x their whole offset - the same fault in every
 rideable kind, found on one.
+
+**The collision box is scaled by the device too** (Saga round 30l,
+2026-10-07, `output/device-round-2026-10-07l/saga/notes.md` item 3; quirk
+`collision-box-scales-with-entity`). The packs up to 77a9f172 still wrote
+each size group's box pre-scaled: the 200 % Milano declared 7 x 5 and
+one-block `execute ... if entity @e[dx=0,dy=0,dz=0]` volume tests hit at
+x +6.9 / -7.8, z +6.9, y +9.4 and missed at x +7.5, z +7.5, y +10.6 - a
+14 x 10 box. Every size group now declares the 100 % box (`withSizeGroups`)
+and the device realises it times the scale (`collisionWorldBox`). The box
+is every entity's touch / interact target, its `getAABB` (the hop's
+reach), a native mount's block collision and its cull (64 x the realised
+diagonal, under the ~70-block ceiling); a scripted vehicle's block collision
+is its own swept footprint and does not read it. One emitter covers every
+sized kind - vehicles, coaster cars, the pinball's actors, figures, scenery
+and ride seats, props, companions, the preview ghost, shells and shell
+chunks (the LOD hull is the shell actor). The interactives (doors, windows,
+hatches) are NOT affected: they carry no `minecraft:scale` (their rig
+scales from its root bone, `ix_size`), so their per-size boxes and tap
+boxes are written in world blocks and mean what they say. The tap target is
+smaller than the old packs' at every size but 100 % - the 200 % Milano's
+box is 7 x 5 (was 14 x 10), the same share of the hull as 3.5 x 2.5 at
+100 %, where the long press mounts from beside the box. Offline:
+`bun scripts/_seat_scale_check.ts <packs>` prints every sized entity's box
+per step and exits 1 on one scaled twice (`collisionScaleAudit`); the
+simulator realises the box the same way, regression `milano-box-200-30l`.
+
+### Getting off a vehicle lands beside it (SEAT-05, 2026-10-08)
+
+Pixel round 30l (`output/device-round-2026-10-07l/pixel/notes.md` item 5,
+`62b`): sneaking off the 200 % Milano parked on the ground dropped the
+player ~9 blocks, from 8636,-51 to -60. Bedrock sets a dismounted rider
+down about its SEAT (quirk `dismount-near-seat`), and a big hull's seat is
+high and inside it; the scenery seats' egress check never covered vehicles.
+`scripts/vehicles.js` now notices a rider gone since the last tick and
+sets them down itself (`vehicleEgress`, bedrock-vehicle.ts; the physics
+spec's §4.6 "Getting off"): on the vehicle's own ground, on a ring just
+outside its footprint, the spot nearest the seat first, with room and a
+walking exit by the shared collider body probe; walled in, the probe's
+escape; afloat with no shore, beside the hull at the waterline; in the air,
+beside the hull at the seat's height under slow falling. Bedrock's own
+set-down is kept when it is already outside the hull and walkable. Native
+mounts (rotorcraft, the Nimbus) keep Bedrock's set-down (the flyer has its
+own float). Offline: the simulator's `vehicles` scenarios end with
+`dismountEverySize` (100/200/400 %), regression `milano-dismount-200-30l`.
+Not yet on a device.
 
 ### The driver's eye sees the road ahead (2026-09-30, `output/cockpit-0930/`)
 

@@ -3,7 +3,7 @@ import { BlockGrid } from '../src/schem/types.js';
 import {
   ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, SHELL_BOX_WIDTH, SHELL_FRAME, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, actorCullDistance, actorCullFit, buildColliderGrid, clipParallelepiped, colliderBlockDefinition, colliderCellIndex, colliderState, gridParallelepiped, isSceneBlock, isShellEntityId, isTiltedBox, shellBehavior, shellChunkCell, shellChunkId, shellCollisionBox, splitStaticShell, yawStepKept, YAW_STEP_MAX_BLOCKS,
 } from '../web/src/engine/bedrock-building-shell.js';
-import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
+import { SIZE_STEPS, collisionWorldBox } from '../web/src/engine/bedrock-placement-pack.js';
 import { BlockTypes } from '../web/src/sim/world/block-types.js';
 import { ACTOR_DRAW_CEILING_BLOCKS } from '../web/src/engine/bedrock-lod-hull.js';
 import { toBedrockBlock } from '../web/src/engine/bedrock-blocks.js';
@@ -303,9 +303,15 @@ describe('the shell collision box and its cull distance', () => {
     const e = behavior['minecraft:entity'];
     expect(e.components['minecraft:collision_box']).toEqual(box(44));
     for (const pct of SIZE_STEPS.filter(p => p !== 100)) {
-      const g = e.component_groups[`craftmatic:size_${pct}`]['minecraft:collision_box'];
-      expect(g.width).toBeCloseTo(SHELL_BOX_WIDTH * pct / 100, 3);
-      expect(g.height).toBeCloseTo(box(44).height * pct / 100, 2);
+      // Declared as at 100 %: the device multiplies the box by the group's scale (quirk
+      // collision-box-scales-with-entity, Saga 30l), so the realised needle - and the cull fit - scale once.
+      const group = e.component_groups[`craftmatic:size_${pct}`];
+      const g = group['minecraft:collision_box'];
+      expect(g).toEqual(box(44));
+      const real = collisionWorldBox(g, group['minecraft:scale'].value);
+      expect(real.width).toBeCloseTo(SHELL_BOX_WIDTH * pct / 100, 3);
+      expect(real.height).toBeCloseTo(box(44).height * pct / 100, 2);
+      expect(actorCullFit(real)).toBeCloseTo(actorCullFit(box(44), pct / 100), 6);
     }
     // Without an extent the fallback (10303's height) still sizes the needle off the floor.
     expect(actorCullFit((shellBehavior('shell') as any)['minecraft:entity'].components['minecraft:collision_box'])).toBeCloseTo(176, 0);

@@ -4,8 +4,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import { vehicleWheelAssemblies, type VehicleWheelBone } from '../web/src/engine/ldraw-entity-compiler.js';
-import { BOAT, boatStep, CAR, carStep, type CarState, type CarTerrain, FLIGHT, FLIGHT_PROPS, flightStep, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, resolveMove, VEHICLE_DYNAMIC, headlightCell, isNightTime, scriptedVehicleScript, sweepFootprint, vehicleClientAnimation, vehicleMotionOf, type BoatState, type BoatWater, type FlightInput, type FlightState, type ScriptedVehicleConfig, type ScriptedVehicleType, flightProperties } from '../web/src/engine/bedrock-vehicle.js';
+import { BOAT, boatStep, CAR, carStep, type CarState, type CarTerrain, FLIGHT, FLIGHT_PROPS, flightStep, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, resolveMove, VEHICLE_DYNAMIC, VEHICLE_EGRESS, vehicleEgress, type VehicleEgressInput, type VehicleEgressProbe, headlightCell, isNightTime, scriptedVehicleScript, sweepFootprint, vehicleClientAnimation, vehicleMotionOf, type BoatState, type BoatWater, type FlightInput, type FlightState, type ScriptedVehicleConfig, type ScriptedVehicleType, flightProperties } from '../web/src/engine/bedrock-vehicle.js';
 import { simHost, solidBelow } from './_sim-host.js';
+import { ESCAPE_OPTIONS } from '../web/src/engine/collider-form.js';
 
 /** Fly `ticks` ticks over flat ground at y = 0 (nothing in the way), returning every state. */
 function fly(s: FlightState, input: (t: number, s: FlightState) => FlightInput, ticks: number, ground: number | null = 0): { states: FlightState[]; events: string[] } {
@@ -99,6 +100,9 @@ describe('spaceship flight model (every scripted aircraft)', () => {
     expect(js).toContain('function resolveMove');
     expect(js).toContain('function isNightTime');
     expect(js).toContain('function headlightCell');
+    // The set-down (SEAT-05) and the collider body probe it reads the world through.
+    expect(js).toContain('function vehicleEgress');
+    expect(js).toContain('function colliderBodyProbe');
     expect(js).not.toMatch(/__name|import_/);
   });
 });
@@ -296,16 +300,22 @@ interface HostOptions {
   colliders?: ScriptedVehicleConfig['colliders'];
   /** Blocks at x beyond this read as not loaded (the API's `getBlock` answers undefined there). */
   unloadedBeyondX?: number;
+  /** The seat as the size group declares it (the unscaled frame; default [0, 0.5, 0]) and the entity's `minecraft:scale`. */
+  seat?: [number, number, number];
+  scale?: number;
+  /** Ship the set-down (`VEHICLE_EGRESS`, `ESCAPE_OPTIONS`) as a real pack does (SEAT-05). */
+  egress?: boolean;
 }
 
-/** The scripted vehicle's type as the pack declares it: the vehicle family, its flight properties, one player seat. */
-const VEHICLE_TYPE = {
+/** The scripted vehicle's type as the pack declares it: the vehicle family, its flight properties, one player seat (and a size's scale). */
+const vehicleType = (seat: [number, number, number] = [0, 0.5, 0], scale?: number) => ({
   properties: flightProperties() as Record<string, Record<string, unknown>>,
   components: {
     'minecraft:type_family': { family: ['craftmatic_vehicle'] },
-    'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: [{ position: [0, 0.5, 0] }] },
+    'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: [{ position: seat }] },
+    ...(scale === undefined ? {} : { 'minecraft:scale': { value: scale } }),
   },
-};
+});
 
 /**
  * Run `scripts/vehicles.js` (the serialised runtime) on the headless
@@ -317,8 +327,8 @@ const VEHICLE_TYPE = {
 function vehicleHost(o: HostOptions) {
   const typeId = 'craftmatic:t_vehicle';
   const h = simHost({
-    script: scriptedVehicleScript(hostConfig({ [typeId]: o.type }, o.colliders ? { colliders: o.colliders } : {})),
-    entities: { [typeId]: VEHICLE_TYPE }, colliders: !!o.colliders, terrain: solidBelow(64), timeOfDay: o.time ?? 6000,
+    script: scriptedVehicleScript(hostConfig({ [typeId]: o.type }, { ...(o.colliders ? { colliders: o.colliders } : {}), ...(o.egress ? { egress: VEHICLE_EGRESS, escape: ESCAPE_OPTIONS } : {}) })),
+    entities: { [typeId]: vehicleType(o.seat, o.scale) }, colliders: !!o.colliders, terrain: solidBelow(64), timeOfDay: o.time ?? 6000,
   });
   for (const f of o.fills ?? []) {
     const m = /^(.*)\[lo=(\d+),hi=(\d+)\]$/.exec(f.id);
@@ -346,6 +356,8 @@ function vehicleHost(o: HostOptions) {
     get bars(): string[] { return h.lines('actionbar', 'Driver'); },
     set: (x: number, y: number, j = false) => { h.controls(player, { strafe: x, forward: y, jump: j }); },
     dismount: () => { h.unseat(player); },
+    /** The device's sneak: Bedrock's own set-down about the seat (quirk `dismount-near-seat`), then the runtime. */
+    sneak: () => { h.controls(player, { sneak: true }); },
     run: (n: number) => { h.run(n); },
   };
 }
@@ -904,5 +916,121 @@ describe('headlight and hover helpers', () => {
     expect(vehicleMotionOf('plane', 'Speeder Bike Battle Pack')).toBe('hover');
     expect(vehicleMotionOf('boat', 'Pirate Ship')).toBe('boat');
     expect(HOVER_WORDS.test('Galaxy Explorer')).toBe(false);
+  });
+});
+
+describe('getting off a scripted vehicle (SEAT-05: vehicleEgress)', () => {
+  // The Milano as the vehicle test above drives it (16 long, 30 wide, 8.8 tall at 100 %), seat (0, 4.58, 3.6) at 100 %.
+  const milano: ScriptedVehicleType = { mode: 'plane', noseReach: 8, halfWidth: 15, height: 8.8 };
+  const SEAT100: [number, number, number] = [0, 4.58, 3.6];
+  type P3 = { x: number; y: number; z: number };
+  /** A flat world: the ground's top at `ground` everywhere, raised to `wall` where `walled(x, z)`, water up to `water` where `wetAt(x, z)`. */
+  const flat = (o: { ground?: number; walled?: (x: number, z: number) => boolean; wall?: number; wetAt?: (x: number, z: number) => boolean; water?: number; escape?: P3 } = {}): VehicleEgressProbe => {
+    const ground = o.ground ?? 64, wall = o.wall ?? ground + 4;
+    const top = (x: number, z: number): number => (o.walled?.(x, z) ? wall : ground);
+    const corners = (q: { x: number; z: number }): Array<[number, number]> => [[q.x - 0.3, q.z - 0.3], [q.x + 0.3, q.z - 0.3], [q.x - 0.3, q.z + 0.3], [q.x + 0.3, q.z + 0.3]];
+    const free = (q: P3): boolean => corners(q).every(([cx, cz]) => top(cx, cz) <= q.y + 1e-9);
+    return {
+      floor: (x, z, t, depth) => {
+        const tops = corners({ x, z }).map(([cx, cz]) => top(cx, cz)).filter(y => y <= t + 1e-9 && y >= t - depth - 1e-9);
+        return tops.length ? Math.max(...tops) : null;
+      },
+      free,
+      walkExit: q => free(q) && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => { const n = { x: q.x + dx!, y: q.y, z: q.z + dz! }; return Math.abs(top(n.x, n.z) - q.y) <= 9 / 16 && free(n); }),
+      wet: q => !!o.wetAt?.(q.x, q.z) && q.y < (o.water ?? ground),
+      escape: () => o.escape,
+    };
+  };
+  /** The Milano parked at the origin facing +Z (yaw 0) at wand factor `k`, Bedrock having set the rider down a block off its seat. */
+  const atSize = (k: number, extra: Partial<VehicleEgressInput> = {}): VehicleEgressInput => {
+    const seat = { x: SEAT100[0] * k, y: 64 + SEAT100[1] * k - 0.5, z: SEAT100[2] * k };
+    return { pose: { x: 0, y: 64, z: 0, yaw: 0 }, halfLength: milano.noseReach * k, halfWidth: milano.halfWidth * k, height: milano.height * k, scale: k, seat, current: { x: seat.x, y: seat.y + 0.2, z: seat.z - 1 }, airborne: false, ...extra };
+  };
+  /** Within the footprint (half a body of slack) and under the hull's top, the Milano facing +Z at the origin. */
+  const inHull = (q: P3, k: number): boolean => Math.abs(q.z) < milano.noseReach * k + 0.3 && Math.abs(q.x) < milano.halfWidth * k + 0.3 && q.y < 64 + milano.height * k;
+
+  it.each([1, 2, 4])('sets the rider down on the ground BESIDE the hull at %ix, the side nearest the seat, never in it (Pixel 30l: ~9 blocks off the 200 percent Milano)', k => {
+    const r = vehicleEgress(atSize(k), flat(), VEHICLE_EGRESS);
+    expect(r.how).toBe('beside');
+    expect(r.at.y).toBe(64);
+    expect(inHull(r.at, k)).toBe(false);
+    // The seat is forward of the centre: the nose side, straight ahead of it (L + margin + half a body).
+    expect(r.at.x).toBeCloseTo(0, 6);
+    expect(r.at.z).toBeCloseTo(milano.noseReach * k + VEHICLE_EGRESS.MARGIN + 0.3, 6);
+  });
+  it('leaves Bedrock\'s own set-down alone when it is already outside the hull on a walkable floor', () => {
+    const current = { x: 16, y: 64, z: 3.6 };
+    expect(vehicleEgress(atSize(1, { current, seat: { x: 15.5, y: 64.2, z: 3.6 } }), flat(), VEHICLE_EGRESS)).toEqual({ at: current, how: 'native' });
+  });
+  it('leaves a player moved away on purpose (a /tp out of the seat) where it went', () => {
+    expect(vehicleEgress(atSize(2, { current: { x: 80, y: 64, z: 80 } }), flat(), VEHICLE_EGRESS).how).toBe('moved');
+  });
+  it('in the air: beside the hull at the seat\'s height, to float down (never under the hull, where it parks)', () => {
+    const r = vehicleEgress(atSize(2, { airborne: true, pose: { x: 0, y: 90, z: 0, yaw: 0 }, seat: { x: 0, y: 99, z: 7.2 }, current: { x: 0, y: 99.2, z: 6.2 } }), flat(), VEHICLE_EGRESS);
+    expect(r.how).toBe('float');
+    expect(r.at.y).toBe(99);
+    expect(r.at.z).toBeGreaterThan(milano.noseReach * 2);
+  });
+  it('afloat with no shore beside it: in the water beside the hull at its waterline; a pier beside it is taken first', () => {
+    const boat = { pose: { x: 0, y: 62, z: 0, yaw: 0 }, seat: { x: 0, y: 63.5, z: 1 }, current: { x: 0, y: 63.7, z: 0 }, halfLength: 3, halfWidth: 1.5, height: 2.5, waterline: 63 };
+    // Open water: the sea bed lies 5 under the boat's base, past the drop: no floor, so a swim beside the hull.
+    const sea = flat({ ground: 57, wetAt: () => true, water: 64 });
+    const swim = vehicleEgress(atSize(1, boat), sea, VEHICLE_EGRESS);
+    expect(swim.how).toBe('swim');
+    expect(swim.at.y).toBe(63);
+    // Beside the hull nearest the seat: off its side (1.5 + margin + half a body), level with the seat.
+    expect(Math.abs(swim.at.x)).toBeCloseTo(1.5 + VEHICLE_EGRESS.MARGIN + 0.3, 6);
+    expect(Math.abs(swim.at.z - boat.seat.z)).toBeLessThan(0.5);
+    // A pier along one side (x <= -1.6, the boat's right), its top at 63: a dry floor beside the hull, taken.
+    const pier = flat({ ground: 57, wetAt: (x: number) => x > -1.6, water: 64, walled: (x: number) => x <= -1.6, wall: 63 });
+    const p = vehicleEgress(atSize(1, boat), pier, VEHICLE_EGRESS);
+    expect(p.how).toBe('beside');
+    expect(p.at.y).toBe(63);
+  });
+  it('walled in beside the hull (a car in its garage): the collider probe\'s escape, never a spot inside the hull', () => {
+    const car = { pose: { x: 0.5, y: 64, z: 0.5, yaw: 0 }, halfLength: 2, halfWidth: 1.2, height: 1.5, seat: { x: 0.5, y: 64.1, z: 0.5 }, current: { x: 0.5, y: 64.3, z: -0.5 } };
+    // Walls everywhere outside the footprint: no spot beside the hull fits.
+    const walled = (x: number, z: number): boolean => Math.abs(x - 0.5) > 1.6 || Math.abs(z - 0.5) > 2.4;
+    expect(vehicleEgress(atSize(1, car), flat({ walled, wall: 80, escape: { x: 6, y: 64, z: 9 } }), VEHICLE_EGRESS)).toEqual({ at: { x: 6, y: 64, z: 9 }, how: 'escape' });
+    // An escape that lands inside the footprint is refused: the hull is an entity no block probe sees.
+    expect(vehicleEgress(atSize(1, car), flat({ walled, wall: 80, escape: { x: 0.5, y: 64, z: 0.5 } }), VEHICLE_EGRESS).how).toBe('none');
+  });
+  it('the shipped runtime sets a sneaking rider down beside the 100/200/400 percent Milano on the ground, with no fall (scripts/vehicles.js on the simulator)', () => {
+    for (const k of [1, 2, 4]) {
+      // The pack declares the seat unscaled and the device multiplies it by the scale (quirk seat-scales-with-entity).
+      const host = vehicleHost({ type: { ...milano }, at: { x: 0.5, y: 64, z: 0.5 }, yaw: 0, seat: SEAT100, scale: k, egress: true });
+      host.run(4);
+      expect(host.player.location.y).toBeGreaterThan(64 + SEAT100[1] * k - 1);
+      host.sneak();
+      let lowest = Infinity;
+      for (let t = 0; t < 40; t++) { host.run(1); lowest = Math.min(lowest, host.player.location.y); }
+      const p = host.player.location;
+      expect(host.player.ridingOn, `${k}x still riding`).toBeUndefined();
+      expect(p.y, `${k}x on the ground`).toBeCloseTo(64, 3);
+      // Never under the ground, never inside the hull: beside it, ahead of the nose (the seat's side).
+      expect(lowest).toBeGreaterThanOrEqual(64 - 1e-6);
+      expect(Math.abs(p.z - 0.5)).toBeGreaterThanOrEqual(milano.noseReach * k);
+    }
+  });
+  it('reads the vehicle\'s LIVE scale for the set-down: a size event after the runtime first saw it still lands the rider beside the resized hull', () => {
+    const host = vehicleHost({ type: { ...milano }, at: { x: 0.5, y: 64, z: 0.5 }, yaw: 0, seat: SEAT100, egress: true });
+    host.run(4);
+    // The wand's size event, after the runtime's first sight of the vehicle (its state keeps scale 1).
+    host.vehicle.components['minecraft:scale'] = { value: 2 };
+    host.run(4);
+    host.sneak();
+    host.run(40);
+    expect(host.player.location.y).toBeCloseTo(64, 3);
+    expect(Math.abs(host.player.location.z - 0.5)).toBeGreaterThanOrEqual(milano.noseReach * 2);
+  });
+  it('without the set-down (a pack built before it) the same sneak drops the rider from the seat\'s height (Pixel 30l: ~9 blocks at 200 percent)', () => {
+    const host = vehicleHost({ type: { ...milano }, at: { x: 0.5, y: 64, z: 0.5 }, yaw: 0, seat: SEAT100, scale: 2 });
+    host.run(4);
+    host.sneak();
+    host.run(2);
+    const top = host.player.location.y;
+    host.run(60);
+    expect(top - 64).toBeGreaterThan(8);
+    expect(host.player.location.y).toBeCloseTo(64, 3);
   });
 });

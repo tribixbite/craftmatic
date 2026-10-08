@@ -258,7 +258,9 @@ mounted driver's seat - the declared seat times the vehicle's scale, quirk
 `seat-scales-with-entity` - is in or on the drawn vehicle: `seat-on-vehicle`),
 `seatsEverySize` (every rideable's seat at every wand step from the JSON
 alone, `adapters/craftmatic/seat-scale.ts`; the child-play scenario
-`seats-every-size`), `driveUnderFixture`, `flyMount`,
+`seats-every-size`; it also judges every sized entity's collision box as the
+device realises it - declared x scale, quirk `collision-box-scales-with-entity`
+- against the 100 % box scaled once: `collision-box-scale`), `driveUnderFixture`, `flyMount`,
 `figuresLive`, `visitSeatedFigures`, `snapshot`;
 the hop's (`adapters/craftmatic/hop.ts`): `mountSpawned`, `fillTrain`,
 `flyIntoTrain`, `slideIntoParked`.
@@ -396,7 +398,13 @@ location and facing point), and the two 30j checks: `turnAgainstPost` (the
 ship parked with its tail against a post, the stick held right 2 s: it must
 not rise, may pivot, never enters the post) and `parkOverRider` (Jump 2 s,
 sneak off: the child falls straight under the hull; the empty ship must
-hold over the child's head and park once the child walks out).
+hold over the child's head and park once the child walks out). Every
+scripted car, hover craft and ship then runs `dismountEverySize` (SEAT-05):
+spawned on the flat world at 100, 200 and 400 % by its own size event, the
+child seated, the device's sneak (the engine's set-down about the seat, quirk
+`dismount-near-seat`) and whatever `vehicles.js` does after it; the child
+must end outside the hull (`dismount-in-hull`) with no fall past 3 blocks
+(the core `no-unprotected-fall`; Pixel 30l: ~9 blocks off the 200 % Milano).
 
 Violations: `vehicle-not-stuck` (a ship must pass everything; a car or hover
 craft all but the three-block wall, the three-deep pit and the oblique
@@ -405,7 +413,7 @@ kerb met off square: measured, `TODO(car-oblique-kerb)`), `vehicle-escapes`,
 `vehicle-no-clip`, `ship-slides-along` (a ship ran 10+ blocks across a lane
 along an obstacle's face instead of lifting over it, passed or not: the
 old pack "passed" the oblique lane by running 84 blocks round the hill's
-end), `ship-turn-climbs`, `ship-parks-on-player`, `ship-parks`,
+end), `ship-turn-climbs`, `ship-parks-on-player`, `ship-parks`, `dismount-in-hull`,
 `ship-controls`, `free-look` (also: the chase camera must open behind the
 nose when the child climbed on looking at the vehicle's face and the seat
 turned them 4 ticks later, quirk `mount-snaps-rider-yaw`),
@@ -587,6 +595,12 @@ seats' set-down order is physics spec §4.8.
   lifted onto the top on the device; the engine does not lift it. The
   `player-not-in-solid` invariant still reports a player left inside a block
   past its 2-tick grace: on the device that player is falling.
+- **An entity's collision box is the declared box times its scale**
+  (quirk `collision-box-scales-with-entity`, Saga 30l volume tests): the tap
+  pick, `getAABB`, a mob's sweep and the snapshot's actor cull all read the
+  realised box (`SimEntity.collisionSize`). A pack built before 2026-10-08
+  (size groups writing the box pre-scaled) shows f² x the 100 % box, as the
+  phone did.
 - **Block collision boxes are read MIRRORED in x**, as the device reads them
   (quirk `block-collision-x-mirrored`, Pixel GameTest 2026-09-30): a pack
   built before the fix to `collisionBox` shows its x-banded clearance forms on
@@ -595,7 +609,12 @@ seats' set-down order is physics spec §4.8.
   `physics/systems.ts`): a player that gets off is set on the floor one block
   from the seat ENTITY, trying world (0,-1), (0,+1), (+1,-1), (+1,+1),
   (-1,+1) in that order, a floor within about +0.5 / -1 of the seat entity;
-  with none free, at the seat's point 0.2 up. Measured for `ejectRider` and
+  with none free, at the seat's point 0.2 up. The search runs about
+  `dismountReference`: the rider's seat raised to the seat entity's point,
+  which IS the entity's point on every measured scenery seat and the seat
+  itself high in a big hull (quirk `dismount-near-seat`, Pixel 30l: off the
+  200 % Milano the player fell ~9 blocks from the seat, not from the ground
+  at the origin; the order about a vehicle seat is assumed). Measured for `ejectRider` and
   `/ride stop_riding` (identical); the rest of the order and the exact floor
   window are guesses (`TODO(dismount-order)`, `TODO(dismount-floor)`); a real
   sneak cannot be sent by a simulated player; a mob rider is left where it

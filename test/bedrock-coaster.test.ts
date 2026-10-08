@@ -924,7 +924,9 @@ describe('coaster pack assets', () => {
     expect(entity.components['minecraft:rideable'].seats.position).toEqual([0, 1.4, 0]);
     const body = assets.geometry['minecraft:geometry'][0]!.bones.find(bone => bone.name === 'cart')!;
     expect(body.cubes[0]!.size).toEqual([88, 8, 80]);
-    expect(entity.component_groups['craftmatic:size_400']['minecraft:collision_box'].width).toBe(22);
+    // Declared unscaled in the 400 % group; the device multiplies it by the scale 4 (22 wide realised, Saga 30l).
+    expect(entity.component_groups['craftmatic:size_400']['minecraft:collision_box'].width).toBe(5.5);
+    expect(entity.component_groups['craftmatic:size_400']['minecraft:scale'].value).toBe(4);
     const wheels = body.cubes.slice(5);
     expect(wheels).toHaveLength(4);
     expect(wheels[0]!.origin[1]).toBe(-26.4);

@@ -398,6 +398,30 @@ export const REGRESSIONS: RegressionCase[] = [
     scenario: pack => ({ name: 'xwing-parks-on-rider-30j', steps: [{ kind: 'parkOverRider', type: shipType(pack) }], allowLines: vehicleAllow }),
     judge: r => { const v = violated(r, 'ship-parks-on-player'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /after a sneak off/.test(n)) ?? 'no park note') }; },
   },
+  // ─── Round 30l (Saga + Pixel, 2026-10-07, packs-77a9f172): the size groups' box, and getting off a big ship ───
+  {
+    id: 'milano-box-200-30l', title: '76286 Milano at 200 %: the collision box is 14 x 10 for a wanted 7 x 5 - the size group\'s box was written pre-scaled and the device scales it again (COL-03)',
+    evidence: '`output/device-round-2026-10-07l/saga/notes.md` item 3 (`r21-hitbox-x-chat.jpg`, `r21-hitbox-chat2.jpg`, 22:21-22:24): one-block volume tests on the 200 % placement hit at x +6.9 / -7.8, z +6.9, y +9.4 and missed at x +7.5, z +7.5, y +10.6, for a `craftmatic:size_200` group declaring 7 x 5 under `minecraft:scale` 2; quirk `collision-box-scales-with-entity`; fix `withSizeGroups` (bedrock-placement-pack.ts)',
+    oldPack: `${ROUND}/device-round-2026-10-07l/packs-77a9f172/76286-the-milano-spaceship.mcaddon`, newStem: '76286-the-milano-spaceship', expectNew: 'pass',
+    // Every sized entity's box at every step, as the device realises it (declared x scale), against the 100 % box scaled once.
+    scenario: () => ({ name: 'milano-box-200-30l', steps: [{ kind: 'seatsEverySize' }], allowLines: vehicleAllow }),
+    judge: r => {
+      const v = r.violations.find(x => x.invariant === 'collision-box-scale' && /_plane at 200 %/.test(x.message)) ?? r.violations.find(x => x.invariant === 'collision-box-scale');
+      return { reproduced: !!v, evidence: v ? `${v.invariant}: ${v.message}` : (r.notes.find(n => /collision boxes at every size/.test(n)) ?? 'no box note') };
+    },
+  },
+  {
+    id: 'milano-dismount-200-30l', title: '76286 Milano at 200 % on the ground: getting off drops the player ~9 blocks from the seat inside the hull (SEAT-05)',
+    evidence: '`output/device-round-2026-10-07l/pixel/notes.md` item 5 (`62b`): dismount from the 200 % ship drops the player ~9 blocks to the ground under it (8636,-51 -> -60,6222); scripted vehicles\' set-down was not egress-checked like scenery seats; quirk `dismount-near-seat`; fix `vehicleEgress` (bedrock-vehicle.ts) in `scripts/vehicles.js`',
+    oldPack: `${ROUND}/device-round-2026-10-07l/packs-77a9f172/76286-the-milano-spaceship.mcaddon`, newStem: '76286-the-milano-spaceship', expectNew: 'pass',
+    // The ship on the flat ground at 100, 200 and 400 %, the child seated, the device's sneak.
+    scenario: pack => ({ name: 'milano-dismount-200-30l', steps: [{ kind: 'dismountEverySize', type: shipType(pack), sizes: [100, 200, 400] }], allowLines: vehicleAllow }),
+    judge: r => {
+      const fell = violated(r, 'no-unprotected-fall'), inside = violated(r, 'dismount-in-hull');
+      const notes = r.notes.filter(n => /after a sneak/.test(n)).join('; ') || 'no dismount note';
+      return { reproduced: !!fell || !!inside, evidence: `${[fell, inside].filter(Boolean).join('; ')}${fell || inside ? '; ' : ''}${notes}` };
+    },
+  },
   // ─── Round 30k (Pixel, 2026-10-07, packs-78e06246): Gate 1 throws the player out over the drop ───
   {
     id: 'gate1-throwout-76417', title: '76417 Gate 1 (30k): a tap closing the gate on a player standing just inside it steps the player OUT over the 17-block drop (COL-01, DOOR-01)',

@@ -35,7 +35,10 @@
  *   ship-slides-along   a ship ran along an obstacle's face (10+ blocks across the lane) instead of lifting over it (Saga 30j);
  *   ship-turn-climbs    a turn on the spot against a post lifted the ship (Saga 30j);
  *   ship-parks-on-player  an empty ship sank onto the child who sneaked off it (Saga 30j);
- *   ship-parks          an empty ship did not park once the child walked out from under it.
+ *   ship-parks          an empty ship did not park once the child walked out from under it;
+ *   dismount-in-hull    a sneak on the ground at 100/200/400 % left the child inside the hull (or
+ *                       aboard); the fall off the seat is the core `no-unprotected-fall` (Pixel 30l:
+ *                       ~9 blocks off the 200 % Milano).
  *
  * Run: `bun scripts/sim.ts <packs> --scenario=vehicles [--md=] [--json=]`.
  * Boats are left out (no water course yet: `TODO(sim-boat-course)`); native
@@ -251,6 +254,46 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
   };
 
   return {
+    /**
+     * Get off on the ground at every wand size (SEAT-05): the vehicle spawned on the flat world, sized by its
+     * own `craftmatic:size_<pct>` event, the child seated, then the device's SNEAK (the engine's set-down about
+     * the seat, quirk `dismount-near-seat`) and whatever the pack's runtime does after it. The child must end on
+     * the ground (the core `no-unprotected-fall` judges the fall: Pixel 30l dropped ~9 blocks off the 200 %
+     * Milano) and outside the hull (`dismount-in-hull`: within its footprint under its top): `{ type, sizes? }`.
+     */
+    async dismountEverySize(step: AnyStep, ctx: StepContext) {
+      const f = typeOf(step);
+      const sizes = (step['sizes'] as number[] | undefined) ?? [100, 200, 400];
+      const rows: Array<{ pct: number; seatedY: number; end: { x: number; y: number; z: number }; inHull: boolean; lowest: number }> = [];
+      for (const [i, pct] of sizes.entries()) {
+        const at = { x: 400.5 + i * 200, z: -600.5 };
+        const v = await board(ctx, f, at);
+        v.triggerEvent(`craftmatic:size_${pct}`);
+        v.placeRiders();
+        await ctx.run(4);
+        const k = v.scale(), seatedY = r2(ctx.player.location.y - FLAT_GROUND_Y);
+        // From here every core check runs: the fall off the seat, the body in a block, under the ground.
+        ctx.quiet([]);
+        ctx.sim.controls.set(ctx.player.id, { forward: 0, strafe: 0, jump: false, sneak: true });
+        await ctx.run(1);
+        ctx.sim.controls.set(ctx.player.id, { forward: 0, strafe: 0, jump: false, sneak: false });
+        let lowest = Infinity;
+        for (let t = 0; t < 80; t++) { await ctx.run(1); lowest = Math.min(lowest, ctx.player.location.y); }
+        const p = ctx.player.location, r = v.rotation.y * Math.PI / 180, fx = -Math.sin(r), fz = Math.cos(r), rx = -Math.cos(r), rz = -Math.sin(r);
+        const dx = p.x - v.location.x, dz = p.z - v.location.z;
+        const inHull = Math.abs(dx * fx + dz * fz) < f.noseReach * k && Math.abs(dx * rx + dz * rz) < f.halfWidth * k && p.y < v.location.y + f.height * k;
+        const row = { pct, seatedY, end: { x: r2(dx), y: r2(p.y - FLAT_GROUND_Y), z: r2(dz) }, inHull, lowest: r2(lowest - FLAT_GROUND_Y) };
+        rows.push(row);
+        ctx.note(`${f.typeId} at ${pct} %: seated feet ${seatedY} over the ground; after a sneak the child stands at ${JSON.stringify(row.end)} from the vehicle (${inHull ? 'INSIDE the hull' : 'outside the hull'}), lowest ${row.lowest}${ctx.player.ridingOn ? ' - STILL RIDING' : ''}`);
+        if (ctx.player.ridingOn) ctx.violate({ invariant: 'dismount-in-hull', message: `${f.typeId} at ${pct} %: a sneak did not get the child off`, evidence: row });
+        else if (inHull) ctx.violate({ invariant: 'dismount-in-hull', message: `${f.typeId} at ${pct} %: the child got off INSIDE the hull, at ${JSON.stringify(row.end)} from its origin (footprint ${r2(f.noseReach * k)} x ${r2(f.halfWidth * k)}, ${r2(f.height * k)} tall)`, evidence: row });
+        if (ctx.player.ridingOn) v.removeRider(ctx.player);
+        ctx.sim.engine.removeEntity(v);
+        await ctx.run(2);
+      }
+      ctx.state['dismount'] = { ...((ctx.state['dismount'] as Record<string, unknown> | undefined) ?? {}), [f.typeId]: rows };
+    },
+
     /** Drive into every course obstacle holding the stick forward (and Jump, `policy: 'forward+jump'`): `{ type, obstacles?, policy? }`. */
     async stuckCourse(step: AnyStep, ctx: StepContext) {
       const f = typeOf(step);
@@ -537,7 +580,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
 export function vehicleScenarios(pack: CraftmaticPack): Scenario[] {
   return scriptedVehicleTypes(pack).filter(t => t.mode !== 'boat').map(t => ({
     name: `vehicle-${t.typeId.replace(/^.*:/, '')}`,
-    description: `${t.mode} ${t.typeId}: the stuck course (stick forward into each obstacle), ${t.mode === 'plane' ? 'the spaceship controls, ' : ''}the free look, the cockpit eye at speed.`,
+    description: `${t.mode} ${t.typeId}: the stuck course (stick forward into each obstacle), ${t.mode === 'plane' ? 'the spaceship controls, ' : ''}the free look, the cockpit eye at speed, getting off at 100/200/400 %.`,
     steps: [
       { kind: 'stuckCourse', type: t.typeId },
       // A ship also with Jump held: the old flight model's throttle (its stick alone never moved it), the new one's "up".
@@ -547,6 +590,8 @@ export function vehicleScenarios(pack: CraftmaticPack): Scenario[] {
       { kind: 'cockpitEye', type: t.typeId },
       // The Saga's two turn/park findings (round 30j): a turn against a post must not climb; an empty ship never parks on the child.
       ...(t.mode === 'plane' ? [{ kind: 'turnAgainstPost', type: t.typeId }, { kind: 'parkOverRider', type: t.typeId }] : []),
+      // Getting off on the ground at 100, 200 and 400 % lands beside the hull, never a fall (SEAT-05, Pixel 30l).
+      { kind: 'dismountEverySize', type: t.typeId },
     ],
     // A course is a long drive on purpose: the HUD lines it prints are the runtime's, not faults.
     allowLines: [/CAR|HOVER|FLY|PLANE|BOAT|mph|Hotbar slot 9/],

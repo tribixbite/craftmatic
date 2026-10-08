@@ -12,17 +12,21 @@
  * once (x, z; y between the plain-scaled and the eye-anchored seat), and its
  * place against the geometry at that scale is reported beside the verdict.
  *
+ * The same pass judges every sized entity's COLLISION BOX (COL-03): the device realises the declared box
+ * times the group's scale too (quirk `collision-box-scales-with-entity`, Saga round 30l: 76286's box at 200 %
+ * was 14 x 10 for a wanted 7 x 5), so it must be the 100 % box scaled once at every step.
+ *
  * Usage: bun scripts/_seat_scale_check.ts <pack.mcaddon | dir>... [--json=<out.json>] [--md=<out.md>] [--all]
  *   --all   print every row, not only the seats off their vehicle
  *
- * Exit 1 when any seat at any size is off its vehicle, or a pack cannot be read.
+ * Exit 1 when any seat at any size is off its vehicle, any collision box is scaled twice, or a pack cannot be read.
  */
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { readAddon } from '../web/src/sim/pack/pack.ts';
 import { behaviorPacks } from '../web/src/sim/pack/pack.ts';
 import { packAppearance } from '../web/src/sim/adapters/craftmatic/drawn.ts';
-import { describeSeatRow, seatScaleAudit, type SeatScaleRow, type SeatScaleSkip } from '../web/src/sim/adapters/craftmatic/seat-scale.ts';
+import { collisionScaleAudit, describeBoxRow, describeSeatRow, seatScaleAudit, type BoxScaleRow, type SeatScaleRow, type SeatScaleSkip } from '../web/src/sim/adapters/craftmatic/seat-scale.ts';
 
 const args = process.argv.slice(2);
 const flag = (n: string): string | undefined => args.find(a => a.startsWith(`--${n}=`))?.slice(n.length + 3);
@@ -31,7 +35,7 @@ const inputs = args.filter(a => !a.startsWith('--'));
 const packs = inputs.flatMap(p => (existsSync(p) && statSync(p).isDirectory() ? readdirSync(p).filter(f => f.endsWith('.mcaddon')).sort().map(f => join(p, f)) : [p]));
 if (!packs.length) { console.error('usage: bun scripts/_seat_scale_check.ts <pack.mcaddon | dir>... [--json=] [--md=] [--all]'); process.exit(2); }
 
-interface PackRows { pack: string; rows: SeatScaleRow[]; skipped: SeatScaleSkip[]; error?: string }
+interface PackRows { pack: string; rows: SeatScaleRow[]; skipped: SeatScaleSkip[]; boxes: BoxScaleRow[]; error?: string }
 const report: PackRows[] = [];
 let failed = 0;
 const mark = (r: SeatScaleRow): string => (r.ok ? 'ok ' : 'OFF');
@@ -42,18 +46,21 @@ for (const file of packs) {
     const b = readFileSync(file);
     const addon = await readAddon(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer, file);
     const appearance = packAppearance(addon);
-    const rows: SeatScaleRow[] = [], skipped: SeatScaleSkip[] = [];
-    for (const bp of behaviorPacks(addon)) { const a = seatScaleAudit(bp, appearance); rows.push(...a.rows); skipped.push(...a.skipped); }
+    const rows: SeatScaleRow[] = [], skipped: SeatScaleSkip[] = [], boxes: BoxScaleRow[] = [];
+    for (const bp of behaviorPacks(addon)) { const a = seatScaleAudit(bp, appearance); rows.push(...a.rows); skipped.push(...a.skipped); boxes.push(...collisionScaleAudit(bp)); }
+    const twice = boxes.filter(r => !r.ok);
     const bad = rows.filter(r => !r.ok);
     const types = new Set(rows.map(r => r.typeId)).size;
     console.log(`${name}: ${rows.length} seat-size rows over ${types} drawn rideable(s), ${bad.length} off the vehicle${skipped.length ? `; not judged: ${skipped.map(s => `${s.typeId} (${s.why})`).join(', ')}` : ''}`);
     for (const r of rows) if (all || !r.ok) console.log(`  ${mark(r)} ${describeSeatRow(r)}`);
-    if (bad.length) failed++;
-    report.push({ pack: name, rows, skipped });
+    console.log(`  collision boxes: ${boxes.length} entity-size rows over ${new Set(boxes.map(r => r.typeId)).size} sized entities, ${twice.length} scaled twice`);
+    for (const r of boxes) if (all || !r.ok) console.log(`  ${r.ok ? 'ok ' : 'TWICE'} ${describeBoxRow(r)}`);
+    if (bad.length || twice.length) failed++;
+    report.push({ pack: name, rows, skipped, boxes });
   } catch (e) {
     failed++;
     console.log(`${name}: ERROR ${(e as Error).message}`);
-    report.push({ pack: name, rows: [], skipped: [], error: (e as Error).message });
+    report.push({ pack: name, rows: [], skipped: [], boxes: [], error: (e as Error).message });
   }
 }
 

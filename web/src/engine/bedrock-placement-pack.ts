@@ -387,6 +387,19 @@ export function seatWorldOffset(declared: readonly [number, number, number], sca
 }
 
 /**
+ * The collision box the device realises from a size group: the declared
+ * `minecraft:collision_box` times the group's `minecraft:scale` (COL-03,
+ * SEAT-01; Saga round 30l, 2026-10-07: 76286's `size_200` group declared
+ * 7 x 5 - the 100 % box 3.5 x 2.5 already doubled - and one-block volume
+ * tests found the realised box 14 wide and 10 tall, `r21-hitbox-x-chat.jpg`,
+ * `r21-hitbox-chat2.jpg`). The same rule as the seat (`seatWorldOffset`); the
+ * simulator's entity model applies it (quirk `collision-box-scales-with-entity`).
+ */
+export function collisionWorldBox(declared: { width: number; height: number }, scale: number): { width: number; height: number } {
+  return { width: declared.width * scale, height: declared.height * scale };
+}
+
+/**
  * How an entity follows the wand's size steps.
  *
  * `playerSized` marks a FIGURE, or a seat whose rider is one. The rule
@@ -419,12 +432,15 @@ export const figureSizeFactor = (f: number): number => Math.min(1, f);
 
 /**
  * Give an entity definition one component group per size step, each setting
- * `minecraft:scale`, a collision box scaled to match and (for a mount) its
- * `minecraft:rideable` with every seat declared in the entity's UNSCALED
- * frame - `minecraft:scale` scales a seat position itself (measured, see
- * `rideableAtSize`; until 2026-10-07 the seats were written pre-scaled and
- * the device scaled them again: 76286's rider at 200 % sat six blocks over
- * the hull). The `craftmatic:size_<pct>` event selects one step and drops the
+ * `minecraft:scale`, its collision box and (for a mount) its
+ * `minecraft:rideable`, the box and every seat declared in the entity's
+ * UNSCALED frame - `minecraft:scale` scales a seat position and the collision
+ * box itself (measured, see `rideableAtSize` and `collisionWorldBox`; until
+ * 2026-10-07 both were written pre-scaled and the device scaled them again:
+ * 76286's rider at 200 % sat six blocks over the hull, round 30k, and its box
+ * was 14 x 10 for a wanted 7 x 5, round 30l). The box is still written in
+ * every group (the same value): removing a group removes its components even
+ * where the base declares them. The `craftmatic:size_<pct>` event selects one step and drops the
  * others; `craftmatic:size_100` drops them all. Groups and events the
  * definition already has (an aircraft's descend group) are kept.
  *
@@ -456,7 +472,8 @@ export function withSizeGroups(
     const scale = options.playerSized ? figureSizeFactor(f) : f;
     groups[name] = {
       'minecraft:scale': { value: scale },
-      'minecraft:collision_box': { width: round3(collision.width * scale), height: round3(collision.height * scale) },
+      // Declared UNSCALED: the device realises `declared x scale` (collisionWorldBox, Saga 30l).
+      'minecraft:collision_box': { width: round3(collision.width), height: round3(collision.height) },
       ...(rideable ? { 'minecraft:rideable': rideableAtSize(rideable, scale, options.seatAt) } : {}),
     };
     events[name] = { remove: { component_groups: names.filter(n => n !== name) }, add: { component_groups: [name] } };

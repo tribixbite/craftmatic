@@ -477,9 +477,13 @@ export const ACTOR_DRAW_CEILING_BLOCKS = 70;
 /**
  * Camera-to-root distance past which the client stops drawing an actor with
  * this collision box at 100 %: the box fit, never past the measured ceiling
- * (`ACTOR_DRAW_CEILING_BLOCKS`). The size groups scale the box with the model
- * (a 25 % shell has a 0.025 box), which changes nothing under the clamp for a
- * shell and shortens a vehicle's cull; the plan is made at 100 %.
+ * (`ACTOR_DRAW_CEILING_BLOCKS`). The size groups scale the box with the model:
+ * they declare the 100 % box and the device multiplies it by `minecraft:scale`
+ * (quirk `collision-box-scales-with-entity`, Saga 30l; before 2026-10-08 the
+ * groups wrote it pre-scaled and the device's box was f² x), so a 25 % shell
+ * has a 0.025 box, which changes nothing under the clamp for a shell and
+ * shortens a small vehicle's cull; the plan is made at 100 %, where declared
+ * and realised are the same box.
  */
 export function entityRenderCullBlocks(box: CollisionBox | undefined): number {
   const width = Math.max(0, box?.width ?? 0), height = Math.max(0, box?.height ?? 0);

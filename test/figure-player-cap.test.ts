@@ -85,7 +85,8 @@ describe('the cap itself', () => {
       expect(events[`craftmatic:size_${pct}`]).toBeDefined();
       const f = Math.min(1, pct / 100);
       expect(g['minecraft:scale'].value).toBe(f);
-      expect(g['minecraft:collision_box']).toEqual({ width: Math.round(0.6 * f * 1000) / 1000, height: Math.round(1.8 * f * 1000) / 1000 });
+      // Declared unscaled (the device multiplies it by the group's scale, quirk collision-box-scales-with-entity): realised 0.6 f x 1.8 f.
+      expect(g['minecraft:collision_box']).toEqual({ width: 0.6, height: 1.8 });
       // The seat is declared unscaled at every step: the device multiplies it by the group's scale
       // (quirk seat-scales-with-entity, Saga 30k), so the realised offset is -0.3 x f.
       expect(g['minecraft:rideable'].seats.position).toEqual([0, -0.3, 0]);

@@ -36,7 +36,8 @@ import { RIDE, ridesScript, type RideKind, type RideRuntimeConfig } from './bedr
 import { HOP, HOP_TAGS, hopKitConfig, hopRuntimeConfig, hopScript, type HopSource, type HopVacate } from './bedrock-ride-hop.js';
 import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, pressFlashOverlay, ballAnimation, ballProperties, buttonPressAnimation, consoleAssets, consoleHideAnimation, pressProperties, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
-import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
+import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, VEHICLE_DYNAMIC, VEHICLE_EGRESS, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
+import { ESCAPE_OPTIONS } from './collider-form.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { FREE_LOOK, NATIVE_STEER, cockpitCamera, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type FreeLookParams, type NativeSteerParams } from './vehicle-free-look.js';
 import { figureLifeScript, FIGURE_TUNING, resolveFigureSpawn, separateFigureSpawns, type FigureSpawn, type SpanLookup } from './bedrock-figure-life.js';
@@ -3743,6 +3744,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // The shell's colliders are solid only over their lo..hi sixteenths: a car drives ON a plate floor, not a block above it.
         ...(placementColliders ? { colliders: { block: placementColliders.block, loState: placementColliders.loState, hiState: placementColliders.hiState } } : {}),
         inputEvent: FLIGHT_INPUT_EVENT, telemetryEvent: VEHICLE_TELEMETRY_EVENT,
+        // A rider who gets off is set down on a walkable floor beside the hull (SEAT-05, `vehicleEgress`).
+        egress: VEHICLE_EGRESS, escape: ESCAPE_OPTIONS,
     })) });
     if (interactiveConfig) files.push({ name: `${bp}scripts/interactives.js`, data: text(interactivesScript(interactiveConfig)) });
     if (ridesConfig) files.push({ name: `${bp}scripts/rides.js`, data: text(ridesScript(ridesConfig)) });
