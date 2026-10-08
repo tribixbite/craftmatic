@@ -16,6 +16,9 @@ import { overlappingSolidPairs } from '../web/src/sim/scenario/world-invariants.
 import { SERVER_TYPES } from '../web/src/sim/script-host/api-catalog.js';
 import { enumObject } from '../web/src/sim/script-host/enums.js';
 import { DynamicStore } from '../web/src/sim/entity/dynamic-store.js';
+import { runScenario, tapReachOf } from '../web/src/sim/scenario/runner.js';
+import { walkRoute } from '../web/src/sim/scenario/approach.js';
+import type { Scenario } from '../web/src/sim/scenario/types.js';
 
 const still = (x: number, y: number, z: number): PlayerState => ({ x, y, z, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 });
 
@@ -116,6 +119,55 @@ describe('bodies that meet (quirks entity-push-soft, entity-collidable-solid)', 
     // Placed inside it, the pair is reported.
     p.location = { x: 3, y: 0, z: 0.5 };
     expect(overlappingSolidPairs(h.engine.entities.values()).map(x => x.solid.typeId)).toEqual(['t:wall']);
+  });
+});
+
+describe('walking to the tap (runner `reachFor`, approach `walk`; IX-04 report)', () => {
+  const knob = { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 't:knob' }, components: { 'minecraft:collision_box': { width: 0.5, height: 0.5 } } } };
+  /** A world: ground at y 0, a one-block step at x 4..20 (auto-jump climbs it); `ring` walls the knob in, three high. */
+  const scenario = (ring: boolean): Scenario => ({
+    name: ring ? 'walled' : 'open', start: { x: 0.5, y: 0, z: 0.5 },
+    steps: [
+      { kind: 'expect', label: 'lay', check: ctx => {
+        const w = ctx.sim.engine.dimension('overworld'), stone = ctx.sim.host.resolvePermutation('minecraft:stone');
+        for (let x = 4; x <= 20; x++) for (let z = -6; z <= 6; z++) w.setPermutation(x, 0, z, stone);
+        if (ring) for (let x = 10; x <= 14; x++) for (let z = -2; z <= 2; z++) if (x === 10 || x === 14 || z === -2 || z === 2) for (let y = 1; y <= 3; y++) w.setPermutation(x, y, z, stone);
+        ctx.sim.engine.spawnEntity('t:knob', 'overworld', { x: 12.5, y: 1, z: 0.5 });
+        return undefined;
+      } },
+      { kind: 'wait', ticks: 2 },
+      { kind: 'tap', target: { type: 't:knob' } },
+    ],
+  });
+  const run = (ring: boolean) => runScenario(scenario(ring), [fixtureAddon({ name: 'k', files: { 'entities/knob.json': knob } })], { terrain: solidBelow(0), approach: 'walk' });
+
+  it('walks up a one-block step with auto-jump to a spot a tap picks the target from', async () => {
+    const r = await run(false);
+    expect(r.violations).toEqual([]);
+    expect(tapReachOf(r.state)).toMatchObject([{ target: 't:knob', onFoot: true }]);
+    expect(tapReachOf(r.state)[0]!.ticks).toBeGreaterThan(20);
+  });
+
+  it('a target walled in three high is reported unreachable on foot, and still tapped from its spot', async () => {
+    const r = await run(true);
+    expect(r.violations).toEqual([]);
+    const t = tapReachOf(r.state);
+    expect(t).toHaveLength(1);
+    expect(t[0]).toMatchObject({ onFoot: false });
+    expect(r.notes.some(n => /tap-target-unreachable-on-foot/.test(n))).toBe(true);
+  });
+
+  it('plans round a wall rather than through a gap two thin bands leave between two columns', () => {
+    const h = simHost({ terrain: solidBelow(0), colliders: true });
+    // Column x 1 carries a band on its high-x quarter, column x 2 one on its low-x quarter: standable both, a wall between.
+    for (let z = -1; z <= 1; z++) for (let y = 0; y <= 2; y++) {
+      h.setBlock(1, y, z, 'craftmatic:collider_w6', { 'craftmatic:lo': 0, 'craftmatic:hi': 16 });
+      h.setBlock(2, y, z, 'craftmatic:collider_w1', { 'craftmatic:lo': 0, 'craftmatic:hi': 16 });
+    }
+    const route = walkRoute(h.engine, 'overworld', { x: 0.5, y: 0, z: 0.5 }, { x: 3.5, y: 0, z: 0.5 });
+    expect(route).toBeDefined();
+    // Round the end of the wall (z beyond +-1), never straight across x 1 -> 2 at z 0.
+    expect(route!.some(n => Math.abs(n.z) > 1)).toBe(true);
   });
 });
 

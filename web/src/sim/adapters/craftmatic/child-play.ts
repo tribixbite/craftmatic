@@ -152,11 +152,21 @@ function hiddenByModel(ctx: StepContext, part: SimEntity, drawn: readonly DrawnB
   return spots.length;
 }
 
+/** What child play builds: `quick` (short drives and lives), `shots` (pictures), `sizes` (the wand sizes placed; default 100 and 150). */
+export interface ChildPlayOptions { quick?: boolean; shots?: boolean; sizes?: readonly number[] }
+
+/** The wand sizes child play places at by default (COL-01 / SCALE-05 ask 300 and 400 too: `--sizes=100,150,200,300,400`). */
+export const CHILD_PLAY_SIZES: readonly number[] = [100, 150];
+
 /** The child-play scenarios for one pack. */
-export function childPlayScenarios(pack: CraftmaticPack, options: { quick?: boolean; shots?: boolean } = {}): Scenario[] {
+export function childPlayScenarios(pack: CraftmaticPack, options: ChildPlayOptions = {}): Scenario[] {
   const out: Scenario[] = [];
-  const variants: Array<[number, 0 | 90]> = [[100, 0], [100, 90]];
-  if (pack.placement.resizable && pack.placement.sizes.includes(150)) variants.push([150, 0], [150, 90]);
+  const variants: Array<[number, 0 | 90]> = [];
+  // 100 % always; another size only where the pack's blocks resize and the wand offers it.
+  for (const size of options.sizes ?? CHILD_PLAY_SIZES) {
+    if (size !== 100 && !(pack.placement.resizable && pack.placement.sizes.includes(size))) continue;
+    variants.push([size, 0], [size, 90]);
+  }
   const common = { allowLines: [...CRAFTMATIC_ALLOWED_LINES], yieldingLines: [...CRAFTMATIC_YIELDING_LINES] };
   for (const [size, rot] of variants) {
     const steps: Step[] = [{ kind: 'place', size, rotation: rot }, { kind: 'wait', ticks: 40 }];
@@ -186,7 +196,7 @@ export function childPlayScenarios(pack: CraftmaticPack, options: { quick?: bool
 }
 
 /** Read a pack and build its child-play scenarios with their handlers (undefined for a non-craftmatic pack). */
-export function childPlay(addon: Addon, options: { quick?: boolean; shots?: boolean } = {}): { pack: CraftmaticPack; scenarios: Scenario[]; handlers: Record<string, StepHandler> } | undefined {
+export function childPlay(addon: Addon, options: ChildPlayOptions = {}): { pack: CraftmaticPack; scenarios: Scenario[]; handlers: Record<string, StepHandler> } | undefined {
   const pack = readCraftmaticPack(addon);
   if (!pack) return undefined;
   return { pack, scenarios: childPlayScenarios(pack, options), handlers: craftmaticHandlers(pack, addon) };
