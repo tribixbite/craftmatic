@@ -74,6 +74,25 @@ export const JUMP_PEAK = ((): number => {
 })();
 /** The collision epsilon (Minecraft's own 1e-7). */
 const EPS = 1e-7;
+/**
+ * AUTO-JUMP (Bedrock's touch default; `autoJumpWanted`). Bedrock's code is closed; these are Java's
+ * `LocalPlayer.updateAutoJump` (1.10+, the same feature: "jumps up one-block-higher areas when moving
+ * forward", minecraft.wiki "Jumping"), assumed for Bedrock (quirk `auto-jump`) and checked against the Pixel's
+ * auto-jump-only climb of 10261's lift hill (round 30k: stops at pin + 28.2 on three tries):
+ *   - an obstacle is jumped when its top is more than `AUTO_JUMP_MIN_RISE` and at most `AUTO_JUMP_MAX_RISE`
+ *     over the feet (Java's 0.5 and 1.2, no jump boost) - a taller one is never tried, though a pressed jump
+ *     reaches `JUMP_PEAK` (1.2522);
+ *   - it is found by two horizontal probes at `AUTO_JUMP_PROBE_HEIGHT` (0.51) over the feet, along the box's two
+ *     sides, from the feet to `AUTO_JUMP_LOOKAHEAD` (0.7: the walk speed attribute 0.1 x 7) past this tick's move;
+ *   - only moving forward: the move direction against the facing at or over `AUTO_JUMP_BACKWARD_DOT` (-0.15);
+ *   - only with the two block cells over the head (the one holding the box's top and the next) free of collision;
+ *   - on the ground, not sneaking, and the jump is made on the NEXT tick (Java's `autoJumpTime = 1`).
+ */
+export const AUTO_JUMP_MIN_RISE = 0.5;
+export const AUTO_JUMP_MAX_RISE = 1.2;
+export const AUTO_JUMP_PROBE_HEIGHT = 0.51;
+export const AUTO_JUMP_LOOKAHEAD = 0.7;
+export const AUTO_JUMP_BACKWARD_DOT = -0.15;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -97,6 +116,8 @@ export interface PlayerState {
   sneaking: boolean;
   /** The tick counter, for a caller's own timing. */
   tick: number;
+  /** Auto-jump decided after the last tick's move: the next tick jumps (`WalkInput.autoJump`). */
+  autoJumpPending?: boolean;
 }
 
 export interface WalkInput {
@@ -107,6 +128,10 @@ export interface WalkInput {
   sprint?: boolean;
   /** Slow falling is active: the fall uses `SLOW_FALL_GRAVITY`. */
   slowFalling?: boolean;
+  /** Auto-jump is on (Bedrock's touch default): an obstacle ahead within `AUTO_JUMP_MAX_RISE` is jumped (`autoJumpWanted`). */
+  autoJump?: boolean;
+  /** Where the player faces (world x/z), for auto-jump's forward test; absent, the move direction (the stick pushed forward). */
+  facing?: { x: number; z: number };
 }
 
 /** A solid the move was clipped by, and on which axis. */
@@ -278,14 +303,71 @@ export function tickPlayer<S extends Box>(world: SolidQuery<S>, prev: PlayerStat
   if (s.onGround) {
     const accel = speed * (1 - GROUND_FRICTION);
     s.vx += mx * accel; s.vz += mz * accel;
-    if (input.jump) { s.vy = JUMP_VELOCITY; }
+    // A pressed jump, or the auto-jump the last tick decided (Java: `autoJumpTime` counts down into `jumping`).
+    if (input.jump || (input.autoJump && !input.sneak && prev.autoJumpPending)) { s.vy = JUMP_VELOCITY; }
   } else {
     s.vx += mx * AIR_ACCELERATION; s.vz += mz * AIR_ACCELERATION;
   }
   const move = moveBox(world, playerBox(s, dims), { dx: s.vx, dy: s.vy, dz: s.vz }, s.onGround, input.sneak);
   s.x += move.dx; s.y += move.dy; s.z += move.dz;
   damp(s, move.collided, input.slowFalling === true);
+  // Decided after the move, from where it ended and what it made, as the game does.
+  s.autoJumpPending = !!input.autoJump && !input.sneak && s.onGround && (mx !== 0 || mz !== 0)
+    && autoJumpWanted(world, s, { x: move.dx, z: move.dz }, { x: mx, z: mz }, input.facing ?? { x: mx, z: mz }, dims, speed);
   return { state: s, collided: move.collided, stepped: move.stepped, contacts: move.contacts };
+}
+
+/**
+ * Whether auto-jump fires for a player standing at `s` after a tick that moved it by `moved`, with the stick
+ * pushed `intent` and the camera facing `facing` (both world x/z): Java's `LocalPlayer.updateAutoJump`, the
+ * rules and their numbers listed at `AUTO_JUMP_MIN_RISE`. `speed` is this tick's walk speed (blocks/tick), the
+ * stuck player's probe step when the move made nothing (pressed against a wall). Of the solids the two side
+ * probes meet, the NEAREST along the move is the obstacle (Java takes the first its collision iterator yields);
+ * a solid in the block cell over that obstacle's centre raises its top (a two-high wall is not jumped).
+ */
+export function autoJumpWanted<S extends Box>(world: SolidQuery<S>, s: { x: number; y: number; z: number }, moved: { x: number; z: number }, intent: { x: number; z: number }, facing: { x: number; z: number }, dims: BodyDims = PLAYER_DIMS, speed = WALK_SPEED): boolean {
+  let d = { x: moved.x, z: moved.z };
+  if (d.x * d.x + d.z * d.z <= 0.001) {
+    // Pressed against something: the stick's direction at the walk speed (Java: getSpeed() x the move vector).
+    const n = Math.hypot(intent.x, intent.z) || 1;
+    d = { x: intent.x / n * speed, z: intent.z / n * speed };
+  }
+  const len = Math.hypot(d.x, d.z);
+  if (len < 1e-9) return false;
+  const dir = { x: d.x / len, z: d.z / len };
+  const fn = Math.hypot(facing.x, facing.z);
+  if (fn > 1e-9 && (facing.x * dir.x + facing.z * dir.z) / fn < AUTO_JUMP_BACKWARD_DOT) return false;
+  // Headroom: the cell holding the box's top and the one over it carry no collision.
+  const cellSolid = (bx: number, by: number, bz: number): S[] => world.solidsNear({ x0: bx, y0: by, z0: bz, x1: bx + 1, y1: by + 1, z1: bz + 1 }, 0, 0, 0)
+    .filter(q => q.x1 > bx + EPS && q.x0 < bx + 1 - EPS && q.y1 > by + EPS && q.y0 < by + 1 - EPS && q.z1 > bz + EPS && q.z0 < bz + 1 - EPS);
+  const hx = Math.floor(s.x), hy = Math.floor(s.y + dims.height), hz = Math.floor(s.z);
+  if (cellSolid(hx, hy, hz).length || cellSolid(hx, hy + 1, hz).length) return false;
+  // The two side probes, at 0.51 over the feet, from the feet to the lookahead past this move.
+  const reach = Math.max(AUTO_JUMP_LOOKAHEAD, len);
+  const end = { x: s.x + d.x + dir.x * reach, z: s.z + d.z + dir.z * reach };
+  const py = s.y + AUTO_JUMP_PROBE_HEIGHT, half = dims.width / 2;
+  const perp = { x: -dir.z * half, z: dir.x * half };
+  const probes = [-1, 1].map(k => ({ x0: Math.min(s.x, end.x) + k * perp.x, x1: Math.max(s.x, end.x) + k * perp.x, z0: Math.min(s.z, end.z) + k * perp.z, z1: Math.max(s.z, end.z) + k * perp.z }));
+  const area = { x0: Math.min(s.x, end.x) - dims.width, y0: s.y, z0: Math.min(s.z, end.z) - dims.width, x1: Math.max(s.x, end.x) + dims.width, y1: s.y + dims.height, z1: Math.max(s.z, end.z) + dims.width };
+  let best: { q: S; t: number } | undefined;
+  for (const q of world.solidsNear(area, 0, 0, 0)) {
+    // AABB.intersects(from, to): a strict overlap of the solid with the probe's own (flat) bounding box.
+    if (!(q.y0 < py && q.y1 > py)) continue;
+    if (!probes.some(p => q.x0 < p.x1 && q.x1 > p.x0 && q.z0 < p.z1 && q.z1 > p.z0)) continue;
+    // How far along the move the solid starts (its nearest corner): the first one met is the obstacle.
+    const t = Math.max(0, Math.min(...[[q.x0, q.z0], [q.x0, q.z1], [q.x1, q.z0], [q.x1, q.z1]].map(([x, z]) => (x! - s.x) * dir.x + (z! - s.z) * dir.z)));
+    if (!best || t < best.t) best = { q, t };
+  }
+  if (!best) return false;
+  let top = best.q.y1;
+  const cx = Math.floor((best.q.x0 + best.q.x1) / 2), cy = Math.floor((best.q.y0 + best.q.y1) / 2), cz = Math.floor((best.q.z0 + best.q.z1) / 2);
+  const stacked = cellSolid(cx, cy + 1, cz);
+  if (stacked.length) {
+    top = Math.max(...stacked.map(q => q.y1));
+    if (top - s.y > AUTO_JUMP_MAX_RISE) return false;
+  }
+  const rise = top - s.y;
+  return rise > AUTO_JUMP_MIN_RISE && rise <= AUTO_JUMP_MAX_RISE;
 }
 
 /**

@@ -954,10 +954,68 @@ of the hill goes from x 25.7 to 39.7 (jumping), and from the west lanes z
 22-24 now climb onto the base. Not done: a straight walk up the lift past x
 39.7 (each lane of the hill rises 1.75 every second column at 200 %; the
 planner reaches the top from the next lane, a player holding a straight line
-does not) - `TODO(tilted-colliders)`. A "slope sweep" (a run at every such
-riser between reached surfaces) was tried and dropped: planned over full cells
-it raised a lane where the shipped forms are lower and stopped the same walk
-at x 30.7.
+does not). A "slope sweep" (a run at every such riser between reached
+surfaces) was tried and dropped: planned over full cells it raised a lane
+where the shipped forms are lower and stopped the same walk at x 30.7. The
+lane pass below does it over the forms.
+
+**The lane pass** (2026-10-07, `lanePass` in bedrock-collider-scale.ts,
+`colliderLaneWalk` in bedrock-placement-pack.ts). The Pixel climbed 10261's
+lift hill at 200 % with AUTO-JUMP only - adb drives one finger, and a
+5-year-old on touch relies on it too - and stopped at pin + (28.2, 9.88) on
+three tries (round 30k), 1.2 blocks past 30j instead of the ~14 the late pass
+promised: the offline walk JUMPED whenever it was blocked, and auto-jump never
+tries an obstacle over 1.2 (Java's `updateAutoJump`, assumed for Bedrock:
+quirk `auto-jump`, physics spec §4.4a). The walker now models it
+(`WalkInput.autoJump`), and `_walk_line.ts --dir=+x --jump=auto` on the 30k
+pack stops at exactly 28.20, 9.88: in front of a 1.25 riser inside column
+x 28 (its x 28.0-28.5 half is a form at 9.875, the other half 11.125). Past
+it the lane rises 0.875-1.125 per column to x 39 and then 1.75 every second
+column (x 39 -> 40, 41 -> 42, ...).
+
+So, last in the plan: every rise over auto-jump's 19/16 (and within two of
+them) from a reached surface to the next column's surface in a straight
+LANE - the column behind the foot at most an auto-jump under it, the column
+past the top at most one over it: a hill or a stair, not a rim over a drop -
+is offered a run in hops of at most 19/16, bottom up, round after round (a run
+up one riser reaches the foot of the next). It is planned over a second grid
+read from the FORMS (`ScaledColliderGrid` on the source cells with their
+clearance forms: each column's own pieces, where the full-cell grid reads x 30
+as 12.875 instead of 12.0), with column protections per level (a tread under
+the track 10 blocks down does not stop a run on it). A run is kept only when:
+the per-tick walker with auto-jump, starting on the run's landing, walks into
+the column past the riser's top with it (`LANE_PAST`) and did not without it;
+no straight walk INTO a column it writes, from two columns out along x or z,
+gets more than `LANE_SLACK` shorter (the first try without this check laid a
+tread on another lane's approach and stopped the lift walk at x 18.7); and the
+form grid's reach loses nothing (batch, then run by run). Without the walk
+(grid-only callers, the walk preview's own planning) the pass lays nothing.
+
+Measured on the 30k pack re-planned at 200 % / 0: 630 -> 1,723 tread blocks
+(631 runs, 419 of them lane runs, verified); the auto-jump walk from the foot
+reaches x 70 at y 41.9 (the top of the lift) on lanes z 4.6, 4.85, 5.2, 5.6
+(was 28.2; the jump-whenever-blocked walk 39.7 -> 70). Planning cost per size
+and turn: ~0.3 s -> ~10 s at 200-400 % (10,000 lane walks), so a large set's
+export takes about two minutes longer (`TODO(lane-pass-cost)`: cache the
+cross-lane walks between runs).
+
+The west side of 10261's base at 200 % (round 30k lanes walking +x from
+x -4.5, auto-jump walk on the 30k pack vs the device): z 14.5, 20.5, 24.5,
+26.5 stop at 6.20 against a full column 4+ blocks tall at x 6.5-9 (the
+model's grey wall); z 24.0 stands on a 2-block form at 2.00 and stops at 6.70
+against a 6.75-high column at x 7 (wall); z 8.5 stops at 10.70 against a
+4-high column at x 11 (wall); z 34.5 stands at 3.00 and stops at 9.70 against
+a 6.75-high column at x 10 (wall); z 28.5 stands at 1.00 and stops at 9.70
+under an overhang at x 10 whose underside is 1.375 over the floor (headroom:
+the model's); z 30.5 stops at 6.70 before a 1.75 riser at x 7 under a slab
+1.625 over its foot (headroom: the model's). All of these match the device to
+the 0.1 block except z 30.5 (device 5.70). z 22.5/23.5 climb (device too, to
+16.2-16.4, where the model's own floor goes on rising by half-block steps -
+the device walk's end, not a stop the colliders make); z 38.5 and 41.5 reach
+x 30 in the model where the device stopped at 12.39 / 11.79 (not
+explained by the colliders: entities are not in this walk). z 2.5 stops at
+5.70 at a stand; the lane pass takes it to 8.20. No missing step was found
+on the west side beyond that one.
 
 **Results over the 40 favourites** (sweeps `output/access-steps-0930/sweep-base2`
 at `dc699e3e`, built from an archive of the base tree: the sweep spawns one

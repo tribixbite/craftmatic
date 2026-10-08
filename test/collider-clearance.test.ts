@@ -145,9 +145,13 @@ describe('collider forms (collider-form.ts)', () => {
     const runs = (g: BlockGrid): string => encodeColliderRuns(g, 'craftmatic:collider').runs;
     const a = withColliderTreads({ width: 6, height: 5, length: 6, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs(grid), keptCells: 0 });
     const b = withColliderTreads({ width: 6, height: 5, length: 6, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs(full), keptCells: 0 });
-    expect(a.colliders.treads).toEqual(b.colliders.treads);
-    expect(a.report.plans.map(p => p.blocks)).toEqual(b.report.plans.map(p => p.blocks));
-    expect(a.report.plans.some(p => p.blocks > 0)).toBe(true);
+    // The jump rule's runs are planned over the full-cell reading either way. The lane pass (2026-10-07) is
+    // planned over the forms ON PURPOSE (a form's columns differ by up to a block at 200 %), and proved by the
+    // walk over them, so its runs may differ between the two grids: they are compared apart.
+    const main = (r: typeof a.report): unknown => r.plans.map(p => p.runs.filter(run => !run.lane));
+    expect(main(a.report)).toEqual(main(b.report));
+    expect(a.report.plans.some(p => p.runs.some(run => !run.lane))).toBe(true);
+    for (const p of a.report.plans) expect(p.verified).toBe(true);
   });
 
   it('runs carry a form and decode back to it', () => {

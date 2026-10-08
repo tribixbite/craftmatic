@@ -25,11 +25,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '@craft/schem/types.js';
 import {
-  SIZE_STEPS, buildPlacementPackAssets, colliderSourceCells, decodeTreadPlan, encodeColliderRuns, encodeTreadPlan, treadBlocksFor, withColliderTreads,
+  SIZE_STEPS, buildPlacementPackAssets, colliderLaneWalk, colliderSourceCells, decodeTreadPlan, encodeColliderRuns, encodeTreadPlan, treadBlocksFor, withColliderTreads,
   type PlacementColliders,
 } from '../web/src/engine/bedrock-placement-pack.js';
 import {
-  GENTLE_HOP16, JUMP16, QUARTER_TURNS, ScaledColliderGrid, planColliderTreads, walkScaledColliders,
+  AUTO_JUMP16, GENTLE_HOP16, JUMP16, QUARTER_TURNS, ScaledColliderGrid, planColliderTreads, walkScaledColliders,
   type GridDims, type QuarterTurn, type SourceCell, type TreadBlock, type TreadPlan,
 } from '../web/src/engine/bedrock-collider-scale.js';
 import { COLLIDER_BLOCK_ID, COLLIDER_HI_STATE, COLLIDER_LO_STATE, colliderState } from '../web/src/engine/bedrock-building-shell.js';
@@ -329,14 +329,29 @@ describe('the pack ships the treads and the runtime lays them', () => {
     expect(report.plans.length).toBe(4 * 4);
     expect(report.rule).toMatch(/1\.25-block jump/);
     const keys = Object.keys(c.treads!.plans).sort();
-    expect(keys).toEqual(['300:0', '300:180', '300:270', '300:90', '400:0', '400:180', '400:270', '400:90']);
+    for (const k of ['300:0', '300:180', '300:270', '300:90', '400:0', '400:180', '400:270', '400:90']) expect(keys).toContain(k);
     for (const k of keys) expect(c.treads!.counts[k]).toBe(decodeTreadPlan(c.treads!.plans[k]!).length);
-    expect(keys.some(k => k.startsWith('100:') || k.startsWith('150:') || k.startsWith('200:'))).toBe(false);
+    expect(keys.some(k => k.startsWith('100:'))).toBe(false);
     for (const p of report.plans) {
       expect(p.verified).toBe(true);
       if (p.sizePct >= 300) { expect(p.blocks).toBeGreaterThan(0); expect(p.after.highestBlocks).toBeGreaterThan(p.before.highestBlocks); }
-      else expect(p.blocks).toBe(0);
+      // At 150-200 % the jump rule lays nothing; only the lane pass may (an auto-jump climb, see below).
+      else expect(p.runs.every(r => r.lane)).toBe(true);
     }
+  });
+
+  it('200 %: the lane pass steps the side of the stair\'s second step (1.75 over the floor beside it, past auto-jump), and the walker then climbs it', () => {
+    const plan = planColliderTreads(cells, house.dims, 200, 0, [], [], { walk: colliderLaneWalk(cells, house.dims, 200, 0), cells });
+    expect(plan.verified).toBe(true);
+    expect(plan.runs.length).toBeGreaterThan(0);
+    for (const r of plan.runs) {
+      expect(r.lane).toBe(true);
+      // From the floor plate beside the stair onto a step: a rise over auto-jump's 19/16, hops within it.
+      expect(r.to.t - r.from.t).toBeGreaterThan(AUTO_JUMP16);
+      expect(r.hop16).toBeLessThanOrEqual(AUTO_JUMP16);
+    }
+    // Without the walk (the grid-only callers) the lane pass lays nothing.
+    expect(planColliderTreads(cells, house.dims, 200, 0).blocks).toEqual([]);
   });
 
   for (const pct of [300, 400]) for (const r of [0, 90] as const) {
@@ -358,10 +373,12 @@ describe('the pack ships the treads and the runtime lays them', () => {
     });
   }
 
-  it('200 %: no steps are needed, none are laid, and the player is not told about any', async () => {
+  it('200 %: the shipped script lays exactly the lane steps the plan holds, and says how many', async () => {
     const { placed, messages } = await relay(house.dims, house.runs, 200, 0, true);
-    expect(diff(new ScaledColliderGrid(cells, house.dims, 2, 0).allBlocks(), placed)).toEqual([]);
-    expect(messages.some(m => /invisible step/.test(m))).toBe(false);
+    const { colliders: c } = withColliderTreads(colliders(house.dims, house.runs));
+    const blocks = treadBlocksFor(c, 200, 0);
+    expect(diff(withPlan(cells, house.dims, 200, 0, blocks).allBlocks(), placed)).toEqual([]);
+    expect(messages.some(m => new RegExp(`${blocks.length} invisible steps? added`).test(m))).toBe(blocks.length > 0);
   });
 
   it('100 %: the runs, the tiles and the wand\'s commands are byte-identical with treads on and off', async () => {
@@ -469,4 +486,40 @@ describe.skipIf(!existsSync(LIFT_PACK))('10261\'s lift hill at 200 % (Pixel 30j)
     expect(lost.length).toBe(0);
     for (const run of plan.runs) expect(after.visited.has(assisted.key(run.to.x, run.to.z, run.to.t))).toBe(true);
   }, 120_000);
+});
+
+/**
+ * The lane pass on the pack the Pixel ran in round 30k (2026-10-07): climbing 10261's lift hill at 200 % with
+ * auto-jump alone the player stopped at pin + 28.2 on three tries, in front of a 1.25 riser (the 30k plan's
+ * late pass had made it walkable only for a pressed jump, to x 39.7). Re-planned with the lane pass, the same
+ * auto-jump walk from the foot climbs every lane z 4.6-5.6 past x 60 (the top of the lift at y 41.9). Local
+ * only: the pack is a device round's output.
+ */
+const LIFT_PACK_30K = 'C:/git/craftmatic/output/device-round-2026-10-07k/packs-78e06246/10261-roller-coaster.mcaddon';
+describe.skipIf(!existsSync(LIFT_PACK_30K))('10261\'s lift hill at 200 % climbed with auto-jump alone (Pixel 30k)', () => {
+  it('the lane pass makes every straight lane of the hill an auto-jump climb, and keeps the plan verified', async () => {
+    const { loadAddonPreviewModel } = await import('../web/src/ui/addon-preview-data.js');
+    const { COLLIDER_KIT } = await import('../web/src/engine/collider-form.js');
+    const { WalkWorld, tickPlayer } = await import('../web/src/engine/addon-walk.js');
+    const bytes = readFileSync(LIFT_PACK_30K);
+    const model = await loadAddonPreviewModel(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+    const cells: SourceCell[] = model.cells.map(c => {
+      if (!c.v) return c;
+      const boxes = COLLIDER_KIT.formBoxes(c.v, c.lo, c.hi);
+      return { x: c.x, y: c.y, z: c.z, lo: Math.min(...boxes.map(q => q[2])), hi: Math.max(...boxes.map(q => q[3])) };
+    });
+    const doorCells = (model.interactives?.items ?? []).flatMap(it => it.blocking);
+    const plan = planColliderTreads(cells, model.dims, 200, 0, [], doorCells, { walk: colliderLaneWalk(model.cells, model.dims, 200, 0), cells: model.cells });
+    expect(plan.verified).toBe(true);
+    expect(plan.runs.some(r => r.lane)).toBe(true);
+    const world = new WalkWorld({ cells: model.cells, dims: model.dims, sizePct: 200, rotation: 0, treads: plan.blocks });
+    for (const z of [4.6, 4.85, 5.2, 5.6]) {
+      let s = { x: 15.6, y: 4.6, z, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 }, best = s;
+      for (let t = 0; t < 1200 && s.x < 60; t++) {
+        s = tickPlayer(world, s, { move: { x: 1, z: 0 }, jump: false, sneak: false, autoJump: true }).state;
+        if (s.x > best.x) best = s;
+      }
+      expect(best.x, `lane z ${z} (stopped at y ${best.y.toFixed(2)})`).toBeGreaterThanOrEqual(60);
+    }
+  }, 180_000);
 });
