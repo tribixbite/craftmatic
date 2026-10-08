@@ -205,11 +205,16 @@ export function inputProbeHandlers(pack: CraftmaticPack, addon: Addon, device?: 
       else if (!(Math.abs(rest - dragged) < 5)) ctx.violate({ invariant: 'drag-view-holds', message: `${f.typeId}: at rest the view moved from ${dragged} to ${rest} after the drag (it should stay where the child left it)`, evidence: { ...out } });
       // Drive: the view eases back behind the nose within 2 s.
       const trace: Array<number | undefined> = [];
+      const from = { ...v.location };
       for (let t = 0; t < EASE_TICKS; t++) { ctx.sim.controls.set(p.id, { forward: 1, strafe: 0, jump: false }); await ctx.run(1); if (t % 10 === 9) trace.push(off()); }
       ctx.sim.controls.set(p.id, { forward: 0, strafe: 0, jump: false });
       out['driving'] = trace;
+      out['moved'] = r2(Math.hypot(v.location.x - from.x, v.location.z - from.z));
       const end = Math.abs(Number(trace.at(-1) ?? 999));
-      if (Math.abs(dragged) > 60 && !(end < CHASE_OFF_NOSE_DEG)) ctx.violate({ invariant: 'drag-eases', message: `${f.typeId}: ${EASE_TICKS / 20} s of driving left the view ${end} degrees off the nose (it should ease back within ~2 s)`, evidence: { ...out } });
+      // The free look eases back only while the vehicle MOVES (at rest it holds, by design); a boat on the flat dry
+      // world does not move (beached: there is no water lane, TODO(sim-boat-course)), so its ease is not judged.
+      if (Number(out['moved']) < 1) ctx.note(`${f.typeId}: did not move under a held stick (${String(out['moved'])} blocks${f.mode === 'boat' ? ': a boat on dry land' : ''}); the ease back while driving is NOT TESTED`);
+      else if (Math.abs(dragged) > 60 && !(end < CHASE_OFF_NOSE_DEG)) ctx.violate({ invariant: 'drag-eases', message: `${f.typeId}: ${EASE_TICKS / 20} s of driving left the view ${end} degrees off the nose (it should ease back within ~2 s)`, evidence: { ...out } });
       await ctx.run(40);
       // The pitch drag (ASSUMED rule on a scripted 181 seat: the rider's pitch follows the finger, quirk `rider-free-look`).
       const pitch0 = p.rotation.x, camPitch0 = chaseView(ctx)?.pitch;
