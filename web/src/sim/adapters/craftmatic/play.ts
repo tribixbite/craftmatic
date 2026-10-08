@@ -28,7 +28,7 @@ import { APPROACH_KEY, CORE_HANDLERS, FOOTING_KEY, FOOT_ORIGIN_KEY, findEntity }
 import { lookAngles, rotateYaw, type Box, type Vec3 } from '../../core/vec.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { teleport } from '../../script-host/facades.js';
-import { approachSpots, findApproach, standsAt, type ApproachSpot } from '../../scenario/approach.js';
+import { approachSpots, findApproach, floorBelow, standsAt, type ApproachSpot } from '../../scenario/approach.js';
 import { lookAt, pick } from '../../input/touch.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import { JUMP_PEAK, STEP_HEIGHT } from '../../physics/body.js';
@@ -655,7 +655,20 @@ async function nearEnoughToLoad(ctx: StepContext, part: SimEntity, label: string
   const outside = edge && placed && (edge.x < placed.from.x || edge.x > placed.to.x + 1 || edge.z < placed.from.z || edge.z > placed.to.z + 1);
   const floor = w.supportBelow(part.location.x, part.location.y + 1, part.location.z, 64);
   const spots = [...(outside && edge ? [edge] : []), { x: part.location.x, y: Number.isFinite(floor) ? floor : part.location.y, z: part.location.z }];
-  for (const s of spots) {
+  for (const at of spots) {
+    // A spot the child can STAND at: the free floor nearest the candidate, searched outward a few blocks (a teleport
+    // into a collider is the device's push, not a walk-up).
+    const s = w.withAllLoaded(() => {
+      for (const r of [0, 1, 2, 3]) for (let k = 0; k < (r ? 8 : 1); k++) {
+        const x = at.x + r * Math.cos(k * Math.PI / 4), z = at.z + r * Math.sin(k * Math.PI / 4);
+        for (let from = at.y + 3; from >= at.y - 6; from -= 0.5) {
+          const y = floorBelow(engine, part.dimension, x, from, z, 0.5);
+          if (y !== undefined && standsAt(engine, part.dimension, { x, y, z })) return { x, y, z };
+        }
+      }
+      return undefined;
+    });
+    if (!s) continue;
     teleport(ctx.sim.host, ctx.player, s);
     ctx.player.onGround = true;
     await ctx.run(2);
