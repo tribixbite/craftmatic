@@ -53,11 +53,15 @@ for (const lane of lanes) {
     ? { x: from, y: startY, z: lane, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 }
     : { x: lane, y: startY, z: from, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 };
   let jump = false, best = -Infinity, jumps = 0, topY = startY, lowY = startY, bestAt = { x: s.x, y: s.y, z: s.z };
+  // The deepest fall: from the last floor stood on to the next landing (a walk off an edge), with where it left.
+  let lastFloor: { x: number; y: number; z: number } | undefined, fall = 0, fallFrom: { x: number; y: number; z: number } | undefined;
   const along = (q: { x: number; z: number }): number => sign * (axis === 'x' ? q.x : q.z);
   for (let t = 0; t < ticks; t++) {
     const r = tickPlayer(world, s, { move, jump, sneak: false, autoJump: jumpMode === 'auto' });
     // Auto-jump presses nothing; count the jumps it made from the state's vertical start.
     if (jumpMode === 'auto' && s.onGround && r.state.vy > 0.3) jumps++;
+    if (s.onGround) lastFloor = { x: s.x, y: s.y, z: s.z };
+    if (r.state.onGround && !s.onGround && lastFloor && lastFloor.y - r.state.y > fall) { fall = lastFloor.y - r.state.y; fallFrom = lastFloor; }
     s = r.state;
     jump = jumpMode === 'blocked' && (r.collided[axis]) && s.onGround; if (jump) jumps++;
     if (along(s) > best) { best = along(s); bestAt = { x: s.x, y: s.y, z: s.z }; }
@@ -66,5 +70,5 @@ for (const lane of lanes) {
   }
   const reached = best >= sign * to;
   // The lowest the feet went: a walk that starts on an upper floor and ends lower fell through it.
-  console.log(`${axis === 'x' ? 'z' : 'x'} ${lane.toFixed(2)}: ${reached ? 'REACHED' : 'stopped at'} ${axis} ${(sign * best).toFixed(2)} (there feet y ${bestAt.y.toFixed(2)}; end ${s.x.toFixed(2)},${s.y.toFixed(2)},${s.z.toFixed(2)}, lowest ${lowY.toFixed(2)}, highest ${topY.toFixed(2)}, ${jumps} jumps)`);
+  console.log(`${axis === 'x' ? 'z' : 'x'} ${lane.toFixed(2)}: ${reached ? 'REACHED' : 'stopped at'} ${axis} ${(sign * best).toFixed(2)} (there feet y ${bestAt.y.toFixed(2)}; end ${s.x.toFixed(2)},${s.y.toFixed(2)},${s.z.toFixed(2)}, lowest ${lowY.toFixed(2)}, highest ${topY.toFixed(2)}, ${jumps} jumps${fall > 1 && fallFrom ? `; FELL ${fall.toFixed(2)} from ${fallFrom.x.toFixed(2)},${fallFrom.y.toFixed(2)},${fallFrom.z.toFixed(2)}` : ''})`);
 }

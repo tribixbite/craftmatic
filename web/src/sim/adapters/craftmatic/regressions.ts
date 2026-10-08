@@ -17,6 +17,7 @@ import { scriptedVehicleTypes, type CourseRow } from './vehicle-course.js';
 import { teleport } from '../../script-host/facades.js';
 import { lookAt } from '../../input/touch.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
+import { REACH_GUARD_DROP16 } from '../../../engine/bedrock-collider-scale.js';
 import type { Vec3 } from '../../core/vec.js';
 
 /** What the current tree's pack should do. */
@@ -459,7 +460,50 @@ export const REGRESSIONS: RegressionCase[] = [
       return { reproduced: !!fall || dropped, attribution: 'pack', evidence: `${fall ? `${fall}; ` : ''}${notes}` };
     },
   },
+  // ─── Round 30l (Pixel, 2026-10-07, packs-77a9f172): the lane pass leads a child off the lift top ───
+  {
+    id: 'lift-top-fall-10261', title: '10261 at 200 % (30l): the lane pass makes the lift hill climbable with auto-jump; walking on past the top, the player walks off the model\'s east end and falls 43 blocks (COL-01, IX-04)',
+    evidence: '`output/device-round-2026-10-07l/pixel/notes.md` item 2 (pin 7300,-60,5800, turn 0): lanes z+4.6 and z+5.0 climb to the top at ~22 s with auto-jump only, then go straight off the east end at x ~7381 (pin x+81) and fall to the ground at 7396/7400,-60 (`frames-lift-z5.0/edge-montage.jpg`, `33-lift-z*-pos`); before the lane pass the edge was out of reach on foot',
+    oldPack: `${ROUND}/device-round-2026-10-07l/packs-77a9f172/10261-roller-coaster.mcaddon`, newStem: '10261-roller-coaster', expectNew: 'pass',
+    // The Pixel's walk: from the lift's foot (pin + 15.6, 4.5, lane) the stick held toward +x with AUTO-JUMP on (adb drives one
+    // finger, as a child on touch does) and nothing pressed, on to x 100 past the model's end (86 wide at 200 %). A fall of more
+    // than 4 blocks (bedrock-collider-scale.ts `REACH_GUARD_DROP16`) off an edge is the fault; the new pack must stop the walk at
+    // the edge - and must still climb to the top, or the clean result proves nothing.
+    scenario: () => ({
+      name: 'lift-top-fall-10261', allowLines: allow, steps: [{ kind: 'place', size: 200, rotation: 0 }, { kind: 'wait', ticks: 40 },
+        { kind: 'expect', label: 'auto-jump walk over the lift top', check: async ctx => {
+          const a = placedOf(ctx).anchor;
+          const rows: LiftWalk[] = [];
+          for (const lane of [4.6, 5.0]) {
+            await CORE_HANDLERS['walkLine']!({ kind: 'walkLine', label: `lift lane z+${lane.toFixed(1)}`, autoJump: true, maxFall: LIFT_SAFE_FALL, maxTicks: 1200, from: { x: a.x + 15.6, y: a.y + 5, z: a.z + lane }, to: { x: a.x + 100, y: a.y + 5, z: a.z + lane } }, ctx);
+            const w = ctx.state['lastWalk'] as { end: Vec3; fall: number; fallFrom?: Vec3; highest: number } | undefined;
+            if (!w) continue;
+            const row: LiftWalk = { lane, top: r3(w.highest - a.y), fall: r3(w.fall), from: w.fallFrom ? { x: r3(w.fallFrom.x - a.x), y: r3(w.fallFrom.y - a.y), z: r3(w.fallFrom.z - a.z) } : null, end: { x: r3(w.end.x - a.x), y: r3(w.end.y - a.y), z: r3(w.end.z - a.z) } };
+            rows.push(row);
+            ctx.note(`lift lane z+${lane.toFixed(1)} (auto-jump): highest feet y ${row.top}, deepest fall ${row.fall}${row.from ? ` from ${JSON.stringify(row.from)}` : ''}, ended ${JSON.stringify(row.end)} (anchor-relative)`);
+          }
+          ctx.state['liftWalks'] = rows;
+          return undefined;
+        } },
+      ],
+    }),
+    judge: r => {
+      const rows = (r.state['liftWalks'] as LiftWalk[] | undefined) ?? [];
+      const notes = r.notes.filter(n => /lift lane/.test(n)).join('; ') || 'no walk note';
+      // The fall is only possible from the top (42 blocks up at 200 %): a walk that never got there tested nothing.
+      if (!rows.length || rows.every(w => w.top < LIFT_TOP_Y)) return { reproduced: false, evidence: notes, untested: `no lane climbed to the lift top (feet y ${LIFT_TOP_Y}+)` };
+      const fall = violated(r, 'walk-no-deep-fall');
+      return { reproduced: !!fall, attribution: 'pack', evidence: `${fall ? `${fall}; ` : ''}${notes}` };
+    },
+  },
 ];
+
+/** One auto-jump walk of `lift-top-fall-10261`, anchor-relative. */
+interface LiftWalk { lane: number; top: number; fall: number; from: Vec3 | null; end: Vec3 }
+/** The deepest fall the lift walk may take (blocks): the reach guards' limit (`REACH_GUARD_DROP16` / 16). */
+const LIFT_SAFE_FALL = REACH_GUARD_DROP16 / 16;
+/** Feet this high (blocks over the pin at 200 %) are on the lift's top section (the Pixel stood at 42.0). */
+const LIFT_TOP_Y = 40;
 
 
 /** A doorway case: reproduced when the door's device lines found the fault kind; attributed as the lines said. */

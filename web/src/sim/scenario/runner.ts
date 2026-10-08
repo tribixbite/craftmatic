@@ -82,8 +82,10 @@ export const CORE_HANDLERS: Record<string, StepHandler> = {
     else { const e = ctx.find(at as EntitySelector); if (!e) throw new Error(`look: no ${describe(at as EntitySelector)}`); lookAt(ctx.player, aimPoint(ctx.player, e)); }
   },
   async walkLine(step, ctx) {
-    const s = step as unknown as { from: Vec3; to: Vec3; maxTicks?: number; jumpWhenBlocked?: boolean; maxDrop?: number; arriveWithin?: number; label?: string };
+    const s = step as unknown as { from: Vec3; to: Vec3; maxTicks?: number; jumpWhenBlocked?: boolean; maxDrop?: number; arriveWithin?: number; label?: string; autoJump?: boolean; maxFall?: number };
     const p = ctx.player;
+    const autoJumpWas = !!ctx.sim.controls.get(p.id).autoJump;
+    ctx.sim.controls.set(p.id, { autoJump: !!s.autoJump });
     teleport(ctx.sim.host, p, s.from);
     p.onGround = false;
     // Settle onto whatever holds the start point before measuring the walk.
@@ -93,8 +95,12 @@ export const CORE_HANDLERS: Record<string, StepHandler> = {
     const along = (q: Vec3): number => (q.x - s.from.x) * u.x + (q.z - s.from.z) * u.z;
     const startY = p.location.y;
     let lowest = startY, best = along(p.location), stall = 0, jumps = 0;
+    // The deepest single fall: from the last floor stood on to the next landing (a walk off an edge), and where it left.
+    let floor: Vec3 = { ...p.location }, fall = 0, fallFrom: Vec3 | undefined, highest = startY;
     const maxTicks = s.maxTicks ?? Math.ceil(len / 0.2) + 60;
     for (let t = 0; t < maxTicks; t++) {
+      const wasGround = p.onGround;
+      if (wasGround) floor = { ...p.location };
       // Steer back onto the line: aim at a point 1.5 blocks ahead of the feet's projection.
       const a = Math.min(len, along(p.location) + 1.5);
       const aim = { x: s.from.x + u.x * a, z: s.from.z + u.z * a };
@@ -102,20 +108,22 @@ export const CORE_HANDLERS: Record<string, StepHandler> = {
       const before = { ...p.location };
       ctx.sim.controls.set(p.id, { forward: 1, strafe: 0, jump: false });
       await ctx.run(1);
-      lowest = Math.min(lowest, p.location.y);
+      lowest = Math.min(lowest, p.location.y); highest = Math.max(highest, p.location.y);
+      if (p.onGround && !wasGround && floor.y - p.location.y > fall) { fall = floor.y - p.location.y; fallFrom = floor; }
       const moved = Math.hypot(p.location.x - before.x, p.location.z - before.z);
       if (s.jumpWhenBlocked && moved < 0.02 && p.onGround) { ctx.sim.controls.set(p.id, { jump: true }); jumps++; }
       if (along(p.location) > best + 0.01) { best = along(p.location); stall = 0; } else if (++stall > 30) break;
       if (along(p.location) >= len) break;
     }
-    ctx.sim.controls.set(p.id, { forward: 0, jump: false });
+    ctx.sim.controls.set(p.id, { forward: 0, jump: false, autoJump: autoJumpWas });
     await ctx.run(2);
     const drop = startY - lowest;
+    if (s.maxFall !== undefined && fall > s.maxFall + 1e-6) ctx.violate({ invariant: 'walk-no-deep-fall', message: `${s.label ?? 'walk'}: fell ${Math.round(fall * 100) / 100} blocks off an edge (at most ${s.maxFall} allowed)`, evidence: { from: s.from, to: s.to, fallFrom: fallFrom ? { x: Math.round(fallFrom.x * 1000) / 1000, y: Math.round(fallFrom.y * 1000) / 1000, z: Math.round(fallFrom.z * 1000) / 1000 } : null, end: { ...p.location } } });
     const maxDrop = s.maxDrop ?? Infinity;
     if (drop > maxDrop + 1e-6) ctx.violate({ invariant: 'walk-holds-floor', message: `${s.label ?? 'walk'}: dropped ${Math.round(drop * 100) / 100} blocks (at most ${maxDrop} allowed)`, evidence: { from: s.from, to: s.to, lowestY: Math.round(lowest * 1000) / 1000, startY: Math.round(startY * 1000) / 1000, end: { ...p.location } } });
     const miss = Math.hypot(p.location.x - s.to.x, p.location.z - s.to.z);
     if (s.arriveWithin !== undefined && miss > s.arriveWithin) ctx.violate({ invariant: 'walk-arrives', message: `${s.label ?? 'walk'}: stopped ${Math.round((len - best) * 100) / 100} blocks short of the end`, evidence: { from: s.from, to: s.to, end: { x: Math.round(p.location.x * 1000) / 1000, y: Math.round(p.location.y * 1000) / 1000, z: Math.round(p.location.z * 1000) / 1000 }, jumps } });
-    ctx.state['lastWalk'] = { drop, miss, end: { ...p.location }, jumps };
+    ctx.state['lastWalk'] = { drop, miss, end: { ...p.location }, jumps, fall, fallFrom, highest };
   },
   async tap(step, ctx) {
     const sel = step['target'] as EntitySelector;

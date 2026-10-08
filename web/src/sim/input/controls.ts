@@ -13,6 +13,12 @@ export interface PlayerControls {
   jump: boolean;
   sneak: boolean;
   sprint: boolean;
+  /**
+   * AUTO-JUMP on (Bedrock's touch default, quirk `auto-jump`): an obstacle ahead within 1.2 is jumped without
+   * Jump pressed (sim/physics/body.ts `autoJumpWanted`). Off unless a scenario turns it on (`walkLine`'s
+   * `autoJump`), so every walk that predates it is unchanged.
+   */
+  autoJump?: boolean;
 }
 
 export const IDLE_CONTROLS: PlayerControls = { forward: 0, strafe: 0, jump: false, sneak: false, sprint: false };

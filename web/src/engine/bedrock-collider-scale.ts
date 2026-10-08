@@ -208,6 +208,21 @@ export const MAX_REFUSED_REPORTED = 64;
  * stopped there on every try (round 2026-10-07j).
  */
 const SAFE_DROP16 = 48;
+/**
+ * The deepest fall (sixteenths, 4 blocks) a surface the treads made reachable may lead a child to without a
+ * guard (`guardPass`). The doorway drop guards' own limit (bedrock-interactives.ts `GUARD_DROP16` =
+ * `STAIR_MAX_RISE16`, asserted equal in test/reach-guards.test.ts): Minecraft's fall damage is the distance
+ * past 3 blocks in half-hearts, so 4 blocks costs at most one half-heart - the fall off a garden wall, no
+ * worse than vanilla terrain - while the next block up starts to hurt and 10261's lift top is 43.5 (Pixel 30l).
+ */
+export const REACH_GUARD_DROP16 = 64;
+/**
+ * A reach guard's height over the edge it guards (sixteenths, 1.5 blocks): over the 1.25 jump and the
+ * 1.2 auto-jump, so the rail cannot be climbed from the surface it guards - the doorway guards' `GUARD_HEIGHT16`.
+ */
+export const REACH_GUARD_HEIGHT16 = 24;
+/** How often a guard column whose top a reached surface still steps onto is raised a block (`guardPass`). */
+const GUARD_RAISES = 3;
 
 /** One world block of a scaled column, with the 100 % surface it came from. */
 export interface ColumnBlock {
@@ -555,6 +570,25 @@ export interface TreadPlan {
    */
   verified: boolean;
   targets?: ReachTargetResult[];
+  /**
+   * The reach guards (`guardPass`): invisible rails where a surface the treads made reachable meets a fall of
+   * more than `REACH_GUARD_DROP16`. Their blocks are in `blocks`; absent when the plan made nothing reachable.
+   */
+  guards?: ReachGuardReport;
+}
+
+/** What the reach guard pass did for one size and turn. */
+export interface ReachGuardReport {
+  /** Columns that got a guard (`capped` of them a fresh surface's own column on the footprint's border) and the blocks those guards wrote (also in `TreadPlan.blocks`). */
+  columns: number;
+  capped: number;
+  blocks: number;
+  /** Edges over a fall that got no guard: the column is a doorway's, or a guard there would block a route (`verify`). */
+  unguarded: { door: number; verify: number };
+  /** Edges over a fall off the footprint's border left open: the border column is a doorway's, or its cap failed the check (`TODO(reach-guards)`). */
+  pastEdge: number;
+  /** A sample of the guarded columns (world blocks from the pin; the guard's span in sixteenths). */
+  sample: Array<{ x: number; z: number; lo16: number; hi16: number; drop16: number; cap?: true }>;
 }
 
 /** The blocks a run writes (final pairs) with what was there, for a revert; `null` = air. */
@@ -652,9 +686,13 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
   const before = walkScaledColliders(grid);
   /** The unassisted walk taking no drop past `SAFE_DROP16`: what the late pass counts as reached already. */
   const beforeSafe = walkScaledColliders(grid, undefined, SAFE_DROP16);
+  /** The reach guards' final blocks and report (`guardPass`, last): empty until it runs. */
+  let guardBlocks: TreadBlock[] = [];
+  let guardReport: ReachGuardReport | undefined;
   const report = (after: ReachResult, edits: readonly RunEdit[], verified: boolean): TreadPlan => {
     const finalBlocks = new Map<string, TreadBlock>();
     for (const e of edits) for (const w of e.writes) finalBlocks.set(`${w.x},${w.block.row},${w.z}`, { x: w.x, y: w.block.row, z: w.z, lo: w.block.lo, hi: w.block.hi });
+    for (const b of guardBlocks) finalBlocks.set(`${b.x},${b.y},${b.z}`, b);
     const blocks = [...finalBlocks.values()].sort((p, q) => p.x - q.x || p.z - q.z || p.y - q.y);
     const radius = Math.ceil(f);
     const targetResults = targets.map((t): ReachTargetResult => {
@@ -664,7 +702,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     });
     const unreached = new Set<number>();
     for (const q of refusedTargets) { const k = grid.key(q.x, q.z, q.t); if (!after.visited.has(k)) unreached.add(k); }
-    return { sizePct, rotation, blocks, runs: edits.map(e => e.run), unrestored, refused, refusedUnreached: unreached.size, before: noVisited(before), after: noVisited(after), verified, ...(targets.length ? { targets: targetResults } : {}) };
+    return { sizePct, rotation, blocks, runs: edits.map(e => e.run), unrestored, refused, refusedUnreached: unreached.size, before: noVisited(before), after: noVisited(after), verified, ...(targets.length ? { targets: targetResults } : {}), ...(guardReport ? { guards: guardReport } : {}) };
   };
   if (f === 1) return report(before, [], true);
 
@@ -1179,10 +1217,171 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       edits.push({ ...e, writes, run: { ...e.run, lane: true } });
     }
   };
+  /**
+   * THE REACH GUARDS (2026-10-08, after Pixel round 30l). Every pass above makes surfaces reachable that the
+   * model, at this size, did not let a child walk to - and the edges of that new reach are nobody's design:
+   * the lane pass took the Pixel player up 10261's lift hill at 200 % to pin + (69.2, 42), and walking straight
+   * on past the top, where the track curves away, it walked off the model at x ~81 and fell 43.5 blocks.
+   * Before the pass that edge was out of reach on foot. So, last: wherever a surface reached now and NOT by the
+   * unassisted walk (`before`, which takes any jump, detour and drop) meets a neighbouring column the body walks
+   * into at its height and falls more than `REACH_GUARD_DROP16` to the highest top there (or the ground), that
+   * column gets a guard - its empty cells filled from the surface's top to `REACH_GUARD_HEIGHT16` over it, as
+   * bedrock-interactives.ts `planDropGuards` guards a doorway over a drop at export. The 100 % grid gets none
+   * (no tread is planned there: whatever it reaches is the model's own), and nor does an edge of the model's own
+   * reach at any size.
+   *
+   * Certain only, never blocking. The grid here reads a clearance form as its whole cell, which over-reads
+   * solid: a column it calls open is open and a fall it measures is at least that deep, so a guard stands only
+   * over a certain fall (a fall the full-cell reading hides is left alone). Never in a doorway's column. A guard
+   * whose top a reached surface still steps onto is raised a block (at most `GUARD_RAISES` times). And the guards
+   * are verified as a batch, then by halves down to one column: every surface the walk reached with the treads
+   * that was reached before them, and every surface reached without a fall past the limit, must still be
+   * reached, and no guard's top may be - a column that fails is left unguarded and counted (`unguarded.verify`).
+   * A column past the footprint cannot hold a guard (the runtime re-lays and clears only its boxes), so a fresh
+   * surface on the border over a fall is CAPPED instead: the guard stands over its own top and the next column
+   * in becomes the edge (10261 at 200 %: the lift's north side runs along z 0). A border edge left open (a
+   * doorway's column, a cap that fails the check) is counted as `pastEdge` (`TODO(reach-guards)`: a guard ring
+   * outside the footprint would need the runtime's boxes widened).
+   */
+  const guardPass = (): void => {
+    const reached = walkScaledColliders(grid);
+    const top16 = grid.height * 16;
+    /** The surfaces the treads made reachable (inside the footprint). */
+    const fresh: Surface[] = [];
+    for (const k of reached.visited) {
+      if (before.visited.has(k)) continue;
+      const s = grid.unkey(k);
+      if (grid.inside(s.x, s.z)) fresh.push(s);
+    }
+    if (!fresh.length) return;
+    // Only from a surface high enough that some fall from it can pass the limit; in a fixed order (the plan is pure).
+    const high = fresh.filter(s => s.t > REACH_GUARD_DROP16).sort((p, q) => p.x - q.x || p.z - q.z || p.t - q.t);
+    /** One guard column: its spans (merged where they overlap; each is clear, as every span is), and the writes laying it. */
+    interface Guard { x: number; z: number; spans: Array<[number, number]>; drop16: number; edges: number; caps: Surface[]; writes: Array<{ block: ColumnBlock; previous: ColumnBlock | null }>; laid: boolean }
+    const merge = (spans: ReadonlyArray<readonly [number, number]>): Array<[number, number]> => {
+      const out: Array<[number, number]> = [];
+      for (const [a, b] of [...spans].sort((p, q) => p[0] - q[0])) {
+        const last = out[out.length - 1];
+        if (last && a <= last[1]) last[1] = Math.max(last[1], b); else if (b > a) out.push([a, b]);
+      }
+      return out;
+    };
+    const lay = (g: Guard): void => {
+      g.writes = [];
+      for (const [a, b] of g.spans) {
+        for (let row = Math.floor(a / 16); row * 16 < b; row++) {
+          const l = Math.max(0, a - row * 16), h = Math.min(16, b - row * 16);
+          if (h <= l) continue;
+          const previous = grid.blockAt(g.x, g.z, row) ?? null;
+          // A solid already in the row (the underside of a slab right over the guard, a capped surface's own top) is joined, not replaced.
+          const block: ColumnBlock = previous ? { row, lo: Math.min(l, previous.lo), hi: Math.max(h, previous.hi), src16: previous.src16 } : { row, lo: l, hi: h, src16: a };
+          g.writes.push({ block, previous });
+          grid.write(g.x, g.z, block);
+        }
+      }
+      g.laid = true;
+    };
+    const unlay = (g: Guard): void => {
+      for (let i = g.writes.length - 1; i >= 0; i--) {
+        const w = g.writes[i]!;
+        if (w.previous) grid.write(g.x, g.z, w.previous); else grid.erase(g.x, g.z, w.block.row);
+      }
+      g.writes = [];
+      g.laid = false;
+    };
+    const unguarded = { door: 0, verify: 0 };
+    let pastEdge = 0;
+    const guards = new Map<number, Guard>();
+    const add = (x: number, z: number, span: [number, number], drop16: number, cap?: Surface): void => {
+      const ck = colKey(x, z);
+      let g = guards.get(ck);
+      if (!g) guards.set(ck, g = { x, z, spans: [], drop16, edges: 0, caps: [], writes: [], laid: false });
+      if (cap) g.caps.push(cap);
+      g.spans = merge([...g.spans, span]);
+      g.drop16 = Math.max(g.drop16, drop16);
+      g.edges++;
+    };
+    const sides = (s: Surface): Array<readonly [number, number]> => [[s.x + 1, s.z], [s.x - 1, s.z], [s.x, s.z + 1], [s.x, s.z - 1]];
+    // 1. THE FOOTPRINT'S BORDER. Past it there is no column to guard (the runtime re-lays and clears only its
+    //    boxes), so a fresh surface on the border over a fall to the ground is CAPPED: its own column takes the
+    //    guard over its top, and the next column in becomes the edge, held by a wall instead of a fall. It gives up
+    //    a column of the reach the treads made - never the model's own (an old surface is never fresh).
+    for (const s of high) {
+      const out = sides(s).filter(([nx, nz]) => !grid.inside(nx, nz)).length;
+      if (!out) continue;
+      if (doorColumns.has(colKey(s.x, s.z))) { pastEdge += out; continue; }
+      // A column with two fresh border surfaces (a deck over a deck) caps both.
+      add(s.x, s.z, [s.t, Math.min(top16, s.t + REACH_GUARD_HEIGHT16)], s.t, s);
+    }
+    for (const g of guards.values()) lay(g);
+    const capped = new Set<number>([...guards.values()].flatMap(g => g.caps.map(c => grid.key(c.x, c.z, c.t))));
+    // 2. EVERY OTHER EDGE, read with the caps laid: a column the body walks into at a fresh surface's height and
+    //    falls more than the limit to the highest top there (or the ground) takes a guard over that surface's top.
+    const edged = new Set<number>();
+    for (const s of high) {
+      if (capped.has(grid.key(s.x, s.z, s.t))) continue;
+      for (const [nx, nz] of sides(s)) {
+        if (!grid.inside(nx, nz)) continue;
+        const ck = colKey(nx, nz);
+        // A capped column is a wall now (should anything step onto its top, the raise and the check below see it).
+        if (guards.get(ck)?.caps.length) continue;
+        // A wall or a step up within the body's height: the body does not go over an edge into this column.
+        if (!grid.clear(nx, nz, s.t, s.t + PLAYER_NEED16)) continue;
+        // It falls to the highest top at or under its feet there (the ground when there is none).
+        let landing = 0;
+        for (const b of grid.column(nx, nz).blocks) { const t = b.row * 16 + b.hi; if (t <= s.t && t > landing) landing = t; }
+        const drop16 = s.t - landing;
+        if (drop16 <= REACH_GUARD_DROP16) continue;
+        if (doorColumns.has(ck)) { unguarded.door++; continue; }
+        add(nx, nz, [s.t, Math.min(top16, s.t + REACH_GUARD_HEIGHT16)], drop16);
+        edged.add(ck);
+      }
+    }
+    // Laid only after every edge is read: a guard laid early would read as a wall to the next surface's edge.
+    for (const ck of edged) lay(guards.get(ck)!);
+    const all = [...guards.values()];
+    // What the guards must keep: the old reach that survived the treads, and every surface walked to without a fall
+    // past the limit, with the treads and without any guard - save a capped surface itself.
+    for (const g of all) unlay(g);
+    const keep: number[] = [...walkScaledColliders(grid, undefined, REACH_GUARD_DROP16).visited].filter(k => !capped.has(k));
+    for (const k of reached.visited) if (before.visited.has(k)) keep.push(k);
+    for (const g of all) lay(g);
+    const topReached = (g: Guard, walked: ReachResult): boolean => g.spans.some(([, b]) => walked.visited.has(grid.key(g.x, g.z, b)));
+    // A guard a reached surface steps onto is no rail: raise it a block (the walk is redone after each round).
+    for (let raise = 0; raise < GUARD_RAISES; raise++) {
+      const walked = walkScaledColliders(grid);
+      const hit = all.filter(g => topReached(g, walked));
+      if (!hit.length) break;
+      for (const g of hit) { unlay(g); g.spans = merge(g.spans.map(([a, b]) => [a, Math.min(top16, b + 16)] as [number, number])); lay(g); }
+    }
+    const fine = (): boolean => {
+      const walked = walkScaledColliders(grid);
+      return keep.every(k => walked.visited.has(k)) && !all.some(g => g.laid && topReached(g, walked));
+    };
+    // Verified as a batch, then by halves: a half that fails is split until the failing columns stand alone.
+    const settle = (batch: Guard[]): void => {
+      for (const g of batch) if (!g.laid) lay(g);
+      if (fine()) return;
+      for (const g of batch) unlay(g);
+      if (batch.length === 1) { if (batch[0]!.caps.length) pastEdge += batch[0]!.edges; else unguarded.verify += batch[0]!.edges; return; }
+      const mid = batch.length >> 1;
+      settle(batch.slice(0, mid));
+      settle(batch.slice(mid));
+    };
+    if (!fine()) { for (const g of all) unlay(g); settle(all); }
+    const laid = all.filter(g => g.laid);
+    const out = new Map<string, TreadBlock>();
+    for (const g of laid) for (const w of g.writes) out.set(`${g.x},${w.block.row},${g.z}`, { x: g.x, y: w.block.row, z: g.z, lo: w.block.lo, hi: w.block.hi });
+    guardBlocks = [...out.values()];
+    guardReport = {
+      columns: laid.length, capped: laid.filter(g => g.caps.length).length, blocks: guardBlocks.length, unguarded, pastEdge,
+      sample: laid.slice(0, MAX_REFUSED_REPORTED).map(g => ({ x: g.x, z: g.z, lo16: g.spans[0]![0], hi16: g.spans[g.spans.length - 1]![1], drop16: g.drop16, ...(g.caps.length ? { cap: true as const } : {}) })),
+    };
+  };
   // Fast path: one laying walk, then a single verification from scratch.
   layingWalk(false);
   let after = walkScaledColliders(grid);
-  if (holds(after)) { doorwayPass(); latePass(); lanePass(); return report(walkScaledColliders(grid), edits, true); }
+  if (holds(after)) { doorwayPass(); latePass(); lanePass(); guardPass(); return report(walkScaledColliders(grid), edits, true); }
   // Slow path: undo everything and re-plan one run at a time, each verified
   // against the unassisted walk, until a pass lays nothing new.
   for (let i = edits.length - 1; i >= 0; i--) revert(edits[i]!);
@@ -1194,7 +1393,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     if (edits.length === count) break;
   }
   after = walkScaledColliders(grid);
-  if (holds(after)) { doorwayPass(); latePass(); lanePass(); return report(walkScaledColliders(grid), edits, true); }
+  if (holds(after)) { doorwayPass(); latePass(); lanePass(); guardPass(); return report(walkScaledColliders(grid), edits, true); }
   for (let i = edits.length - 1; i >= 0; i--) revert(edits[i]!);
   edits.length = 0;
   return report(walkScaledColliders(grid), [], false);
