@@ -145,6 +145,17 @@ Open: `TODO(car-oblique-kerb)` (McLaren slides 62 along an oblique kerb);
   (and on a whole pack directory) grows to 64 GB and crashes Bun; run it per
   pack and per size until fixed. 76457 at 100/200 %: 9 seats, 0 trapped.
 
+**Engine upgrade IN PROGRESS (2026-10-08, user: "update our web app walker /
+game engine so you can test more things"):** plan in
+[docs/sim-engine-roadmap.md](docs/sim-engine-roadmap.md) - four packages in
+parallel worktrees: A walker hosts the simulator in a Worker + touch
+drive/fly/ride; B client camera model (easing, splines, draw lag) + render
+rules in the snapshot (UV floor, hatching, LOD); C input routing (control
+scheme drags, Sneak toggle, screen-space taps, device-script replay, ms/tick
+estimate); D water/boats, entity collision, GameTest module, walk-to-tap.
+Merge order C (systems.ts split) -> B/D -> A; the main session applies the
+REQUIREMENTS.md edits.
+
 **Open items from the audit that are still real:**
 - # TODO(cull): the 300/400 % draw ceiling is unmeasured. At 200 % the
   coaster shell was drawn 50.34 blocks from its root and gone at 75.82 (a
