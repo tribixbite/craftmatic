@@ -63,23 +63,45 @@ tools now check, and how:
   `input.md` / `childplay.md` there (D's own run: 555 of 818 approaches not
   reached on foot, an upper bound).
 
-**Open device defects from round 30m (fix only after the sim reproduces
-each; a worktree agent is writing those regression cases, results go here):**
-1. Nimbus cannot be steered: forward flies the body's heading, not the look.
-2. 400 % chase camera on the hull (boom cap 48).
-3. X-wing air dismount: the empty ship sinks onto the rider (the sim
-   currently sets the child 7 blocks away - disagrees).
-4. McLaren between two walls: dismount lands on the far side of a wall.
-5. 10261 at 200 %: along the curved top to z+27.7 then +x: 42-block fall.
-6. 10261 at 400 %: shell not drawn from 40 blocks (lattice planned for 200 %).
-7. 200 % Milano Mount prompt only under the hull centre; 30l measured the
-   200 % box 14x10 for a declared 7x5, 30m read "7x5 as declared" - reconcile.
+**Open device defects from round 30m - REPRODUCED offline as OPEN regression
+cases** (`web/src/sim/adapters/craftmatic/regressions-30m.ts`; an OPEN case
+reads OK once fixed - then drop its `open` field). Run:
+`bun scripts/sim.ts --scenario=regressions --new=<new packs>` (on the 30m packs:
+33 cases, 25 OK, 6 OPEN, 2 KNOWN-UNREPRODUCED, 0 failed). Fix with the case as guard:
+1. `nimbus-steer-30m` (FIG-08): the hover controller moves in the BODY's frame
+   (quirk `hover-stick-body-frame`); under `carried` `vehicle-free-look.ts`
+   (~:383-387) never turns the body. Fix: turn the heading by the stick's
+   left/right under `carried`, or fly the Nimbus as a scripted flyer.
+2. `milano-chase-400-30m` (VEH-06): at 400 % the 48-block boom
+   (`CHASE_BOOM_MAX_BLOCKS`, vehicle-free-look.ts:117; playable-addon.ts:2125)
+   puts the camera 58 from the root, past the 54-block LOD switch: the coarse
+   hull fills 56 % of the view. Fix: keep camera-to-root under the switch at
+   every size (or move the switch out, under the 70 cull); consider a tighter
+   framing / cockpit default at 300-400 %.
+3. `xwing-air-park-30m` KNOWN-UNREPRODUCED (SEAT-05): the sim clears the drawn
+   tail by 0.5 block; the phone's point-blank frame needs a measured gap or a
+   clearance rule (`VEHICLE_EGRESS` margin in bedrock-vehicle.ts).
+4. `mclaren-walls-30m` (SEAT-05): egress takes the nearest walkable ring spot
+   with no line from the seat (bedrock-vehicle.ts ~:1024-1029). Fix: reject
+   spots whose seat-to-spot line at body height crosses a solid.
+5. `top-east-fall-10261-30m` (COL-01): the guard pass
+   (bedrock-collider-scale.ts ~:1243-1336) guards only edges the new steps
+   made reachable, read at full-cell resolution (hypothesis, unconfirmed).
+   Fix: guard every reachable top edge over a fall > limit above 100 %.
+6. `shell-unseen-400-10261-30m` (COL-03): `STATIC_SHELL_CULL_MAX_SCALE = 2`
+   and 20-block cells rooted at the cell top (bedrock-building-shell.ts:60,75);
+   at 400 % roots sit up to ~98 blocks from their cubes. Fix: plan the
+   lattice for scale 4, or root at cell centres, or a lattice per size group.
+7. `milano-mount-reach-200-30m` (new row VEH-17): the 7x5 (unscaled-declared)
+   box is the only pick target. Fix: `minecraft:custom_hit_test` boxes over
+   the drawn hull per size group (whether they scale: unmeasured). The 30l and
+   30m box readings AGREE: realised box = declared x scale.
 Plus offline-only: coaster seat frame (above), boat pier-post clip, three
 cars stuck at tree/angled, 10326 Door 5 tap occluded by figure 3, 910004
 Drawer 1 picking Drawer 2 (4/9), 76417 figure 9 never moves, 42639 Door 1 /
 910004 doorways blocked by colliders from 200 %, `TODO(car-oblique-kerb)`.
 
-**Next:** merge the repro agent's cases; fix the reproduced defects with the
+**Next:** fix the reproduced defects with the
 case as the guard; build round 30n from a committed tree
 (`output/device-round-2026-10-08m/build.sh` recipe); deploy with
 `python -u scripts/_pixel_dev_deploy.py <world> <packs> --exclusive` (Saga
