@@ -153,10 +153,15 @@ along the ray from the camera the player SEES, `sim/input/screen.ts`: the
 chase or cockpit camera when one is on, the crosshair with Split Controls as
 the QA phones have it, the finger's point without), **"sneak: sim toggle"**
 (the phone's button is latched by `ControlState.setSneakMode('toggle')`;
-Shift on a keyboard is a hold, C presses the toggle), and **"camera: raw"**:
-the script's `setCamera` drawn without the client's 0.1 s ease, 3.5-tick
-draw lag or spline animation until package B's `sim/client/camera.ts` lands
-(the only indicator still orange). The reach BFS stays what it was - the pure
+Shift on a keyboard is a hold, C presses the toggle), and **"camera: pixel
+client"**: package B's `sim/client/camera.ts` `ClientView` draws the camera
+and every entity as that phone's client does - the script camera eased
+from where it was drawn, a camera animation with its roll, the rider's own
+view from its seat on the LAGGED mount, every entity `entityLagTicks` behind
+the server (the Pixel's 3.5 measured; **"as Saga"** reloads with the Saga's
+derived 4 and no ease). The frame carries the drawn camera (`SimFrame.drawn`)
+and each entity's drawn pose (`EntityPose.drawn`) beside the server's, and
+`_shoot_addon_walk.mjs` writes both into its JSON. The reach BFS stays what it was - the pure
 "can a player on foot reach this surface?" of `engine/addon-walk.ts`, off
 thread in `addon-reach-worker.ts` over the shipped collider grid, drawn as
 the green/red plates and the per-target verdicts - and below 100 % it

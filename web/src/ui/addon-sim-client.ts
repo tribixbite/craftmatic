@@ -18,6 +18,7 @@
 import type { Violation } from '../sim/scenario/invariants.js';
 import type { TimelineKind } from '../sim/core/timeline.js';
 import type { PlacementRotation } from '@engine/bedrock-placement-pack.js';
+import type { ClientProfile, ClientProfileName, DrawnMode } from '../sim/client/camera.js';
 
 // ─── Page → worker ───────────────────────────────────────────────────────────
 
@@ -63,6 +64,8 @@ export interface LoadMessage {
   rotation: PlacementRotation;
   /** The scripts' `Math.random` seed (default 1, as the CLI runs). */
   seed?: number;
+  /** Which phone's client the frames are drawn as (`sim/client/camera.ts` `clientProfile`; default the Pixel, the measured one). */
+  client?: ClientProfileName;
 }
 
 export interface TeleportMessage {
@@ -115,6 +118,25 @@ export interface EntityPose {
   riding: string | null;
   /** Actor properties, sent only on the tick they changed (the page keeps the last). */
   props?: Record<string, number | boolean | string>;
+  /**
+   * Where the phone's client DRAWS it this tick (`ClientView.drawnPose`): the server pose `entityLagTicks`
+   * behind (quirk `client-entity-lag`), a rider on its drawn mount's seat. Absent when equal to the server pose.
+   */
+  drawn?: { x: number; y: number; z: number; yaw: number; pitch: number };
+}
+
+/**
+ * The camera the phone's client draws this tick (`ClientView.drawn`, package B): the player's own view, or a
+ * script camera EASED from where it was drawn (quirk `camera-ease-lag`), or a camera animation's sample with its
+ * roll (quirks `camera-roll-animation-only`, `camera-animation-cut`). World blocks; `dir`/`up` are unit vectors.
+ */
+export interface DrawnView {
+  mode: DrawnMode;
+  eye: { x: number; y: number; z: number };
+  yaw: number; pitch: number; roll: number;
+  dir: { x: number; y: number; z: number };
+  up: { x: number; y: number; z: number };
+  preset?: string;
 }
 
 /** The camera the scripts asked for (`player.camera.setCamera` / `playAnimation`), as the host records it. */
@@ -150,7 +172,10 @@ export interface SimFrame {
   /** Wall time the tick took in the worker, ms. */
   ms: number;
   player: PlayerPose;
+  /** The script's last camera REQUEST, as the host records it (what was asked, not what is drawn: see `drawn`). */
   camera: ScriptCamera | null;
+  /** What the phone's client draws (package B's model); absent only from a frame built without a client. */
+  drawn?: DrawnView;
   /** What the crosshair's pick ray meets within reach (quirk `tap-is-hit`): the entity a tap or hold would act on. */
   aim: { id: string; typeId: string; distance: number } | null;
   entities: EntityPose[];
@@ -180,13 +205,15 @@ export interface ReadyInfo {
   nativeMountTypes: string[];
   /** The hooks the simulator offers this build (packages B and C); absent ones are drawn/routed by the walker itself. */
   hooks: SimHooks;
+  /** The phone client the frames are drawn as (its entity lag and whether it plays a camera ease). */
+  client: ClientProfile;
   /** Which thread runs the simulator. */
   inline: boolean;
 }
 
 /** Which client-side sim modules the session consumes; the HUD shows what is standing in. */
 export interface SimHooks {
-  /** `web/src/sim/client/camera.ts` (package B): the drawn camera (eased, lagged). Until then the camera is drawn RAW. */
+  /** `web/src/sim/client/camera.ts` (package B): the camera and entities as the phone's client draws them (eased, lagged, animated). */
   clientCamera: boolean;
   /** `web/src/sim/input/drag.ts` (package C): a drag queued on the controls and routed by control scheme and seat. */
   drag: boolean;
@@ -266,7 +293,7 @@ export class AddonSimClient {
   constructor(private readonly events: AddonSimClientEvents) {}
 
   /** Load a pack: a fresh simulator in the worker (or inline), placed at the size and turn. */
-  async start(bytes: ArrayBuffer, sizePct: number, rotation: PlacementRotation): Promise<void> {
+  async start(bytes: ArrayBuffer, sizePct: number, rotation: PlacementRotation, client: ClientProfileName = 'pixel'): Promise<void> {
     this.close();
     this.disposed = false;
     this.frame = this.prevFrame = undefined;
@@ -274,7 +301,7 @@ export class AddonSimClient {
     this.info = undefined;
     this.port = await this.openPort();
     // The bytes are copied, not transferred: a size change reloads the same pack.
-    this.port.post({ type: 'load', bytes: bytes.slice(0), sizePct, rotation });
+    this.port.post({ type: 'load', bytes: bytes.slice(0), sizePct, rotation, client });
   }
 
   private handle(m: WorkerToPage): void {

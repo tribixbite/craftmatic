@@ -17,8 +17,12 @@
  *
  * Nothing under `web/src/sim` is changed by this: the session consumes
  * `Simulation`, `ControlState`, `playerState().camera` and the timeline as
- * they are. Where a client-side hook of another package is not there yet
- * (`SimHooks`), the session does the direct thing and the HUD says so.
+ * they are. What the page DRAWS is package B's client model
+ * (`sim/client/camera.ts` `ClientView`, attached as `scripts/sim.ts`'s client
+ * runs attach it): the camera eased, lagged and animated as the chosen
+ * phone's client draws it, and every entity `entityLagTicks` behind the
+ * server. The client is an observer: it changes no server state, so the
+ * parity test's timeline and poses are the CLI's either way.
  */
 
 import { Simulation } from '../sim/core/simulation.js';
@@ -34,6 +38,7 @@ import { interact } from '../sim/input/touch.js';
 import { stickToWorld } from '../sim/input/controls.js';
 import { dragPixels } from '../sim/input/drag.js';
 import { screenPick, tapScreen, type Viewport } from '../sim/input/screen.js';
+import { attachClient, type ClientProfileName, type ClientView } from '../sim/client/camera.js';
 import { teleport } from '../sim/script-host/facades.js';
 import { plainText } from '../sim/script-host/text.js';
 import type { FormAnswer, ShownForm } from '../sim/script-host/ui-module.js';
@@ -42,7 +47,7 @@ import type { TimelineKind } from '../sim/core/timeline.js';
 import type { PlacementRotation } from '@engine/bedrock-placement-pack.js';
 import {
   SIM_TICK_MS,
-  type BlockChange, type EntityPose, type PageToWorker, type ReadyInfo, type RunStepMessage, type SimFrame, type SimHooks, type SimLine, type WalkerInput, type WorkerToPage,
+  type BlockChange, type DrawnView, type EntityPose, type PageToWorker, type ReadyInfo, type RunStepMessage, type SimFrame, type SimHooks, type SimLine, type WalkerInput, type WorkerToPage,
 } from './addon-sim-client.js';
 
 /** How many ticks one pump may run to catch up with the wall clock before it lets the thread breathe. */
@@ -55,23 +60,14 @@ const REPEAT_LIMIT = 3;
 const FLY_SPEED = 0.45;
 
 /**
- * The client-side module package B adds to the simulator (the drawn camera:
- * eased, lagged, its spline animations), found at build time; absent, Vite's
- * glob is `{}` and the page draws the script's camera RAW. Package C's input
- * modules (drag routing, the sneak toggle, the screen pick) are consumed
- * directly above. Declared loosely: the web tsconfig carries no `vite/client`
- * types (lego.ts does the same for `import.meta.env`).
+ * The client-side simulator modules the session consumes, all imported above: package B's client model (the drawn
+ * camera and entity lag) and package C's input modules (drag routing, the sneak toggle, the screen pick). The HUD
+ * lists them; a module that went missing would fail the build, not fall back silently.
  */
-declare global {
-  interface ImportMeta { glob?: (patterns: string[]) => Record<string, () => Promise<unknown>> }
-}
-function detectHooks(): SimHooks {
-  let found: Record<string, unknown> = {};
-  // Vite rewrites the literal call to an object of the files that exist; outside Vite `glob` is undefined and the catch answers.
-  try { found = import.meta.glob!(['../sim/client/camera.ts']) ?? {}; } catch { found = {}; }
-  // TODO(engine-b): read `sim/client/camera.ts` for the drawn camera pose once it lands (`hooks.clientCamera`).
-  return { clientCamera: Object.keys(found).some(k => /client\/camera\.ts$/.test(k)), drag: true, tapScreen: true, sneakToggle: true };
-}
+const HOOKS: SimHooks = { clientCamera: true, drag: true, tapScreen: true, sneakToggle: true };
+
+/** Two poses closer than this (blocks, degrees) are the same: the frame then omits the entity's `drawn`. */
+const SAME_POSE_EPS = 1e-6;
 
 const idle = (): WalkerInput => ({ seq: 0, forward: 0, strafe: 0, jump: false, sneak: false, sprint: false, autoJump: true, dyaw: 0, dpitch: 0, sneakMode: 'hold' });
 
@@ -96,7 +92,9 @@ export class AddonSimSession {
   pack: CraftmaticPack | null = null;
   addon: Addon | null = null;
   placed: Placed | null = null;
-  readonly hooks: SimHooks = detectHooks();
+  readonly hooks: SimHooks = HOOKS;
+  /** Package B's client over this world: what the chosen phone draws. */
+  view: ClientView | null = null;
   private handlers: Record<string, StepHandler> = {};
   private invariants: Invariant[] = [];
   private ictx: InvariantContext | null = null;
@@ -130,7 +128,7 @@ export class AddonSimSession {
     try {
       switch (m.type) {
         case 'load': {
-          const info = await this.load(m.bytes, m.sizePct, m.rotation);
+          const info = await this.load(m.bytes, m.sizePct, m.rotation, m.client);
           this.post({ type: 'ready', info });
           if (this.options.clock !== false) this.startClock();
           break;
@@ -162,7 +160,7 @@ export class AddonSimSession {
    * player stays where it placed from - six blocks off the model's -X edge,
    * facing it, which is where the walk used to spawn.
    */
-  async load(bytes: ArrayBuffer | Uint8Array, sizePct: number, rotation: PlacementRotation): Promise<ReadyInfo> {
+  async load(bytes: ArrayBuffer | Uint8Array, sizePct: number, rotation: PlacementRotation, client: ClientProfileName = 'pixel'): Promise<ReadyInfo> {
     this.stopClock();
     const sim = new Simulation({ seed: this.options.seed ?? 1 });
     const addon = await readAddon(bytes, 'walker');
@@ -171,6 +169,8 @@ export class AddonSimSession {
     if (!pack) throw new Error('Not a craftmatic pack: no scripts/placement.js with a CONFIG literal.');
     const player = sim.addPlayer('Child', { x: 0.5, y: FLAT_GROUND_Y, z: 0.5 }, []);
     this.sim = sim; this.addon = addon; this.pack = pack; this.player = player; this.placed = null;
+    // The client watches the player's camera facade from the first tick, before any script asks for a camera.
+    this.view = attachClient(sim, player, client);
     this.handlers = { ...CORE_HANDLERS, ...craftmaticHandlers(pack, addon) };
     this.input = idle(); this.appliedSeq = 0; this.pendingSlot = undefined; this.pendingTap = this.pendingHold = false;
     this.pendingViolations.length = 0; this.repeats.clear(); this.timelineSeen = 0;
@@ -211,7 +211,7 @@ export class AddonSimSession {
     });
     return {
       anchor: { ...placed.anchor }, from: { ...placed.from }, to: { ...placed.to }, sizePct, rotation, playerId: player.id,
-      vehicleTypes: [...pack.vehicleTypes], nativeMountTypes: [...pack.nativeMountTypes], hooks: this.hooks, inline: !!this.options.inline,
+      vehicleTypes: [...pack.vehicleTypes], nativeMountTypes: [...pack.nativeMountTypes], hooks: this.hooks, client: { ...this.view.profile }, inline: !!this.options.inline,
     };
   }
 
@@ -292,6 +292,8 @@ export class AddonSimSession {
       if (e.isPlayer) continue;
       ids.add(e.id);
       const pose: EntityPose = { id: e.id, typeId: e.typeId, x: e.location.x, y: e.location.y, z: e.location.z, yaw: e.rotation.y, pitch: e.rotation.x, scale: e.scale(), riding: e.ridingOn?.id ?? null };
+      const d = this.view?.drawnPose(e);
+      if (d && Math.max(Math.abs(d.x - pose.x), Math.abs(d.y - pose.y), Math.abs(d.z - pose.z), Math.abs(d.yaw - pose.yaw), Math.abs(d.pitch - pose.pitch)) > SAME_POSE_EPS) pose.drawn = { x: d.x, y: d.y, z: d.z, yaw: d.yaw, pitch: d.pitch };
       if (e.properties.size) {
         const props = Object.fromEntries(e.properties);
         const key = JSON.stringify(props);
@@ -315,6 +317,7 @@ export class AddonSimSession {
       tick: engine.tick, seq: this.appliedSeq, ms: Math.round(this.tickMs * 100) / 100,
       player: { x: p.location.x, y: p.location.y, z: p.location.z, yaw: p.rotation.y, pitch: p.rotation.x, onGround: p.onGround, sneaking: sim.controls.get(p.id).sneak, flying: p.flying, riding: p.ridingOn?.id ?? null, slot: st.selectedSlot },
       camera: cam.preset ? { ...cam, ...(cam.rotation ? { rotation: { ...cam.rotation } } : {}), ...(cam.location ? { location: { ...cam.location } } : {}), ...(cam.facing ? { facing: { ...cam.facing } } : {}) } : null,
+      ...(this.view ? { drawn: this.drawnView(p) } : {}),
       aim: aimed.entity ? { id: aimed.entity.id, typeId: aimed.entity.typeId, distance: aimed.distance ?? 0 } : null,
       entities, removed, lines,
       violations: this.pendingViolations.splice(0),
@@ -323,6 +326,12 @@ export class AddonSimSession {
     };
     if (this.dirtyBlocks.size) { frame.blocks = this.blockChanges(); }
     return frame;
+  }
+
+  /** The camera the client draws for the player this tick, copied out of the engine's objects. */
+  private drawnView(p: SimEntity): DrawnView {
+    const c = this.view!.drawn(p);
+    return { mode: c.mode, eye: { ...c.eye }, yaw: c.yaw, pitch: c.pitch, roll: c.roll, dir: { ...c.dir }, up: { ...c.up }, ...(c.preset ? { preset: c.preset } : {}) };
   }
 
   /**

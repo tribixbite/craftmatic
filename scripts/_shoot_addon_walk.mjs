@@ -25,7 +25,7 @@
  *                       figure walked and how many left their spawn.
  *     ride              stand beside the first coaster car, two static shots `--ride-wait=ms` apart (the car moved),
  *                       then board it by a TAP (the simulator's tap step) and ride `--ticks=N` (default 1200) with the
- *                       script's own rider camera drawn raw, a tile every `--strip=N` (default 60).
+ *                       script's own rider camera as the client draws it (package B: eased, lagged, animated), a tile every `--strip=N` (default 60).
  *     drive             the pack's scripted vehicle (`--vehicle=<typeId>`, default the first). With `--obstacle=<lane>`
  *                       (step1 hill kerb2 wall3 tree angled pit2 pit3 oblique) the simulator's OWN course step
  *                       (`stuckCourse`) runs while the walk draws it: the child seated, the stick forward into the
@@ -108,6 +108,9 @@ const readState = () => page.evaluate(() => {
     tick: f?.tick ?? null,
     player: f ? { x: f.player.x, y: f.player.y, z: f.player.z, yaw: f.player.yaw, pitch: f.player.pitch, riding: f.player.riding, onGround: f.player.onGround, slot: f.player.slot } : null,
     camera: f?.camera ?? null,
+    // What the phone's client draws (package B): the eased / animated script camera, or the own view from the drawn seat.
+    drawn: f?.drawn ?? null,
+    client: w?.simClient.info?.client ?? null,
     aim: f?.aim ?? null,
     anchor: w?.anchorPoint ?? null,
     hooks: w?.simClient.info?.hooks ?? null,

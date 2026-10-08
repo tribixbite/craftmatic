@@ -22,12 +22,12 @@
  *
  * WHAT IT PROVES, AND WHAT IT DOES NOT. Everything the simulator models
  * (CLAUDE.md, the quirk registry): the integrator over the shipped blocks,
- * the scripts' behaviour, seats, dismounts, the camera the scripts ASK for.
- * It does not prove Bedrock's rendering, its entity culling, form text, the
- * client's camera easing and draw lag (package B of the engine plan draws
- * those; until then the camera is drawn RAW and the HUD says so), nor the
- * phone's own touch pick (package C; until then a tap is the crosshair and a
- * drag turns the look directly).
+ * the scripts' behaviour, seats, dismounts, the camera the scripts ask for
+ * as the phone's client DRAWS it (package B's model: the ease, the entity
+ * draw lag, animations with roll - the Pixel's numbers measured, the Saga's
+ * derived), and the touch input (package C: drags routed by control scheme
+ * and seat, the screen pick, the sneak toggle). It does not prove Bedrock's
+ * rendering, its entity culling or form text.
  *
  * The reach BFS (`engine/addon-walk.ts`) stays what it was: the pure
  * question "can a player on foot reach this surface?", computed off-thread
@@ -63,8 +63,9 @@ import {
 } from './addon-preview-data.js';
 import {
   AddonSimClient, interpolatePose, SIM_TICK_MS, wrapDeg,
-  type BlockChange, type EntityPose, type FormEvent, type ReadyInfo, type SimFrame, type SimLine, type WalkerInput,
+  type BlockChange, type DrawnView, type EntityPose, type FormEvent, type ReadyInfo, type SimFrame, type SimLine, type WalkerInput,
 } from './addon-sim-client.js';
+import type { ClientProfileName } from '../sim/client/camera.js';
 import type { Violation } from '../sim/scenario/invariants.js';
 import { quirkValue } from '../sim/quirks/registry.js';
 
@@ -275,6 +276,23 @@ class ColliderStore {
   clear(): void { this.entries.clear(); this.dirty = true; }
 }
 
+
+/** The pose the phone's client draws an entity at (`EntityPose.drawn`), the server pose when they agree. */
+function drawnOf(e: EntityPose | undefined): { x: number; y: number; z: number; yaw: number; pitch: number } | undefined {
+  return e ? e.drawn ?? e : undefined;
+}
+
+/**
+ * A drawn camera between two ticks: the eye straight, the view and up vectors straight and re-normalised. A mode
+ * change or a jump of more than 8 blocks is a cut (an animation's start, a switched view), never a slide.
+ */
+function lerpView(a: DrawnView | undefined, b: DrawnView, alpha: number): Pick<DrawnView, 'eye' | 'dir' | 'up'> {
+  if (!a || a.mode !== b.mode || Math.hypot(b.eye.x - a.eye.x, b.eye.y - a.eye.y, b.eye.z - a.eye.z) > 8) return b;
+  const k = Math.max(0, Math.min(1, alpha));
+  const mix = (u: DrawnView['eye'], v: DrawnView['eye']): DrawnView['eye'] => ({ x: u.x + (v.x - u.x) * k, y: u.y + (v.y - u.y) * k, z: u.z + (v.z - u.z) * k });
+  const unit = (v: DrawnView['eye']): DrawnView['eye'] => { const l = Math.hypot(v.x, v.y, v.z) || 1; return { x: v.x / l, y: v.y / l, z: v.z / l }; };
+  return { eye: mix(a.eye, b.eye), dir: unit(mix(a.dir, b.dir)), up: unit(mix(a.up, b.up)) };
+}
 class AddonWalk implements AddonPreviewHandle {
   open = false;
   private readonly viewer: LDrawViewer;
@@ -360,6 +378,8 @@ class AddonWalk implements AddonPreviewHandle {
   private slotQueued: number | undefined;
   private fly = false;
   private autoJump = true;
+  /** Which phone's client the simulator draws as (package B's profiles): the Pixel is measured, the Saga derived. */
+  private clientPhone: ClientProfileName = 'pixel';
   private lastFrame = 0;
   private animId = 0;
   private lastInputMs = 0;
@@ -540,7 +560,7 @@ class AddonWalk implements AddonPreviewHandle {
     this.requestVerdicts();
     this.renderHud();
     this.renderForm();
-    void this.client.start(this.bytes, sizePct, rotation as PlacementRotation).catch((e: unknown) => {
+    void this.client.start(this.bytes, sizePct, rotation as PlacementRotation, this.clientPhone).catch((e: unknown) => {
       this.simState = 'error'; this.simError = e instanceof Error ? e.message : String(e); this.renderHud();
     });
   }
@@ -881,7 +901,7 @@ class AddonWalk implements AddonPreviewHandle {
         this.holders.set(e.id, h);
         this.applyHolderVisibility(h);
       }
-      const p = interpolatePose(this.prevPoses.get(e.id), e, alpha);
+      const p = interpolatePose(drawnOf(this.prevPoses.get(e.id)), drawnOf(e)!, alpha);
       h.root.position.set(p.x - a.x, p.y - a.y, p.z - a.z);
       // A Bedrock yaw is three.js `rotation.y` by the negated angle (`worldFaces`, bedrock-geometry-faces.ts).
       h.root.rotation.y = -p.yaw * Math.PI / 180;
@@ -894,7 +914,7 @@ class AddonWalk implements AddonPreviewHandle {
       if (!mk.simId) continue;
       const e = f.entities.find(x => x.id === mk.simId);
       if (!e) continue;
-      const p = interpolatePose(this.prevPoses.get(e.id), e, alpha);
+      const p = interpolatePose(drawnOf(this.prevPoses.get(e.id)), drawnOf(e)!, alpha);
       const w = { x: p.x - a.x, y: p.y - a.y, z: p.z - a.z };
       mk.mesh.position.set(w.x, w.y + mk.height / 2, w.z);
       mk.mesh.rotation.y = -p.yaw * Math.PI / 180;
@@ -905,18 +925,28 @@ class AddonWalk implements AddonPreviewHandle {
   }
 
   /**
-   * The camera: the SCRIPT's request when one is in force (`setCamera`
-   * minecraft:free at a location looking at a point or along a rotation -
-   * the chase and cockpit cameras, the coaster's rider view), drawn RAW: no
-   * easing, no draw lag, no spline (package B's client model draws those; the
-   * HUD's "camera: raw" says so). Otherwise the player's own first person at
-   * the simulator's eye, the look predicted ahead by the turns not yet seen.
+   * The camera, as the phone's client draws it (package B, `f.drawn`): a
+   * script camera EASED from where it was drawn, a camera animation sampled
+   * with its roll, or - riding - the player's own view from its seat on the
+   * LAGGED mount (the cockpit lag); the look is the player's own, predicted
+   * ahead by the turns not yet seen. Walking, the player's own first person
+   * at the simulator's eye (the client draws its own player where it is).
+   * A frame without `drawn` falls back to the script's raw request.
    */
   private placeCamera(f: SimFrame, alpha: number): void {
     const a = this.anchor, cam = f.camera;
     const prevP = this.client.prevFrame?.player;
     const p = interpolatePose(prevP, f.player, alpha);
     const look = this.predictedLook(f);
+    if (f.drawn && (f.drawn.mode !== 'own' || f.player.riding)) {
+      const v = lerpView(this.client.prevFrame?.drawn, f.drawn, alpha);
+      this.camera.position.set(v.eye.x - a.x, v.eye.y - a.y, v.eye.z - a.z);
+      if (f.drawn.mode === 'own') { this.setLook(look.yaw, look.pitch); return; }
+      this.camera.up.set(v.up.x, v.up.y, v.up.z);
+      this.camera.lookAt(v.eye.x - a.x + v.dir.x, v.eye.y - a.y + v.dir.y, v.eye.z - a.z + v.dir.z);
+      return;
+    }
+    this.camera.up.set(0, 1, 0);
     if (cam?.preset === 'minecraft:free' && (cam.location || cam.rotation)) {
       const eye = cam.location ? { x: cam.location.x - a.x, y: cam.location.y - a.y, z: cam.location.z - a.z } : { x: p.x - a.x, y: p.y - a.y + 1.62, z: p.z - a.z };
       this.camera.position.set(eye.x, eye.y, eye.z);
@@ -1394,7 +1424,7 @@ class AddonWalk implements AddonPreviewHandle {
       <div class="ap-look" tabindex="0" aria-label="Add-on walk view"></div>
       <div class="ap-labels"></div>
       <div class="ap-crosshair"></div>
-      <div class="ap-banner">The <b>simulator</b> runs this pack's own scripts over the blocks its wand lays; the walker draws it. ${materialEvidence} It does <b>not</b> prove Bedrock's rendering, culling, form text, camera easing or the phone's touch pick — a device round still decides those.</div>
+      <div class="ap-banner">The <b>simulator</b> runs this pack's own scripts over the blocks its wand lays; the walker draws it. ${materialEvidence} The camera and figures are drawn as the phone's client model draws them (its numbers are the quirk registry's). It does <b>not</b> prove Bedrock's rendering, culling or form text — a device round still decides those.</div>
       <div class="ap-title-line" style="display:none"></div>
       <div class="ap-interact"></div>
       <div class="ap-actionbar" style="display:none"></div>
@@ -1554,6 +1584,7 @@ class AddonWalk implements AddonPreviewHandle {
       else if (act === 'goto') { const t = this.targets[Number(btn.dataset['i'])]; if (t) this.goTo(t); }
       else if (act === 'autojump') { this.autoJump = !this.autoJump; this.renderSimPanel(); }
       else if (act === 'form') { const i = Number(btn.dataset['i']); this.answerForm(i < 0 ? { cancel: true } : { button: i }); }
+      else if (act === 'client-phone') { this.clientPhone = this.clientPhone === 'pixel' ? 'saga' : 'pixel'; this.rebuild(); }
       else if (act === 'clear-violations') { this.violations.length = 0; this.violationCounts.clear(); this.renderSimPanel(); }
     });
 
@@ -1676,7 +1707,8 @@ class AddonWalk implements AddonPreviewHandle {
     const state = this.simState === 'live' ? `live · tick ${f?.tick ?? 0} · ${this.tickMs.toFixed(1)} ms/tick${info?.inline ? ' · inline' : ' · Worker'}` : this.simState;
     this.simEl.innerHTML = `<div class="ap-title">Simulator <span class="ap-dim">${esc(state)}</span></div>
       <div class="ap-row ap-inds">
-        ${ind(hooks?.clientCamera, 'camera: client model', 'camera: raw')}
+        ${ind(hooks?.clientCamera, `camera: ${info?.client.name ?? this.clientPhone} client (lag ${info?.client.entityLagTicks ?? '?'} ticks, ease ${info?.client.easeFactor ? 'played' : 'not played'}${info?.client.basis === 'derived' ? ', derived' : ''})`, 'camera: raw')}
+        <button type="button" class="ap-tog" data-act="client-phone" title="Draw as the other phone's client (package B profiles: the Pixel measured, the Saga derived); reloads the simulator">as ${this.clientPhone === 'pixel' ? 'Saga' : 'Pixel'}</button>
         ${ind(hooks?.drag, 'drag: scheme-routed', 'drag: direct')}
         ${ind(hooks?.tapScreen, 'tap: screen pick', 'tap: crosshair')}
         ${ind(hooks?.sneakToggle, `sneak: sim ${this.sneakToggleMode ? 'toggle' : 'hold'}${f?.player.sneaking ? ' (ON)' : ''}`, 'sneak: walker toggle')}

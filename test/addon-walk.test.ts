@@ -391,7 +391,8 @@ describe.skipIf(!existsSync(ROUND_PACK_10261))('the walker\'s tick equals script
     const info = await session.load(buf, 100, 0);
     expect(info.anchor).toBeDefined();
     let last: SimFrame | undefined;
-    for (let i = 0; i < 600; i++) last = await session.tick();
+    const ticked: SimFrame[] = [];
+    for (let i = 0; i < 600; i++) ticked.push(last = await session.tick());
     const walker = session.sim!;
     expect(walker.engine.tick).toBe(cli.ticks);
     expect(last!.tick).toBe(cli.ticks);
@@ -406,6 +407,15 @@ describe.skipIf(!existsSync(ROUND_PACK_10261))('the walker\'s tick equals script
     expect(child(walker)).toEqual(child(cliSim!));
     // The frames the page would draw carry those poses, and the placement laid blocks.
     expect(last!.entities.length).toBe(poses(walker).length);
+    // ...drawn as the Pixel's client draws them (package B, attached as an observer: the timeline and poses above are
+    // the CLI's all the same): the child walking sees its own view, and a figure that moved is drawn behind its server
+    // pose by the measured entity lag.
+    expect(info.client).toMatchObject({ name: 'pixel', basis: 'measured' });
+    expect(last!.drawn?.mode).toBe('own');
+    const lag = ticked.flatMap(f => f.entities.filter(e => e.drawn && !e.riding).map(e => Math.hypot(e.drawn!.x - e.x, e.drawn!.z - e.z))).sort((x, y) => x - y);
+    expect(lag.length).toBeGreaterThan(0);
+    // A walking figure (~0.04 blocks a tick) 3.5 ticks behind: a fraction of a block, at the median.
+    expect(lag[Math.floor(lag.length / 2)]!).toBeLessThan(0.5);
     const laid = posts.flatMap(m => (m.type === 'frame' ? m.frame.blocks ?? [] : []));
     expect(laid.length).toBeGreaterThan(1000);
     expect(laid.every(c => c.typeId.startsWith('craftmatic:collider') || c.typeId.startsWith('minecraft:'))).toBe(true);
