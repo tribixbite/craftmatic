@@ -30,8 +30,10 @@ import { CORE_HANDLERS, findEntity } from '../sim/scenario/runner.js';
 import { coreInvariants, quietable, type Invariant, type InvariantContext, type Violation } from '../sim/scenario/invariants.js';
 import type { AnyStep, StepContext, StepHandler } from '../sim/scenario/types.js';
 import { FLAT_GROUND_Y } from '../sim/world/voxel-world.js';
-import { interact, pick, tap } from '../sim/input/touch.js';
-import { IDLE_CONTROLS, stickToWorld } from '../sim/input/controls.js';
+import { interact } from '../sim/input/touch.js';
+import { stickToWorld } from '../sim/input/controls.js';
+import { dragPixels } from '../sim/input/drag.js';
+import { screenPick, tapScreen, type Viewport } from '../sim/input/screen.js';
 import { teleport } from '../sim/script-host/facades.js';
 import { plainText } from '../sim/script-host/text.js';
 import type { FormAnswer, ShownForm } from '../sim/script-host/ui-module.js';
@@ -39,7 +41,7 @@ import type { SimEntity } from '../sim/entity/entity.js';
 import type { TimelineKind } from '../sim/core/timeline.js';
 import type { PlacementRotation } from '@engine/bedrock-placement-pack.js';
 import {
-  SIM_TICK_MS, wrapDeg,
+  SIM_TICK_MS,
   type BlockChange, type EntityPose, type PageToWorker, type ReadyInfo, type RunStepMessage, type SimFrame, type SimHooks, type SimLine, type WalkerInput, type WorkerToPage,
 } from './addon-sim-client.js';
 
@@ -53,11 +55,12 @@ const REPEAT_LIMIT = 3;
 const FLY_SPEED = 0.45;
 
 /**
- * The client-side modules other packages add to the simulator, found at build
- * time: package B's drawn camera, package C's drag routing and screen pick.
- * An absent module is `{}` here (Vite's glob of nothing), and the session does
- * the direct thing instead. Declared loosely: the web tsconfig carries no
- * `vite/client` types (lego.ts does the same for `import.meta.env`).
+ * The client-side module package B adds to the simulator (the drawn camera:
+ * eased, lagged, its spline animations), found at build time; absent, Vite's
+ * glob is `{}` and the page draws the script's camera RAW. Package C's input
+ * modules (drag routing, the sneak toggle, the screen pick) are consumed
+ * directly above. Declared loosely: the web tsconfig carries no `vite/client`
+ * types (lego.ts does the same for `import.meta.env`).
  */
 declare global {
   interface ImportMeta { glob?: (patterns: string[]) => Record<string, () => Promise<unknown>> }
@@ -65,17 +68,15 @@ declare global {
 function detectHooks(): SimHooks {
   let found: Record<string, unknown> = {};
   // Vite rewrites the literal call to an object of the files that exist; outside Vite `glob` is undefined and the catch answers.
-  try { found = import.meta.glob!(['../sim/client/camera.ts', '../sim/input/drag.ts', '../sim/input/screen.ts']) ?? {}; } catch { found = {}; }
-  const keys = Object.keys(found);
-  return {
-    clientCamera: keys.some(k => /client\/camera\.ts$/.test(k)),
-    drag: keys.some(k => /input\/drag\.ts$/.test(k)),
-    tapScreen: keys.some(k => /input\/screen\.ts$/.test(k)),
-    sneakToggle: 'sneakToggle' in IDLE_CONTROLS,
-  };
+  try { found = import.meta.glob!(['../sim/client/camera.ts']) ?? {}; } catch { found = {}; }
+  // TODO(engine-b): read `sim/client/camera.ts` for the drawn camera pose once it lands (`hooks.clientCamera`).
+  return { clientCamera: Object.keys(found).some(k => /client\/camera\.ts$/.test(k)), drag: true, tapScreen: true, sneakToggle: true };
 }
 
-const idle = (): WalkerInput => ({ seq: 0, forward: 0, strafe: 0, jump: false, sneak: false, sprint: false, autoJump: true, dyaw: 0, dpitch: 0 });
+const idle = (): WalkerInput => ({ seq: 0, forward: 0, strafe: 0, jump: false, sneak: false, sprint: false, autoJump: true, dyaw: 0, dpitch: 0, sneakMode: 'hold' });
+
+/** The walk's canvas as a `Viewport` of the screen pick: a crosshair (Split Controls, the QA phones' setting) unless a finger's point is given. */
+const walkerViewport = (v: WalkerInput['viewport'], touch: boolean): Viewport => ({ name: 'walker', width: v?.width ?? 1280, height: v?.height ?? 720, fovDeg: v?.fovDeg ?? 75, touchMode: touch ? 'touch' : 'crosshair' });
 
 /** A frame with nothing new, to merge the next ticks into. */
 const emptyFrame = (f: SimFrame): SimFrame => ({ ...f, entities: [], removed: [], lines: [], violations: [], blocks: [] });
@@ -216,14 +217,23 @@ export class AddonSimSession {
 
   // ─── The tick ─────────────────────────────────────────────────────────────
 
-  /** The latest input; its look turn is applied once, on the next tick. */
+  /** The latest input; its look turn is queued as a drag the players system applies at the start of the next tick. */
   setInput(i: WalkerInput): void {
-    const prev = this.input;
-    this.input = { ...i, dyaw: prev.dyaw + i.dyaw, dpitch: prev.dpitch + i.dpitch };
+    const sim = this.sim, p = this.player;
+    this.input = { ...i, dyaw: 0, dpitch: 0 };
     if (i.slot !== undefined) this.pendingSlot = i.slot;
-    if (i.tap) this.pendingTap = true;
+    if (i.tap) { this.pendingTap = true; this.tapAt = i.tapAt; }
     if (i.hold) this.pendingHold = true;
+    if (i.viewport) this.viewport = i.viewport;
+    if (!sim || !p || this.stepLabel) return;
+    // A drag goes through package C's router (`sim/input/drag.ts`): the control scheme and the seat decide whether it
+    // turns the look, only the pitch, or a client camera orbit - the walker never turns the player itself.
+    if (i.dyaw || i.dpitch) sim.controls.drag(p.id, { yawDeg: i.dyaw, pitchDeg: i.dpitch });
+    if (i.dragPx && (i.dragPx.dx || i.dragPx.dy)) dragPixels(sim.controls, p.id, i.dragPx.dx, i.dragPx.dy);
+    if (sim.controls.sneakMode(p.id) !== i.sneakMode) sim.controls.setSneakMode(p.id, i.sneakMode);
   }
+  private tapAt: { x: number; y: number } | undefined;
+  private viewport: WalkerInput['viewport'];
 
   /**
    * One tick: the input into the controls and the look, the engine's step
@@ -245,14 +255,9 @@ export class AddonSimSession {
     const sim = this.sim!, p = this.player!, i = this.input;
     this.appliedSeq = i.seq;
     // A running scenario step owns the controls and the look (it steers the child itself); the page's input waits.
-    if (this.stepLabel) { this.input = { ...i, dyaw: 0, dpitch: 0 }; this.pendingTap = this.pendingHold = false; return; }
+    if (this.stepLabel) { this.pendingTap = this.pendingHold = false; return; }
     if (this.pendingSlot !== undefined) { sim.host.playerState(p).selectedSlot = this.pendingSlot; this.pendingSlot = undefined; }
-    // The look: a drag turns the player's yaw and pitch directly. TODO(engine-c): route through package C's
-    // `sim/input/drag.ts` (the control-scheme router) once it lands; `hooks.drag` says whether it has.
-    if (i.dyaw || i.dpitch) {
-      p.rotation = { x: Math.max(-89.9, Math.min(89.9, p.rotation.x + i.dpitch)), y: wrapDeg(p.rotation.y + i.dyaw) };
-      this.input = { ...i, dyaw: 0, dpitch: 0 };
-    }
+    // `sneak` is the finger or key: in `toggle` mode the simulator latches it (quirk `touch-sneak-toggle`).
     sim.controls.set(p.id, { forward: i.forward, strafe: i.strafe, jump: i.jump, sneak: i.sneak, sprint: i.sprint, autoJump: i.autoJump });
     if (i.fly && !p.ridingOn) {
       // Free-fly is the WALKER's inspection mode: the engine hangs a flying player (`SimEntity.flying`) and this moves it.
@@ -262,12 +267,18 @@ export class AddonSimSession {
       const up = (i.jump ? 1 : 0) - (i.sneak ? 1 : 0);
       p.location = { x: p.location.x + w.x * speed, y: Math.max(FLAT_GROUND_Y - 2, p.location.y + up * speed), z: p.location.z + w.z * speed };
     } else if (p.flying) p.flying = false;
-    // A tap is a hit at the crosshair, a hold the interact (quirks `tap-is-hit`, `hold-is-interact`). TODO(engine-c): a
-    // screen-space tap (`sim/input/screen.ts`, `tapScreen {u, v}`) once package C lands; `hooks.tapScreen` says so.
-    if (this.pendingTap) { this.pendingTap = false; tap(sim.engine, p); }
+    // A tap is a hit, a hold the interact (quirks `tap-is-hit`, `hold-is-interact`), both picked along the ray from the
+    // camera the player SEES (package C's `sim/input/screen.ts`: the script camera when one is active, else the eye;
+    // a finger's point with Split Controls off, the crosshair with them on).
+    if (this.pendingTap) {
+      this.pendingTap = false;
+      const at = this.tapAt;
+      this.tapAt = undefined;
+      tapScreen(sim.engine, p, at ?? { x: 0, y: 0 }, walkerViewport(this.viewport, !!at), sim.host.playerState(p).camera);
+    }
     if (this.pendingHold) {
       this.pendingHold = false;
-      const r = pick(sim.engine, p);
+      const r = screenPick(sim.engine, p, { x: 0, y: 0 }, walkerViewport(this.viewport, false), sim.host.playerState(p).camera);
       if (r.entity) interact(sim.engine, p, r.entity, (a, b) => sim.host.before('playerInteractWithEntity', { player: sim.host.entity(a), target: sim.host.entity(b) }));
     }
   }
@@ -299,7 +310,7 @@ export class AddonSimSession {
     }
     const cam = sim.host.playerState(p).camera;
     const st = sim.host.playerState(p);
-    const aimed = pick(engine, p);
+    const aimed = screenPick(engine, p, { x: 0, y: 0 }, walkerViewport(this.viewport, false), cam);
     const frame: SimFrame = {
       tick: engine.tick, seq: this.appliedSeq, ms: Math.round(this.tickMs * 100) / 100,
       player: { x: p.location.x, y: p.location.y, z: p.location.z, yaw: p.rotation.y, pitch: p.rotation.x, onGround: p.onGround, sneaking: sim.controls.get(p.id).sneak, flying: p.flying, riding: p.ridingOn?.id ?? null, slot: st.selectedSlot },

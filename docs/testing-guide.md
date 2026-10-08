@@ -144,13 +144,19 @@ Cockpit hotbar buttons. The HUD shows the action bar, chat and titles the
 scripts say, a form the scripts show (answered through the simulator's
 chooser), the invariants' violations as they happen, an orange banner when
 the scripts reached an UNMODELLED API member (unknown is never pass), and
-which client-side hooks are standing in: **"camera: raw"** (the script's
-`setCamera` drawn without the client's 0.1 s ease, 3.5-tick draw lag or
-spline animation - package B's `sim/client/camera.ts`), **"drag: direct"**
-(a drag turns the look; the control-scheme router is package C's
-`sim/input/drag.ts`), **"tap: crosshair"** (the phone's screen-space pick is
-C's `sim/input/screen.ts`), "sneak: walker toggle" (until `PlayerControls`
-carries `sneakToggle`). The reach BFS stays what it was - the pure
+which client-side modules it runs through: **"drag: scheme-routed"** (a
+mouse's degrees or a finger's pixels are queued on the controls and
+`sim/input/drag.ts` routes them by the control scheme and the seat: the
+look, the pitch only, or a client camera orbit - the page predicts the look
+and the next frame corrects it), **"tap: screen pick"** (a tap and a hold pick
+along the ray from the camera the player SEES, `sim/input/screen.ts`: the
+chase or cockpit camera when one is on, the crosshair with Split Controls as
+the QA phones have it, the finger's point without), **"sneak: sim toggle"**
+(the phone's button is latched by `ControlState.setSneakMode('toggle')`;
+Shift on a keyboard is a hold, C presses the toggle), and **"camera: raw"**:
+the script's `setCamera` drawn without the client's 0.1 s ease, 3.5-tick
+draw lag or spline animation until package B's `sim/client/camera.ts` lands
+(the only indicator still orange). The reach BFS stays what it was - the pure
 "can a player on foot reach this surface?" of `engine/addon-walk.ts`, off
 thread in `addon-reach-worker.ts` over the shipped collider grid, drawn as
 the green/red plates and the per-target verdicts - and below 100 % it

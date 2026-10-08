@@ -66,6 +66,7 @@ import {
   type BlockChange, type EntityPose, type FormEvent, type ReadyInfo, type SimFrame, type SimLine, type WalkerInput,
 } from './addon-sim-client.js';
 import type { Violation } from '../sim/scenario/invariants.js';
+import { quirkValue } from '../sim/quirks/registry.js';
 
 /**
  * A geometry rotation (JSON degrees) about `pivot` as a three.js matrix: the
@@ -202,8 +203,8 @@ const MODIFIED_MOVE_SPEED_PER_BLOCK_TICK = 3.9;
 const LOG_LINES = 8;
 /** How long an action-bar line stays on screen (the game's own fade), ms. */
 const ACTIONBAR_MS = 3000;
-/** Look sensitivity: degrees per pixel of mouse movement (pointer lock) and of touch drag. */
-const MOUSE_DEG_PER_PX = 0.14, TOUCH_DEG_PER_PX = 0.22;
+/** Look sensitivity of a MOUSE: degrees per pixel of movement (a finger's pixels go to the simulator as they are). */
+const MOUSE_DEG_PER_PX = 0.14;
 
 interface Marker {
   entity: AddonEntity;
@@ -343,10 +344,18 @@ class AddonWalk implements AddonPreviewHandle {
   private touchJump = false;
   private touchSprint = false;
   private touchHold = false;
-  /** The sneak TOGGLE (the phone's default): on until pressed again. Shift is a hold on top. */
-  private sneakLatched = false;
+  /**
+   * The sneak control's mode (`ControlState.setSneakMode`): the phone's button is a TOGGLE (each press flips it;
+   * the simulator latches it, quirk `touch-sneak-toggle`), a keyboard's Shift a hold. C on a keyboard switches to
+   * the toggle and presses it. `sneakPress` is one press, sent once.
+   */
+  private sneakToggleMode = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  private sneakPress = false;
+  /** A mouse's turn, degrees; a finger's drag, pixels (the simulator turns those at the phone's measured sensitivity). */
   private lookDelta = { yaw: 0, pitch: 0 };
+  private dragPx = { dx: 0, dy: 0 };
   private tapQueued = false;
+  private tapAt: { x: number; y: number } | undefined;
   private holdQueued = false;
   private slotQueued: number | undefined;
   private fly = false;
@@ -518,7 +527,7 @@ class AddonWalk implements AddonPreviewHandle {
     this.form = null;
     this.pendingLook = [];
     this.fly = false;
-    this.sneakLatched = false;
+    this.sneakPress = false;
     this.reachSummary = sizePct >= 100 && model.cells.length ? 'Reach on foot: checking…' : model.cells.length
       ? 'No reach walk below 100 %: the wand merges several cells into a block there and the reach module declines to guess. The simulator still lays and walks the real blocks.'
       : 'This pack ships no collider grid: nothing for the reach walk to grade. The simulator still places it.';
@@ -814,6 +823,7 @@ class AddonWalk implements AddonPreviewHandle {
       }
       st.prev = { x: e.x, y: e.y, z: e.z, tick: f.tick };
     }
+    if (f.player.sneaking !== (prev?.player.sneaking ?? false)) this.root.querySelector('.ap-tbtn[data-t="sneak"]')?.classList.toggle('on', f.player.sneaking);
     if (f.lines.length || f.violations.length || f.player.riding !== (prev?.player.riding ?? null)) this.renderSimPanel();
   }
 
@@ -928,11 +938,16 @@ class AddonWalk implements AddonPreviewHandle {
     this.setLook(look.yaw, look.pitch);
   }
 
-  /** The simulator's look plus the turns sent since the frame it reports (so the mouse feels immediate). */
+  /**
+   * The simulator's look plus the turns sent since the frame it reports (so the mouse feels immediate). A
+   * prediction only: the simulator routes a drag by the control scheme and the seat, and a riding player on a
+   * lock-181 seat may see its drag go to the camera orbit instead; the next frame corrects the picture.
+   */
   private predictedLook(f: SimFrame): { yaw: number; pitch: number } {
     let yaw = f.player.yaw, pitch = f.player.pitch;
     for (const l of this.pendingLook) { yaw += l.dyaw; pitch += l.dpitch; }
-    yaw += this.lookDelta.yaw; pitch += this.lookDelta.pitch;
+    const k = quirkValue('touch-drag-degrees-per-pixel', 'degreesPerPixel');
+    yaw += this.lookDelta.yaw + this.dragPx.dx * k; pitch += this.lookDelta.pitch + this.dragPx.dy * k;
     return { yaw: wrapDeg(yaw), pitch: Math.max(-89.9, Math.min(89.9, pitch)) };
   }
 
@@ -953,17 +968,24 @@ class AddonWalk implements AddonPreviewHandle {
     let side = (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) - (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - this.touchMove.x;
     const mag = Math.hypot(fwd, side);
     if (mag > 1) { fwd /= mag; side /= mag; }
+    // Shift on a keyboard is a HOLD: pressing it leaves the toggle mode; a sneak press (the button, C) is one press.
+    const shift = k.has('ShiftLeft') || k.has('ShiftRight');
+    if (shift) this.sneakToggleMode = false;
     const input: Omit<WalkerInput, 'seq'> = {
       forward: fwd, strafe: side,
       jump: k.has('Space') || this.touchJump,
-      sneak: this.sneakLatched || k.has('ShiftLeft') || k.has('ShiftRight'),
+      sneak: this.sneakPress || (!this.sneakToggleMode && shift),
+      sneakMode: this.sneakToggleMode ? 'toggle' : 'hold',
       sprint: k.has('ControlLeft') || k.has('ControlRight') || this.touchSprint,
       autoJump: this.autoJump,
       dyaw: this.lookDelta.yaw, dpitch: this.lookDelta.pitch,
+      ...(this.dragPx.dx || this.dragPx.dy ? { dragPx: { ...this.dragPx } } : {}),
+      viewport: { width: this.viewer.container.clientWidth || 1, height: this.viewer.container.clientHeight || 1, fovDeg: this.camera.fov },
       fly: this.fly,
     };
+    this.sneakPress = false;
     if (this.slotQueued !== undefined) { input.slot = this.slotQueued; this.slotQueued = undefined; }
-    if (this.tapQueued) { input.tap = true; this.tapQueued = false; }
+    if (this.tapQueued) { input.tap = true; this.tapQueued = false; if (this.tapAt) { input.tapAt = this.tapAt; this.tapAt = undefined; } }
     if (this.holdQueued || this.touchHold) { input.hold = true; this.holdQueued = false; this.touchHold = false; }
     return input;
   }
@@ -972,13 +994,17 @@ class AddonWalk implements AddonPreviewHandle {
   private sendInput(now: number): void {
     if (this.simState !== 'live' || this.form) return;
     const due = now - this.lastInputMs >= SIM_TICK_MS;
-    const pressed = this.tapQueued || this.holdQueued || this.touchHold || this.slotQueued !== undefined;
+    const pressed = this.tapQueued || this.holdQueued || this.touchHold || this.sneakPress || this.slotQueued !== undefined;
     if (!due && !pressed) return;
     this.lastInputMs = now;
     const input = this.inputForTick();
     const seq = this.client.sendInput(input);
-    if (input.dyaw || input.dpitch) this.pendingLook.push({ seq, dyaw: input.dyaw, dpitch: input.dpitch });
+    const k = quirkValue('touch-drag-degrees-per-pixel', 'degreesPerPixel');
+    const dyaw = input.dyaw + (input.dragPx?.dx ?? 0) * k, dpitch = input.dpitch + (input.dragPx?.dy ?? 0) * k;
+    // The drag is applied at the start of the NEXT tick, so it is spent one frame after the one that carries `seq`.
+    if (dyaw || dpitch) this.pendingLook.push({ seq: seq + 1, dyaw, dpitch });
     this.lookDelta = { yaw: 0, pitch: 0 };
+    this.dragPx = { dx: 0, dy: 0 };
   }
 
   /** The prompt over the crosshair: what a tap or a hold acts on, as the simulator's pick reports it. */
@@ -1465,15 +1491,21 @@ class AddonWalk implements AddonPreviewHandle {
     this.on(look, 'pointermove', (e: PointerEvent) => {
       if (!drag || e.pointerId !== drag.id) return;
       if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > 8) drag.moved = true;
-      const k = e.pointerType === 'touch' ? TOUCH_DEG_PER_PX : MOUSE_DEG_PER_PX;
-      this.turn((e.clientX - drag.x) * k, (e.clientY - drag.y) * k);
+      // A finger's drag goes to the simulator in PIXELS (it turns them at the phone's measured sensitivity); a
+      // mouse drag without the lock in degrees.
+      if (e.pointerType === 'touch') { if (!this.form) this.dragPx = { dx: this.dragPx.dx + (e.clientX - drag.x), dy: this.dragPx.dy + (e.clientY - drag.y) }; }
+      else this.turn((e.clientX - drag.x) * MOUSE_DEG_PER_PX, (e.clientY - drag.y) * MOUSE_DEG_PER_PX);
       drag = { ...drag, x: e.clientX, y: e.clientY };
     });
     const endDrag = (e: PointerEvent): void => {
       if (!drag || e.pointerId !== drag.id) return;
-      // A short touch that did not move is a TAP at the crosshair (the phone's tap lands on what is under the finger:
-      // package C's screen pick; until then the crosshair stands for it and the HUD says so).
-      if (e.pointerType === 'touch' && !drag.moved && performance.now() - drag.at < 300) this.tapQueued = true;
+      // A short touch that did not move is a TAP where the finger landed: the simulator's screen pick decides what it
+      // hits (with Split Controls, the QA phones' setting, the crosshair; without, the touched point).
+      if (e.pointerType === 'touch' && !drag.moved && performance.now() - drag.at < 300) {
+        const r = look.getBoundingClientRect();
+        this.tapAt = { x: e.clientX - r.left, y: e.clientY - r.top };
+        this.tapQueued = true;
+      }
       drag = null;
     };
     this.on(look, 'pointerup', endDrag);
@@ -1487,7 +1519,7 @@ class AddonWalk implements AddonPreviewHandle {
       if (e.code === 'KeyF') { this.toggleFly(); e.preventDefault(); return; }
       if (e.code === 'KeyR') { this.respawn(); e.preventDefault(); return; }
       if (e.code === 'KeyH') { this.toggleHud(); e.preventDefault(); return; }
-      if (e.code === 'KeyC' && !e.repeat) { this.setSneakLatch(!this.sneakLatched); e.preventDefault(); return; }
+      if (e.code === 'KeyC' && !e.repeat) { this.pressSneakToggle(); e.preventDefault(); return; }
       if (e.code === 'KeyE' && !e.repeat) { this.holdQueued = true; e.preventDefault(); return; }
       if (e.code === 'KeyT' && !e.repeat) { this.tapQueued = true; e.preventDefault(); return; }
       if (/^Digit[1-9]$/.test(e.code)) { this.slotQueued = Number(e.code.slice(5)) - 1; e.preventDefault(); return; }
@@ -1551,7 +1583,7 @@ class AddonWalk implements AddonPreviewHandle {
         else if (which === 'hold') { if (on) this.touchHold = true; }
         if (which !== 'sneak') b.classList.toggle('on', on);
       };
-      if (which === 'sneak') { this.on(b, 'pointerdown', (e: PointerEvent) => { this.setSneakLatch(!this.sneakLatched); e.preventDefault(); }); continue; }
+      if (which === 'sneak') { this.on(b, 'pointerdown', (e: PointerEvent) => { this.pressSneakToggle(); e.preventDefault(); }); continue; }
       this.on(b, 'pointerdown', (e: PointerEvent) => { set(true); b.setPointerCapture(e.pointerId); e.preventDefault(); });
       this.on(b, 'pointerup', () => set(false));
       this.on(b, 'pointercancel', () => set(false));
@@ -1561,10 +1593,10 @@ class AddonWalk implements AddonPreviewHandle {
     }
   }
 
-  private setSneakLatch(on: boolean): void {
-    this.sneakLatched = on;
-    this.root.querySelector('.ap-tbtn[data-t="sneak"]')?.classList.toggle('on', on);
-    this.renderSimPanel();
+  /** One press of the sneak TOGGLE (the phone's button, C on a keyboard): the simulator flips and latches it. */
+  private pressSneakToggle(): void {
+    this.sneakToggleMode = true;
+    this.sneakPress = true;
   }
 
   private turn(dxDeg: number, dyDeg: number): void {
@@ -1647,7 +1679,7 @@ class AddonWalk implements AddonPreviewHandle {
         ${ind(hooks?.clientCamera, 'camera: client model', 'camera: raw')}
         ${ind(hooks?.drag, 'drag: scheme-routed', 'drag: direct')}
         ${ind(hooks?.tapScreen, 'tap: screen pick', 'tap: crosshair')}
-        ${ind(hooks?.sneakToggle, 'sneak: sim toggle', `sneak: walker toggle${this.sneakLatched ? ' (ON)' : ''}`)}
+        ${ind(hooks?.sneakToggle, `sneak: sim ${this.sneakToggleMode ? 'toggle' : 'hold'}${f?.player.sneaking ? ' (ON)' : ''}`, 'sneak: walker toggle')}
         <button type="button" class="ap-tog ${this.autoJump ? 'on' : ''}" data-act="autojump" title="Auto-jump (Bedrock's touch default, quirk auto-jump)">auto-jump ${this.autoJump ? 'on' : 'off'}</button>
       </div>
       ${this.unmodelled.length ? `<div class="ap-notes">UNKNOWN, never pass: the scripts reached API members the simulator does not model: ${esc(this.unmodelled.slice(0, 4).join(', '))}${this.unmodelled.length > 4 ? '…' : ''}</div>` : ''}
@@ -1732,7 +1764,8 @@ class AddonWalk implements AddonPreviewHandle {
   queueTap(): void { this.tapQueued = true; }
   queueHold(): void { this.holdQueued = true; }
   selectSlot(i: number): void { this.slotQueued = i; }
-  sneakToggle(on: boolean): void { this.setSneakLatch(on); }
+  /** Press the sneak toggle until the simulator reports the asked state (a harness's "Sneak on"). */
+  sneakToggle(on: boolean): void { if ((this.client.frame?.player.sneaking ?? false) !== on) this.pressSneakToggle(); }
   pressKey(code: string, on: boolean): void { if (on) this.keys.add(code); else this.keys.delete(code); }
   hidePanels(): void { this.hudVisible = false; this.hud.style.display = 'none'; this.root.querySelector<HTMLElement>('.ap-side')!.style.display = 'none'; }
   /** Hide every holder but the named ids (a part seen through the building it stands in). */

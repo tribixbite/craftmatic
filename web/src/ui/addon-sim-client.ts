@@ -32,13 +32,24 @@ export interface WalkerInput {
   sprint: boolean;
   /** Auto-jump on (Bedrock's touch default, quirk `auto-jump`). */
   autoJump: boolean;
-  /** The look turn since the last input, degrees in Bedrock's sense (+yaw turns right, +pitch looks down). */
+  /**
+   * The look turn since the last input, degrees in Bedrock's sense (+yaw turns right, +pitch looks down): a mouse's
+   * movement. Queued as a drag and routed by the player's control scheme (`sim/input/drag.ts`).
+   */
   dyaw: number;
   dpitch: number;
+  /** A finger's drag in screen PIXELS (+x right, +y down), turned at the phone's measured sensitivity (`dragPixels`). */
+  dragPx?: { dx: number; dy: number };
+  /** How the sneak control behaves: `hold` (a keyboard's Shift) or `toggle` (the phone's button: each press flips it). */
+  sneakMode: 'hold' | 'toggle';
   /** Hotbar slot to select (0-8); omitted = unchanged. Slot 8 (hotbar 9) is a vehicle's cockpit view. */
   slot?: number;
-  /** A TAP (hit, `entityHitEntity`) at the crosshair this input. */
+  /** A TAP (hit, `entityHitEntity`) this input, through the screen pick (`sim/input/screen.ts`) at `tapAt` or the crosshair. */
   tap?: boolean;
+  /** Where the finger landed, raw pixels of `viewport`; absent = the crosshair. */
+  tapAt?: { x: number; y: number };
+  /** The walk's canvas and its vertical field of view, the screen the pick projects through. */
+  viewport?: { width: number; height: number; fovDeg: number };
   /** A HOLD (interact: mounts a rideable, opens a screen) at the crosshair this input. */
   hold?: boolean;
   /** Free-fly (the WALKER's own inspection mode, not Bedrock flight): the player hangs and the stick moves it. */
@@ -173,15 +184,15 @@ export interface ReadyInfo {
   inline: boolean;
 }
 
-/** Feature detection of the client-side sim modules other packages add; the HUD shows what is missing. */
+/** Which client-side sim modules the session consumes; the HUD shows what is standing in. */
 export interface SimHooks {
   /** `web/src/sim/client/camera.ts` (package B): the drawn camera (eased, lagged). Until then the camera is drawn RAW. */
   clientCamera: boolean;
-  /** `web/src/sim/input/drag.ts` (package C): a drag routed by control scheme. Until then a drag turns the look directly. */
+  /** `web/src/sim/input/drag.ts` (package C): a drag queued on the controls and routed by control scheme and seat. */
   drag: boolean;
-  /** `web/src/sim/input/screen.ts` (package C): a screen-space tap pick. Until then a tap is the crosshair. */
+  /** `web/src/sim/input/screen.ts` (package C): a tap picks along the ray from the camera the player SEES. */
   tapScreen: boolean;
-  /** `PlayerControls.sneakToggle` (package C). Until then the walker latches `sneak` itself. */
+  /** `ControlState.setSneakMode` (package C): the phone's sneak toggle latched by the simulator itself. */
   sneakToggle: boolean;
 }
 
