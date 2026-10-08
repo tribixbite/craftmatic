@@ -412,7 +412,10 @@ turned them 4 ticks later, quirk `mount-snaps-rider-yaw`),
 `cockpit-eye-on-seat` (hotbar slot 9 at full stick: the camera's target
 within half a block, along the heading, of the eye on the pose the runtime
 saw `cockpit-draw-lag` ticks back - where the device draws the seat; Saga
-30k). `bun scripts/_course_trace.ts <pack>
+30k at 1.5 drew it ahead, 30l at 4 behind: 3). A NATIVE mount's drag
+steering is the regression `nimbus-spin-30l` (`dragMount`: one swipe at
+rest, then hands off; `mount-steer-stops` when the mount still turns a
+second later, `mount-steer-by-drag` when its turn is not the swipe's). `bun scripts/_course_trace.ts <pack>
 --obstacle=<lane> [--runtime=tree] [--every=4]` prints one lane's per-tick
 positions relative to the obstacle, for a diagnosis. The course quiets
 `player-not-in-solid` and `nothing-below-ground` while the child rides (a low
@@ -622,8 +625,11 @@ figure census (`engine/figure-life-sim.ts`, a stand-in world with a constant
 simulator's mob physics. The doorway harness shares the collider world and
 the jump rule (above, "One collider world"). What a fold still stubs on
 purpose is fault injection at the API (a refused teleport, an unloaded block
-read, a rider's client-lagged yaw - quirk `rider-yaw-lag` is device-only),
-each commented where it is done.
+read), each commented where it is done. A rider's client-lagged yaw IS
+modelled since 2026-10-08 (quirk `rider-yaw-lag`, the `riders` system: a
+player on a non-zero-lock seat is turned by the vehicle's turn of 6 ticks
+ago), and so is the hover controller's chase of the look (`hover-turn-chase`,
+the `mounts` system): together they reproduce the Nimbus's spin.
 
 ## The GameTest and the simulator: one scenario definition (`TODO(sim-gametest)`)
 

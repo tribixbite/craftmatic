@@ -561,8 +561,9 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   (`VehicleCameraConfig.eye`, the seat plan's eye in the seat frame, times
   the size) on the vehicle's pose `COCKPIT_TICK_LAG` ticks back (the client
   draws the teleported vehicle behind the server; at the coaster's 1.5 the
-  eye was drawn 2-3 blocks AHEAD of the seat at top speed on the Saga, round
-  30k, so the lag is 4: quirk `cockpit-draw-lag`, `cockpitEyeLead`), eased
+  eye was drawn ~2 blocks AHEAD of the seat at top speed on the Saga, round
+  30k, and at 4 a block BEHIND it, round 30l, so the lag is 3: quirk
+  `cockpit-draw-lag`, `cockpitEyeLead`), eased
   over `COCKPIT_EASE_SECONDS`, turned by the same offsets - so a drag looks
   round and the view eases back to the front in yaw AND pitch. The rider is
   made invisible while it is theirs (the camera stands in its head), and a
@@ -591,8 +592,36 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   done. Its rider is in the default scheme since then (vehicle-camera.js
   `RIDER_SCHEME`): a drag turns the look the mount flies along, the stick's
   left/right strafes instead of turning, and the HUD says `DRAG: STEER`
-  (quirk `native-mount-locked-look`; not yet ridden). Its cockpit view stays
-  the rider's own first person. Saga 30j measured the chase drag (§11).
+  (quirk `native-mount-locked-look`). Its cockpit view stays the rider's
+  own first person. Saga 30j measured the chase drag (§11). Saga 30l
+  measured the drag reaching the Nimbus's look - and ONE swipe spinning it
+  at 6.5 degrees a tick for 40 s: the hover controller turns the mount
+  toward the rider's reported look by 0.144 of the offset a tick (quirk
+  `hover-turn-chase`), and the device turns a lock-181 rider's look ROUND
+  WITH the mount ~6 ticks late (the carry, quirk `rider-yaw-lag`, seen on
+  the X-wing's script-teleported turns too), so the offset a swipe opens is
+  never closed by any turn of the mount. The view and the flight ARE the
+  look (the camera follows it, the controller flies along it); the body's
+  heading is only what is drawn. The driver script now owns that heading
+  (`nativeSteerStep`, `NATIVE_STEER`, vehicle-free-look.ts): it writes it to
+  the mount every tick, which undoes the controller's chase each tick, so a
+  drag turns the view by the drag and the turning stops with the finger.
+  The body does not follow the drag: under the carry any turn of the body
+  turns the view with it (following a 90-degree swipe would turn the view
+  180). Whether a SCRIPT-set turn carries the look like the native turn and
+  the teleport do is not measured, so once per mount, after the seat's
+  settle and `PROBE_QUIET_TICKS` of quiet, the script PROBES: it turns the
+  body `PROBE_DEG`, reads `PROBE_WAIT_TICKS` later whether the look followed
+  (carried: the body stays put from then on) or stayed (free, confirmed
+  `PROBE_FREE_CONFIRM` times against a finger faking one: the body then
+  follows every drag at `RATE_DEG_PER_TICK`, read against a fixed heading,
+  so the drawn cloud faces where it flies), takes the turn back either way
+  and tries again the other way, at most `PROBE_TRIES` times, when a finger
+  made the reading inconclusive. The simulator models the chase and the
+  carry (`physics/systems.ts` mounts and riders systems) and reproduces the
+  spin on the 30l pack (`nimbus-spin-30l`); the device checks: a swipe turns
+  the view by about the swipe, the cloud stops, CMVT `steer` (`heading`,
+  `off`, `verdict`, `tries`, `probing`, `budget`).
 - **Headlights** (`HEADLIGHTS`, `isNightTime`, `headlightCell`): at night,
   with a rider, one `minecraft:light_block_14` stands `AHEAD` blocks past the
   nose, moved as the vehicle crosses cells, removed when the rider leaves, the
@@ -606,11 +635,13 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   (`VEHICLE_BODY_MOTION`); a scripted vehicle's body takes its attitude from
   the properties.
 - The rotorcraft's and the flyer's driver script (`vehicleDriverRuntime`,
-  every 2 ticks, the native mounts) only measures speed, plays effects, swaps
+  every 2 ticks, the native mounts) measures speed, plays effects, swaps
   the climb/descend group (back + Jump, or a look down past
   `FLYER.DIVE_PITCH_DEG`), shows the HUD (the mount's name and hint for the
   first `FLYER.RIDE_HINT_TICKS` of a ride, then the speed line) and logs
-  telemetry. The speed: a client-driven mount reports ~0 velocity and its
+  telemetry; every tick it STEERS the mount by the rider's drag
+  (`nativeSteerStep`, above: the heading written each tick, the controller's
+  chase undone). The speed: a client-driven mount reports ~0 velocity and its
   server position moves in BURSTS, so the HUD reads the mean between the
   first and the last position change of the last `DRIVER_SPEED_WINDOW_TICKS`
   (a per-interval delta read up to 4x on the Saga); a step over
@@ -1111,7 +1142,14 @@ literal inside a function body (`§` marks the number).
 | `FREE_LOOK.PITCH_UP_MAX` | `web/src/engine/vehicle-free-look.ts` | 35 | degrees | Furthest the view is dragged up over the vehicle's own pitch: the chase boom swings under the vehicle past it. |
 | `FREE_LOOK.PITCH_DOWN_MAX` | `web/src/engine/vehicle-free-look.ts` | 70 | degrees | Furthest the view is dragged down: nearly straight down on the vehicle. |
 | `FREE_LOOK.RIDER_YAW_LAG_TICKS` | `web/src/engine/vehicle-free-look.ts` | 6 | ticks | A carried rider's reported yaw trails its vehicle (quirk `rider-yaw-lag`); the drag reading compares it with the vehicle's yaw that long ago. |
-| `FREE_LOOK.COCKPIT_TICK_LAG` | `web/src/engine/vehicle-free-look.ts` | 4 | ticks | The cockpit camera shows the vehicle's pose this long ago, so its eye is drawn on the drawn seat (quirk `cockpit-draw-lag`). Saga 30k at the coaster's 1.5: the McLaren's eye 2.3-3.0 blocks ahead at 43 mph (over the hood), the X-wing's 2-3 at 40 mph, on the seat at rest; lead = speed x missing lag (`cockpitEyeLead`), so the lag that cancels it is 3.9-4.6 / 3.7-4.9 (`cockpitLagFromLead`); 4 is in both, on the low side. |
+| `FREE_LOOK.COCKPIT_TICK_LAG` | `web/src/engine/vehicle-free-look.ts` | 3 | ticks | The cockpit camera shows the vehicle's pose this long ago, so its eye is drawn on the drawn seat (quirk `cockpit-draw-lag`). Four Saga readings, each frame matched to the offline cockpit picture at half-block eye shifts (`_cockpit_view.ts --shift`): round 30k at 1.5, the McLaren's eye +1.5..+2.5 blocks ahead at 43 mph (over the hood; the notes' 2.3-3.0 was high), the X-wing's +1.5..+2 at 40; round 30l at 4, the McLaren's -0.7..-1.3 BEHIND (the grey pillars behind the cabin), the X-wing's -0.95..-1.55 (inside its fuselage). Lead = speed x missing lag (`cockpitEyeLead`), so the cancelling lag is 3.1-4.1 / 2.65-3.3 and 3.05-3.85 / 2.3-2.95 (`cockpitLagFromLead`): 3 is inside or at the edge of all four (+-0.35 tick a read), 4 and 1.5 miss two each. |
+| `FREE_LOOK.CHASE_BOOM_MAX_BLOCKS` | `web/src/engine/vehicle-free-look.ts` | 48 | blocks | The chase boom is the 100 % `chaseRadius` (5..30) times the vehicle's `minecraft:scale`, capped here: under the ~70 blocks past which no actor draws (`ACTOR_DRAW_CEILING_BLOCKS`), framing ~67 blocks of a 400 % Milano (72 across) at the 70-degree field. One boom for every size made the 50 % Milano a toy and put the camera on the 400 % hull (Saga 30l). |
+| `NATIVE_STEER.RATE_DEG_PER_TICK` | `web/src/engine/vehicle-free-look.ts` | 9 | degrees/tick | Fastest a body PROVEN free follows a drag (180 degrees/s): ahead of a finger, which reads ~5 a tick (the Saga's 84-degree swipe over 16 ticks), and of the controller's own 6.5, so the body keeps up with the finger and stops with it. |
+| `NATIVE_STEER.PROBE_DEG` | `web/src/engine/vehicle-free-look.ts` | 12 | degrees | The mount probe's turn of the body: three times the drag noise a quiet finger leaves over the wait (`DRAG_EPS_DEG` x `PROBE_WAIT_TICKS` / 2 = 3.2, the "stayed" bound), and under the carry a nudge of the view taken back a moment later, small beside the seat's own snap at the mount. |
+| `NATIVE_STEER.PROBE_WAIT_TICKS` | `web/src/engine/vehicle-free-look.ts` | 16 | ticks | After the probe's turn, before the look is read: the carry lands `RIDER_YAW_LAG_TICKS` (6) late on the coaster and the cloud, ~8 on the X-wing; the wait is not cut short by a drag reading, since a carry landing later than 6 reads as one. |
+| `NATIVE_STEER.PROBE_QUIET_TICKS` | `web/src/engine/vehicle-free-look.ts` | 10 | ticks | No drag for this long (after the settle) before a probe starts, and before an inconclusive one is tried again: half a second of still finger. |
+| `NATIVE_STEER.PROBE_TRIES` | `web/src/engine/vehicle-free-look.ts` | 4 | probes | Probes before the verdict is left unknown (the body then stays put, the safe side under the measured carry): two confirmations of "free" plus two a finger may spoil. |
+| `NATIVE_STEER.PROBE_FREE_CONFIRM` | `web/src/engine/vehicle-free-look.ts` | 2 | probes | "The look stayed" must be read this many times before the body follows drags: a finger moving against one probe fakes it once, and a body following under the carry would double every swipe; one "it followed" is the carry (the safe side). |
 | `FREE_LOOK.COCKPIT_EASE_SECONDS` | `web/src/engine/vehicle-free-look.ts` | 0.1 | s | The cockpit camera's ease, the coaster's measured per-tick ease; `COCKPIT_TICK_LAG` was measured with it. |
 | `FREE_LOOK.COCKPIT_HISTORY` | `web/src/engine/vehicle-free-look.ts` | 6 | ticks | Vehicle poses kept per rider for the lag (more than `COCKPIT_TICK_LAG` + 1). |
 | `FREE_LOOK.COCKPIT_PITCH_MAX` | `web/src/engine/vehicle-free-look.ts` | 89 | degrees | The cockpit camera's pitch bound: `setCamera` throws past ±90 (quirk `camera-pitch-limit`). |
@@ -1271,10 +1309,13 @@ an earlier "~5 forward" was read off a ramped touch stick).
   drag. This does not establish pitch drag, rider-yaw lag under turning,
   other vehicle classes (quirk `rider-free-look`). Saga 30j measured the
   chase drag on 42172, 7140, the 10797 car and 60221, and that `setRotation`
-  does nothing to a lock-181 rider; the cockpit camera that replaced it, the
-  native mounts' lock-181 seats and pitch drag are not yet ridden.
-  # TODO(free-look): ride the cockpit camera (lag 1.5 is the coaster's
-  measurement, not a car's) and the Nimbus drag.
+  does nothing to a lock-181 rider; Saga 30k and 30l rode the cockpit camera
+  (its lag bracketed from both rounds, `COCKPIT_TICK_LAG`) and the Nimbus's
+  drag (the carry and the chase measured, quirks `rider-yaw-lag`,
+  `hover-turn-chase`); pitch drag on a scripted vehicle is not yet measured.
+  # TODO(free-look): ride the Nimbus's drag steering (`nativeSteerStep`: a
+  swipe turns the cloud by the swipe and stops; whether a script-set turn
+  carries the look, CMVT `steer.carried`) and the cockpit eye at lag 3.
 - **Never stuck is block-only and has a ceiling.** `resolveMove` steps round
   a one-sided obstacle, slides along an axis and climbs `RISE_MAX` +
   `STEP_UP` (a car: 2.15 blocks); a pit deeper than that, a wall higher, or a
@@ -1364,7 +1405,12 @@ one of these files fails the check until its row is written.
 | `freeLookStep` | function | SERIALISED. One tick: a drag (net of the vehicle's own turn, carried or not) moves the view; a second after the last drag, while moving, it eases back behind the nose (§4.6 "Free look"); during a mount's settle it re-reads the look instead. |
 | `CockpitPose` | interface | One tick of the vehicle as the cockpit camera reads it: position, yaw, nose pitch (+ down). |
 | `cockpitCamera` | function | SERIALISED. The cockpit view's free camera: at the driver's eye (seat frame, scaled by the size) on the vehicle's pose `COCKPIT_TICK_LAG` ticks back, looking along heading and nose turned by the free-look offsets, pitch inside `COCKPIT_PITCH_MAX`. |
-| `cockpitEyeLead`, `cockpitLagFromLead` | function | The cockpit eye's lag model (quirk `cockpit-draw-lag`): blocks the eye is drawn ahead of the drawn seat at a speed for a camera lag and the device's draw lag, and its inverse - the lag one device reading says would have kept the eye on the seat (how `COCKPIT_TICK_LAG` was derived; not serialised). |
+| `cockpitEyeLead`, `cockpitLagFromLead` | function | The cockpit eye's lag model (quirk `cockpit-draw-lag`): blocks the eye is drawn ahead of the drawn seat at a speed for a camera lag and the device's draw lag, and its inverse - the lag one device reading says would have kept the eye on the seat (how `COCKPIT_TICK_LAG` was derived from four readings over two rounds; not serialised). |
+| `NATIVE_STEER` | const | Every number of a native mount's drag steering (§4.6 "Flyer", §9): a free body's rate, the mount probe's turn, wait, quiet, tries and confirmations; the driver runtime's `config.steer`. |
+| `NativeSteerParams`, `CarryVerdict` | type | `NATIVE_STEER` as numbers; what the probe found (`carried` / `free`). |
+| `NativeSteerState` | interface | One mount's steering: the heading the script owns, the look reading, a free body's drag not yet turned, the probe in flight and its tallies. |
+| `nativeSteerStart` | function | SERIALISED. A steering on the mount's heading, settling `MOUNT_SETTLE_TICKS` on a mount (`freeLookStart` passed in, so the text names no module binding). |
+| `nativeSteerStep` | function | SERIALISED. One tick: the drag read by `freeLookStep` (ease off); the heading written to the mount every tick (the controller's chase undone); after the settle, in a quiet moment, the probe turns the body `PROBE_DEG`, reads whether the look followed and takes the turn back; a body proven free follows the drag at `RATE_DEG_PER_TICK`. |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/lego-scale.ts -->

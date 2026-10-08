@@ -18,6 +18,7 @@ import { readAddon } from '../web/src/sim/pack/pack.js';
 import { lookAt, tap } from '../web/src/sim/input/touch.js';
 import { runScenario } from '../web/src/sim/scenario/runner.js';
 import { allQuirks, quirk, quirkValue } from '../web/src/sim/quirks/registry.js';
+import { simHost, solidBelow } from './_sim-host.js';
 import { PLAYER_HEIGHT as SIM_PLAYER_HEIGHT, PLAYER_WIDTH as SIM_PLAYER_WIDTH, STEP_HEIGHT as SIM_STEP_HEIGHT, tickPlayer, NO_INPUT } from '../web/src/sim/physics/body.js';
 import { PLAYER_WIDTH_BLOCKS } from '../web/src/engine/addon-scale.js';
 import { PLAYER_HEIGHT_BLOCKS } from '../web/src/engine/lego-scale.js';
@@ -373,6 +374,35 @@ describe('the script host', () => {
     const bytes = await miniAddon({ 'main.js': "import { world, system } from '@minecraft/server';\nsystem.run(() => { const d = world.getDimension('overworld'); console.warn('near ' + (d.getBlock({ x: 0, y: -61, z: 0 })?.typeId) + ' far ' + (d.getBlock({ x: 5000, y: -61, z: 0 }) === undefined)); });\n" });
     const r = await runScenario({ name: 'unloaded', steps: [{ kind: 'wait', ticks: 3 }] }, [await readAddon(bytes, 'mini')], { keepTimeline: true });
     expect(r.timeline!.find(e => e.kind === 'console')?.text).toBe('[warn] near minecraft:grass_block far true');
+  });
+});
+
+describe('a native hover mount on a lock-181 seat (Saga 30l: one swipe spun the Nimbus)', () => {
+  it('chases a dragged look it carries round with itself: 6.5 degrees a tick at a 45-degree offset, as the device measured (quirks `hover-turn-chase`, `rider-yaw-lag`)', () => {
+    const MOUNT = 'x:cloud';
+    const h = simHost({
+      entities: { [MOUNT]: { components: {
+        'minecraft:collision_box': { width: 1.9, height: 0.8 }, 'minecraft:physics': { has_gravity: false, has_collision: true },
+        'minecraft:movement.hover': {}, 'minecraft:free_camera_controlled': { strafe_speed_modifier: 1, backwards_movement_modifier: 0.5 }, 'minecraft:flying_speed': { value: 0.0725 },
+        'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: [{ position: [0, 0.68, 0], lock_rider_rotation: 181 }] },
+      } } },
+      terrain: solidBelow(64),
+    });
+    const cloud = h.spawn(MOUNT, { x: 0, y: 64, z: 0 });
+    const rider = h.addPlayer('Rider', cloud.location);
+    h.seat(rider, cloud);
+    h.run(10);
+    const wrap = (a: number): number => ((a + 180) % 360 + 360) % 360 - 180;
+    // The Saga's swipe: 84 degrees over 16 ticks, then nothing.
+    for (let t = 0; t < 16; t++) { rider.rotation = { x: 0, y: wrap(rider.rotation.y + 84 / 16) }; h.run(1); }
+    const rates: number[] = [], offsets: number[] = [];
+    let last = cloud.rotation.y;
+    for (let t = 0; t < 80; t++) { h.run(1); rates.push(wrap(cloud.rotation.y - last)); last = cloud.rotation.y; offsets.push(wrap(rider.rotation.y - cloud.rotation.y)); }
+    // Steady: the cloud turns 6.5 a tick toward a look that stays 45 ahead of it (84 less six ticks of carry at 6.5).
+    const steadyRate = rates.slice(-20).reduce((a, b) => a + b, 0) / 20, steadyOffset = offsets.slice(-20).reduce((a, b) => a + b, 0) / 20;
+    expect(steadyRate).toBeGreaterThan(6); expect(steadyRate).toBeLessThan(7);
+    expect(steadyOffset).toBeGreaterThan(42); expect(steadyOffset).toBeLessThan(48);
+    expect(quirkValue('hover-turn-chase', 'offsetShareTurnedPerTick') * steadyOffset).toBeCloseTo(steadyRate, 1);
   });
 });
 
