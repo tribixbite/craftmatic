@@ -9,6 +9,9 @@
  *                           without slow falling;
  *   nothing-below-ground    no entity ends up under the terrain surface (fell
  *                           through the world);
+ *   rider-drag-reaches-look a riding player is never held in a control scheme
+ *                           whose drag turns only the camera
+ *                           (`DRAG_TO_CAMERA_SCHEMES`; Saga 30k, the Nimbus);
  *   no-script-error         no script exception, no module that failed to load;
  *   no-content-log-error    no definition the game refuses;
  *   no-unexpected-line      no chat / action-bar / console line matching a
@@ -42,6 +45,8 @@ export interface InvariantContext {
   allowLines: RegExp[];
   /** Action-bar lines another script may replace at once (a status whose news is told elsewhere too; `Scenario.yieldingLines`). */
   yieldingLines?: RegExp[];
+  /** The control scheme a script set on a player (`/controlscheme`), when the host keeps one. */
+  controlScheme?(player: SimEntity): string | undefined;
   report(v: Omit<Violation, 'tick' | 'step'>): void;
 }
 
@@ -160,12 +165,35 @@ function actionbarNotStolen(): Invariant {
   };
 }
 
+/**
+ * Control schemes under which a touch drag turns only the CAMERA, never the player (Microsoft Learn, "Control
+ * Schemes": player relative and camera relative "Drag on the screen to rotate the camera"; quirk
+ * `control-scheme-drag-to-camera`). Every pack's ride is watched from a script camera, which no drag moves.
+ */
+export const DRAG_TO_CAMERA_SCHEMES: ReadonlySet<string> = new Set(['player_relative', 'camera_relative']);
+
+function riderDragReachesLook(): Invariant {
+  let reported: unknown;
+  return {
+    id: 'rider-drag-reaches-look', description: 'A riding player is never held in a control scheme whose drag turns only the camera: a drag must turn the rider\'s look (free look, a native mount\'s steering and its "look down + Jump").',
+    tick(ctx) {
+      const p = ctx.player, mount = p.ridingOn;
+      if (!mount) { reported = undefined; return; }
+      const scheme = ctx.controlScheme?.(p);
+      if (!scheme || !DRAG_TO_CAMERA_SCHEMES.has(scheme) || reported === mount) return;
+      reported = mount;
+      ctx.report({ invariant: 'rider-drag-reaches-look', message: `the rider of ${mount.typeId} is held in \`${scheme}\`: a drag turns only the camera, so it neither looks round nor steers (Saga 30k, the Nimbus)`, evidence: { mount: mount.typeId, scheme } });
+    },
+  };
+}
+
 /** The core invariants by id. */
 export function coreInvariants(): Invariant[] {
   return [
     playerNotInSolid(),
     noUnprotectedFall(),
     nothingBelowGround(),
+    riderDragReachesLook(),
     timelineWatch('no-script-error', 'No script exception, no module that failed to load.', e => (e.kind === 'script-error' ? `${e.source ?? 'script'}: ${e.text}` : undefined)),
     timelineWatch('no-content-log-error', 'No definition the game refuses.', e => (e.kind === 'content-log' ? e.text : undefined)),
     timelineWatch('no-unexpected-line', 'No chat, action-bar or console line that reads as a fault, unless the scenario allows it.', (e, ctx) => {

@@ -123,9 +123,16 @@ describe('the driver: the ride opens with the mount\'s name and hint', () => {
     const w = driverWorld();
     w.run(FLYER.RIDE_HINT_TICKS);
     expect(w.hud().length).toBeGreaterThan(0);
-    for (const line of w.hud()) expect(line).toMatch(/^§eNIMBUS!§r Jump climbs, look down \+ Jump dives, sneak gets off$/);
+    for (const line of w.hud()) expect(line).toMatch(/^§eNIMBUS!§r Drag to steer, Jump climbs, look down \+ Jump dives, sneak gets off$/);
     w.run(4);
-    expect(w.lastHud()).toMatch(/^§lNIMBUS§r §e0\.0 mph§r · §bALT 0§r · §a\[STICK: TURN · JUMP: CLIMB · LOOK DOWN \+ JUMP: DIVE\]§r$/);
+    expect(w.lastHud()).toMatch(/^§lNIMBUS§r §e0\.0 mph§r · §bALT 0§r · §a\[DRAG: STEER · JUMP: CLIMB · LOOK DOWN \+ JUMP: DIVE\]§r$/);
+  });
+
+  it('never tells the child the stick turns a native mount: under the default scheme its rider is held in, the stick strafes and a drag steers (Saga 30k, the Nimbus)', () => {
+    const w = driverWorld();
+    w.run(FLYER.RIDE_HINT_TICKS + 8);
+    for (const line of w.hud()) expect(line).not.toMatch(/STICK: TURN/);
+    expect(w.hud().some(l => /DRAG: STEER|Drag to steer/.test(l))).toBe(true);
   });
 
   it('shows ALT as the height over the ground, as a ship does, not the world y (Saga 30j: ALT -59 on the ground)', () => {

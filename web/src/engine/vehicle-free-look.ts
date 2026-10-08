@@ -41,7 +41,10 @@
  * of a lock-181 seat did nothing: CMCAM `riderYaw` held 11.9 through every
  * ease, the McLaren's view stayed 56 degrees off its nose and the X-wing's
  * kept the pitch it had (quirk `rider-free-look`). Entering either view
- * starts aligned with the nose (the runtime restarts the free look).
+ * starts aligned with the nose (the runtime restarts the free look), and so
+ * does a MOUNT: the device turns a mounting rider onto the seat's heading
+ * over its first ticks, which is not a drag (`MOUNT_SETTLE_TICKS`; Saga 30k:
+ * the chase camera opened wherever the player had been looking).
  */
 
 /** Every free-look number (physics spec §9). */
@@ -67,22 +70,48 @@ export const FREE_LOOK = {
   /**
    * Ticks the cockpit camera's pose trails the server's vehicle: the client
    * draws a script-moved entity behind the server, and a camera on the
-   * server's own schedule rides AHEAD of the drawn seat (1.7 blocks at 10
-   * blocks/s). The coaster's per-tick camera measured 1.5 with a 0.1 s ease
-   * (`COASTER_RIDER_VIEW.tickLag`, Pixel 2026-09-25, marker probe); a
-   * scripted vehicle is moved by the same per-tick teleport.
+   * server's own schedule rides AHEAD of the drawn seat. Measured on the
+   * Saga (26.52, round 30k, `output/device-round-2026-10-07k/saga/notes.md`
+   * item 5): at the coaster's 1.5 (`COASTER_RIDER_VIEW.tickLag`, with the
+   * same 0.1 s ease) the McLaren's eye sat 2.3-3.0 blocks ahead of its seat
+   * at 43 mph (over the front of the hood: the eye is 0.22 ahead of the
+   * origin, the nose 3.49) and the X-wing's 2-3 blocks up its nose at
+   * 40 mph; at rest both were on the seat. Lead = speed x missing lag
+   * (`cockpitEyeLead`), so the readings put the lag that keeps the eye on
+   * the drawn seat at 3.9-4.6 ticks (McLaren) and 3.7-4.9 (X-wing)
+   * (`cockpitLagFromLead`); 4 is inside both, on the low side (a residual
+   * lead of at most 0.6 tick, 0.6 block at 43 mph, rather than an eye
+   * dropped behind the driver). Quirk `cockpit-draw-lag`: the simulator's
+   * vehicle course fails a cockpit camera that leads the drawn seat.
    */
-  COCKPIT_TICK_LAG: 1.5,
-  /** The cockpit camera's ease, seconds (the coaster's measured `COASTER_RIDER_VIEW.ease`). */
+  COCKPIT_TICK_LAG: 4,
+  /** The cockpit camera's ease, seconds (the coaster's measured `COASTER_RIDER_VIEW.ease`; `COCKPIT_TICK_LAG` was measured with it). */
   COCKPIT_EASE_SECONDS: 0.1,
   /** Poses of the vehicle kept per rider for the cockpit camera's lag (ticks; more than `COCKPIT_TICK_LAG` + 1). */
-  COCKPIT_HISTORY: 4,
+  COCKPIT_HISTORY: 6,
   /** The cockpit camera's pitch is kept inside this (degrees): `setCamera` throws past ±90 (Pixel 26.51). */
   COCKPIT_PITCH_MAX: 89,
   /** The chase camera's wall test marches the line from the vehicle's pivot in steps of this, blocks. */
   CHASE_WALL_STEP: 0.25,
   /** A wall on that line pulls the camera in to this short of it, blocks (the near plane stays out of the texture). */
   CHASE_WALL_MARGIN: 0.3,
+  /**
+   * Ticks after a mount during which a change of the rider's look is the
+   * SEAT's, not a drag: the device turns a mounting rider's yaw onto the
+   * vehicle's within the first ~4-12 ticks (quirk `mount-snaps-rider-yaw`;
+   * Saga 30k CMCAM `riderYaw` 0 -> -180 and -128 -> -180 on a vehicle at
+   * -180, 54.8 -> -82.8 -> -90 on one at -90), and the free look read that
+   * turn as a drag of up to 180 degrees, so the chase camera opened wherever
+   * the player had been looking (facing the rider, s32/s50) until a slot
+   * switch restarted it. The look is re-read each tick until the turn has
+   * landed (`MOUNT_ALIGN_TICKS` ticks within `MOUNT_ALIGN_DEG` of the
+   * heading) or this runs out; a drag in that first second is not read.
+   */
+  MOUNT_SETTLE_TICKS: 20,
+  /** The rider's yaw within this of the vehicle's (degrees) is the seat's turn landed (30k: 18.3 on a vehicle at 19). */
+  MOUNT_ALIGN_DEG: 3,
+  /** Consecutive ticks within `MOUNT_ALIGN_DEG` that end the settle early. */
+  MOUNT_ALIGN_TICKS: 2,
 } as const;
 export type FreeLookParams = { readonly [K in keyof typeof FREE_LOOK]: number };
 
@@ -92,12 +121,20 @@ export interface FreeLookState {
   lastPlayerYaw?: number; lastPlayerPitch?: number; lastRel?: number;
   /** The vehicle's yaw over the last `RIDER_YAW_LAG_TICKS` + 1 ticks, oldest first. */
   vehicleYaws: number[];
+  /** Ticks of a mount's settle left (`MOUNT_SETTLE_TICKS`): while above 0 a look change is the seat's turn, not a drag. */
+  settle?: number;
+  /** Consecutive settle ticks with the rider's yaw on the heading (`MOUNT_ALIGN_TICKS` of them end the settle). */
+  aligned?: number;
 }
 /** One tick's reading: the rider's reported look and the vehicle's yaw and speed. */
 export interface FreeLookInput { playerYaw: number; playerPitch: number; vehicleYaw: number; speed: number }
 
-/** A fresh free look: centred, idle. */
-export function freeLookStart(): FreeLookState { return { yaw: 0, pitch: 0, idle: 0, vehicleYaws: [] }; }
+/**
+ * A fresh free look: centred, idle. `settleTicks` > 0 on a MOUNT
+ * (`MOUNT_SETTLE_TICKS`), so the seat's turn of the rider is not read as a
+ * drag; a switch of view starts with none (that turn is long over).
+ */
+export function freeLookStart(settleTicks = 0): FreeLookState { return { yaw: 0, pitch: 0, idle: 0, vehicleYaws: [], ...(settleTicks > 0 ? { settle: settleTicks, aligned: 0 } : {}) }; }
 
 /**
  * Advance one rider's free look by a tick of `dt` seconds. Pure (serialised
@@ -110,6 +147,14 @@ export function freeLookStep(s: FreeLookState, input: FreeLookInput, P: FreeLook
   const yaws = [...s.vehicleYaws, input.vehicleYaw].slice(-(Math.max(0, Math.round(P.RIDER_YAW_LAG_TICKS)) + 1));
   const lagged = yaws[0]!;
   const rel = wrap(input.playerYaw - lagged);
+  // A mount's settle: the device is turning the rider onto the seat's heading. Re-read the look (no drag, the
+  // view on the nose) until that turn has landed for `MOUNT_ALIGN_TICKS` ticks, the first reading included,
+  // or the settle runs out.
+  if ((s.settle ?? 0) > 0) {
+    const aligned = Math.abs(wrap(input.playerYaw - input.vehicleYaw)) <= P.MOUNT_ALIGN_DEG ? (s.aligned ?? 0) + 1 : 0;
+    const settle = aligned >= P.MOUNT_ALIGN_TICKS ? 0 : (s.settle ?? 0) - 1;
+    return { state: { yaw: 0, pitch: 0, idle: 0, vehicleYaws: yaws, lastPlayerYaw: input.playerYaw, lastPlayerPitch: input.playerPitch, lastRel: rel, settle, aligned }, dragging: false, recentring: false };
+  }
   if (s.lastPlayerYaw === undefined || s.lastPlayerPitch === undefined || s.lastRel === undefined) {
     return { state: { ...s, vehicleYaws: yaws, lastPlayerYaw: input.playerYaw, lastPlayerPitch: input.playerPitch, lastRel: rel }, dragging: false, recentring: false };
   }
@@ -176,4 +221,25 @@ export function cockpitCamera(poses: readonly CockpitPose[], lag: number, eye: r
     location: { x: pose.x + ex * c - ez * sn, y: pose.y + ey, z: pose.z + ex * sn + ez * c },
     rotation: { x: Math.max(-pitchMax, Math.min(pitchMax, pose.pitch + offset.pitch)), y: wrap(yaw + offset.yaw) },
   };
+}
+
+/**
+ * Blocks the cockpit eye is drawn AHEAD of the drawn seat (negative: behind
+ * it) at `speedBlocksPerSecond`, for a camera on the vehicle's pose
+ * `lagTicks` back when the device draws the vehicle `drawLagTicks` behind
+ * the pose such a camera shows at lag 0 (quirk `cockpit-draw-lag`, measured
+ * with the 0.1 s ease). Lead = speed x missing lag, a tick being 1/20 s.
+ */
+export function cockpitEyeLead(speedBlocksPerSecond: number, lagTicks: number, drawLagTicks: number): number {
+  return speedBlocksPerSecond / 20 * (drawLagTicks - lagTicks);
+}
+
+/**
+ * The lag that would have put the eye on the drawn seat, from one device
+ * reading: the camera showed the pose `lagTicks` back and the eye was seen
+ * `leadBlocks` ahead of the seat at `speedBlocksPerSecond` (the inverse of
+ * `cockpitEyeLead`). A reading at rest says nothing: it returns `lagTicks`.
+ */
+export function cockpitLagFromLead(lagTicks: number, speedBlocksPerSecond: number, leadBlocks: number): number {
+  return speedBlocksPerSecond > 0 ? lagTicks + leadBlocks / (speedBlocksPerSecond / 20) : lagTicks;
 }

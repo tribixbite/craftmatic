@@ -8,7 +8,8 @@
  * and the view's pitch reaches the ship's "look down + Jump".
  */
 import { describe, expect, it } from 'vitest';
-import { FREE_LOOK, cockpitCamera, freeLookStart, freeLookStep, type CockpitPose, type FreeLookState } from '../web/src/engine/vehicle-free-look.js';
+import { FREE_LOOK, cockpitCamera, cockpitEyeLead, cockpitLagFromLead, freeLookStart, freeLookStep, type CockpitPose, type FreeLookState } from '../web/src/engine/vehicle-free-look.js';
+import { quirkValue } from '../web/src/sim/quirks/registry.js';
 import { CHASE_PASSABLE_BLOCKS, vehicleCameraScript, type VehicleCameraConfig } from '../web/src/engine/playable-addon.js';
 import { FLIGHT_PROPS, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties } from '../web/src/engine/bedrock-vehicle.js';
 import { simHost, solidBelow } from './_sim-host.js';
@@ -66,6 +67,52 @@ describe('free look (pure)', () => {
   it('clamps the dragged pitch', () => {
     const s = run(ticks(40, t => ({ playerYaw: 0, playerPitch: t * 5, vehicleYaw: 0, speed: 0 })));
     expect(s.at(-1)!.pitch).toBe(FREE_LOOK.PITCH_DOWN_MAX);
+  });
+});
+
+describe('a mount\'s settle (pure; Saga 30k: the chase camera opened where the player had been looking)', () => {
+  it('the seat turning the rider onto the heading is no drag, in one step or eased (CMCAM riderYaw 0 -> -180; 54.8 -> -82.8 -> -90)', () => {
+    // X-wing at -180: the rider climbed on looking along 0, the seat turned them half round 4 ticks later.
+    const snap = run([...ticks(4, () => ({ playerYaw: 0, vehicleYaw: -180, speed: 0 })), ...ticks(6, () => ({ playerYaw: -180, vehicleYaw: -180, speed: 0 }))], freeLookStart(FREE_LOOK.MOUNT_SETTLE_TICKS));
+    for (const s of snap) expect(s.yaw).toBe(0);
+    // X-wing at -90, the turn eased over a few ticks.
+    const eased = run([54.8, -82.8, -88.6, -89.8, -90, -90, -90].map(playerYaw => ({ playerYaw, vehicleYaw: -90, speed: 0 })), freeLookStart(FREE_LOOK.MOUNT_SETTLE_TICKS));
+    for (const s of eased) expect(s.yaw).toBe(0);
+    // Once it has landed, a drag is read again at once.
+    const after = run(ticks(5, t => ({ playerYaw: -90 + 5 * (t + 1), vehicleYaw: -90, speed: 0 })), eased.at(-1));
+    expect(after.at(-1)!.yaw).toBeCloseTo(25, 6);
+    // Without the settle (a switch of view) the same turn WAS read as a drag of 180 degrees: the 30k fault.
+    expect(Math.abs(run([...ticks(4, () => ({ playerYaw: 0, vehicleYaw: -180, speed: 0 })), ...ticks(2, () => ({ playerYaw: -180, vehicleYaw: -180, speed: 0 }))]).at(-1)!.yaw)).toBe(180);
+  });
+  it('a rider never turned onto the heading reads drags again once the settle runs out', () => {
+    const s = run(ticks(FREE_LOOK.MOUNT_SETTLE_TICKS + 1, () => ({ playerYaw: 40, vehicleYaw: 0, speed: 0 })), freeLookStart(FREE_LOOK.MOUNT_SETTLE_TICKS));
+    expect(s.at(-1)!.settle ?? 0).toBe(0);
+    expect(run(ticks(3, t => ({ playerYaw: 40 + 5 * (t + 1), vehicleYaw: 0, speed: 0 })), s.at(-1)).at(-1)!.yaw).toBeCloseTo(15, 6);
+  });
+});
+
+describe('the cockpit eye\'s lag (pure; Saga 30k: the eye ran ahead of the drawn seat at speed)', () => {
+  const MPH = 2.236936;
+  it('the device readings at the coaster\'s 1.5 put the lag that keeps the eye on the seat in a bracket COCKPIT_TICK_LAG sits in', () => {
+    // McLaren 42172 at 43 mph: the eye over the front of the hood, 2.3-3.0 blocks ahead (eye 0.22 ahead of the origin, nose 3.49).
+    const mcl = [cockpitLagFromLead(1.5, 43 / MPH, 2.3), cockpitLagFromLead(1.5, 43 / MPH, 3.0)];
+    // X-wing 7140 at 40 mph: 2-3 blocks up the nose.
+    const xw = [cockpitLagFromLead(1.5, 40 / MPH, 2), cockpitLagFromLead(1.5, 40 / MPH, 3)];
+    expect(mcl[0]).toBeCloseTo(3.89, 2); expect(mcl[1]).toBeCloseTo(4.62, 2);
+    expect(xw[0]).toBeCloseTo(3.74, 2); expect(xw[1]).toBeCloseTo(4.86, 2);
+    for (const [lo, hi] of [mcl, xw]) { expect(FREE_LOOK.COCKPIT_TICK_LAG).toBeGreaterThanOrEqual(lo!); expect(FREE_LOOK.COCKPIT_TICK_LAG).toBeLessThanOrEqual(hi!); }
+    // The quirk the simulator judges by is the same number, and a reading at rest says nothing.
+    expect(quirkValue('cockpit-draw-lag', 'ticks')).toBe(FREE_LOOK.COCKPIT_TICK_LAG);
+    expect(cockpitLagFromLead(1.5, 0, 0)).toBe(1.5);
+  });
+  it('reproduces the 30k fault at the old lag and keeps the eye on the seat at any speed at the new one', () => {
+    const draw = quirkValue('cockpit-draw-lag', 'ticks');
+    // Old: 2.4 blocks ahead at 43 mph (inside the 2.3-3.0 seen), 2.2 at 40 mph (inside 2-3), on the seat at rest.
+    expect(cockpitEyeLead(43 / MPH, 1.5, draw)).toBeCloseTo(2.4, 1);
+    expect(cockpitEyeLead(40 / MPH, 1.5, draw)).toBeCloseTo(2.2, 1);
+    expect(cockpitEyeLead(0, 1.5, draw)).toBe(0);
+    for (const speed of [0, 5, 12.5, 19.2, 26, 40.5]) expect(cockpitEyeLead(speed, FREE_LOOK.COCKPIT_TICK_LAG, draw)).toBe(0);
+    expect(FREE_LOOK.COCKPIT_HISTORY).toBeGreaterThan(FREE_LOOK.COCKPIT_TICK_LAG + 1);
   });
 });
 
@@ -197,6 +244,41 @@ describe('the camera runtime with free look (scripts/vehicle-camera.js on the si
     drive(FREE_LOOK.IDLE_TICKS + 60, 8);
     expect(Math.abs(wrap(cam().rotation!.y - car.rotation.y))).toBeLessThan(1);
     expect(Math.abs(cam().rotation!.x)).toBeLessThan(1);
+  });
+  it('in the cockpit view at speed the eye stands on the vehicle\'s pose COCKPIT_TICK_LAG ticks back, where the device draws the seat (Saga 30k: at 1.5 it rode over the McLaren\'s hood at 43 mph)', () => {
+    const { h, car, rider, drive } = cameraHost();
+    drive(2, 0);
+    h.host.playerState(rider).selectedSlot = 8;
+    const speed = 19.2;
+    drive(20, speed);
+    const c = h.host.playerState(rider).camera.location!;
+    // The car faces +z; the eye is 0.4 behind its origin. The camera stands COCKPIT_TICK_LAG ticks of travel back.
+    expect(c.z).toBeCloseTo(car.location.z - FREE_LOOK.COCKPIT_TICK_LAG * speed / 20 - 0.4, 6);
+    expect(c.x).toBeCloseTo(car.location.x, 6);
+  });
+  it('the first mount opens the chase camera behind the nose though the child climbed on looking at the vehicle\'s face (Saga 30k s32/s50: the seat\'s turn of the rider read as a drag)', () => {
+    const { h, car, rider, view, drive, drag } = cameraHost();
+    // The child faced the car's nose from in front when they climbed on; the seat turns them onto its heading 4 ticks later.
+    rider.rotation = { x: 0, y: 180 };
+    h.run(4);
+    rider.rotation = { x: 0, y: 0 };
+    h.run(3);
+    expect(Math.abs(wrap(view()!.yaw - car.rotation.y))).toBeLessThan(1);
+    drive(20, 0);
+    expect(Math.abs(wrap(view()!.yaw - car.rotation.y))).toBeLessThan(1);
+    // And the free look works from there.
+    drag(10, 6);
+    expect(wrap(view()!.yaw - car.rotation.y)).toBeCloseTo(60, 0);
+  });
+  it('holds a native mount\'s rider in the default control scheme, where a drag turns the look it flies along (Saga 30k: under player_relative the Nimbus ignored every drag)', () => {
+    const { h, rider } = cameraHost({ ...cameraCfg, kind: 'plane', scripted: false });
+    // A scheme a previous ride left: the runtime clears it on mount and keeps it clear.
+    h.host.playerState(rider).controlScheme = 'player_relative';
+    h.run(1);
+    expect(h.host.playerState(rider).controlScheme).toBeUndefined();
+    h.host.playerState(rider).controlScheme = 'player_relative';
+    h.run(12);
+    expect(h.host.playerState(rider).controlScheme).toBeUndefined();
   });
   it('switching views starts the new one on the nose, and the cockpit\'s hiding ends with it (Saga 30j: the chase camera came back where the cockpit drag left it)', () => {
     const { h, car, rider, view, drive, drag } = cameraHost();

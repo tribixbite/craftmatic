@@ -339,6 +339,17 @@ describe('the script host', () => {
     expect(lines).toContain('[warn] timeout 3 ran 4');
   });
 
+  it('fails a rider held in a control scheme whose drag turns only the camera, and passes the default scheme (Saga 30k: the Nimbus in player_relative ignored every drag)', async () => {
+    const seat = entityJson('x:mount', { 'minecraft:collision_box': { width: 1, height: 0.6 }, 'minecraft:physics': { has_gravity: false, has_collision: false }, 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: { position: [0, 0.5, 0], lock_rider_rotation: 181 } } });
+    const ride = (scheme: string): string => "import { world, system } from '@minecraft/server';\n"
+      + "system.runTimeout(() => { const p = world.getAllPlayers()[0]; const m = world.getDimension('overworld').spawnEntity('x:mount', p.location); system.runTimeout(() => { m.getComponent('minecraft:rideable').addRider(p); p.runCommand('controlscheme @s " + scheme + "'); }, 2); }, 2);\n";
+    const run = async (scheme: string) => runScenario({ name: 'scheme', steps: [{ kind: 'wait', ticks: 12 }] }, [await readAddon(await miniAddon({ 'main.js': ride(scheme) }, { 'mount.json': seat }), 'mini')]);
+    const held = await run('set player_relative');
+    expect(held.violations.map(v => v.invariant)).toContain('rider-drag-reaches-look');
+    expect((await run('set camera_relative')).violations.map(v => v.invariant)).toContain('rider-drag-reaches-look');
+    expect((await run('clear')).violations.map(v => v.invariant)).not.toContain('rider-drag-reaches-look');
+  });
+
   it('getBlock outside the loaded area is undefined, never air', async () => {
     const bytes = await miniAddon({ 'main.js': "import { world, system } from '@minecraft/server';\nsystem.run(() => { const d = world.getDimension('overworld'); console.warn('near ' + (d.getBlock({ x: 0, y: -61, z: 0 })?.typeId) + ' far ' + (d.getBlock({ x: 5000, y: -61, z: 0 }) === undefined)); });\n" });
     const r = await runScenario({ name: 'unloaded', steps: [{ kind: 'wait', ticks: 3 }] }, [await readAddon(bytes, 'mini')], { keepTimeline: true });

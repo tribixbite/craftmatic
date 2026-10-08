@@ -132,7 +132,9 @@ export function runCommand(host: FacadeHost, dimension: string, line: string, so
       return { successCount: n };
     }
     case 'controlscheme': {
-      for (const p of selectEntities(engine, t[1] ?? '@s', source, dimension)) if (p.isPlayer) { if (t[2] === 'clear') delete host.playerState(p).controlScheme; else host.playerState(p).controlScheme = t[2]; }
+      // `controlscheme <target> clear` or `controlscheme <target> set <scheme>` (the scheme is the FOURTH token).
+      const scheme = t[2] === 'set' ? t[3] : t[2];
+      for (const p of selectEntities(engine, t[1] ?? '@s', source, dimension)) if (p.isPlayer) { if (scheme === 'clear' || scheme === undefined) delete host.playerState(p).controlScheme; else host.playerState(p).controlScheme = scheme; }
       return { successCount: 1 };
     }
     case 'setblock': {

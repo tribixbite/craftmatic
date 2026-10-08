@@ -1804,13 +1804,15 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
       // The HUD (ASCII only: the Pixel's HUD font drew emoji as empty boxes, 2026-09-25).
       // For the first `rideHintTicks` of a ride it is the mount's name and hint (the
       // summon's own action bar was overwritten by this line within 4 ticks); while the
-      // descend group is in, Jump goes down, and the line says so.
+      // descend group is in, Jump goes down, and the line says so. A drag steers: the rider is held in
+      // the default control scheme (vehicle-camera.js `RIDER_SCHEME`), where a drag turns the look the
+      // mount flies along and the stick's left/right strafes - it no longer turns (Saga 30k, the Nimbus).
       if (tick % 4 === 0) {
         const word = flyer ? cfg.hud || 'CLOUD' : 'HELI';
         const hint = tick - state.rideStart < config.rideHintTicks;
-        const tag = state.descending ? ' · §a[JUMP: DESCEND]§r' : ' · §a[STICK: TURN · JUMP: CLIMB · LOOK DOWN + JUMP: DIVE]§r';
+        const tag = state.descending ? ' · §a[JUMP: DESCEND]§r' : ' · §a[DRAG: STEER · JUMP: CLIMB · LOOK DOWN + JUMP: DIVE]§r';
         const aboard = riders.length > 1 ? ` · §d[${riders.length} ABOARD]§r` : '';
-        const hud = hint ? `§e${word}!§r Jump climbs, look down + Jump dives, sneak gets off`
+        const hud = hint ? `§e${word}!§r Drag to steer, Jump climbs, look down + Jump dives, sneak gets off`
           : `§l${word}§r §e${mph.toFixed(1)} mph§r · §bALT ${altitude(vehicle.dimension, vehicle.location)}§r${aboard}${tag}`;
         for (const r of riders) { try { r.onScreenDisplay?.setActionBar?.(hud); } catch {} }
       }
@@ -1963,11 +1965,14 @@ export const CHASE_PASSABLE_BLOCKS = '(short_grass|tall_grass|^minecraft:grass$|
  * offsets, so it looks round and eases back to the front in yaw and pitch;
  * the rider is made invisible while it is theirs (a camera at the eye draws
  * the rider's own head round it, as the coaster's). Switching views starts
- * the new one on the nose. Native mounts (a rotorcraft, a flyer's cloud) fly
- * where the rider looks, so their camera follows the rider's look as before -
- * the view IS the direction of travel - and their cockpit view is the rider's
- * own first person. Everything is cleared on dismount. If the free camera is
- * rejected, the vanilla third person stands in.
+ * the new one on the nose, and so does a mount (the seat's turn of the rider
+ * is not a drag, `MOUNT_SETTLE_TICKS`). Native mounts (a rotorcraft, a
+ * flyer's cloud) fly where the rider looks, so their camera follows the
+ * rider's look as before - the view IS the direction of travel - and their
+ * cockpit view is the rider's own first person; their rider is held in the
+ * default control scheme, where a drag turns that look (`RIDER_SCHEME`).
+ * Everything is cleared on dismount. If the free camera is rejected, the
+ * vanilla third person stands in.
  */
 function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof freeLookStep, lookStart: typeof freeLookStart, cockpitView: typeof cockpitCamera) {
   const byType = new Map(config.vehicles.map((v: any) => [v.typeId, v] as const));
@@ -2002,12 +2007,22 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
     try { player.camera.setCamera('minecraft:third_person'); return true; } catch {}
     return false;
   };
-  // A native mount's rider (a rotorcraft, the only one left since the cars were
-  // scripted, 2026-09-25) is held in `player_relative`: the stick's left/right
-  // turns the rider, which is the heading the Happy Ghast flies along. The
-  // camel car's tuning hooks (`craftmatic:vehicle_scheme`, `vehicle_camera`)
-  // went with the camel.
-  const NATIVE_SCHEME = 'player_relative';
+  // Every rider is held in the game's DEFAULT control scheme (`clear`:
+  // locked_player_relative_strafe), where a touch drag turns the PLAYER's look.
+  // A native mount's rider (a rotorcraft, a flyer's cloud) was held in
+  // `player_relative` until 2026-10-07 so the stick's left/right turned it, and
+  // under that scheme a drag turns the CAMERA only (Microsoft Learn, "Control
+  // Schemes": "Drag on the screen to rotate the camera when using the
+  // third-person Follow Orbit camera") - with this script's free camera it
+  // turned nothing: on the Saga (round 30k) the Nimbus's `riderYaw`/`riderPitch`
+  // stayed constant through every drag at seat lock 181 as at lock 0, so its
+  // "look down + Jump" could not dive, while the same drags turned the X-wing's
+  // and McLaren's riders (held in `clear`). Under the default scheme a drag
+  // turns the rider, the hover controller flies where the rider looks (as a
+  // vanilla Happy Ghast), and the stick's left/right strafes. Quirk
+  // `control-scheme-drag-to-camera`; the simulator fails a rider held in a
+  // scheme whose drag turns only the camera.
+  const RIDER_SCHEME = 'clear';
   const passable = new RegExp(config.passableBlocks);
   /** Whether the block at `p` lets the camera's line through: air, liquid, an unloaded block, or a plant/light/carpet (`passableBlocks`). */
   const seeThrough = (dim: any, p: { x: number; y: number; z: number }): boolean => {
@@ -2089,11 +2104,11 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
     location = pulled;
     try { player.camera.setCamera('minecraft:free', { location, facingLocation, easeOptions: { easeTime: 0.15, easeType: 'Linear' } }); return true; } catch { return false; }
   };
-  // Measured on the Pixel 2026-09-16: `/controlscheme @s set player_relative`
-  // typed in chat makes the stick turn the rider; the same command run ONCE
-  // from the script on mount did not take (the ride's own scheme lands after
-  // it, and a remount reverted a chat-set scheme). So it is re-applied every
-  // 10 ticks while riding, through both command paths.
+  // Measured on the Pixel 2026-09-16: a scheme set ONCE from the script on a
+  // native mount did not take (the ride's own scheme lands after it, and a
+  // remount reverted a chat-set scheme). So a native mount's rider has it
+  // re-applied every 10 ticks while riding, through both command paths; a
+  // scripted vehicle's rider is set once on mount (enough on every device round).
   const scheme = (player: any, value: string): void => {
     try { player.runCommand(`controlscheme @s ${value}`); } catch {}
     try { player.runCommandAsync?.(`controlscheme @s ${value}`)?.catch?.(() => {}); } catch {}
@@ -2134,7 +2149,9 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
       const t = tracked.get(id);
       // The free look (scripted vehicles): read the rider's look and the vehicle's motion, move or ease the offsets.
       let fl = looks.get(id);
-      if (!t || t.typeId !== cfg.typeId || !fl) { fl = { look: lookStart(), poses: [] }; looks.set(id, fl); }
+      // A new mount starts settling: the device turns the rider onto the seat's heading over its first ticks,
+      // which is not a drag (Saga 30k: the chase camera opened where the player had been looking, `MOUNT_SETTLE_TICKS`).
+      if (!t || t.typeId !== cfg.typeId || !fl) { fl = { look: lookStart(config.freeLook.MOUNT_SETTLE_TICKS), poses: [] }; looks.set(id, fl); }
       let offset = { yaw: 0, pitch: 0 }, dragging = false, recentring = false;
       let cockpit = false;
       try { cockpit = player.selectedSlotIndex === 8; } catch {}
@@ -2164,18 +2181,18 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
           try { console.warn(`CMCAM ${JSON.stringify({ type: vehicle.typeId, t: Number(system.currentTick), mode: view, riderYaw: Math.round(Number(pr.y) * 10) / 10, riderPitch: Math.round(Number(pr.x) * 10) / 10, vehicleYaw: Math.round(vy * 10) / 10, yawOff: Math.round(fl.look.yaw * 10) / 10, pitchOff: Math.round(fl.look.pitch * 10) / 10, dragging, recentring, speed: Math.round(speed * 10) / 10, viewPitch })}`); } catch {}
         }
       }
-      // Every vehicle, aircraft included, is steered with the joystick under
-      // `player_relative` (left/right turns the rider) and watched from the
-      // script-driven chase camera. Before 2026-09-16 an aircraft kept the
-      // orbit preset, whose drag input orbited the CAMERA and never turned
-      // the rider - "no way to turn a mounted vehicle" on touch.
-      // A scripted aircraft reads the stick's left/right itself: the default (strafe) scheme leaves it in the movement vector.
+      // Every vehicle is watched from the script-driven chase camera with its rider in the default scheme
+      // (`RIDER_SCHEME`): a scripted vehicle reads the stick's left/right itself (the default strafe scheme leaves
+      // it in the movement vector) and a drag orbits its camera; a native mount flies where its rider looks, and
+      // a drag turns that look. Before 2026-09-16 an aircraft kept the orbit preset, whose drag orbited the
+      // CAMERA and never turned the rider; until 2026-10-07 a native mount's rider was held in `player_relative`,
+      // whose drag does the same (Saga 30k, the Nimbus).
       if (!t || t.typeId !== cfg.typeId) {
-        scheme(player, cfg.scripted ? 'clear' : `set ${NATIVE_SCHEME}`);
+        scheme(player, RIDER_SCHEME);
         tracked.set(id, { typeId: cfg.typeId, chase: true });
         try { player.sendMessage('§7Drag the screen to look around. Hotbar slot 9: cockpit view. Any other slot: chase camera.'); } catch {}
       } else if (schemeTick % 10 === 0 && !cfg.scripted) {
-        scheme(player, `set ${NATIVE_SCHEME}`);
+        scheme(player, RIDER_SCHEME);
       }
       // A body that does not fit the driver's seat at this size is hidden; the eye stays the driver's. A scripted
       // vehicle's cockpit view hides it too: its camera stands at the eye, inside the rider's own head.

@@ -237,7 +237,10 @@ settles them.
 - **Aircraft steer like cars**: `player_relative` + the script chase camera
   for every kind; for a plane the camera looks along the rider's exact yaw
   AND pitch so `free_camera_controlled` and the rider's look agree. The orbit
-  preset's drag orbited the camera and never turned the rider.
+  preset's drag orbited the camera and never turned the rider. (Superseded
+  2026-10-07: under `player_relative` a drag ALSO turns only the camera, so
+  every rider is in the default scheme now; see "The cockpit eye, the first
+  mount and the Nimbus's drag".)
 - **Buildings** (`bedrock-scene-actors.ts`, on the placements that are not a
   vehicle): figures (torso + ≥ 2 parts) become NPCs and leave the block
   scenery; seat moulds (4079 family, "Seat/Chair/Bench" descriptions) get an
@@ -3779,7 +3782,7 @@ camera runtime in `playable-addon.ts`; numbers and reasons in
 | car, hover craft | drive / brake, reverse | steer; stopped, turn on the spot | boost | slides along walls, steps round trees, scrambles up to 2.15 blocks (two-block kerbs and pits) |
 | boat | throttle / astern | rudder | boost | deflects round posts, slides along piers |
 | every scripted vehicle | | | | DRAG the screen to look around; let go and while moving the view swings back behind the nose after 1 s (95 % in ~1.8 s more); at rest it stays; hotbar slot 9 is the view from the seat, a camera at the driver's eye that looks round and swings back to the front (yaw and pitch) the same way; either view starts on the nose |
-| rotorcraft, Nimbus (native) | they fly where the rider looks, so the view IS the direction of travel; a drag turns the look (seat `lock_rider_rotation` 181 since 2026-10-07), so "look down + Jump" dives | | | |
+| rotorcraft, Nimbus (native) | forward / back along where the rider looks | strafe (since 2026-10-07; it turned under `player_relative`) | climb | a DRAG steers: they fly where the rider looks, so the view IS the direction of travel; the rider is held in the default control scheme, where a drag turns that look, so "look down + Jump" dives (HUD `DRAG: STEER`); back + Jump descends too |
 
 Sneak stays the dismount on every vehicle, so "down" had to be a
 combination: the Nimbus's own back + Jump and look down + Jump, so one rule
@@ -3842,6 +3845,45 @@ the world y (`ALT -59` on the ground); it is the height over the first solid
 or liquid block under it now (`DRIVER_ALT_SCAN_BLOCKS`, `--` past 64 or over
 an unloaded block), as a ship's. CMVT for a native mount logs `riderPitch`
 and `descending`, so the next round can see a drag reach the dive.
+
+### The cockpit eye, the first mount and the Nimbus's drag (Saga 30k, 2026-10-07)
+
+Round 30k (`output/device-round-2026-10-07k/saga/notes.md` items 4-6) found
+three camera faults; the code fixes are offline-tested, not yet ridden.
+
+- **The cockpit eye ran ahead of the drawn seat at speed.** At the coaster's
+  1.5-tick lag the McLaren's eye sat over the front of its hood at 43 mph
+  (2.3-3.0 blocks ahead, `r19-cmp.jpg`) and the X-wing's 2-3 blocks up its
+  nose at 40 mph (`r20-strip.jpg`); at rest both were on the seat. The lead
+  grows with speed, so it is a lag: lead = speed x missing lag
+  (`cockpitEyeLead`), and the readings put the lag that cancels it at
+  3.9-4.6 and 3.7-4.9 ticks (`cockpitLagFromLead`). `COCKPIT_TICK_LAG` is 4
+  (quirk `cockpit-draw-lag`). `bun scripts/sim.ts <packs> --scenario=vehicles`
+  drives every scripted vehicle at full stick in the cockpit view and fails
+  `cockpit-eye-on-seat` when the camera's target is more than half a block
+  off the eye on the pose 4 ticks back. The coaster's own per-tick camera
+  keeps its 1.5 (a different camera; not re-measured).
+- **The first mount opened the chase camera where the player had been
+  looking** (both ships showed the rider's face, `s32`, `s50`), until a slot
+  switch. CMCAM shows the device turning a mounting rider's yaw onto the
+  vehicle's within ~4-12 ticks (`riderYaw` 0 -> -180 on a ship at -180), and
+  the free look read that turn as a drag of up to 180 degrees (quirk
+  `mount-snaps-rider-yaw`). A mount now settles (`MOUNT_SETTLE_TICKS`): the
+  look is re-read until the rider sits on the heading for two ticks, at most
+  a second. The vehicle course boards a child looking at the vehicle's face
+  and fails `free-look` if the camera opens off the nose.
+- **The Nimbus ignored drags at seat lock 181 as at 0.** The cause was the
+  control scheme: the camera runtime held a native mount's rider in
+  `player_relative`, under which a touch drag rotates the CAMERA only
+  (Microsoft Learn, "Control Schemes"), and our script camera ignores it - so
+  `riderYaw`/`riderPitch` never moved, and "look down + Jump" climbed. The
+  X-wing and McLaren riders, in the default scheme, read the same drags.
+  Every rider is in the default scheme now (`RIDER_SCHEME = 'clear'`): a drag
+  turns the look the Nimbus flies along, the stick's left/right strafes, and
+  the HUD says `DRAG: STEER · JUMP: CLIMB · LOOK DOWN + JUMP: DIVE` (the hint
+  line: "Drag to steer, Jump climbs, look down + Jump dives, sneak gets
+  off"). The simulator's core invariant `rider-drag-reaches-look` fails any
+  rider held in `player_relative` or `camera_relative`.
 
 ### Native evidence and remaining assumptions (quirk `rider-free-look`)
 
@@ -3951,7 +3993,9 @@ pinball 2026-09-24).
   default control scheme so the stick's left/right reaches the script as
   input. The camel car's tuning hooks (`craftmatic:vehicle_scheme`,
   `vehicle_camera`) were removed with the camel; only a rotorcraft still
-  rides natively (held in `player_relative`).
+  rides natively (held in `player_relative` until 2026-10-07; in the default
+  scheme since, so a drag steers it: "The cockpit eye, the first mount and
+  the Nimbus's drag").
 - **Lights**: at night a light block runs ahead of the nose of any driven
   car, hover craft or boat (no more night vision); the HUD shows `[LIGHTS]`.
 - **HUD** is ASCII: the Pixel's HUD font drew the vehicle emoji and U+FE0F

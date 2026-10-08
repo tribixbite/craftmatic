@@ -17,7 +17,8 @@
  * up, hover, forward, straight back, a turn on the spot, back + Jump and look
  * down + Jump straight down) and the free look (`cameraRecentre`: a drag
  * orbits the chase camera, it holds at rest, it eases back behind the nose
- * while driving).
+ * while driving, and it opens behind the nose when the child climbed on
+ * looking away) and the cockpit view at full speed (`cockpitEye`).
  *
  *   vehicle-not-stuck   a vehicle class that must pass an obstacle did not
  *                       (every obstacle for a ship; all but the three-block
@@ -25,7 +26,12 @@
  *   vehicle-escapes     after a stop the child could not back and turn away;
  *   vehicle-no-clip     the vehicle's clear band went into a block;
  *   ship-controls       a spaceship control did not do what it says;
- *   free-look           a drag did not move the camera, or it did not ease back;
+ *   free-look           a drag did not move the camera, or it did not ease back,
+ *                       or the chase camera opened off the nose after a mount
+ *                       (the seat's turn of the rider read as a drag, Saga 30k);
+ *   cockpit-eye-on-seat the cockpit camera is drawn more than half a block off
+ *                       the drawn seat at speed (quirk `cockpit-draw-lag`;
+ *                       Saga 30k: over the McLaren's hood at 43 mph);
  *   ship-slides-along   a ship ran along an obstacle's face (10+ blocks across the lane) instead of lifting over it (Saga 30j);
  *   ship-turn-climbs    a turn on the spot against a post lifted the ship (Saga 30j);
  *   ship-parks-on-player  an empty ship sank onto the child who sneaked off it (Saga 30j);
@@ -44,6 +50,15 @@ import { packText } from '../../pack/pack.js';
 import { extractJsonAfter } from '../../pack/script-config.js';
 import { FLAT_GROUND_Y } from '../../world/voxel-world.js';
 import { FLIGHT } from '../../../engine/bedrock-vehicle.js';
+import { cockpitCamera, type CockpitPose } from '../../../engine/vehicle-free-look.js';
+import { quirkValue } from '../../quirks/registry.js';
+
+/** Ticks after boarding before the seat turns a child who climbed on looking away onto the heading (quirk `mount-snaps-rider-yaw`: 4-12 on the Saga). */
+const MOUNT_SNAP_TICKS = 4;
+/** Ticks the cockpit-eye check drives at full stick (6 s: every class is at its top speed well before). */
+const COCKPIT_DRIVE_TICKS = 120;
+/** Blocks the cockpit eye may be drawn off the seat along the heading (half a block: inside the cabin of the smallest car). */
+const COCKPIT_EYE_SLACK = 0.5;
 
 /** A scripted vehicle type as `scripts/vehicles.js` declares it (blocks at scale 1). */
 export interface ScriptedTypeFacts { typeId: string; mode: 'car' | 'boat' | 'plane' | 'hover'; noseReach: number; halfWidth: number; height: number }
@@ -188,8 +203,12 @@ function bandOverlaps(v: SimEntity, f: ScriptedTypeFacts, lo: number, hi: number
 /** The vehicle course's step handlers. */
 export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, StepHandler> {
   const types = new Map(scriptedVehicleTypes(pack).map(t => [t.typeId, t]));
-  /** Spawn the vehicle and seat the child on it, heading +x (yaw -90) turned `skew` degrees toward +z, at `at` on the ground. */
-  const board = async (ctx: StepContext, f: ScriptedTypeFacts, at: { x: number; z: number }, skew = 0): Promise<SimEntity> => {
+  /**
+   * Spawn the vehicle and seat the child on it, heading +x (yaw -90) turned `skew` degrees toward +z, at `at` on the
+   * ground. `lookAway` (degrees): the child mounts looking that far off the heading, and the seat turns them onto it
+   * `MOUNT_SNAP_TICKS` later, as the device does (quirk `mount-snaps-rider-yaw`; the simulator's `addRider` does not).
+   */
+  const board = async (ctx: StepContext, f: ScriptedTypeFacts, at: { x: number; z: number }, skew = 0, lookAway?: number): Promise<SimEntity> => {
     // A low car's seated rider has its feet under the road (the seat is the driver's EYE less the seated eye
     // height, cockpit-seat.ts), and the pits are dug below the flat world's ground on purpose: the course
     // judges the VEHICLE by its own clear band (`vehicle-no-clip`), so these two core checks are quiet.
@@ -199,9 +218,21 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
     await ctx.run(2);
     const r = v.addRider(ctx.player, ctx.sim.engine.tick);
     if (!r.ok) throw new Error(`could not seat the child on ${f.typeId}: ${r.why}`);
+    if (lookAway !== undefined) {
+      ctx.player.rotation = { x: 0, y: wrap(-90 + skew + lookAway) };
+      await ctx.run(MOUNT_SNAP_TICKS);
+    }
     ctx.player.rotation = { x: 0, y: -90 + skew };
     await ctx.run(2);
     return v;
+  };
+  /** A scripted vehicle's camera config in `scripts/vehicle-camera.js` (the runtime's first argument): the cockpit eye. */
+  const cameraCfg = (typeId: string): { eye?: [number, number, number] } | undefined => {
+    const text = packText(pack.pack, 'scripts/vehicle-camera.js');
+    const at = text ? text.indexOf('({"vehicles":') : -1;
+    if (!text || at < 0) return undefined;
+    const cfg = extractJsonAfter(text.slice(at), '(') as { vehicles?: Array<{ typeId?: string; eye?: [number, number, number] }> } | undefined;
+    return cfg?.vehicles?.find(c => c.typeId === typeId);
   };
   /** The band the runtime keeps clear (bedrock-vehicle.ts: a car's over its step, a ship's whole airframe aloft). */
   const bandOf = (f: ScriptedTypeFacts): { lo: number; hi: number } => (f.mode === 'plane' ? { lo: 0.15, hi: Math.max(0.2, f.height - 0.15) } : { lo: (f.mode === 'hover' ? 1.6 - 1 : 1.05) + 0.1, hi: Math.max(1.2, f.height - 0.15) });
@@ -341,7 +372,11 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
     /** The free look: a drag orbits the camera, it holds at rest, eases back while driving: `{ type }`. */
     async cameraRecentre(step: AnyStep, ctx: StepContext) {
       const f = typeOf(step);
-      const v = await board(ctx, f, { x: 60.5, z: -160.5 });
+      // The child climbs on looking at the vehicle's face (half round from its heading), and the seat turns them
+      // onto the heading a few ticks later (quirk `mount-snaps-rider-yaw`): the chase camera must open behind the
+      // nose all the same (Saga 30k: it opened facing the rider until a slot switch).
+      const v = await board(ctx, f, { x: 60.5, z: -160.5 }, 0, 180);
+      await ctx.run(20);
       const cam = (): { yaw: number; pitch: number } | undefined => {
         const c = ctx.sim.host.playerState(ctx.player).camera;
         if (!c.location || !c.facing) return undefined;
@@ -350,6 +385,8 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
       };
       const off = (): number | undefined => { const c = cam(); return c ? r2(wrap(c.yaw - v.rotation.y)) : undefined; };
       const out: Record<string, unknown> = { start: off() };
+      const start = Number(out['start'] ?? 999);
+      if (!(Math.abs(start) < 5)) ctx.violate({ invariant: 'free-look', message: `${f.typeId}: a child who climbed on looking at its face got a chase camera ${start} degrees off the nose (the seat's turn of the rider read as a drag)`, evidence: { ...out } });
       // Drag 90 degrees round at rest (6 degrees a tick: a slow finger), then let go for 2 s.
       for (let t = 0; t < 15; t++) { ctx.player.rotation = { x: ctx.player.rotation.x, y: ctx.player.rotation.y + 6 }; await ctx.run(1); }
       out['dragged'] = off();
@@ -368,6 +405,55 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
       }
       ctx.state['freeLook'] = { ...((ctx.state['freeLook'] as Record<string, unknown> | undefined) ?? {}), [f.typeId]: out };
       ctx.note(`${f.typeId} free look: ${JSON.stringify(out)}`);
+      v.removeRider(ctx.player);
+      ctx.sim.engine.removeEntity(v);
+      await ctx.run(2);
+    },
+
+    /**
+     * The cockpit view (hotbar slot 9) at full speed: its eye must stay on the DRAWN seat. The device draws the
+     * vehicle behind the camera's schedule (quirk `cockpit-draw-lag`: a camera on the pose L ticks back is drawn
+     * speed/20 x (lag - L) ahead), so each tick the camera's target is compared with the eye on the vehicle's pose
+     * that many ticks back, along the heading (Saga 30k: at L 1.5 the McLaren's eye sat over its hood at 43 mph,
+     * the X-wing's 2-3 blocks up its nose): `{ type }`.
+     */
+    async cockpitEye(step: AnyStep, ctx: StepContext) {
+      const f = typeOf(step);
+      const cfg = cameraCfg(f.typeId);
+      if (!cfg?.eye) { ctx.note(`${f.typeId}: no cockpit eye in vehicle-camera.js (the cockpit camera stands at the rider's head)`); return; }
+      const v = await board(ctx, f, { x: 60.5, z: -400.5 });
+      ctx.sim.host.playerState(ctx.player).selectedSlot = 8;
+      const drawLag = quirkValue('cockpit-draw-lag', 'ticks');
+      // The lag is counted in the camera runtime's own poses, read when IT runs: a pack whose main.js imports
+      // vehicle-camera.js before vehicles.js reads the vehicle before this tick's move (on the device as here, the
+      // intervals run in that order), so its newest pose is the one before the newest seen after the tick.
+      const main = packText(pack.pack, 'scripts/main.js') ?? '';
+      const camAt = main.indexOf('vehicle-camera.js'), moveAt = main.indexOf('vehicles.js');
+      const cameraFirst = camAt >= 0 && moveAt >= 0 && camAt < moveAt;
+      const poses: CockpitPose[] = [];
+      let worst = 0, worstAt: Record<string, number> = {}, top = 0, last = { ...v.location };
+      for (let t = 0; t < COCKPIT_DRIVE_TICKS; t++) {
+        hold(ctx, { forward: 1 });
+        await ctx.run(1);
+        poses.push({ x: v.location.x, y: v.location.y, z: v.location.z, yaw: v.rotation.y, pitch: 0 });
+        if (poses.length > Math.ceil(drawLag) + 3) poses.shift();
+        const speed = Math.hypot(v.location.x - last.x, v.location.z - last.z) * 20;
+        last = { ...v.location };
+        top = Math.max(top, speed);
+        const cam = ctx.sim.host.playerState(ctx.player).camera.location;
+        const seen = cameraFirst ? poses.slice(0, -1) : poses;
+        const drawn = cockpitCamera(seen, drawLag, cfg.eye, v.scale(), { yaw: 0, pitch: 0 }, 89);
+        if (!cam || !drawn || seen.length <= Math.ceil(drawLag)) continue;
+        const r = drawn.rotation.y * Math.PI / 180, fx = -Math.sin(r), fz = Math.cos(r);
+        const lead = (cam.x - drawn.location.x) * fx + (cam.z - drawn.location.z) * fz;
+        if (Math.abs(lead) > Math.abs(worst)) { worst = lead; worstAt = { t, speed: r2(speed), lead: r2(lead) }; }
+      }
+      hold(ctx, {});
+      const out = { topSpeed: r2(top), worstLead: r2(worst), at: worstAt, drawLag };
+      ctx.state['cockpitEye'] = { ...((ctx.state['cockpitEye'] as Record<string, unknown> | undefined) ?? {}), [f.typeId]: out };
+      ctx.note(`${f.typeId} cockpit eye at up to ${out.topSpeed} blocks/s: worst ${out.worstLead} blocks ${worst >= 0 ? 'ahead of' : 'behind'} the drawn seat`);
+      if (Math.abs(worst) > COCKPIT_EYE_SLACK) ctx.violate({ invariant: 'cockpit-eye-on-seat', message: `${f.typeId}: the cockpit eye is drawn ${out.worstLead} blocks ${worst >= 0 ? 'AHEAD of' : 'behind'} the seat at ${worstAt['speed']} blocks/s (the camera's pose lag does not match the device's draw lag of ${drawLag} ticks)`, evidence: out });
+      ctx.sim.host.playerState(ctx.player).selectedSlot = 0;
       v.removeRider(ctx.player);
       ctx.sim.engine.removeEntity(v);
       await ctx.run(2);
@@ -451,13 +537,14 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
 export function vehicleScenarios(pack: CraftmaticPack): Scenario[] {
   return scriptedVehicleTypes(pack).filter(t => t.mode !== 'boat').map(t => ({
     name: `vehicle-${t.typeId.replace(/^.*:/, '')}`,
-    description: `${t.mode} ${t.typeId}: the stuck course (stick forward into each obstacle), ${t.mode === 'plane' ? 'the spaceship controls, ' : ''}the free look.`,
+    description: `${t.mode} ${t.typeId}: the stuck course (stick forward into each obstacle), ${t.mode === 'plane' ? 'the spaceship controls, ' : ''}the free look, the cockpit eye at speed.`,
     steps: [
       { kind: 'stuckCourse', type: t.typeId },
       // A ship also with Jump held: the old flight model's throttle (its stick alone never moved it), the new one's "up".
       ...(t.mode === 'plane' ? [{ kind: 'stuckCourse', type: t.typeId, policy: 'forward+jump' }] : []),
       ...(t.mode === 'plane' ? [{ kind: 'shipControls', type: t.typeId }] : []),
       { kind: 'cameraRecentre', type: t.typeId },
+      { kind: 'cockpitEye', type: t.typeId },
       // The Saga's two turn/park findings (round 30j): a turn against a post must not climb; an empty ship never parks on the child.
       ...(t.mode === 'plane' ? [{ kind: 'turnAgainstPost', type: t.typeId }, { kind: 'parkOverRider', type: t.typeId }] : []),
     ],
