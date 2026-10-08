@@ -61,8 +61,8 @@ web/src/sim/
   world/       voxel-world (chunked blocks, loaded area, collision query) · block-types (pack block
                JSON, permutations, vanilla shapes) · molang (permutation conditions) · nbt · mcstructure
   entity/      definitions (entity JSON, refusals, groups, events, properties) · entity (state, riding)
-  physics/     body (THE per-tick integrator: tickPlayer, tickBody, moveBox) · systems (players,
-               hover mounts, mobs, riders, effects, falls)
+  physics/     body (THE per-tick integrator: tickPlayer, tickBody, moveBox) · systems (mobs, effects,
+               falls) · player-systems (players, hover mounts, riders) · shared
   input/       controls (stick, jump, sneak) · touch (tap = hit, hold = interact, item use) · ray
   script-host/ host (the mock, the tick) · facades (Entity, Player, Dimension, Block, components)
                module-loader (all scripts in one context) · scheduler · commands · ui-module (forms)
@@ -606,7 +606,7 @@ seats' set-down order is physics spec §4.8.
   built before the fix to `collisionBox` shows its x-banded clearance forms on
   the half of the block the phone put them on, not where the kit meant.
 - **Dismount spot** (quirk `dismount-free-spot`, `setDownRider` in
-  `physics/systems.ts`): a player that gets off is set on the floor one block
+  `physics/player-systems.ts`): a player that gets off is set on the floor one block
   from the seat ENTITY, trying world (0,-1), (0,+1), (+1,-1), (+1,+1),
   (-1,+1) in that order, a floor within about +0.5 / -1 of the seat entity;
   with none free, at the seat's point 0.2 up. The search runs about
