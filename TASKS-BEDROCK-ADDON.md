@@ -110,6 +110,14 @@ cruise 14.45 ms/tick. The failures, fixed OFFLINE 2026-10-07 (merges of
    floor (else the close is refused); the Exit tap fires only while the chat
    keyboard is up. Lift hill: auto-jump modelled (reproduces pin+28.2); lane
    pass lays auto-jump steps (10261 export 53 -> 180 s, TODO(lane-pass-cost)).
+Round 30l BUILT from main `77a9f172`: `output/device-round-2026-10-07l/`
+(`craftmatic-packs-77a9f172.zip` sha256 `a1163501...`). Offline: check 0 bad
+of 23, regressions 21 / 0 failed / 0 not tested, course ships 9/9 car 6/9,
+hop 3/3, child play 132/132, seat scale 0 off at every size, passability 340
+rows 256 OK / 20 STEP / 60 SEALED / 4 ONE-WAY / 0 FAIL. Device round 30l IN
+PROGRESS (Saga: seats at 200/400 %, camera radius, cockpit at speed, first
+mount, Nimbus drag; Pixel: Gate 1 step-out, lift hill auto-jump, seats at
+200 %, Milano ms/tick) -> `output/device-round-2026-10-07l/{saga,pixel}/notes.md`.
 Open: `TODO(car-oblique-kerb)` (McLaren slides 62 along an oblique kerb);
 11 other hull-leaving cockpit eyes not re-audited for `AHEAD_CABIN`.
 - # TODO(seat-sweep-memory): `_seat_egress_sweep.ts` on 76457 at 300/400 %
