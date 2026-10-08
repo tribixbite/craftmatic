@@ -45,8 +45,18 @@ export type CoreStep =
 /** A step of any registered kind, as a handler receives it. */
 export interface AnyStep { kind: string; label?: string; [k: string]: unknown }
 
+/**
+ * The input module's steps (`input/steps.ts` `INPUT_HANDLERS`, merged in by the CLI): a touch drag in raw screen
+ * pixels or degrees, a press of the touch sneak button, the sneak mode, a tap at a point of a phone screen.
+ */
+export type InputStep =
+  | { kind: 'drag'; dx?: number; dy?: number; yawDeg?: number; pitchDeg?: number; ticks?: number; label?: string }
+  | { kind: 'sneakToggle'; label?: string }
+  | { kind: 'sneakMode'; mode: 'hold' | 'toggle'; label?: string }
+  | { kind: 'tapScreen'; x?: number; y?: number; u?: number; v?: number; viewport?: 'pixel' | 'saga'; expect?: string | RegExp; label?: string };
+
 /** A step of any registered kind. */
-export type Step = CoreStep | AnyStep;
+export type Step = CoreStep | InputStep | AnyStep;
 
 /** What a step handler gets. */
 export interface StepContext {
