@@ -129,6 +129,16 @@ Milano 13.4 ms/tick, all 30k regressions. FAIL / open (round 30m):
    end into a 43-block fall (newly reachable thanks to the lane pass).
 6. 200 % Milano: a ground dismount drops ~9 blocks (vehicle dismounts are not
    egress-checked).
+   ALL SIX fixed offline 2026-10-08 (merges `0a9f479e` cameras, `671843b5`
+   scale, `7a3e5956` reach guards; `6a8c7121` caps local vitest workers).
+Round 30m BUILT from main `6a8c7121`: `output/device-round-2026-10-08m/`
+(`craftmatic-packs-6a8c7121.zip` sha256 `541e74ea...`). Offline: check 0 bad
+of 23, regressions 25 / 0 failed / 0 not tested, course ships 9/9 car 6/9,
+hop 3/3, child play 132/132, seat+box scale 0 off, passability unchanged
+(256 OK, 0 FAIL). Device round 30m IN PROGRESS (Saga: Nimbus stops after a
+swipe, cockpit at speed, boom per size, box probe, vehicle dismount; Pixel:
+lift-top guard at 200 %, vehicle dismount, taps, doors, ms/tick) ->
+`output/device-round-2026-10-08m/{saga,pixel}/notes.md`.
 Open: `TODO(car-oblique-kerb)` (McLaren slides 62 along an oblique kerb);
 11 other hull-leaving cockpit eyes not re-audited for `AHEAD_CABIN`.
 - # TODO(seat-sweep-memory): `_seat_egress_sweep.ts` on 76457 at 300/400 %
