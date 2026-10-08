@@ -32,6 +32,14 @@ import {
 import { JUMP16, PLAYER_NEED16, QUARTER_TURNS, STEP16, planColliderTreads, type GridDims, type SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
 import { colliderSourceCells, treadBlocksFor, type PlacementColliders } from '../web/src/engine/bedrock-placement-pack.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
+import { AddonSimSession, mergeFrames } from '../web/src/ui/addon-sim-worker.js';
+import { interpolatePose, type SimFrame, type WorkerToPage } from '../web/src/ui/addon-sim-client.js';
+import { readAddon } from '../web/src/sim/pack/pack.js';
+import { readCraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.js';
+import { craftmaticHandlers } from '../web/src/sim/adapters/craftmatic/child-play.js';
+import { runScenario } from '../web/src/sim/scenario/runner.js';
+import type { Simulation } from '../web/src/sim/core/simulation.js';
+import type { TimelineEntry } from '../web/src/sim/core/timeline.js';
 
 // ─── Synthetic worlds ────────────────────────────────────────────────────────
 
@@ -344,5 +352,91 @@ describe('WalkWorld.setDoorOpen: a vanilla door candidate toggling its collision
     const before = world.reach().surfaces;
     world.setDoorOpen('door0', 4, 4, 1, true, 2);
     expect(world.reach().surfaces).toBe(before);
+  });
+});
+
+// ─── The walker hosts the simulator: its tick is the CLI's tick ──────────────
+
+/**
+ * The round-30m build of 10261 (the plan's parity subject); the test skips without it. A worktree under
+ * `.claude/worktrees/<name>` has no `output/` of its own, so the main checkout's is tried too
+ * (`CRAFTMATIC_ROUND_PACKS` overrides the folder).
+ */
+const ROUND_PACK_10261 = ((): string => {
+  const rel = '10261-roller-coaster.mcaddon';
+  const dirs = [process.env['CRAFTMATIC_ROUND_PACKS'], 'output/device-round-2026-10-08m/packs-6a8c7121', '../../../output/device-round-2026-10-08m/packs-6a8c7121'].filter((d): d is string => !!d);
+  return dirs.map(d => `${d}/${rel}`).find(p => existsSync(p)) ?? `output/device-round-2026-10-08m/packs-6a8c7121/${rel}`;
+})();
+
+/** A timeline entry comparable across two worlds: engine ids differ per process, so a player id reads as PLAYER. */
+const comparable = (entries: readonly TimelineEntry[]): Array<Record<string, unknown>> =>
+  entries.map(e => ({ tick: e.tick, kind: e.kind, text: e.text, source: e.source ?? null, target: e.target && /^-\d+$/.test(e.target) ? 'PLAYER' : e.target ?? null }));
+
+describe.skipIf(!existsSync(ROUND_PACK_10261))('the walker\'s tick equals scripts/sim.ts\'s tick', () => {
+  it('over 10261 for 600 ticks: identical timeline, the same entities at the same poses', async () => {
+    const b = readFileSync(ROUND_PACK_10261);
+    const buf = b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
+    // The CLI's way: the scenario runner over the add-on, placed by the wand, then 600 ticks of waiting.
+    const addon = await readAddon(buf, ROUND_PACK_10261);
+    const pack = readCraftmaticPack(addon)!;
+    let cliSim: Simulation | undefined;
+    const cli = await runScenario(
+      { name: 'walker-parity', steps: [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 600 }] },
+      [addon], { handlers: craftmaticHandlers(pack, addon), keepTimeline: true, prepare: sim => { cliSim = sim; } },
+    );
+    expect(cli.steps.every(s => s.ok), cli.steps.map(s => s.error).join('; ')).toBe(true);
+    // The walker's way: the session the Worker runs, ticked by hand, idle input.
+    const posts: WorkerToPage[] = [];
+    const session = new AddonSimSession(m => posts.push(m), { clock: false });
+    const info = await session.load(buf, 100, 0);
+    expect(info.anchor).toBeDefined();
+    let last: SimFrame | undefined;
+    for (let i = 0; i < 600; i++) last = await session.tick();
+    const walker = session.sim!;
+    expect(walker.engine.tick).toBe(cli.ticks);
+    expect(last!.tick).toBe(cli.ticks);
+    // Every line, fault and unmodelled member the game produced, tick for tick, with its source script.
+    expect(comparable(walker.engine.timeline.entries)).toEqual(comparable(cli.timeline!));
+    expect(walker.engine.timeline.unmodelledRanking().map(u => u.member)).toEqual(cli.unmodelled.map(u => u.member));
+    // The same entities (in spawn order) at the same poses, riding the same things.
+    const poses = (sim: Simulation): unknown[] => [...sim.engine.entities.values()].filter(e => e.valid && !e.isPlayer).sort((p, q) => Number(p.id) - Number(q.id))
+      .map(e => ({ type: e.typeId, x: e.location.x, y: e.location.y, z: e.location.z, yaw: e.rotation.y, riding: e.ridingOn?.typeId ?? null, props: Object.fromEntries(e.properties) }));
+    expect(poses(walker)).toEqual(poses(cliSim!));
+    const child = (sim: Simulation): unknown => ({ ...sim.engine.players[0]!.location, yaw: sim.engine.players[0]!.rotation.y, riding: sim.engine.players[0]!.ridingOn?.typeId ?? null });
+    expect(child(walker)).toEqual(child(cliSim!));
+    // The frames the page would draw carry those poses, and the placement laid blocks.
+    expect(last!.entities.length).toBe(poses(walker).length);
+    const laid = posts.flatMap(m => (m.type === 'frame' ? m.frame.blocks ?? [] : []));
+    expect(laid.length).toBeGreaterThan(1000);
+    expect(laid.every(c => c.typeId.startsWith('craftmatic:collider') || c.typeId.startsWith('minecraft:'))).toBe(true);
+    // The pack's figures live: at least one figure moved during the 600 ticks (figures.js ran in the walker's world).
+    const first = posts.find(m => m.type === 'frame' && m.frame.tick > (posts.find(x => x.type === 'ready') ? 0 : -1));
+    expect(first).toBeDefined();
+  }, 240_000);
+});
+
+describe('the walker\'s frame protocol', () => {
+  const frame = (tick: number, extra: Partial<SimFrame> = {}): SimFrame => ({
+    tick, seq: 0, ms: 1, player: { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, onGround: true, sneaking: false, flying: false, riding: null, slot: 1 },
+    camera: null, aim: null, entities: [], removed: [], lines: [], violations: [], unmodelled: [], ...extra,
+  });
+  it('interpolates a pose along the short way round and cuts on a teleport', () => {
+    const a = { x: 0, y: 0, z: 0, yaw: 170, pitch: 0 }, b = { x: 1, y: 0, z: 0, yaw: -170, pitch: 10 };
+    const mid = interpolatePose(a, b, 0.5);
+    expect(mid.x).toBeCloseTo(0.5, 9);
+    expect(Math.abs(mid.yaw)).toBeCloseTo(180, 9);
+    expect(mid.pitch).toBeCloseTo(5, 9);
+    expect(interpolatePose(a, { ...b, x: 50 }, 0.5).x).toBe(50);
+    expect(interpolatePose(undefined, b, 0.2)).toEqual({ x: 1, y: 0, z: 0, yaw: -170, pitch: 10 });
+  });
+  it('merges consecutive frames: the later poses, every line and violation, the last props of an entity', () => {
+    const a = frame(1, { entities: [{ id: 'e', typeId: 't', x: 0, y: 0, z: 0, yaw: 0, pitch: 0, scale: 1, riding: null, props: { 'craftmatic:a': 1 } }], lines: [{ tick: 1, kind: 'chat', text: 'one' }], blocks: [{ x: 0, y: 0, z: 0, typeId: 'minecraft:stone', boxes: [[0, 0, 0, 1, 1, 1]] }] });
+    const b = frame(2, { entities: [{ id: 'e', typeId: 't', x: 1, y: 0, z: 0, yaw: 0, pitch: 0, scale: 1, riding: null }], lines: [{ tick: 2, kind: 'chat', text: 'two' }], removed: ['gone'], blocks: [{ x: 0, y: 0, z: 0, typeId: 'minecraft:air', boxes: [] }] });
+    const m = mergeFrames(a, b);
+    expect(m.tick).toBe(2);
+    expect(m.entities[0]).toMatchObject({ x: 1, props: { 'craftmatic:a': 1 } });
+    expect(m.lines.map(l => l.text)).toEqual(['one', 'two']);
+    expect(m.removed).toEqual(['gone']);
+    expect(m.blocks).toEqual([{ x: 0, y: 0, z: 0, typeId: 'minecraft:air', boxes: [] }]);
   });
 });

@@ -2067,8 +2067,9 @@ async function openAddonWalk(bytes: Uint8Array, label: string): Promise<void> {
     const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
     const model = await loadAddonPreviewModel(buffer);
     const viewer = await mountDirectViewer(viewerEl);
+    // The walk's simulator runs the pack from the same bytes (ui/addon-sim-worker.ts).
     addonWalk = openAddonPreview({
-      viewer, model,
+      viewer, model, bytes: buffer,
       onStatus: (m, k) => setStatus(m, k),
       onClose: () => { addonWalk = null; setStatus(`Left the add-on walk of ${label}.`, 'info'); },
     });

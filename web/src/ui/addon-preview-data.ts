@@ -159,6 +159,14 @@ export interface AddonPreviewModel {
    * player in game; a ride car's is `false` — see CLAUDE.md/bedrock-coaster.ts —
    * so it is simply absent here and the preview adds no box for it). */
   entityCollision: Map<string, { width: number; height: number }>;
+  /**
+   * The client animations each entity type plays (its RP entity file's
+   * `animations` / `scripts` and the `animations/*.json` clips), compiled
+   * from their Molang (`compileMolang`), keyed by the full type id. The
+   * walker drives its bones by these - the pack's own gait, track pitch,
+   * door swing and flipper - rather than by a second implementation.
+   */
+  animations: Map<string, ClientAnimationSet>;
   /** Anything about the pack the preview could not read, said rather than dropped. */
   notes: string[];
 }
@@ -192,16 +200,20 @@ export interface AddonPreviewFiles {
    * WITHOUT the extension - the form a client entity's `textures` map uses.
    */
   faceTextures?: Map<string, Uint8Array>;
+  /** Resource-pack `animations/*.json` files, keyed by archive path: the Molang the client animates bones by. */
+  animationSources?: Map<string, string>;
 }
 
 const utf8 = new TextDecoder();
 /** A face atlas the compiler writes beside an entity (`head-face.ts`). */
 const FACE_TEXTURE_PATTERN = /(^|\/)(textures\/entity\/[^/]+_faces)\.png$/;
+/** A resource-pack animation file (`animations/<id>.animation.json`). */
+const ANIMATION_FILE_PATTERN = /(^|\/)animations\/[^/]+\.json$/;
 
 /** Pull the files the preview reads out of a built `.mcaddon` (a zip of the BP and RP folders). */
 export async function readAddonPreviewFiles(mcaddon: ArrayBuffer): Promise<AddonPreviewFiles> {
   const behaviour = (name: string): boolean => /(^|\/)(scripts\/(placement|coaster|pinball|interactives)\.js|craftmatic-diagnostics\.json|craftmatic-treads\.json)$/.test(name);
-  const wanted = (name: string): boolean => behaviour(name) || APPEARANCE_FILE_PATTERN.test(name) || BEHAVIOR_ENTITY_FILE_PATTERN.test(name) || FACE_TEXTURE_PATTERN.test(name);
+  const wanted = (name: string): boolean => behaviour(name) || APPEARANCE_FILE_PATTERN.test(name) || BEHAVIOR_ENTITY_FILE_PATTERN.test(name) || FACE_TEXTURE_PATTERN.test(name) || ANIMATION_FILE_PATTERN.test(name);
   const names = listZipEntries(mcaddon).filter(behaviour);
   if (!names.length) throw new Error('Not a Craftmatic add-on: no scripts/placement.js in the archive.');
   const found = await extractMatching(mcaddon, wanted);
@@ -215,6 +227,8 @@ export async function readAddonPreviewFiles(mcaddon: ArrayBuffer): Promise<Addon
   for (const [name, data] of found) if (BEHAVIOR_ENTITY_FILE_PATTERN.test(name)) behaviorEntitySources.set(name, utf8.decode(data));
   const faceTextures = new Map<string, Uint8Array>();
   for (const [name, data] of found) { const m = FACE_TEXTURE_PATTERN.exec(name); if (m) faceTextures.set(m[2]!, new Uint8Array(data)); }
+  const animationSources = new Map<string, string>();
+  for (const [name, data] of found) if (ANIMATION_FILE_PATTERN.test(name)) animationSources.set(name, utf8.decode(data));
   // Texture-set image references are arbitrary names. Resolve the JSON first,
   // then extract exactly those images in a second ZIP pass.
   const pbrPaths = appearancePbrPngPaths(appearanceSources);
@@ -234,6 +248,7 @@ export async function readAddonPreviewFiles(mcaddon: ArrayBuffer): Promise<Addon
     appearancePbr,
     behaviorEntitySources,
     faceTextures,
+    animationSources,
   };
 }
 
@@ -456,12 +471,13 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
   }
 
   const entityCollision = files.behaviorEntitySources?.size ? entityCollisionFromSources(files.behaviorEntitySources) : new Map<string, { width: number; height: number }>();
+  const animations = readClientAnimations(files.appearanceSources ?? new Map(), files.animationSources ?? new Map(), notes);
 
   return {
     id: String(config['id'] ?? 'addon'), label: String(config['label'] ?? config['id'] ?? 'Add-on'),
     dims, cells, colliders, keptCells: colliders ? num(colliders.keptCells) : 0,
     entities, routes, doorCandidates, sizes, access, accessDetail, treadReport, provenance, pack,
-    appearance, faceTextures: files.faceTextures ?? new Map(), coasterTypes, ...(coasterCamera ? { coasterCamera } : {}), pinball, interactives, entityCollision, notes,
+    appearance, faceTextures: files.faceTextures ?? new Map(), coasterTypes, ...(coasterCamera ? { coasterCamera } : {}), pinball, interactives, entityCollision, animations, notes,
   };
 }
 
@@ -798,4 +814,304 @@ export function recommendedSize(model: Pick<AddonPreviewModel, 'access' | 'acces
 /** Where the walk starts: on the ground a few blocks off the footprint's −X edge, facing the model (Bedrock yaw 270 = +X). */
 export function spawnPoint(laid: GridDims): { x: number; y: number; z: number; yawDeg: number } {
   return { x: -6, y: 0, z: laid.length / 2, yawDeg: 270 };
+}
+
+// ─── Client animations: the pack's own Molang, drawn by the walker ────────────
+
+/**
+ * A compiled Molang expression or statement list: evaluates to its last
+ * value over an entity's state. Molang's own semantics where they matter
+ * here: booleans are 1 / 0, an unset variable is 0, trig takes DEGREES,
+ * a division by zero is 0.
+ */
+export type MolangProgram = (env: MolangEnv) => number;
+
+/** What an expression may read: the entity's actor properties, the client queries, its variables. */
+export interface MolangEnv {
+  /** `query.property('name')`; undefined when the entity has no such property (reads as 0). */
+  property(name: string): number | boolean | string | undefined;
+  /** A client query by name (`is_riding`, `life_time`, `movement_direction` with its index...); undefined = not modelled. */
+  query(name: string, args: number[]): number | undefined;
+  /** `v.` / `variable.` / `t.` / `temp.` variables, kept per entity across frames. */
+  vars: Map<string, number>;
+  /** A query without an answer (reported once per entity by the caller; the value is 0). */
+  unknown?(name: string): void;
+}
+
+type Tok = { k: 'num'; v: number } | { k: 'str'; v: string } | { k: 'id'; v: string } | { k: 'op'; v: string };
+
+const MOLANG_OPS = ['==', '!=', '<=', '>=', '&&', '||', '+', '-', '*', '/', '(', ')', ',', ';', '?', ':', '!', '<', '>', '='];
+
+function tokenizeMolang(src: string): Tok[] {
+  const out: Tok[] = [];
+  for (let i = 0; i < src.length;) {
+    const c = src[i]!;
+    if (/\s/.test(c)) { i++; continue; }
+    const num = /^(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?f?/.exec(src.slice(i));
+    if (num && /[0-9.]/.test(c)) { out.push({ k: 'num', v: Number(num[0].replace(/f$/, '')) }); i += num[0].length; continue; }
+    if (c === '\'' || c === '"') {
+      const end = src.indexOf(c, i + 1);
+      if (end < 0) throw new Error(`unterminated string at ${i}`);
+      out.push({ k: 'str', v: src.slice(i + 1, end) }); i = end + 1; continue;
+    }
+    if (/[A-Za-z_]/.test(c)) {
+      const m = /^[A-Za-z_][A-Za-z0-9_.]*/.exec(src.slice(i))!;
+      out.push({ k: 'id', v: m[0] }); i += m[0].length; continue;
+    }
+    const op = MOLANG_OPS.find(o => src.startsWith(o, i));
+    if (!op) throw new Error(`unexpected character ${JSON.stringify(c)} at ${i}`);
+    out.push({ k: 'op', v: op }); i += op.length;
+  }
+  return out;
+}
+
+type Node = (env: MolangEnv) => number;
+const bool = (v: unknown): number => (typeof v === 'number' ? v : typeof v === 'boolean' ? (v ? 1 : 0) : 0);
+const varKey = (id: string): string | null => {
+  const m = /^(?:v|variable|t|temp|c|context)\.(.+)$/.exec(id);
+  return m ? m[1]! : null;
+};
+const MATH_FN: Record<string, (a: number[]) => number> = {
+  abs: a => Math.abs(a[0]!), ceil: a => Math.ceil(a[0]!), floor: a => Math.floor(a[0]!), round: a => Math.round(a[0]!), trunc: a => Math.trunc(a[0]!),
+  sqrt: a => Math.sqrt(a[0]!), exp: a => Math.exp(a[0]!), ln: a => Math.log(a[0]!), pow: a => Math.pow(a[0]!, a[1]!), mod: a => (a[1] ? a[0]! % a[1] : 0),
+  min: a => Math.min(...a), max: a => Math.max(...a), clamp: a => Math.max(a[1]!, Math.min(a[2]!, a[0]!)),
+  lerp: a => a[0]! + (a[1]! - a[0]!) * a[2]!, lerprotate: a => { const d = ((a[1]! - a[0]! + 180) % 360 + 360) % 360 - 180; return a[0]! + d * a[2]!; },
+  sin: a => Math.sin(a[0]! * Math.PI / 180), cos: a => Math.cos(a[0]! * Math.PI / 180),
+  atan: a => Math.atan(a[0]!) * 180 / Math.PI, atan2: a => Math.atan2(a[0]!, a[1]!) * 180 / Math.PI,
+  asin: a => Math.asin(a[0]!) * 180 / Math.PI, acos: a => Math.acos(a[0]!) * 180 / Math.PI,
+  // The random family is drawn at its mean: a preview must repeat, and nothing the packs animate uses it.
+  die_roll: a => a[0]! * (a[1]! + a[2]!) / 2, random: a => (a[0]! + a[1]!) / 2, random_integer: a => Math.round((a[0]! + a[1]!) / 2),
+  hermite_blend: a => 3 * a[0]! * a[0]! - 2 * a[0]! * a[0]! * a[0]!,
+};
+
+/**
+ * Compile a Molang expression or `;`-separated statement list (the forms the
+ * compiled packs write: `query.property('x')`, `v.a = v.a + math.clamp(...)`,
+ * ternaries, comparisons, `math.*`, `q.delta_time`, `q.movement_direction(0)`).
+ * A parse error throws; the reader notes it and the bone stays still.
+ */
+export function compileMolang(src: string): MolangProgram {
+  const toks = tokenizeMolang(src);
+  let i = 0;
+  const peek = (): Tok | undefined => toks[i];
+  const isOp = (v: string): boolean => { const t = toks[i]; return !!t && t.k === 'op' && t.v === v; };
+  const opAt = (): string => (toks[i] as { v: string }).v;
+  const take = (v: string): void => { if (!isOp(v)) throw new Error(`expected ${v} at token ${i} of ${JSON.stringify(src)}`); i++; };
+  const program = (): Node => {
+    const stmts: Node[] = [];
+    while (i < toks.length) {
+      stmts.push(statement());
+      if (isOp(';')) i++;
+    }
+    if (stmts.length === 1) return stmts[0]!;
+    return env => { let v = 0; for (const s of stmts) v = s(env); return v; };
+  };
+  const statement = (): Node => {
+    const t = peek(), next = toks[i + 1];
+    if (t && t.k === 'id' && next && next.k === 'op' && next.v === '=') {
+      const key = varKey(t.v);
+      if (!key) throw new Error(`cannot assign to ${t.v}`);
+      i += 2;
+      const rhs = ternary();
+      return env => { const v = rhs(env); env.vars.set(key, v); return v; };
+    }
+    if (t && t.k === 'id' && t.v === 'return') { i++; return ternary(); }
+    return ternary();
+  };
+  const ternary = (): Node => {
+    const cond = orExpr();
+    if (!isOp('?')) return cond;
+    i++;
+    const a = ternary();
+    take(':');
+    const b = ternary();
+    return env => (cond(env) ? a(env) : b(env));
+  };
+  const orExpr = (): Node => {
+    let l = andExpr();
+    while (isOp('||')) { i++; const r = andExpr(); const ll = l; l = env => (ll(env) || r(env) ? 1 : 0); }
+    return l;
+  };
+  const andExpr = (): Node => {
+    let l = eqExpr();
+    while (isOp('&&')) { i++; const r = eqExpr(); const ll = l; l = env => (ll(env) && r(env) ? 1 : 0); }
+    return l;
+  };
+  const eqExpr = (): Node => {
+    let l = relExpr();
+    while (isOp('==') || isOp('!=')) { const op = opAt(); i++; const r = relExpr(); const ll = l; l = op === '==' ? env => (ll(env) === r(env) ? 1 : 0) : env => (ll(env) !== r(env) ? 1 : 0); }
+    return l;
+  };
+  const relExpr = (): Node => {
+    let l = addExpr();
+    while (isOp('<') || isOp('>') || isOp('<=') || isOp('>=')) {
+      const op = opAt(); i++; const r = addExpr(); const ll = l;
+      l = op === '<' ? env => (ll(env) < r(env) ? 1 : 0) : op === '>' ? env => (ll(env) > r(env) ? 1 : 0) : op === '<=' ? env => (ll(env) <= r(env) ? 1 : 0) : env => (ll(env) >= r(env) ? 1 : 0);
+    }
+    return l;
+  };
+  const addExpr = (): Node => {
+    let l = mulExpr();
+    while (isOp('+') || isOp('-')) { const op = opAt(); i++; const r = mulExpr(); const ll = l; l = op === '+' ? env => ll(env) + r(env) : env => ll(env) - r(env); }
+    return l;
+  };
+  const mulExpr = (): Node => {
+    let l = unary();
+    while (isOp('*') || isOp('/')) { const op = opAt(); i++; const r = unary(); const ll = l; l = op === '*' ? env => ll(env) * r(env) : env => { const d = r(env); return d ? ll(env) / d : 0; }; }
+    return l;
+  };
+  const unary = (): Node => {
+    if (isOp('-')) { i++; const e = unary(); return env => -e(env); }
+    if (isOp('!')) { i++; const e = unary(); return env => (e(env) ? 0 : 1); }
+    if (isOp('+')) { i++; return unary(); }
+    return primary();
+  };
+  const args = (): Array<Node | string> => {
+    const out: Array<Node | string> = [];
+    take('(');
+    while (!isOp(')')) {
+      const t = peek();
+      if (t && t.k === 'str') { out.push(t.v); i++; } else out.push(ternary());
+      if (isOp(',')) i++; else break;
+    }
+    take(')');
+    return out;
+  };
+  const primary = (): Node => {
+    const t = peek();
+    if (!t) throw new Error(`unexpected end of ${JSON.stringify(src)}`);
+    if (t.k === 'num') { i++; const v = t.v; return () => v; }
+    if (t.k === 'op' && t.v === '(') { i++; const e = ternary(); take(')'); return e; }
+    if (t.k === 'str') throw new Error(`a string is only a property name: ${JSON.stringify(t.v)}`);
+    if (t.k !== 'id') throw new Error(`unexpected ${t.v} at token ${i} of ${JSON.stringify(src)}`);
+    i++;
+    const id = t.v.toLowerCase();
+    if (id === 'true') return () => 1;
+    if (id === 'false') return () => 0;
+    const mathName = /^math\.(.+)$/.exec(id)?.[1];
+    if (mathName) {
+      if (mathName === 'pi') return () => Math.PI;
+      const fn = MATH_FN[mathName];
+      if (!fn) throw new Error(`unknown math.${mathName}`);
+      const a = args().map(x => (typeof x === 'string' ? ((): number => 0) : x));
+      return env => fn(a.map(x => x(env)));
+    }
+    const query = /^(?:q|query)\.(.+)$/.exec(id)?.[1];
+    if (query) {
+      const a = isOp('(') ? args() : [];
+      if (query === 'property') {
+        const name = typeof a[0] === 'string' ? a[0] : '';
+        return env => bool(env.property(name));
+      }
+      const nums = a.map(x => (typeof x === 'string' ? ((): number => 0) : x));
+      return env => { const v = env.query(query, nums.map(x => x(env))); if (v === undefined) { env.unknown?.(query); return 0; } return v; };
+    }
+    const key = varKey(id);
+    if (key) return env => env.vars.get(key) ?? 0;
+    throw new Error(`unknown name ${t.v}`);
+  };
+  return program();
+}
+
+/** One bone's animated channels, compiled; each channel is three expressions (a scalar scale is spread to three). */
+export interface ClientBoneChannel { rotation?: [MolangProgram, MolangProgram, MolangProgram]; position?: [MolangProgram, MolangProgram, MolangProgram]; scale?: [MolangProgram, MolangProgram, MolangProgram] }
+
+/** One animation clip an entity plays, with the `scripts.animate` condition that turns it on (none = always). */
+export interface ClientAnimationClip { name: string; id: string; when?: MolangProgram; bones: Map<string, ClientBoneChannel> }
+
+/** Everything the client runs for one entity type: `initialize` once, `pre_animation` every frame, then the clips. */
+export interface ClientAnimationSet { typeId: string; initialize: MolangProgram[]; preAnimation: MolangProgram[]; clips: ClientAnimationClip[] }
+
+/** A bone's pose this frame: rotation degrees and position units added to the bind pose, a scale multiplied in. */
+export interface BonePose { rotation: [number, number, number]; position: [number, number, number]; scale: [number, number, number] }
+
+const triple = (v: unknown, notes: string[], where: string): [MolangProgram, MolangProgram, MolangProgram] | undefined => {
+  const parts = Array.isArray(v) ? v : [v, v, v];
+  if (parts.length < 3) return undefined;
+  try {
+    return parts.slice(0, 3).map(p => (typeof p === 'number' ? ((): number => p) : compileMolang(String(p)))) as [MolangProgram, MolangProgram, MolangProgram];
+  } catch (e) { notes.push(`${where}: ${e instanceof Error ? e.message : String(e)}`); return undefined; }
+};
+
+/**
+ * Compile every entity type's client animations from the RP entity files
+ * (`appearanceSources` already holds them) and the animation files.
+ * A clip or a script line that does not parse is noted and left out, never
+ * silently drawn still.
+ */
+export function readClientAnimations(entitySources: ReadonlyMap<string, string>, animationSources: ReadonlyMap<string, string>, notes: string[] = []): Map<string, ClientAnimationSet> {
+  // Every clip by its id, across the animation files.
+  const clipsById = new Map<string, Record<string, unknown>>();
+  for (const [path, text] of animationSources) {
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { notes.push(`${path} is not valid JSON; its animations are not drawn.`); continue; }
+    const anims = (parsed as { animations?: Record<string, unknown> }).animations;
+    if (anims && typeof anims === 'object') for (const [id, clip] of Object.entries(anims)) if (clip && typeof clip === 'object') clipsById.set(id, clip as Record<string, unknown>);
+  }
+  const out = new Map<string, ClientAnimationSet>();
+  for (const [path, text] of entitySources) {
+    if (!/\.entity\.json$/.test(path)) continue;
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { continue; }
+    const desc = (parsed as { 'minecraft:client_entity'?: { description?: Record<string, unknown> } })['minecraft:client_entity']?.description;
+    const typeId = desc?.['identifier'];
+    if (!desc || typeof typeId !== 'string') continue;
+    const names = (desc['animations'] ?? {}) as Record<string, string>;
+    const scripts = (desc['scripts'] ?? {}) as { initialize?: unknown[]; pre_animation?: unknown[]; animate?: unknown[] };
+    const compileLines = (lines: unknown[] | undefined, label: string): MolangProgram[] => (lines ?? []).flatMap(l => {
+      try { return [compileMolang(String(l))]; } catch (e) { notes.push(`${typeId} ${label}: ${e instanceof Error ? e.message : String(e)}`); return []; }
+    });
+    const initialize = compileLines(scripts.initialize, 'initialize'), preAnimation = compileLines(scripts.pre_animation, 'pre_animation');
+    const clips: ClientAnimationClip[] = [];
+    for (const entry of scripts.animate ?? []) {
+      const [name, cond] = typeof entry === 'string' ? [entry, undefined] : Object.entries(entry as Record<string, string>)[0] ?? [undefined, undefined];
+      if (!name) continue;
+      const id = names[name];
+      const clip = id ? clipsById.get(id) : undefined;
+      if (!id || !clip) { notes.push(`${typeId} animates "${name}" but the pack ships no such clip${id ? ` (${id})` : ''}.`); continue; }
+      let when: MolangProgram | undefined;
+      if (cond !== undefined) { try { when = compileMolang(String(cond)); } catch (e) { notes.push(`${typeId} animate ${name}: ${e instanceof Error ? e.message : String(e)}`); continue; } }
+      const bones = new Map<string, ClientBoneChannel>();
+      for (const [bone, ch] of Object.entries((clip['bones'] ?? {}) as Record<string, Record<string, unknown>>)) {
+        const c: ClientBoneChannel = {};
+        const rot = ch['rotation'] !== undefined ? triple(ch['rotation'], notes, `${typeId} ${name} ${bone} rotation`) : undefined;
+        const pos = ch['position'] !== undefined ? triple(ch['position'], notes, `${typeId} ${name} ${bone} position`) : undefined;
+        const sc = ch['scale'] !== undefined ? triple(ch['scale'], notes, `${typeId} ${name} ${bone} scale`) : undefined;
+        if (rot) c.rotation = rot;
+        if (pos) c.position = pos;
+        if (sc) c.scale = sc;
+        if (c.rotation || c.position || c.scale) bones.set(bone, c);
+      }
+      clips.push({ name, id, ...(when ? { when } : {}), bones });
+    }
+    if (initialize.length || preAnimation.length || clips.length) out.set(typeId, { typeId, initialize, preAnimation, clips });
+  }
+  return out;
+}
+
+/** Run a type's `initialize` lines once for an entity (its variables start from them). */
+export function initializeClientAnimations(set: ClientAnimationSet, env: MolangEnv): void {
+  for (const line of set.initialize) line(env);
+}
+
+/**
+ * One frame of a type's animations for an entity: `pre_animation` first (it
+ * updates the variables), then every clip whose condition holds. Rotations
+ * and positions of several clips ADD on a bone, scales multiply - Bedrock
+ * blends the clips in `animate` order the same way.
+ */
+export function evaluateClientAnimations(set: ClientAnimationSet, env: MolangEnv): Map<string, BonePose> {
+  for (const line of set.preAnimation) line(env);
+  const out = new Map<string, BonePose>();
+  for (const clip of set.clips) {
+    if (clip.when && !clip.when(env)) continue;
+    for (const [bone, ch] of clip.bones) {
+      let pose = out.get(bone);
+      if (!pose) out.set(bone, pose = { rotation: [0, 0, 0], position: [0, 0, 0], scale: [1, 1, 1] });
+      if (ch.rotation) for (let k = 0; k < 3; k++) pose.rotation[k] += ch.rotation[k]!(env);
+      if (ch.position) for (let k = 0; k < 3; k++) pose.position[k] += ch.position[k]!(env);
+      if (ch.scale) for (let k = 0; k < 3; k++) pose.scale[k] *= ch.scale[k]!(env);
+    }
+  }
+  return out;
 }
