@@ -60,6 +60,14 @@
  * 2026-10-07j) were left as walls by the main rule because the grid walk
  * reached them by a 10-block drop off the track or round a corner.
  *
+ * THE LANE PASS (2026-10-07, `lanePass`, only with a `lane` check). A child
+ * on touch climbs with AUTO-JUMP alone (at most 1.2, sim/physics/body.ts) and
+ * walks straight; every rise over that between two columns of a straight
+ * climb gets a run in auto-jump hops, planned over the clearance FORMS' own
+ * per-column tops and kept only when the per-tick walker with auto-jump
+ * climbs it and no other straight walk into its columns gets shorter: 10261's
+ * lift hill at 200 % (Pixel round 30k stopped at pin + 28.2).
+ *
  * AT 100 % nothing changes: no rise can exceed the jump at the chosen size
  * while being within it at 100 %, so the planner emits nothing and the
  * structure tiles are untouched (the pipeline never sees the planner).
@@ -77,6 +85,7 @@
 import { JUMP_HEIGHT_BLOCKS, STEP_HEIGHT_BLOCKS } from './addon-scale.js';
 import { PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
 import { COLLIDER_KIT, type Box16, type ColliderForm } from './collider-form.js';
+import { AUTO_JUMP_MAX_RISE } from '../sim/physics/body.js';
 
 // ─── Collider pairs ───────────────────────────────────────────────────────────
 
@@ -174,6 +183,12 @@ export const JUMP16 = Math.round(JUMP_HEIGHT_BLOCKS * 16);
  * headroom is.
  */
 export const STEP16 = Math.floor(STEP_HEIGHT_BLOCKS * 16);
+/**
+ * Auto-jump's tallest rise in sixteenths (19: 1.1875, the last sixteenth within its 1.2,
+ * sim/physics/body.ts `AUTO_JUMP_MAX_RISE`): what a child on touch climbs without pressing
+ * jump. The lane pass makes every hop of a straight climb at most this.
+ */
+export const AUTO_JUMP16 = Math.floor(AUTO_JUMP_MAX_RISE * 16 + 1e-9);
 /**
  * The preferred tread hop: half a block, a slab's height, which a player
  * walks up without jumping in every edition. The shared `STEP_HEIGHT_BLOCKS`
@@ -493,6 +508,8 @@ export interface TreadRun {
   treads: number; hop16: number;
   /** Each tread's column, the floor it stands on and its top (sixteenths), from the one beside `to` back to the landing. */
   columns: Array<{ x: number; z: number; floor16: number; top16: number }>;
+  /** Laid by the lane pass (an auto-jump climb of a straight lane, proved by the walk), not the reach rule. */
+  lane?: true;
 }
 
 /**
@@ -572,11 +589,47 @@ function targetReached(grid: ScaledColliderGrid, reach: ReachResult, at: { x: nu
   return best;
 }
 
+/** Where a run is planned: the grid and the column protections earlier runs set on it (`planRunCore`). */
+interface RunGround {
+  g: ScaledColliderGrid;
+  /** A tread an earlier run laid stands in this column (at a level that matters for a surface at `t`). */
+  treadAt(x: number, z: number, t: number): boolean;
+  /** The column holds a tread or an earlier run's arrival (its `to` or landing) near the level `t`: never converted. */
+  taken(x: number, z: number, t: number): boolean;
+  isTreadTop(s: Surface): boolean;
+  /** A tread-holding column is a target at another level (the late and lane passes). */
+  stacked(): boolean;
+}
+
+/**
+ * The lane pass's physical check (`planColliderTreads` `lane`): how far, in blocks along `dir` (a unit x/z
+ * step), the per-tick player with AUTO-JUMP walks straight from `from` (feet, world blocks from the pin) over
+ * the shipped colliders WITH THEIR FORMS and `treads` laid, at most `limit`; its feet falling a block under the
+ * highest they stood ends the walk (off the lane). `colliderLaneWalk` (bedrock-placement-pack.ts) builds it over
+ * the walk preview's world.
+ */
+export type LaneWalk = (treads: readonly TreadBlock[], from: { x: number; y: number; z: number }, dir: { x: number; z: number }, limit: number) => number;
+/** The lane pass's inputs (`planColliderTreads` `lane`): the walk, and the source cells WITH their clearance forms. */
+export interface TreadLaneCheck { walk: LaneWalk; cells: readonly SourceCell[] }
+/**
+ * A lane walk is judged from the run's LANDING column (where its lowest tread is climbed from) to `LANE_PAST`
+ * blocks into the column past the riser's top: a run is kept only when the walk gets there with it and did not
+ * without it, and a candidate whose walk gets there already (the forms climb where the grid reads a wall) is
+ * not given one.
+ */
+export const LANE_PAST = 0.6;
+/** How far a cross-lane walk goes (blocks): from two columns out, past the column a run writes. */
+export const LANE_CROSS = 3.5;
+/** A cross-lane walk a run shortens by more than this (blocks) rejects the run: under a tick of walking, noise. */
+export const LANE_SLACK = 0.1;
+/** The most rounds the lane pass makes (each climbs at least one more riser of some lane; 10261's lift hill at 200 % has 12). */
+export const LANE_ROUNDS = 32;
+
 /**
  * Plan the treads for one size step and quarter turn. Pure: the same cells
  * give the same plan. See the module header for the rule.
  */
-export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = []): TreadPlan {
+export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], lane?: TreadLaneCheck): TreadPlan {
   const f = sizePct / 100;
   const unrestored: Record<UnrestoredReason, number> = { 'no-run': 0, headroom: 0, verify: 0 };
   const refused: TreadPlan['refused'] = [];
@@ -648,14 +701,26 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     edits.push(owner); apply(owner);
     return typeof result === 'string' ? result : 'no-run';
   };
-  const planRunCore = (p: Surface, q: Surface, visited: ReadonlySet<number>): RunEdit | UnrestoredReason | 'no-rule' => {
+  /**
+   * `on`: the grid planned over and the column protections that apply there - the main plan's own by default;
+   * the lane pass plans over the FORM grid with its own (`RunGround`). `maxHop16`: the tallest hop a run may
+   * make (the jump; the lane pass passes auto-jump's `AUTO_JUMP16`).
+   */
+  // The main plan's protections are per COLUMN, whatever the level (as they always were).
+  const mainGround: RunGround = {
+    g: grid, isTreadTop: s => isTreadTop(s), stacked: () => stackedTargets,
+    treadAt: (x, z) => treadFloor.has(colKey(x, z)),
+    taken: (x, z) => treadFloor.has(colKey(x, z)) || arrivals.has(colKey(x, z)),
+  };
+  const planRunCore = (p: Surface, q: Surface, visited: ReadonlySet<number>, maxHop16 = JUMP16, on: RunGround = mainGround): RunEdit | UnrestoredReason | 'no-rule' => {
+    const { g } = on;
     // A tread is reached by its own run and is never a target; a column another run arrives at (its
     // `to` or its landing) is never converted, so a later run cannot break an earlier one's approach.
     // (`latePass` lifts the column rule for a surface at another level than the column's tread.)
-    if (!grid.inside(q.x, q.z) || (treadFloor.has(colKey(q.x, q.z)) && (!stackedTargets || isTreadTop(q)))) return 'no-rule';
-    const qb = grid.blockWithTop(q.x, q.z, q.t);
+    if (!g.inside(q.x, q.z) || (on.treadAt(q.x, q.z, q.t) && (!on.stacked() || on.isTreadTop(q)))) return 'no-rule';
+    const qb = g.blockWithTop(q.x, q.z, q.t);
     if (!qb) return 'no-rule';
-    const pSrc = p.t > 0 ? grid.blockWithTop(p.x, p.z, p.t)?.src16 : 0;
+    const pSrc = p.t > 0 ? g.blockWithTop(p.x, p.z, p.t)?.src16 : 0;
     if (pSrc === undefined) return 'no-rule';
     const rise100 = (qb.src16 - pSrc) / 16;
     if (rise100 > JUMP_HEIGHT_BLOCKS + 1e-9) return 'no-rule';
@@ -670,25 +735,25 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     const columnAt = (k: number): { x: number; z: number } => ({ x: p.x + k * dx, z: p.z + k * dz });
     const reachedFloor = (x: number, z: number, atMost: number): number | undefined => {
       let best: number | undefined;
-      for (const t of grid.surfaces(x, z)) if (t <= atMost && visited.has(grid.key(x, z, t)) && (best === undefined || t > best)) best = t;
+      for (const t of g.surfaces(x, z)) if (t <= atMost && visited.has(g.key(x, z, t)) && (best === undefined || t > best)) best = t;
       return best;
     };
     for (let k = 1; k <= MAX_TREADS_PER_RUN; k++) {
       const c = columnAt(k);
-      if (!grid.inRing(c.x, c.z)) break;
+      if (!g.inRing(c.x, c.z)) break;
       const t = reachedFloor(c.x, c.z, floors[k - 1]!);
       if (t === undefined) break;
       floors.push(t);
       // The landing may be on the ring or a protected column; a tread column may not.
-      if (!grid.inside(c.x, c.z) || treadFloor.has(colKey(c.x, c.z)) || arrivals.has(colKey(c.x, c.z))) break;
+      if (!g.inside(c.x, c.z) || on.taken(c.x, c.z, t)) break;
     }
-    if (treadFloor.has(colKey(p.x, p.z)) || arrivals.has(colKey(p.x, p.z))) return 'no-run';
+    if (on.taken(p.x, p.z, p.t)) return 'no-run';
     // `n` treads occupy columns 0..n-1 and land on column n. The fewest treads whose hops are gentle, else the
     // fewest whose hops are within a jump; every tread must clear the floor it stands on.
     const hopFor = (n: number): number => Math.ceil((q.t - floors[n]!) / (n + 1));
     const feasible = (n: number): boolean => {
       const hop = hopFor(n);
-      if (hop > JUMP16) return false;
+      if (hop > maxHop16) return false;
       for (let k = 1; k <= n; k++) if (q.t - k * hop < floors[k - 1]! + 1) return false;
       return true;
     };
@@ -701,7 +766,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     for (let k = 1; k <= n; k++) tops.push(q.t - k * hop16);
     const landing = { ...columnAt(n), t: floors[n]! };
     // A jump-height hop needs its arc clear above the column it starts from (the landing for the lowest tread).
-    if (hop16 > STEP16 && !grid.clear(landing.x, landing.z, landing.t, tops[n - 1]! + PLAYER_NEED16)) return 'headroom';
+    if (hop16 > STEP16 && !g.clear(landing.x, landing.z, landing.t, tops[n - 1]! + PLAYER_NEED16)) return 'headroom';
     const writes: RunEdit['writes'] = [];
     const columns: RunEdit['columns'] = [];
     const treadSurfaces: Surface[] = [];
@@ -710,12 +775,12 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       // Open from the floor to the tread's own standing headroom - and, when the next hop up is a jump, to the
       // arc of that jump - so the tread never reduces headroom below the player's and every hop is one the game allows.
       const next = k === 1 ? q.t : tops[k - 2]!;
-      if (!grid.clear(x, z, floor16, (hop16 > STEP16 ? next : top) + PLAYER_NEED16)) return 'headroom';
-      const floorBlock = floor16 > 0 ? grid.blockWithTop(x, z, floor16) : undefined;
+      if (!g.clear(x, z, floor16, (hop16 > STEP16 ? next : top) + PLAYER_NEED16)) return 'headroom';
+      const floorBlock = floor16 > 0 ? g.blockWithTop(x, z, floor16) : undefined;
       const floorRow = floorBlock ? floorBlock.row : -1;
       const topRow = (top - 1) >> 4, topHi = top - 16 * topRow;
       const src16 = floorBlock ? floorBlock.src16 : 0;
-      const put = (row: number, lo: number, hi: number): void => { writes.push({ x, z, block: { row, lo, hi, src16 }, previous: grid.blockAt(x, z, row) ?? null }); };
+      const put = (row: number, lo: number, hi: number): void => { writes.push({ x, z, block: { row, lo, hi, src16 }, previous: g.blockAt(x, z, row) ?? null }); };
       // Solid from the floor up to the tread's top: the floor block raised, full rows between, the top row cut at the tread.
       if (floorBlock && topRow === floorRow) put(floorRow, floorBlock.lo, topHi);
       else {
@@ -847,11 +912,11 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
    * a target at another level than its tread's top (the run writes behind
    * `p`, never in the target's column), until a pass lays nothing new. It runs
    * last, so it only adds to the main plan.
-   * TODO(tilted-colliders): a player walking STRAIGHT up a lane of 10261's lift
-   * hill still stops at x 39.7 at 200 % (that lane rises 1.75 every second
-   * column; the plan reaches the top from the next lane). A run at each such
-   * riser, planned over full cells, raised lanes the shipped forms keep lower
-   * and made the same walk worse (x 30.7): it needs the forms' own tops.
+   * A player walking STRAIGHT up a lane of 10261's lift hill still stopped
+   * at x 39.7 at 200 % after this pass (that lane rises 1.75 every second
+   * column; the plan reaches the top from the next lane), and at x 28.2 with
+   * auto-jump alone: the LANE PASS below takes it, over the forms' own tops
+   * (a run planned over full cells made the walk worse, x 30.7).
    */
   const latePass = (): void => {
     stackedTargets = true;
@@ -921,10 +986,203 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     }
     stackedTargets = false;
   };
+  /**
+   * THE LANE PASS (2026-10-07). Every pass above restores a surface only where the grid walk does not reach
+   * it, and the grid walk climbs a jump (1.25) and takes any detour; a child on touch climbs by AUTO-JUMP
+   * alone (Bedrock's touch default: an obstacle over 0.5 and at most 1.2 over the feet, sim/physics/body.ts
+   * `autoJumpWanted`) and walks straight. 10261's lift hill at 200 % is reached by the grid walk from the next
+   * lane, while a straight lane rises 1.25 at x 28.5 and 1.75 every second column from x 40 - the Pixel's
+   * auto-jump-only climb stopped at pin + 28.2 on three tries (round 30k), as `_walk_line.ts --jump=auto` does.
+   *
+   * So, last: every rise between two surfaces the safe walk reaches, in adjacent columns of a straight LANE,
+   * that is taller than auto-jump (`AUTO_JUMP16`) while within the 100 % rule, is offered a run whose hops
+   * auto-jump climbs. A lane is a climb that continues: the column behind the foot holds a reached surface at
+   * most an auto-jump under it, and the column past the top one at most an auto-jump over it - a hill or a
+   * stair, not a wall's rim over a drop. Bottom up.
+   *
+   * The grid reads a clearance form as its whole cell, and at 200 % a form's columns differ by up to a block
+   * (10261's x 30 is 12.0 where the grid reads 12.875), so a run planned on the grid alone raised lanes the
+   * forms keep lower and the straight walk got WORSE (x 39.7 -> 30.7, tried twice). So each run is kept only
+   * when `lane.walk` - the per-tick player with auto-jump over the shipped FORMS and every tread so far - walks
+   * the lane from the run's landing into the column past the riser's top with it and did not without it
+   * (`LANE_PAST`), and no straight walk INTO a column it writes, from two columns out along x or z, gets shorter
+   * (`LANE_CROSS`, `LANE_SLACK`: a tread on another lane's approach is a new riser there); and the whole pass is
+   * verified never to block over the form grid (all at once, then run by run when the batch fails), so it only
+   * adds. Without `lane` (the grid-only callers) the pass lays nothing: certain-only.
+   */
+  const lanePass = (): void => {
+    if (!lane) return;
+    const walk = lane.walk;
+    // The FORM grid: each column read from its OWN pieces of a clearance form, with every tread laid so far.
+    const fg = new ScaledColliderGrid(lane.cells, dims, f, rotation);
+    for (const e of edits) for (const w of e.writes) fg.write(w.x, w.z, { ...w.block });
+    const fBefore = walkScaledColliders(fg);
+    let reach = walkScaledColliders(fg, undefined, SAFE_DROP16);
+    /** Column key -> the floors lane treads replaced there (a column may hold treads at two levels). */
+    const laneFloor = new Map<number, Set<number>>();
+    const laneEdits: RunEdit[] = [];
+    // The lane pass's protections are per column AND level: a tread laid under a track (10261's lower level, 10
+    // blocks down) does not stop a run on the track over it. Within a body height of another run's tread or
+    // arrival, the column is taken.
+    const near = (t: number, spans: ReadonlyArray<readonly [number, number]>): boolean => spans && spans.some(([a, b]) => t >= a - PLAYER_NEED16 && t <= b + PLAYER_NEED16);
+    const laneSpans = (x: number, z: number, arrivalsToo: boolean): Array<readonly [number, number]> => {
+      const out: Array<readonly [number, number]> = [];
+      for (const e of laneEdits) {
+        for (const c of e.columns) if (c.x === x && c.z === z) out.push([c.floor16, c.top16]);
+        if (arrivalsToo) for (const a of [e.to, e.landing]) if (a.x === x && a.z === z) out.push([a.t, a.t]);
+      }
+      return out;
+    };
+    const ground: RunGround = {
+      g: fg, stacked: () => true,
+      treadAt: (x, z, t) => near(t, laneSpans(x, z, false)),
+      taken: (x, z, t) => near(t, laneSpans(x, z, true)),
+      isTreadTop: q => laneEdits.some(e => e.columns.some(c => c.x === q.x && c.z === q.z && c.top16 === q.t)),
+    };
+    const reachedNear = (x: number, z: number, lo: number, hi: number): boolean => fg.inRing(x, z) && fg.surfaces(x, z).some(t => t >= lo && t <= hi && reach.visited.has(fg.key(x, z, t)));
+    /**
+     * This round's candidates, bottom up: a riser over auto-jump (and within two) from a REACHED surface `p` to
+     * the next column's surface `q` (reached or not - a run makes it so, as every pass restores the unreached
+     * under the 100 % rule), the lane continuing either side; each edge offered once over the whole pass.
+     */
+    const tried = new Set<string>();
+    const scan = (): Array<{ p: Surface; q: Surface }> => {
+      const out: Array<{ p: Surface; q: Surface }> = [];
+      for (const k of reach.visited) {
+        const p = fg.unkey(k);
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = p.x + dx, nz = p.z + dz;
+          if (!fg.inside(nx, nz)) continue;
+          for (const t of fg.surfaces(nx, nz)) {
+            const rise = t - p.t;
+            if (rise <= AUTO_JUMP16 || rise > 2 * AUTO_JUMP16) continue;
+            if (!reachedNear(p.x - dx, p.z - dz, p.t - AUTO_JUMP16, p.t)) continue;
+            if (!fg.inRing(nx + dx, nz + dz) || !fg.surfaces(nx + dx, nz + dz).some(u => u >= t && u <= t + AUTO_JUMP16)) continue;
+            const key = `${p.x},${p.z},${p.t}>${nx},${nz},${t}`;
+            if (tried.has(key)) continue;
+            tried.add(key);
+            out.push({ p, q: { x: nx, z: nz, t } });
+          }
+        }
+      }
+      return out.sort((a, b) => a.p.t - b.p.t || a.p.x - b.p.x || a.p.z - b.p.z || a.q.x - b.q.x || a.q.z - b.q.z);
+    };
+    /** Every tread block laid so far, the main plan's then the lane pass's (the final pair per block). */
+    let laidCache: { count: number; last: RunEdit | undefined; blocks: TreadBlock[] } | undefined;
+    const laidBlocks = (): TreadBlock[] => {
+      // Rebuilt only when the lane runs changed (thousands of walks read it between changes).
+      const last = laneEdits[laneEdits.length - 1];
+      if (laidCache && laidCache.count === laneEdits.length && laidCache.last === last) return laidCache.blocks;
+      const out = new Map<string, TreadBlock>();
+      for (const e of [...edits, ...laneEdits]) for (const w of e.writes) out.set(`${w.x},${w.block.row},${w.z}`, { x: w.x, y: w.block.row, z: w.z, lo: w.block.lo, hi: w.block.hi });
+      laidCache = { count: laneEdits.length, last, blocks: [...out.values()] };
+      return laidCache.blocks;
+    };
+    /**
+     * Whether the auto-jump walker, starting on the run's landing (its column centre, its floor), walks along the
+     * lane into the column past `q` (`LANE_PAST` into it): the lane is climbed.
+     */
+    const climbs = (e: RunEdit): boolean => {
+      const dx = e.to.x - e.landing.x, dz = e.to.z - e.landing.z, n = Math.abs(dx) + Math.abs(dz);
+      const dir = { x: Math.sign(dx), z: Math.sign(dz) }, goal = n + 0.5 + LANE_PAST;
+      return walk(laidBlocks(), { x: e.landing.x + 0.5, y: e.landing.t / 16 + 0.01, z: e.landing.z + 0.5 }, dir, goal) >= goal - 1e-6;
+    };
+    /**
+     * The cross-lane walks a run must leave no shorter: into each column it writes, along x and z both ways, from
+     * the column two out on its highest reached floor at most an auto-jump over the column's old floor.
+     */
+    const crossProbes = (e: RunEdit): Array<{ from: { x: number; y: number; z: number }; dir: { x: number; z: number } }> => {
+      const out: Array<{ from: { x: number; y: number; z: number }; dir: { x: number; z: number } }> = [];
+      for (const c of e.columns) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const sx = c.x - 2 * dx, sz = c.z - 2 * dz;
+        // A start on the run itself is the run's own lane (`climbs` judges it); its old floor is under the tread.
+        if (e.columns.some(o => o.x === sx && o.z === sz)) continue;
+        const floors = fg.surfaces(sx, sz).filter(t => t <= c.floor16 + AUTO_JUMP16 && reach.visited.has(fg.key(sx, sz, t)));
+        if (!floors.length) continue;
+        out.push({ from: { x: sx + 0.5, y: Math.max(...floors) / 16 + 0.01, z: sz + 0.5 }, dir: { x: dx, z: dz } });
+      }
+      return out;
+    };
+    const noteFloors = (e: RunEdit): void => {
+      for (const c of e.columns) {
+        const k = colKey(c.x, c.z);
+        let set = laneFloor.get(k);
+        if (!set) laneFloor.set(k, set = new Set());
+        set.add(c.floor16);
+      }
+    };
+    const laneApply = (e: RunEdit): void => {
+      for (const w of e.writes) fg.write(w.x, w.z, w.block);
+      noteFloors(e);
+      laneEdits.push(e);
+    };
+    const laneRevert = (e: RunEdit): void => {
+      for (let i = e.writes.length - 1; i >= 0; i--) {
+        const w = e.writes[i]!;
+        if (w.previous) fg.write(w.x, w.z, w.previous); else fg.erase(w.x, w.z, w.block.row);
+      }
+      laneEdits.splice(laneEdits.indexOf(e), 1);
+      laneFloor.clear();
+      for (const o of laneEdits) noteFloors(o);
+    };
+    /** Never block, over the form grid: every surface reached before the pass still is, save a floor a lane tread now covers. */
+    const laneHolds = (): boolean => {
+      const after = walkScaledColliders(fg);
+      for (const k of fBefore.visited) {
+        if (after.visited.has(k)) continue;
+        const { x, z, t } = fg.unkey(k);
+        if (!laneFloor.get(colKey(x, z))?.has(t)) return false;
+      }
+      return true;
+    };
+    const layRound = (candidates: ReadonlyArray<{ p: Surface; q: Surface }>, verifyEach: boolean): void => {
+      for (const { p, q } of candidates) {
+        // An earlier run may have raised p's column (then p is no longer a top) or made the rise climbable.
+        if (p.t > 0 && !fg.blockWithTop(p.x, p.z, p.t)) continue;
+        if (!fg.surfaces(q.x, q.z).includes(q.t) || q.t - p.t <= AUTO_JUMP16) continue;
+        const e = planRunCore(p, q, reach.visited, AUTO_JUMP16, ground);
+        if (typeof e === 'string') continue;
+        // Already climbed from where the run would start (the forms climb where the grid reads a wall): no run.
+        if (climbs(e)) continue;
+        // Every straight lane INTO a column the run raises, from two columns out in each direction: a run must
+        // not stop a walk it was not laid for (a tread on another lane's approach is a new riser there).
+        // TODO(lane-pass-cost): the `was` walks repeat between runs that touch nothing near them; cache them per
+        // probe until a run writes within its reach (~10 s per size and turn at 200-400 % on 10261, ~10,000 walks).
+        const probes = crossProbes(e);
+        const was = probes.map(pr => walk(laidBlocks(), pr.from, pr.dir, LANE_CROSS));
+        laneApply(e);
+        const worse = probes.some((pr, i) => walk(laidBlocks(), pr.from, pr.dir, LANE_CROSS) < was[i]! - LANE_SLACK);
+        if (worse || !climbs(e) || (verifyEach && !laneHolds())) laneRevert(e);
+      }
+    };
+    /** Rounds until one lays nothing: a run up one riser reaches the foot of the next. */
+    const lay = (verifyEach: boolean): void => {
+      for (let round = 0; round < LANE_ROUNDS; round++) {
+        const count = laneEdits.length;
+        layRound(scan(), verifyEach);
+        if (laneEdits.length === count) break;
+        reach = walkScaledColliders(fg, undefined, SAFE_DROP16);
+      }
+    };
+    lay(false);
+    if (laneEdits.length && !laneHolds()) {
+      for (let i = laneEdits.length - 1; i >= 0; i--) laneRevert(laneEdits[i]!);
+      tried.clear();
+      reach = walkScaledColliders(fg, undefined, SAFE_DROP16);
+      lay(true);
+    }
+    // Into the plan: the main grid takes the lane treads as the runtime lays them (its row replaced). They are
+    // proved by the walk and the form grid; the full-cell grid's own reach is reported, not re-judged.
+    for (const e of laneEdits) {
+      const writes = e.writes.map(w => ({ x: w.x, z: w.z, block: w.block, previous: grid.blockAt(w.x, w.z, w.block.row) ?? null }));
+      for (const w of writes) grid.write(w.x, w.z, w.block);
+      edits.push({ ...e, writes, run: { ...e.run, lane: true } });
+    }
+  };
   // Fast path: one laying walk, then a single verification from scratch.
   layingWalk(false);
   let after = walkScaledColliders(grid);
-  if (holds(after)) { doorwayPass(); latePass(); return report(walkScaledColliders(grid), edits, true); }
+  if (holds(after)) { doorwayPass(); latePass(); lanePass(); return report(walkScaledColliders(grid), edits, true); }
   // Slow path: undo everything and re-plan one run at a time, each verified
   // against the unassisted walk, until a pass lays nothing new.
   for (let i = edits.length - 1; i >= 0; i--) revert(edits[i]!);
@@ -936,7 +1194,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     if (edits.length === count) break;
   }
   after = walkScaledColliders(grid);
-  if (holds(after)) { doorwayPass(); latePass(); return report(walkScaledColliders(grid), edits, true); }
+  if (holds(after)) { doorwayPass(); latePass(); lanePass(); return report(walkScaledColliders(grid), edits, true); }
   for (let i = edits.length - 1; i >= 0; i--) revert(edits[i]!);
   edits.length = 0;
   return report(walkScaledColliders(grid), [], false);

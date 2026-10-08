@@ -246,7 +246,12 @@ and a 20 LDU frame straddling a cell boundary fills whole cells. So:
    (its slab, sampled every 0.15 block) - the first build refused anyone in
    the doorway's whole blocks, and 76417's front doors stayed open for a player
    standing just outside them (device 2026-09-24d). Anyone else inside the
-   doorway's blocks is stepped out along the leaf's normal to their own side.
+   doorway's blocks is stepped out along the leaf's normal - their own side
+   first, then the other - onto the first point where the body is free AND
+   stands on a floor at most a block under its feet; with no such point on
+   either side the close is refused ("Step out of the gate to close it")
+   (`stepOutPlan`, "A step-out onto a floor" below). A body only touching a
+   doorway cell (under 1/64 block of overlap) is beside it, not in it.
 5. **A raised threshold gets a tread.** A leaf standing on a plate or two over
    the floors either side is a rise past the 9/16 auto-step: walking at
    41732's shop door the device player stopped short. A half-way tread is laid
@@ -949,10 +954,74 @@ of the hill goes from x 25.7 to 39.7 (jumping), and from the west lanes z
 22-24 now climb onto the base. Not done: a straight walk up the lift past x
 39.7 (each lane of the hill rises 1.75 every second column at 200 %; the
 planner reaches the top from the next lane, a player holding a straight line
-does not) - `TODO(tilted-colliders)`. A "slope sweep" (a run at every such
-riser between reached surfaces) was tried and dropped: planned over full cells
-it raised a lane where the shipped forms are lower and stopped the same walk
-at x 30.7.
+does not). A "slope sweep" (a run at every such riser between reached
+surfaces) was tried and dropped: planned over full cells it raised a lane
+where the shipped forms are lower and stopped the same walk at x 30.7. The
+lane pass below does it over the forms.
+
+**The lane pass** (2026-10-07, `lanePass` in bedrock-collider-scale.ts,
+`colliderLaneWalk` in bedrock-placement-pack.ts). The Pixel climbed 10261's
+lift hill at 200 % with AUTO-JUMP only - adb drives one finger, and a
+5-year-old on touch relies on it too - and stopped at pin + (28.2, 9.88) on
+three tries (round 30k), 1.2 blocks past 30j instead of the ~14 the late pass
+promised: the offline walk JUMPED whenever it was blocked, and auto-jump never
+tries an obstacle over 1.2 (Java's `updateAutoJump`, assumed for Bedrock:
+quirk `auto-jump`, physics spec §4.4a). The walker now models it
+(`WalkInput.autoJump`), and `_walk_line.ts --dir=+x --jump=auto` on the 30k
+pack stops at exactly 28.20, 9.88: in front of a 1.25 riser inside column
+x 28 (its x 28.0-28.5 half is a form at 9.875, the other half 11.125). Past
+it the lane rises 0.875-1.125 per column to x 39 and then 1.75 every second
+column (x 39 -> 40, 41 -> 42, ...).
+
+So, last in the plan: every rise over auto-jump's 19/16 (and within two of
+them) from a reached surface to the next column's surface in a straight
+LANE - the column behind the foot at most an auto-jump under it, the column
+past the top at most one over it: a hill or a stair, not a rim over a drop -
+is offered a run in hops of at most 19/16, bottom up, round after round (a run
+up one riser reaches the foot of the next). It is planned over a second grid
+read from the FORMS (`ScaledColliderGrid` on the source cells with their
+clearance forms: each column's own pieces, where the full-cell grid reads x 30
+as 12.875 instead of 12.0), with column protections per level (a tread under
+the track 10 blocks down does not stop a run on it). A run is kept only when:
+the per-tick walker with auto-jump, starting on the run's landing, walks into
+the column past the riser's top with it (`LANE_PAST`) and did not without it;
+no straight walk INTO a column it writes, from two columns out along x or z,
+gets more than `LANE_SLACK` shorter (the first try without this check laid a
+tread on another lane's approach and stopped the lift walk at x 18.7); and the
+form grid's reach loses nothing (batch, then run by run). Without the walk
+(grid-only callers, the walk preview's own planning) the pass lays nothing.
+
+Measured on the 30k pack re-planned at 200 % / 0: 630 -> 1,723 tread blocks
+(631 runs, 419 of them lane runs, verified); the auto-jump walk from the foot
+reaches x 70 at y 41.9 (the top of the lift) on lanes z 4.6, 4.85, 5.2, 5.6
+(was 28.2; the jump-whenever-blocked walk 39.7 -> 70). Planning cost per size
+and turn: ~0.3 s -> ~10 s at 200-400 % (10,000 lane walks), so a large set's
+export takes about two minutes longer (`TODO(lane-pass-cost)`: cache the
+cross-lane walks between runs; 10261 built in 180 s against 53 s, 10326 in
+137 s against 69 s). Built (`output/collider-fix2-20261007/packs-0a08d086`):
+the shipped 10261 at 200 % climbs to x 70.06, y 41.88 with auto-jump on lanes
+z 4.6-5.6 (z 4.2, the hill's edge, stops at 29.7). `_ix_passability.ts` over
+nine rebuilt sets x 100-400 % x 0/90: 0 FAIL / HOLE before and after, STEP
+rows 22 -> 16 (10326 Door 3 at 300 %, 76457 Door 1 at 300 % and Door 2 at
+400 % now OK, both turns), nothing worse.
+
+The west side of 10261's base at 200 % (round 30k lanes walking +x from
+x -4.5, auto-jump walk on the 30k pack vs the device): z 14.5, 20.5, 24.5,
+26.5 stop at 6.20 against a full column 4+ blocks tall at x 6.5-9 (the
+model's grey wall); z 24.0 stands on a 2-block form at 2.00 and stops at 6.70
+against a 6.75-high column at x 7 (wall); z 8.5 stops at 10.70 against a
+4-high column at x 11 (wall); z 34.5 stands at 3.00 and stops at 9.70 against
+a 6.75-high column at x 10 (wall); z 28.5 stands at 1.00 and stops at 9.70
+under an overhang at x 10 whose underside is 1.375 over the floor (headroom:
+the model's); z 30.5 stops at 6.70 before a 1.75 riser at x 7 under a slab
+1.625 over its foot (headroom: the model's). All of these match the device to
+the 0.1 block except z 30.5 (device 5.70). z 22.5/23.5 climb (device too, to
+16.2-16.4, where the model's own floor goes on rising by half-block steps -
+the device walk's end, not a stop the colliders make); z 38.5 and 41.5 reach
+x 30 in the model where the device stopped at 12.39 / 11.79 (not
+explained by the colliders: entities are not in this walk). z 2.5 stops at
+5.70 at a stand; the lane pass takes it to 8.20. No missing step was found
+on the west side beyond that one.
 
 **Results over the 40 favourites** (sweeps `output/access-steps-0930/sweep-base2`
 at `dc699e3e`, built from an archive of the base tree: the sweep spawns one
@@ -1357,6 +1426,44 @@ the guard and no Gate 1 line falls.
 **Device-only:** Gate 1 opened on the Saga (the guard is invisible: does a
 child read an open gate it cannot walk through as broken?), and the 76417
 diamond edge at the bank's other doors (Doors 2/3 walked fine in 30i).
+
+### A step-out onto a floor (Pixel round 30k, 2026-10-07)
+
+Standing just inside 76417's OPEN Gate 1 (7511.70,-43.0,7153.30, pin
+7500,-60,7150), the Pixel player was moved out to ~7513,-44,7151 and fell 17
+blocks; the gate was closed afterwards. The cause is the door's own close
+path, not the guard and not a figure: the round's chat helper
+(`_pixel_cmd.sh`) taps the chat's Exit at raw 45,39 after each command, and
+when the chat had already closed that tap landed on the world - the frame
+before each fall shows its touch marker, then the "Open / close" hint and the
+leaf swinging shut. A tap closed the gate; the step-out then ran. The player's
+body was only TOUCHING the doorway's cells (7153.30 is 7153.2998 in float32:
+0.0002 of overlap with the z 2..3 cells), which counted as inside; the side it
+stood on (into the bank) is wall for all 3 blocks of the search; and the other
+side's first point where the body was free - floor or no floor - is 2.3 blocks
+out along the gate's diagonal normal, over the drop: (11.70 + 0.707 x 2.3,
+3.30 - 0.707 x 2.3) = (13.33, 1.67), exactly where the device landed
+(7513.33,-60,7151.67).
+
+`stepOutPlan` (bedrock-interactives.ts) now (a) counts a body overlapping a
+doorway cell by under 1/64 block as beside it, (b) accepts a point only where
+the body is free AND a floor lies within a step over to one block under its
+feet (`STEP_OUT_DROP`), set down on that floor, the occupant's own side first,
+then the other, and (c) plans the moves BEFORE the close: an occupant with no
+such point on either side refuses the close with "Step out of the <door> to
+close it - there is no floor to step onto." Regression
+`gate1-throwout-76417` replays the Pixel's poses on the 30k pack: the device
+pose and one a tenth of a block further in both fall 17.02 blocks on the old
+runtime; on this one the device pose closes without moving the player and the
+deeper pose steps into the bank, onto its floor at 10.14,17.06,4.76. Gate 1's
+drop guard is unchanged (`gate1-invisible-floor-76417` still OK).
+
+Not caused by this, seen on the way: both of the round's Gate 1 poses
+(the `/tp` to 10.5,17.5,4.5 it tapped from, and 11.70,17.0,3.30) overlap
+static colliders in the pack (the f5 wall at 10,17,4, the full cell at
+11,17,3). Bedrock let a teleported player stand there, and the round's
+diagonal walk that ended at the second pose STARTED inside the first; a walk
+from a legal spot does not reach either.
 
 ### Known limits
 

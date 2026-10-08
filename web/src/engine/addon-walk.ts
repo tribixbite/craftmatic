@@ -246,6 +246,32 @@ export class WalkWorld {
     }
   }
 
+  /**
+   * Change some laid-over blocks in place (`setOverlayBlocks`' convention; `null` takes the overlay off that
+   * block and puts the grid's own back). The tread planner's lane walk re-lays a few treads between thousands
+   * of walks; rewriting the whole overlay each time was most of its cost.
+   */
+  patchOverlayBlocks(changes: ReadonlyMap<string, readonly (number | undefined)[] | null>): void {
+    for (const [key, st] of changes) {
+      const [x, row, z] = key.split(',').map(Number) as [number, number, number];
+      if (!this.grid.inside(x, z)) continue;
+      const col = `${x},${z}`;
+      if (!st) {
+        const under = this.underOverlay.get(key);
+        if (under) { this.voxels.setPermutation(x, row, z, under); this.underOverlay.delete(key); }
+        this.overlayRows.get(col)?.delete(row);
+        continue;
+      }
+      const lo = st[0]!, hi = st[1]!, v = st[2] ?? 0;
+      if (!this.underOverlay.has(key)) this.underOverlay.set(key, this.voxels.permutationAt(x, row, z));
+      const perm = colliderPermutationOf({ lo, hi, ...(v ? { form: { v, lo, hi } } : {}) });
+      this.voxels.setPermutation(x, row, z, this.palette.intern(perm.typeId, perm.states));
+      let rows = this.overlayRows.get(col);
+      if (!rows) this.overlayRows.set(col, rows = new Set());
+      rows.add(row);
+    }
+  }
+
   /** The collider facts of a permutation (null: not a collider - ground, or air). */
   private metaOf(id: number): ColliderMeta | null {
     let m = this.metaById.get(id);

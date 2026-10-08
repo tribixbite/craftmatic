@@ -311,6 +311,25 @@ reports every disagreement with the reach BFS (`walkScaledColliders`). Used
 by the walk preview, `web/src/engine/interactive-walk.ts` (doorway
 passability) and `scripts/_addon_walk.ts`. Tests: `test/addon-walk.test.ts`.
 
+### 4.4a Auto-jump — `autoJumpWanted` in `web/src/sim/physics/body.ts`
+
+Bedrock's touch controls default to AUTO-JUMP, and a child (and the adb
+harness, which drives one finger) climbs with it alone. `WalkInput.autoJump`
+models it: after each tick's move, on the ground and not sneaking, two
+horizontal probes at 0.51 over the feet along the box's sides reach 0.7
+blocks past the move; the nearest solid they meet is the obstacle, raised by
+any solid in the block cell over its centre; when its top is more than 0.5
+and at most 1.2 over the feet, the two block cells over the head are free of
+collision, and the move is not backward against the facing (dot under
+-0.15), the NEXT tick jumps. These are Java's `LocalPlayer.updateAutoJump`
+rules (1.10+); Bedrock's code is closed and they are an assumption (quirk
+`auto-jump`), checked against the device: on the Pixel's 30k pack the
+auto-jump walk up 10261's lift hill at 200 % stops at pin + (28.2, 9.88)
+exactly where the phone stopped three times (`scripts/_walk_line.ts
+--dir=+x --jump=auto`), while the old jump-whenever-blocked walk went on to
+39.7. The tread planner's lane pass (`planColliderTreads`, `lane`) uses it
+to prove its runs (docs/bedrock-interactivity.md, "The lane pass").
+
 ### 4.5 Figure life — `web/src/engine/bedrock-figure-life.ts`
 
 Figures walk by VELOCITY (`applyImpulse` to a target horizontal velocity);
@@ -997,6 +1016,11 @@ literal inside a function body (`§` marks the number).
 | `STEP_HEIGHT` | `web/src/sim/physics/body.ts` | 0.5625 | blocks | The reach BFS's quantised 0.6 step (9/16), so walker and BFS agree by construction. |
 | `SLOW_FALL_GRAVITY` | `web/src/sim/physics/body.ts` | 0.01 | blocks/tick² | Slow falling's gravity while falling: a 9.8 blocks/s terminal with the 0.98 drag; the Pixel's float-down took 11 s over 89 blocks (2026-09-29, `output/nimbus-pixel-0929/`). |
 | `PLAYER_EYE_HEIGHT` | `web/src/sim/physics/body.ts` | 1.62 | blocks | A standing player's eye over its feet (Minecraft's). |
+| `AUTO_JUMP_MIN_RISE` | `web/src/sim/physics/body.ts` | 0.5 | blocks | Auto-jump ignores an obstacle this low or lower (Java `updateAutoJump`; the step takes it). |
+| `AUTO_JUMP_MAX_RISE` | `web/src/sim/physics/body.ts` | 1.2 | blocks | Auto-jump's tallest obstacle (Java, no jump boost); a pressed jump reaches `JUMP_PEAK`. Reproduces the Pixel's auto-jump stop on 10261's lift hill at 200 % (30k: a 1.25 riser, pin + 28.2). |
+| `AUTO_JUMP_PROBE_HEIGHT` | `web/src/sim/physics/body.ts` | 0.51 | blocks | The two side probes' height over the feet (Java). |
+| `AUTO_JUMP_LOOKAHEAD` | `web/src/sim/physics/body.ts` | 0.7 | blocks | Probe reach past the tick's move: the walk speed attribute 0.1 × 7 (Java). |
+| `AUTO_JUMP_BACKWARD_DOT` | `web/src/sim/physics/body.ts` | -0.15 | cos | No auto-jump moving backward: move direction · facing under this (Java). |
 | `STEP_HEIGHT_BLOCKS` | `web/src/engine/addon-scale.ts` | 0.6 | blocks | Minecraft auto-step. |
 | `JUMP_HEIGHT_BLOCKS` | `web/src/engine/addon-scale.ts` | 1.25 | blocks | Minecraft jump, for reach planning. |
 | `PLAYER_WIDTH_BLOCKS` | `web/src/engine/addon-scale.ts` | 0.6 | blocks | Player box width. |
@@ -1483,6 +1507,8 @@ one of these files fails the check until its row is written.
 | `moveBox` | function | The per-axis sweep with the auto-step (and the sneak guard). |
 | `tickPlayer` | function | One tick of the player: input, gravity (slow falling's when on), friction, step, collision. |
 | `tickBody` | function | One tick of a mob moved by velocity alone (a figure's impulses). |
+| `AUTO_JUMP_MIN_RISE`, `AUTO_JUMP_MAX_RISE`, `AUTO_JUMP_PROBE_HEIGHT`, `AUTO_JUMP_LOOKAHEAD`, `AUTO_JUMP_BACKWARD_DOT` | const | Auto-jump's rules (§4.4a): Java's `updateAutoJump` numbers, assumed for Bedrock. |
+| `autoJumpWanted` | function | Whether auto-jump fires after a tick's move (`WalkInput.autoJump`; the jump is made the next tick). |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/sim/physics/systems.ts -->

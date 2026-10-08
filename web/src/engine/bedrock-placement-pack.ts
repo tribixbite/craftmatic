@@ -1,4 +1,5 @@
-import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type QuarterTurn, type ReachTarget, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
+import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type GridDims, type LaneWalk, type QuarterTurn, type ReachTarget, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
+import { WalkWorld, tickPlayer, type PlayerState } from './addon-walk.js';
 import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
 
 declare const world: any;
@@ -572,7 +573,7 @@ export function decodeTreadPlan(plan: string): TreadBlock[] {
 }
 
 /** The planner's rule in one sentence, carried in the pack's diagnostics beside the counts. */
-export const TREAD_RULE = 'An invisible step is laid only where a rise between two standable surfaces exceeds the player\'s 1.25-block jump at the chosen size while being within that jump in the 100 % grid (a rise the model\'s own figures climb), laid back over floor the player already reaches, in half-block hops where the floor allows and the fewest jump-height hops otherwise, keeping full standing headroom; a run that would make any previously reachable surface unreachable is reverted, so reachability only grows.';
+export const TREAD_RULE = 'An invisible step is laid only where a rise between two standable surfaces exceeds the player\'s 1.25-block jump at the chosen size while being within that jump in the 100 % grid (a rise the model\'s own figures climb), laid back over floor the player already reaches, in half-block hops where the floor allows and the fewest jump-height hops otherwise, keeping full standing headroom; a run that would make any previously reachable surface unreachable is reverted, so reachability only grows. A straight climb (a hill or a stair) whose riser exceeds the 1.2-block auto-jump also gets one, in auto-jump hops, kept only where the per-tick walker with auto-jump then climbs it and no other straight walk into its columns gets shorter.';
 
 /**
  * Plan treads for every size step above 100 % and every quarter turn, and
@@ -594,13 +595,15 @@ export function withColliderTreads(colliders: PlacementColliders, targets: reado
     return { x: c.x, y: c.y, z: c.z, lo: Math.min(...boxes.map(b => b[2])), hi: Math.max(...boxes.map(b => b[3])) };
   });
   const dims = { width: colliders.width, height: colliders.height, length: colliders.length };
+  // The lane pass judges its runs physically, over the shipped FORMS (not the full-cell reading above).
+  const formCells = colliderSourceCells(colliders);
   const plans: Record<string, string> = {}, counts: Record<string, number> = {};
   const report: PlacementTreadReport = { rule: TREAD_RULE, plans: [] };
   const blocksAt100 = (t16: number, f: number): number => Math.round(t16 / 16 / f * 100) / 100;
   for (const pct of SIZE_STEPS) {
     if (pct <= 100) continue;
     for (const r of QUARTER_TURNS) {
-      const plan = planColliderTreads(cells, dims, pct, r, targets, doorCells);
+      const plan = planColliderTreads(cells, dims, pct, r, targets, doorCells, { walk: colliderLaneWalk(formCells, dims, pct, r), cells: formCells });
       const f = pct / 100;
       const { blocks, before, after, ...rest } = plan;
       report.plans.push({ ...rest, blocks: blocks.length, before: { surfaces: before.surfaces, columns: before.columns, highestBlocks: blocksAt100(before.highest16, f) }, after: { surfaces: after.surfaces, columns: after.columns, highestBlocks: blocksAt100(after.highest16, f) } });
@@ -611,6 +614,54 @@ export function withColliderTreads(colliders: PlacementColliders, targets: reado
     }
   }
   return { colliders: Object.keys(plans).length ? { ...colliders, treads: { plans, counts } } : colliders, report };
+}
+
+/**
+ * Ticks a lane walk may take per block of its limit, and over them: the walk makes ~0.216 blocks a tick, and an
+ * auto-jump's climb (a tick's decision, the arc) costs it ~6 more per riser - a riser every block at most.
+ */
+const LANE_TICKS_PER_BLOCK = 12, LANE_TICKS_EXTRA = 20;
+
+/**
+ * The tread planner's lane check (`LaneWalk`, bedrock-collider-scale.ts): the walk preview's per-tick player,
+ * AUTO-JUMP on and nothing pressed, walking straight over the colliders as the runtime lays them at this size
+ * and turn - every clearance form as itself - with the treads it is handed laid over them (as the runtime lays
+ * a tread: the row's block replaced). One world per size and turn; each call re-lays only the treads.
+ */
+export function colliderLaneWalk(formCells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn): LaneWalk {
+  let world: WalkWorld | undefined;
+  /** The treads laid in the world now, `"x,row,z"` -> `"lo,hi"`: each call re-lays only what changed. */
+  const laid = new Map<string, string>();
+  let lastList: readonly TreadBlock[] | undefined;
+  const relay = (w: WalkWorld, treads: readonly TreadBlock[]): void => {
+    const want = new Map<string, string>(treads.map(b => [`${b.x},${b.y},${b.z}`, `${b.lo},${b.hi}`]));
+    const changes = new Map<string, readonly number[] | null>();
+    for (const [k, v] of want) if (laid.get(k) !== v) changes.set(k, v.split(',').map(Number));
+    for (const k of laid.keys()) if (!want.has(k)) changes.set(k, null);
+    if (!changes.size) return;
+    w.patchOverlayBlocks(changes);
+    for (const [k, v] of changes) { if (v) laid.set(k, v.join(',')); else laid.delete(k); }
+  };
+  return (treads, from, dir, limit) => {
+    world ??= new WalkWorld({ cells: formCells, dims, sizePct, rotation, treads: [] });
+    // The same list as the last call (the planner hands back its cached array between changes): nothing to re-lay.
+    if (treads !== lastList) relay(world, treads);
+    lastList = treads;
+    let s: PlayerState = { x: from.x, y: from.y, z: from.z, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 };
+    // The start is a column's floor as the grid reads it (a form's whole cell), so the body may first fall onto
+    // the form's real top: the highest it STOOD counts from its first landing.
+    let best = 0, top = -Infinity;
+    const ticks = Math.ceil(limit * LANE_TICKS_PER_BLOCK) + LANE_TICKS_EXTRA;
+    for (let t = 0; t < ticks; t++) {
+      s = tickPlayer(world, s, { move: dir, jump: false, sneak: false, autoJump: true }).state;
+      if (s.onGround) top = Math.max(top, s.y);
+      // Fell off the lane (a block under the highest it stood): the walk ends there.
+      if (s.y < top - 1) break;
+      best = Math.max(best, (s.x - from.x) * dir.x + (s.z - from.z) * dir.z);
+      if (best >= limit) return limit;
+    }
+    return best;
+  };
 }
 
 /** Blocks a tread plan changes, for a size and turn, from the shipped colliders. */
