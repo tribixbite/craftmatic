@@ -37,6 +37,14 @@
  *                device's `/tp` coordinates moved by `--device-pin=` onto the
  *                placement's anchor; `--tool-rev=` reads `scripts/` tools as they
  *                were at that revision, the round's version).
+ *   coaster-camera  (package B, web/src/sim/client) ride each pack's coaster 3 laps per CLIENT
+ *                profile (`--client=pixel|saga|both`, default both) with the drawn camera judged
+ *                every tick: `camera-continuous`, `camera-on-own-seat`, `no-own-view-flash`
+ *                (COAST-06); `--frames=<dir>` writes a PNG of the drawn view through every
+ *                inversion and after every hand-back, plus the per-tick camera trace.
+ *   walk-away    place at `--size=` (default 200) and look back from `--walk-away=a..b[:step]`
+ *                blocks off the edge: each actor full / hull / gone from the drawn camera
+ *                (`lod-switch-under-cull`, COL-03 / FID-03); `--frames=<dir>` keeps the pictures.
  *   <file.ts>    a module exporting `scenarios(pack: CraftmaticPack): Scenario[]`.
  *   --sneak-toggle  child-play runs only its doorway scenarios, with the touch
  *                sneak TOGGLE left on before the doorway lines (quirk
@@ -46,6 +54,14 @@
  *                `tick-budget` warnings over 25 ms (never a failure).
  *   --shots      child-play also takes first-person pictures (after placing, after
  *                the figures lived) and writes them there as PNG.
+ *   --uvfloor=v --hatch --lod   child-play's pictures through the CLIENT's eye with the device
+ *                rules (the box-UV faces the device drops, coplanar fights as hatch pixels, the
+ *                LOD hull by the drawn camera): `no-visible-hatch-near`, `no-dropped-face-in-view`
+ *                per shot; `--hatch` also paints the hatch pixels magenta.
+ *   --client=    the client profile every client step reports for (default pixel; coaster-camera: both).
+ *   --frames=    vehicles: `cockpitEye` judged from the DRAWN pose (always, since package B) also
+ *                keeps a cockpit frame every 10 ticks there; `--lag=1.5,3,4` prints the lead this
+ *                client would draw per candidate camera lag (the 30k / 30l brackets re-derived).
  *
  * Exit 1 for a failed, errored or unmodelled scenario, an unreadable pack,
  * a regression verdict FAIL / NOT TESTED, or no applicable selected cases. A
@@ -73,6 +89,12 @@ import { parseCmvtSamples, summarizeCost, type CostSummary } from '../web/src/si
 import { COSTED_CALLS, type TickCost } from '../web/src/sim/script-host/host.ts';
 import type { Simulation } from '../web/src/sim/core/simulation.ts';
 import { VEHICLE_TELEMETRY_EVENT } from '../web/src/engine/bedrock-vehicle.ts';
+import { attachClient, type ClientProfileName } from '../web/src/sim/client/camera.ts';
+import { clientInvariants } from '../web/src/sim/client/invariants.ts';
+import { clientSteps, coasterCameraScenarios, craftmaticSeatCamera, walkAwayScenarios, type ClientShot } from '../web/src/sim/adapters/craftmatic/client-steps.ts';
+import { packAppearance } from '../web/src/sim/adapters/craftmatic/drawn.ts';
+import type { UvFloorModel } from '../web/src/engine/figure-holes.ts';
+import type { RunOptions } from '../web/src/sim/scenario/runner.ts';
 
 const args = process.argv.slice(2);
 const flag = (n: string): string | undefined => args.find(a => a.startsWith(`--${n}=`))?.slice(n.length + 3);
@@ -81,6 +103,54 @@ const quick = args.includes('--quick');
 const only = flag('only');
 const shotsDir = flag('shots');
 const inputs = args.filter(a => !a.startsWith('--'));
+
+// ─── Package B: the client's eye (web/src/sim/client) ───
+const framesDir = flag('frames');
+const clientFlag = flag('client') ?? (mode === 'coaster-camera' ? 'both' : 'pixel');
+if (!['pixel', 'saga', 'both'].includes(clientFlag)) { console.error('--client= is pixel, saga or both'); process.exit(2); }
+const clientProfiles: ClientProfileName[] = clientFlag === 'both' ? ['pixel', 'saga'] : [clientFlag as ClientProfileName];
+const uvFloorFlag = flag('uvfloor') as UvFloorModel | undefined;
+const hatchFlag = args.includes('--hatch'), lodFlag = args.includes('--lod');
+const lagsFlag = flag('lag')?.split(',').map(Number).filter(Number.isFinite);
+/** Child-play's pictures go through the client when any device rule is asked for. */
+const clientShots = !!(uvFloorFlag || hatchFlag || lodFlag);
+const clientStepOptions = { ...(uvFloorFlag ? { uvFloor: uvFloorFlag } : {}), lod: lodFlag || mode === 'walk-away', paintHatch: hatchFlag, frames: !!framesDir, ...(lagsFlag?.length ? { lags: lagsFlag } : {}) };
+/** The run options that attach the client and its invariants to a scenario. */
+const clientRun = (profile: ClientProfileName): Pick<RunOptions, 'invariants' | 'prepare'> => ({ invariants: clientInvariants({ seatCamera: craftmaticSeatCamera() }), prepare: (sim, player) => { attachClient(sim, player, profile); } });
+/**
+ * Two run-option sets in one: both `prepare` hooks run (cost telemetry, then the client camera) and the
+ * invariants concatenate; every other key is taken from whichever set has it, the second winning.
+ */
+const combineRun = (a: Partial<RunOptions>, b: Partial<RunOptions>): Partial<RunOptions> => ({
+  ...a, ...b,
+  ...(a.invariants || b.invariants ? { invariants: [...(a.invariants ?? []), ...(b.invariants ?? [])] } : {}),
+  ...(a.prepare || b.prepare ? { prepare: async (sim, player) => { await a.prepare?.(sim, player); await b.prepare?.(sim, player); } } : {}),
+});
+/** Write a scenario's pictures (`snapshots` and `frames`) as PNGs with a JSON of what each measured; returns how many. */
+const writeShots = async (dir: string, prefix: string, r: ScenarioResult): Promise<number> => {
+  let n = 0;
+  mkdirSync(dir, { recursive: true });
+  for (const key of ['snapshots', 'frames'] as const) {
+    const shots = (r.state[key] as ClientShot[] | undefined) ?? [];
+    if (!shots.length || !shots[0]!.rgb) continue;
+    const index: Array<Record<string, unknown>> = [];
+    for (const sh of shots) {
+      const file = `${prefix}-${r.name}-${sh.name}.png`;
+      await sharp(Buffer.from(sh.rgb), { raw: { width: sh.width, height: sh.height, channels: 3 } }).png().toFile(join(dir, file));
+      index.push({ file, camera: sh.camera, metrics: sh.metrics ? { ...sh.metrics, entities: sh.metrics.entities.filter(e => e.state !== 'full' || e.cullDisagree).slice(0, 40) } : undefined });
+      n++;
+    }
+    writeFileSync(join(dir, `${prefix}-${r.name}-${key}.json`), JSON.stringify(index, null, 1));
+    r.state[key] = shots.map(sh => sh.name);
+  }
+  const trace = r.state['cameraTrace'];
+  if (Array.isArray(trace) && trace.length) {
+    const cols = Object.keys(trace[0] as object);
+    writeFileSync(join(dir, `${prefix}-${r.name}-trace.tsv`), `${cols.join('\t')}\n${(trace as Array<Record<string, unknown>>).map(row => cols.map(c => String(row[c] ?? '')).join('\t')).join('\n')}\n`);
+    r.state['cameraTrace'] = `${trace.length} rows`;
+  }
+  return n;
+};
 const packs = inputs.flatMap(p => (existsSync(p) && statSync(p).isDirectory() ? readdirSync(p).filter(f => f.endsWith('.mcaddon')).sort().map(f => join(p, f)) : [p]));
 
 // `--runtime=tree`: run each pack's figures/rides/vehicles scripts as THIS tree builds them from the
@@ -241,7 +311,58 @@ if (mode === 'hop') {
   process.exit(failed || !report.results.length ? 1 : 0);
 }
 
-if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>] [--runtime=pack|tree]'); process.exit(2); }
+if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|coaster-camera|walk-away|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>] [--runtime=pack|tree] [--client=pixel|saga|both] [--frames=<dir>] [--lag=1.5,3,4] [--uvfloor=v] [--hatch] [--lod] [--walk-away=a..b[:step]] [--size=200]'); process.exit(2); }
+
+// `coaster-camera` and `walk-away` (package B): the drawn camera judged every tick, per client profile.
+if (mode === 'coaster-camera' || mode === 'walk-away') {
+  const reports: PackReport[] = [];
+  const walk = (flag('walk-away') ?? '40..120').split(/\.\.|:/).map(Number);
+  const size = Number(flag('size') ?? 200);
+  const summary: string[] = [];
+  for (const file of packs) {
+    const t0 = performance.now();
+    const report: PackReport = { pack: basename(file), results: [], ms: 0 };
+    try {
+      const addon = await load(file);
+      const pack = readCraftmaticPack(addon);
+      if (!pack) { report.error = 'not a craftmatic pack'; failed++; reports.push(report); continue; }
+      report.label = pack.placement.label;
+      for (const profile of clientProfiles) {
+        const scenarios = (mode === 'coaster-camera' ? coasterCameraScenarios(pack, profile) : walkAwayScenarios(pack, size, walk[0] ?? 40, walk[1] ?? 120, walk[2] ?? 10)).filter(s => !only || s.name.includes(only));
+        if (!scenarios.length) { console.log(`${report.pack}: nothing to run for ${mode} (${mode === 'coaster-camera' ? 'no coaster cars' : `no ${size} percent size`})`); continue; }
+        for (const s of scenarios) {
+          const fresh = await load(file);
+          const p = readCraftmaticPack(fresh)!;
+          const appearance = packAppearance(fresh);
+          const r = await runScenario(s, [fresh], { handlers: { ...craftmaticHandlers(p, fresh), ...clientSteps(p, appearance, clientStepOptions, profile) }, ...clientRun(profile) });
+          const written = framesDir ? await writeShots(framesDir, basename(file, '.mcaddon'), r) : 0;
+          for (const key of ['snapshots', 'frames', 'cameraTrace'] as const) if (Array.isArray(r.state[key])) r.state[key] = `${(r.state[key] as unknown[]).length} (not written: no --frames=)`;
+          report.results.push(r);
+          if (r.status !== 'pass') failed++;
+          console.log(statusLine(r) + (written ? `  ${written} picture(s) -> ${framesDir}` : ''));
+          for (const v of r.violations) console.log(`      [${v.invariant}] ${v.message.slice(0, 260)}`);
+          for (const st of r.steps.filter(x => !x.ok)) console.log(`      step ${st.label} ERROR: ${st.error}`);
+          for (const n of r.notes) console.log(`      ${n.slice(0, 400)}`);
+          const cc = r.state['coasterCamera'] as Record<string, unknown> | undefined;
+          if (cc) summary.push(`| ${report.pack} | ${profile} | ${cc['entityLagTicks']} | ${cc['laps']} | ${cc['animations']} | ${Number(cc['worstTurnDeg']).toFixed(1)} | ${Number(cc['worstJumpBlocks']).toFixed(2)} | ${Number(cc['worstLead']).toFixed(2)} | ${cc['ownFrames']} | ${r.status} | ${r.violations.length} |`);
+          const wa = r.state['walkAway'] as Array<Record<string, number>> | undefined;
+          if (wa) summary.push(`| ${report.pack} | ${profile} | ${size} | ${wa.map(x => `${x['distance']}: ${x['full']}/${x['hull']}/${x['gone']}`).join(', ')} | ${r.status} | ${r.violations.length} |`);
+        }
+      }
+    } catch (e) { failed++; report.error = (e as Error).message; console.log(`${report.pack}: ERROR ${report.error}`); }
+    report.ms = Math.round(performance.now() - t0);
+    reports.push(report);
+  }
+  const head = mode === 'coaster-camera'
+    ? ['| pack | client | entity lag | laps | animations | worst turn deg/frame | worst eye jump | worst seat lead | own-view frames | status | violations |', '|---|---|---|---|---|---|---|---|---|---|---|']
+    : ['| pack | client | size | distance: full/hull/gone | status | violations |', '|---|---|---|---|---|---|'];
+  const table = `## ${mode === 'coaster-camera' ? 'The coaster camera, drawn' : `Walking away at ${size} percent`}\n\n${[...head, ...summary].join('\n')}\n`;
+  console.log(`\n${table}`);
+  if (flag('md')) writeFileSync(flag('md')!, `${table}\n${markdownReport(reports)}`);
+  if (flag('json')) writeFileSync(flag('json')!, JSON.stringify(reports, null, 1));
+  if (!reports.some(r => r.results.length)) console.error(`${mode}: NOT TESTED — no scenarios ran`);
+  process.exit(failed || !reports.some(r => r.results.length) ? 1 : 0);
+}
 
 if (mode === 'vehicles') {
   const reports: PackReport[] = [], rows: CourseRow[] = [];
@@ -262,7 +383,12 @@ if (mode === 'vehicles') {
         const p = readCraftmaticPack(fresh)!;
         const capture: { sim?: Simulation } = {};
         const scen = costOn ? { ...s, allowLines: [...(s.allowLines ?? []), /CMVT|CMCAM/] } : s;
-        const r = await runScenario(scen, [fresh], { handlers: withInput(p, fresh, { ...craftmaticHandlers(p, fresh), ...vehicleCourseHandlers(p) }), ...costOptions(capture) });
+        // The client's `cockpitEye` (judged from the DRAWN pose) takes the course's step kind over; the course's other steps stay its own.
+        const profile = clientProfiles[0]!;
+        const { cockpitEye } = clientSteps(p, packAppearance(fresh), clientStepOptions, profile);
+        const r = await runScenario(scen, [fresh], { handlers: withInput(p, fresh, { ...craftmaticHandlers(p, fresh), ...vehicleCourseHandlers(p), cockpitEye: cockpitEye! }), ...combineRun(costOptions(capture), clientRun(profile)) });
+        if (framesDir) await writeShots(framesDir, basename(file, '.mcaddon'), r);
+        for (const key of ['snapshots', 'frames', 'cameraTrace'] as const) if (Array.isArray(r.state[key])) r.state[key] = `${(r.state[key] as unknown[]).length} (not written: no --frames=)`;
         report.results.push(r);
         rows.push(...((r.state['course'] as CourseRow[] | undefined) ?? []));
         if (r.status !== 'pass') failed++;
@@ -350,18 +476,24 @@ for (const file of packs) {
     const scenarios = (args.includes('--sneak-toggle') ? sneakToggleScenarios(base) : base).filter(s => !only || s.name.includes(only));
     console.log(`${report.pack}: ${scenarios.length} scenarios`);
     for (const s of scenarios) {
-      // Each scenario on a fresh world: the add-on is read again so no state leaks between them.
+      // Each scenario on a fresh world: the add-on is read again so no state leaks between them. With a device
+      // rule asked for (--uvfloor/--hatch/--lod) the pictures are the CLIENT's (client-steps.ts `snapshot`).
       const fresh = await load(file);
       const capture: { sim?: Simulation } = {};
       const scen = costOn ? { ...s, allowLines: [...(s.allowLines ?? []), /CMVT|CMCAM/] } : s;
-      const r = await runScenario(scen, [fresh], { handlers: { ...cp.handlers, ...INPUT_HANDLERS }, ...costOptions(capture) });
+      const profile = clientProfiles[0]!;
+      const handlers = { ...cp.handlers, ...INPUT_HANDLERS, ...(clientShots ? { snapshot: clientSteps(cp.pack, packAppearance(fresh), clientStepOptions, profile)['snapshot']! } : {}) };
+      const r = await runScenario(scen, [fresh], { handlers, ...combineRun(costOptions(capture), clientShots ? clientRun(profile) : {}) });
       recordCost(report.pack, r, capture.sim);
       delete r.timeline;
       // Pictures go to --shots as PNG files; the report keeps their names only.
       const shots = (r.state['snapshots'] as Snapshot[] | undefined) ?? [];
       if (shots.length && shotsDir) {
-        mkdirSync(shotsDir, { recursive: true });
-        for (const sh of shots) await sharp(Buffer.from(sh.rgb), { raw: { width: sh.width, height: sh.height, channels: 3 } }).png().toFile(join(shotsDir, `${basename(file, '.mcaddon')}-${r.name}-${sh.name}.png`));
+        if (clientShots) await writeShots(shotsDir, basename(file, '.mcaddon'), r);
+        else {
+          mkdirSync(shotsDir, { recursive: true });
+          for (const sh of shots) await sharp(Buffer.from(sh.rgb), { raw: { width: sh.width, height: sh.height, channels: 3 } }).png().toFile(join(shotsDir, `${basename(file, '.mcaddon')}-${r.name}-${sh.name}.png`));
+        }
       }
       r.state['snapshots'] = shots.map(sh => sh.name);
       report.results.push(r);
