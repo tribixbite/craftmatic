@@ -20,6 +20,8 @@ import { setDownRider } from '../physics/systems.js';
 import type { BlockStates } from '../world/block-types.js';
 import type { Permutation, VoxelWorld } from '../world/voxel-world.js';
 import { guard, unmodelled } from './unmodelled.js';
+import { callerPack } from './pack-context.js';
+import type { DynamicStore } from '../entity/dynamic-store.js';
 import { messageText } from './text.js';
 
 /** What the facades need from the host. */
@@ -148,10 +150,11 @@ export function entityFacade(host: FacadeHost, sim: SimEntity): Record<string, u
     removeTag: (t: string) => live().tags.delete(t),
     hasTag: (t: string) => live().tags.has(t),
     getTags: () => [...live().tags],
-    getDynamicProperty: (k: string) => { const v = live().dynamic.get(k); return v && typeof v === 'object' ? { ...(v as object) } : v; },
+    // Scoped by the calling pack (quirk `dynamic-properties-per-pack`): another pack's value reads undefined.
+    getDynamicProperty: (k: string) => { const v = live().dynamic.getFor(callerPack(), k); return v && typeof v === 'object' ? { ...(v as object) } : v; },
     setDynamicProperty: (k: string, v?: unknown) => { setDynamic(timeline, live().dynamic, k, v); },
-    getDynamicPropertyIds: () => [...live().dynamic.keys()],
-    clearDynamicProperties: () => { live().dynamic.clear(); },
+    getDynamicPropertyIds: () => live().dynamic.keysFor(callerPack()),
+    clearDynamicProperties: () => { live().dynamic.clearFor(callerPack()); },
     getProperty: (k: string) => {
       const s = live();
       if (s.def?.propertiesRefused) return undefined;
@@ -215,15 +218,19 @@ function effectFacade(host: FacadeHost, sim: SimEntity, key: string): Record<str
   return guard({ get typeId() { return key; }, get duration() { return fx().duration; }, get amplifier() { return fx().amplifier; }, get displayName() { return key; }, get isValid() { return sim.effects.has(key); } }, 'Effect', host.timeline);
 }
 
-/** Dynamic property write: the API's value types and the string limit (quirk `dynamic-property-string-limit`). */
-function setDynamic(timeline: Timeline, store: Map<string, unknown>, key: string, value: unknown): void {
-  if (value === undefined) { store.delete(key); return; }
+/**
+ * Dynamic property write, as the CALLING pack (quirk `dynamic-properties-per-pack`): the API's value types and the
+ * string limit (quirk `dynamic-property-string-limit`).
+ */
+export function setDynamic(timeline: Timeline, store: DynamicStore, key: string, value: unknown): void {
+  const pack = callerPack();
+  if (value === undefined) { store.setFor(pack, key, undefined); return; }
   if (typeof value === 'string' && value.length > quirkValue('dynamic-property-string-limit', 'maxChars')) {
     timeline.add('note', `setDynamicProperty ${key}: ${value.length} characters exceeds the limit`, withSource(timeline));
     throw new Error(`Dynamic property ${key} string is too long (${value.length} > ${quirkValue('dynamic-property-string-limit', 'maxChars')})`);
   }
   if (!(typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || isVec(value))) throw new TypeError(`Dynamic property ${key}: unsupported value type ${typeof value}`);
-  store.set(key, isVec(value) ? copy(value) : value);
+  store.setFor(pack, key, isVec(value) ? copy(value) : value);
 }
 
 /** Actor property write, type-checked against the declaration (and refused when the component was dropped). */

@@ -18,6 +18,7 @@
 import type { Box } from '../core/vec.js';
 import { quirkValue } from '../quirks/registry.js';
 import { permutationKey, type BlockStates, type BlockShape, type BlockTypes } from './block-types.js';
+import { submersion } from './liquids.js';
 
 /** An interned permutation. */
 export interface Permutation { readonly id: number; readonly typeId: string; readonly states: Readonly<BlockStates> }
@@ -59,6 +60,8 @@ export interface WorldSolid extends Box {
   block?: { x: number; y: number; z: number; typeId: string };
   /** An unloaded block (treated as solid). */
   unloaded?: boolean;
+  /** The id of the ENTITY this box is (a `minecraft:is_collidable` mob, physics/body-systems.ts), not a block. */
+  entity?: string;
 }
 
 /** One dimension's blocks. */
@@ -77,6 +80,8 @@ export class VoxelWorld {
   readonly writes = new Map<string, number>();
   /** Called after every write (a recorder, a test host). */
   onWrite: ((x: number, y: number, z: number, p: Permutation) => void) | undefined;
+  /** Solid boxes that are ENTITIES near a region (collidable mobs; physics/body-systems.ts installs it), joined to `solidsNear`. */
+  entitySolids: ((region: Box) => WorldSolid[]) | undefined;
 
   constructor(readonly id: string, readonly palette: BlockPalette, readonly types: BlockTypes, private readonly generator: TerrainGenerator = flatTerrain(), heightRange = { min: -64, max: 320 }) {
     this.heightRange = heightRange;
@@ -168,8 +173,12 @@ export class VoxelWorld {
         for (const b of shape.collision) out.push({ x0: x + b.x0, y0: y + b.y0, z0: z + b.z0, x1: x + b.x1, y1: y + b.y1, z1: z + b.z1, block: { x, y, z, typeId } });
       }
     }
+    if (this.entitySolids) out.push(...this.entitySolids({ x0, y0, z0, x1: x1 + 1, y1: y1 + 1, z1: z1 + 1 }));
     return out;
   }
+
+  /** How much of a box's height is under a liquid surface, 0..1 (world/liquids.ts; the physics' water test). */
+  submersion(box: Box): number { return submersion(this, box); }
 
   /** Whether a box overlaps any solid (the "player inside a wall" test). Returns the first solid it overlaps. */
   overlapping(box: Box, eps = 1e-3): WorldSolid | undefined {

@@ -25,6 +25,7 @@ import { quirkValue } from '../quirks/registry.js';
 import { PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, TICKS_PER_SECOND, moveBox, tickBody, tickPlayer, type PlayerState } from './body.js';
 import type { VoxelWorld } from '../world/voxel-world.js';
 import { stickToWorld, type ControlState } from '../input/controls.js';
+import { bodyFluid } from './body-systems.js';
 
 const stateOf = (e: SimEntity): PlayerState => ({ x: e.location.x, y: e.location.y, z: e.location.z, vx: e.velocity.x, vy: e.velocity.y, vz: e.velocity.z, onGround: e.onGround, sneaking: false, tick: 0 });
 /** A yaw into (-180, 180]. */
@@ -221,7 +222,8 @@ export function installPhysics(engine: SimEngine, controls: ControlState): void 
         if (!ph.gravity && !moving) continue;
         const dims = { width: e.collisionSize().width, height: e.collisionSize().height };
         if (ph.collision) {
-          const r = tickBody(en.dimension(e.dimension), stateOf(e), dims, ph.gravity);
+          // In water a mob swims (behavior.float) or floats (buoyant): `bodyFluid`, quirk `liquid-motion`.
+          const r = tickBody(en.dimension(e.dimension), stateOf(e), dims, ph.gravity, bodyFluid(e));
           e.location = { x: r.state.x, y: r.state.y, z: r.state.z };
           e.velocity = { x: r.state.vx, y: r.state.vy, z: r.state.vz };
           e.onGround = r.state.onGround;

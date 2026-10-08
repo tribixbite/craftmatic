@@ -21,6 +21,7 @@ import { teleport } from '../script-host/facades.js';
 import type { Addon } from '../pack/pack.js';
 import { FLAT_GROUND_Y } from '../world/voxel-world.js';
 import { coreInvariants, quietable, type Invariant, type InvariantContext, type Violation } from './invariants.js';
+import { worldInvariants } from './world-invariants.js';
 import type { AnyStep, EntitySelector, Scenario, StepContext, StepHandler } from './types.js';
 
 export type ScenarioStatus = 'pass' | 'fail' | 'error' | 'unknown';
@@ -221,7 +222,7 @@ export async function runScenario(scenario: Scenario, addons: readonly Addon[], 
     repeats.set(key, n);
     if (n <= REPEAT_LIMIT) violations.push({ ...v, tick: sim.engine.tick, ...(currentStep ? { step: currentStep } : {}) });
   };
-  const all = [...coreInvariants(), ...(options.invariants ?? [])].filter(i => !scenario.invariants || scenario.invariants.includes(i.id));
+  const all = [...coreInvariants(), ...worldInvariants(), ...(options.invariants ?? [])].filter(i => !scenario.invariants || scenario.invariants.includes(i.id));
   let quiet: ReadonlySet<string> = new Set();
   const ictx: InvariantContext = quietable({ engine: sim.engine, player, allowLines: scenario.allowLines ?? [], ...(scenario.yieldingLines ? { yieldingLines: scenario.yieldingLines } : {}), controlScheme: p => sim.host.playerState(p).controlScheme, report }, () => quiet);
   for (const inv of all) inv.setup?.(ictx);

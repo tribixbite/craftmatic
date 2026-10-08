@@ -16,7 +16,15 @@
  *     landing this tick;
  *   - collision resolved per axis (y, then x, then z) against the solids the
  *     world reports; sneaking on the ground will not walk off a drop deeper
- *     than the step.
+ *     than the step;
+ *   - IN WATER (a world that reports `submersion`): the stick accelerates
+ *     0.02 a tick, every axis keeps 0.8 of its speed a tick, gravity is a
+ *     sixteenth (a body sinks at 0.5 blocks/s), Jump swims up 0.04 a tick once
+ *     the water is deeper than 0.4, and a body pushing against a bank at the
+ *     surface is lifted out (0.3) - Java Edition's `LivingEntity.travel` water
+ *     branch, ASSUMED for Bedrock (quirk `liquid-motion`); a mob with
+ *     `minecraft:behavior.float` swims up as Jump does, a `minecraft:buoyant`
+ *     body floats half under (`BodyFluid`, ASSUMED: no pack ships one).
  *
  * WHAT IT COLLIDES WITH is the caller's: any `SolidQuery` (the walk preview's
  * collider grid, the simulator's voxel world). Solids are plain boxes that may
@@ -93,13 +101,42 @@ export const AUTO_JUMP_MAX_RISE = 1.2;
 export const AUTO_JUMP_PROBE_HEIGHT = 0.51;
 export const AUTO_JUMP_LOOKAHEAD = 0.7;
 export const AUTO_JUMP_BACKWARD_DOT = -0.15;
+/**
+ * WATER (quirk `liquid-motion`, ASSUMED: Java Edition's `LivingEntity.travel` water branch; Bedrock's code is closed).
+ * Per tick in water: the stick adds `WATER_ACCELERATION`; every axis keeps `WATER_DRAG`; gravity is `WATER_GRAVITY`
+ * (`GRAVITY` / 16, Java's `getFluidFallingAdjustedMovement`), so a body sinks at a terminal 0.025 blocks/tick
+ * (0.5 blocks/s); Jump adds `WATER_SWIM_UP` once the water at the body is deeper than `FLOAT_JUMP_DEPTH` (Java's
+ * fluid jump threshold; shallower, Jump is the ordinary jump from the ground); a horizontal collision with room
+ * `WATER_EXIT_STEP` higher sets the rise to `WATER_EXIT_LIFT` (climbing out onto a bank).
+ */
+export const WATER_ACCELERATION = 0.02;
+export const WATER_DRAG = 0.8;
+export const WATER_GRAVITY = GRAVITY / 16;
+export const WATER_SWIM_UP = 0.04;
+export const FLOAT_JUMP_DEPTH = 0.4;
+export const WATER_EXIT_STEP = 0.6;
+export const WATER_EXIT_LIFT = 0.3;
+/**
+ * A `minecraft:buoyant` body (ASSUMED, quirk `buoyant-body`: Bedrock documents the component's `base_buoyancy`, not
+ * its motion): it is pushed up `BUOYANT_SPRING` x buoyancy a tick per unit of its height under water beyond half,
+ * and pulled down by the same while less than half under, so it rests half submerged at buoyancy 1.
+ */
+export const BUOYANT_SPRING = 0.1;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-/** Where the solids come from: the boxes a box moving by `(dx, dy, dz)` could meet. */
+/**
+ * Where the solids come from: the boxes a box moving by `(dx, dy, dz)` could meet; and, for a world with liquids,
+ * how much of a box's height is under a liquid surface (0..1; absent: a dry world, as the walk preview's collider
+ * grid is).
+ */
 export interface SolidQuery<S extends Box = Box> {
   solidsNear(box: Box, dx: number, dy: number, dz: number): readonly S[];
+  submersion?(box: Box): number;
 }
+
+/** A mob's response to water (`tickBody`): it swims up like a pressed Jump (`minecraft:behavior.float`), or floats (`minecraft:buoyant`'s `base_buoyancy`). */
+export interface BodyFluid { floats?: boolean; buoyancy?: number }
 
 /** A body's box size: full width (x and z) and height, blocks. */
 export interface BodyDims { width: number; height: number }
@@ -287,6 +324,27 @@ function damp(s: PlayerState, collided: MoveResult['collided'], slowFalling: boo
 }
 
 /**
+ * The damping in water (quirk `liquid-motion`): every axis keeps `WATER_DRAG`, gravity is `WATER_GRAVITY`, and a body
+ * pushed against a bank with room `WATER_EXIT_STEP` higher rises at `WATER_EXIT_LIFT` (Java: `horizontalCollision &&
+ * isFree(dx, dy + 0.6, dz)`).
+ */
+function dampInWater<S extends Box>(world: SolidQuery<S>, s: PlayerState, collided: MoveResult['collided'], dims: BodyDims, gravity: boolean): void {
+  s.onGround = collided.below;
+  const sideways = collided.x || collided.z;
+  if (collided.x) s.vx = 0;
+  if (collided.z) s.vz = 0;
+  if (collided.below || collided.above) s.vy = 0;
+  s.vx *= WATER_DRAG; s.vy *= WATER_DRAG; s.vz *= WATER_DRAG;
+  if (gravity) s.vy -= WATER_GRAVITY;
+  if (sideways) {
+    const lifted = shift(playerBox(s, dims), 0, WATER_EXIT_STEP + s.vy, 0);
+    if (!world.solidsNear(lifted, 0, 0, 0).some(q => overlapsXZ(lifted, q) && overlapsY(lifted, q))) s.vy = WATER_EXIT_LIFT;
+  }
+  if (Math.abs(s.vx) < 1e-5) s.vx = 0;
+  if (Math.abs(s.vz) < 1e-5) s.vz = 0;
+}
+
+/**
  * One tick of player motion. Input is applied first (a jump only from the
  * ground, sneaking scales speed and guards ledges), the box is swept per
  * axis against the solids it could meet, a sideways clip on the ground is
@@ -300,6 +358,17 @@ export function tickPlayer<S extends Box>(world: SolidQuery<S>, prev: PlayerStat
   const mag = Math.hypot(mx, mz);
   if (mag > 1) { mx /= mag; mz /= mag; }
   const speed = WALK_SPEED * (input.sneak ? SNEAK_FACTOR : input.sprint ? SPRINT_FACTOR : 1);
+  // In water (a world with liquids; quirk `liquid-motion`): its own control, swim and damping.
+  const wet = world.submersion?.(playerBox(s, dims)) ?? 0;
+  if (wet > 0) {
+    s.vx += mx * WATER_ACCELERATION; s.vz += mz * WATER_ACCELERATION;
+    if (input.jump) { if (wet * dims.height > FLOAT_JUMP_DEPTH) s.vy += WATER_SWIM_UP; else if (s.onGround) s.vy = JUMP_VELOCITY; }
+    const moved = moveBox(world, playerBox(s, dims), { dx: s.vx, dy: s.vy, dz: s.vz }, s.onGround, input.sneak);
+    s.x += moved.dx; s.y += moved.dy; s.z += moved.dz;
+    dampInWater(world, s, moved.collided, dims, true);
+    s.autoJumpPending = false;
+    return { state: s, collided: moved.collided, stepped: moved.stepped, contacts: moved.contacts };
+  }
   if (s.onGround) {
     const accel = speed * (1 - GROUND_FRICTION);
     s.vx += mx * accel; s.vz += mz * accel;
@@ -375,11 +444,18 @@ export function autoJumpWanted<S extends Box>(world: SolidQuery<S>, s: { x: numb
  * already added to its velocity, gravity when `gravity`, the same sweep,
  * step and damping as the player. A figure walked by `applyImpulse` is this.
  */
-export function tickBody<S extends Box>(world: SolidQuery<S>, prev: PlayerState, dims: BodyDims, gravity = true): TickResult<S> {
+export function tickBody<S extends Box>(world: SolidQuery<S>, prev: PlayerState, dims: BodyDims, gravity = true, fluid: BodyFluid = {}): TickResult<S> {
   const s: PlayerState = { ...prev, tick: prev.tick + 1, sneaking: false };
+  // In water (quirk `liquid-motion`): a floater swims up, a buoyant body is pushed toward half under (`buoyant-body`).
+  const wet = world.submersion?.(playerBox(s, dims)) ?? 0;
+  if (wet > 0) {
+    if (fluid.floats && wet * dims.height > FLOAT_JUMP_DEPTH) s.vy += WATER_SWIM_UP;
+    if (fluid.buoyancy) s.vy += BUOYANT_SPRING * fluid.buoyancy * (wet - 0.5);
+  }
   const move = moveBox(world, playerBox(s, dims), { dx: s.vx, dy: s.vy, dz: s.vz }, s.onGround);
   s.x += move.dx; s.y += move.dy; s.z += move.dz;
-  if (gravity) damp(s, move.collided, false);
+  if (wet > 0) dampInWater(world, s, move.collided, dims, gravity && !fluid.buoyancy);
+  else if (gravity) damp(s, move.collided, false);
   else {
     s.onGround = move.collided.below;
     if (move.collided.x) s.vx = 0;

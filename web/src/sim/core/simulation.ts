@@ -7,6 +7,7 @@
 import { SimEngine, type EngineOptions } from './engine.js';
 import { ControlState } from '../input/controls.js';
 import { installPhysics } from '../physics/systems.js';
+import { installBodySystems } from '../physics/body-systems.js';
 import { ScriptHost, type ScriptHostOptions } from '../script-host/host.js';
 import { readAddon, type Addon } from '../pack/pack.js';
 import { FLAT_GROUND_Y } from '../world/voxel-world.js';
@@ -24,6 +25,7 @@ export class Simulation {
   constructor(readonly options: SimulationOptions = {}) {
     this.engine = new SimEngine(options);
     installPhysics(this.engine, this.controls);
+    installBodySystems(this.engine);
     this.host = new ScriptHost(this.engine, this.controls, options);
   }
 

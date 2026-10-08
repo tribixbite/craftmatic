@@ -67,6 +67,8 @@ export class SimEngine {
   private readonly dimensions = new Map<string, VoxelWorld>();
   private readonly systems: EngineSystem[] = [];
   private readonly listeners = new Map<keyof EngineEvents, Array<Listener<keyof EngineEvents>>>();
+  /** Called with every dimension, made or to be made (`onDimension`). */
+  private readonly dimensionHooks: Array<(w: VoxelWorld) => void> = [];
 
   constructor(readonly options: EngineOptions = {}) {
     this.addSystem({ name: 'loading', order: ORDER.loading, tick: e => e.updateLoaded() });
@@ -148,8 +150,17 @@ export class SimEngine {
   dimension(id: string): VoxelWorld {
     const key = id.startsWith('minecraft:') ? id : `minecraft:${id}`;
     let d = this.dimensions.get(key);
-    if (!d) this.dimensions.set(key, d = new VoxelWorld(key, this.palette, this.blockTypes, this.options.terrain ?? flatTerrain()));
+    if (!d) {
+      this.dimensions.set(key, d = new VoxelWorld(key, this.palette, this.blockTypes, this.options.terrain ?? flatTerrain()));
+      for (const h of this.dimensionHooks) h(d);
+    }
     return d;
+  }
+
+  /** Run `hook` on every dimension already made and on each one made later (a system that hangs a query on the worlds). */
+  onDimension(hook: (w: VoxelWorld) => void): void {
+    this.dimensionHooks.push(hook);
+    for (const d of this.dimensions.values()) hook(d);
   }
 
   /** Recompute each dimension's loaded columns from players and ticking areas. */

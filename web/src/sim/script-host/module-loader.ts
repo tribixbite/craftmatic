@@ -17,6 +17,7 @@
 
 import type { Pack } from '../pack/pack.js';
 import { packText } from '../pack/pack.js';
+import { moduleUrl, packScoped, withPack } from './pack-context.js';
 
 /** What a module sees besides its own code. */
 export interface ModuleGlobals {
@@ -86,8 +87,14 @@ export class ModuleLoader {
   private readonly cache = new Map<string, Record<string, unknown>>();
   /** Modules in the order they finished evaluating. */
   readonly evaluated: string[] = [];
+  /** The pack's key (its header uuid): what its dynamic properties are scoped by (script-host/pack-context.ts). */
+  readonly packKey: string;
+  /** This pack's view of each built-in module (`@minecraft/server` with its callbacks run as this pack). */
+  private readonly builtins = new Map<string, Record<string, unknown>>();
 
-  constructor(private readonly pack: Pack, private readonly globals: ModuleGlobals) {}
+  constructor(private readonly pack: Pack, private readonly globals: ModuleGlobals) {
+    this.packKey = pack.uuid || pack.folder || 'pack';
+  }
 
   /** Evaluate the pack's entry module (and, through it, every module it imports). */
   loadEntry(): void {
@@ -107,14 +114,21 @@ export class ModuleLoader {
     const g = this.globals;
     const importer = (spec: string): Record<string, unknown> => {
       if (spec.startsWith('.')) return this.load(resolvePath(path, spec));
-      const b = g.builtin(spec);
-      if (!b) throw new Error(`Cannot find module '${spec}'`);
+      let b = this.builtins.get(spec);
+      if (!b) {
+        const raw = g.builtin(spec);
+        if (!raw) throw new Error(`Cannot find module '${spec}'`);
+        // The pack's own view: a callback it hands the module runs as its code (its dynamic properties).
+        b = spec === '@minecraft/server' ? packScoped(this.packKey, raw) : raw;
+        this.builtins.set(spec, b);
+      }
       return b;
     };
-    const url = `pack://${this.pack.folder || 'pack'}/${path}`;
+    // `pack://<pack key>/<folder>/<path>`: the timeline reads the script from it, the pack context the pack.
+    const url = moduleUrl(this.packKey, this.pack.folder, path);
     try {
       const fn = new Function('__import', '__exports', 'Math', 'Date', 'console', `${body}\n//# sourceURL=${url}`) as (i: typeof importer, e: Record<string, unknown>, m: Math, d: DateConstructor, c: ModuleGlobals['console']) => void;
-      fn(importer, exports, g.Math, g.Date, g.console);
+      withPack(this.packKey, () => fn(importer, exports, g.Math, g.Date, g.console));
     } catch (e) { g.onError(path, e); }
     this.evaluated.push(path);
     return exports;

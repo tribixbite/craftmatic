@@ -19,11 +19,14 @@ import type { BlockStates } from '../world/block-types.js';
 import type { Permutation } from '../world/voxel-world.js';
 import { SERVER_EXPORTS, SERVER_TYPES } from './api-catalog.js';
 import { runCommand as execCommand } from './commands.js';
-import { blockFacade, entityFacade, entityMatches, permutationFacade, sortQuery, type FacadeHost, type PlayerExtra } from './facades.js';
+import { blockFacade, entityFacade, entityMatches, permutationFacade, setDynamic, sortQuery, type FacadeHost, type PlayerExtra } from './facades.js';
+import { callerPack } from './pack-context.js';
+import { DynamicStore } from '../entity/dynamic-store.js';
 import { ModuleLoader, engineDate, seededMath } from './module-loader.js';
 import { Scheduler } from './scheduler.js';
 import { createUiModule, type FormChooser } from './ui-module.js';
-import { guard, unmodelled, unmodelledExport } from './unmodelled.js';
+import { executionMode, guard, unmodelled, unmodelledExport } from './unmodelled.js';
+import { enumObject } from './enums.js';
 
 /** Events the host delivers to `world.afterEvents` / `system.afterEvents` subscribers. */
 type AfterEventName = 'entityHitEntity' | 'playerInteractWithEntity' | 'itemUse' | 'playerLeave' | 'entitySpawn' | 'entityRemove' | 'playerSpawn' | 'scriptEventReceive' | 'entityLoad' | 'worldLoad';
@@ -72,7 +75,8 @@ export class ScriptHost implements FacadeHost {
   private readonly subscribers = new Map<string, Array<(ev: unknown) => void>>();
   private readonly beforeSubscribers = new Map<string, Array<(ev: unknown) => void>>();
   private readonly queue: Array<{ name: AfterEventName; payload: () => unknown }> = [];
-  private readonly worldDynamic = new Map<string, unknown>();
+  /** The world's dynamic properties, scoped by the writing pack like an entity's (quirk `dynamic-properties-per-pack`). */
+  private readonly worldDynamic = new DynamicStore();
   private readonly savedStructures = new Map<string, { size: Vec3; blocks: Array<[number, number, number, Permutation]> }>();
   private readonly serverModule: Record<string, unknown>;
   private readonly uiModule: Record<string, unknown>;
@@ -166,12 +170,15 @@ export class ScriptHost implements FacadeHost {
    * Fire a before-event; returns true when a subscriber cancelled it. The input module raises
    * `playerInteractWithEntity` (a held press on an entity) and `playerInteractWithBlock` (an item used on a
    * block: payload `{ player, block, blockFace, faceLocation, itemStack, isFirstEvent }` as facades).
-   * # TODO(sim-api): the read-only restriction scripts meet inside a before-event is not enforced.
+   * Each callback runs in restricted-execution (read-only) mode, as on the device: a member the typings forbid there
+   * throws (`executionMode`, unmodelled.ts); a script defers the change with `system.run`.
    */
   before(name: BeforeEventName, payload: Record<string, unknown>): boolean {
     const ev = { ...payload, cancel: false };
     for (const cb of [...(this.beforeSubscribers.get(name) ?? [])]) {
-      try { this.scheduler.inEventHandler(() => cb(ev)); } catch (e) { this.scheduler.fault(e, `beforeEvents.${name}`); }
+      const was = executionMode.restricted;
+      executionMode.restricted = true;
+      try { this.scheduler.inEventHandler(() => cb(ev)); } catch (e) { this.scheduler.fault(e, `beforeEvents.${name}`); } finally { executionMode.restricted = was; }
     }
     return ev.cancel === true;
   }
@@ -331,9 +338,9 @@ export class ScriptHost implements FacadeHost {
       getAbsoluteTime: () => host.timeOfDay + engine.tick,
       getDay: () => Math.floor((host.timeOfDay + engine.tick) / 24000),
       sendMessage: (m: unknown) => { timeline.add('chat', typeof m === 'string' ? m : JSON.stringify(m)); },
-      getDynamicProperty: (k: string) => host.worldDynamic.get(k),
-      setDynamicProperty: (k: string, v?: unknown) => { if (v === undefined) host.worldDynamic.delete(k); else host.worldDynamic.set(k, v); },
-      getDynamicPropertyIds: () => [...host.worldDynamic.keys()],
+      getDynamicProperty: (k: string) => host.worldDynamic.getFor(callerPack(), k),
+      setDynamicProperty: (k: string, v?: unknown) => { setDynamic(timeline, host.worldDynamic, k, v); },
+      getDynamicPropertyIds: () => host.worldDynamic.keysFor(callerPack()),
     }, 'World', timeline);
     const sched = this.scheduler;
     const systemAfter = guard({ scriptEventReceive: this.signal('scriptEventReceive', 'ScriptEventCommandMessageAfterEventSignal', this.subscribers) }, 'SystemAfterEvents', timeline);
@@ -355,10 +362,10 @@ export class ScriptHost implements FacadeHost {
       LinearSpline: class LinearSpline { controlPoints: unknown[] = []; },
       CatmullRomSpline: class CatmullRomSpline { controlPoints: unknown[] = []; },
     };
-    // Enums: every catalog enum as name → name (the real API's string enums; numeric ones are a TODO).
-    // # TODO(sim-api): numeric enums (InputPermissionCategory, ...) carry numbers on the device.
+    // Enums: every catalog enum with its REAL values (a numeric enum's numbers, a string enum's ids: the catalog's
+    // `values`, read from the typings); a member the typings give no literal for stands for itself.
     for (const [name, t] of Object.entries(SERVER_TYPES)) {
-      if (t.kind === 'enum' && SERVER_EXPORTS.includes(name)) implemented[name] = Object.fromEntries(t.members.map(m => [m, m]));
+      if (t.kind === 'enum' && SERVER_EXPORTS.includes(name)) implemented[name] = enumObject(t);
     }
     // An export the client's module version lacks reads undefined (`ScriptHostOptions.absentExports`).
     const absent = new Set(this.options.absentExports ?? []);

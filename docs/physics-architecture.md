@@ -334,6 +334,41 @@ simulator's own player turns it on only where a scenario asks
 is carried between ticks in `installPhysics`): regression
 `lift-top-fall-10261` walks the Pixel's 30l lift lanes with it.
 
+### 4.4b Water — `submersion` in `web/src/sim/world/liquids.ts`, the water branch of `tickPlayer` / `tickBody`
+
+A world that holds liquids reports how much of a body's height is under a
+liquid surface (`SolidQuery.submersion`; the walk preview's collider grid is
+dry and reports nothing). A liquid block fills its cell to 8/9 (a source), to
+(8 - L)/9 for a flowing level L, or whole when falling or under more liquid
+(quirk `liquid-surface-height`, Java's fluid height; the scripted boats read a
+surface as y + 0.9). In water the player and every mob move by Java's
+`LivingEntity.travel` water branch (quirk `liquid-motion`, ASSUMED: no phone
+round measured a swimmer): the stick adds `WATER_ACCELERATION`, each axis keeps
+`WATER_DRAG`, gravity is `WATER_GRAVITY` (a 0.5 blocks/s sink), Jump swims up
+`WATER_SWIM_UP` once the water is deeper than `FLOAT_JUMP_DEPTH`, and a body
+pressed against a bank with room above climbs out at `WATER_EXIT_LIFT`. A
+figure (`minecraft:behavior.float`) swims up as a held Jump does; a
+`minecraft:buoyant` body floats half under (`BUOYANT_SPRING`, quirk
+`buoyant-body`, a placeholder: no pack ships one). The scripted boats are moved
+by their own runtime (`boatStep`, which reads the water blocks itself) and are
+unaffected; the simulator's vehicle course runs them over water lanes
+(docs/sim-engine.md "The vehicle course").
+
+### 4.4c Bodies that meet — `web/src/sim/physics/body-systems.ts`
+
+Two overlapping bodies that may both be pushed by entities - a player, a type
+with `minecraft:pushable_by_entity` (the figures) - are pushed apart each tick
+(`pushBodies`, quirk `entity-push-soft`: Java's `Entity.push`, 0.05 blocks/tick
+at most, ASSUMED; the `quirk_push` GameTest is its probe). The shells, doors,
+seats and vehicles declare only `pushable_by_block`: they neither push nor are
+pushed, which the Pixel GameTest agrees with (figures live inside their shell's
+model-sized collision box and are not expelled). An entity with
+`minecraft:is_collidable` is a SOLID box to other mobs (Microsoft Learn; quirk
+`entity-collidable-solid`): its realised box joins the dimension's solids, so
+`tickPlayer` / `tickBody` stop at it. No pack declares one today, so a car and
+a figure overlap on the device as here; the simulator's
+`no-entity-overlap` invariant judges only collidable pairs.
+
 ### 4.5 Figure life — `web/src/engine/bedrock-figure-life.ts`
 
 Figures walk by VELOCITY (`applyImpulse` to a target horizontal velocity);
@@ -1086,6 +1121,14 @@ literal inside a function body (`§` marks the number).
 | `SLOW_FALL_GRAVITY` | `web/src/sim/physics/body.ts` | 0.01 | blocks/tick² | Slow falling's gravity while falling: a 9.8 blocks/s terminal with the 0.98 drag; the Pixel's float-down took 11 s over 89 blocks (2026-09-29, `output/nimbus-pixel-0929/`). |
 | `PLAYER_EYE_HEIGHT` | `web/src/sim/physics/body.ts` | 1.62 | blocks | A standing player's eye over its feet (Minecraft's). |
 | `AUTO_JUMP_MIN_RISE` | `web/src/sim/physics/body.ts` | 0.5 | blocks | Auto-jump ignores an obstacle this low or lower (Java `updateAutoJump`; the step takes it). |
+| `WATER_ACCELERATION` | `web/src/sim/physics/body.ts` | 0.02 | blocks/tick² | The stick's push in water (Java `moveRelative(0.02)`; quirk `liquid-motion`, assumed). |
+| `WATER_DRAG` | `web/src/sim/physics/body.ts` | 0.8 | per tick | Speed kept per tick in water, every axis (Java's non-sprinting water multiplier). |
+| `WATER_GRAVITY` | `web/src/sim/physics/body.ts` | 0.005 | blocks/tick² | `GRAVITY` / 16 in water: a 0.025 blocks/tick (0.5 blocks/s) sink. |
+| `WATER_SWIM_UP` | `web/src/sim/physics/body.ts` | 0.04 | blocks/tick² | Jump held in water deeper than `FLOAT_JUMP_DEPTH` (Java `jumpInLiquid`; a floating mob's `FloatGoal`). |
+| `FLOAT_JUMP_DEPTH` | `web/src/sim/physics/body.ts` | 0.4 | blocks | Water this deep at the body makes Jump a swim stroke (Java's fluid jump threshold). |
+| `WATER_EXIT_STEP` | `web/src/sim/physics/body.ts` | 0.6 | blocks | Room this much higher beside a body pushing against a bank lets it climb out. |
+| `WATER_EXIT_LIFT` | `web/src/sim/physics/body.ts` | 0.3 | blocks/tick | The climb-out's rise (Java: `setDeltaMovement(x, 0.3, z)`). |
+| `BUOYANT_SPRING` | `web/src/sim/physics/body.ts` | 0.1 | blocks/tick² per unit submerged | A `minecraft:buoyant` body's push toward half under (quirk `buoyant-body`; a placeholder until measured). |
 | `AUTO_JUMP_MAX_RISE` | `web/src/sim/physics/body.ts` | 1.2 | blocks | Auto-jump's tallest obstacle (Java, no jump boost); a pressed jump reaches `JUMP_PEAK`. Reproduces the Pixel's auto-jump stop on 10261's lift hill at 200 % (30k: a 1.25 riser, pin + 28.2). |
 | `AUTO_JUMP_PROBE_HEIGHT` | `web/src/sim/physics/body.ts` | 0.51 | blocks | The two side probes' height over the feet (Java). |
 | `AUTO_JUMP_LOOKAHEAD` | `web/src/sim/physics/body.ts` | 0.7 | blocks | Probe reach past the tick's move: the walk speed attribute 0.1 × 7 (Java). |
@@ -1619,6 +1662,9 @@ one of these files fails the check until its row is written.
 | `tickBody` | function | One tick of a mob moved by velocity alone (a figure's impulses). |
 | `AUTO_JUMP_MIN_RISE`, `AUTO_JUMP_MAX_RISE`, `AUTO_JUMP_PROBE_HEIGHT`, `AUTO_JUMP_LOOKAHEAD`, `AUTO_JUMP_BACKWARD_DOT` | const | Auto-jump's rules (§4.4a): Java's `updateAutoJump` numbers, assumed for Bedrock. |
 | `autoJumpWanted` | function | Whether auto-jump fires after a tick's move (`WalkInput.autoJump`; the jump is made the next tick). |
+| `WATER_ACCELERATION`, `WATER_DRAG`, `WATER_GRAVITY`, `WATER_SWIM_UP`, `FLOAT_JUMP_DEPTH`, `WATER_EXIT_STEP`, `WATER_EXIT_LIFT` | const | Motion in water (§4.4b): Java's `LivingEntity.travel` water branch, assumed for Bedrock (quirk `liquid-motion`). |
+| `BUOYANT_SPRING` | const | A `minecraft:buoyant` body's push toward half under (quirk `buoyant-body`, assumed; no pack ships one). |
+| `BodyFluid` | interface | A mob's water response for `tickBody`: swims up (`behavior.float`) or floats (`buoyant`). |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/sim/physics/systems.ts -->
@@ -1631,6 +1677,17 @@ one of these files fails the check until its row is written.
 | `DISMOUNT_FLOOR_ABOVE`, `DISMOUNT_FLOOR_BELOW` | const | The floor window about the seat entity's point, blocks (0.5, 1): +0.2 and -0.3 were taken on the device, +0.7 and -1.3 refused (`TODO(dismount-floor)`). |
 | `DISMOUNT_FALLBACK_LIFT` | const | Walled in on all eight sides, the rider is put at the seat entity's point this far up (0.2, measured) and falls. |
 | `isHoverMount` | function | A native hover mount: `free_camera_controlled` plus hover movement or `can_fly`. |
+<!-- /physics-spec:exports -->
+
+<!-- physics-spec:exports web/src/sim/physics/body-systems.ts -->
+| Export | Kind | Role |
+|---|---|---|
+| `PUSHES_ORDER` | const | The pushes system's place in the tick: after the mobs move, before the riders are seated (35). |
+| `pushableByEntity`, `isCollidable` | function | A body other entities push (a player; `minecraft:pushable_by_entity` with physics: the figures); a mob that is a SOLID box to others (`minecraft:is_collidable`). |
+| `bodyFluid` | function | A mob's water response from its components (`behavior.float`, `buoyant`). |
+| `pushBodies` | function | One tick of the soft push between overlapping pushable bodies (quirk `entity-push-soft`, Java's `Entity.push`, assumed). |
+| `collidableSolids` | function | The collidable entities' realised boxes near a region: the world's `entitySolids` (quirk `entity-collidable-solid`). |
+| `installBodySystems` | function | Installs the pushes system and hangs the collidable entities on every dimension's solids. |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/bedrock-figure-life.ts -->
