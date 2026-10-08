@@ -425,7 +425,7 @@ export interface FigureTrackVerdict {
   pathLength: number;
   /** Largest horizontal distance from the first sample (blocks). */
   maxExcursion: number;
-  /** Samples standing outside the footprint plus `GT_FIGURE_AREA_MARGIN`. */
+  /** Samples STANDING (not riding) outside the footprint plus `GT_FIGURE_AREA_MARGIN`. */
   outsideSamples: number;
   /** Lowest feet height relative to the model's ground (the pin plane). */
   minAboveGround: number;
@@ -456,7 +456,9 @@ export function judgeFigureTrack(track: FigureSample[], area: { min: Vec3; max: 
     const s = track[i]!;
     if (i > 0) { const p = track[i - 1]!; pathLength += Math.sqrt((s.x - p.x) ** 2 + (s.z - p.z) ** 2); }
     if (first) maxExcursion = Math.max(maxExcursion, Math.sqrt((s.x - first.x) ** 2 + (s.z - first.z) ** 2));
-    if (s.x < area.min.x - margin || s.x > area.max.x + margin || s.z < area.min.z - margin || s.z > area.max.z + margin) outsideSamples++;
+    // A figure RIDING is where its mount takes it (a flyer companion on its orbit runs outside the model by design;
+    // the simulator's offline run of `figures_dragonball` counted it, 2026-10-08): only a standing sample counts.
+    if (!s.riding && (s.x < area.min.x - margin || s.x > area.max.x + margin || s.z < area.min.z - margin || s.z > area.max.z + margin)) outsideSamples++;
     if (s.clipping) clippingSamples++;
     if (s.riding) ridingSamples++;
     if (i > 0 && track[i - 1]!.riding && !s.riding) satAndStood = true;
