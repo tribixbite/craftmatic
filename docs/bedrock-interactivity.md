@@ -997,7 +997,13 @@ reaches x 70 at y 41.9 (the top of the lift) on lanes z 4.6, 4.85, 5.2, 5.6
 (was 28.2; the jump-whenever-blocked walk 39.7 -> 70). Planning cost per size
 and turn: ~0.3 s -> ~10 s at 200-400 % (10,000 lane walks), so a large set's
 export takes about two minutes longer (`TODO(lane-pass-cost)`: cache the
-cross-lane walks between runs).
+cross-lane walks between runs; 10261 built in 180 s against 53 s, 10326 in
+137 s against 69 s). Built (`output/collider-fix2-20261007/packs-0a08d086`):
+the shipped 10261 at 200 % climbs to x 70.06, y 41.88 with auto-jump on lanes
+z 4.6-5.6 (z 4.2, the hill's edge, stops at 29.7). `_ix_passability.ts` over
+nine rebuilt sets x 100-400 % x 0/90: 0 FAIL / HOLE before and after, STEP
+rows 22 -> 16 (10326 Door 3 at 300 %, 76457 Door 1 at 300 % and Door 2 at
+400 % now OK, both turns), nothing worse.
 
 The west side of 10261's base at 200 % (round 30k lanes walking +x from
 x -4.5, auto-jump walk on the 30k pack vs the device): z 14.5, 20.5, 24.5,
