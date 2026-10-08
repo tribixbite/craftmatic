@@ -9,176 +9,98 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
-### Handoff (2026-10-07, main after the review merges)
+### Handoff (2026-10-08, main `e4a1045a`+, CI green)
 
 **Read [REQUIREMENTS.md](REQUIREMENTS.md) first**: every user request with
 status, guards and device evidence (`bun scripts/requirements-ledger.ts --open`).
+Rounds 30j-30m and the GPT-6 audit review are history (`git log`, the
+`output/device-round-2026-10-0*/{saga,pixel}/notes.md` evidence).
 
-**State on main.** The GPT-6 fidelity audit (`fix/fidelity-audit-20261005`)
-was reviewed and merged with three fix branches (2026-10-07), all gates green
-(3,058 tests, both typechecks, physics spec, build):
-- Shells: chunks on a fixed 20-block lattice (`<shell>_c<ix>_<iy>_<iz>`,
-  stable across recompiles); old whole-model shells MIGRATE at runtime
-  (`shellMigrations` in placement.js) instead of shipping a dormant monolith.
-  10261 shell geo 7.42 -> 3.14 MB, 99,703 -> 57,027 cuboids; 12 actors
-  (76417: 8). `bun scripts/_shell_chunk_report.ts <before> <after>`.
-- Seats/rides: scenery-seat traps 27/125 -> 0/125
-  (`scripts/_seat_egress_sweep.ts`); escape = walk-connected exit, then
-  flood/exterior; re-seat capped at 2; /tp out of a seat left alone; slide
-  set-downs must be walkable from the chute end.
-- Vehicles: vertical sweep probes only at the leading face (Milano climb
-  2,376 -> 916 checks/tick; `scripts/_sweep_checks.ts`).
-- Sim: KNOWN-UNREPRODUCED status (10797 overhang); `--runtime=tree` re-runs
-  shipped packs with this tree's scripts.
-Device-unverified, all of it. Open from the fixes:
-- `door3-tap-10326` is NOT TESTED: no legal floor-level spot in the device's
-  cell - the handrail band is still a collider over that floor (shell/collider fix).
-- Level-cruise Milano 770 checks/tick vs the Pixel's 890 = 20-24 ms: measure
-  ms/tick on a phone (`TODO(footprint-cost)`).
-- Seat exits at 300-400 % can land up to 12 blocks out (76417 balcony to the
-  ground ~30 below); native set-down at those sizes unmeasured.
-- `hop-slide-into-car` with 10797 `--car=same` fails on the shipped runtime too.
-- Branch `fix/bedrock-fidelity` (`ecc2c265`, thicken planar cuboids) is
-  unmerged and SUPERSEDED by `880a7195`; merging it would re-thicken flat
-  parts a whole cell. Delete it when the user agrees.
+**Engine upgrade MERGED (2026-10-08; plan and package briefs:
+[docs/sim-engine-roadmap.md](docs/sim-engine-roadmap.md)).** What the offline
+tools now check, and how:
+- A - the walker (LEGO tab "Walk add-on") runs the headless simulator in a
+  Worker: the pack's own scripts, touch drive/fly/ride, RP animations,
+  figures live. `test/addon-walk.test.ts` "the walker's tick equals
+  scripts/sim.ts's tick" pins it to the CLI.
+- B - `web/src/sim/client/`: the phone's CLIENT (entity draw lag 3.5 Pixel /
+  4 Saga, the camera ease, animations with roll) plus render rules (box-UV
+  floor, coplanar hatching, LOD under the cull). The walker DRAWS through it
+  ("camera: pixel client", button "as Saga"). `--scenario=coaster-camera`,
+  `--scenario=walk-away`, `--uvfloor/--hatch/--lod`.
+- C - `web/src/sim/input/`: drags routed by control scheme and seat, the
+  screen-space tap pick, the Sneak TOGGLE, `--device-script` replays an adb
+  round's tools, `--cost` predicts ms/tick per phone.
+- D - water and boats (four boat lanes, water egress), bodies that push /
+  collide, vanilla door shapes, `@minecraft/server-gametest` offline
+  (`bun scripts/sim-gametest.ts <pack>`; `--replay=<device log>`),
+  `--walk` (taps walk the child there), `--sizes=` (child play at any size),
+  per-pack dynamic properties, real enum values.
+- Post-merge fix: the auto-step now also tries the raise clipped over the box
+  stretched along the move (Java's two candidates); D's head-row fix had made
+  a 3/16 riser under a 1.81 ceiling a wall. The walker/reach-walk parity class
+  `jump-arc-headroom` is a jump the reach walk allows but the body cannot fit
+  (Bedrock's own verdict unmeasured).
 
-**DEVICE WARNING - the Saga is NOT in a clean state.** On 2026-10-06 the
-audit agent left the Saga (`192.168.1.243:5555`) mid-round: coaster 10261
-from pack `8929007e` is placed in world 925 (folder `q-TUD3f7W6M=`, trailing
-`=` essential), candidate packs are bound, options and camera are changed,
-and `output/.saga-lock` is still held by `/root/audit_device_qa`. The
-restoration steps (closed-world snapshot taken before Place, the original
-pack bytes, bindings and options, with hashes) are in
-`.worktrees/fidelity-audit-20261005/output/bedrock-entity-qa/8e261f39-spatial-native/native-progress.json`
-(ignored local evidence in the main checkout; do not delete it). Restoring
-needs the user's go-ahead: ask before touching the device or the lock.
+**Combined run on the round-30m packs** (`output/engine-combined-1008/`,
+`run.sh` there; packs `output/device-round-2026-10-08m/packs-6a8c7121/`):
+- regressions 26 selected, 0 failed, 1 KNOWN-UNREPRODUCED (10797 overhang).
+- vehicle course: ships 9/9; cars 4-7/9 (wall3 escaped / pit3 trapped are
+  course policy); 10303 car and both 10796 cars STOP at tree + angled (also
+  on 467205df, before the engine work); boats 60221/10786 CLIP through the
+  pier post met at 19 deg (32/22 ticks inside); boat egress always lands in
+  the water even beside a bank.
+- client model: Milano chase eye jumps 2-3 blocks in one frame during
+  recentre / ship controls while the script target barely moves
+  (`camera-continuous`); cockpit drawn 2.25 behind the seat at 18 b/s.
+- coaster camera: 10261 drawn camera 0.56 BEHIND the seat eye (Pixel) and
+  0.5 AHEAD (Saga): the coaster seat frame (`bedrock-coaster.ts` `carPose`
+  builds the seat +Z back; the rideable reads +Z as the nose; 0.676 = 2 x
+  seat z). NEW defect, not on the device list yet.
+- cost (predicted): Milano Pixel p50 10.1 / p95 19.1 ms (device cruise
+  14.56); every vehicle p95 under 25 ms.
+- `--scenario=input` and child play `--sizes=100,200,400 --walk`: see
+  `input.md` / `childplay.md` there (D's own run: 555 of 818 approaches not
+  reached on foot, an upper bound).
 
-**Round 30j built 2026-10-07 from main `f200ddc7` (clean, pipeline `80087794a186`)**:
-`output/device-round-2026-10-07j/` (main checkout): `build.sh`, `check.py`,
-`packs-f200ddc7/` (22) + `creator-f200ddc7/`, `craftmatic-packs-f200ddc7.zip`
-(sha256 `6005ac81...`, `pack-hashes.tsv`). Contents: everything since 30i
-(`fd91cf23`) - yaw-turned colliders + drop guards, box-UV-safe cubes on every
-entity, separators dropped, no name tags, spaceship controls / never stuck /
-free look, the audit's fixes, lattice shell chunks + runtime migration, seat
-egress, cheaper swept probes.
-Offline: `check.py` 0 bad of 23, uuids equal to 30i, parts differ only by the
-dropped separator; regressions 0 failed, 1 NOT TESTED (`door3-tap-10326`),
-1 KNOWN-UNREPRODUCED; hop 3/3; vehicle course 7140 8/8, 76286 8/8, 42172 6/8
-(wall3 escaped, pit3 trapped - course policy); child play 110/110; seat sweep
-0 trapped over 248 seat x size runs.
-Device round 30j DONE 2026-10-07 (evidence `output/device-round-2026-10-07j/{saga,pixel}/notes.md`):
-PASS - X-wing/Milano up/hover/back/down/turn-on-spot, look-down+Jump; car
-kerb/hole/wall/slide; chase free look on 4 vehicles (no twitch, eases back);
-never inside geometry; no name tags; McLaren body solid; 10261 at 200 % = 12
-chunks + base, no seams, drawn from 78-83 blocks; Undo; 76417 Gate 1; 6/6
-seat exits; 10326 Door 1; 10788 slide; Gringotts faces/hair; Milano cruise
-770 checks = 14.5 ms/tick (Pixel). The failures, fixed OFFLINE on main
-2026-10-07 (merges `c844e8cd` vehicles, `cf0b2c4b` cameras, `13606fc2` colliders):
-1. Ships slid along off-square walls: the course only met walls square-on and
-   `--runtime=tree` ran old constants; ships now lift over (`MOVE.NARROW_CELLS`
-   deflect gate), turns pivot, a parking ship holds over a player. Course 9/9
-   (new `oblique` lane); regressions `xwing-*-30j`.
-2. Cockpit view = a script camera (`cockpitCamera`) that recentres yaw+pitch;
-   views start on the nose; native seats lock 181 (Nimbus takes drags; ALT over
-   ground); hop keeps the rider hidden (`HOP_TAGS.hidden`); chase camera pulled
-   in front of walls; Milano eye in the front cabin (`AHEAD_CABIN`).
-3. 10326 Door 3 was the SNEAK toggle on a 0.69 sill gutter (not a regression);
-   sills filled (`fillSunkenSills`), `SNEAK-STOP` in `_ix_passability.ts`.
-   10261 at 200 %: late tread pass - straight lift walk 25.7 -> 39.7 (still
-   stops, `TODO(tilted-colliders)`), west lanes z 22-24 climbable.
-Round 30k BUILT from main `78e06246` (clean): `output/device-round-2026-10-07k/`
-(`packs-78e06246/`, `craftmatic-packs-78e06246.zip` sha256 `74fa33ca...`).
-Offline: check 0 bad of 23 (uuids equal), regressions 19 / 0 failed / 0 not
-tested / 1 known-unreproduced, course ships 9/9 car 6/9, hop 3/3, child play
-110/110, passability 340 rows 0 FAIL/HOLE. Device round 30k DONE
-(`output/device-round-2026-10-07k/{saga,pixel}/notes.md`). PASS: ships lift
-over hill/wall square and 19 deg (8/8), turns never climb, park holds over the
-player, chase camera clear of walls, slot-9 recentres, no head after hop,
-Milano front cabin at 100 %, Door 3 sneak on/off, seat exits, slide, Milano
-cruise 14.45 ms/tick. The failures, fixed OFFLINE 2026-10-07 (merges of
-`579454cf` seats, `74cca770` cameras, `a57adec3` colliders):
-1. Bedrock MULTIPLIES a declared seat by `minecraft:scale` - every rideable
-   above 100 % sat (f-1)x out; seats now declared unscaled
-   (`rideableAtSize`, `_seat_scale_check.ts`, quirk `seat-scales-with-entity`).
-   OPEN: does it also scale `third_person_camera_radius` and the pre-scaled
-   `collision_box` (cull, hit boxes)? 4 boats seat over the deck at 100 %.
-2. Nimbus drag: the camera runtime re-applied `controlscheme player_relative`;
-   riders now stay in the default scheme (Nimbus steers by drag, HUD
-   "DRAG: STEER"). Cockpit lag 4 ticks. First mount settles before free look.
-3. Gate 1 throw-out: a stray `_pixel_cmd.sh` Exit tap closed the gate and the
-   step-out picked the far side over the drop; step-out now lands only on a
-   floor (else the close is refused); the Exit tap fires only while the chat
-   keyboard is up. Lift hill: auto-jump modelled (reproduces pin+28.2); lane
-   pass lays auto-jump steps (10261 export 53 -> 180 s, TODO(lane-pass-cost)).
-Round 30l BUILT from main `77a9f172`: `output/device-round-2026-10-07l/`
-(`craftmatic-packs-77a9f172.zip` sha256 `a1163501...`). Offline: check 0 bad
-of 23, regressions 21 / 0 failed / 0 not tested, course ships 9/9 car 6/9,
-hop 3/3, child play 132/132, seat scale 0 off at every size, passability 340
-rows 256 OK / 20 STEP / 60 SEALED / 4 ONE-WAY / 0 FAIL. Device round 30l
-DONE (`output/device-round-2026-10-07l/{saga,pixel}/notes.md`). PASS: seats
-at 50/150/200/400 % (Milano eye exactly as planned, X-wing, coaster car,
-Nimbus, scenery seats), first mount behind the nose, Nimbus dive/strafe/HUD,
-lift hill to the top with auto-jump only, Gate 1 close-from-inside, Door 3,
-Milano 13.4 ms/tick, all 30k regressions. FAIL / open (round 30m):
-1. Nimbus: one drag spins the cloud forever (~130 deg/s; rider yaw 45-74 ahead).
-2. Cockpit eye LAGS the seat at top speed with lag 4 (30k led at 1.5).
-3. Collision box double-scaled above 100 % (Milano 200 %: 14x10 for a
-   declared 7x5) - also feeds the cull needle and tap target.
-4. Chase camera boom is the 100 % length at every size (400 %: on the hull).
-5. 10261 at 200 %: past the lift-hill top the walk runs off the model's east
-   end into a 43-block fall (newly reachable thanks to the lane pass).
-6. 200 % Milano: a ground dismount drops ~9 blocks (vehicle dismounts are not
-   egress-checked).
-   ALL SIX fixed offline 2026-10-08 (merges `0a9f479e` cameras, `671843b5`
-   scale, `7a3e5956` reach guards; `6a8c7121` caps local vitest workers).
-Round 30m BUILT from main `6a8c7121`: `output/device-round-2026-10-08m/`
-(`craftmatic-packs-6a8c7121.zip` sha256 `541e74ea...`). Offline: check 0 bad
-of 23, regressions 25 / 0 failed / 0 not tested, course ships 9/9 car 6/9,
-hop 3/3, child play 132/132, seat+box scale 0 off, passability unchanged
-(256 OK, 0 FAIL). Device round 30m DONE (`output/device-round-2026-10-08m/
-{saga,pixel}/notes.md`). PASS: Nimbus no spin, cockpit at speed, chase width
-50/100/200 %, 200 % box exactly 7x5, Milano/McLaren dismounts on the ground,
-lift-top lanes stop at x+79.7, Gate 1, 10326 Doors 1/3 at 300 %, seats,
-Milano 14.56 ms/tick, all regressions. FAIL / open (fix after the engine
-upgrade merges - the new sim must reproduce each first):
+**Open device defects from round 30m (fix only after the sim reproduces
+each; a worktree agent is writing those regression cases, results go here):**
 1. Nimbus cannot be steered: forward flies the body's heading, not the look.
 2. 400 % chase camera on the hull (boom cap 48).
-3. X-wing air dismount: the empty ship sinks onto the rider.
+3. X-wing air dismount: the empty ship sinks onto the rider (the sim
+   currently sets the child 7 blocks away - disagrees).
 4. McLaren between two walls: dismount lands on the far side of a wall.
 5. 10261 at 200 %: along the curved top to z+27.7 then +x: 42-block fall.
 6. 10261 at 400 %: shell not drawn from 40 blocks (lattice planned for 200 %).
-7. 200 % Milano Mount prompt only under the hull centre (small box).
-Open: `TODO(car-oblique-kerb)` (McLaren slides 62 along an oblique kerb);
-11 other hull-leaving cockpit eyes not re-audited for `AHEAD_CABIN`.
-- # TODO(seat-sweep-memory): `_seat_egress_sweep.ts` on 76457 at 300/400 %
-  (and on a whole pack directory) grows to 64 GB and crashes Bun; run it per
-  pack and per size until fixed. 76457 at 100/200 %: 9 seats, 0 trapped.
+7. 200 % Milano Mount prompt only under the hull centre; 30l measured the
+   200 % box 14x10 for a declared 7x5, 30m read "7x5 as declared" - reconcile.
+Plus offline-only: coaster seat frame (above), boat pier-post clip, three
+cars stuck at tree/angled, 10326 Door 5 tap occluded by figure 3, 910004
+Drawer 1 picking Drawer 2 (4/9), 76417 figure 9 never moves, 42639 Door 1 /
+910004 doorways blocked by colliders from 200 %, `TODO(car-oblique-kerb)`.
 
-**Engine upgrade IN PROGRESS (2026-10-08, user: "update our web app walker /
-game engine so you can test more things"):** plan in
-[docs/sim-engine-roadmap.md](docs/sim-engine-roadmap.md) - four packages in
-parallel worktrees: A walker hosts the simulator in a Worker + touch
-drive/fly/ride; B client camera model (easing, splines, draw lag) + render
-rules in the snapshot (UV floor, hatching, LOD); C input routing (control
-scheme drags, Sneak toggle, screen-space taps, device-script replay, ms/tick
-estimate); D water/boats, entity collision, GameTest module, walk-to-tap.
-Merge order C (systems.ts split) -> B/D -> A; the main session applies the
-REQUIREMENTS.md edits.
+**Next:** merge the repro agent's cases; fix the reproduced defects with the
+case as the guard; build round 30n from a committed tree
+(`output/device-round-2026-10-08m/build.sh` recipe); deploy with
+`python -u scripts/_pixel_dev_deploy.py <world> <packs> --exclusive` (Saga
+world 925, Pixel world 924; the Saga is `192.168.1.243:5555`, rooted, never
+stop/start).
 
-**Open items from the audit that are still real:**
-- # TODO(cull): the 300/400 % draw ceiling is unmeasured. At 200 % the
-  coaster shell was drawn 50.34 blocks from its root and gone at 75.82 (a
-  bracket, not a cutoff; the cull follows the camera, not the player;
-  3D vs horizontal distance not separated).
-- # TODO(sim-regression): the recovered 10797 overhang route does not
-  reproduce the old fall offline; it stays NOT TESTED (nonzero exit). Do not
-  tune the inferred cadence to force it green.
-- # TODO(facet-integration): not justified. The 10303 preflight saves 4 of
-  156,242 cubes (0.00256 %); `selectRoundFacetCandidate` is research-only.
-- Shell migration is now automatic for placements saved with a whole-model
-  shell (runtime `shellMigrations`); a model whose SOURCE changed between packs
-  lands its chunks off its old colliders - inherent to any re-export.
-- Pixel: locked; the user must unlock it and re-pair wireless debugging.
+**Still open from earlier:**
+- # TODO(cull): the 300/400 % draw ceiling is unmeasured.
+- # TODO(sim-regression): the 10797 overhang route does not reproduce the
+  old fall offline (KNOWN-UNREPRODUCED); do not tune the cadence to force it.
+- # TODO(facet-integration): not justified (10303 saves 4 of 156,242 cubes).
+- # TODO(handback-ease): the coaster hand-back blend draws the camera ~1.3
+  ticks behind the seat for ~6 frames (package B).
+- 11 hull-leaving cockpit eyes not re-audited for `AHEAD_CABIN`.
+- Seat exits at 300-400 % can land up to 12 blocks out; native set-down at
+  those sizes unmeasured.
+- Shell migration is automatic for whole-model placements; a model whose
+  SOURCE changed between packs lands its chunks off its old colliders.
+- Leftover worktree checkouts (`scratchpad/base-467205df`, `.claude/worktrees/agent-*`)
+  are recursive deletes: the user removes them.
+
 
 | surface | command | URL |
 |---|---|---|
