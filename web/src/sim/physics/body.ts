@@ -288,17 +288,28 @@ export function moveBox<S extends Box>(world: SolidQuery<S>, box: Box, wanted: {
   const clippedSideways = Math.abs(sw.dx - dx) > EPS || Math.abs(sw.dz - dz) > EPS;
   // The auto-step: when on the ground (or landing this tick), retry the move raised by the step height, then settle down.
   if (clippedSideways && (onGround || (dy < 0 && Math.abs(sw.dy - dy) > EPS))) {
-    const up = clipY(box, STEP_HEIGHT, solids).d;
-    const raised = shift(box, 0, up, 0);
-    const x = clipX(raised, dx, solids);
-    const afterX = shift(raised, x.d, 0, 0);
-    const z = clipZ(afterX, dz, solids);
-    const afterZ = shift(afterX, 0, 0, z.d);
-    const down = clipY(afterZ, -up, solids);
-    const plainDist = sw.dx * sw.dx + sw.dz * sw.dz, stepDist = x.d * x.d + z.d * z.d;
-    if (stepDist > plainDist + EPS) {
-      sw = { dx: x.d, dy: up + down.d, dz: z.d, hits: { x: x.hit, y: down.hit, z: z.hit } };
-      stepped = true;
+    // Two raises, as Java's `Entity.collide` tries them: the full step clipped over the box where it stands, and the
+    // step clipped over the box stretched along the move (`expandTowards(dx, 0, dz)`), so a ceiling over the TARGET
+    // column lowers the raise instead of turning the step into a wall (a 3/16 riser under a ceiling 1.81 over it,
+    // 10261's station). The candidate that goes farther wins. The stretched raise only became necessary when the
+    // solids query started reaching what the box rises into (2026-10-08); before, the ceiling was never seen.
+    const stretched: Box = { x0: Math.min(box.x0, box.x0 + dx), x1: Math.max(box.x1, box.x1 + dx), y0: box.y0, y1: box.y1, z0: Math.min(box.z0, box.z0 + dz), z1: Math.max(box.z1, box.z1 + dz) };
+    const plainDist = sw.dx * sw.dx + sw.dz * sw.dz;
+    let bestDist = plainDist + EPS;
+    for (const up of new Set([clipY(box, STEP_HEIGHT, solids).d, clipY(stretched, STEP_HEIGHT, solids).d])) {
+      if (up <= EPS) continue;
+      const raised = shift(box, 0, up, 0);
+      const x = clipX(raised, dx, solids);
+      const afterX = shift(raised, x.d, 0, 0);
+      const z = clipZ(afterX, dz, solids);
+      const afterZ = shift(afterX, 0, 0, z.d);
+      const down = clipY(afterZ, -up, solids);
+      const stepDist = x.d * x.d + z.d * z.d;
+      if (stepDist > bestDist) {
+        bestDist = stepDist;
+        sw = { dx: x.d, dy: up + down.d, dz: z.d, hits: { x: x.hit, y: down.hit, z: z.hit } };
+        stepped = true;
+      }
     }
   }
   const collided = { below: dy < 0 && sw.dy > dy + EPS, above: dy > 0 && sw.dy < dy - EPS, x: Math.abs(sw.dx - dx) > EPS, z: Math.abs(sw.dz - dz) > EPS };

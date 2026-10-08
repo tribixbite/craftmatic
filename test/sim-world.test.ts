@@ -103,6 +103,20 @@ describe('the integrator\'s solids query', () => {
     expect(top).toBeLessThanOrEqual(2 + 1 / 16 + 1e-6);
     expect(w.overlapping(playerBox(s), 1e-3)).toBeUndefined();
   });
+
+  it('a step under a ceiling over the next column is clipped to the room there, not refused (10261\'s station)', () => {
+    const h = simHost({ terrain: solidBelow(0), colliders: true });
+    // A 3/16 riser in the next column with a full block over it from 2.0: 1.8125 of room for the 1.8 body.
+    h.setBlock(1, 0, 0, 'craftmatic:collider', { 'craftmatic:lo': 0, 'craftmatic:hi': 3 });
+    h.setBlock(1, 2, 0, 'craftmatic:collider', { 'craftmatic:lo': 0, 'craftmatic:hi': 16 });
+    const w = h.engine.dimension('overworld');
+    let s: PlayerState = { ...still(0.5, 0, 0.5), onGround: true };
+    // Eight ticks: on the riser, short of its far edge at x 2.
+    for (let i = 0; i < 8; i++) s = tickPlayer(w, s, { move: { x: 1, z: 0 }, jump: false, sneak: false }).state;
+    expect(s.x).toBeGreaterThan(1.3);
+    expect(s.y).toBeCloseTo(3 / 16, 6);
+    expect(w.overlapping(playerBox(s), 1e-3)).toBeUndefined();
+  });
 });
 
 describe('bodies that meet (quirks entity-push-soft, entity-collidable-solid)', () => {

@@ -510,9 +510,15 @@ export interface EdgeResult {
    *     through its roof) - the body cannot get down or across to it;
    *   - `origin-headroom`: a step or jump up whose raised body would meet the
    *     origin column's ceiling (the walk checks this for a jump only);
+   *   - `jump-arc-headroom`: a JUMP onto a ledge whose own headroom is within
+   *     a sixteenth of the body (10261's station: 1.8125 over the ledge for a
+   *     1.8 body): the feet must clear the riser inside that sliver of the arc,
+   *     which a jump moving ~0.2 blocks a tick there does not hit. The walk
+   *     checks only that the body fits on the ledge. Whether Bedrock's client
+   *     lets the jump through is UNMEASURED;
    *   - `ceiling` / `wall` / `overshoot` / `short`: what the attempts met.
    */
-  reason?: 'target-column-blocked' | 'origin-headroom' | 'ceiling' | 'wall' | 'overshoot' | 'short' | 'unknown';
+  reason?: 'target-column-blocked' | 'origin-headroom' | 'jump-arc-headroom' | 'ceiling' | 'wall' | 'overshoot' | 'short' | 'unknown';
   /** Where the player ended after the last attempt (world frame), for diagnosis. */
   end: WorldPoint;
   /**
@@ -587,10 +593,12 @@ export function simulateEdge(world: WalkWorld, a: Surface, b: Surface, macros: r
  * clear from the target's top up to there; stepping or jumping, the body
  * rises to the target's height while still over the origin column.
  */
-export function structuralReason(world: WalkWorld, a: Surface, b: Surface): 'target-column-blocked' | 'origin-headroom' | null {
+export function structuralReason(world: WalkWorld, a: Surface, b: Surface): 'target-column-blocked' | 'origin-headroom' | 'jump-arc-headroom' | null {
   const { grid } = world;
   if (b.t < a.t && grid.inside(b.x, b.z) && !grid.clear(b.x, b.z, b.t, a.t + PLAYER_NEED16)) return 'target-column-blocked';
   if (b.t > a.t && grid.inside(a.x, a.z) && !grid.clear(a.x, a.z, a.t, b.t + PLAYER_NEED16)) return 'origin-headroom';
+  // A jump (above the auto-step) onto a ledge with under a sixteenth to spare over the body: see `EdgeResult.reason`.
+  if (b.t - a.t > STEP16 && grid.inside(b.x, b.z) && !grid.clear(b.x, b.z, b.t, b.t + PLAYER_NEED16 + 1)) return 'jump-arc-headroom';
   return null;
 }
 
@@ -681,7 +689,7 @@ export function simulateReach(world: WalkWorld, options: SimulateReachOptions = 
 }
 
 /** See `classifyDivergence`; `player-only` is a surface only the player reached (`edges: 'all'`). */
-export type DivergenceClass = 'target-column-blocked' | 'origin-headroom' | 'downstream' | 'unexplained' | 'player-only';
+export type DivergenceClass = 'target-column-blocked' | 'origin-headroom' | 'jump-arc-headroom' | 'downstream' | 'unexplained' | 'player-only';
 
 /** One surface the two models disagree on, with what the player tried there. */
 export interface Divergence {
@@ -742,7 +750,7 @@ export function compareReach(world: WalkWorld, options: SimulateReachOptions = {
 
 /**
  * What explains a surface the BFS reaches and the player does not:
- *   - `target-column-blocked` / `origin-headroom`: every attempt at it from a
+ *   - `target-column-blocked` / `origin-headroom` / `jump-arc-headroom`: every attempt at it from a
  *     reached neighbour fails a check the reach walk does not make;
  *   - `downstream`: no reached neighbour may move onto it by the walk's own
  *     rule - it lies beyond surfaces that are themselves BFS-only, so it is
