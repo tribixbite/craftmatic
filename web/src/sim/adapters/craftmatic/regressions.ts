@@ -14,6 +14,7 @@ import type { CraftmaticPack } from './pack-facts.js';
 import { CRAFTMATIC_ALLOWED_LINES } from './child-play.js';
 import { doorwayFindings, placedOf, tapPoseOf } from './play.js';
 import { scriptedVehicleTypes, type CourseRow } from './vehicle-course.js';
+import { WORLD_REGRESSIONS } from './regressions-world.js';
 import { teleport } from '../../script-host/facades.js';
 import { lookAt } from '../../input/touch.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
@@ -520,6 +521,8 @@ export const REGRESSIONS: RegressionCase[] = [
       return { reproduced: !!fall, attribution: 'pack', evidence: `${fall ? `${fall}; ` : ''}${notes}` };
     },
   },
+  // The world's cases (water, bodies): regressions-world.ts.
+  ...WORLD_REGRESSIONS,
 ];
 
 /** One auto-jump walk of `lift-top-fall-10261`, anchor-relative. */

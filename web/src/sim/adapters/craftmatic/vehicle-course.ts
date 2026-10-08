@@ -40,10 +40,24 @@
  *                       aboard); the fall off the seat is the core `no-unprotected-fall` (Pixel 30l:
  *                       ~9 blocks off the 200 % Milano).
  *
+ * BOATS (2026-10-08, `TODO(sim-boat-course)` closed) run the WATER lanes
+ * (`boatCourse`, `WATER_LANES`) in pools as deep as their draft at the size
+ * needs, the surface 1.11 under the shore as in the GameTest arena
+ * (`GT_VEHICLE_LAYOUT`): open water (`water-flat`: it must make way and stay
+ * afloat), a bank met bow-on (`water-bank`: it must stop at the waterline and
+ * back off, never climb out), a one-block-deep channel (`water-shallow`:
+ * measured - how far its keel would sit in the bed), a pier post met off
+ * square (`water-wall`: never through it); then getting off on open water and
+ * beside a bank at 100/200/400 % (`waterEgress`), and the free look and the
+ * cockpit eye on water.
+ *
+ *   boat-not-afloat     on open water the boat did not make way, or left its waterline;
+ *   boat-climbs-bank    a boat driven at a bank rose onto it or ran past the waterline;
+ *   water-egress-under-hull  a sneak off a boat left the child under (or in) the hull.
+ *
  * Run: `bun scripts/sim.ts <packs> --scenario=vehicles [--md=] [--json=]`.
- * Boats are left out (no water course yet: `TODO(sim-boat-course)`); native
- * mounts (a rotorcraft, a flyer's cloud) are left out: the simulator's hover
- * controller is a stand-in for the device's, whose stepping is not modelled.
+ * Native mounts (a rotorcraft, a flyer's cloud) are left out: the simulator's
+ * hover controller is a stand-in for the device's, whose stepping is not modelled.
  */
 
 import type { AnyStep, Scenario, StepContext, StepHandler } from '../../scenario/types.js';
@@ -52,9 +66,22 @@ import type { CraftmaticPack } from './pack-facts.js';
 import { packText } from '../../pack/pack.js';
 import { extractJsonAfter } from '../../pack/script-config.js';
 import { FLAT_GROUND_Y } from '../../world/voxel-world.js';
-import { FLIGHT } from '../../../engine/bedrock-vehicle.js';
+import { BOAT, FLIGHT } from '../../../engine/bedrock-vehicle.js';
 import { cockpitCamera, type CockpitPose } from '../../../engine/vehicle-free-look.js';
 import { quirkValue } from '../../quirks/registry.js';
+import { liquidSurface, submersion } from '../../world/liquids.js';
+import { PLAYER_HEIGHT, PLAYER_WIDTH } from '../../physics/body.js';
+import type { AddonAppearance } from './appearance.js';
+import { entityDrawn } from './drawn.js';
+import type { Pack } from '../../pack/pack.js';
+
+/**
+ * The drawn appearance of each pack the child-play handlers were built for (`registerAppearance`), so the course's
+ * handlers - built from the pack's facts alone - can read a vehicle's DRAWN hull (a boat's keel against the water).
+ */
+const appearances = new WeakMap<Pack, AddonAppearance>();
+/** Remember a pack's appearance for the course (child-play's `craftmaticHandlers` calls this). */
+export function registerAppearance(pack: Pack, appearance: AddonAppearance): void { appearances.set(pack, appearance); }
 
 /** Ticks after boarding before the seat turns a child who climbed on looking away onto the heading (quirk `mount-snaps-rider-yaw`: 4-12 on the Saga). */
 const MOUNT_SNAP_TICKS = 4;
@@ -63,8 +90,8 @@ const COCKPIT_DRIVE_TICKS = 120;
 /** Blocks the cockpit eye may be drawn off the seat along the heading (half a block: inside the cabin of the smallest car). */
 const COCKPIT_EYE_SLACK = 0.5;
 
-/** A scripted vehicle type as `scripts/vehicles.js` declares it (blocks at scale 1). */
-export interface ScriptedTypeFacts { typeId: string; mode: 'car' | 'boat' | 'plane' | 'hover'; noseReach: number; halfWidth: number; height: number }
+/** A scripted vehicle type as `scripts/vehicles.js` declares it (blocks at scale 1; a boat's `draft` its keel's depth under the waterline). */
+export interface ScriptedTypeFacts { typeId: string; mode: 'car' | 'boat' | 'plane' | 'hover'; noseReach: number; halfWidth: number; height: number; draft: number }
 
 /** The scripted vehicle types of a pack, read from `scripts/vehicles.js`'s config (the runtime's first argument). */
 export function scriptedVehicleTypes(pack: CraftmaticPack): ScriptedTypeFacts[] {
@@ -72,9 +99,9 @@ export function scriptedVehicleTypes(pack: CraftmaticPack): ScriptedTypeFacts[] 
   if (!text) return [];
   const at = text.indexOf('({"types":');
   if (at < 0) return [];
-  const cfg = extractJsonAfter(text.slice(at), '(') as { types?: Record<string, { mode?: string; noseReach?: number; halfWidth?: number; height?: number }> } | undefined;
+  const cfg = extractJsonAfter(text.slice(at), '(') as { types?: Record<string, { mode?: string; noseReach?: number; halfWidth?: number; height?: number; draft?: number }> } | undefined;
   return Object.entries(cfg?.types ?? {}).map(([typeId, t]) => ({
-    typeId, mode: (t.mode ?? 'car') as ScriptedTypeFacts['mode'], noseReach: Number(t.noseReach ?? 1), halfWidth: Number(t.halfWidth ?? 0.5), height: Number(t.height ?? 1),
+    typeId, mode: (t.mode ?? 'car') as ScriptedTypeFacts['mode'], noseReach: Number(t.noseReach ?? 1), halfWidth: Number(t.halfWidth ?? 0.5), height: Number(t.height ?? 1), draft: Number(t.draft ?? BOAT.DRAFT),
   }));
 }
 
@@ -108,7 +135,7 @@ const SLIDE_ALONG_BLOCKS = 10;
 
 /** One obstacle's outcome for one vehicle. */
 export interface CourseRow {
-  vehicle: string; mode: string; obstacle: CourseObstacle;
+  vehicle: string; mode: string; obstacle: CourseObstacle | WaterLane;
   /** What the child held: the stick forward, or (a ship's second run) the stick forward and Jump - the old flight model's throttle. */
   policy: 'forward' | 'forward+jump';
   passed: boolean; ticks: number; stuckTicks: number; rose: number; clipTicks: number;
@@ -120,7 +147,26 @@ export interface CourseRow {
   escaped?: boolean;
   /** The first tick its band went into a block: where it stood (y relative to the ground), its pitch, the cell. */
   firstClip?: { t: number; x: number; y: number; pitch: number; cell: [number, number, number] };
+  /** A water lane: how far the origin strayed from the waterline (blocks; a boat afloat rides `surface - draft`). */
+  offWaterline?: number;
+  /** `water-shallow`: how deep (blocks) the keel would sit in the channel's bed, the hull drawn through it (0: clear). */
+  keelInBed?: number;
+  /** `water-bank`: how far the bow ran past the bank's face (blocks; negative: short of it). */
+  pastBank?: number;
 }
+
+/**
+ * The water lanes a boat runs (2026-10-08): open water, a bank met bow-on, a one-block-deep channel, a pier post met
+ * `OBSTACLE_SKEW_DEG.oblique` off square. Each in its own pool, deep enough for the boat's draft.
+ */
+export const WATER_LANES = ['water-flat', 'water-bank', 'water-shallow', 'water-wall'] as const;
+export type WaterLane = typeof WATER_LANES[number];
+/** Blocks a boat must make ahead on open water in `COURSE_PUSH_TICKS` (the GameTest's `aheadMoves` asks 8 in 80 ticks). */
+const WATER_AHEAD_BLOCKS = 20;
+/** Blocks a boat afloat may stray from its waterline (`surface - draft`): the GameTest's `floats` (0.3). */
+const WATERLINE_SLACK = 0.3;
+/** How far (blocks) the bow may run past a bank's face: half a block for the tick it stopped on (the GameTest's `beaches`: rose under 0.5). */
+const BANK_SLACK = 0.5;
 
 const r2 = (v: number): number => Math.round(v * 100) / 100;
 const wrap = (a: number): number => ((a + 180) % 360 + 360) % 360 - 180;
@@ -211,12 +257,12 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
    * ground. `lookAway` (degrees): the child mounts looking that far off the heading, and the seat turns them onto it
    * `MOUNT_SNAP_TICKS` later, as the device does (quirk `mount-snaps-rider-yaw`; the simulator's `addRider` does not).
    */
-  const board = async (ctx: StepContext, f: ScriptedTypeFacts, at: { x: number; z: number }, skew = 0, lookAway?: number): Promise<SimEntity> => {
+  const board = async (ctx: StepContext, f: ScriptedTypeFacts, at: { x: number; z: number; y?: number }, skew = 0, lookAway?: number): Promise<SimEntity> => {
     // A low car's seated rider has its feet under the road (the seat is the driver's EYE less the seated eye
     // height, cockpit-seat.ts), and the pits are dug below the flat world's ground on purpose: the course
     // judges the VEHICLE by its own clear band (`vehicle-no-clip`), so these two core checks are quiet.
     ctx.quiet(['player-not-in-solid', 'nothing-below-ground']);
-    const v = ctx.sim.engine.spawnEntity(f.typeId, 'overworld', { x: at.x, y: FLAT_GROUND_Y, z: at.z });
+    const v = ctx.sim.engine.spawnEntity(f.typeId, 'overworld', { x: at.x, y: at.y ?? FLAT_GROUND_Y, z: at.z });
     v.rotation = { x: 0, y: -90 + skew };
     await ctx.run(2);
     const r = v.addRider(ctx.player, ctx.sim.engine.tick);
@@ -237,8 +283,10 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
     const cfg = extractJsonAfter(text.slice(at), '(') as { vehicles?: Array<{ typeId?: string; eye?: [number, number, number] }> } | undefined;
     return cfg?.vehicles?.find(c => c.typeId === typeId);
   };
-  /** The band the runtime keeps clear (bedrock-vehicle.ts: a car's over its step, a ship's whole airframe aloft). */
-  const bandOf = (f: ScriptedTypeFacts): { lo: number; hi: number } => (f.mode === 'plane' ? { lo: 0.15, hi: Math.max(0.2, f.height - 0.15) } : { lo: (f.mode === 'hover' ? 1.6 - 1 : 1.05) + 0.1, hi: Math.max(1.2, f.height - 0.15) });
+  /** The band the runtime keeps clear (bedrock-vehicle.ts: a car's over its step, a ship's whole airframe aloft, a boat's from just above its waterline). */
+  const bandOf = (f: ScriptedTypeFacts): { lo: number; hi: number } => (f.mode === 'plane' ? { lo: 0.15, hi: Math.max(0.2, f.height - 0.15) }
+    : f.mode === 'boat' ? { lo: f.draft + 0.05, hi: Math.max(f.draft + 0.5, Math.min(f.height, f.draft + 3)) }
+      : { lo: (f.mode === 'hover' ? 1.6 - 1 : 1.05) + 0.1, hi: Math.max(1.2, f.height - 0.15) });
   /** Lay a column of stone from the ground up `h` blocks at cell (x, z); returns its cells. */
   const column = (ctx: StepContext, x: number, z: number, h: number): Array<[number, number, number]> => {
     const w = ctx.sim.engine.dimension('overworld'), stone = ctx.sim.host.resolvePermutation('minecraft:stone');
@@ -252,6 +300,31 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
     if (!f) throw new Error(`no scripted vehicle type ${String(step['type'])}`);
     return f;
   };
+  const setBlock = (ctx: StepContext, x: number, y: number, z: number, typeId: string): void => { ctx.sim.engine.dimension('overworld').setPermutation(x, y, z, ctx.sim.host.resolvePermutation(typeId)); };
+  /**
+   * A pool on the flat world: water over x [x0, x1], z [z0, z1] from the ground up `depth` blocks (no flow is
+   * simulated, so it needs no rim), a stone bed in its lowest `bed` blocks. Its surface sits 8/9 into the top block
+   * (quirk `liquid-surface-height`); a bank laid beside it to `yTop + 1` stands 1.11 over the surface, the GameTest
+   * arena's shore (`GT_VEHICLE_LAYOUT`: land top +4, water to +2).
+   */
+  const pool = (ctx: StepContext, b: { x0: number; x1: number; z0: number; z1: number }, depth: number, bed = 0): { surface: number; yTop: number; bed: number } => {
+    const w = ctx.sim.engine.dimension('overworld'), water = ctx.sim.host.resolvePermutation('minecraft:water'), stone = ctx.sim.host.resolvePermutation('minecraft:stone');
+    const yTop = FLAT_GROUND_Y + depth - 1;
+    for (let x = b.x0; x <= b.x1; x++) for (let z = b.z0; z <= b.z1; z++) for (let y = FLAT_GROUND_Y; y <= yTop; y++) w.setPermutation(x, y, z, y < FLAT_GROUND_Y + bed ? stone : water);
+    return { surface: liquidSurface(w, b.x0, yTop, b.z0) ?? yTop + 8 / 9, yTop, bed: FLAT_GROUND_Y + bed };
+  };
+  /** A bank: stone over x [x0, x1], z [z0, z1] from the ground to `top` (its top face at `top + 1`); returns its cells. */
+  const bank = (ctx: StepContext, b: { x0: number; x1: number; z0: number; z1: number }, top: number): Array<[number, number, number]> => {
+    const cells: Array<[number, number, number]> = [];
+    for (let x = b.x0; x <= b.x1; x++) for (let z = b.z0; z <= b.z1; z++) for (let y = FLAT_GROUND_Y; y <= top; y++) { setBlock(ctx, x, y, z, 'minecraft:stone'); cells.push([x, y, z]); }
+    return cells;
+  };
+  /** Where a vehicle is boarded for a check on open ground: a boat on a pool of its own (aground it cannot move), anything else on the ground. */
+  const onWater = (ctx: StepContext, f: ScriptedTypeFacts, at: { x: number; z: number }): { x: number; z: number; y?: number } => {
+    if (f.mode !== 'boat') return at;
+    const water = pool(ctx, { x0: Math.floor(at.x - f.noseReach) - 40, x1: Math.ceil(at.x) + 160, z0: Math.floor(at.z - f.halfWidth) - 40, z1: Math.ceil(at.z + f.halfWidth) + 40 }, Math.ceil(f.draft + 2));
+    return { ...at, y: water.surface - f.draft };
+  };
 
   return {
     /**
@@ -262,6 +335,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
      * Milano) and outside the hull (`dismount-in-hull`: within its footprint under its top): `{ type, sizes? }`.
      */
     async dismountEverySize(step: AnyStep, ctx: StepContext) {
+      if (typeOf(step).mode === 'boat') { ctx.note(`${typeOf(step).typeId} is a boat: its egress runs on water (waterEgress)`); return; }
       const f = typeOf(step);
       const sizes = (step['sizes'] as number[] | undefined) ?? [100, 200, 400];
       const rows: Array<{ pct: number; seatedY: number; end: { x: number; y: number; z: number }; inHull: boolean; lowest: number }> = [];
@@ -366,6 +440,163 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
       ctx.note(`${f.typeId} (${policy}): ${rows.filter(r => r.passed).length} of ${rows.length} obstacles passed; ${rows.map(r => `${r.obstacle} ${r.passed ? `in ${r.ticks}` : `STOP (${r.stuckTicks} stuck${r.escaped === undefined ? '' : r.escaped ? ', escaped' : ', trapped'})`}${r.clipTicks ? ` CLIP ${r.clipTicks}` : ''}`).join(', ')}`);
     },
 
+    /**
+     * The water lanes (`WATER_LANES`): the boat spawned afloat in each lane's pool, the child seated, the stick held
+     * forward `COURSE_PUSH_TICKS`. Per lane a `CourseRow` (into `state.course`, beside the land rows): `{ type, lanes? }`.
+     *   water-flat     it makes `WATER_AHEAD_BLOCKS` and stays on its waterline (`boat-not-afloat`);
+     *   water-bank     it stops at the waterline - the bow at the bank's face, never risen onto it (`boat-climbs-bank`) -
+     *                  and backs off (`vehicle-escapes`);
+     *   water-shallow  measured: how far it got and how deep its keel would sit in the bed (a note, no rule yet);
+     *   water-wall     never through the post (`vehicle-no-clip`); stopped, it backs and turns away (`vehicle-escapes`).
+     */
+    async boatCourse(step: AnyStep, ctx: StepContext) {
+      const f = typeOf(step);
+      if (f.mode !== 'boat') { ctx.note(`${f.typeId} is a ${f.mode}: no water lanes`); return; }
+      const only = step['lanes'] as WaterLane[] | undefined;
+      const band = bandOf(f), laneGap = Math.ceil(4 * f.halfWidth) + 30, depth = Math.ceil(f.draft + 2);
+      const rows: CourseRow[] = [];
+      let lane = 0;
+      for (const o of WATER_LANES) {
+        if (only && !only.includes(o)) continue;
+        lane++;
+        const z0 = -1200 - lane * laneGap, x0 = 100;
+        const start = { x: x0 + 0.5, z: z0 + 0.5 };
+        const skew = o === 'water-wall' ? OBSTACLE_SKEW_DEG.oblique ?? 0 : 0, skewRad = skew * Math.PI / 180;
+        const across = Math.ceil(f.halfWidth) + 10;
+        const sx = Math.floor(start.x + f.noseReach * Math.cos(skewRad) + f.halfWidth * Math.sin(skewRad)) + 4;
+        // The pool: from behind the stern to well past the push, a bank's lane ends at the bank.
+        const end = o === 'water-bank' ? sx + 4 : x0 + 160;
+        const water = pool(ctx, { x0: Math.floor(x0 - f.noseReach) - 6, x1: end - 1, z0: z0 - across, z1: z0 + across + (o === 'water-wall' ? 60 : 0) }, o === 'water-shallow' ? depth + 1 : depth, o === 'water-shallow' ? depth : 0);
+        const cells: Array<[number, number, number]> = [];
+        if (o === 'water-bank') cells.push(...bank(ctx, { x0: end, x1: end + 12, z0: z0 - across, z1: z0 + across }, water.yTop + 1));
+        if (o === 'water-wall') {
+          // A pier post a little inside the hull's +z side (a corner meets it), from the pool's bed to 6 over the water.
+          const tz = z0 + Math.floor(Math.max(0, f.halfWidth - 0.35));
+          for (let y = FLAT_GROUND_Y; y <= water.yTop + 6; y++) { setBlock(ctx, sx, y, tz, 'minecraft:stone'); cells.push([sx, y, tz]); }
+        }
+        const line = water.surface - f.draft;
+        const v = await board(ctx, f, { ...start, y: line }, skew);
+        // Past the post (the wall lane), or `WATER_AHEAD_BLOCKS` made (open water, the channel); a bank lane pushes the whole time.
+        const passX = o === 'water-wall' ? sx + 1 + f.noseReach + 1 : o === 'water-bank' ? Infinity : start.x + WATER_AHEAD_BLOCKS;
+        let t = 0, stuck = 0, clip = 0, rose = 0, off = 0, last = { ...v.location }, keel = 0;
+        let firstClip: CourseRow['firstClip'];
+        for (; t < COURSE_PUSH_TICKS && v.location.x < passX && ctx.player.ridingOn === v; t++) {
+          hold(ctx, { forward: 1 });
+          await ctx.run(1);
+          if (Math.hypot(v.location.x - last.x, v.location.z - last.z) < 0.01) stuck++;
+          rose = Math.max(rose, v.location.y - line);
+          off = Math.max(off, Math.abs(v.location.y - line));
+          keel = Math.max(keel, water.bed - (v.location.y));
+          const hit = cells.find(c => bandOverlaps(v, f, band.lo, band.hi, c));
+          if (hit) { clip++; firstClip ??= { t, x: r2(v.location.x - sx), y: r2(v.location.y - line), pitch: r2(Number(v.properties.get('craftmatic:fl_pitch') ?? 0)), cell: [hit[0] - sx, hit[1] - FLAT_GROUND_Y, hit[2] - z0] }; }
+          last = { ...v.location };
+        }
+        const ahead = (v.location.x - start.x) / Math.max(1e-6, Math.cos(skewRad));
+        const side = (v.location.z - start.z) - (v.location.x - start.x) * Math.tan(skewRad);
+        const pastBank = r2(v.location.x + f.noseReach - end);
+        const passed = o === 'water-bank' ? pastBank <= BANK_SLACK && rose < 0.5 : o === 'water-wall' ? v.location.x >= passX : ahead >= WATER_AHEAD_BLOCKS;
+        const row: CourseRow = { vehicle: f.typeId, mode: f.mode, obstacle: o, policy: 'forward', passed, ticks: t, stuckTicks: stuck, rose: r2(rose), clipTicks: clip, side: r2(side), offWaterline: r2(off), ...(firstClip ? { firstClip } : {}),
+          ...(o === 'water-shallow' ? { keelInBed: r2(Math.max(0, keel)) } : {}), ...(o === 'water-bank' ? { pastBank } : {}) };
+        if (o === 'water-bank' || (o === 'water-wall' && !passed)) {
+          // Back off (and for the post, turn and go): it must get 0.3 / 3 blocks away.
+          const from = { ...v.location };
+          hold(ctx, { forward: -1 }); await ctx.run(40);
+          if (o === 'water-wall') { hold(ctx, { strafe: -1 }); await ctx.run(45); hold(ctx, { forward: 1 }); await ctx.run(60); }
+          row.escaped = Math.hypot(v.location.x - from.x, v.location.z - from.z) >= (o === 'water-bank' ? 0.3 : 3);
+        }
+        hold(ctx, {});
+        rows.push(row);
+        if (o === 'water-flat' && off > WATERLINE_SLACK) ctx.violate({ invariant: 'boat-not-afloat', message: `${f.typeId} on open water strayed ${r2(off)} blocks from its waterline (at most ${WATERLINE_SLACK})`, evidence: { ...row } });
+        if (o === 'water-flat' && !passed) ctx.violate({ invariant: 'boat-not-afloat', message: `${f.typeId} made only ${r2(ahead)} blocks ahead on open water in ${t} ticks (needs ${WATER_AHEAD_BLOCKS})`, evidence: { ...row } });
+        if (o === 'water-bank' && !passed) ctx.violate({ invariant: 'boat-climbs-bank', message: `${f.typeId} driven at a bank ${rose >= 0.5 ? `rose ${r2(rose)} blocks onto it` : `ran ${pastBank} blocks past its face`} (it must stop at the waterline)`, evidence: { ...row } });
+        if (row.escaped === false) ctx.violate({ invariant: 'vehicle-escapes', message: `${f.typeId} stopped at the ${o} and could not back${o === 'water-wall' ? ', turn and drive' : ''} away`, evidence: { ...row } });
+        if (clip > 0) ctx.violate({ invariant: 'vehicle-no-clip', message: `${f.typeId}'s clear band went into the ${o === 'water-bank' ? 'bank' : 'pier post'} on ${clip} ticks`, evidence: { ...row } });
+        if (o === 'water-shallow') ctx.note(`${f.typeId} in a one-block channel: ${passed ? `made way, ${r2(ahead)} blocks` : `made only ${r2(ahead)} blocks`}; its keel (draft ${r2(f.draft)}) would sit ${row.keelInBed} blocks in the bed`);
+        v.removeRider(ctx.player);
+        ctx.sim.engine.removeEntity(v);
+        await ctx.run(2);
+      }
+      ctx.state['course'] = [...((ctx.state['course'] as CourseRow[] | undefined) ?? []), ...rows];
+      ctx.note(`${f.typeId} water lanes: ${rows.map(r => `${r.obstacle} ${r.passed ? 'pass' : 'FAIL'} (${r.ticks}t, off waterline ${r.offWaterline}${r.pastBank !== undefined ? `, bow ${r.pastBank} past the bank` : ''}${r.keelInBed !== undefined ? `, keel ${r.keelInBed} in the bed` : ''}${r.clipTicks ? `, CLIP ${r.clipTicks}` : ''}${r.escaped === undefined ? '' : r.escaped ? ', backed off' : ', TRAPPED'})`).join(', ')}`);
+    },
+
+    /**
+     * Getting off a boat on the water at every wand size (SEAT-05 "water"): the boat afloat in a pool as deep as its
+     * draft at the size needs, sized by its own `craftmatic:size_<pct>` event, the child seated, then the device's
+     * sneak and whatever the runtime's egress does (`vehicleEgress`: a bank beside the hull, else a swim at the
+     * waterline). Twice per size: on OPEN water, and with a bank a block beside the hull's +z side. The child must
+     * never end under (or in) the hull (`water-egress-under-hull`); where it ended - on the bank, swimming, aboard -
+     * is recorded (`state.waterEgress`): `{ type, sizes? }`.
+     */
+    async waterEgress(step: AnyStep, ctx: StepContext) {
+      const f = typeOf(step);
+      if (f.mode !== 'boat') { ctx.note(`${f.typeId} is a ${f.mode}: no water egress`); return; }
+      const sizes = (step['sizes'] as number[] | undefined) ?? [100, 200, 400];
+      const rows: Array<{ pct: number; where: 'open' | 'bank'; end: { x: number; y: number; z: number }; underHull: boolean; onBank: boolean; swimming: boolean; riding: boolean }> = [];
+      let i = 0;
+      for (const pct of sizes) for (const where of ['open', 'bank'] as const) {
+        const k = pct / 100, reach = f.noseReach * k, half = f.halfWidth * k;
+        const at = { x: 400.5 + (i % 2) * 300, z: -2400.5 - Math.floor(i / 2) * 300 };
+        i++;
+        const water = pool(ctx, { x0: Math.floor(at.x - reach) - 10, x1: Math.ceil(at.x + reach) + 10, z0: Math.floor(at.z - half) - 10, z1: Math.ceil(at.z + half) + 10 }, Math.ceil(f.draft * k + 3));
+        const shoreZ = Math.ceil(at.z + half) + 1;
+        if (where === 'bank') bank(ctx, { x0: Math.floor(at.x - reach) - 10, x1: Math.ceil(at.x + reach) + 10, z0: shoreZ, z1: shoreZ + 8 }, water.yTop + 1);
+        const v = await board(ctx, f, { ...at, y: water.surface - f.draft });
+        v.triggerEvent(`craftmatic:size_${pct}`);
+        v.placeRiders();
+        await ctx.run(10);
+        ctx.quiet([]);
+        ctx.sim.controls.set(ctx.player.id, { forward: 0, strafe: 0, jump: false, sneak: true });
+        await ctx.run(1);
+        ctx.sim.controls.set(ctx.player.id, { forward: 0, strafe: 0, jump: false, sneak: false });
+        await ctx.run(60);
+        const p = ctx.player.location, r = v.rotation.y * Math.PI / 180, fx = -Math.sin(r), fz = Math.cos(r), rx = -Math.cos(r), rz = -Math.sin(r);
+        const dx = p.x - v.location.x, dz = p.z - v.location.z;
+        const inFootprint = Math.abs(dx * fx + dz * fz) < reach - 0.05 && Math.abs(dx * rx + dz * rz) < half - 0.05;
+        const hullTop = v.location.y + f.height * k;
+        const box = { x0: p.x - PLAYER_WIDTH / 2, y0: p.y, z0: p.z - PLAYER_WIDTH / 2, x1: p.x + PLAYER_WIDTH / 2, y1: p.y + PLAYER_HEIGHT, z1: p.z + PLAYER_WIDTH / 2 };
+        const swimming = submersion(ctx.sim.engine.dimension('overworld'), box) > 0;
+        const row = { pct, where, end: { x: r2(dx), y: r2(p.y - water.surface), z: r2(dz) }, underHull: !ctx.player.ridingOn && inFootprint && p.y < hullTop, onBank: !swimming && ctx.player.onGround && p.y >= water.yTop + 2 - 0.05, swimming, riding: !!ctx.player.ridingOn };
+        rows.push(row);
+        ctx.note(`${f.typeId} at ${pct} % (${where} water): after a sneak the child is ${row.riding ? 'STILL ABOARD' : row.underHull ? 'UNDER THE HULL' : row.onBank ? 'on the bank' : row.swimming ? 'swimming beside the hull' : 'standing'} at ${JSON.stringify(row.end)} from the boat (y from the surface)`);
+        if (row.underHull) ctx.violate({ invariant: 'water-egress-under-hull', message: `${f.typeId} at ${pct} % (${where} water): the child got off under the hull, at ${JSON.stringify(row.end)} from its origin (footprint ${r2(reach)} x ${r2(half)})`, evidence: row });
+        if (row.riding) { ctx.violate({ invariant: 'dismount-in-hull', message: `${f.typeId} at ${pct} % (${where} water): a sneak did not get the child off`, evidence: row }); v.removeRider(ctx.player); }
+        ctx.sim.engine.removeEntity(v);
+        await ctx.run(2);
+      }
+      ctx.state['waterEgress'] = { ...((ctx.state['waterEgress'] as Record<string, unknown> | undefined) ?? {}), [f.typeId]: rows };
+    },
+
+    /**
+     * A boat afloat where the DRAWN hull sits (regression `ship-floats-29b`): in a pool `depth` blocks deep (default:
+     * its draft + 2), the drawn hull's lowest point against the water's surface at rest, then 3 s of stick forward:
+     * how far it went and how far it strayed from its waterline (`state.boatFloat`). Needs the pack's appearance
+     * (`registerAppearance`): `{ type, depth? }`.
+     */
+    async boatFloat(step: AnyStep, ctx: StepContext) {
+      const f = typeOf(step);
+      const appearance = appearances.get(pack.pack);
+      if (!appearance) throw new Error('boatFloat: the pack\'s appearance was not registered (craftmaticHandlers)');
+      const depth = Number(step['depth'] ?? Math.ceil(f.draft + 2));
+      const at = { x: 200.5, z: -3400.5 };
+      const water = pool(ctx, { x0: Math.floor(at.x - f.noseReach) - 8, x1: Math.ceil(at.x) + 120, z0: Math.floor(at.z - f.halfWidth) - 8, z1: Math.ceil(at.z + f.halfWidth) + 8 }, depth);
+      const line = water.surface - f.draft;
+      const v = await board(ctx, f, { ...at, y: line });
+      await ctx.run(20);
+      const drawn = entityDrawn(appearance, v);
+      const bottom = drawn?.length ? Math.min(...drawn.map(d => d.box.y0)) : undefined;
+      const y0 = v.location.y, x0 = v.location.x;
+      let off = 0;
+      for (let t = 0; t < 60; t++) { hold(ctx, { forward: 1 }); await ctx.run(1); off = Math.max(off, Math.abs(v.location.y - y0)); }
+      hold(ctx, {});
+      const out = { depth, draft: r2(f.draft), surface: r2(water.surface), origin: r2(y0 - water.surface), drawnBottom: bottom === undefined ? null : r2(bottom - water.surface), drove: r2(v.location.x - x0), offLevel: r2(off) };
+      ctx.state['boatFloat'] = out;
+      ctx.note(`${f.typeId} in a ${depth}-deep pool: origin ${out.origin} from the surface, the drawn hull's bottom ${out.drawnBottom ?? 'not drawn'} from it; drove ${out.drove} blocks in 3 s, ${out.offLevel} off level`);
+      v.removeRider(ctx.player);
+      ctx.sim.engine.removeEntity(v);
+      await ctx.run(2);
+    },
+
     /** A ship's spaceship controls on open ground: `{ type }`. */
     async shipControls(step: AnyStep, ctx: StepContext) {
       const f = typeOf(step);
@@ -418,7 +649,8 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
       // The child climbs on looking at the vehicle's face (half round from its heading), and the seat turns them
       // onto the heading a few ticks later (quirk `mount-snaps-rider-yaw`): the chase camera must open behind the
       // nose all the same (Saga 30k: it opened facing the rider until a slot switch).
-      const v = await board(ctx, f, { x: 60.5, z: -160.5 }, 0, 180);
+      // A boat is driven on a pool (aground it cannot move, and the ease-back needs a moving vehicle).
+      const v = await board(ctx, f, onWater(ctx, f, { x: 60.5, z: -160.5 }), 0, 180);
       await ctx.run(20);
       const cam = (): { yaw: number; pitch: number } | undefined => {
         const c = ctx.sim.host.playerState(ctx.player).camera;
@@ -464,7 +696,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
       const f = typeOf(step);
       const cfg = cameraCfg(f.typeId);
       if (!cfg?.eye) { ctx.note(`${f.typeId}: no cockpit eye in vehicle-camera.js (the cockpit camera stands at the rider's head)`); return; }
-      const v = await board(ctx, f, { x: 60.5, z: -400.5 });
+      const v = await board(ctx, f, onWater(ctx, f, { x: 60.5, z: -400.5 }));
       ctx.sim.host.playerState(ctx.player).selectedSlot = 8;
       const drawLag = quirkValue('cockpit-draw-lag', 'ticks');
       // The lag is counted in the camera runtime's own poses, read when IT runs: a pack whose main.js imports
@@ -578,7 +810,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
 
 /** The vehicle scenarios of a pack: one per scripted car, hover craft and ship. */
 export function vehicleScenarios(pack: CraftmaticPack): Scenario[] {
-  return scriptedVehicleTypes(pack).filter(t => t.mode !== 'boat').map(t => ({
+  return scriptedVehicleTypes(pack).map(t => t.mode === 'boat' ? boatScenario(t) : ({
     name: `vehicle-${t.typeId.replace(/^.*:/, '')}`,
     description: `${t.mode} ${t.typeId}: the stuck course (stick forward into each obstacle), ${t.mode === 'plane' ? 'the spaceship controls, ' : ''}the free look, the cockpit eye at speed, getting off at 100/200/400 %.`,
     steps: [
@@ -598,14 +830,31 @@ export function vehicleScenarios(pack: CraftmaticPack): Scenario[] {
   }));
 }
 
+/** A boat's scenario: the water lanes, getting off on the water at 100/200/400 %, the free look and the cockpit eye on a pool. */
+function boatScenario(t: ScriptedTypeFacts): Scenario {
+  return {
+    name: `vehicle-${t.typeId.replace(/^.*:/, '')}`,
+    description: `boat ${t.typeId}: the water lanes (open water, a bank, a one-block channel, a pier post), getting off on the water at 100/200/400 %, the free look and the cockpit eye on a pool.`,
+    steps: [
+      { kind: 'boatCourse', type: t.typeId },
+      { kind: 'waterEgress', type: t.typeId },
+      { kind: 'cameraRecentre', type: t.typeId },
+      { kind: 'cockpitEye', type: t.typeId },
+    ],
+    allowLines: [/CAR|HOVER|FLY|PLANE|BOAT|mph|Hotbar slot 9|knots/i],
+  };
+}
+
 /** A course table in markdown: one row per vehicle, a column per obstacle. */
 export function courseMarkdown(rows: readonly CourseRow[], title: string): string {
   const vehicles = [...new Set(rows.map(r => `${r.vehicle}|${r.policy}`))];
   const cell = (r: CourseRow | undefined): string => (!r ? '-' : r.passed ? `pass ${r.ticks}t${r.stuckTicks ? ` (${r.stuckTicks} stuck)` : ''}${r.clipTicks ? ` CLIP ${r.clipTicks}` : ''}` : `STOP${r.escaped === undefined ? '' : r.escaped ? ' / escaped' : ' / TRAPPED'}${Math.abs(r.side ?? 0) >= 3 ? ` (slid ${r.side} across)` : ''}${r.clipTicks ? ` CLIP ${r.clipTicks}` : ''}`);
-  const lines = [`### ${title}`, '', `| vehicle | mode | ${COURSE_OBSTACLES.join(' | ')} | passed |`, `|---|---|${COURSE_OBSTACLES.map(() => '---').join('|')}|---|`];
+  // The water lanes get columns only when a boat ran them.
+  const lanes: Array<CourseObstacle | WaterLane> = [...COURSE_OBSTACLES, ...WATER_LANES.filter(l => rows.some(r => r.obstacle === l))];
+  const lines = [`### ${title}`, '', `| vehicle | mode | ${lanes.join(' | ')} | passed |`, `|---|---|${lanes.map(() => '---').join('|')}|---|`];
   for (const v of vehicles) {
     const mine = rows.filter(r => `${r.vehicle}|${r.policy}` === v);
-    lines.push(`| ${v.replace('|forward+jump', ' (stick + Jump)').replace('|forward', '')} | ${mine[0]?.mode ?? '?'} | ${COURSE_OBSTACLES.map(o => cell(mine.find(r => r.obstacle === o))).join(' | ')} | ${mine.filter(r => r.passed).length}/${mine.length} |`);
+    lines.push(`| ${v.replace('|forward+jump', ' (stick + Jump)').replace('|forward', '')} | ${mine[0]?.mode ?? '?'} | ${lanes.map(o => cell(mine.find(r => r.obstacle === o))).join(' | ')} | ${mine.filter(r => r.passed).length}/${mine.length} |`);
   }
   return lines.join('\n') + '\n';
 }

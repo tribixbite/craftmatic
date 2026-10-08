@@ -22,7 +22,7 @@ import type { Addon } from '../../pack/pack.js';
 import { readCraftmaticPack, type CraftmaticPack } from './pack-facts.js';
 import { wandHandlers } from './wand.js';
 import { FIGURE_TYPE, playHandlers, placedOf, staticDrawn, tapPart } from './play.js';
-import { vehicleCourseHandlers } from './vehicle-course.js';
+import { registerAppearance, vehicleCourseHandlers } from './vehicle-course.js';
 import { packAppearance } from './drawn.js';
 import { firstPersonSnapshot } from './snapshot.js';
 import { lookAt } from '../../input/touch.js';
@@ -48,6 +48,8 @@ export const FIGURE_LIFE_TICKS = 6000;
 /** The adapter's step handlers for one pack (wand + play + the child-play extras). */
 export function craftmaticHandlers(pack: CraftmaticPack, addon: Addon): Record<string, StepHandler> {
   const appearance = packAppearance(addon);
+  // The course's handlers read a boat's drawn hull through this (they are built from the pack's facts alone).
+  registerAppearance(pack.pack, appearance);
   // The vehicle course's steps too, so a regression case can drive a ship into the device's obstacle.
   return { ...wandHandlers(pack), ...playHandlers(pack, appearance), ...extraHandlers(pack, appearance), ...vehicleCourseHandlers(pack) };
 }
