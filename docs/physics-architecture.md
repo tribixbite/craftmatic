@@ -589,16 +589,24 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   mover, a teleport).
 - The wand's size changes `minecraft:scale`, the collision box and the seats
   (`bedrock-placement-pack.ts`); the speeds are the same at every size, the
-  footprint and probes scale with it.
+  footprint and probes scale with it. A seat is declared in the entity's
+  UNSCALED frame: Bedrock multiplies a declared seat by `minecraft:scale` and
+  not the rider's 1.12 eye offset (Saga 30k, 2026-10-07; quirk
+  `seat-scales-with-entity`), so `rideableAtSize` writes the wanted world
+  offset divided by the group's scale - written pre-scaled, 76286's rider at
+  200 % sat at 2 x 2 x the 100 % offset, six blocks over the hull (SEAT-01).
 - Seats are not physics but ride with it: a compiled vehicle's seat is the
   driver's eye from the source less the measured 1.12, written in the entity
   frame (nose +Z; the render seat turned half round, x AND z,
   `renderSeatToEntity`), raised or set back until the driver sees out
   (`driverSeesOut`: the horizon `AHEAD` and either side, `SIDES`), out of
   the cabin when nothing in it sees ahead (`AHEAD_FALLBACK`, the body then
-  hidden at every size), eye-anchored at every wand size, and the rider is
-  made invisible at sizes where the body does not fit (`cockpit-seat.ts`;
-  add-on guide "Where the player sits").
+  hidden at every size), eye-anchored at every wand size (`seatPositionAt`
+  is the WORLD offset; the size group declares it divided by its scale), and
+  the rider is made invisible at sizes where the body does not fit
+  (`cockpit-seat.ts`; add-on guide "Where the player sits"). Offline the
+  realised seat is judged against the drawn vehicle at every size
+  (`web/src/sim/adapters/craftmatic/seat-scale.ts`, `scripts/_seat_scale_check.ts`).
 
 Tests: `test/bedrock-vehicle.test.ts` (the steppers, the footprint, the
 collision response and headlight helpers, the animation, and the serialised
