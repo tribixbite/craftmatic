@@ -90,6 +90,12 @@ export interface AppearanceGroup {
    */
   far?: boolean;
   /**
+   * The controller's switch distance D (camera-to-ROOT blocks, `query.distance_from_camera`, quirk
+   * `lod-switch-camera-root`): a full-model group draws while the camera is within D, a `far` group past
+   * it. Absent on a group with no distance rule (drawn at every distance under the cull).
+   */
+  lodDistance?: number;
+  /**
    * A REAL texture rather than a swatch (an entity's face atlas): its resource
    * path without extension and its size in texels, for cubes with `faceUv`.
    */
@@ -271,6 +277,13 @@ function drawnOnlyFar(controller: Record<string, unknown>): boolean {
   return /query\.distance_from_camera\s*<=?\s*[\d.]+\s*\]\s*$/.test(expr);
 }
 
+/** The switch distance D a controller's `query.distance_from_camera` tests (either side of it), or undefined for no rule. */
+export function lodDistanceOf(controller: Record<string, unknown>): number | undefined {
+  const expr = typeof controller.geometry === 'string' ? controller.geometry : '';
+  const m = /query\.distance_from_camera\s*(?:<=?|>=?)\s*([\d.]+)/.exec(expr);
+  return m ? Number(m[1]) : undefined;
+}
+
 /** The first `Texture.<key>` a controller binds. */
 function textureKeyOf(controller: Record<string, unknown>): string | null {
   const list = controller.textures;
@@ -429,10 +442,11 @@ export function buildAddonAppearance(sources: AppearanceSources, pbr?: Appearanc
         ? { path: texPath, width: geo.textureSize[0], height: geo.textureSize[1] }
         : undefined;
       const far = controller ? drawnOnlyFar(controller) : false;
+      const lodDistance = controller ? lodDistanceOf(controller) : undefined;
       if (geo.cubes.length) {
         const surface = pbr?.enabled && texPath ? pbr.byTexture.get(texPath) : undefined;
         if (pbr?.enabled && texPath && !surface) notes.push(`${typeId}: texture ${texPath} has no supported PBR surface; classic diffuse fallback.`);
-        groups.push({ colorHex, alpha, ldrawColor, cubes: geo.cubes, ...(texture ? { texture } : {}), ...(surface ? { surface } : {}), ...(far ? { far } : {}) });
+        groups.push({ colorHex, alpha, ldrawColor, cubes: geo.cubes, ...(texture ? { texture } : {}), ...(surface ? { surface } : {}), ...(far ? { far } : {}), ...(lodDistance !== undefined ? { lodDistance } : {}) });
         cubeCount += geo.cubes.length;
       }
     }
