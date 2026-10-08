@@ -365,6 +365,18 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   pack**: never remove one that another runtime may have set since (the
   X-wing camera cleared the coaster's after a hop and the rider's head
   filled the view; `HOP_TAGS.hidden`).
+- **Bedrock MULTIPLIES a declared `minecraft:rideable` seat position by the
+  entity's `minecraft:scale`** (Saga 30k: 76286 at 200 % declared `(0, 10.28,
+  7.2)` and seated the rider at exactly 2 × that, ~6 blocks over the hull; the
+  rider's 1.12 eye offset is NOT scaled). The 2026-09-17 assumption that
+  scale does not move a seat put every vehicle, coaster car, ship and the
+  Nimbus out of place above 100 %. So `withSizeGroups`/`rideableAtSize`
+  declare seats in the UNSCALED frame (`seatWorldOffset`), and the sim models
+  it (quirk `seat-scales-with-entity`; `bun scripts/_seat_scale_check.ts
+  <packs>`). Whether `third_person_camera_radius` and the pre-scaled
+  `minecraft:collision_box` are also scaled again is UNMEASURED
+  (`TODO(seat-camera-radius)`). Measure that before trusting cull or hit
+  boxes above 100 %.
 - **The touch Sneak button is a TOGGLE.** After a seat's "Sneak to get off"
   it stays on, and a sneaking player never steps off a drop deeper than the
   step height. A Pixel round (30j) reported 10326 Door 3 as REGRESSED: the

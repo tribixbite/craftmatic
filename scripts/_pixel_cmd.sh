@@ -71,5 +71,11 @@ fi
 
 if ! $field_only; then
   adb shell input keyevent 66;  sleep 1.2
-  tap 45 39;               sleep 0.6   # Exit (chat sometimes stays open)
+  # Exit only while the chat is still open (its soft keyboard is up). Tapping
+  # the Exit corner after the chat has closed lands on the WORLD: on the Pixel
+  # in round 30k that stray tap closed 76417's Gate 1 on the tester, whose
+  # step-out then dropped them 17 blocks.
+  if adb shell dumpsys input_method | grep -q 'mInputShown=true'; then
+    tap 45 39;             sleep 0.6   # Exit
+  fi
 fi

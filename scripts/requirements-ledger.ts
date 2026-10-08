@@ -130,7 +130,12 @@ function makeReader(root: string): (rel: string) => string | undefined {
 }
 
 /** Where a `sim:` guard may be declared. */
-const SIM_SOURCES = ['web/src/sim/adapters/craftmatic/regressions.ts', 'scripts/sim.ts'];
+const SIM_SOURCES = [
+  'web/src/sim/adapters/craftmatic/regressions.ts', // device-bug regression cases
+  'web/src/sim/adapters/craftmatic/child-play.ts', // child-play scenarios
+  'web/src/sim/adapters/craftmatic/vehicle-course.ts', // the vehicle course lanes
+  'scripts/sim.ts', // scenario names
+];
 
 /** Check one guard; returns a problem description or undefined when it holds. */
 export function checkGuard(guard: string, read: (rel: string) => string | undefined): string | undefined {

@@ -95,16 +95,21 @@ tested / 1 known-unreproduced, course ships 9/9 car 6/9, hop 3/3, child play
 over hill/wall square and 19 deg (8/8), turns never climb, park holds over the
 player, chase camera clear of walls, slot-9 recentres, no head after hop,
 Milano front cabin at 100 %, Door 3 sneak on/off, seat exits, slide, Milano
-cruise 14.45 ms/tick. FAIL, fixes in progress (round 30l):
-1. Milano at 200 %: rider ~6 above the hull, 14 forward - seat offset
-   double-scaled? (check every vehicle at every size) - SEAT-01 REGRESSED.
-2. Nimbus still ignores drags (lock 181 did not help).
-3. Cockpit eye runs ahead of the seat at top speed; first mount's chase
-   camera faces the player's look, not the nose.
-4. 76417 Gate 1: standing just inside the open gate the player is moved
-   out and falls 17 blocks (Pixel, twice).
-5. 10261 lift hill at 200 % stops at pin+28.2 (offline walks jump; the
-   Pixel had auto-jump only); west base climbs only on z+22.5/23.5.
+cruise 14.45 ms/tick. The failures, fixed OFFLINE 2026-10-07 (merges of
+`579454cf` seats, `74cca770` cameras, `a57adec3` colliders):
+1. Bedrock MULTIPLIES a declared seat by `minecraft:scale` - every rideable
+   above 100 % sat (f-1)x out; seats now declared unscaled
+   (`rideableAtSize`, `_seat_scale_check.ts`, quirk `seat-scales-with-entity`).
+   OPEN: does it also scale `third_person_camera_radius` and the pre-scaled
+   `collision_box` (cull, hit boxes)? 4 boats seat over the deck at 100 %.
+2. Nimbus drag: the camera runtime re-applied `controlscheme player_relative`;
+   riders now stay in the default scheme (Nimbus steers by drag, HUD
+   "DRAG: STEER"). Cockpit lag 4 ticks. First mount settles before free look.
+3. Gate 1 throw-out: a stray `_pixel_cmd.sh` Exit tap closed the gate and the
+   step-out picked the far side over the drop; step-out now lands only on a
+   floor (else the close is refused); the Exit tap fires only while the chat
+   keyboard is up. Lift hill: auto-jump modelled (reproduces pin+28.2); lane
+   pass lays auto-jump steps (10261 export 53 -> 180 s, TODO(lane-pass-cost)).
 Open: `TODO(car-oblique-kerb)` (McLaren slides 62 along an oblique kerb);
 11 other hull-leaving cockpit eyes not re-audited for `AHEAD_CABIN`.
 - # TODO(seat-sweep-memory): `_seat_egress_sweep.ts` on 76457 at 300/400 %
