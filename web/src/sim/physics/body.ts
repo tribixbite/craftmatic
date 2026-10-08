@@ -272,7 +272,11 @@ export interface MoveResult<S extends Box = Box> {
 export function moveBox<S extends Box>(world: SolidQuery<S>, box: Box, wanted: { dx: number; dy: number; dz: number }, onGround: boolean, sneakGuard = false): MoveResult<S> {
   let { dx, dz } = wanted;
   const dy = wanted.dy;
-  const solids = world.solidsNear(box, dx, Math.min(dy, -STEP_HEIGHT), dz);
+  // The solids the move can meet: down to a step under the feet (the sneak guard, the step's settle) AND up to what the
+  // box rises into - a jump's rise or the auto-step's `STEP_HEIGHT` raise. Until 2026-10-08 the query reached only the
+  // displacement min(dy, -STEP_HEIGHT), so a box rising across a block boundary never saw the block it rose into: an
+  // auto-jump under 10261's low lintel put the player's head 0.09 into a collider slab (found by `--walk` child play).
+  const solids = world.solidsNear({ ...box, y1: box.y1 + Math.max(0, dy, STEP_HEIGHT) }, dx, Math.min(dy, -STEP_HEIGHT), dz);
   if (sneakGuard && onGround) {
     const supported = (ex: number, ez: number): boolean => wouldCollide(box, ex, -STEP_HEIGHT, ez, solids);
     for (; dx !== 0 && !supported(dx, 0); dx = Math.abs(dx) <= 0.05 ? 0 : dx - Math.sign(dx) * 0.05);

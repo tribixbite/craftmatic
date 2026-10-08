@@ -96,6 +96,15 @@ export class VoxelWorld {
    * walk may leave in any direction). An engine never calls this.
    */
   setAllLoaded(): void { this.allLoaded = true; }
+  /**
+   * Run `fn` reading the world as if every column were loaded (a route planned over blocks the player has not come
+   * within the simulation distance of yet: the world holds them), then restore the loaded area exactly.
+   */
+  withAllLoaded<T>(fn: () => T): T {
+    const loaded = this.loaded, all = this.allLoaded;
+    this.allLoaded = true;
+    try { return fn(); } finally { this.loaded = loaded; this.allLoaded = all; }
+  }
   /** Whether the block's chunk column is loaded. */
   isLoaded(x: number, z: number): boolean { return this.allLoaded || this.loaded.has(`${Math.floor(x) >> 4},${Math.floor(z) >> 4}`); }
   /** The loaded chunk columns. */

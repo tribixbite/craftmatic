@@ -91,6 +91,20 @@ describe('water as volumes (quirks liquid-surface-height, liquid-motion)', () =>
   });
 });
 
+describe('the integrator\'s solids query', () => {
+  it('a jump sees the block its head rises into: a slab in the next row up stops it (10261\'s lintel)', () => {
+    const h = simHost({ terrain: solidBelow(0), colliders: true });
+    // A collider slab whose bottom is 1/16 into the block row over the standing head (head 1.8, slab 2.0625..2.375).
+    h.setBlock(0, 2, 0, 'craftmatic:collider', { 'craftmatic:lo': 1, 'craftmatic:hi': 6 });
+    const w = h.engine.dimension('overworld');
+    let s: PlayerState = { ...still(0.5, 0, 0.5), onGround: true };
+    let top = 0;
+    for (let i = 0; i < 12; i++) { s = tickPlayer(w, s, { move: { x: 0, z: 0 }, jump: i === 0, sneak: false }).state; top = Math.max(top, s.y + 1.8); }
+    expect(top).toBeLessThanOrEqual(2 + 1 / 16 + 1e-6);
+    expect(w.overlapping(playerBox(s), 1e-3)).toBeUndefined();
+  });
+});
+
 describe('bodies that meet (quirks entity-push-soft, entity-collidable-solid)', () => {
   const figure = { components: { 'minecraft:collision_box': { width: 0.6, height: 1.6 }, 'minecraft:physics': { has_gravity: true, has_collision: true }, 'minecraft:pushable_by_entity': {} } };
   const car = { components: { 'minecraft:collision_box': { width: 2, height: 1.5 }, 'minecraft:physics': { has_gravity: true, has_collision: true }, 'minecraft:pushable_by_block': {} } };

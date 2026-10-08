@@ -143,8 +143,11 @@ export function approachSpots(engine: SimEngine, player: SimEntity, target: SimE
 
 /** How high a walked route may rise from one column to the next (blocks): auto-jump's reach (quirk `auto-jump`: at most 1.2). */
 export const WALK_MAX_RISE = 1.2;
-/** How far a walked route may drop from one column to the next (blocks): within the unprotected-fall limit of the invariants (3). */
-export const WALK_MAX_DROP = 3;
+/**
+ * How far a walked route may drop from one column to the next (blocks): with auto-jump's 1.25 peak taken on the way
+ * (a jump at the lip), the fall stays inside the invariants' unprotected-fall limit of 3.
+ */
+export const WALK_MAX_DROP = 1.7;
 /** How far round the start and the goal the route search looks (blocks). */
 const WALK_SEARCH_MARGIN = 24;
 /** The most nodes one route search visits (a guard for an open world). */
@@ -202,6 +205,10 @@ export function walkRoute(engine: SimEngine, dimension: string, from: Vec3, goal
     }
     return true;
   };
+  // The route is planned over every block the world holds, loaded or not: at 300-400 % the far side of a model is
+  // beyond the simulation distance of the child standing at this side (it loads as the child walks there).
+  return w.withAllLoaded(() => search());
+  function search(): WalkNode[] | undefined {
   const parent = new Map<string, { node: WalkNode; from?: string }>([[nodeKey(start), { node: start }]]);
   const queue: WalkNode[] = [start];
   for (let h = 0; h < queue.length && parent.size < WALK_MAX_NODES; h++) {
@@ -229,4 +236,5 @@ export function walkRoute(engine: SimEngine, dimension: string, from: Vec3, goal
     }
   }
   return undefined;
+  }
 }
