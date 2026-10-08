@@ -363,6 +363,15 @@ export const REGRESSIONS: RegressionCase[] = [
     judge: r => { const v = violated(r, 'ship-turn-climbs'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /tail against a post/.test(n)) ?? 'no turn note') }; },
   },
   {
+    id: 'milano-seat-200-30k', title: '76286 Milano at 200 %: the rider sits six blocks over the hull and fourteen ahead - the size group\'s seat was written pre-scaled and the device scales it again (SEAT-01)',
+    evidence: '`output/device-round-2026-10-07k/saga/notes.md` item 8; `r27-strip.jpg` (100 %: eye (0, 5.7, 3.6) in the front cabin), `r28-mil200-side-zoom.jpg`, `r28-strip.jpg` (200 %: eye (0, 21.68, 14.4) = 2 x the declared (0, 10.28, 7.2) + 1.12), `r29-grid.jpg` + `s105-strip.jpg` (the same through the wand); quirk `seat-scales-with-entity`; fix `rideableAtSize` (bedrock-placement-pack.ts)',
+    oldPack: `${ROUND}/device-round-2026-10-07k/packs-78e06246/76286-the-milano-spaceship.mcaddon`, newStem: '76286-the-milano-spaceship', expectNew: 'pass',
+    // The JSON at every size first (the 200-400 % groups), then the device's own test: placed at 200 % by the
+    // wand and mounted, the seat the engine realises (declared x scale) against the drawn hull.
+    scenario: pack => ({ name: 'milano-seat-200-30k', steps: [{ kind: 'seatsEverySize' }, { kind: 'place', size: 200, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'driveVehicle', type: shipType(pack), ticks: 20, overhangs: 0 }], allowLines: vehicleAllow }),
+    judge: r => { const v = violated(r, 'seat-on-vehicle'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /the rider's seat .* is (inside|on) the drawn vehicle/.test(n)) ?? 'no seat note') }; },
+  },
+  {
     id: 'xwing-parks-on-rider-30j', title: '7140 X-wing: sneak off in the air and the empty ship sinks and parks ON the child standing under it',
     evidence: '`output/device-round-2026-10-07j/saga/s77-xwing-dismounted-air.jpg`, `s78-xwing-floating.jpg`, `s79-xwing-parked.jpg`; CMVT 15:28:07-11 (rider false, vy -3, y -46 -> -58 straight down to the ground at -60)',
     oldPack: `${ROUND}/device-round-2026-10-07j/packs-f200ddc7/7140-xwing-fighter.mcaddon`, newStem: '7140-xwing-fighter', expectNew: 'pass',

@@ -692,12 +692,19 @@ export function renderSeatToEntity(p: Vec3): Vec3 {
 }
 
 /**
- * A seat's position at wand factor `f`: the rider's EYE stays on the scaled
- * driver's eye (the seat was derived from that eye, less the seated eye
- * height), because the model scales and the player does not. At 400 % a
- * quarter-scale car is a minifig-scale car and the player sits where its
- * minifig driver would, eye to eye; scaling the whole seat instead kept a
- * quarter-scale seat under the floor at every size.
+ * A seat's WORLD offset from the vehicle at wand factor `f`: the rider's EYE
+ * stays on the scaled driver's eye (the seat was derived from that eye, less
+ * the seated eye height), because the model scales and the player does not.
+ * At 400 % a quarter-scale car is a minifig-scale car and the player sits
+ * where its minifig driver would, eye to eye; scaling the whole seat instead
+ * kept a quarter-scale seat under the floor at every size.
+ *
+ * This is where the rider ENDS UP, not what the size group's JSON says:
+ * Bedrock multiplies a declared seat by the group's `minecraft:scale`
+ * (measured, Saga round 30k), so `withSizeGroups` declares this divided by
+ * `f` (bedrock-placement-pack.ts `rideableAtSize`). Writing it as the
+ * declared position had the device scale it twice: 76286's rider at 200 %
+ * sat at (0, 20.56, 14.4), six blocks over the hull (SEAT-01, 2026-10-07).
  */
 export function seatPositionAt(position: Vec3, f: number): Vec3 {
   const r3 = (v: number): number => Math.round(v * 1000) / 1000;

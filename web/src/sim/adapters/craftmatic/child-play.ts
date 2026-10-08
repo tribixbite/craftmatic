@@ -176,6 +176,10 @@ export function childPlayScenarios(pack: CraftmaticPack, options: { quick?: bool
   if (options.shots) play.push({ kind: 'snapshot', name: 'figures-lived' });
   play.push({ kind: 'visitSeatedFigures' }, { kind: 'undo' });
   out.push({ name: 'play-100-0', description: 'Ride every ride by a tap, drive every vehicle 30 s, fly the mount, let the figures live 5 minutes, visit the seated ones, Undo.', steps: play, ...common });
+  // Every rideable's seat at every wand step (25-400 %), from the JSON: the fault grows with the size
+  // (76286's rider was inside the hull's envelope at 150 % and six blocks over it at 200 %, Saga 30k),
+  // so the sizes a scenario places at cannot stand for the rest.
+  out.push({ name: 'seats-every-size', description: 'Every rideable seat, as the device realises it, in or on the drawn vehicle at every wand size (SEAT-01).', steps: [{ kind: 'seatsEverySize' }], ...common });
   return out;
 }
 

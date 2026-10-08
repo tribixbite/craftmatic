@@ -820,7 +820,9 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         },
     } : {};
     // In-game size steps (bedrock-placement-pack.ts): scale, collision box and the seats together.
-    // At each wand size the rider's eye stays on the scaled driver's eye (cockpit-seat.ts).
+    // At each wand size the rider's eye stays on the scaled driver's eye (cockpit-seat.ts
+    // `seatPositionAt`, a WORLD offset); the group declares it divided by its scale, because
+    // Bedrock scales a seat position with `minecraft:scale` (SEAT-01, Saga 30k).
     return withSizeGroups(
         { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true, ...(scripted ? { properties: flightProperties() } : {}) }, ...aircraftGroups, components: common } },
         common['minecraft:collision_box'] as { width: number; height: number },

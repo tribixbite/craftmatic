@@ -5,8 +5,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  SIZE_STEPS, buildPlacementPackAssets, colliderPairIndex, colliderPairOf, decodeColliderRuns, encodeColliderRuns, withSizeGroups,
+  SIZE_STEPS, buildPlacementPackAssets, colliderPairIndex, colliderPairOf, decodeColliderRuns, encodeColliderRuns, seatWorldOffset, withSizeGroups,
 } from '../web/src/engine/bedrock-placement-pack.js';
+import { RIDER_EYE_ABOVE_SEAT, seatPositionAt } from '../web/src/engine/cockpit-seat.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { host } from './_placement-host.js';
 
@@ -37,7 +38,7 @@ describe('withSizeGroups', () => {
     expect(radiusOf(50)).toBe(15);    // untouched below the ceiling
   });
 
-  it('adds one group per step with scale, collision box and scaled seats, keeping existing groups', () => {
+  it('adds one group per step with scale and collision box, keeping existing groups; every seat is declared in the unscaled frame because Bedrock scales it with minecraft:scale (SEAT-01, Saga 30k)', () => {
     const base = { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:x' },
       component_groups: { 'craftmatic:descending': { 'minecraft:vertical_movement_action': { vertical_velocity: -.5 } } },
       events: { 'craftmatic:descend_on': { add: { component_groups: ['craftmatic:descending'] } } },
@@ -47,10 +48,17 @@ describe('withSizeGroups', () => {
     const e = out['minecraft:entity'];
     expect(e.component_groups['craftmatic:descending']).toBeDefined();
     expect(e.events['craftmatic:descend_on']).toBeDefined();
+    // The seat keeps its authored position at every step: the device multiplies it by the group's
+    // scale (76286 at 200 %, written pre-scaled, seated the rider at 2 x 2 x the 100 % offset, six
+    // blocks over the hull). The camera radius is still written scaled (TODO(seat-camera-radius)).
     expect(e.component_groups['craftmatic:size_50']).toEqual({
       'minecraft:scale': { value: 0.5 }, 'minecraft:collision_box': { width: 1, height: 0.75 },
-      'minecraft:rideable': { seat_count: 2, seats: [{ position: [0.25, 0.5, -1], third_person_camera_radius: 4 }, { position: [-0.25, 0.5, -1] }] },
+      'minecraft:rideable': { seat_count: 2, seats: [{ position: [0.5, 1, -2], third_person_camera_radius: 4 }, { position: [-0.5, 1, -2] }] },
     });
+    for (const pct of SIZE_STEPS) {
+      const seats = e.component_groups[`craftmatic:size_${pct}`]['minecraft:rideable'].seats;
+      expect(seatWorldOffset(seats[0].position, pct / 100)).toEqual([0.5 * pct / 100, pct / 100, -2 * pct / 100]);
+    }
     // 100 % is a group too: removing a group removes its components even where the
     // base declares them, so a size_100 that only removed the others left a vehicle
     // with no rideable (Saga 2026-09-26: "The selected entity is not rideable").
@@ -66,9 +74,42 @@ describe('withSizeGroups', () => {
       remove: { component_groups: SIZE_STEPS.filter(p => p !== 100).map(p => `craftmatic:size_${p}`) },
       add: { component_groups: ['craftmatic:size_100'] },
     });
-    // A single-seat rideable (an object, not an array) scales too.
+    // A single-seat rideable (an object, not an array) is declared the same way: the authored seat.
     const single = withSizeGroups(base, { width: 1, height: 1 }, { seats: { position: [0, -0.3, 0] } }) as any;
-    expect(single['minecraft:entity'].component_groups['craftmatic:size_400']['minecraft:rideable']).toEqual({ seats: { position: [0, -1.2, 0] } });
+    expect(single['minecraft:entity'].component_groups['craftmatic:size_400']['minecraft:rideable']).toEqual({ seats: { position: [0, -0.3, 0] } });
+  });
+
+  it('declares a vehicle seat (seatAt) as the wanted world offset divided by the group scale, so the device-scaled seat keeps the rider\'s eye on the scaled driver\'s eye at every size (SEAT-01)', () => {
+    const base = { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:car' }, components: {} } };
+    // 76286's seat as shipped at 100 % (Saga 30k: eye (0, 5.7, 3.6) = seat + 1.12, in the front cabin).
+    const seat: [number, number, number] = [0, 4.58, 3.6];
+    const out = withSizeGroups(base, { width: 3.5, height: 2.5 }, { seat_count: 1, seats: { position: seat } }, { seatAt: seatPositionAt }) as any;
+    const groups = out['minecraft:entity'].component_groups;
+    for (const pct of SIZE_STEPS) {
+      const f = pct / 100;
+      const declared = groups[`craftmatic:size_${pct}`]['minecraft:rideable'].seats.position as [number, number, number];
+      const world = seatWorldOffset(declared, f);
+      const wanted = seatPositionAt(seat, f);
+      expect(world[0]).toBeCloseTo(wanted[0], 2);
+      expect(world[1]).toBeCloseTo(wanted[1], 2);
+      expect(world[2]).toBeCloseTo(wanted[2], 2);
+      // The eye the device realises is the 100 % eye scaled: at 200 % (0, 11.4, 7.2), not the (0, 21.68, 14.4) the Saga read.
+      expect(world[1] + RIDER_EYE_ABOVE_SEAT).toBeCloseTo((seat[1] + RIDER_EYE_ABOVE_SEAT) * f, 2);
+      expect(world[2]).toBeCloseTo(seat[2] * f, 2);
+    }
+    expect(groups['craftmatic:size_200']['minecraft:rideable'].seats.position).toEqual([0, 5.14, 3.6]);
+    expect(groups['craftmatic:size_100']['minecraft:rideable'].seats.position).toEqual([0, 4.58, 3.6]);
+  });
+
+  it('a player-sized seat keeps its authored offset at every step: the group never scales past 1 and the device applies that scale (seatBehavior\'s -0.3 under the pan)', () => {
+    const base = { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:seat' }, components: {} } };
+    const out = withSizeGroups(base, { width: 0.5, height: 0.5 }, { seat_count: 1, seats: { position: [0, -0.3, 0] } }, { playerSized: true }) as any;
+    const groups = out['minecraft:entity'].component_groups;
+    for (const pct of SIZE_STEPS) {
+      const g = groups[`craftmatic:size_${pct}`];
+      expect(g['minecraft:scale'].value).toBe(Math.min(1, pct / 100));
+      expect(g['minecraft:rideable'].seats.position).toEqual([0, -0.3, 0]);
+    }
   });
 });
 

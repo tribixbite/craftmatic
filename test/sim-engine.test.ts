@@ -123,6 +123,25 @@ describe('entities load as the game loads them', () => {
     expect(p.location.x).toBeCloseTo(-1, 9);
     expect(p.location.y).toBeCloseTo(0.5 + quirkValue('rider-eye-above-seat', 'eyeAboveSeatBlocks') - 1.62, 9);
   });
+  it('a seat on a scaled entity is scaled with it and the eye offset is not (quirk seat-scales-with-entity, Saga 30k: 76286 at 200 %)', () => {
+    const d = new EntityDefinitions();
+    // 76286's shipped 200 % group (packs-78e06246): the seat written pre-scaled under scale 2.
+    const def = d.load('m.json', entityJson('x:milano', { 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: { position: [0, 4.58, 3.6] } } },
+      { groups: { 'craftmatic:size_200': { 'minecraft:scale': { value: 2 }, 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: { position: [0, 10.28, 7.2] } } } }, events: { 'craftmatic:size_200': { add: { component_groups: ['craftmatic:size_200'] } } } }))!;
+    const ship = new SimEntity('x:milano', 'minecraft:overworld', { x: 0, y: 0, z: 0 }, 10, def);
+    const p = new SimEntity('minecraft:player', 'minecraft:overworld', { x: 3, y: 0, z: 0 }, 0, undefined, true);
+    expect(ship.addRider(p, 11)).toEqual({ ok: true });
+    // 100 %: the eye at (0, 5.7, 3.6), as the Saga read it (`r27-strip.jpg`).
+    expect(p.headLocation().y).toBeCloseTo(5.7, 9);
+    expect(p.location.z).toBeCloseTo(3.6, 9);
+    ship.triggerEvent('craftmatic:size_200');
+    ship.placeRiders();
+    // 200 %: the device read the eye at (0, 21.68, 14.4) = 2 x the declared seat + 1.12 (`r28-strip.jpg`).
+    expect(ship.seatWorld(0)).toEqual({ x: 0, y: 20.56, z: 14.4 });
+    expect(p.headLocation().y).toBeCloseTo(21.68, 9);
+    expect(p.location.z).toBeCloseTo(14.4, 9);
+    expect(quirk('seat-scales-with-entity').simulated).toBe('modelled');
+  });
 });
 
 describe('first-person entity snapshots use the device draw cull', () => {
