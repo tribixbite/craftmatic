@@ -504,6 +504,26 @@ describe('historical regression replay inputs', () => {
     // A current pack whose run could not set up the device's conditions is NOT TESTED, never a pass.
     expect(regressionVerdict(pass, side(true), side(false, { untested: 'no floor-level spot' }))).toMatchObject({ failing: true, notTested: true });
     expect(regressionVerdict(pass, { error: 'missing' }, side(false))).toMatchObject({ failing: true, notTested: true });
+    // An OPEN device defect: reproduced on both packs is listed apart, not failing; fixed is OK with a reminder; an open
+    // case whose old pack no longer reproduces guards nothing (NOT TESTED).
+    const open = { ...pass, open: 'round 30m' };
+    expect(regressionVerdict(open, side(true), side(true))).toMatchObject({ failing: false, open: true });
+    expect(regressionVerdict(open, side(true), side(true)).verdict).toMatch(/^OPEN \(round 30m/);
+    expect(regressionVerdict(open, side(true), side(false))).toMatchObject({ failing: false, known: false });
+    expect(regressionVerdict(open, side(true), side(false)).verdict).toMatch(/^OK .*drop `open`/);
+    expect(regressionVerdict(open, side(false), side(true))).toMatchObject({ failing: true, notTested: true });
+  });
+
+  it('round 30m\'s open device defects are cases: open ones reproduce, the unreproduced one says what is missing', () => {
+    const ids = ['nimbus-steer-30m', 'milano-chase-400-30m', 'xwing-air-park-30m', 'mclaren-walls-30m', 'top-east-fall-10261-30m', 'shell-unseen-400-10261-30m', 'milano-mount-reach-200-30m'];
+    for (const id of ids) {
+      const c = REGRESSIONS.find(x => x.id === id);
+      expect(c, id).toBeDefined();
+      expect(c!.oldPack).toContain('device-round-2026-10-08m/packs-6a8c7121/');
+      // Either an open defect the simulator shows, or a known-unreproduced one with its missing model: never both.
+      expect(!!c!.open !== !!c!.knownUnreproduced, id).toBe(true);
+      if (c!.knownUnreproduced) expect(c!.limits, id).toMatch(/\S{20,}|.{40,}/);
+    }
   });
 });
 

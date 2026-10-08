@@ -15,6 +15,7 @@ import { CRAFTMATIC_ALLOWED_LINES } from './child-play.js';
 import { doorwayFindings, placedOf, tapPoseOf } from './play.js';
 import { scriptedVehicleTypes, type CourseRow } from './vehicle-course.js';
 import { WORLD_REGRESSIONS } from './regressions-world.js';
+import { ROUND_30M_REGRESSIONS } from './regressions-30m.js';
 import { teleport } from '../../script-host/facades.js';
 import { lookAt } from '../../input/touch.js';
 import { PIXEL_VIEWPORT, tapScreen } from '../../input/screen.js';
@@ -51,13 +52,20 @@ export interface RegressionCase {
    * passes the same scenario; a new-pack failure is still a FAIL.
    */
   knownUnreproduced?: boolean;
+  /**
+   * The defect is still OPEN on the device (the round that last saw it, e.g. `round 30m`): no fix has shipped, so the
+   * current pack is EXPECTED to reproduce too. Its verdict is then OPEN - listed apart, not failing the run - provided
+   * the old pack reproduces (an open case must still show the device bug, or it guards nothing). When the current pack
+   * stops reproducing, the verdict is OK with a reminder to drop `open`.
+   */
+  open?: string;
 }
 
 /** One side's outcome as the CLI hands it to the verdict (an error when the pack could not be run). */
 export type RegressionSide = RegressionRow['old'];
 
-/** A case's verdict and how it counts: `failing` cases exit the run 1; `known` ones are listed apart. */
-export interface RegressionVerdict { verdict: string; failing: boolean; notTested: boolean; known: boolean }
+/** A case's verdict and how it counts: `failing` cases exit the run 1; `known` and `open` ones are listed apart. */
+export interface RegressionVerdict { verdict: string; failing: boolean; notTested: boolean; known: boolean; open?: boolean }
 
 /**
  * The verdict of one regression case from its two sides (pure, so the rules are unit-tested):
@@ -65,10 +73,12 @@ export interface RegressionVerdict { verdict: string; failing: boolean; notTeste
  *     reproduce and the case does not know why - fails the run (an unproven case is never a pass);
  *   - KNOWN-UNREPRODUCED: the old pack does not reproduce for a reason the case records (`knownUnreproduced`) and the
  *     new pack passes the scenario - does not fail the run, and is listed apart;
+ *   - OPEN: the case is an open device defect (`open`), the old pack reproduced and the current one still does - does
+ *     not fail the run, and is listed apart (a fix turns it OK, with a reminder to drop `open`);
  *   - OK / FAIL: the old pack reproduced and the new one met (or missed) `expectNew`; a known-unreproduced case
  *     whose new pack fails is a FAIL too.
  */
-export function regressionVerdict(c: Pick<RegressionCase, 'expectNew' | 'limits' | 'knownUnreproduced'>, oldR: RegressionSide, newR: RegressionSide): RegressionVerdict {
+export function regressionVerdict(c: Pick<RegressionCase, 'expectNew' | 'limits' | 'knownUnreproduced' | 'open'>, oldR: RegressionSide, newR: RegressionSide): RegressionVerdict {
   if ('error' in oldR || 'error' in newR) {
     const why = [['old', oldR] as const, ['new', newR] as const].flatMap(([side, r]) => ('error' in r ? [`${side}: ${r.error}`] : []));
     return { verdict: `NOT TESTED (${why.join('; ')})`, failing: true, notTested: true, known: false };
@@ -80,6 +90,10 @@ export function regressionVerdict(c: Pick<RegressionCase, 'expectNew' | 'limits'
     if (c.knownUnreproduced && newOk) return { verdict: `KNOWN-UNREPRODUCED (${c.limits ?? 'not reproduced on the old pack'}; the current pack passes the scenario)`, failing: false, notTested: false, known: true };
     if (c.knownUnreproduced) return { verdict: 'FAIL (the current pack fails a case the old pack does not reproduce)', failing: true, notTested: false, known: false };
     return { verdict: `NOT TESTED (not reproduced on the old pack${o.untested ? `: ${o.untested}` : ''}${c.limits ? `; ${c.limits}` : ''})`, failing: true, notTested: true, known: false };
+  }
+  if (c.open) {
+    return newOk ? { verdict: `OK (the current pack no longer reproduces: drop \`open\` (${c.open}) from the case)`, failing: false, notTested: false, known: false }
+      : { verdict: `OPEN (${c.open}: reproduced on both packs; no fix yet)`, failing: false, notTested: false, known: false, open: true };
   }
   return newOk ? { verdict: 'OK', failing: false, notTested: false, known: false } : { verdict: 'FAIL', failing: true, notTested: false, known: false };
 }
@@ -533,6 +547,8 @@ export const REGRESSIONS: RegressionCase[] = [
   },
   // The world's cases (water, bodies): regressions-world.ts.
   ...WORLD_REGRESSIONS,
+  // Round 30m's open device defects: regressions-30m.ts.
+  ...ROUND_30M_REGRESSIONS,
 ];
 
 /** One auto-jump walk of `lift-top-fall-10261`, anchor-relative. */

@@ -81,6 +81,9 @@ export function regressionMarkdown(rows: readonly RegressionRow[]): string {
   // green run is never read as "every device bug reproduces".
   const known = rows.filter(r => r.verdict.startsWith('KNOWN-UNREPRODUCED'));
   if (known.length) lines.push(`**${known.length} known-unreproduced case(s)** (the old pack does not show the device bug here; only the current pack's check ran): ${known.map(r => `\`${r.id}\``).join(', ')}`, '');
+  // Open device defects: reproduced, and still reproduced on the current pack (no fix yet) - not a pass either.
+  const open = rows.filter(r => r.verdict.startsWith('OPEN'));
+  if (open.length) lines.push(`**${open.length} open case(s)** (a device defect the simulator reproduces, not fixed yet): ${open.map(r => `\`${r.id}\``).join(', ')}`, '');
   lines.push('| case | old pack (device) | current tree | expected now | verdict |', '|---|---|---|---|---|');
   for (const r of rows) lines.push(`| ${esc(r.title)} | ${cell(r.old)} | ${cell(r.new)} | ${r.expectNew} | ${r.verdict} |`);
   lines.push('', '## Evidence', '');

@@ -82,6 +82,8 @@ import type { Pack } from '../../pack/pack.js';
 const appearances = new WeakMap<Pack, AddonAppearance>();
 /** Remember a pack's appearance for the course (child-play's `craftmaticHandlers` calls this). */
 export function registerAppearance(pack: Pack, appearance: AddonAppearance): void { appearances.set(pack, appearance); }
+/** A pack's registered drawn appearance (undefined until `craftmaticHandlers` built it): a regression case reads a hull through it. */
+export function registeredAppearance(pack: Pack): AddonAppearance | undefined { return appearances.get(pack); }
 
 /** Ticks after boarding before the seat turns a child who climbed on looking away onto the heading (quirk `mount-snaps-rider-yaw`: 4-12 on the Saga). */
 const MOUNT_SNAP_TICKS = 4;

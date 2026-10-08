@@ -69,7 +69,9 @@
  * Exit 1 for a failed, errored or unmodelled scenario, an unreadable pack,
  * a regression verdict FAIL / NOT TESTED, or no applicable selected cases. A
  * KNOWN-UNREPRODUCED regression (the case records why the simulator cannot show
- * the device bug, and the current pack passes) is listed apart and does not.
+ * the device bug, and the current pack passes) is listed apart and does not; nor
+ * does an OPEN one (an open device defect, `open` on the case, reproduced on the
+ * old pack and still on the current one: no fix has shipped).
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import sharp from 'sharp';
@@ -252,7 +254,7 @@ if (mode === 'regressions') {
   console.log(`Regression selection: ${selected.length}/${REGRESSIONS.length} case(s)${only ? ` (--only=${only})` : ''}`);
   const rows: RegressionRow[] = [];
   let notTested = 0;
-  const known: string[] = [];
+  const known: string[] = [], open: string[] = [];
   for (const c of selected) {
     // The OLD side is always the pack as the device ran it (it must reproduce); only the new side takes `--runtime`.
     const run = async (file: string, swap: boolean): Promise<RegressionRow['old']> => {
@@ -279,6 +281,7 @@ if (mode === 'regressions') {
     if (v.failing) failed++;
     if (v.notTested) notTested++;
     if (v.known) known.push(c.id);
+    if (v.open) open.push(c.id);
     rows.push({ id: c.id, title: c.title, evidence: c.evidence, expectNew: c.expectNew, old: oldR, new: newR, verdict, ...(c.limits ? { limits: c.limits } : {}) });
     console.log(`${c.id}: old ${'error' in oldR ? oldR.error : oldR.reproduced ? `REPRODUCED${oldR.attribution ? ` (${oldR.attribution})` : ''}` : 'not reproduced'}; new ${'error' in newR ? newR.error : newR.reproduced ? `REPRODUCED${newR.attribution ? ` (${newR.attribution})` : ''}` : 'not reproduced'} -> ${verdict}`);
     for (const [k, x] of [['old', oldR], ['new', newR]] as const) if (!('error' in x)) console.log(`    ${k}: ${x.evidence.slice(0, 300)}`);
@@ -286,9 +289,11 @@ if (mode === 'regressions') {
   const md = regressionMarkdown(rows);
   if (flag('md')) writeFileSync(flag('md')!, md);
   if (flag('json')) writeFileSync(flag('json')!, JSON.stringify(rows, null, 1));
-  console.log(`\n${rows.length} selected regression(s); ${failed - notTested} failed; ${notTested} not tested; ${known.length} known-unreproduced.`);
+  console.log(`\n${rows.length} selected regression(s); ${failed - notTested} failed; ${notTested} not tested; ${known.length} known-unreproduced; ${open.length} open.`);
   // Listed on their own: these pass only their current-pack check (the old pack never showed the device bug here).
   if (known.length) console.log(`KNOWN-UNREPRODUCED (not failing the run): ${known.join(', ')}`);
+  // Open device defects reproduced on both packs: the simulator shows them; no fix has shipped yet.
+  if (open.length) console.log(`OPEN (reproduced, not fixed; not failing the run): ${open.join(', ')}`);
   process.exit(failed ? 1 : 0);
 }
 
