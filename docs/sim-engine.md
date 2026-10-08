@@ -23,6 +23,11 @@ bun scripts/sim.ts <packs> --scenario=vehicles             # every scripted vehi
 bun scripts/sim.ts <packs> --scenario=my-scenarios.ts    # your own scenarios
 bun scripts/sim.ts --scenario=hop --coaster=<10261> --flyer=<nimbus> [--car=<42639>|same] [--slide=<10788>]
                                                          # several packs in ONE world: the hop
+bun scripts/sim.ts <packs> --scenario=input              # the client's hand: drags, mount snap, flyer swipe, tap occlusion
+bun scripts/sim.ts <pack> --scenario=input --device-script=<round session or tool> --device-pin=x,y,z [--tool-rev=<rev>]
+                                                         # an adb round's own tools replayed on the phone's screen model
+bun scripts/sim.ts <packs> --sneak-toggle                # child play's doorway scenarios with the touch sneak left ON
+bun scripts/sim.ts <packs> --scenario=vehicles --cost    # + predicted ms/tick per phone (quirks/cost.ts)
 ```
 
 ## Where it sits: the tiers of evidence
@@ -61,19 +66,26 @@ web/src/sim/
   world/       voxel-world (chunked blocks, loaded area, collision query) · block-types (pack block
                JSON, permutations, vanilla shapes) · molang (permutation conditions) · nbt · mcstructure
   entity/      definitions (entity JSON, refusals, groups, events, properties) · entity (state, riding)
-  physics/     body (THE per-tick integrator: tickPlayer, tickBody, moveBox) · systems (players,
-               hover mounts, mobs, riders, effects, falls)
-  input/       controls (stick, jump, sneak) · touch (tap = hit, hold = interact, item use) · ray
+  physics/     body (THE per-tick integrator: tickPlayer, tickBody, moveBox) · systems (mobs, effects,
+               falls) · player-systems (players and their drags, hover mounts in bursts, riders, the
+               mount snap) · shared
+  input/       controls (stick, jump, sneak hold/toggle, queued drags) · touch (tap = hit, hold =
+               interact, item use) · ray · scheme (where a drag goes) · drag (pixels to look, applied
+               and recorded) · screen (phone viewports, the camera's screen ray, crosshair/touch pick)
+               · steps (drag, sneakToggle, sneakMode, tapScreen) · device-script (round tools
+               interpreted, the phone's screen model)
   script-host/ host (the mock, the tick) · facades (Entity, Player, Dimension, Block, components)
                module-loader (all scripts in one context) · scheduler · commands · ui-module (forms)
                unmodelled (the honesty guard) · api-catalog (GENERATED) · text
-  quirks/      registry (device-measured facts with evidence)
+  quirks/      registry (device-measured facts with evidence) · cost (the per-tick cost model:
+               PREDICTED ms/tick from the rounds' telemetry)
   scenario/    types (the step language) · runner · invariants · approach (where to stand) · report
   render/      rasterizer (z-buffered quads → RGB)
   pack/        pack (.mcaddon → packs) · json (literal-preserving JSON) · script-config (CONFIG reader)
                fixture (a pack built in memory: one runtime and its definitions, for tests and probes)
   adapters/craftmatic/
                pack-facts · wand (place, undo) · play (rides, vehicles, flyers, doorways, figures)
+               input-probe (the input scenarios, the sneak-toggle variants, the device-script step)
                child-play (the generated scenarios) · regressions (the device-bug set)
                hop (several packs in one world: fly or drive into another mount)
                appearance (the pack's drawn geometry) · drawn · snapshot
@@ -146,12 +158,28 @@ edit of the loop.
 - `physics/body.ts`: `tickPlayer`, `tickBody`, `moveBox`, the constants (physics spec §12).
 - `input/touch.ts`: `tap`, `interact`, `pick`, `lookAt`, `aimPoint`, `useItem`;
   `input/ray.ts`: `raycastBlocks`, `raycastEntities`, `pickBoxes`.
+- `input/controls.ts` `ControlState` (THE client-input API, the walker's too): `set`, `get`,
+  `takeSneakEdge`, `sneakMode` / `setSneakMode('hold' | 'toggle')`, `sneakToggle(id)` (one press of the
+  touch button), `drag(id, { yawDeg, pitchDeg })` (queued; applied at the next tick), `takeDrag`.
+- `input/drag.ts`: `dragPixels(controls, id, dx, dy)` (raw pixels at the touch sensitivity),
+  `applyPendingDrag`, `dragRecords(engine)`, `dragReach(record)`, `cameraOrbit(engine, id)`,
+  `setDragClient`; `input/scheme.ts`: `dragRoute`, `DRAG_TO_CAMERA_SCHEMES`.
+- `input/screen.ts`: `PIXEL_VIEWPORT`, `SAGA_VIEWPORT`, `touchModeOf`, `screenCamera`, `screenRay`,
+  `projectToScreen`, `screenPick`, `tapScreen(engine, player, { x, y }, viewport, camera?)`,
+  `scriptCameraActive`.
+- `input/steps.ts`: `INPUT_HANDLERS` (`drag`, `sneakToggle`, `sneakMode`, `tapScreen`), `dragOver`,
+  `screenTap`, `viewportNamed`; `input/device-script.ts`: `runDeviceScript`, `PhoneScreen`,
+  `PIXEL_LAYOUT`, `translateCommand`, `DeviceScriptError`.
+- `quirks/cost.ts`: `COST_FITS`, `COST_CALIBRATION_LOGS`, `parseCmvtSamples`, `fitCost`,
+  `predictedMsPerTick`, `summarizeCost`, `TICK_BUDGET_WARN_MS`.
 - `script-host/host.ts` `ScriptHost`: `loadScripts(addon)`, `reloadScripts(addons)`,
   `builtin(name)`, `deliver`, `before`, `entity(sim)`, `simOf(api)`, `dimensionApi(id)`,
   `resolvePermutation`, `playerState`, `scriptNow()` (a script's `Date.now()`); `.chooser`
   (answers forms), `.scheduler`, `.stats` (sounds and particles); options `scheduler`
   (`ticks` / `immediate`), `seed`, `timeOfDay`, `chooser`, `wrapMath` (instrument the
-  scripts' `Math`), `absentExports` (exports an older client lacks).
+  scripts' `Math`), `absentExports` (exports an older client lacks), `costCounters` (count
+  `getEntities` / `getBlock` / `runCommand` / `fillBlocks` / `setBlock` / `teleport` per tick per
+  script into `.costLog`).
 - `scenario/runner.ts`: `runScenario(scenario, addons, options)` → `ScenarioResult`;
   `CORE_HANDLERS`, `findEntity`. `scenario/report.ts`: `markdownReport`,
   `regressionMarkdown`, `unmodelledTotals`.
@@ -230,14 +258,19 @@ to check each tick (default: all core ones).
 
 Core steps: `wait`, `teleport`, `look`, `walkLine` (a straight walk with
 `maxDrop` / `arriveWithin` checks), `tap`, `hold`, `rideUntil`, `drive`,
-`sneak`, `jumpHold`, `useItem`, `expect` (any check of your own). A `tap` or
+`sneak`, `jumpHold`, `useItem`, `expect` (any check of your own). The input
+steps (`INPUT_HANDLERS`, merged in by the CLI; "Input" below): `drag`,
+`sneakToggle`, `sneakMode`, `tapScreen`. A `tap` or
 `hold` first stands the player where a tap would pick the target
 (`scenario/approach.ts`); no such spot is a `tap-target-reachable` violation.
 
 Core invariants (`scenario/invariants.ts`): `player-not-in-solid` (2 ticks'
 grace for a teleport's set-down), `no-unprotected-fall` (over 3 blocks
 without slow falling), `nothing-below-ground` (fell through the world),
-`rider-drag-reaches-look` (a riding player held in `player_relative` or
+`rider-drag-reaches-look` (MEASURED since 2026-10-08: every drag a riding
+player makes must turn its look by at least half of what the finger asked,
+read at the end of the tick, only the pitch on a lock-0 seat; a scenario
+that never drags still fails a rider held in `player_relative` or
 `camera_relative`, whose drag turns only the camera: the Nimbus, Saga 30k;
 quirk `control-scheme-drag-to-camera`), `no-script-error`, `no-content-log-error` (refused definitions),
 `no-unexpected-line` (chat / action bar / console lines that read as faults,
@@ -416,7 +449,11 @@ old pack "passed" the oblique lane by running 84 blocks round the hill's
 end), `ship-turn-climbs`, `ship-parks-on-player`, `ship-parks`, `dismount-in-hull`,
 `ship-controls`, `free-look` (also: the chase camera must open behind the
 nose when the child climbed on looking at the vehicle's face and the seat
-turned them 4 ticks later, quirk `mount-snaps-rider-yaw`),
+turned them 4 ticks later, quirk `mount-snaps-rider-yaw` - since 2026-10-08
+the riders system makes that snap itself, so the course's own set-the-look-
+away-and-back in `board` is redundant: `TODO(sim-input)` delete it with the
+course file's owner; `--scenario=input`'s `input-<vehicle>` boards with the
+look away and only the snap),
 `cockpit-eye-on-seat` (hotbar slot 9 at full stick: the camera's target
 within half a block, along the heading, of the eye on the pose the runtime
 saw `cockpit-draw-lag` ticks back - where the device draws the seat; Saga
@@ -432,11 +469,80 @@ flat world on purpose) and judges the vehicle by its own band instead.
 Boats (no water lane yet, `TODO(sim-boat-course)`) and native mounts (the
 simulator's hover controller is a stand-in) are left out.
 
-What it cannot show: whether a DRAG on the device turns the rider's look on
-a lock-181 seat, whether the engine turns a scripted vehicle toward that look,
-and how late a carried rider's yaw is (quirk `rider-free-look`): the camera
-step moves the rider's look as a drag would and the simulator neither
-carries nor turns.
+What it cannot show: whether the engine turns a scripted vehicle toward its
+rider's look (quirk `rider-free-look`: measured no on the Saga, applied as
+no). The course's camera step still sets the look directly; the real drag
+path (routed by the scheme, the carry, the snap) is `--scenario=input`.
+
+## Input: the client's hand (`input/**`, `adapters/craftmatic/input-probe.ts`)
+
+The simulator modelled the SERVER well and the CLIENT not at all; five of the
+six device findings before round 30m were client faults (the Nimbus spin, the
+cockpit lag, `player_relative` drags turning only the camera, the sneak
+TOGGLE, a stray harness tap). This layer is the client's hand:
+
+- **Drags** (`ControlState.drag`, `dragPixels`): queued and applied by the
+  players system at the start of the next tick, routed by `dragRoute`
+  (`input/scheme.ts`, quirk `control-scheme-drag-to-camera`): the default
+  scheme turns the player's yaw and pitch, a lock-0 seat only the pitch, a
+  drag-to-camera scheme only the client's orbit (`cameraOrbit`) or nothing
+  under a script camera. Every applied drag is recorded (`dragRecords`) and
+  the invariant `rider-drag-reaches-look` MEASURES it. Pixels to degrees:
+  quirk `touch-drag-degrees-per-pixel` (0.21, the Saga's 400 px = 84
+  degrees; the pitch rate and direction ASSUMED).
+- **The touch sneak TOGGLE** (`setSneakMode(id, 'toggle')`, `sneakToggle`,
+  quirk `touch-sneak-toggle`): a press flips sneaking, a release changes
+  nothing, every press is a dismount edge; in toggle mode an older scenario's
+  `sneak` step (press + release) leaves sneak ON, as the phone does.
+  `--sneak-toggle` runs child play's doorway scenarios with the toggle left
+  on before the lines (`sneakToggleScenarios`).
+- **The mount snap** (riders system, quirk `mount-snaps-rider-yaw`): the yaw
+  offset a player has from its mount's heading when first seen seated is
+  taken out over 12 ticks (0.55 of what is left a tick); a drag made
+  meanwhile is kept. It watches who sits where, so a script's `addRider`, a
+  `/ride` and a scenario's direct seat all meet it.
+- **Native-mount bursts** (mounts system, quirk `native-mount-bursts`): the
+  hover controller's move is applied every 4 ticks; its yaw chase stays per
+  tick.
+- **Screen taps** (`input/screen.ts`, quirk `touch-screen-pick`): a phone
+  viewport (Pixel 2244 x 1008, Saga 2400 x 1080), the camera the player sees
+  (the script camera when one is active, else the eye; `TODO(sim-client)`:
+  the DRAWN pose once package B's client camera lands), the rasteriser's
+  projection. With Split Controls on (a crosshair: both QA phones) a tap
+  anywhere outside the HUD picks at the screen CENTRE; with them off, under
+  the finger. An entity counts only within the touch reach of the eye.
+- **Device-script replay** (`input/device-script.ts`): a round's own bash
+  tools (`tools/cmd.sh`, `tap.sh`, `walk.sh`, `lane.sh`,
+  `scripts/_pixel_cmd.sh`) interpreted - the subset they use, and anything
+  else THROWS - and played on `PhoneScreen`: the chat button opens the chat,
+  the chat takes every touch while open, Enter runs the command and closes
+  it (quirk `chat-enter-closes`), a press in the joystick holds the stick,
+  every other touch reaches the world (a tap, a hold past 0.5 s, a drag).
+  `--device-pin` maps the device's `/tp` coordinates onto the placement's
+  anchor, read as float32 (quirk `position-float32`); `--tool-rev` reads
+  `scripts/` tools as they were at a revision (the round's). Recorded per
+  touch: what it picked; per tick: which part opened or closed and every fall
+  over 3 blocks, with the touch before it.
+
+**Acceptance (2026-10-08).** The Pixel 30k Gate 1 throw-out, replayed from the
+round's tools (`output/engine-c-20261008/replay-30k-gate1.sh`, the 30k pack,
+`--tool-rev=2a3ee69b`): the `/tp @s 7511.7 -42.9 7153.3 180 10` is typed, the
+chat closes, `_pixel_cmd.sh`'s Exit tap at raw (45, 39) acts at the crosshair,
+Gate 1 closes on the player, the step-out drops it 17 blocks to pin + (13.33,
+0, 1.67) - where the Pixel landed (7513.33, -60, 7151.67). With today's tool
+(the Exit tap only while the keyboard is up) nothing closes and nobody falls
+(`test/sim-input.test.ts`).
+
+**Cost** (`--cost`, `quirks/cost.ts`): the host counts the scripts' facade
+calls per tick by script, and the vehicles' telemetry is switched on; each
+moving `CMVT` sample's `sweepChecks` gives a PREDICTED ms/tick per phone from a
+least-squares line through the rounds' own telemetry (Pixel 120 and Saga 491
+moving samples, 30j-30l: `ms = 4.14 + 0.0131 x checks` and `2.47 + 0.0160 x
+checks`; the Milano's 770-check cruise is 14.2 / 14.8 against the measured
+14.5 / 13.4). Reported p50 / p95 per scenario; `tick-budget` WARNS over 25 ms
+and never fails: it is a trend detector, not a measurement. Not counted:
+calls made through an entity's own facade other than `teleport` (`Block`
+writes, `Player.runCommand`): `TODO(sim-cost)`.
 
 ## Calibrating from a device round
 
@@ -571,7 +677,8 @@ seats' set-down order is physics spec §4.8.
 - **Entity AI** (navigation, behaviours) is not run; only what scripts do and
   `minecraft:physics` gravity/collision. Entities do not collide with each other.
 - **Native controllers**: only the hover controller (rotorcraft, flyer) is
-  modelled; its server position moves every tick (the device's bursts are not).
+  modelled; its server position moves in 4-tick bursts (quirk
+  `native-mount-bursts`, since 2026-10-08), its yaw every tick.
 - **Riding**: a mob rider's own ride offset is not applied (`TODO(sim-seat)`);
   a player's teleport while riding dismounts (measured for `/tp`, assumed for
   the script call).
@@ -606,7 +713,7 @@ seats' set-down order is physics spec §4.8.
   built before the fix to `collisionBox` shows its x-banded clearance forms on
   the half of the block the phone put them on, not where the kit meant.
 - **Dismount spot** (quirk `dismount-free-spot`, `setDownRider` in
-  `physics/systems.ts`): a player that gets off is set on the floor one block
+  `physics/player-systems.ts`): a player that gets off is set on the floor one block
   from the seat ENTITY, trying world (0,-1), (0,+1), (+1,-1), (+1,+1),
   (-1,+1) in that order, a floor within about +0.5 / -1 of the seat entity;
   with none free, at the seat's point 0.2 up. The search runs about
@@ -631,6 +738,8 @@ seats' set-down order is physics spec §4.8.
   pack sees only its own (quirk `dynamic-properties-per-pack`). A script that
   reads another pack's property works here and not there.
 - **Performance** is not the device's: a tick is as fast as the host runs it.
+  `--cost` PREDICTS a vehicle tick's ms on each phone from its probe count
+  (`quirks/cost.ts`, "Input" above); nothing else is predicted.
 
 ## The older hosts, folded (2026-09-30)
 

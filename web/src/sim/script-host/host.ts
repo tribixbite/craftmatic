@@ -24,6 +24,8 @@ import { ModuleLoader, engineDate, seededMath } from './module-loader.js';
 import { Scheduler } from './scheduler.js';
 import { createUiModule, type FormChooser } from './ui-module.js';
 import { guard, unmodelled, unmodelledExport } from './unmodelled.js';
+import { setDragClient } from '../input/drag.js';
+import { scriptCameraActive } from '../input/screen.js';
 
 /** Events the host delivers to `world.afterEvents` / `system.afterEvents` subscribers. */
 type AfterEventName = 'entityHitEntity' | 'playerInteractWithEntity' | 'itemUse' | 'playerLeave' | 'entitySpawn' | 'entityRemove' | 'playerSpawn' | 'scriptEventReceive' | 'entityLoad' | 'worldLoad';
@@ -51,7 +53,19 @@ export interface ScriptHostOptions {
    * (`typeof LinearSpline === 'undefined'`), instead of the current mock.
    */
   absentExports?: readonly string[];
+  /**
+   * Count the facade calls scripts make per tick, by script (`costLog`): the input of the per-tick cost model
+   * (`quirks/cost.ts`). Off by default: attributing a call to its script reads the call stack, which costs.
+   */
+  costCounters?: boolean;
 }
+
+/** The facade members the cost counters count (the calls a runtime's per-tick work is made of). */
+export const COSTED_CALLS = ['getEntities', 'getBlock', 'runCommand', 'fillBlocks', 'setBlock', 'teleport'] as const;
+export type CostedCall = typeof COSTED_CALLS[number];
+
+/** One tick's counted calls: `script -> call -> count` (a call outside any pack script is under `(host)`). */
+export interface TickCost { tick: number; bySource: Record<string, Partial<Record<CostedCall, number>>> }
 
 /** The engine's clock epoch for scripts' `Date.now()` (a fixed instant, so traces repeat). */
 const EPOCH_MS = Date.UTC(2026, 8, 30, 12, 0, 0);
@@ -77,6 +91,8 @@ export class ScriptHost implements FacadeHost {
   private readonly serverModule: Record<string, unknown>;
   private readonly uiModule: Record<string, unknown>;
   readonly loaders: ModuleLoader[] = [];
+  /** Per-tick facade call counts (`ScriptHostOptions.costCounters`), oldest first; ticks with no counted call are absent. */
+  readonly costLog: TickCost[] = [];
 
   constructor(readonly engine: SimEngine, readonly controls: ControlState, readonly options: ScriptHostOptions = {}) {
     this.timeline = engine.timeline;
@@ -93,6 +109,19 @@ export class ScriptHost implements FacadeHost {
     engine.on('entityRemove', e => this.enqueue('entityRemove', () => ({ removedEntityId: e.entity.id, typeId: e.entity.typeId })));
     engine.on('entityLoad', e => this.enqueue('entityLoad', () => ({ entity: this.entity(e.entity) })));
     engine.addSystem({ name: 'scripts', order: ORDER.scripts, tick: () => this.tick() });
+    // The drag router asks the host what only it keeps: a player's control scheme and whether a script camera is on.
+    setDragClient(engine, { scheme: p => this.playerState(p).controlScheme, scriptCamera: p => scriptCameraActive(this.playerState(p).camera) });
+  }
+
+  /** Count one facade call for the cost model (`costCounters`), attributed to the pack script on the stack. */
+  countCall(call: CostedCall): void {
+    if (!this.options.costCounters) return;
+    const tick = this.engine.tick;
+    let row = this.costLog[this.costLog.length - 1];
+    if (!row || row.tick !== tick) this.costLog.push(row = { tick, bySource: {} });
+    const src = this.timeline.callerSource() ?? '(host)';
+    const by = row.bySource[src] ??= {};
+    by[call] = (by[call] ?? 0) + 1;
   }
 
   /** The module a script importing `name` gets (`@minecraft/server`, `@minecraft/server-ui`), or undefined. */
@@ -186,8 +215,25 @@ export class ScriptHost implements FacadeHost {
 
   entity(sim: SimEntity): Record<string, unknown> {
     let f = this.facades.get(sim);
-    if (!f) { f = entityFacade(this, sim); this.facades.set(sim, f); this.sims.set(f, sim); }
+    if (!f) {
+      f = entityFacade(this, sim);
+      // With the cost counters on, a teleport through the facade is counted (the facade itself is the world/body
+      // package's); the counting wrapper IS the facade then, for `simOf` and every script alike.
+      if (this.options.costCounters) f = this.countingFacade(f);
+      this.facades.set(sim, f); this.sims.set(f, sim);
+    }
     return f;
+  }
+
+  /** Wrap an entity facade so its `teleport` / `tryTeleport` calls are counted (`costCounters`). */
+  private countingFacade(f: Record<string, unknown>): Record<string, unknown> {
+    return new Proxy(f, {
+      get: (t, prop, recv) => {
+        const v = Reflect.get(t, prop, recv);
+        if ((prop === 'teleport' || prop === 'tryTeleport') && typeof v === 'function') return (...a: unknown[]) => { this.countCall('teleport'); return (v as (...x: unknown[]) => unknown).apply(t, a); };
+        return v;
+      },
+    });
   }
 
   simOf(api: unknown): SimEntity | undefined { return api && typeof api === 'object' ? this.sims.get(api) : undefined; }
@@ -244,8 +290,8 @@ export class ScriptHost implements FacadeHost {
       get id() { return id; },
       get heightRange() { return { min: w.heightRange.min, max: w.heightRange.max }; },
       get localizationKey() { return `dimension.${id.replace(/^minecraft:/, '')}`; },
-      getBlock: (loc: Vec3) => blockFacade(this, id, loc.x, loc.y, loc.z),
-      getEntities: (q?: Record<string, unknown>) => sortQuery(engine.loadedEntities(id).filter(e => entityMatches(e, q ?? {})), q ?? {}).map(e => this.entity(e)),
+      getBlock: (loc: Vec3) => { this.countCall('getBlock'); return blockFacade(this, id, loc.x, loc.y, loc.z); },
+      getEntities: (q?: Record<string, unknown>) => (this.countCall('getEntities'), sortQuery(engine.loadedEntities(id).filter(e => entityMatches(e, q ?? {})), q ?? {}).map(e => this.entity(e))),
       getPlayers: (q?: Record<string, unknown>) => sortQuery(engine.players.filter(p => p.valid && p.dimension === id && entityMatches(p, q ?? {})), q ?? {}).map(e => this.entity(e)),
       getEntitiesAtBlockLocation: (loc: Vec3) => engine.loadedEntities(id).filter(e => Math.floor(e.location.x) === Math.floor(loc.x) && Math.floor(e.location.y) === Math.floor(loc.y) && Math.floor(e.location.z) === Math.floor(loc.z)).map(e => this.entity(e)),
       isChunkLoaded: (loc: Vec3) => w.isLoaded(loc.x, loc.z),
@@ -256,11 +302,12 @@ export class ScriptHost implements FacadeHost {
       },
       spawnParticle: (name: string) => { this.stats.set(`particle ${name}`, (this.stats.get(`particle ${name}`) ?? 0) + 1); },
       playSound: (name: string) => { this.stats.set(`sound ${name}`, (this.stats.get(`sound ${name}`) ?? 0) + 1); },
-      runCommand: (cmd: string) => this.runCommand(id, cmd),
-      setBlockType: (loc: Vec3, t: string | { id: string }) => { if (!w.isLoaded(loc.x, loc.z)) throw new Error('setBlockType: not loaded'); w.setPermutation(loc.x, loc.y, loc.z, this.resolvePermutation(typeof t === 'string' ? t : t.id)); },
-      setBlockPermutation: (loc: Vec3, p: { __perm?: Permutation }) => { if (!p?.__perm) throw new TypeError('setBlockPermutation: not a BlockPermutation'); if (!w.isLoaded(loc.x, loc.z)) throw new Error('setBlockPermutation: not loaded'); w.setPermutation(loc.x, loc.y, loc.z, p.__perm); },
+      runCommand: (cmd: string) => { this.countCall('runCommand'); return this.runCommand(id, cmd); },
+      setBlockType: (loc: Vec3, t: string | { id: string }) => { this.countCall('setBlock'); if (!w.isLoaded(loc.x, loc.z)) throw new Error('setBlockType: not loaded'); w.setPermutation(loc.x, loc.y, loc.z, this.resolvePermutation(typeof t === 'string' ? t : t.id)); },
+      setBlockPermutation: (loc: Vec3, p: { __perm?: Permutation }) => { this.countCall('setBlock'); if (!p?.__perm) throw new TypeError('setBlockPermutation: not a BlockPermutation'); if (!w.isLoaded(loc.x, loc.z)) throw new Error('setBlockPermutation: not loaded'); w.setPermutation(loc.x, loc.y, loc.z, p.__perm); },
       fillBlocks: (volume: unknown, block: string | { __perm?: Permutation }, options?: { blockFilter?: { includeTypes?: string[]; excludeTypes?: string[] } }) => {
         // quirk fill-volume-limit: a BlockVolume instance, at most 32768 blocks.
+        this.countCall('fillBlocks');
         const v = vol(volume);
         if (!v) throw new TypeError('Native type conversion failed: expected BlockVolume');
         const lo = { x: Math.min(v.from.x, v.to.x), y: Math.min(v.from.y, v.to.y), z: Math.min(v.from.z, v.to.z) }, hi = { x: Math.max(v.from.x, v.to.x), y: Math.max(v.from.y, v.to.y), z: Math.max(v.from.z, v.to.z) };

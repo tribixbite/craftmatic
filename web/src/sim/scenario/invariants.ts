@@ -9,8 +9,9 @@
  *                           without slow falling;
  *   nothing-below-ground    no entity ends up under the terrain surface (fell
  *                           through the world);
- *   rider-drag-reaches-look a riding player is never held in a control scheme
- *                           whose drag turns only the camera
+ *   rider-drag-reaches-look a riding player's drag turns its look (measured on
+ *                           every drag, `input/drag.ts`); without a drag, a
+ *                           scheme whose drag turns only the camera fails
  *                           (`DRAG_TO_CAMERA_SCHEMES`; Saga 30k, the Nimbus);
  *   no-script-error         no script exception, no module that failed to load;
  *   no-content-log-error    no definition the game refuses;
@@ -26,6 +27,8 @@ import type { TimelineEntry } from '../core/timeline.js';
 import type { SimEntity } from '../entity/entity.js';
 import { FLAT_GROUND_Y } from '../world/voxel-world.js';
 import { plainText } from '../script-host/text.js';
+import { DRAG_TO_CAMERA_SCHEMES } from '../input/scheme.js';
+import { dragReach, dragRecords } from '../input/drag.js';
 
 export interface Violation {
   invariant: string;
@@ -165,24 +168,46 @@ function actionbarNotStolen(): Invariant {
   };
 }
 
-/**
- * Control schemes under which a touch drag turns only the CAMERA, never the player (Microsoft Learn, "Control
- * Schemes": player relative and camera relative "Drag on the screen to rotate the camera"; quirk
- * `control-scheme-drag-to-camera`). Every pack's ride is watched from a script camera, which no drag moves.
- */
-export const DRAG_TO_CAMERA_SCHEMES: ReadonlySet<string> = new Set(['player_relative', 'camera_relative']);
+// The drag-to-camera schemes live with the drag router (`input/scheme.ts`); re-exported for older readers.
+export { DRAG_TO_CAMERA_SCHEMES };
 
+/** A drag under this share of what it asked for did not reach the look (`dragReach`). */
+export const DRAG_REACH_MIN = 0.5;
+
+/**
+ * `rider-drag-reaches-look`, a MEASUREMENT since 2026-10-08: every drag a riding player makes (`input/drag.ts`
+ * records each one) must turn its look by at least `DRAG_REACH_MIN` of what the finger asked, read at the END of
+ * the tick (after every script ran). On a seat whose `lock_rider_rotation` is 0 only the pitch is asked of it (the
+ * yaw is held to the seat on the device, pinball). A riding player who never drags in the scenario is still held
+ * to the rule (quirk `control-scheme-drag-to-camera`): a scheme that sends every drag to the camera fails once
+ * per mount, so a scenario without a drag still catches the Nimbus's 30k fault.
+ */
 function riderDragReachesLook(): Invariant {
-  let reported: unknown;
+  let ruled: unknown, seen = 0;
   return {
-    id: 'rider-drag-reaches-look', description: 'A riding player is never held in a control scheme whose drag turns only the camera: a drag must turn the rider\'s look (free look, a native mount\'s steering and its "look down + Jump").',
+    id: 'rider-drag-reaches-look', description: 'A riding player\'s drag turns its look (free look, a native mount\'s steering and its "look down + Jump"): measured on every drag, and a scheme whose drag turns only the camera fails even without one.',
     tick(ctx) {
       const p = ctx.player, mount = p.ridingOn;
-      if (!mount) { reported = undefined; return; }
+      const recs = dragRecords(ctx.engine);
+      let draggedNow = false;
+      for (; seen < recs.length; seen++) {
+        const r = recs[seen]!;
+        if (r.playerId !== p.id || !r.mount) continue;
+        draggedNow = true;
+        // Measured against the look at the end of the tick: a script that put the look back counts as a drag lost.
+        const end = { ...r, after: { yaw: p.rotation.y, pitch: p.rotation.x } };
+        const pitchOnly = r.route === 'pitch-only';
+        const asked = pitchOnly ? Math.abs(r.asked.pitchDeg) : Math.hypot(r.asked.yawDeg, r.asked.pitchDeg);
+        if (asked < 1) continue;
+        const reach = pitchOnly ? Math.min(1, Math.abs(end.after.pitch - end.before.pitch) / asked) : dragReach(end);
+        if (reach < DRAG_REACH_MIN) ctx.report({ invariant: 'rider-drag-reaches-look', message: `a drag of ${Math.round(asked * 10) / 10} degrees on ${r.mount} turned the rider's look ${Math.round(reach * asked * 10) / 10} (route ${r.route}${r.scheme ? `, scheme \`${r.scheme}\`` : ''}): it neither looks round nor steers (Saga 30k, the Nimbus)`, evidence: { mount: r.mount, route: r.route, scheme: r.scheme ?? 'default', asked: r.asked, before: r.before, after: end.after } });
+      }
+      if (!mount) { ruled = undefined; return; }
+      if (draggedNow || ruled === mount) return;
       const scheme = ctx.controlScheme?.(p);
-      if (!scheme || !DRAG_TO_CAMERA_SCHEMES.has(scheme) || reported === mount) return;
-      reported = mount;
-      ctx.report({ invariant: 'rider-drag-reaches-look', message: `the rider of ${mount.typeId} is held in \`${scheme}\`: a drag turns only the camera, so it neither looks round nor steers (Saga 30k, the Nimbus)`, evidence: { mount: mount.typeId, scheme } });
+      if (!scheme || !DRAG_TO_CAMERA_SCHEMES.has(scheme)) return;
+      ruled = mount;
+      ctx.report({ invariant: 'rider-drag-reaches-look', message: `the rider of ${mount.typeId} is held in \`${scheme}\`: a drag turns only the camera, so it neither looks round nor steers (Saga 30k, the Nimbus; rule check, no drag made)`, evidence: { mount: mount.typeId, scheme } });
     },
   };
 }

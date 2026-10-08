@@ -622,7 +622,7 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   so the drawn cloud faces where it flies), takes the turn back either way
   and tries again the other way, at most `PROBE_TRIES` times, when a finger
   made the reading inconclusive. The simulator models the chase and the
-  carry (`physics/systems.ts` mounts and riders systems) and reproduces the
+  carry (`physics/player-systems.ts` mounts and riders systems) and reproduces the
   spin on the 30l pack (`nimbus-spin-30l`); the device checks: a swipe turns
   the view by about the swipe, the cloud stops, CMVT `steer` (`heading`,
   `off`, `verdict`, `tries`, `probing`, `budget`).
@@ -1624,7 +1624,14 @@ one of these files fails the check until its row is written.
 <!-- physics-spec:exports web/src/sim/physics/systems.ts -->
 | Export | Kind | Role |
 |---|---|---|
-| `installPhysics` | function | The simulator's motion systems: players (walk, sneak-dismount, the device's push out of blocks - sideways 0.1/tick, never up, quirk `teleport-into-floor`), native hover mounts at the measured speeds, mobs under `minecraft:physics`, riders to their seats, effects; falls tracked for the invariants. |
+| `installPhysics` | function | The simulator's motion systems: mobs under `minecraft:physics`, effects, and through `installPlayerSystems` the players (walk, sneak-dismount, the device's push out of blocks - sideways 0.1/tick, never up, quirk `teleport-into-floor`), native hover mounts at the measured speeds and riders to their seats; falls tracked for the invariants. |
+| `setDownRider`, `dismountReference`, `DISMOUNT_OFFSETS`, `DISMOUNT_FLOOR_ABOVE`, `DISMOUNT_FLOOR_BELOW`, `DISMOUNT_FALLBACK_LIFT`, `isHoverMount` | re-export | From `web/src/sim/physics/player-systems.ts` (moved there 2026-10-08), for the modules that read them here. |
+<!-- /physics-spec:exports -->
+
+<!-- physics-spec:exports web/src/sim/physics/player-systems.ts -->
+| Export | Kind | Role |
+|---|---|---|
+| `installPlayerSystems` | function | The players (each tick's touch drag routed by the control scheme first, walk, sneak-dismount, the push out of blocks), native hover mounts at the measured speeds in 4-tick bursts (quirk `native-mount-bursts`), and riders: a new rider's yaw snapped onto the heading (quirk `mount-snaps-rider-yaw`), then back to their seats with the lock-181 yaw carry (quirk `rider-yaw-lag`). |
 | `setDownRider` | function | Where a PLAYER that left a seat stands (sneak, `ejectRider`): the first free floor one block from `dismountReference` in the device's order, else that point 0.2 up (quirk `dismount-free-spot`, Pixel GameTest 2026-09-30). |
 | `dismountReference` | function | The point that search runs about: the rider's seat, raised to the seat entity's point where the seat sits under it - the entity's point on every measured scenery seat, the seat high in a big hull (quirk `dismount-near-seat`, Pixel 30l: ~9 blocks off the 200 % Milano). |
 | `DISMOUNT_OFFSETS` | const | That order, (dx, dz) blocks: (0,-1), (0,+1), (+1,-1), (+1,+1), (-1,+1) measured; (-1,-1), (+1,0), (-1,0) placed by guess (`TODO(dismount-order)`). |

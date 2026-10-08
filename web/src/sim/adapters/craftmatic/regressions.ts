@@ -16,6 +16,8 @@ import { doorwayFindings, placedOf, tapPoseOf } from './play.js';
 import { scriptedVehicleTypes, type CourseRow } from './vehicle-course.js';
 import { teleport } from '../../script-host/facades.js';
 import { lookAt } from '../../input/touch.js';
+import { PIXEL_VIEWPORT, tapScreen } from '../../input/screen.js';
+import { swipeMount } from './input-probe.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import { REACH_GUARD_DROP16 } from '../../../engine/bedrock-collider-scale.js';
 import type { Vec3 } from '../../core/vec.js';
@@ -93,7 +95,7 @@ const violated = (r: ScenarioResult, invariant: string, text?: RegExp): string |
 };
 
 /** One replayed tap from inside 76417's Gate 1 (`gate1-throwout-76417`), anchor-relative. */
-interface GateThrowout { pose: 'device' | 'deeper'; before: Vec3; end: Vec3; wasOpen: boolean; nowOpen: boolean; refusal: string }
+interface GateThrowout { pose: 'device' | 'deeper'; before: Vec3; end: Vec3; wasOpen: boolean; nowOpen: boolean; refusal: string; /** What the stray screen tap picked (the gate, when the crosshair is on it). */ picked: string }
 
 /** The lines a driven vehicle's HUD prints (the course's own allowance). */
 const vehicleAllow = [...allow, /CAR|HOVER|FLY|PLANE|BOAT|mph|Hotbar slot 9/];
@@ -247,11 +249,13 @@ export const REGRESSIONS: RegressionCase[] = [
     id: 'nimbus-spin-30l', title: 'Nimbus (30l): one swipe at rest sets the cloud spinning at 6.5 degrees a tick with no input, until a swipe the other way (FIG-08)',
     evidence: '`output/device-round-2026-10-07l/saga/notes.md` item 6, ContentLog-30l-live.txt CMVT 22:01:28-22:02:02, `rec/r30l-nim100-drag.mp4`, `frames/nim200-spin-sheet.jpg`; quirks `hover-turn-chase` (the controller chases the look by 0.144 of the offset a tick) and `rider-yaw-lag` (the seat carries the look round with the mount, so the offset never closes); fix 2026-10-08: vehicle-driver.js steers by the drag (`nativeSteerStep`)',
     oldPack: `${ROUND}/device-round-2026-10-07l/packs-77a9f172/nimbus-fixture.mcaddon`, newStem: 'nimbus-fixture', expectNew: 'pass',
-    scenario: () => ({ name: 'nimbus-spin-30l', steps: [...place, { kind: 'dragMount', dragDeg: 84, dragTicks: 16, watchTicks: 100 }], allowLines: allow }),
+    // A REAL drag since 2026-10-08 (input/drag.ts, routed by the control scheme): the Saga's 400-px swipe over 16 ticks.
+    scenario: pack => ({ name: 'nimbus-spin-30l', steps: [...place, { kind: 'expect', label: 'swipe', check: async ctx => { await swipeMount(ctx, pack, { dxPx: 400, ticks: 16, watchTicks: 100 }); return undefined; } }], allowLines: allow }),
     judge: r => {
       const v = violated(r, 'mount-steer-stops');
-      const d = r.state['dragMount'] as { turned?: number; lookTurned?: number; lastSecondRatePerTick?: number; lookOffset?: number } | undefined;
+      const d = r.state['dragMount'] as { turned?: number; lookTurned?: number; lastSecondRatePerTick?: number; lookOffset?: number; byDrag?: boolean } | undefined;
       if (!d) return { reproduced: false, evidence: 'no swipe was made', untested: 'the cloud was not summoned or the swipe not made' };
+      if (!d.byDrag) return { reproduced: false, evidence: 'the look was set, not dragged', untested: 'the swipe did not go through the drag input' };
       return { reproduced: !!v, evidence: v ?? `the view turned ${d.lookTurned} degrees, the body ${d.turned}, and the cloud stopped (${d.lastSecondRatePerTick} degrees/tick over the last second; the look ${d.lookOffset} off the heading)` };
     },
   },
@@ -457,16 +461,20 @@ export const REGRESSIONS: RegressionCase[] = [
               if (!isOpen()) { ctx.note(`Gate 1 (${name}): could not reopen it`); continue; }
               await ctx.run(6);
             }
-            teleport(ctx.sim.host, p, { x: a.x + 11.6995, y: a.y + 17.1, z: a.z + z });
+            // The device's facing too (`/tp ... 180 10`): the stray tap acts along the crosshair from this look.
+            teleport(ctx.sim.host, p, { x: a.x + 11.6995, y: a.y + 17.1, z: a.z + z }, { rotation: { x: 10, y: 180 } });
             // Tapped at once: the simulator's push out of blocks (quirk `teleport-into-floor`) would walk the body off the
             // pose within a second, while the device stood there ~20 s (the spot overlaps the static collider at 11,17,3).
             await ctx.run(1);
             const before = p.location;
-            ctx.sim.engine.emit('entityHitEntity', { damagingEntity: p, hitEntity: part });
+            // The stray tap itself, since 2026-10-08: `_pixel_cmd.sh`'s Exit corner, raw (45, 39) on the Pixel's screen.
+            // With Split Controls (the phones' crosshair) a tap anywhere outside the HUD acts at the crosshair (quirk
+            // `touch-screen-pick`), so it is the screen centre's pick - not a hit the case hands to the part.
+            const tapped = tapScreen(ctx.sim.engine, p, { x: 45, y: 39 }, PIXEL_VIEWPORT, ctx.sim.host.playerState(p).camera);
             await ctx.run(80);
-            const row: GateThrowout = { pose: name, before: rel(before), end: rel(p.location), wasOpen: true, nowOpen: isOpen(), refusal: String(part.dynamic.get('craftmatic:ix_refused') ?? '-') };
+            const row: GateThrowout = { pose: name, before: rel(before), end: rel(p.location), wasOpen: true, nowOpen: isOpen(), refusal: String(part.dynamic.get('craftmatic:ix_refused') ?? '-'), picked: tapped.entity?.typeId ?? tapped.blockedBy ?? 'nothing' };
             rows.push(row);
-            ctx.note(`Gate 1 tapped from inside the doorway (${name}): open -> ${row.nowOpen ? 'open' : 'closed'}; player ${JSON.stringify(row.before)} -> ${JSON.stringify(row.end)} (anchor-relative); refusal ${row.refusal}`);
+            ctx.note(`Gate 1 tapped from inside the doorway (${name}; the screen tap at (45, 39) picked ${row.picked}): open -> ${row.nowOpen ? 'open' : 'closed'}; player ${JSON.stringify(row.before)} -> ${JSON.stringify(row.end)} (anchor-relative); refusal ${row.refusal}`);
             await ctx.run(6);
           }
           ctx.state['gate1Throwout'] = rows;
@@ -478,6 +486,8 @@ export const REGRESSIONS: RegressionCase[] = [
       const rows = (r.state['gate1Throwout'] as GateThrowout[] | undefined) ?? [];
       const notes = r.notes.filter(n => /Gate 1 tapped from inside|Gate 1 \(/.test(n)).join('; ') || 'no tap note';
       if (!rows.some(t => t.pose === 'device')) return { reproduced: false, evidence: notes, untested: 'the device pose was not replayed with the gate open' };
+      // A stray tap that did not reach the gate from the device's pose and look did not replay the device's touch.
+      if (!rows.some(t => t.pose === 'device' && /_gate_1$/.test(t.picked))) return { reproduced: false, evidence: notes, untested: 'the screen tap from the device pose did not pick Gate 1' };
       const fall = violated(r, 'no-unprotected-fall');
       // Dropped more than a step below where it stood (17 blocks on the device) = thrown out over the drop.
       const dropped = rows.some(t => t.end.y < t.before.y - 3);
