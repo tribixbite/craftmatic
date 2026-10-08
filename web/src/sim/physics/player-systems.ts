@@ -212,7 +212,11 @@ export function installPlayerSystems(engine: SimEngine, controls: ControlState):
           // vehicle's native speed) does not move the mount natively (physics spec §4.6).
           const speed = fs > 0 ? (quirkValue('hover-controller-speed', 'blocksPerSecondPerFlyingSpeed') * fs + quirkValue('hover-controller-speed', 'offsetBlocksPerSecond')) / TICKS_PER_SECOND : 0;
           const mag = Math.min(1, Math.hypot(c.forward, c.strafe));
-          if (mag > 0) { const w = stickToWorld(c, driver.rotation.y); const l = Math.hypot(w.x, w.z) || 1; vx = w.x / l * speed * mag; vz = w.z / l * speed * mag; }
+          // The stick acts in the MOUNT's frame - forward along the body's heading, right to its right - never the
+          // rider's look (quirk `hover-stick-body-frame`, Saga 30m: look 107, body 0, forward flew 13 degrees off the
+          // body and 94 off the look). Until 2026-10-08 the simulator flew along the look (a vanilla Happy Ghast
+          // ASSUMED), and the 30m Nimbus, whose body a `carried` verdict never turns, steered here and not on the phone.
+          if (mag > 0) { const w = stickToWorld(c, m.rotation.y); const l = Math.hypot(w.x, w.z) || 1; vx = w.x / l * speed * mag; vz = w.z / l * speed * mag; }
           if (c.jump) {
             // Jump drives `vertical_movement_action`: +climb, or -descend when the descend group is in (quirk `hover-descend-needs-jump`).
             const action = (m.components['minecraft:vertical_movement_action'] as { vertical_velocity?: number } | undefined)?.vertical_velocity ?? 0;

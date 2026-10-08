@@ -52,8 +52,12 @@ export function drawnTopOver(d: DrawnBox, x0: number, x1: number, z0: number, z1
   return c && c.max[0] > c.min[0] && c.max[2] > c.min[2] ? c.max[1] : undefined;
 }
 
-/** The world boxes of an entity's near geometry at its pose (a turned cube is its corners' box). */
-export function drawnBoxes(entry: AddonAppearanceEntry, at: Vec3, yawDeg: number, scale = 1): DrawnBox[] {
+/**
+ * The world boxes of an entity's geometry at its pose (a turned cube is its corners' box): the near geometry by
+ * default, or with `lod: 'far'` the LOD hull a camera past its switch distance sees instead (`far` groups; the near
+ * groups are not drawn there - quirk `lod-switch-camera-root`, snapshot.ts `actorLodState` decides which).
+ */
+export function drawnBoxes(entry: AddonAppearanceEntry, at: Vec3, yawDeg: number, scale = 1, lod: 'near' | 'far' = 'near'): DrawnBox[] {
   const bones = boneTransforms(entry.bones);
   // `yawDeg` is Bedrock's (yaw 90 faces -X). The placement matrix below is `worldFaces`' (three.js `rotation.y`
   // by the negated yaw, as `worldFaces` itself negates since 2026-09-30). Measured: at a 90-degree placement of
@@ -63,7 +67,7 @@ export function drawnBoxes(entry: AddonAppearanceEntry, at: Vec3, yawDeg: number
   const place: Affine = [cy * scale, 0, -sy * scale, at.x * 16, 0, scale, 0, at.y * 16, -sy * scale, 0, -cy * scale, at.z * 16];
   const out: DrawnBox[] = [];
   for (const g of entry.groups) {
-    if (g.far) continue;
+    if (lod === 'near' ? g.far : !g.far) continue;
     for (const c of g.cubes) {
       const k = cubeCorners(c, mul(place, bones.get(c.bone) ?? IDENTITY));
       const xs = k.map(p => p[0] / 16), ys = k.map(p => p[1] / 16), zs = k.map(p => p[2] / 16);
