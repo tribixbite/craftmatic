@@ -121,6 +121,8 @@ export function isHoverMount(e: SimEntity): boolean {
 
 /** Install the motion systems on an engine; the controls are the input module's. */
 export function installPhysics(engine: SimEngine, controls: ControlState): void {
+  /** Players whose last move decided an auto-jump (`PlayerControls.autoJump`): they jump on the next tick. */
+  const autoJumpPending = new Map<string, boolean>();
   engine.addSystem({
     name: 'players', order: ORDER.players, tick(en) {
       for (const p of en.players) {
@@ -145,7 +147,9 @@ export function installPhysics(engine: SimEngine, controls: ControlState): void 
         if (p.flying) { p.velocity = { x: 0, y: 0, z: 0 }; p.onGround = false; p.fall = undefined; continue; }
         pushOutOfBlocks(p, world);
         const move = stickToWorld(c, p.rotation.y);
-        const r = tickPlayer(world, stateOf(p), { move, jump: c.jump, sneak: c.sneak, sprint: c.sprint, slowFalling: hasEffect(p, 'slow_falling') });
+        // Auto-jump decides after a move and jumps on the next tick: the decision is carried between ticks here.
+        const r = tickPlayer(world, { ...stateOf(p), autoJumpPending: autoJumpPending.get(p.id) ?? false }, { move, jump: c.jump, sneak: c.sneak, sprint: c.sprint, slowFalling: hasEffect(p, 'slow_falling'), autoJump: !!c.autoJump });
+        if (r.state.autoJumpPending) autoJumpPending.set(p.id, true); else autoJumpPending.delete(p.id);
         p.location = { x: r.state.x, y: r.state.y, z: r.state.z };
         p.velocity = { x: r.state.vx, y: r.state.vy, z: r.state.vz };
         p.onGround = r.state.onGround;

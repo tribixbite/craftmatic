@@ -328,7 +328,11 @@ auto-jump walk up 10261's lift hill at 200 % stops at pin + (28.2, 9.88)
 exactly where the phone stopped three times (`scripts/_walk_line.ts
 --dir=+x --jump=auto`), while the old jump-whenever-blocked walk went on to
 39.7. The tread planner's lane pass (`planColliderTreads`, `lane`) uses it
-to prove its runs (docs/bedrock-interactivity.md, "The lane pass").
+to prove its runs (docs/bedrock-interactivity.md, "The lane pass"). The
+simulator's own player turns it on only where a scenario asks
+(`PlayerControls.autoJump`, the `walkLine` step's `autoJump`; the decision
+is carried between ticks in `installPhysics`): regression
+`lift-top-fall-10261` walks the Pixel's 30l lift lanes with it.
 
 ### 4.5 Figure life — `web/src/engine/bedrock-figure-life.ts`
 

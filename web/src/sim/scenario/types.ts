@@ -32,7 +32,7 @@ export type CoreStep =
   | { kind: 'wait'; ticks: number; label?: string }
   | { kind: 'teleport'; to: Vec3; yaw?: number; pitch?: number; label?: string }
   | { kind: 'look'; at: Vec3 | EntitySelector; label?: string }
-  | { kind: 'walkLine'; from: Vec3; to: Vec3; maxTicks?: number; jumpWhenBlocked?: boolean; label?: string; /** The drop (blocks) the line may take; more is a violation. */ maxDrop?: number; /** The line must end within this distance of `to`. */ arriveWithin?: number }
+  | { kind: 'walkLine'; from: Vec3; to: Vec3; maxTicks?: number; jumpWhenBlocked?: boolean; label?: string; /** The drop (blocks) the line may take; more is a violation. */ maxDrop?: number; /** The line must end within this distance of `to`. */ arriveWithin?: number; /** Walk with AUTO-JUMP on (the touch default; quirk `auto-jump`), pressing nothing. */ autoJump?: boolean; /** The deepest single fall (blocks, last floor stood on to the next landing) the line may take; more is a violation. */ maxFall?: number }
   | { kind: 'tap'; target: EntitySelector; expectHit?: boolean; label?: string }
   | { kind: 'hold'; target: EntitySelector; ticks?: number; label?: string }
   | { kind: 'rideUntil'; maxTicks: number; until?: 'dismounted' | 'timeout'; label?: string }
