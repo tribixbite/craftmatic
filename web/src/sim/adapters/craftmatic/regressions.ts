@@ -243,6 +243,18 @@ export const REGRESSIONS: RegressionCase[] = [
     judge: r => { const v = violated(r, 'actionbar-not-stolen', /replaced scripts\/flyer\.js's/); return { reproduced: !!v, evidence: v ?? 'the hint stood at least a second' }; },
   },
   {
+    id: 'nimbus-spin-30l', title: 'Nimbus (30l): one swipe at rest sets the cloud spinning at 6.5 degrees a tick with no input, until a swipe the other way (FIG-08)',
+    evidence: '`output/device-round-2026-10-07l/saga/notes.md` item 6, ContentLog-30l-live.txt CMVT 22:01:28-22:02:02, `rec/r30l-nim100-drag.mp4`, `frames/nim200-spin-sheet.jpg`; quirks `hover-turn-chase` (the controller chases the look by 0.144 of the offset a tick) and `rider-yaw-lag` (the seat carries the look round with the mount, so the offset never closes); fix 2026-10-08: vehicle-driver.js steers by the drag (`nativeSteerStep`)',
+    oldPack: `${ROUND}/device-round-2026-10-07l/packs-77a9f172/nimbus-fixture.mcaddon`, newStem: 'nimbus-fixture', expectNew: 'pass',
+    scenario: () => ({ name: 'nimbus-spin-30l', steps: [...place, { kind: 'dragMount', dragDeg: 84, dragTicks: 16, watchTicks: 100 }], allowLines: allow }),
+    judge: r => {
+      const v = violated(r, 'mount-steer-stops');
+      const d = r.state['dragMount'] as { turned?: number; lookTurned?: number; lastSecondRatePerTick?: number; lookOffset?: number } | undefined;
+      if (!d) return { reproduced: false, evidence: 'no swipe was made', untested: 'the cloud was not summoned or the swipe not made' };
+      return { reproduced: !!v, evidence: v ?? `the view turned ${d.lookTurned} degrees, the body ${d.turned}, and the cloud stopped (${d.lastSecondRatePerTick} degrees/tick over the last second; the look ${d.lookOffset} off the heading)` };
+    },
+  },
+  {
     id: 'door1-10326', title: '10326 Door 1: walking in from the porch drops the player 2.25 blocks at the door plane',
     evidence: 'TASKS-BEDROCK-ADDON.md "Round 2026-09-29c" defect (A) (Saga: ends at y -59.75); docs/bedrock-interactivity.md "The doorway\'s floor, a floor\'s top, and the device\'s line" (the model\'s: the door hangs 2.6 over the plate, the porch was a teleport into the air); merge c4c34b1c',
     oldPack: `${ROUND}/device-round-2026-09-29d/packs-3abc14f7/10326-natural-history-museum.mcaddon`, newStem: '10326-natural-history-museum',

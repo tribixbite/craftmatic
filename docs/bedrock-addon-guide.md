@@ -3784,7 +3784,7 @@ camera runtime in `playable-addon.ts`; numbers and reasons in
 | car, hover craft | drive / brake, reverse | steer; stopped, turn on the spot | boost | slides along walls, steps round trees, scrambles up to 2.15 blocks (two-block kerbs and pits) |
 | boat | throttle / astern | rudder | boost | deflects round posts, slides along piers |
 | every scripted vehicle | | | | DRAG the screen to look around; let go and while moving the view swings back behind the nose after 1 s (95 % in ~1.8 s more); at rest it stays; hotbar slot 9 is the view from the seat, a camera at the driver's eye that looks round and swings back to the front (yaw and pitch) the same way; either view starts on the nose |
-| rotorcraft, Nimbus (native) | forward / back along where the rider looks | strafe (since 2026-10-07; it turned under `player_relative`) | climb | a DRAG steers: they fly where the rider looks, so the view IS the direction of travel; the rider is held in the default control scheme, where a drag turns that look, so "look down + Jump" dives (HUD `DRAG: STEER`); back + Jump descends too |
+| rotorcraft, Nimbus (native) | forward / back along where the rider looks | strafe (since 2026-10-07; it turned under `player_relative`) | climb | a DRAG steers: they fly where the rider looks, so the view IS the direction of travel; the rider is held in the default control scheme, where a drag turns that look, so "look down + Jump" dives (HUD `DRAG: STEER`); back + Jump descends too. The mount's body is turned by the driver script by the drag, every tick (2026-10-08): left to Bedrock's controller it chased a look the seat carried round with it and spun for ever (Saga 30l) |
 
 Sneak stays the dismount on every vehicle, so "down" had to be a
 combination: the Nimbus's own back + Jump and look down + Jump, so one rule
@@ -3886,6 +3886,84 @@ three camera faults; the code fixes are offline-tested, not yet ridden.
   line: "Drag to steer, Jump climbs, look down + Jump dives, sneak gets
   off"). The simulator's core invariant `rider-drag-reaches-look` fails any
   rider held in `player_relative` or `camera_relative`.
+
+### The Nimbus's spin, the cockpit lag re-bracketed, the boom scaled (Saga 30l, 2026-10-08)
+
+Round 30l (`output/device-round-2026-10-07l/saga/notes.md` items 2, 4, 6)
+rode the 30k fixes. The first mount, the slot-9 recentre, the chase free
+look, the hop and the Nimbus's dive and strafe passed; three faults are
+fixed offline here, not yet ridden.
+
+- **One swipe spun the Nimbus for ever.** The drag now reaches the look
+  (riderPitch -36 -> 52, Jump dived), and a 400-px swipe at rest set the
+  cloud turning at 6.5 degrees a tick (130 degrees/s; 10.6 at 200 %) for
+  40 s with no input, `riderYaw` a constant 45 degrees AHEAD of the cloud,
+  until a swipe the other way stopped it (CMVT 22:01:28-22:02:02,
+  `frames/nim200-spin-sheet.jpg`). Two device facts make the loop: Bedrock's
+  hover controller turns the mount toward the rider's reported look by
+  0.144 of the offset a tick (quirk `hover-turn-chase`), and the device
+  turns a lock-181 rider's look round WITH the mount, ~6 ticks late (the
+  carry, quirk `rider-yaw-lag` - the X-wing's rider followed four
+  script-teleported turns the same way, 33 degrees behind at 4 degrees a
+  tick). So the offset a swipe opens is a constant of motion: the 84-degree
+  swipe less six ticks of carry at 6.5 is the 45 the log shows, to the
+  degree. No turn of the mount can close it; only the finger can. The view
+  and the flight are the look (the chase camera follows it, the controller
+  flies along it); the body's heading is only what is drawn. The driver
+  script (`vehicle-driver.js`) therefore owns that heading and writes it to
+  the mount every tick (`nativeSteerStep`, vehicle-free-look.ts), which
+  undoes the controller's chase each tick: a swipe turns the view by the
+  swipe and the turning stops with the finger. The body does NOT follow the
+  swipe - under the carry any turn of the body turns the view with it, so
+  following a 90-degree swipe would turn the view 180. Whether a script-set
+  turn carries the look like the native turn and the teleport do is the one
+  open question, so once per mount, after the seat's settle and half a
+  second of still finger, the script probes: it turns the body 12 degrees,
+  reads 0.8 s later whether the look followed (the carry: the body stays
+  put from then on) or stayed (free, read twice before it is believed: the
+  body then follows every swipe at 9 degrees a tick, so the drawn cloud
+  faces where it flies), and takes the turn back either way; a finger
+  moving in the wait makes it try again the other way, at most four times.
+  CMVT carries `steer: { heading, off, verdict, tries, probing, budget }`.
+  The simulator models the chase and the carry (`physics/systems.ts`) and
+  reproduces the spin on the 30l pack: `bun scripts/sim.ts <packs>
+  --scenario=regressions --new=<dir>` case `nimbus-spin-30l` (old:
+  `mount-steer-stops`; new: the view turned 84, the body 0, stopped).
+  Device: summon `dragonball_cloud`, `/ride`, wait 3 s (the probe: a
+  12-degree nudge of the view and back under the carry), one 400-px swipe:
+  the view turns ~80-90 degrees and the cloud STOPS; CMVT `steer.verdict`
+  reads `carried` (the measured expectation) or `free` (then the body
+  follows the swipe too and a drawn-cloud check is due). An `unknown` after
+  four tries means the finger never rested long enough.
+- **The cockpit eye now trailed the seat.** At lag 4 the McLaren's eye at
+  36-43 mph sat behind the cabin (the view framed by grey pillars, the hood
+  through the gap, `frames/r17-mcl-ck-sheet.jpg` f007-f011) and the X-wing's
+  inside its fuselage (flat grey faces, `r18-xw-ck-sheet.jpg` f007-f014);
+  at 1.5 (30k) both had run ahead. Each frame was matched against the
+  offline cockpit picture at half-block eye shifts
+  (`bun scripts/_cockpit_view.ts <pack> --out=<dir> --shift=0,0,<z>`): the
+  30l frames are the eye ~1 block behind the seat (McLaren -0.7..-1.3,
+  X-wing -0.95..-1.55), the 30k frames +1.5..+2.5 and +1.5..+2 ahead (the
+  30k notes' 2.3-3.0 was high: at +2.5 the picture is sky alone). Lead =
+  speed x missing lag, so the cancelling lag is 3.1-4.1 / 2.65-3.3 (McLaren
+  30k / 30l) and 3.05-3.85 / 2.3-2.95 (X-wing): the two rounds' brackets
+  touch rather than overlap, and 3 is inside or within a read's slack
+  (+-0.3 block, +-0.35 tick) of all four; `COCKPIT_TICK_LAG` is 3 (quirk
+  `cockpit-draw-lag`). Device: at 43 mph the McLaren's slot-9 view is the
+  dashboard with the hood beyond (the picture at shift 0), the X-wing's the
+  canopy pair and the nose; a residual of up to half a block either way is
+  inside the brackets.
+- **The chase boom did not scale.** `chase()` used the 100 % `chaseRadius`
+  at every size: the 50 % Milano was a toy, the 200 % had its wings off
+  screen, at 400 % the camera stood on the hull (`r04-mil400-strip.jpg`).
+  The boom, its height and the pivot are now times the vehicle's
+  `minecraft:scale` (read as the seat code reads it), the boom capped at
+  `CHASE_BOOM_MAX_BLOCKS` 48 - under the ~70 blocks past which no actor
+  draws; the Nimbus has the same script camera (its seat's declared
+  `third_person_camera_radius` 5/10/20 showed no effect on the Saga and
+  nothing relies on it, quirk `seat-camera-radius-unobserved`). Device: the
+  Milano's wingspan on screen the same width at 50, 100 and 200 % and a whole
+  ship at 400 %.
 
 ### Native evidence and remaining assumptions (quirk `rider-free-look`)
 

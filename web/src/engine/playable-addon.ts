@@ -38,7 +38,7 @@ import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, pressFlashOv
 import { bedrockJsonText } from './bedrock-json.js';
 import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
-import { FREE_LOOK, cockpitCamera, freeLookStart, freeLookStep, type FreeLookParams } from './vehicle-free-look.js';
+import { FREE_LOOK, NATIVE_STEER, cockpitCamera, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type FreeLookParams, type NativeSteerParams } from './vehicle-free-look.js';
 import { figureLifeScript, FIGURE_TUNING, resolveFigureSpawn, separateFigureSpawns, type FigureSpawn, type SpanLookup } from './bedrock-figure-life.js';
 import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, accessAvoidCells, captureDoorwayNeighbours, type InteractiveColliderPlan, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
 declare const world: any;
@@ -1625,6 +1625,9 @@ interface VehicleDriverConfig {
   teleportBlocks: number;
   /** How far under the mount the HUD looks for the ground its ALT is measured from (`DRIVER_ALT_SCAN_BLOCKS`). */
   altScanBlocks: number;
+  /** The drag reading's numbers (`FREE_LOOK`: the lag the look is read against, the mount's settle) and the steering's (`NATIVE_STEER`). */
+  freeLook: FreeLookParams;
+  steer: NativeSteerParams;
 }
 /** Ticks between two Jump effects (sound and flame) of a rotorcraft. */
 export const ROTOR_BOOST_COOLDOWN_TICKS = 30;
@@ -1661,12 +1664,19 @@ export const FLYER_SOUNDS = { spawn: 'random.pop', fade: 'random.fizz' } as cons
 
 /**
  * Runs in the pack for the vehicles that keep a NATIVE controller - since
- * 2026-09-25 only a rotorcraft (the Happy Ghast hover); every car, hover
- * craft, boat and fixed wing is scripts/vehicles.js. Every 2 ticks it swaps
- * the climb/descend component group (stick back + Jump descends), plays the
- * rotor's effects, shows the HUD and logs telemetry.
+ * 2026-09-25 only a rotorcraft (the Happy Ghast hover) and a flyer's cloud;
+ * every car, hover craft, boat and fixed wing is scripts/vehicles.js. Every
+ * 2 ticks it swaps the climb/descend component group (stick back + Jump
+ * descends), plays the rotor's effects, shows the HUD and logs telemetry.
+ * Every tick it holds the mount's HEADING (`steer`: vehicle-free-look.ts
+ * `nativeSteerStep`): the controller's own chase of the rider's look never
+ * ends on this seat, because the device turns the look round with the mount
+ * (the Nimbus spun for 40 s after one swipe, Saga 30l), so the script writes
+ * the heading every tick; a drag turns the view and the flight by the drag
+ * and stops, and the body follows only once the mount probe has proved the
+ * device leaves the look where it is through a script-set turn.
  */
-function vehicleDriverRuntime(config: VehicleDriverConfig) {
+function vehicleDriverRuntime(config: VehicleDriverConfig, look: typeof freeLookStep, lookStart: typeof freeLookStart, steerStart: typeof nativeSteerStart, steer: typeof nativeSteerStep) {
   const MPH_PER_BLOCK_TICK = 20 * 2.236936;
   const telemetry = { on: false, every: 20 };
   try {
@@ -1728,6 +1738,37 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
   const activeVehicles = () => dimensions().flatMap(d => config.vehicles.flatMap(v => {
     try { return d.getEntities({ type: v.typeId }).filter((e: any) => e.typeId === v.typeId).map((e: any) => ({ vehicle: e, config: v })); } catch { return []; }
   }));
+
+  /**
+   * Each ridden mount's drag steering (vehicle-free-look.ts `nativeSteerStep`), keyed by the mount: a new rider
+   * starts it on the mount's heading with the seat's settle (quirk `mount-snaps-rider-yaw`). The heading is written
+   * to the mount EVERY tick, so Bedrock's own chase of the rider's look (quirk `hover-turn-chase`, 0.144 of the
+   * offset a tick) is undone each tick - on this seat the device turns the rider's look round with the mount, so
+   * the chase never ends: one swipe spun the Nimbus at 6.5 degrees a tick for 40 s (Saga 30l, FIG-08). The view and
+   * the flight follow the look (a drag turns them by the drag and stops); the body stays put unless the mount
+   * probe proves a script-set turn does not carry the look.
+   */
+  const steering = new Map<string, { riderId: string; state: any }>();
+  system.runInterval(() => {
+    const seen = new Set<string>();
+    for (const { vehicle } of activeVehicles()) {
+      let riders: any[] = [];
+      try { riders = vehicle.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch {}
+      const rider = riders.find((e: any) => e.typeId === 'minecraft:player');
+      if (!rider) continue;
+      let id = '', riderId = '', vy = 0, pr: any = { x: 0, y: 0 };
+      try { id = String(vehicle.id); vy = Number(vehicle.getRotation().y) || 0; } catch { continue; }
+      try { riderId = String(rider.id); pr = rider.getRotation(); } catch {}
+      seen.add(id);
+      let st = steering.get(id);
+      if (!st || st.riderId !== riderId) { st = { riderId, state: steerStart(vy, config.freeLook.MOUNT_SETTLE_TICKS, lookStart) }; steering.set(id, st); }
+      const r = steer(st.state, { riderYaw: Number(pr.y) || 0, riderPitch: Number(pr.x) || 0 }, config.steer, config.freeLook, look);
+      st.state = r.state;
+      // A mount that refuses the Script API's rotation is left to its controller (nothing else turns it).
+      try { vehicle.setRotation({ x: 0, y: r.yaw }); } catch {}
+    }
+    for (const id of [...steering.keys()]) if (!seen.has(id)) steering.delete(id);
+  }, 1);
 
   let tick = 0;
   system.runInterval(() => {
@@ -1800,7 +1841,12 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
           const l = vehicle.location, r = vehicle.getRotation?.() ?? { y: 0 };
           let riderYaw = NaN, riderPitch = NaN;
           try { const rr = rider.getRotation(); riderYaw = Math.round(rr.y); riderPitch = Math.round(rr.x); } catch {}
-          console.warn(`CMVT ${JSON.stringify({ type: vehicle.typeId, t: tick, x: Math.round(l.x * 100) / 100, y: Math.round(l.y * 100) / 100, z: Math.round(l.z * 100) / 100, yaw: Math.round(r.y), riderYaw, riderPitch, descending: !!state.descending, mph: Math.round(mph * 10) / 10, input: { x: Math.round(steerInput * 100) / 100, y: Math.round(forwardInput * 100) / 100, jump } })}`);
+          // The steering beside the raw yaws: the heading the script holds, the look's offset from it (the carry
+          // keeps it after a drag), the probe's verdict (carried / free / unknown) with its tries, a free body's
+          // drag still to turn.
+          const st = steering.get(String(vehicle.id))?.state;
+          const steerRow = st ? { heading: Math.round(st.heading), off: Math.round(((riderYaw - st.heading + 180) % 360 + 360) % 360 - 180), verdict: st.verdict ?? 'unknown', tries: st.tries, probing: !!st.probe, budget: Math.round(st.budget) } : undefined;
+          console.warn(`CMVT ${JSON.stringify({ type: vehicle.typeId, t: tick, x: Math.round(l.x * 100) / 100, y: Math.round(l.y * 100) / 100, z: Math.round(l.z * 100) / 100, yaw: Math.round(r.y), riderYaw, riderPitch, descending: !!state.descending, mph: Math.round(mph * 10) / 10, input: { x: Math.round(steerInput * 100) / 100, y: Math.round(forwardInput * 100) / 100, jump }, steer: steerRow })}`);
         } catch {}
       }
       // The HUD (ASCII only: the Pixel's HUD font drew emoji as empty boxes, 2026-09-25).
@@ -1834,13 +1880,13 @@ export function vehicleDriverConfig(vehicles: VehicleDriverConfig['vehicles']): 
   return {
     vehicles, boostCooldownTicks: ROTOR_BOOST_COOLDOWN_TICKS, descendOn: AIRCRAFT_DESCEND_ON, descendOff: AIRCRAFT_DESCEND_OFF, puffParticle: FLYER_PUFF_PARTICLE,
     divePitchDeg: FLYER.DIVE_PITCH_DEG, rideHintTicks: FLYER.RIDE_HINT_TICKS, speedWindowTicks: DRIVER_SPEED_WINDOW_TICKS, teleportBlocks: DRIVER_TELEPORT_BLOCKS,
-    altScanBlocks: DRIVER_ALT_SCAN_BLOCKS,
+    altScanBlocks: DRIVER_ALT_SCAN_BLOCKS, freeLook: FREE_LOOK, steer: NATIVE_STEER,
   };
 }
 
-/** `scripts/vehicle-driver.js`: the config and the runtime (the text a pack ships). */
+/** `scripts/vehicle-driver.js`: the config, the runtime and the pure drag-steering functions it is handed (the text a pack ships). */
 export const vehicleDriverScript = (config: VehicleDriverConfig): string =>
-  `import { world, system } from "@minecraft/server";\n(${vehicleDriverRuntime.toString()})(${JSON.stringify(config)});\n`;
+  `import { world, system } from "@minecraft/server";\n(${vehicleDriverRuntime.toString()})(${JSON.stringify(config)}, ${freeLookStep.toString()}, ${freeLookStart.toString()}, ${nativeSteerStart.toString()}, ${nativeSteerStep.toString()});\n`;
 
 /**
  * Chase camera preset, one per vehicle. A rider in first person sits INSIDE
@@ -2072,15 +2118,19 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
     const fx = -Math.sin(rad), fz = Math.cos(rad);
     let v: any;
     try { v = vehicle.location; } catch { return false; }
-    let location = { x: v.x - fx * cfg.radius, y: v.y + cfg.height, z: v.z - fz * cfg.radius };
+    // The boom and its heights grow with the vehicle's size (`minecraft:scale`), the boom capped under the actor
+    // draw ceiling: at the 100 % boom for every size the Milano was a toy at 50 % and the camera stood on its hull
+    // at 400 % (Saga 30l item 2). The seat's own `third_person_camera_radius` is not this camera's.
+    const radius = Math.min(cfg.radius * size, config.freeLook.CHASE_BOOM_MAX_BLOCKS), height = cfg.height * size, pivotY = cfg.pivotY * size;
+    let location = { x: v.x - fx * radius, y: v.y + height, z: v.z - fz * radius };
     let facingLocation: any;
     if (cfg.scripted) {
       // A scripted vehicle: the boom trails along its NOSE in 3D, so a climbing
       // or diving aircraft stays in frame (the level boom looked at the sky with
       // the Milano under the frame's edge in a steep climb, Pixel 2026-09-25).
       const prad = pitch * Math.PI / 180, cp = Math.cos(prad), sp = -Math.sin(prad);
-      location = { x: v.x - fx * cp * cfg.radius, y: v.y + cfg.pivotY + cfg.height * 0.5 - sp * cfg.radius, z: v.z - fz * cp * cfg.radius };
-      facingLocation = { x: v.x + fx * cp * cfg.radius, y: v.y + cfg.pivotY + sp * cfg.radius, z: v.z + fz * cp * cfg.radius };
+      location = { x: v.x - fx * cp * radius, y: v.y + pivotY + height * 0.5 - sp * radius, z: v.z - fz * cp * radius };
+      facingLocation = { x: v.x + fx * cp * radius, y: v.y + pivotY + sp * radius, z: v.z + fz * cp * radius };
       // Over the rider's head: the boom's midpoint (the vehicle) must pass HEAD_CLEAR over a drawn
       // rider's head top (the eye stays on the scaled driver's eye, so it is eyeY x size).
       if (typeof cfg.eyeY === 'number' && drawn) {
@@ -2088,20 +2138,20 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
         location.y = Math.max(location.y, 2 * headTop - facingLocation.y);
       }
       // A view dragged upward swings the boom low: keep the camera over the vehicle's base.
-      location.y = Math.max(location.y, v.y + 0.5);
+      location.y = Math.max(location.y, v.y + 0.5 * size);
     } else if (cfg.kind === 'plane') {
       // Aircraft: the camera looks along the rider's exact yaw AND pitch, so
       // `free_camera_controlled` (flies where the camera looks) and the
       // rider's own look agree: look down = dive, look up = climb.
       const prad = pitch * Math.PI / 180, cp = Math.cos(prad);
-      facingLocation = { x: location.x + fx * cp * cfg.radius * 2, y: location.y - Math.sin(prad) * cfg.radius * 2, z: location.z + fz * cp * cfg.radius * 2 };
+      facingLocation = { x: location.x + fx * cp * radius * 2, y: location.y - Math.sin(prad) * radius * 2, z: location.z + fz * cp * radius * 2 };
     } else {
-      facingLocation = { x: v.x, y: v.y + cfg.pivotY, z: v.z };
+      facingLocation = { x: v.x, y: v.y + pivotY, z: v.z };
     }
     // Never behind a wall: the first solid block on the line from the vehicle's pivot to the camera pulls the
     // camera in to `CHASE_WALL_MARGIN` short of it (Saga 30j s68: a ship parked tail-first by a wall put the
     // chase camera behind it, the wall's texture filling the view). A native plane's view keeps its direction.
-    const pulled = inFrontOfWalls(vehicle, { x: v.x, y: v.y + cfg.pivotY, z: v.z }, location);
+    const pulled = inFrontOfWalls(vehicle, { x: v.x, y: v.y + pivotY, z: v.z }, location);
     if (cfg.kind === 'plane' && !cfg.scripted) facingLocation = { x: facingLocation.x + pulled.x - location.x, y: facingLocation.y + pulled.y - location.y, z: facingLocation.z + pulled.z - location.z };
     location = pulled;
     try { player.camera.setCamera('minecraft:free', { location, facingLocation, easeOptions: { easeTime: 0.15, easeType: 'Linear' } }); return true; } catch { return false; }

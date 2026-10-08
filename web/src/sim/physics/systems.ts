@@ -10,7 +10,9 @@
  *             `hover-descend-needs-jump`);
  *   entities  mobs under `minecraft:physics` gravity (`tickBody`), moved by
  *             the velocity scripts give them (`applyImpulse`);
- *   riders    every rider back on its seat after its mount moved;
+ *   riders    every rider back on its seat after its mount moved, a player on
+ *             a lock-181 seat turned round with its vehicle `rider-yaw-lag`
+ *             ticks late (the carry that spun the Nimbus, Saga 30l);
  *   effects   effect durations tick down.
  *
  * Falls are tracked for every body (`SimEntity.fall`): a landing emits the
@@ -25,6 +27,8 @@ import type { VoxelWorld } from '../world/voxel-world.js';
 import { stickToWorld, type ControlState } from '../input/controls.js';
 
 const stateOf = (e: SimEntity): PlayerState => ({ x: e.location.x, y: e.location.y, z: e.location.z, vx: e.velocity.x, vy: e.velocity.y, vz: e.velocity.z, onGround: e.onGround, sneaking: false, tick: 0 });
+/** A yaw into (-180, 180]. */
+const wrapDeg = (a: number): number => ((a + 180) % 360 + 360) % 360 - 180;
 const hasEffect = (e: SimEntity, id: string): boolean => e.effects.has(id) || e.effects.has(`minecraft:${id}`);
 
 /** Track a body's fall after it moved; emits `landed` when it touches down after a drop. */
@@ -163,9 +167,10 @@ export function installPhysics(engine: SimEngine, controls: ControlState): void 
         let vx = 0, vy = 0, vz = 0;
         if (driver?.valid && driver.isPlayer) {
           const c = controls.get(driver.id);
-          // A native mount turns to its rider's look; a scripted vehicle (flying speed 0) is turned by its
-          // script alone, whatever its rider looks at (quirk `rider-free-look`, assumed).
-          if (fs > 0) m.rotation.y = driver.rotation.y;
+          // A native mount turns toward its rider's reported look by a share of the offset a tick (quirk
+          // `hover-turn-chase`: 0.144, the Nimbus's 6.5 degrees a tick at a 45-degree offset); a scripted vehicle
+          // (flying speed 0) is turned by its script alone, whatever its rider looks at (quirk `rider-free-look`).
+          if (fs > 0) m.rotation.y = wrapDeg(m.rotation.y + wrapDeg(driver.rotation.y - m.rotation.y) * quirkValue('hover-turn-chase', 'offsetShareTurnedPerTick'));
           // The measured fit holds between the measured values (0.09, 0.3); a flying speed of 0 (a scripted
           // vehicle's native speed) does not move the mount natively (physics spec §4.6).
           const speed = fs > 0 ? (quirkValue('hover-controller-speed', 'blocksPerSecondPerFlyingSpeed') * fs + quirkValue('hover-controller-speed', 'offsetBlocksPerSecond')) / TICKS_PER_SECOND : 0;
@@ -209,9 +214,39 @@ export function installPhysics(engine: SimEngine, controls: ControlState): void 
     },
   });
 
+  /**
+   * Each ridden entity's yaw over the last `rider-yaw-lag` + 2 ticks (oldest first), for the carry: the device
+   * turns a lock-181 seat's rider round with its vehicle, `rider-yaw-lag` ticks late.
+   */
+  const yawTrail = new Map<string, number[]>();
   engine.addSystem({
     name: 'riders', order: ORDER.riders, tick(en) {
-      for (const e of en.entities.values()) if (e.valid && e.riders.length) e.placeRiders();
+      const lag = Math.max(0, Math.round(quirkValue('rider-yaw-lag', 'ticks')));
+      for (const id of [...yawTrail.keys()]) { const e = en.entities.get(id); if (!e?.valid || !e.riders.length) yawTrail.delete(id); }
+      for (const e of en.entities.values()) {
+        if (!e.valid || !e.riders.length) continue;
+        // The carry (quirk `rider-yaw-lag`, modelled since 2026-10-08): a PLAYER on a seat whose
+        // `lock_rider_rotation` is not 0 is turned by the vehicle's own turn of `lag` ticks ago, whoever turned
+        // the vehicle (the hover controller's chase, a script's teleport or setRotation) - the client turns the
+        // rider with the drawn vehicle. On the Saga one swipe then spun the Nimbus for 40 s: its controller chased
+        // a look that was carried round with it (`hover-turn-chase`).
+        const trail = yawTrail.get(e.id) ?? [];
+        trail.push(e.rotation.y);
+        while (trail.length > lag + 2) trail.shift();
+        yawTrail.set(e.id, trail);
+        if (trail.length === lag + 2) {
+          const turned = wrapDeg(trail[1]! - trail[0]!);
+          if (turned !== 0) {
+            const seats = e.rideable()?.seats ?? [];
+            e.riders.forEach((r, i) => {
+              if (!r?.valid || !r.isPlayer) return;
+              const lock = seats[Math.min(i, Math.max(0, seats.length - 1))]?.lockRiderRotation;
+              if (lock !== 0) r.rotation.y = wrapDeg(r.rotation.y + turned);
+            });
+          }
+        }
+        e.placeRiders();
+      }
     },
   });
 

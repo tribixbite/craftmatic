@@ -8,7 +8,7 @@
  * and the view's pitch reaches the ship's "look down + Jump".
  */
 import { describe, expect, it } from 'vitest';
-import { FREE_LOOK, cockpitCamera, cockpitEyeLead, cockpitLagFromLead, freeLookStart, freeLookStep, type CockpitPose, type FreeLookState } from '../web/src/engine/vehicle-free-look.js';
+import { FREE_LOOK, NATIVE_STEER, cockpitCamera, cockpitEyeLead, cockpitLagFromLead, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type CockpitPose, type FreeLookState } from '../web/src/engine/vehicle-free-look.js';
 import { quirkValue } from '../web/src/sim/quirks/registry.js';
 import { CHASE_PASSABLE_BLOCKS, vehicleCameraScript, type VehicleCameraConfig } from '../web/src/engine/playable-addon.js';
 import { FLIGHT_PROPS, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties } from '../web/src/engine/bedrock-vehicle.js';
@@ -91,28 +91,120 @@ describe('a mount\'s settle (pure; Saga 30k: the chase camera opened where the p
   });
 });
 
-describe('the cockpit eye\'s lag (pure; Saga 30k: the eye ran ahead of the drawn seat at speed)', () => {
+describe('the cockpit eye\'s lag (pure; Saga 30k: the eye ran ahead of the drawn seat at speed; Saga 30l: behind it)', () => {
   const MPH = 2.236936;
-  it('the device readings at the coaster\'s 1.5 put the lag that keeps the eye on the seat in a bracket COCKPIT_TICK_LAG sits in', () => {
-    // McLaren 42172 at 43 mph: the eye over the front of the hood, 2.3-3.0 blocks ahead (eye 0.22 ahead of the origin, nose 3.49).
-    const mcl = [cockpitLagFromLead(1.5, 43 / MPH, 2.3), cockpitLagFromLead(1.5, 43 / MPH, 3.0)];
-    // X-wing 7140 at 40 mph: 2-3 blocks up the nose.
-    const xw = [cockpitLagFromLead(1.5, 40 / MPH, 2), cockpitLagFromLead(1.5, 40 / MPH, 3)];
-    expect(mcl[0]).toBeCloseTo(3.89, 2); expect(mcl[1]).toBeCloseTo(4.62, 2);
-    expect(xw[0]).toBeCloseTo(3.74, 2); expect(xw[1]).toBeCloseTo(4.86, 2);
-    for (const [lo, hi] of [mcl, xw]) { expect(FREE_LOOK.COCKPIT_TICK_LAG).toBeGreaterThanOrEqual(lo!); expect(FREE_LOOK.COCKPIT_TICK_LAG).toBeLessThanOrEqual(hi!); }
+  /**
+   * The four device readings, each the eye's lead over the drawn seat bracketed by matching the frame to the offline
+   * cockpit picture at half-block eye shifts (`_cockpit_view.ts --shift`; +-0.3 block of read). Round 30k ran the
+   * camera at the coaster's 1.5, round 30l at 4.
+   */
+  const READINGS = [
+    { name: 'McLaren 30k', lag: 1.5, mph: 43, lead: [1.5, 2.5] },   // over the hood (the notes' 2.3-3.0 was high: +2.5 shows sky alone)
+    { name: 'X-wing 30k', lag: 1.5, mph: 40, lead: [1.5, 2.0] },    // up the nose, the canopy pair close
+    { name: 'McLaren 30l', lag: 4, mph: 43, lead: [-1.3, -0.7] },   // the grey pillars behind the cabin, the hood through the gap
+    { name: 'X-wing 30l', lag: 4, mph: 40, lead: [-1.55, -0.95] },  // flat grey faces inside the fuselage
+  ] as const;
+  const READ_SLACK_BLOCKS = 0.3;
+  it('the device readings at the coaster\'s 1.5 put the lag that keeps the eye on the seat in a bracket COCKPIT_TICK_LAG sits in, and the 30l readings at 4 another: 3 is inside or at the edge of all four', () => {
+    const brackets = READINGS.map(r => ({ ...r, lo: cockpitLagFromLead(r.lag, r.mph / MPH, r.lead[0]), hi: cockpitLagFromLead(r.lag, r.mph / MPH, r.lead[1]) }));
+    const b = Object.fromEntries(brackets.map(r => [r.name, r]));
+    expect(b['McLaren 30k']!.lo).toBeCloseTo(3.06, 2); expect(b['McLaren 30k']!.hi).toBeCloseTo(4.10, 2);
+    expect(b['X-wing 30k']!.lo).toBeCloseTo(3.18, 2); expect(b['X-wing 30k']!.hi).toBeCloseTo(3.74, 2);
+    expect(b['McLaren 30l']!.lo).toBeCloseTo(2.65, 2); expect(b['McLaren 30l']!.hi).toBeCloseTo(3.27, 2);
+    expect(b['X-wing 30l']!.lo).toBeCloseTo(2.27, 2); expect(b['X-wing 30l']!.hi).toBeCloseTo(2.94, 2);
+    // The chosen lag is within a read's slack of every bracket (the 30k and 30l brackets do not overlap exactly:
+    // 3.18 against 2.94), and nearer their common centre than either round's old value.
+    for (const r of brackets) {
+      const slack = READ_SLACK_BLOCKS / (r.mph / MPH / 20);
+      expect(FREE_LOOK.COCKPIT_TICK_LAG).toBeGreaterThanOrEqual(r.lo - slack);
+      expect(FREE_LOOK.COCKPIT_TICK_LAG).toBeLessThanOrEqual(r.hi + slack);
+    }
+    const centre = brackets.reduce((a, r) => a + (r.lo + r.hi) / 2, 0) / brackets.length;
+    expect(Math.abs(FREE_LOOK.COCKPIT_TICK_LAG - centre)).toBeLessThan(0.5);
+    expect(Math.abs(4 - centre)).toBeGreaterThan(Math.abs(FREE_LOOK.COCKPIT_TICK_LAG - centre));
+    expect(Math.abs(1.5 - centre)).toBeGreaterThan(Math.abs(FREE_LOOK.COCKPIT_TICK_LAG - centre));
     // The quirk the simulator judges by is the same number, and a reading at rest says nothing.
     expect(quirkValue('cockpit-draw-lag', 'ticks')).toBe(FREE_LOOK.COCKPIT_TICK_LAG);
     expect(cockpitLagFromLead(1.5, 0, 0)).toBe(1.5);
   });
-  it('reproduces the 30k fault at the old lag and keeps the eye on the seat at any speed at the new one', () => {
+  it('reproduces the 30k fault at the old lag and the 30l fault at 4, and keeps the eye on the seat at any speed at the new one', () => {
     const draw = quirkValue('cockpit-draw-lag', 'ticks');
-    // Old: 2.4 blocks ahead at 43 mph (inside the 2.3-3.0 seen), 2.2 at 40 mph (inside 2-3), on the seat at rest.
-    expect(cockpitEyeLead(43 / MPH, 1.5, draw)).toBeCloseTo(2.4, 1);
-    expect(cockpitEyeLead(40 / MPH, 1.5, draw)).toBeCloseTo(2.2, 1);
+    // 30k at 1.5: 1.4 blocks ahead at 43 mph and 1.3 at 40 (the eye over the hood / up the nose, within a read of +1.5..+2.5 / +1.5..+2), on the seat at rest.
+    expect(cockpitEyeLead(43 / MPH, 1.5, draw)).toBeCloseTo(1.44, 1);
+    expect(cockpitEyeLead(40 / MPH, 1.5, draw)).toBeCloseTo(1.34, 1);
     expect(cockpitEyeLead(0, 1.5, draw)).toBe(0);
+    // 30l at 4: a block BEHIND the seat at 43 mph (the grey pillars behind the cabin: -1.3..-0.7) and 0.9 at 40 (inside the X-wing's fuselage: -1.55..-0.95, within a read).
+    expect(cockpitEyeLead(43 / MPH, 4, draw)).toBeCloseTo(-0.96, 1);
+    expect(cockpitEyeLead(40 / MPH, 4, draw)).toBeCloseTo(-0.89, 1);
     for (const speed of [0, 5, 12.5, 19.2, 26, 40.5]) expect(cockpitEyeLead(speed, FREE_LOOK.COCKPIT_TICK_LAG, draw)).toBe(0);
     expect(FREE_LOOK.COCKPIT_HISTORY).toBeGreaterThan(FREE_LOOK.COCKPIT_TICK_LAG + 1);
+  });
+});
+
+describe('drag steering of a native mount (pure; Saga 30l: one swipe spun the Nimbus at 6.5 degrees a tick for 40 s)', () => {
+  const P = NATIVE_STEER;
+  /**
+   * The device as the steering sees it: the rider's reported yaw is the finger's total plus, when `carried`, the
+   * heading's own turns `lag` ticks late (quirk `rider-yaw-lag`: 6 on the coaster and the cloud, ~8 on the X-wing).
+   * `swipes` are [startTick, degrees over 16 ticks].
+   */
+  function ride(carried: boolean, swipes: Array<[number, number]>, ticks: number, lag = FREE_LOOK.RIDER_YAW_LAG_TICKS) {
+    let s = nativeSteerStart(0, 0, freeLookStart);
+    const headings: number[] = [], steps: number[] = [], looks: number[] = [], verdicts: Array<string | undefined> = [];
+    let finger = 0;
+    for (let t = 0; t < ticks; t++) {
+      for (const [at, deg] of swipes) if (t >= at && t < at + 16) finger += deg / 16;
+      const carry = carried && t - lag - 1 >= 0 ? headings[t - lag - 1]! : 0;
+      const riderYaw = wrap(finger + carry);
+      const r = nativeSteerStep(s, { riderYaw, riderPitch: 0 }, P, FREE_LOOK, freeLookStep);
+      s = r.state; headings.push(r.yaw); steps.push(r.step); looks.push(riderYaw); verdicts.push(r.state.verdict);
+    }
+    return { state: s, headings, steps, looks, verdicts, finger };
+  }
+  it('under the carry (the device as measured) the probe reads it, the body stays put, the view turns by the swipe and nothing spins', () => {
+    for (const lag of [6, 8]) {
+      const { state, headings, steps, looks, verdicts } = ride(true, [[70, 84]], 200, lag);
+      // One probe: the body turned PROBE_DEG, the look followed, the turn was taken back; the view ends where it began.
+      expect(state.verdict).toBe('carried');
+      expect(state.tries).toBe(1);
+      expect(verdicts.findIndex(v => v === 'carried')).toBeLessThan(40);
+      expect(Math.max(...headings.map(h => Math.abs(wrap(h))))).toBe(P.PROBE_DEG);
+      expect(wrap(headings[60]!)).toBe(0);
+      expect(wrap(looks[60]!)).toBe(0);
+      // The swipe: the body does not move (any turn would turn the view with it), the view turns by the swipe, and
+      // the heading is still a second and five seconds later - never the device's spin.
+      expect(steps.slice(60).every(v => v === 0)).toBe(true);
+      expect(wrap(headings.at(-1)!)).toBe(0);
+      expect(wrap(looks.at(-1)!)).toBeCloseTo(84, 6);
+    }
+  });
+  it('a body proven free (the look stayed through two probes) follows every swipe at the rate and stops with the finger', () => {
+    const { state, headings, steps, looks } = ride(false, [[80, 84], [160, -30]], 240);
+    expect(state.verdict).toBe('free');
+    expect(state.tries).toBe(P.PROBE_FREE_CONFIRM);
+    // Each probe turned the body one way and back, the second the other way; nothing net before the swipe.
+    expect(wrap(headings[79]!)).toBe(0);
+    // The turn keeps up with the finger (9 a tick against 5.25), is over within a tick of the swipe's end and stops.
+    expect(Math.max(...steps.slice(80).map(Math.abs))).toBeLessThanOrEqual(P.RATE_DEG_PER_TICK);
+    expect(wrap(headings[120]!)).toBeCloseTo(84, 6);
+    expect(steps.slice(98, 160).every(v => v === 0)).toBe(true);
+    expect(wrap(headings.at(-1)!)).toBeCloseTo(54, 6);
+    expect(wrap(looks.at(-1)!)).toBeCloseTo(54, 6);
+  });
+  it('a finger moving against the probe fakes one "stayed"; the second probe reads the carry, so the body never follows', () => {
+    // The finger drags -12 during the first probe's wait (the probe turned +12 and the carry +12 arrives): the look
+    // reads as unmoved. The next probe, the other way, in a quiet moment, sees the carry.
+    const { state, headings } = ride(true, [[12, -12], [120, 60]], 220);
+    expect(state.freeVotes).toBe(1);
+    expect(state.verdict).toBe('carried');
+    expect(state.tries).toBe(2);
+    expect(wrap(headings.at(-1)!)).toBe(0);
+  });
+  it('a mount\'s settle: the seat turning the rider onto the heading is no swipe, and no probe runs through it (Saga 30k riderYaw 0 -> -180)', () => {
+    let s = nativeSteerStart(-180, FREE_LOOK.MOUNT_SETTLE_TICKS, freeLookStart);
+    for (const riderYaw of [0, 0, 0, 0, -180, -180, -180, -180, -180, -180]) { const r = nativeSteerStep(s, { riderYaw, riderPitch: 0 }, P, FREE_LOOK, freeLookStep); s = r.state; expect(r.step).toBe(0); }
+    expect(s.heading).toBe(-180);
+    expect(s.tries).toBe(0);
   });
 });
 
@@ -144,12 +236,13 @@ describe('cockpitCamera (pure)', () => {
 
 const CAR = 'craftmatic:t_car';
 const cameraCfg: VehicleCameraConfig = { typeId: CAR, preset: 'craftmatic:t_car_chase', kind: 'car', radius: 6, height: 2.6, pivotY: 0.75, scripted: true, riderVisibleSizes: null, eye: [0, 1.62, -0.4] };
-function cameraHost(cfg: VehicleCameraConfig = cameraCfg, terrain = solidBelow(64)) {
+function cameraHost(cfg: VehicleCameraConfig = cameraCfg, terrain = solidBelow(64), extraComponents: Record<string, unknown> = {}) {
   const h = simHost({
     script: vehicleCameraScript({ vehicles: [cfg], pitchProperty: FLIGHT_PROPS.pitch, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, telemetryEvent: VEHICLE_TELEMETRY_EVENT, passableBlocks: CHASE_PASSABLE_BLOCKS }),
     entities: { [CAR]: { properties: flightProperties() as Record<string, Record<string, unknown>>, components: {
       'minecraft:type_family': { family: ['craftmatic_vehicle', 'car'] },
       'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: [{ position: [0, 0.5, 0], lock_rider_rotation: FREE_LOOK.SEAT_LOCK_DEG }] },
+      ...extraComponents,
     } } },
     terrain,
   });
@@ -202,16 +295,38 @@ describe('the camera runtime with free look (scripts/vehicle-camera.js on the si
     expect(Math.abs(wrap(view()!.yaw - car.rotation.y))).toBeLessThan(0.01);
   });
   it('waits a second after the last drag before it eases, and follows the car through a turn', () => {
-    const { car, view, drive, drag } = cameraHost();
+    const { car, rider, view, drive, drag } = cameraHost();
     drive(2, 8);
     drag(10, -4, 0, 8);
     const left = wrap(view()!.yaw - car.rotation.y);
     expect(left).toBeCloseTo(-40, 0);
     drive(FREE_LOOK.IDLE_TICKS - 2, 8);
     expect(wrap(view()!.yaw - car.rotation.y)).toBeCloseTo(left, 0);
-    // A turn with nobody dragging: the view stays on the car's nose (the sim does not carry the rider's yaw).
+    // A turn with nobody dragging: the view stays on the car's nose. The simulator carries the rider's yaw round
+    // with the car RIDER_YAW_LAG_TICKS late, as the device does (quirk `rider-yaw-lag`, Saga 30l), and the drag
+    // reading nets that turn out.
     drive(60, 8, 3);
     expect(Math.abs(wrap(view()!.yaw - car.rotation.y))).toBeLessThan(1);
+    // The rider's reported yaw: the drag's 40 off the nose, trailing the turn by its lag (3 a tick x 6 ticks).
+    expect(wrap(rider.rotation.y - car.rotation.y)).toBeCloseTo(left - 3 * FREE_LOOK.RIDER_YAW_LAG_TICKS, 0);
+  });
+  it('the chase boom and its heights grow with the vehicle\'s size, the boom capped under the actor draw ceiling (Saga 30l: one boom for every size put the camera on the 400 percent Milano\'s hull)', () => {
+    const boom = (scale: number): { back: number; up: number } => {
+      const { h, car, drive } = cameraHost(cameraCfg, solidBelow(64), { 'minecraft:scale': { value: scale } });
+      drive(2, 0);
+      const c = h.host.playerState(h.engine.players[0]!).camera.location!;
+      return { back: Math.round((car.location.z - c.z) * 100) / 100, up: Math.round((c.y - car.location.y) * 100) / 100 };
+    };
+    const one = boom(1);
+    expect(one.back).toBeCloseTo(cameraCfg.radius, 6);
+    expect(one.up).toBeCloseTo(cameraCfg.pivotY + cameraCfg.height * 0.5, 6);
+    const two = boom(2);
+    expect(two.back).toBeCloseTo(2 * one.back, 6);
+    expect(two.up).toBeCloseTo(2 * one.up, 6);
+    expect(boom(0.5).back).toBeCloseTo(one.back / 2, 6);
+    // A 10x vehicle (a 60-block boom) is capped: the camera must stay under the ~70 blocks past which no actor draws.
+    expect(boom(10).back).toBeCloseTo(FREE_LOOK.CHASE_BOOM_MAX_BLOCKS, 6);
+    expect(FREE_LOOK.CHASE_BOOM_MAX_BLOCKS).toBeLessThan(70);
   });
   it('a drag down tips the view and tells the vehicle where it looks (a ship\'s "look down + Jump")', () => {
     const { car, view, drive, drag } = cameraHost();

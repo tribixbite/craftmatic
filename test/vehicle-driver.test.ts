@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { AIRCRAFT_CLIMB_GROUP, AIRCRAFT_DESCEND_GROUP, AIRCRAFT_DESCEND_OFF, AIRCRAFT_DESCEND_ON, DRIVER_ALT_SCAN_BLOCKS, DRIVER_SPEED_WINDOW_TICKS, vehicleDriverConfig, vehicleDriverScript } from '../web/src/engine/playable-addon.js';
 import { simHost, solidBelow } from './_sim-host.js';
 import { FLYER } from '../web/src/engine/bedrock-flyer.js';
+import { quirkValue } from '../web/src/sim/quirks/registry.js';
 
 const CLOUD = 'craftmatic:t_cloud';
 /** mph per block/tick, the runtime's own factor (20 ticks/s, 1 block = 1 m, 2.236936 mph per m/s). */
@@ -36,10 +37,24 @@ const CLOUD_TYPE = {
  * holds the rider's look (`rotation`), stick (`input`) and Jump; every event
  * the runtime triggers on the mount is recorded.
  */
-function driverWorld(vehicle: { kind: 'plane' | 'car'; motion?: 'flyer' | 'rotor'; hud?: string } = { kind: 'plane', motion: 'flyer', hud: 'NIMBUS' }) {
+/**
+ * The same cloud with the device's hover controller declared, so the simulator flies it, chases the rider's look
+ * (quirk `hover-turn-chase`) and carries the rider's yaw round with it (quirk `rider-yaw-lag`), as the Saga did.
+ */
+const NATIVE_CLOUD_TYPE = {
+  ...CLOUD_TYPE,
+  components: {
+    ...CLOUD_TYPE.components,
+    'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: [{ position: [0, 0.5, 0], lock_rider_rotation: 181 }] },
+    'minecraft:physics': { has_gravity: false, has_collision: true },
+    'minecraft:movement.hover': {}, 'minecraft:free_camera_controlled': { strafe_speed_modifier: 1, backwards_movement_modifier: 0.5 }, 'minecraft:flying_speed': { value: FLYER.FLYING_SPEED },
+  },
+};
+
+function driverWorld(vehicle: { kind: 'plane' | 'car'; motion?: 'flyer' | 'rotor'; hud?: string } = { kind: 'plane', motion: 'flyer', hud: 'NIMBUS' }, native = false) {
   const h = simHost({
     script: vehicleDriverScript(vehicleDriverConfig([{ typeId: CLOUD, kind: vehicle.kind, label: 'Nimbus', ...(vehicle.motion ? { motion: vehicle.motion } : {}), ...(vehicle.hud ? { hud: vehicle.hud } : {}) }])),
-    entities: { [CLOUD]: CLOUD_TYPE },
+    entities: { [CLOUD]: native ? NATIVE_CLOUD_TYPE : CLOUD_TYPE },
     // The ground: solid up to y 63, the cloud standing on it at 64.
     terrain: solidBelow(64),
   });
@@ -227,5 +242,54 @@ describe('the driver: HUD speed of a client-driven mount', () => {
     w.cloud.location.x += 50;
     w.run(8);
     for (const v of w.hud().map(w.mphOf).filter((v): v is number => v !== undefined)) expect(v).toBeLessThan(1);
+  });
+});
+
+describe('the driver: drag steering of the native mount (Saga 30l: one swipe spun the Nimbus at 6.5 degrees a tick for 40 s)', () => {
+  const wrap = (a: number): number => ((a + 180) % 360 + 360) % 360 - 180;
+  it('one swipe at rest turns the view by the swipe and the cloud stops turning: the body stays put under the carry, the controller\'s chase undone every tick', () => {
+    const w = driverWorld(undefined, true);
+    const { h, cloud, player } = w;
+    // The seat's settle and the mount probe (the simulator carries the look, so it reads "carried" and takes its
+    // turn back), then the Saga's swipe: 400 px, ~84 degrees over 0.8 s, nothing else held.
+    h.run(60);
+    const yaw0 = cloud.rotation.y, look0 = player.sim.rotation.y;
+    let last = cloud.rotation.y, turned = 0;
+    const rates: number[] = [];
+    const tick = (): void => { h.run(1); const d = wrap(cloud.rotation.y - last); last = cloud.rotation.y; turned += d; rates.push(Math.abs(d)); };
+    for (let t = 0; t < 16; t++) { player.sim.rotation = { x: player.sim.rotation.x, y: wrap(player.sim.rotation.y + 84 / 16) }; tick(); }
+    for (let t = 0; t < 100; t++) tick();
+    // The body did not turn (any turn would turn the view with it), the view turned by the swipe, and the cloud is
+    // still a second and five seconds later - never the device's 6.5 degrees a tick. The view's turn is the swipe
+    // times 1 / (1 - 0.144): the controller's chase still turns the body 0.144 of the offset within each tick
+    // before the script's heading is written back, the client carries that transient too, and it feeds the
+    // offset (a geometric series that converges within a second; the model's 98 for 84, the device's to be read).
+    const chase = quirkValue('hover-turn-chase', 'offsetShareTurnedPerTick');
+    expect(Math.abs(turned)).toBeLessThan(0.01);
+    expect(Math.max(...rates.slice(-60))).toBeLessThan(0.01);
+    expect(wrap(cloud.rotation.y - yaw0)).toBeCloseTo(0, 6);
+    expect(wrap(player.sim.rotation.y - look0)).toBeCloseTo(84 / (1 - chase), 0);
+    // The look sits a swipe off the heading: the offset no turn of the cloud can close, which the controller chased.
+    expect(wrap(player.sim.rotation.y - cloud.rotation.y)).toBeCloseTo(84 / (1 - chase), 0);
+    expect(h.errors()).toEqual([]);
+  });
+  it('a swipe back turns the view back; the body never moves, and the CMVT line names the verdict', () => {
+    const w = driverWorld(undefined, true);
+    const { h, cloud, player } = w;
+    h.run(60);
+    const swipe = (deg: number): void => { for (let t = 0; t < 16; t++) { player.sim.rotation = { x: 0, y: wrap(player.sim.rotation.y + deg / 16) }; h.run(1); } h.run(60); };
+    const yaw0 = cloud.rotation.y, look0 = player.sim.rotation.y;
+    swipe(60);
+    expect(wrap(cloud.rotation.y - yaw0)).toBeCloseTo(0, 6);
+    expect(wrap(player.sim.rotation.y - look0)).toBeCloseTo(60 / (1 - quirkValue('hover-turn-chase', 'offsetShareTurnedPerTick')), 0);
+    swipe(-60);
+    expect(wrap(cloud.rotation.y - yaw0)).toBeCloseTo(0, 6);
+    expect(wrap(player.sim.rotation.y - look0)).toBeCloseTo(0, 1);
+    h.engine.emit('scriptEventReceive', { id: 'craftmatic:vehicle_telemetry', message: 'fast' });
+    h.run(8);
+    const row = h.lines('console').map(l => /CMVT (\{.*\})/.exec(l)?.[1]).filter((v): v is string => !!v).map(v => JSON.parse(v) as { steer?: { verdict?: string; off?: number } }).at(-1);
+    expect(row?.steer?.verdict).toBe('carried');
+    expect(row?.steer?.off).toBe(0);
+    expect(h.errors()).toEqual([]);
   });
 });

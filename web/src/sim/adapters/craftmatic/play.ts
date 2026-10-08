@@ -94,6 +94,10 @@ export function onRunout(at: Vec3, r: { foot: Vec3; end: Vec3 }): boolean {
 
 /** How far over its drawn chute a slide's seat may run (blocks at 100 %, times the size): the drawn geometry's own grain. */
 export const SLIDE_SEAT_OVER_DRAWN = 0.2;
+/** A mount turning less than this (degrees a tick, averaged over a second) after a swipe has stopped (the Saga's spin was 6.5). */
+export const MOUNT_STILL_DEG_PER_TICK = 0.5;
+/** A mount's turn for a swipe may miss the swipe by this (degrees): the drag reading's noise floor over a second of finger. */
+export const MOUNT_TURN_SLACK_DEG = 15;
 
 /** Board a ride by a tap on `target` (or a hold), waiting a second for the runtime to seat the player. */
 async function board(ctx: StepContext, target: SimEntity, how: 'tap' | 'hold', label: string): Promise<boolean> {
@@ -291,6 +295,54 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       await CORE_HANDLERS['sneak']!({ kind: 'sneak' }, ctx);
       for (let t = 0; t < 1200 && !ctx.player.onGround; t++) await ctx.run(1);
       await ctx.run(20);
+    },
+
+    /**
+     * Summon a flyer mount by a tap on its companion, let the seat settle, then ONE swipe at rest - the rider's
+     * look turned `dragDeg` (default 84: the Saga's 400 px) over `dragTicks` (16: 0.8 s) - and hands off for
+     * `watchTicks` (100). Records the mount's turn since the swipe began, its rate over the last second and the
+     * look's offset from the heading at the end (`state.dragMount`). Saga 30l: the cloud spun at 6.5 degrees a
+     * tick for 40 s, its controller chasing a look the seat carried round with it (quirks `hover-turn-chase`,
+     * `rider-yaw-lag`): `{ dragDeg?, dragTicks?, watchTicks? }`.
+     *   mount-steer-stops    the mount is still turning a second after the swipe ended;
+     *   mount-steer-by-drag  the view's turn, once everything stopped, is not the swipe's, or the body's is neither
+     *                        the swipe's nor nothing (within `MOUNT_TURN_SLACK_DEG`).
+     */
+    async dragMount(step: AnyStep, ctx: StepContext) {
+      const mount = pack.flyers[0];
+      if (!mount) throw new Error('dragMount: the pack has no flyer mount');
+      const companion = findEntity(ctx.sim, ctx.player, { where: e => mount.summonTypes.includes(e.typeId) && e.typeId !== mount.cloudType });
+      if (!companion) throw new Error('dragMount: no companion to tap');
+      await CORE_HANDLERS['tap']!({ kind: 'tap', target: { where: (e: SimEntity) => e === companion, label: companion.typeId } }, ctx);
+      for (let t = 0; t < 20 && !ctx.player.ridingOn; t++) await ctx.run(1);
+      const v = ctx.player.ridingOn;
+      if (!v) { ctx.violate({ invariant: 'mount-summoned', message: `a tap on ${companion.typeId} put the player on no mount` }); return; }
+      // The seat's settle and the driver's mount probe (3 s), then the swipe.
+      await ctx.run(60);
+      const dragDeg = Number(step['dragDeg'] ?? 84), dragTicks = Math.max(1, Number(step['dragTicks'] ?? 16)), watchTicks = Number(step['watchTicks'] ?? 100);
+      const wrap = (a: number): number => ((a + 180) % 360 + 360) % 360 - 180;
+      let last = v.rotation.y, turned = 0, lastLook = ctx.player.rotation.y, lookTurned = 0;
+      const rates: number[] = [];
+      const tick = async (): Promise<void> => {
+        await ctx.run(1);
+        const d = wrap(v.rotation.y - last); last = v.rotation.y; turned += d; rates.push(Math.abs(d));
+        lookTurned += wrap(ctx.player.rotation.y - lastLook); lastLook = ctx.player.rotation.y;
+      };
+      for (let t = 0; t < dragTicks; t++) { ctx.player.rotation = { x: ctx.player.rotation.x, y: wrap(ctx.player.rotation.y + dragDeg / dragTicks) }; await tick(); }
+      const duringSwipe = r3(turned);
+      for (let t = 0; t < watchTicks; t++) await tick();
+      const lastSecond = rates.slice(-20), rate = r3(lastSecond.reduce((a, b) => a + b, 0) / Math.max(1, lastSecond.length));
+      const out = { dragDeg, dragTicks, watchTicks, duringSwipe, turned: r3(turned), lookTurned: r3(lookTurned), lastSecondRatePerTick: rate, lookOffset: r3(wrap(ctx.player.rotation.y - v.rotation.y)) };
+      ctx.state['dragMount'] = out;
+      ctx.note(`${v.typeId} after one ${dragDeg}-degree swipe: the body turned ${out.turned} degrees (${duringSwipe} during the swipe), the view ${out.lookTurned}; ${rate} degrees/tick over the last second; the look ${out.lookOffset} off the heading`);
+      if (rate > MOUNT_STILL_DEG_PER_TICK) ctx.violate({ invariant: 'mount-steer-stops', message: `${v.typeId} is still turning ${rate} degrees a tick ${(watchTicks / 20).toFixed(1)} s after a ${dragDeg}-degree swipe ended (the Saga's Nimbus spun at 6.5 for 40 s)`, evidence: out });
+      else {
+        // The VIEW (the look: the camera and the flight follow it) turns by the swipe and no more; the body turns by
+        // the swipe (a device that leaves the look through a script-set turn) or not at all (one that carries it).
+        const bodyOk = Math.abs(turned) <= MOUNT_TURN_SLACK_DEG || Math.abs(turned - dragDeg) <= MOUNT_TURN_SLACK_DEG;
+        if (Math.abs(lookTurned - dragDeg) > MOUNT_TURN_SLACK_DEG || !bodyOk) ctx.violate({ invariant: 'mount-steer-by-drag', message: `${v.typeId}: a ${dragDeg}-degree swipe turned the view ${out.lookTurned} degrees and the body ${out.turned} (the view must turn by the swipe; the body by the swipe or not at all)`, evidence: out });
+      }
+      await ctx.run(2);
     },
 
     /** Walk the device's line through every doorway passable at the placed size (the door tapped open first): `{ only?: number[] }`. */
