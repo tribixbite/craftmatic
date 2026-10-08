@@ -135,10 +135,19 @@ Round 30m BUILT from main `6a8c7121`: `output/device-round-2026-10-08m/`
 (`craftmatic-packs-6a8c7121.zip` sha256 `541e74ea...`). Offline: check 0 bad
 of 23, regressions 25 / 0 failed / 0 not tested, course ships 9/9 car 6/9,
 hop 3/3, child play 132/132, seat+box scale 0 off, passability unchanged
-(256 OK, 0 FAIL). Device round 30m IN PROGRESS (Saga: Nimbus stops after a
-swipe, cockpit at speed, boom per size, box probe, vehicle dismount; Pixel:
-lift-top guard at 200 %, vehicle dismount, taps, doors, ms/tick) ->
-`output/device-round-2026-10-08m/{saga,pixel}/notes.md`.
+(256 OK, 0 FAIL). Device round 30m DONE (`output/device-round-2026-10-08m/
+{saga,pixel}/notes.md`). PASS: Nimbus no spin, cockpit at speed, chase width
+50/100/200 %, 200 % box exactly 7x5, Milano/McLaren dismounts on the ground,
+lift-top lanes stop at x+79.7, Gate 1, 10326 Doors 1/3 at 300 %, seats,
+Milano 14.56 ms/tick, all regressions. FAIL / open (fix after the engine
+upgrade merges - the new sim must reproduce each first):
+1. Nimbus cannot be steered: forward flies the body's heading, not the look.
+2. 400 % chase camera on the hull (boom cap 48).
+3. X-wing air dismount: the empty ship sinks onto the rider.
+4. McLaren between two walls: dismount lands on the far side of a wall.
+5. 10261 at 200 %: along the curved top to z+27.7 then +x: 42-block fall.
+6. 10261 at 400 %: shell not drawn from 40 blocks (lattice planned for 200 %).
+7. 200 % Milano Mount prompt only under the hull centre (small box).
 Open: `TODO(car-oblique-kerb)` (McLaren slides 62 along an oblique kerb);
 11 other hull-leaving cockpit eyes not re-audited for `AHEAD_CABIN`.
 - # TODO(seat-sweep-memory): `_seat_egress_sweep.ts` on 76457 at 300/400 %
