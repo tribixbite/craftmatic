@@ -1299,6 +1299,19 @@ an earlier "~5 forward" was read off a ramped touch stick).
   only blocks, the shell's collider blocks by their sixteenths included.
   (Touching another MOUNTABLE is a hop, §4.8: the player changes mount; the
   vehicles still pass through each other.)
+- **Getting off a vehicle is offline-proved only** (§4.6 "Getting off",
+  2026-10-08): Bedrock's own set-down about a vehicle seat is one device
+  point (the 200 % Milano's ~9-block drop); the order it tries about a
+  vehicle seat is assumed (`TODO(dismount-ref)`). The collider body probe
+  reads a plant as a full block, so on a planted lawn a set-down can read a
+  block high or fall back to `plain` (`TODO(egress-plants)`). Native mounts
+  (rotorcraft, the Nimbus) keep Bedrock's set-down. # TODO: sneak off the
+  100/200/400 % Milano, a car and a boat on the device.
+- **A scripted vehicle's tap target is its collision box**, clamped to
+  3.5 x 2.5 at 100 % (a camel-era navigation bound) and scaled once with the
+  wand since 2026-10-08: the Milano's box is ~12 % of its 30-block span at
+  every size. The old packs' doubled box made a 200 % hull easier to tap
+  (14 wide) by accident; a wingtip was never tappable.
 - **The hop is offline-proved only** (§4.8): the seat order `addRider`
   gives, an `addRider` just after an `ejectRider`, what `getAABB` reports and
   whether a coaster's camera takes over cleanly mid-run are assumed (quirks
