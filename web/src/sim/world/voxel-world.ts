@@ -19,6 +19,7 @@ import type { Box } from '../core/vec.js';
 import { quirkValue } from '../quirks/registry.js';
 import { permutationKey, type BlockStates, type BlockShape, type BlockTypes } from './block-types.js';
 import { submersion } from './liquids.js';
+import { WriteLog } from './write-log.js';
 
 /** An interned permutation. */
 export interface Permutation { readonly id: number; readonly typeId: string; readonly states: Readonly<BlockStates> }
@@ -76,8 +77,8 @@ export class VoxelWorld {
   private loaded = new Set<string>();
   /** Every column loaded (`setAllLoaded`). */
   private allLoaded = false;
-  /** Every block write, for scenarios that want to know what changed (undo checks). */
-  readonly writes = new Map<string, number>();
+  /** Every block ever written (undo checks, the test hosts), one bit per block (world/write-log.ts). */
+  readonly writes = new WriteLog();
   /** Called after every write (a recorder, a test host). */
   onWrite: ((x: number, y: number, z: number, p: Permutation) => void) | undefined;
   /** Solid boxes that are ENTITIES near a region (collidable mobs; physics/body-systems.ts installs it), joined to `solidsNear`. */
@@ -138,7 +139,7 @@ export class VoxelWorld {
     if (y < this.heightRange.min || y >= this.heightRange.max) return;
     const s = this.section(x, y, z, true)!;
     s[((x & 15) * 16 + (y & 15)) * 16 + (z & 15)] = p.id;
-    this.writes.set(`${x},${y},${z}`, p.id);
+    this.writes.add(x, y, z);
     this.onWrite?.(x, y, z, p);
   }
 
