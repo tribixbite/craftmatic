@@ -1,82 +1,55 @@
 /**
- * Open a built `.mcaddon` in the LEGO tab's add-on walk and screenshot it.
+ * Open a built `.mcaddon` in the LEGO tab's add-on walk and photograph it.
  *
- * The walk draws what the pack actually ships — the collider blocks and, with
- * the `model` legend row on, what the entity looks like in game — so it
- * answers "does this pack put the right thing in the world" without a device.
+ * The walk runs the pack in the headless simulator (web/src/ui/addon-sim-worker.ts)
+ * and draws what it says, so a shot here is the drawn picture of the same tick
+ * `bun scripts/sim.ts` reports - the device round's frame sheets, offline. A
+ * mode that moves (drive, fly, ride, figures-live, doors) writes a STRIP: a
+ * sheet of frames every `--strip=N` ticks, each stamped with its tick, under
+ * 2000 px wide (4 tiles of 480 px a row), beside a JSON of what the
+ * simulator measured (poses, the camera, the lines it printed, the
+ * invariants it raised).
  *
- * Runs under NODE (chromium.launch hangs under bun here) with
- * serviceWorkers blocked (the PWA worker intercepts /lego-models/*).
+ * Runs under NODE (chromium.launch hangs under bun here) with service workers
+ * blocked (the PWA worker intercepts /lego-models/*).
  *
- * Usage: node scripts/_shoot_addon_walk.mjs <pack.mcaddon> <out.png> [layers] [mode]
+ * Usage: node scripts/_shoot_addon_walk.mjs <pack.mcaddon> <out.png> [layers] [mode] [flags]
  *   layers: comma-separated legend kinds to leave ON, e.g. "model" or
  *           "model,collider". Default: whatever the walk opens with.
- *   mode: "flyout" (default) — the original fly-back-and-up establishing shot.
- *     "ride" — proves ride-car MOTION and boarding rather than the whole
- *     model: free-fly next to the first `carWorld` entry (via the DEV-only
- *     `window.__addonWalk` hook — a coaster car gets no reach-target "go"
- *     button), shoot it twice `--ride-wait` ms apart (same static camera; the
- *     car should have moved — the printed JSON also gives the exact
- *     `movedDistanceBlocks`), then teleport within reach and press E to board,
- *     shooting the followed-camera view. Writes `<out>`, `<out>.moved.png`
- *     and `<out>.boarded.png`.
- *     "figures" — close up on the first figure marker (also via
- *     `window.__addonWalk`): proves a minifig draws real geometry, not a
- *     placeholder capsule (the printed JSON's `hasRealGeometry`).
- *     "pinball" — free-fly next to the pinball console (via `window.__addonWalk`'s
- *     `pinballIndices`/`model.pinball`), press E to board it (enters pinball
- *     mode: the walk's own `createPinballSim` running live), hold Space ~1 s
- *     to charge the plunger and release to launch, wait ~1.5 s, then hold the
- *     left flipper key. Writes `<out>` (just boarded), `<out>.moved.png`
- *     (after the launch and wait — the printed JSON gives the ball's plane
- *     (u, w) before/after and the LDU distance moved) and `<out>.flipper.png`
- *     (left flipper held up, its angle against rest in the printed JSON).
- *   --ride-wait=<ms>: real time between the two static-camera shots in "ride"
- *     mode (default 2500). The walk's frame loop is a continuous
- *     requestAnimationFrame while open (not the viewer's on-demand one), so a
- *     real wait does advance ride ticks — verify with the two PNGs, not by
- *     assumption.
- *   --size=<pct>: click that wand size step before the mode's own sequence
- *     runs (default: whatever the walk opens at — its measured walk-through
- *     recommendation, or 100 without one). Every position sampled off
- *     `window.__addonWalk` (console, ball, flippers) is read AFTER this, so
- *     it is correct at any size.
- *   --turn=0|90|180|270: turn the laid model before sampling any position.
- *   --url=<base>: the dev server to drive (default http://localhost:4000).
- *     A worktree's own `bun dev:web -- --port N --strictPort` renders ITS
- *     code; the main checkout's server on 4000 renders the main checkout's.
- *   --figure=<n|text>: "figures" mode only — the n-th figure marker
- *     (0-based) or the first whose label contains the text, instead of the
- *     first figure.
- *   --view=front|back|left|right: "figures" mode only — put the camera on the
- *     side the figure faces (front, the default: faces and prints), behind
- *     it, or a quarter turn round either way.
- *   --distance=<blocks>: "figures" mode only — how far from the rendered
- *     entity the camera stands (default/0: fit its actual appearance bounds).
- *   --kind=<marker kind>: "figures" mode only — frame a marker of another
- *     kind the same way (`car` for a coaster car and its posed riders).
- *     `appearance` frames an entity's actual rendered bounds, including a
- *     vehicle-only pack whose main entity has no walk marker.
- *     `--figure=<n|text>` selects among multiple appearance entities.
- *   --lift=<blocks>: "figures" mode only — raise the camera by that much
- *     (a coaster car's riders sit above the car's origin).
- *   --hide-panels: "figures" mode only — hide the walk's side panels so a
- *     subject on the left of the canvas is not covered.
- *   --isolate: "figures" mode only — hide every other entity's geometry so
- *     the framed one is seen through the building it stands in.
- *     "doors" — a moving part (bedrock-interactives.ts) closed, opened and
- *     walked through: the camera stands `--distance` blocks out along the
- *     leaf's normal (`--side=front|back`) looking at it, shoots it CLOSED
- *     (`<out>`), toggles it the way E does (`toggleInteractive`, the pack's
- *     own runtime rules: double doors together, a too-small opening stays
- *     blocked) and shoots it OPEN (`<out>.open.png`), then drops a walking
- *     player 1.6 blocks out, holds W for 3 s and shoots where it got to
- *     (`<out>.through.png`); the JSON says whether the feet crossed the leaf
- *     plane. `--door=<n|text>` picks the item (default 0).
+ *   mode:
+ *     flyout (default)  an establishing three-quarter shot of everything drawn.
+ *     figures           a close-up on a figure (or `--kind=<marker kind>`), front by default:
+ *                       `--figure=<n|text>`, `--view=front|back|left|right`, `--distance=`, `--lift=`, `--isolate`.
+ *     figures-live      let the figures live `--ticks=N` (default 6000) at the simulator's full speed, a tile every
+ *                       `--strip=N` ticks (default 600) from a high three-quarter view; the JSON says how far each
+ *                       figure walked and how many left their spawn.
+ *     ride              stand beside the first coaster car, two static shots `--ride-wait=ms` apart (the car moved),
+ *                       then board it by a TAP (the simulator's tap step) and ride `--ticks=N` (default 1200) with the
+ *                       script's own rider camera drawn raw, a tile every `--strip=N` (default 60).
+ *     drive             the pack's scripted vehicle (`--vehicle=<typeId>`, default the first). With `--obstacle=<lane>`
+ *                       (step1 hill kerb2 wall3 tree angled pit2 pit3 oblique) the simulator's OWN course step
+ *                       (`stuckCourse`) runs while the walk draws it: the child seated, the stick forward into the
+ *                       obstacle, the chase camera as vehicle-camera.js asks for it; its course row is the JSON.
+ *                       Without it: a HOLD mounts the vehicle where it stands and W is held `--ticks=N` (default 300).
+ *     fly               a HOLD mounts the ship and the spaceship controls are pressed in `--sequence=` phases of
+ *                       `--phase=N` ticks (default 60): up (Jump), hover (nothing), forward (W), back (S), down
+ *                       (S + Jump), left/right (A/D); the JSON gives the ship's rise and run per phase.
+ *     doors             a moving part (`--door=<n|text>`) shot closed from `--distance=` out along its normal
+ *                       (`--side=front|back`), opened by the simulator's tap on it, shot open, then the child is put
+ *                       1.6 blocks out and walks at it for `--ticks=N` (default 60) with Sneak `--sneak=on|off`
+ *                       (the phone's toggle); the JSON says whether the feet crossed the leaf plane and what the
+ *                       invariants said.
+ *     pinball           a HOLD boards the console, the stick is pulled back a second and let go (the pack's plunger),
+ *                       a strip of the game, the ball's position per tile.
+ *   --size=<pct>, --turn=0|90|180|270: place at that size and turn first.
+ *   --url=<base>: the dev server to drive (default http://localhost:4000). A worktree's own
+ *       `bun dev:web -- --port N --strictPort` renders ITS code.
+ *   --hide-panels: hide the HUD panels (default on for strips; `--panels` keeps them).
  */
 import { chromium } from 'playwright-core';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import sharp from 'sharp';
 
 const argv = process.argv.slice(2);
 const flags = new Map();
@@ -84,656 +57,440 @@ const positional = [];
 for (const a of argv) {
   const m = /^--([^=]+)=(.*)$/.exec(a);
   if (m) flags.set(m[1], m[2]);
-  else if (a.startsWith('--')) flags.set(a.slice(2), '');   // a bare switch such as --isolate
+  else if (a.startsWith('--')) flags.set(a.slice(2), '');
   else positional.push(a);
 }
 const [packPath, outPath, layersArg, modeArg] = positional;
 if (!packPath || !outPath) {
-  console.error('usage: node scripts/_shoot_addon_walk.mjs <pack.mcaddon> <out.png> [layers] [mode] [--ride-wait=ms]');
+  console.error('usage: node scripts/_shoot_addon_walk.mjs <pack.mcaddon> <out.png> [layers] [flyout|figures|figures-live|ride|drive|fly|doors|pinball] [--flags]');
   process.exit(64);
 }
-const mode = modeArg === 'ride' ? 'ride' : modeArg === 'figures' ? 'figures' : modeArg === 'pinball' ? 'pinball' : modeArg === 'doors' ? 'doors' : 'flyout';
-const rideWaitMs = Number(flags.get('ride-wait') ?? 2500);
+const MODES = ['flyout', 'figures', 'figures-live', 'ride', 'drive', 'fly', 'doors', 'pinball'];
+const mode = MODES.includes(modeArg) ? modeArg : 'flyout';
 const wanted = layersArg ? layersArg.split(',').map(s => s.trim()).filter(Boolean) : null;
 mkdirSync(outPath.replace(/[/\\][^/\\]+$/, ''), { recursive: true });
-/** `out/dir/name.png` -> `out/dir/name.suffix.png`. */
 const withSuffix = (p, suffix) => p.replace(/(\.[^./\\]+)$/, `.${suffix}$1`);
+const num = (name, dflt) => (flags.has(name) ? Number(flags.get(name)) : dflt);
 
 const browser = await chromium.launch({ channel: 'chrome' });
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, serviceWorkers: 'block' });
 const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
-page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text().slice(0, 160)}`); });
+page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text().slice(0, 200)}`); });
 
-// --url=, or CRAFTMATIC_URL, points the shot at another dev server (a
-// worktree's own, on another port), so a change is looked at through the
-// code that made it.
 const baseUrl = (flags.get('url') ?? process.env.CRAFTMATIC_URL ?? 'http://localhost:4000').replace(/\/$/, '');
 await page.goto(`${baseUrl}/?tab=lego`, { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('#lego-addon-walk-file', { state: 'attached', timeout: 30000 });
 await page.setInputFiles('#lego-addon-walk-file', resolve(packPath));
-
-// The walk mounts its own panel; wait for the legend rather than a timer.
 await page.waitForSelector('.ap-tog', { timeout: 120000 });
-await page.waitForTimeout(2500);
 
-if (wanted) {
-  // Each legend row has a show/hide toggle keyed by `data-kind`.
-  const kinds = await page.$$eval('.ap-tog[data-act="show"]', els =>
-    els.map(e => ({ kind: e.dataset.kind, on: e.getAttribute('aria-pressed') === 'true' })));
-  for (const { kind, on } of kinds) {
-    const shouldBeOn = wanted.includes(kind);
-    if (on !== shouldBeOn) {
-      await page.click(`.ap-tog[data-act="show"][data-kind="${kind}"]`);
-      await page.waitForTimeout(120);
-    }
-  }
-  await page.waitForTimeout(1200);
+// ─── Helpers over the DEV hook (`window.__addonWalk`) ────────────────────────
+
+/** Wait until the simulator placed the pack and a frame arrived. */
+async function waitReady(timeoutMs = 240000) {
+  await page.waitForFunction(() => { const w = window.__addonWalk; return !!(w && w.simClient.info && w.simClient.frame); }, null, { timeout: timeoutMs });
+  await page.waitForTimeout(300);
 }
-
-const sizeArg = flags.get('size') ? Number(flags.get('size')) : null;
-if (sizeArg) {
-  const clicked = await page.evaluate((pct) => {
-    const btn = document.querySelector(`.ap-tog[data-act="size"][data-size="${pct}"]`);
-    if (btn instanceof HTMLElement) { btn.click(); return true; }
-    return false;
-  }, sizeArg);
-  if (!clicked) { console.error(`--size=${sizeArg}: no such size step on this pack`); process.exit(64); }
-  // A size change rebuilds the whole world (colliders, model, reach); give it
-  // a real beat before anything reads positions off it.
-  await page.waitForTimeout(1200);
+const readTick = () => page.evaluate(() => window.__addonWalk?.simClient.frame?.tick ?? 0);
+/** Wait until the simulator's tick reaches `target` (the walk runs it at 20 Hz; a fast-forward runs faster). */
+async function waitTick(target, timeoutMs = 120000) {
+  await page.waitForFunction(t => (window.__addonWalk?.simClient.frame?.tick ?? 0) >= t, target, { timeout: timeoutMs });
 }
-
-const turnArg = flags.has('turn') ? Number(flags.get('turn')) : null;
-if (turnArg !== null) {
-  const clicked = await page.evaluate((turn) => {
-    const btn = document.querySelector(`.ap-tog[data-act="turn"][data-turn="${turn}"]`);
-    if (btn instanceof HTMLElement) { btn.click(); return true; }
-    return false;
-  }, turnArg);
-  if (!clicked) { console.error(`--turn=${turnArg}: expected 0, 90, 180 or 270`); process.exit(64); }
-  await page.waitForTimeout(1200);
-}
-
 const readState = () => page.evaluate(() => {
-  const rows = [...document.querySelectorAll('.ap-tog[data-act="show"]')]
-    .map(e => `${e.dataset.kind}:${e.getAttribute('aria-pressed') === 'true' ? 'on' : 'off'}`);
-  const title = document.querySelector('.ap-title')?.textContent?.trim().slice(0, 120) ?? '';
-  const legend = (document.querySelector('.ap-legend, .ap-panel')?.textContent ?? '').replace(/\s+/g, ' ').slice(0, 400);
-  const hint = document.querySelector('.ap-hint')?.textContent?.trim() ?? '';
-  const interact = document.querySelector('.ap-interact')?.textContent?.trim() ?? '';
-  return { title, layers: rows, legend, hint, interact };
-});
-
-// Install one rendered-bounds camera on the DEV hook. Appearance shots,
-// marker close-ups and vehicle-only flyouts all use the same fit maths. The
-// white sphere at (0, 0.18, 0) is the walker's origin pin, not pack geometry;
-// clean evidence shots hide it along with the HUD/reach debug overlays.
-await page.evaluate(() => {
   const w = window.__addonWalk;
-  if (!w) return;
-  w.__shotBounds = (index) => {
-    const holder = w.entityHolders.get(index);
-    if (!holder) return null;
-    const Vector3 = w.camera.position.constructor;
-    const Matrix4 = w.camera.matrixWorld.constructor;
-    const instance = new Matrix4();
-    const corner = new Vector3();
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    holder.updateWorldMatrix(true, true);
-    holder.traverse(obj => {
-      if (!obj.isInstancedMesh) return;
-      obj.geometry.computeBoundingBox();
-      const box = obj.geometry.boundingBox;
-      if (!box) return;
-      obj.updateWorldMatrix(true, false);
-      for (let i = 0; i < obj.count; i++) {
-        obj.getMatrixAt(i, instance);
-        for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
-          corner.set(x, y, z).applyMatrix4(instance).applyMatrix4(obj.matrixWorld);
-          minX = Math.min(minX, corner.x); minY = Math.min(minY, corner.y); minZ = Math.min(minZ, corner.z);
-          maxX = Math.max(maxX, corner.x); maxY = Math.max(maxY, corner.y); maxZ = Math.max(maxZ, corner.z);
-        }
-      }
-    });
-    if (!Number.isFinite(minX)) return null;
-    const min = { x: minX, y: minY, z: minZ }, max = { x: maxX, y: maxY, z: maxZ };
-    const span = { x: maxX - minX, y: maxY - minY, z: maxZ - minZ };
-    return {
-      min, max, span,
-      center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2, z: (minZ + maxZ) / 2 },
-      diagonal: Math.hypot(span.x, span.y, span.z),
-    };
-  };
-  w.__shotFrame = ({ index, view, distance, lift, isolate }) => {
-    const bounds = w.__shotBounds(index);
-    if (!bounds) return { ok: false, reason: `entity ${index} has no rendered cube instances` };
-    if (isolate) for (const [i, holder] of w.entityHolders) holder.visible = i === index;
-    const entity = w.model.entities[index];
-    const d = distance > 0 ? distance : Math.max(bounds.span.x, bounds.span.y, bounds.span.z) * 1.35;
-    // The holder is the source of truth after both layout turns and live ride
-    // animation. A coaster car's serialized yaw stays at its spawn value while
-    // this rotation follows the track. Figure/car geometry faces opposite the
-    // root-frame convention used by static shell appearances.
-    // TODO(walk-shot-yaw): both the half turn for figures/cars and reading the
-    // yaw from the holder's three.js rotation (the NEGATED Bedrock yaw, see
-    // CLAUDE.md "An actor's yaw is Bedrock's") are unverified on an actor
-    // turned 90 (or 270), the case where a yaw sign error shows: a 'left'
-    // shot could frame the right side. Verify on an actor placed at 90 before
-    // trusting a side view.
-    const yaw = w.entityHolders.get(index).rotation.y;
-    const kindOffset = entity.kind === 'figure' || entity.kind === 'car' ? Math.PI : 0;
-    const around = (view === 'front' ? 0 : view === 'back' ? Math.PI : view === 'left' ? Math.PI / 2 : view === 'three-quarter' ? Math.PI / 4 : -Math.PI / 2) + kindOffset;
-    const fx = -Math.sin(yaw + around), fz = -Math.cos(yaw + around);
-    const eyeY = bounds.center.y + Math.max(0.5, bounds.span.y * 0.35) + lift;
-    w.noclip = true;
-    w.state = { ...w.state, x: bounds.center.x + fx * d, y: eyeY - 1.62, z: bounds.center.z + fz * d, vx: 0, vy: 0, vz: 0 };
-    w.prevState = w.state;
-    w.yaw = yaw + around + Math.PI;
-    w.pitch = -Math.atan2(eyeY - bounds.center.y, d);
-    const pin = [...w.entityGroup.children].find(obj => obj.geometry?.type === 'SphereGeometry'
-      && Math.abs(obj.position.x) < 1e-6 && Math.abs(obj.position.y - 0.18) < 1e-6 && Math.abs(obj.position.z) < 1e-6);
-    if (pin) pin.visible = false;
-    return { ok: true, bounds: { min: bounds.min, max: bounds.max, span: bounds.span }, distance: d, originPinHidden: !!pin };
+  const f = w?.simClient.frame;
+  const rows = [...document.querySelectorAll('.ap-tog[data-act="show"]')].map(e => `${e.dataset.kind}:${e.getAttribute('aria-pressed') === 'true' ? 'on' : 'off'}`);
+  return {
+    title: document.querySelector('.ap-title')?.textContent?.trim().slice(0, 120) ?? '',
+    layers: rows,
+    hint: document.querySelector('.ap-hint')?.textContent?.trim() ?? '',
+    tick: f?.tick ?? null,
+    player: f ? { x: f.player.x, y: f.player.y, z: f.player.z, yaw: f.player.yaw, pitch: f.player.pitch, riding: f.player.riding, onGround: f.player.onGround, slot: f.player.slot } : null,
+    camera: f?.camera ?? null,
+    aim: f?.aim ?? null,
+    anchor: w?.anchorPoint ?? null,
+    hooks: w?.simClient.info?.hooks ?? null,
+    inline: w?.simClient.info?.inline ?? null,
+    entities: f?.entities.length ?? 0,
+    violations: w ? w.violationList.map(v => `${v.invariant}@${v.tick}: ${v.message.slice(0, 160)}`) : [],
+    lines: w ? w.allLines.map(l => `${l.tick} ${l.kind} ${l.text.slice(0, 140)}`) : [],
+    unmodelled: f?.unmodelled ?? [],
+    stepRunning: f?.step ?? null,
+    blocks: w?.colliderStats ?? null,
   };
 });
+/** The simulator entity (pose) of the first holder of a kind, or by type. */
+const findEntity = (sel) => page.evaluate((sel) => {
+  const w = window.__addonWalk;
+  const f = w.simClient.frame;
+  const kindOf = id => w.entityHolders.get(id)?.kind ?? null;
+  const list = f.entities.filter(e => (sel.typeId ? e.typeId === sel.typeId : true) && (sel.kind ? kindOf(e.id) === sel.kind : true) && (sel.text ? (w.previewModel.entities.find(a => a.typeId === e.typeId)?.label ?? e.typeId).includes(sel.text) : true));
+  const e = list[sel.index ?? 0];
+  if (!e) return null;
+  const b = w.holderBounds(e.id);
+  const a = w.anchorPoint;
+  return { id: e.id, typeId: e.typeId, kind: kindOf(e.id), label: w.previewModel.entities.find(x => x.typeId === e.typeId)?.label ?? e.typeId, x: e.x - a.x, y: e.y - a.y, z: e.z - a.z, yaw: e.yaw, riding: e.riding, bounds: b ? { min: { x: b.min.x, y: b.min.y, z: b.min.z }, max: { x: b.max.x, y: b.max.y, z: b.max.z } } : null, count: list.length };
+}, sel);
+/** Free-fly the camera to a pin-frame point looking at another. */
+const lookFrom = (eye, at) => page.evaluate(({ eye, at }) => {
+  const w = window.__addonWalk;
+  const dx = at.x - eye.x, dy = at.y - eye.y, dz = at.z - eye.z;
+  const yaw = Math.atan2(-dx, dz) * 180 / Math.PI, pitch = Math.atan2(-dy, Math.hypot(dx, dz)) * 180 / Math.PI;
+  w.flyTo(eye.x, eye.y, eye.z, yaw, pitch);
+  return { yaw, pitch };
+}, { eye, at });
+/** Frame a pin-frame box from a three-quarter (or named) view. */
+async function frameBox(b, view = 'three-quarter', distance = 0, lift = 0) {
+  const c = { x: (b.min.x + b.max.x) / 2, y: (b.min.y + b.max.y) / 2, z: (b.min.z + b.max.z) / 2 };
+  const span = { x: b.max.x - b.min.x, y: b.max.y - b.min.y, z: b.max.z - b.min.z };
+  const d = distance > 0 ? distance : Math.max(span.x, span.y, span.z, 1) * 1.35;
+  const dir = view === 'front' ? { x: 0, z: 1 } : view === 'back' ? { x: 0, z: -1 } : view === 'left' ? { x: 1, z: 0 } : view === 'right' ? { x: -1, z: 0 } : view === 'top' ? { x: 0.01, z: 0.01 } : { x: Math.SQRT1_2, z: Math.SQRT1_2 };
+  const up = view === 'top' ? d : view === 'three-quarter' ? Math.max(0.5, span.y * 0.35) + d * 0.45 : Math.max(0.5, span.y * 0.35);
+  const eye = { x: c.x + dir.x * d, y: c.y + up + lift, z: c.z + dir.z * d };
+  const look = await lookFrom(eye, c);
+  await page.waitForTimeout(250);
+  return { center: c, span, distance: d, eye, ...look };
+}
+const hidePanels = async () => { await page.evaluate(() => { window.__addonWalk.hidePanels(); const r = document.querySelector('[data-act="reach"]'); if (r instanceof HTMLElement && r.getAttribute('aria-pressed') === 'true') r.click(); }); };
+/** A facing yaw/pitch toward a holder's drawn centre from an eye in front of it. */
+const bedrockYawToward = (from, to) => Math.atan2(-(to.x - from.x), to.z - from.z) * 180 / Math.PI;
+
+/** The walk's own box on the page: every shot is clipped to it (the tab's side panel is not evidence). */
+let clip = null;
+const viewClip = async () => { clip = await page.evaluate(() => window.__addonWalk.viewRect); return clip; };
+const shot = async (path) => page.screenshot({ type: 'png', ...(clip ? { clip } : {}), ...(path ? { path } : {}) });
+/** A tile for a strip: the screenshot, stamped. */
+const shots = [];
+async function tile(label) {
+  const png = await shot();
+  shots.push({ png, label });
+}
+/** Write the strip: tiles stamped with their labels in rows, never 2000 px wide or tall (more columns, smaller tiles, as the count grows). */
+async function writeStrip(path) {
+  if (!shots.length) return null;
+  const aspect = clip ? clip.height / clip.width : 860 / 1280;
+  let cols = 4;
+  while (cols < 8 && Math.ceil(shots.length / cols) * Math.round(Math.floor(1920 / cols) * aspect) >= 1990) cols++;
+  const w = Math.floor(1920 / cols), h = Math.round(w * aspect);
+  const tiles = await Promise.all(shots.map(async s => {
+    const svg = Buffer.from(`<svg width="${w}" height="${h}"><rect x="4" y="4" width="${Math.min(w - 8, 12 + s.label.length * 7.5)}" height="20" rx="4" fill="rgba(0,0,0,0.65)"/><text x="10" y="18" font-family="monospace" font-size="13" fill="#fff">${s.label.replace(/[<&>]/g, '')}</text></svg>`);
+    return sharp(s.png).resize(w, h).composite([{ input: svg, left: 0, top: 0 }]).png().toBuffer();
+  }));
+  const rows = Math.ceil(tiles.length / cols);
+  await sharp({ create: { width: w * Math.min(cols, tiles.length), height: h * rows, channels: 3, background: '#000000' } })
+    .composite(tiles.map((t, i) => ({ input: t, left: (i % cols) * w, top: Math.floor(i / cols) * h }))).png().toFile(path);
+  return { path, tiles: tiles.length, cols, width: w * Math.min(cols, tiles.length), height: h * rows };
+}
+/** Hold the walk's keys for `ticks` simulator ticks, taking a tile every `every` ticks (0: none). */
+async function holdFor(codes, ticks, every, labelPrefix) {
+  const start = await readTick();
+  for (const c of codes) await page.keyboard.down(c);
+  try {
+    if (every > 0) {
+      for (let t = every; t <= ticks; t += every) { await waitTick(start + t); await tile(`${labelPrefix} t+${t}`); }
+    } else await waitTick(start + ticks);
+  } finally { for (const c of codes) await page.keyboard.up(c); }
+  return (await readTick()) - start;
+}
+const finish = async (json) => {
+  const out = { pack: packPath, mode, out: outPath, ...json, errors: errors.slice(0, 8) };
+  writeFileSync(withSuffix(outPath, 'json').replace(/\.png$/, ''), JSON.stringify(out, null, 1));
+  console.log(JSON.stringify(out, null, 1));
+  await browser.close();
+};
+
+// ─── Common set-up: layers, size, turn, wait for the simulator ───────────────
+
+await waitReady();
+if (wanted) {
+  // Each legend row has a show/hide toggle keyed by `data-kind`; re-query before every click (the HUD re-renders).
+  const kinds = await page.$$eval('.ap-tog[data-act="show"]', els => els.map(e => ({ kind: e.dataset.kind, on: e.getAttribute('aria-pressed') === 'true' })));
+  for (const { kind, on } of kinds) {
+    if (on !== wanted.includes(kind)) { await page.click(`.ap-tog[data-act="show"][data-kind="${kind}"]`); await page.waitForTimeout(120); }
+  }
+}
+for (const [name, act] of [['size', 'size'], ['turn', 'turn']]) {
+  if (!flags.has(name)) continue;
+  const clicked = await page.evaluate(({ act, v }) => { const b = document.querySelector(`.ap-tog[data-act="${act}"][data-${act}="${v}"]`); if (b instanceof HTMLElement) { b.click(); return true; } return false; }, { act, v: flags.get(name) });
+  if (!clicked) { console.error(`--${name}=${flags.get(name)}: no such step on this pack`); process.exit(64); }
+  await page.waitForTimeout(500);
+  await waitReady();
+}
+if (!flags.has('panels')) await hidePanels();
+await page.waitForTimeout(400);
+await viewClip();
+const stripEvery = num('strip', 0);
+
+// ─── Modes ───────────────────────────────────────────────────────────────────
 
 if (mode === 'flyout') {
-  const framed = await page.evaluate(() => {
+  const b = await page.evaluate(() => {
     const w = window.__addonWalk;
-    if (!w || w.model.cells.length) return null;
-    const candidates = w.model.entities
-      .map((entity, index) => ({ entity, index, bounds: w.__shotBounds(index) }))
-      .filter(({ bounds }) => bounds)
-      .sort((a, b) => b.bounds.diagonal - a.bounds.diagonal);
-    const target = candidates[0];
-    if (!target) return { ok: false, reason: 'vehicle-only pack has no rendered appearance entity' };
-    const result = w.__shotFrame({ index: target.index, view: 'three-quarter', distance: 0, lift: 0, isolate: false });
-    const hud = document.querySelector('.ap-hud');
-    if (hud instanceof HTMLElement) hud.style.display = 'none';
-    const reach = document.querySelector('[data-act="reach"]');
-    if (reach instanceof HTMLElement && reach.getAttribute('aria-pressed') === 'true') reach.click();
-    return { ...result, index: target.index, label: target.entity.label };
+    let box = null;
+    for (const [id] of w.entityHolders) { const hb = w.holderBounds(id); if (!hb) continue; box = box ? { min: { x: Math.min(box.min.x, hb.min.x), y: Math.min(box.min.y, hb.min.y), z: Math.min(box.min.z, hb.min.z) }, max: { x: Math.max(box.max.x, hb.max.x), y: Math.max(box.max.y, hb.max.y), z: Math.max(box.max.z, hb.max.z) } } : { min: { ...hb.min }, max: { ...hb.max } }; }
+    return box;
   });
-  if (!framed) {
-    // Buildings still use the walk's establishing shot: free-fly, then rise
-    // and back off from the player spawn.
-    await page.mouse.click(900, 430);
-    await page.keyboard.press('KeyF');
-    await page.waitForTimeout(300);
-    for (let i = 0; i < 40; i++) { await page.keyboard.press('Space'); await page.waitForTimeout(30); }
-    for (let i = 0; i < 150; i++) { await page.keyboard.press('KeyS'); await page.waitForTimeout(20); }
-    await page.keyboard.press('Escape');
-  } else if (!framed.ok) {
-    console.log(JSON.stringify({ pack: packPath, out: outPath, framed, errors: errors.slice(0, 5) }, null, 1));
-    await browser.close();
-    process.exit(1);
-  }
-  await page.waitForTimeout(1200);
-
-  const state = await readState();
-  await page.screenshot({ path: outPath });
-  console.log(JSON.stringify({ pack: packPath, out: outPath, framed, ...state, errors: errors.slice(0, 5) }, null, 1));
-  await browser.close();
+  const framed = b ? await frameBox(b, 'three-quarter') : null;
+  await page.waitForTimeout(800);
+  await shot(outPath);
+  await finish({ framed, ...(await readState()) });
 } else if (mode === 'figures') {
-  // Close up on the first FIGURE marker, via the same DEV-only `window.__addonWalk`
-  // hook "ride" mode uses: proves a minifig draws the pack's own resource-pack
-  // geometry (bone hierarchy, per-part colours) rather than a placeholder capsule.
-  await page.mouse.click(900, 430);
-  await page.keyboard.press('KeyF');
-  await page.waitForTimeout(300);
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
-
-  // The red/green reach overlay plates are on by default and would fill a
-  // close-up shot from inside the footprint; this mode is about the model,
-  // not reach, so turn them off.
-  await page.evaluate(() => { const btn = document.querySelector('[data-act="reach"]'); if (btn instanceof HTMLElement && btn.getAttribute('aria-pressed') === 'true') btn.click(); });
-  await page.waitForTimeout(100);
-
   const which = flags.get('figure') ?? '0';
-  const view = ['back', 'left', 'right'].includes(flags.get('view')) ? flags.get('view') : 'front';
-  const distance = Number(flags.get('distance') ?? 0);
-  // `--kind=car` (or any marker kind) frames that entity the same way: a
-  // coaster car's posed riders are part of the car, not figure markers.
   const kind = flags.get('kind') ?? 'figure';
-  // `--isolate` hides every other entity's geometry (the walk keeps one
-  // THREE.Group per drawn entity), so a car parked inside a building can be
-  // photographed through its walls. The collider blocks stay.
-  const isolate = flags.has('isolate');
-  // `--lift=<blocks>` raises the camera (a cart's riders sit above its origin);
-  // `--hide-panels` hides the walk's side panels so they cover nothing.
-  const lift = Number(flags.get('lift') ?? 0);
-  if (flags.has('hide-panels')) await page.evaluate(() => { const hud = document.querySelector('.ap-hud'); if (hud instanceof HTMLElement) hud.style.display = 'none'; });
-  const placed = await page.evaluate(({ which, view, distance, kind, isolate, lift }) => {
-    const w = window.__addonWalk;
-    if (!w) return { ok: false, reason: 'no __addonWalk dev hook (not a DEV build?)' };
-    if (kind === 'appearance') {
-      const appearances = w.model.entities
-        .map((entity, index) => ({ entity, index, holder: w.entityHolders.get(index) }))
-        .filter(({ holder }) => holder);
-      const target = /^\d+$/.test(which)
-        ? appearances[Number(which)]
-        : appearances.find(({ entity }) => (entity.label ?? '').includes(which));
-      if (!target) return { ok: false, reason: `no appearance entity "${which}" in this pack (${appearances.length} entities with geometry)` };
-      const framed = w.__shotFrame({ index: target.index, view, distance, lift, isolate });
-      return {
-        ...framed, label: target.entity.label, view, hasRealGeometry: true,
-        appearances: appearances.length,
-      };
+  const sel = /^\d+$/.test(which) ? { kind: kind === 'appearance' ? undefined : kind, index: Number(which) } : { kind: kind === 'appearance' ? undefined : kind, text: which };
+  const e = await findEntity(sel);
+  if (!e || !e.bounds) { await shot(outPath); await finish({ placed: { ok: false, reason: `no ${kind} "${which}" with drawn geometry (${e?.count ?? 0} of that kind)` } }); process.exit(1); }
+  if (flags.has('isolate')) await page.evaluate(id => window.__addonWalk.isolate([id]), e.id);
+  const view = ['back', 'left', 'right', 'front'].includes(flags.get('view')) ? flags.get('view') : 'front';
+  // A figure's or a car's geometry faces the opposite way to a shell's root frame: "front" stands where its face is.
+  const c = { x: (e.bounds.min.x + e.bounds.max.x) / 2, y: (e.bounds.min.y + e.bounds.max.y) / 2, z: (e.bounds.min.z + e.bounds.max.z) / 2 };
+  const span = Math.max(e.bounds.max.x - e.bounds.min.x, e.bounds.max.y - e.bounds.min.y, e.bounds.max.z - e.bounds.min.z);
+  const d = num('distance', 0) > 0 ? num('distance', 0) : span * 1.35;
+  const yawRad = e.yaw * Math.PI / 180;
+  const facing = { x: -Math.sin(yawRad), z: Math.cos(yawRad) };
+  const around = view === 'front' ? 1 : view === 'back' ? -1 : 0;
+  const side = view === 'left' ? 1 : view === 'right' ? -1 : 0;
+  const eye = { x: c.x + facing.x * d * around + facing.z * d * side, y: c.y + Math.max(0.3, span * 0.2) + num('lift', 0), z: c.z + facing.z * d * around - facing.x * d * side };
+  const look = await lookFrom(eye, c);
+  await page.waitForTimeout(500);
+  await shot(outPath);
+  await finish({ placed: { ok: true, ...e, view, distance: d, eye, ...look, hasRealGeometry: true }, state: await readState() });
+} else if (mode === 'figures-live') {
+  const ticks = num('ticks', 6000), every = stripEvery || 600;
+  // Frame the FIGURES (where they stand, with room to walk), not the whole model: a bank's tower would shrink them to pixels.
+  const all = await page.evaluate(() => {
+    const w = window.__addonWalk, a = w.anchorPoint;
+    let box = null;
+    for (const e of w.simClient.frame.entities) {
+      if (w.entityHolders.get(e.id)?.kind !== 'figure') continue;
+      const p = { x: e.x - a.x, y: e.y - a.y, z: e.z - a.z };
+      box = box ? { min: { x: Math.min(box.min.x, p.x), y: Math.min(box.min.y, p.y), z: Math.min(box.min.z, p.z) }, max: { x: Math.max(box.max.x, p.x), y: Math.max(box.max.y, p.y), z: Math.max(box.max.z, p.z) } } : { min: { ...p }, max: { ...p } };
     }
-    const figures = w.markers.filter(m => m.entity.kind === kind);
-    const marker = /^\d+$/.test(which) ? figures[Number(which)] : figures.find(m => (m.entity.label ?? '').includes(which));
-    if (!marker) return { ok: false, reason: `no ${kind} marker "${which}" in this pack (${figures.length} of that kind)` };
-    const index = w.model.entities.indexOf(marker.entity);
-    if (index < 0 || !marker.hasRealGeometry) return { ok: false, reason: `${kind} marker "${which}" has no rendered entity geometry` };
-    const at = marker.at;
-    const framed = w.__shotFrame({ index, view, distance, lift, isolate });
-    return { ...framed, label: marker.entity.label, view, hasRealGeometry: true, at: { x: at.x, y: at.y, z: at.z }, figures: figures.length };
-  }, { which, view, distance, kind, isolate, lift });
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: outPath });
-  if (!placed.ok) {
-    console.log(JSON.stringify({ pack: packPath, mode, out: outPath, placed, errors: errors.slice(0, 5) }, null, 1));
-    await browser.close();
-    process.exit(1);
+    if (!box) return null;
+    return { min: { x: box.min.x - 4, y: box.min.y, z: box.min.z - 4 }, max: { x: box.max.x + 4, y: box.max.y + 2, z: box.max.z + 4 } };
+  });
+  const framed = all ? await frameBox(all, 'three-quarter', Math.max(all.max.x - all.min.x, all.max.z - all.min.z) * 0.8, 3) : null;
+  const figuresAt = () => page.evaluate(() => { const w = window.__addonWalk, a = w.anchorPoint; return w.simClient.frame.entities.filter(e => w.entityHolders.get(e.id)?.kind === 'figure').map(e => ({ id: e.id, typeId: e.typeId, x: e.x - a.x, y: e.y - a.y, z: e.z - a.z, riding: e.riding })); });
+  const start = await figuresAt();
+  const t0 = await readTick();
+  await tile(`t ${t0}`);
+  const maxFrom = new Map(start.map(f => [f.id, 0]));
+  const quiet = new Map(start.map(f => [f.id, 0]));
+  for (let t = every; t <= ticks; t += every) {
+    await page.evaluate(n => window.__addonWalk.simClient.fastForward(n, n), every);
+    await waitTick(t0 + t, 600000);
+    await page.waitForTimeout(150);
+    await tile(`t ${t0 + t} (+${t})`);
+    const now = await figuresAt();
+    for (const f of now) { const s = start.find(x => x.id === f.id); if (!s) continue; const d = Math.hypot(f.x - s.x, f.z - s.z); maxFrom.set(f.id, Math.max(maxFrom.get(f.id) ?? 0, d)); }
   }
-  await browser.close();
-  console.log(JSON.stringify({ pack: packPath, mode, out: outPath, placed, errors: errors.slice(0, 5) }, null, 1));
-} else if (mode === 'doors') {
-  await page.mouse.click(900, 430);
-  await page.keyboard.press('KeyF');
+  const end = await figuresAt();
+  const figures = start.map(s => { const e = end.find(x => x.id === s.id); return { typeId: s.typeId, start: { x: +s.x.toFixed(2), y: +s.y.toFixed(2), z: +s.z.toFixed(2) }, end: e ? { x: +e.x.toFixed(2), y: +e.y.toFixed(2), z: +e.z.toFixed(2), riding: e.riding } : null, maxFromStart: +((maxFrom.get(s.id) ?? 0).toFixed(2)) }; });
+  const strip = await writeStrip(outPath);
+  await finish({ framed, ticks, every, strip, figures, walked: figures.filter(f => f.maxFromStart > 1).length, seated: end.filter(f => f.riding).length, state: await readState() });
+} else if (mode === 'ride') {
+  const rideWaitMs = num('ride-wait', 2500), ticks = num('ticks', 1200), every = stripEvery || 60;
+  const car = await findEntity({ kind: 'car' });
+  if (!car) { await shot(outPath); await finish({ placed: { ok: false, reason: 'no coaster car in the simulator' } }); process.exit(1); }
+  await lookFrom({ x: car.x - 5, y: car.y + 2.5, z: car.z - 5 }, { x: car.x, y: car.y + 0.5, z: car.z });
   await page.waitForTimeout(300);
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
-  await page.evaluate(() => { const btn = document.querySelector('[data-act="reach"]'); if (btn instanceof HTMLElement && btn.getAttribute('aria-pressed') === 'true') btn.click(); });
-  await page.evaluate(() => { const hud = document.querySelector('.ap-hud'); if (hud) hud.style.display = 'none'; });
+  await shot(outPath);
+  const before = { x: car.x, y: car.y, z: car.z, yaw: car.yaw, tick: await readTick() };
+  await page.waitForTimeout(rideWaitMs);
+  const after = await findEntity({ typeId: car.typeId, index: 0 });
+  const movedPath = withSuffix(outPath, 'moved');
+  await shot(movedPath);
+  const moved = after ? Math.hypot(after.x - before.x, after.y - before.y, after.z - before.z) : null;
+  // Board as the device does: the car is a native rideable (family player, interact_text "Ride the coaster"), so a
+  // HOLD mounts it - while it DWELLS at the station (a moving car is out of reach by the time the hold lands).
+  // Wait for any car to stand still, then the simulator's hold step stands the child within reach and interacts.
+  await page.evaluate(() => window.__addonWalk.setFly(false));
+  const carsAt = () => page.evaluate(() => { const w = window.__addonWalk; return w.simClient.frame.entities.filter(e => w.entityHolders.get(e.id)?.kind === 'car').map(e => ({ id: e.id, typeId: e.typeId, x: e.x, y: e.y, z: e.z })); });
+  let dwelling = null, prev = await carsAt();
+  for (let i = 0; i < 400 && !dwelling; i++) {
+    await page.waitForTimeout(250);
+    const now = await carsAt();
+    dwelling = now.find(c => { const p = prev.find(x => x.id === c.id); return p && Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z) < 0.005; }) ?? null;
+    prev = now;
+  }
+  const holdResult = dwelling ? await page.evaluate(t => window.__addonWalk.simClient.runStep({ kind: 'hold', label: 'hold the car' }, { typeId: t }), dwelling.typeId) : { ok: false, error: 'no car dwelt at the station within 100 s' };
+  await page.waitForTimeout(600);
+  const boardedAt = await readTick();
+  let boarded = await readState();
+  const t0 = await readTick();
+  await tile(`boarded t ${t0}`);
+  for (let t = every; t <= ticks; t += every) { await waitTick(t0 + t); await tile(`ride t+${t}`); }
+  const strip = await writeStrip(withSuffix(outPath, 'strip'));
+  boarded = await readState();
+  await finish({ car, before, after, movedDistanceBlocks: moved, movedPath, dwelling, holdResult, boardedAt, riding: boarded.player?.riding ?? null, camera: boarded.camera, strip, state: boarded });
+} else if (mode === 'drive') {
+  const info = await page.evaluate(() => window.__addonWalk.simClient.info);
+  const type = flags.get('vehicle') ?? info.vehicleTypes.find(t => !info.nativeMountTypes.includes(t)) ?? info.vehicleTypes[0];
+  if (!type) { await shot(outPath); await finish({ placed: { ok: false, reason: 'the pack declares no scripted vehicle' } }); process.exit(1); }
+  const every = stripEvery || 10;
+  const obstacle = flags.get('obstacle');
+  await page.evaluate(() => window.__addonWalk.setFly(false));
+  if (obstacle) {
+    // The simulator's own course lane, drawn: the step spawns the vehicle on the lane, seats the child, holds the stick.
+    const t0 = await readTick();
+    const done = page.evaluate(({ type, obstacle }) => window.__addonWalk.simClient.runStep({ kind: 'stuckCourse', label: `course ${obstacle}`, type, obstacles: [obstacle], trace: 4 }), { type, obstacle });
+    let settled = false;
+    done.then(() => { settled = true; });
+    await page.waitForTimeout(400);
+    await tile(`${obstacle} t ${await readTick()}`);
+    for (let t = every; !settled && t <= 2000; t += every) {
+      const target = t0 + t;
+      await Promise.race([waitTick(target).catch(() => {}), done]);
+      if (settled) break;
+      await tile(`${obstacle} t+${t}`);
+    }
+    const result = await done;
+    await tile(`${obstacle} end t ${await readTick()}`);
+    const strip = await writeStrip(withSuffix(outPath, 'strip'));
+    await shot(outPath);
+    await finish({ vehicle: type, obstacle, course: result.state?.course ?? null, stepOk: result.ok, stepError: result.error ?? null, notes: result.notes, strip, state: await readState() });
+  } else {
+    const ticks = num('ticks', 300);
+    const hold = await page.evaluate(t => window.__addonWalk.simClient.runStep({ kind: 'hold', label: 'mount' }, { typeId: t }), type);
+    await page.waitForTimeout(400);
+    const mounted = await readState();
+    const t0 = await readTick();
+    await tile(`mounted t ${t0}`);
+    await holdFor(['KeyW'], ticks, every, 'W');
+    await tile(`released t ${await readTick()}`);
+    // Hotbar 9: the cockpit view at speed, drawn raw, while W is held again briefly.
+    await page.evaluate(() => window.__addonWalk.selectSlot(8));
+    await holdFor(['KeyW'], 40, 0, 'W');
+    await tile(`cockpit (slot 9) t ${await readTick()}`);
+    const cockpit = await readState();
+    await shot(withSuffix(outPath, 'cockpit'));
+    const strip = await writeStrip(withSuffix(outPath, 'strip'));
+    await shot(outPath);
+    await finish({ vehicle: type, hold, riding: mounted.player?.riding ?? null, cockpit: { camera: cockpit.camera, player: cockpit.player }, strip, state: await readState() });
+  }
+} else if (mode === 'fly') {
+  const info = await page.evaluate(() => window.__addonWalk.simClient.info);
+  const type = flags.get('vehicle') ?? info.vehicleTypes.find(t => !info.nativeMountTypes.includes(t)) ?? info.vehicleTypes[0];
+  if (!type) { await shot(outPath); await finish({ placed: { ok: false, reason: 'the pack declares no scripted vehicle' } }); process.exit(1); }
+  const phases = (flags.get('sequence') ?? 'up,hover,forward,back,down').split(',').map(s => s.trim()).filter(Boolean);
+  const phaseTicks = num('phase', 60), every = stripEvery || 20;
+  const KEYS = { up: ['Space'], hover: [], forward: ['KeyW'], back: ['KeyS'], down: ['KeyS', 'Space'], left: ['KeyA'], right: ['KeyD'] };
+  await page.evaluate(() => window.__addonWalk.setFly(false));
+  const hold = await page.evaluate(t => window.__addonWalk.simClient.runStep({ kind: 'hold', label: 'mount' }, { typeId: t }), type);
+  await page.waitForTimeout(400);
+  const vehicleAt = () => page.evaluate(() => { const w = window.__addonWalk, f = w.simClient.frame, a = w.anchorPoint; const v = f.entities.find(e => e.id === f.player.riding); return v ? { x: +(v.x - a.x).toFixed(2), y: +(v.y - a.y).toFixed(2), z: +(v.z - a.z).toFixed(2), yaw: +v.yaw.toFixed(1) } : null; });
+  const mounted = await readState();
+  await tile(`mounted t ${await readTick()}`);
+  const results = [];
+  for (const ph of phases) {
+    const codes = KEYS[ph];
+    if (!codes) { results.push({ phase: ph, error: 'unknown phase' }); continue; }
+    const from = await vehicleAt();
+    const t0 = await readTick();
+    await holdFor(codes, phaseTicks, every, ph);
+    const to = await vehicleAt();
+    results.push({ phase: ph, ticks: (await readTick()) - t0, from, to, rise: from && to ? +(to.y - from.y).toFixed(2) : null, run: from && to ? +Math.hypot(to.x - from.x, to.z - from.z).toFixed(2) : null, turned: from && to ? +(((to.yaw - from.yaw + 540) % 360) - 180).toFixed(1) : null });
+  }
+  // Hotbar 9: the cockpit view the pack's vehicle-camera.js asks for, drawn raw (the seat's eye; package B adds the client's lag).
+  await page.evaluate(() => window.__addonWalk.selectSlot(8));
+  await waitTick((await readTick()) + 30);
+  await tile(`cockpit (slot 9) t ${await readTick()}`);
+  const cockpit = await readState();
+  await shot(withSuffix(outPath, 'cockpit'));
+  const strip = await writeStrip(withSuffix(outPath, 'strip'));
+  await shot(outPath);
+  await finish({ vehicle: type, hold, riding: mounted.player?.riding ?? null, phases: results, cockpit: { camera: cockpit.camera, player: cockpit.player }, strip, state: await readState() });
+} else if (mode === 'doors') {
   const which = flags.get('door') ?? '0';
-  const distance = Number(flags.get('distance') ?? 3.2);
-  const side = flags.get('side') === 'back' ? -1 : 1;
-  // --elev=<blocks>: camera height above the door's foot (default 1.2, eye level); --isolate: draw only this part (and the shell with --isolate=shell).
-  const elev = Number(flags.get('elev') ?? 1.2);
-  const isolate = flags.has('isolate') ? (flags.get('isolate') || 'part') : null;
-  const frame = await page.evaluate(({ which, distance, side, elev, isolate }) => {
-    const w = window.__addonWalk;
-    if (!w) return { ok: false, reason: 'no __addonWalk dev hook (not a DEV build?)' };
-    const cfg = w.model.interactives;
+  const distance = num('distance', 3.2), side = flags.get('side') === 'back' ? -1 : 1, elev = num('elev', 1.2), ticks = num('ticks', 60), every = stripEvery || 10;
+  const frame = await page.evaluate(({ which, distance, side, elev }) => {
+    const w = window.__addonWalk, m = w.previewModel, cfg = m.interactives;
     if (!cfg) return { ok: false, reason: 'this pack ships no moving parts (no scripts/interactives.js)' };
     const index = /^\d+$/.test(which) ? Number(which) : cfg.items.findIndex(it => it.label.includes(which));
     const item = cfg.items[index];
     if (!item) return { ok: false, reason: `no moving part "${which}" (${cfg.items.length} in the pack)` };
-    const entityIndex = w.model.entities.findIndex(e => e.interactive === index);
-    const marker = w.markerByIndex.get(entityIndex);
-    if (!marker) return { ok: false, reason: 'no marker for that entity' };
-    const at = marker.at;
-    // The leaf's normal through the placement's own turn (the walk's placedDirection convention).
-    const r = w.rotation, n = item.normal ?? [0, 0, 1];
+    const actor = m.entities.find(e => e.interactive === index);
+    const sim = actor ? w.simClient.frame.entities.find(e => e.typeId === actor.typeId) : null;
+    if (!actor || !sim) return { ok: false, reason: 'the simulator has no entity for that part' };
+    const a = w.anchorPoint, at = { x: sim.x - a.x, y: sim.y - a.y, z: sim.z - a.z };
+    const r = w.view.rotation, n = item.normal ?? [0, 0, 1];
     const turn = (x, z) => r === 90 ? { x: -z, z: x } : r === 180 ? { x: -x, z: -z } : r === 270 ? { x: z, z: -x } : { x, z };
     const nn = turn(n[0], n[2]), nl = Math.hypot(nn.x, nn.z) || 1;
-    const nx = nn.x / nl * side, nz = nn.z / nl * side;
-    const f = w.sizePct / 100;
-    // Stand the camera where the walk world has AIR at eye height (a point
-    // inside a wall shows the inside of a brick): step out along the normal
-    // from `distance` until the column is clear, up to twice as far.
-    const clearAt = (x, y, z) => !w.world || w.world.boxesInColumn(Math.floor(x), Math.floor(z)).every(b => b.y1 <= y - 0.3 || b.y0 >= y + 0.3);
-    let d = distance;
-    for (; d <= distance * 2 + 1e-9; d += 0.25) if (clearAt(at.x + nx * d * Math.max(1, f), at.y + elev * Math.max(1, f), at.z + nz * d * Math.max(1, f))) break;
-    if (d > distance * 2) d = distance;
-    const eye = { x: at.x + nx * d * Math.max(1, f), y: at.y + elev * Math.max(1, f), z: at.z + nz * d * Math.max(1, f) };
-    w.noclip = true;
-    w.state = { ...w.state, x: eye.x, y: eye.y - 1.62, z: eye.z, vx: 0, vy: 0, vz: 0, onGround: false };
-    w.prevState = w.state;
-    w.yaw = Math.atan2(nx, nz);
-    // Look at the middle of the leaf (about 1.2 blocks up at 100 %).
-    w.pitch = -Math.atan2(eye.y - (at.y + 1.2 * Math.max(1, f)), d * Math.max(1, f));
-    if (isolate) {
-      const shells = new Set(w.model.entities.map((e, i) => e.kind === 'shell' ? i : -1).filter(i => i >= 0));
-      for (const [i, holder] of w.entityHolders) holder.visible = i === entityIndex || (isolate === 'shell' && shells.has(i));
-    }
-    return { ok: true, index, label: item.label, kind: item.kind, opening: item.opening, passSize: item.passSize, at: { x: at.x, y: at.y, z: at.z }, normal: { x: nx, z: nz }, cameraDistance: d };
-  }, { which, distance, side, elev, isolate });
-  if (!frame.ok) {
-    console.log(JSON.stringify({ pack: packPath, mode, placed: frame, errors: errors.slice(0, 5) }, null, 1));
-    await browser.close();
-    process.exit(1);
+    const f = Math.max(1, w.view.sizePct / 100);
+    return { ok: true, index, label: item.label, kind: item.kind, opening: item.opening, passSize: item.passSize, typeId: actor.typeId, at, normal: { x: nn.x / nl * side, z: nn.z / nl * side }, f, distance, elev };
+  }, { which, distance, side, elev });
+  if (!frame.ok) { await shot(outPath); await finish({ placed: frame }); process.exit(1); }
+  // Where a child stands to tap it: the simulator's own approach (its `tap` step stands the child where a tap picks the
+  // leaf and looks at it) - the closed shot is that first-person view. The part may refuse that first spot ("behind a
+  // wall"); the doorway lines below retry from others, as child-play does.
+  await page.evaluate(() => window.__addonWalk.setFly(false));
+  const tapResult = await page.evaluate(t => window.__addonWalk.simClient.runStep({ kind: 'tap', label: 'tap the part', expectHit: false }, { typeId: t }), frame.typeId);
+  await page.waitForTimeout(300);
+  const spot = (await readState()).player;
+  const partProps = () => page.evaluate(id => { const w = window.__addonWalk; const e = w.simClient.frame.entities.find(x => x.typeId === id); return e ? (w.simClient.propsOf(e.id) ?? e.props ?? null) : null; }, frame.typeId);
+  const afterTap = await partProps();
+  if (afterTap && Math.abs(afterTap['craftmatic:angle'] ?? 0) > 1) {
+    // The tap opened it: tap again so the closed shot is of the closed leaf.
+    await page.evaluate(t => window.__addonWalk.simClient.runStep({ kind: 'tap', label: 'close it again', expectHit: false }, { typeId: t }), frame.typeId);
+    await waitTick((await readTick()) + 30);
   }
-  await page.waitForTimeout(500);
-  await page.screenshot({ path: outPath });
-  await page.evaluate((index) => window.__addonWalk.toggleInteractive(index), frame.index);
-  await page.waitForTimeout(900);
+  await shot(outPath);
+  await tile(`closed t ${await readTick()}`);
+  // DOOR-01's own check: the adapter's doorway lines (tap the leaf from up to four spots until it opens, the pair too,
+  // then the device's straight walks through from both sides, a fall or a stop attributed) - drawn while it runs.
+  const t0 = await readTick();
+  const linesDone = page.evaluate(i => window.__addonWalk.simClient.runStep({ kind: 'doorwayLines', label: 'doorway lines', only: [i] }), frame.index);
+  let settled = false;
+  linesDone.then(() => { settled = true; });
+  for (let t = every * 3; !settled && t <= 4000; t += every * 3) { await Promise.race([waitTick(t0 + t).catch(() => {}), linesDone]); if (settled) break; await tile(`lines t+${t}`); }
+  const lines = await linesDone;
+  // Back at the tapping spot for the open shot.
+  if (spot) await page.evaluate(({ spot }) => window.__addonWalk.simClient.teleport({ x: spot.x, y: spot.y, z: spot.z, yaw: spot.yaw, pitch: spot.pitch, fly: false }), { spot });
+  await waitTick((await readTick()) + 6);
   const openPath = withSuffix(outPath, 'open');
-  await page.screenshot({ path: openPath });
-  const status = await page.evaluate(() => document.querySelector('#lego-status, .lego-status, .status')?.textContent?.trim()?.slice(0, 200) ?? '');
-  // Walk it: a real (colliding) player 1.6 blocks out on the camera's side, holding W toward the doorway.
-  const start = await page.evaluate(({ frame }) => {
-    const w = window.__addonWalk;
-    const f = w.sizePct / 100;
-    w.noclip = false;
-    const p = { x: frame.at.x + frame.normal.x * 1.6 * Math.max(1, f), z: frame.at.z + frame.normal.z * 1.6 * Math.max(1, f) };
-    w.state = { ...w.state, x: p.x, y: frame.at.y + 0.3, z: p.z, vx: 0, vy: 0, vz: 0, onGround: false };
-    w.prevState = w.state;
-    w.yaw = Math.atan2(frame.normal.x, frame.normal.z);
-    w.pitch = 0;
-    return { x: w.state.x, y: w.state.y, z: w.state.z };
-  }, { frame });
+  await shot(openPath);
+  await tile(`open t ${await readTick()}`);
+  const openState = await partProps();
+  const eye = spot ? { x: spot.x, y: spot.y, z: spot.z, yaw: spot.yaw, pitch: spot.pitch } : null;
+  const look = {};
+  // The walk: the child from where it tapped (a legal standing spot the simulator chose, never a blind point inside a
+  // collider), W held toward the leaf, Sneak as asked (the phone's toggle).
+  const a0 = (await readState()).anchor;
+  const start = spot ? { x: spot.x - a0.x, y: spot.y - a0.y, z: spot.z - a0.z } : { x: frame.at.x + frame.normal.x * 1.6 * frame.f, y: frame.at.y + 0.1, z: frame.at.z + frame.normal.z * 1.6 * frame.f };
+  const yaw = bedrockYawToward(start, frame.at);
+  const violationsBefore = (await readState()).violations.length;
+  await page.evaluate(({ start, yaw, sneak }) => { const w = window.__addonWalk, a = w.anchorPoint; w.setFly(false); w.sneakToggle(sneak); w.simClient.teleport({ x: start.x + a.x, y: start.y + a.y, z: start.z + a.z, yaw, pitch: 10, fly: false }); }, { start, yaw, sneak: (flags.get('sneak') ?? 'off') === 'on' });
   await page.waitForTimeout(300);
-  await page.keyboard.down('KeyW');
-  await page.waitForTimeout(3000);
-  await page.keyboard.up('KeyW');
-  await page.waitForTimeout(300);
-  const end = await page.evaluate(({ frame }) => {
-    const w = window.__addonWalk;
-    const s = w.state;
-    // Signed distance past the leaf plane, measured from the start side (positive = through).
-    const crossed = -((s.x - frame.at.x) * frame.normal.x + (s.z - frame.at.z) * frame.normal.z);
-    return { x: s.x, y: s.y, z: s.z, crossedBlocks: Math.round(crossed * 100) / 100 };
-  }, { frame });
+  const walkStart = (await readState()).player;
+  await holdFor(['KeyW'], ticks, every, 'W');
+  await page.waitForTimeout(200);
+  const endState = await readState();
+  const a = endState.anchor;
+  const end = endState.player ? { x: endState.player.x - a.x, y: endState.player.y - a.y, z: endState.player.z - a.z } : null;
+  const crossed = end ? -((end.x - frame.at.x) * frame.normal.x + (end.z - frame.at.z) * frame.normal.z) : null;
   const throughPath = withSuffix(outPath, 'through');
-  await page.screenshot({ path: throughPath });
-  await browser.close();
-  console.log(JSON.stringify({ pack: packPath, mode, out: outPath, openPath, throughPath, placed: frame, status, walk: { start, end, through: end.crossedBlocks > 0.5 }, errors: errors.slice(0, 5) }, null, 1));
+  await shot(throughPath);
+  await tile(`walked t ${await readTick()}`);
+  const strip = await writeStrip(withSuffix(outPath, 'strip'));
+  await finish({ placed: { ...frame, eye, ...look }, tapResult, doorwayLines: { ok: lines.ok, error: lines.error ?? null, notes: lines.notes, findings: lines.state?.doorwayFindings ?? null }, openProps: openState, openPath, throughPath, strip, walk: { start: walkStart ? { x: walkStart.x - a.x, y: walkStart.y - a.y, z: walkStart.z - a.z } : null, end, crossedBlocks: crossed === null ? null : +crossed.toFixed(2), through: crossed !== null && crossed > 0.5, sneak: flags.get('sneak') ?? 'off' }, violationsDuringWalk: endState.violations.slice(violationsBefore), state: endState });
 } else if (mode === 'pinball') {
-  // Free-fly next to the pinball console, found via `window.__addonWalk`'s
-  // `pinballIndices`/`model.pinball` (the console has no reach-target "go"
-  // button either — same documented gap as a coaster car). Board it with E,
-  // then drive the plunger and a flipper directly with the keyboard, exactly
-  // as a person would: `pinballInputForTick` reads the same key codes.
-  await page.mouse.click(900, 430);
-  await page.keyboard.press('KeyF');
-  await page.waitForTimeout(300);
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
-
-  const placed = await page.evaluate(() => {
-    const w = window.__addonWalk;
-    if (!w) return { ok: false, reason: 'no __addonWalk dev hook (not a DEV build?)' };
-    if (!w.model.pinball || !w.pinballIndices) return { ok: false, reason: 'this pack has no playable pinball table (no scripts/pinball.js, or its actors are missing)' };
-    const marker = w.markerByIndex.get(w.pinballIndices.console);
-    if (!marker) return { ok: false, reason: 'no marker for the console entity' };
-    const p = marker.at;
-    w.state = { ...w.state, x: p.x - 1.5, y: p.y, z: p.z, vx: 0, vy: 0, vz: 0 };
-    w.prevState = w.state;
-    w.yaw = Math.atan2(-(p.x - w.state.x), -(p.z - w.state.z));
-    w.pitch = -0.1;
-    return { ok: true, console: w.model.entities[w.pinballIndices.console].label, at: { x: p.x, y: p.y, z: p.z } };
-  });
-  if (!placed.ok) {
-    await page.screenshot({ path: outPath });
-    console.log(JSON.stringify({ pack: packPath, mode, out: outPath, placed, errors: errors.slice(0, 5) }, null, 1));
-    await browser.close();
-    process.exit(1);
-  }
-  await page.waitForTimeout(200);
-  await page.keyboard.press('KeyE');
-  await page.waitForTimeout(400);
-
-  // Hide the side panels directly (a click toggles from whatever state the
-  // walk opened in, which is unreliable to predict) — cleaner evidence, and
-  // it also stops them covering the lower-left of the canvas, which the
-  // overview camera below can otherwise frame right behind.
-  await page.evaluate(() => { const hud = document.querySelector('.ap-hud'); if (hud) hud.style.display = 'none'; });
-
-  // Confirm the board actually SWITCHED the view: entering pinball mode
-  // forces the reach overlay and the collider/tread debug boxes off and the
-  // full-detail model on (a pinball playfield's own surfaces read almost
-  // entirely "not reached" — nothing there is meant to be walked on — so
-  // left on, the reach overlay paints the whole shell red and the grey
-  // collider boxes bury the real geometry under it).
-  const view = await page.evaluate(() => {
-    const w = window.__addonWalk;
-    return w ? { boarded: !!w.pinball, showReach: w.showReach, modelShown: w.legend.model.show, colliderShown: w.legend.collider.show, treadShown: w.legend.tread.show, sizePct: w.sizePct } : null;
-  });
-
-  // In-page helpers, attached to `window` (each `page.evaluate` call runs its
-  // own isolated function, sharing nothing but the page's global object):
-  //   __centroid(holder): the CENTROID of an entity's own rendered cube
-  //     instances, in world space — not its placement origin or bone pivot.
-  //     A flipper's compiled bind-pose bones can sit many blocks from either
-  //     (this pack's ran to -47 in raw 1/16-block units, ~9 world blocks off
-  //     at 300 %), so sampling the actual instance matrices is the only
-  //     reliable "where is it" here.
-  //   __shellTopY(): the shell's own highest rendered cube, cached — a
-  //     suitcase-style machine's side walls run most of its height, so an
-  //     overview camera framed only on the LOW console/ball/flipper points
-  //     (all near the playfield floor) sits barely above those walls and
-  //     ends up grazing one at close range instead of looking down past it.
-  //   __overviewCamera(points, elevation): an INDEPENDENT camera framing —
-  //     not the table's own `cameraEye`/`cameraLook` (`applyPinballCamera`).
-  //     That fixed spectator view is a first-person "what the seated player
-  //     sees" shot: correct on its own terms, but on this pack it frames a
-  //     recessed patch of the cabinet interior from low behind the console,
-  //     with the open playfield largely out of frame — not a rendering bug
-  //     (the maths matches the runtime's own `toWorld` exactly, verified
-  //     against bedrock-pinball.test.ts's numbers), just a poor angle for
-  //     PROVING the game plays, which is this shot's only job. The overview
-  //     instead frames a 3/4, elevated view sized to the given points'
-  //     bounding box, guaranteed to fit them all, by shadowing
-  //     `applyPinballCamera` — an ordinary prototype method, so this
-  //     instance property wins every frame until deleted.
-  await page.evaluate(`
-    window.__centroid = (holder) => {
-      if (!holder) return null;
-      const Vector3 = window.__addonWalk.camera.position.constructor;
-      const Matrix4 = window.__addonWalk.camera.matrixWorld.constructor;
-      holder.updateWorldMatrix(true, false);
-      const m = new Matrix4();
-      let sx = 0, sy = 0, sz = 0, n = 0;
-      for (const mesh of holder.children) {
-        if (!mesh.isInstancedMesh) continue;
-        for (let i = 0; i < mesh.count; i++) {
-          mesh.getMatrixAt(i, m);
-          const p = new Vector3().setFromMatrixPosition(m).applyMatrix4(holder.matrixWorld);
-          sx += p.x; sy += p.y; sz += p.z; n++;
-        }
-      }
-      return n ? { x: sx / n, y: sy / n, z: sz / n } : null;
-    };
-    window.__shellTopY = () => {
-      const w = window.__addonWalk;
-      if (window.__shellTopYCache !== undefined) return window.__shellTopYCache;
-      const shellIdx = w.model.entities.findIndex(e => e.kind === 'shell');
-      const holder = w.entityHolders.get(shellIdx);
-      let top = 0;
-      if (holder) {
-        const Vector3 = w.camera.position.constructor;
-        const Matrix4 = w.camera.matrixWorld.constructor;
-        holder.updateWorldMatrix(true, false);
-        const m = new Matrix4();
-        for (const mesh of holder.children) {
-          if (!mesh.isInstancedMesh) continue;
-          for (let i = 0; i < mesh.count; i++) {
-            mesh.getMatrixAt(i, m);
-            top = Math.max(top, new Vector3().setFromMatrixPosition(m).applyMatrix4(holder.matrixWorld).y);
-          }
-        }
-      }
-      window.__shellTopYCache = top;
-      return top;
-    };
-    window.__overviewCamera = (points, marginBlocks) => {
-      const w = window.__addonWalk;
-      let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-      for (const p of points) {
-        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-        minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
-        minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
-      }
-      if (!isFinite(minX)) return null;
-      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
-      const span = Math.max(maxX - minX, maxZ - minZ, maxY - minY, 2) + marginBlocks * 2;
-      // A suitcase-style cabinet's side walls run most of its own height, so
-      // clear ALL of them (the shell top), not just the low playfield points
-      // being framed, then look down at a steep-but-not-vertical angle -- a
-      // gentle horizontal pull-back keeps it a recognisable 3/4 view rather
-      // than a flat blueprint-style top-down.
-      // Near-vertical on purpose: a bigger horizontal pull-back reads as a
-      // nicer 3/4 angle when it works, but on a suitcase-style cabinet with a
-      // hinged lid propped open, the pulled-back sight line from the
-      // player's own side runs along the BACK of that raised lid instead of
-      // over it (its flat outer face is what filled the frame before this).
-      // Almost-overhead has nothing left to graze except the model itself.
-      const camY = Math.max(cy + span * 2, __shellTopY() + span * 0.8);
-      const pullBack = span * 0.18;
-      const at = { x: cx, y: cy, z: cz };
-      window.__addonWalk.applyPinballCamera = () => {
-        w.camera.up.set(0, 1, 0);
-        w.camera.position.set(cx, camY, cz + pullBack);
-        w.camera.lookAt(cx, cy, cz);
-      };
-      return { at, span, camY, pullBack };
-    };
-    // A single flipper is small enough that the whole-cabinet lid problem
-    // above does not apply — a lower, more oblique angle shows a raised
-    // paddle's silhouette far better than looking straight down its own
-    // rotation axis (a top-down view of an in-plane swing barely changes).
-    window.__flipperCloseup = (at, span) => {
-      const w = window.__addonWalk;
-      const dist = Math.max(span * 2.2, 3);
-      window.__addonWalk.applyPinballCamera = () => {
-        w.camera.up.set(0, 1, 0);
-        w.camera.position.set(at.x - dist * 0.5, at.y + dist * 0.6, at.z + dist * 0.7);
-        w.camera.lookAt(at.x, at.y, at.z);
-      };
-      return { at, span, dist };
-    };
-  `);
-
-  const readBall = () => page.evaluate(() => {
-    const w = window.__addonWalk;
-    const st = w.pinball ? w.pinball.sim.state : null;
-    return st ? { u: st.u, w: st.w, phase: st.phase, score: st.score, ball: st.ball, charge: st.charge } : null;
-  });
-  const afterBoard = await page.evaluate(() => ({
-    boarded: !!window.__addonWalk?.pinball,
-    interact: document.querySelector('.ap-interact')?.textContent ?? '',
-    hint: document.querySelector('.ap-hint')?.textContent ?? '',
-  }));
-
-  // Shot 1: boarded, ready to launch — framed on the console, the ball at
-  // its serve point and both flippers, so the whole play area is in view.
-  const overview1 = await page.evaluate(() => {
-    const w = window.__addonWalk;
-    const idx = w.pinballIndices;
-    // The console itself sits well OUTSIDE the shell (in front of the
-    // machine, on the ground where a player would stand) — including it
-    // would force a much wider zoom-out for no benefit, since its own
-    // direction is already implied by the flippers it faces.
-    const points = [__centroid(w.entityHolders.get(idx.ball)),
-      __centroid(w.entityHolders.get(idx.flippers[0])), __centroid(w.entityHolders.get(idx.flippers[1]))]
-      .filter(Boolean).map(p => ({ x: p.x, y: p.y, z: p.z }));
-    return { points, cam: __overviewCamera(points, 3) };
-  });
-  const ballBefore = await readBall();
-  await page.waitForTimeout(100);
-  await page.screenshot({ path: outPath });
-
-  // Hold the plunger ~1 s (charges it; the sim's default full-charge time is
-  // 1 s), release (fires the ball up the table), then let it run ~1.5 s.
-  await page.keyboard.down('Space');
-  await page.waitForTimeout(1000);
-  await page.keyboard.up('Space');
-  await page.waitForTimeout(1500);
-  const ballAfter = await readBall();
-
-  // Shot 2: after the launch — re-framed on the ball's CURRENT position and
-  // both flippers, so a ball that travelled well up the table stays in view
-  // (the numeric plane (u, w) before/after is the rigorous proof either way).
-  const overview2 = await page.evaluate(() => {
-    const w = window.__addonWalk;
-    const idx = w.pinballIndices;
-    const points = [__centroid(w.entityHolders.get(idx.ball)),
-      __centroid(w.entityHolders.get(idx.flippers[0])), __centroid(w.entityHolders.get(idx.flippers[1]))]
-      .filter(Boolean).map(p => ({ x: p.x, y: p.y, z: p.z }));
-    return { points, cam: __overviewCamera(points, 4) };
-  });
-  const movedPath = withSuffix(outPath, 'moved');
-  await page.waitForTimeout(100);
-  await page.screenshot({ path: movedPath });
-  const movedDistanceLdu = ballBefore && ballAfter ? Math.hypot(ballAfter.u - ballBefore.u, ballAfter.w - ballBefore.w) : null;
-
-  // Shot 3: hold the left flipper and re-frame TIGHT on it alone (re-sampled
-  // now that it has actually swung) — a few degrees of swing reads as noise
-  // in the whole-playfield framing above.
-  await page.keyboard.down('KeyA');
-  await page.waitForTimeout(250);
-  const overview3 = await page.evaluate(() => {
-    const w = window.__addonWalk;
-    const at = __centroid(w.entityHolders.get(w.pinballIndices.flippers[0]));
-    if (!at) return { ok: false };
-    return { ok: true, cam: __flipperCloseup(at, 3.2) };
-  });
-  const flipperState = await page.evaluate(() => {
-    const w = window.__addonWalk;
-    if (!w?.pinball) return null;
-    return { angles: w.pinball.sim.state.flipperAngles.slice(), rest: w.model.pinball.restAngles, spinSign: w.model.pinball.spinSign };
-  });
-  const flipperPath = withSuffix(outPath, 'flipper');
-  await page.waitForTimeout(100);
-  await page.screenshot({ path: flipperPath });
-  await page.keyboard.up('KeyA');
-  await page.evaluate(() => { const w = window.__addonWalk; if (w) delete w.applyPinballCamera; });
-
-  await browser.close();
-  console.log(JSON.stringify({
-    pack: packPath, mode, out: outPath, movedPath, flipperPath,
-    view, placed, afterBoard, overview1, ballBefore, ballAfter, movedDistanceLdu, overview2, overview3, flipperState, errors: errors.slice(0, 5),
-  }, null, 1));
-} else {
-  // "ride": free-fly, then place the camera off the DEV-only `window.__addonWalk`
-  // hook (same convention as viewer.ts's `__ldrawViewer`) instead of guessing
-  // scene coordinates — coaster cars get no reach-target "go" button (a
-  // documented gap: only figure/seat/door/station/lift do), so this is the
-  // reliable way to find one. Reads carWorld/coasterStates directly (numeric
-  // proof of motion, not just a pixel diff) and teleports free-fly `state`
-  // near the first car for a still shot, then close enough to board it.
-  await page.mouse.click(900, 430);
-  await page.keyboard.press('KeyF');
-  await page.waitForTimeout(300);
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
-
-  const place = (dx, dz) => page.evaluate(([dx, dz]) => {
-    const w = window.__addonWalk;
-    if (!w) return { ok: false, reason: 'no __addonWalk dev hook (not a DEV build?)' };
-    const car = [...w.carWorld.values()][0];
-    if (!car) return { ok: false, reason: 'carWorld is empty (no route with a car?)' };
-    w.state = { ...w.state, x: car.x + dx, y: car.y, z: car.z + dz, vx: 0, vy: 0, vz: 0 };
-    w.prevState = w.state;
-    w.yaw = Math.atan2(-(car.x - w.state.x), -(car.z - w.state.z));
-    w.pitch = -0.1;
-    return { ok: true, car: { x: car.x, y: car.y, z: car.z, yawDeg: car.yawDeg, moving: car.frame.moving }, phase: [...w.coasterStates.values()][0]?.phase, speed: [...w.coasterStates.values()][0]?.speed };
-  }, [dx, dz]);
-
-  const before = await place(-5, -5);
-  await page.waitForTimeout(150);
-  await page.screenshot({ path: outPath });
-  await page.waitForTimeout(rideWaitMs);
-  const after = await page.evaluate(() => {
-    const w = window.__addonWalk;
-    const car = w ? [...w.carWorld.values()][0] : null;
-    return car ? { x: car.x, y: car.y, z: car.z, yawDeg: car.yawDeg, moving: car.frame.moving } : null;
-  });
-  const movedPath = withSuffix(outPath, 'moved');
-  await page.screenshot({ path: movedPath });
-  const moved = before.ok && after ? Math.hypot(after.x - before.car.x, after.y - before.car.y, after.z - before.car.z) : null;
-
-  // Board: teleport within reach (2.5 blocks) of the car's CURRENT position, then press E.
-  const near = await place(0, -1.2);
-  await page.waitForTimeout(200);
-  await page.keyboard.press('KeyE');
+  const consoleType = await page.evaluate(() => window.__addonWalk.previewModel.pinball?.consoleType ?? null);
+  if (!consoleType) { await shot(outPath); await finish({ placed: { ok: false, reason: 'this pack has no playable pinball table (no scripts/pinball.js)' } }); process.exit(1); }
+  const ticks = num('ticks', 200), every = stripEvery || 20;
+  await page.evaluate(() => window.__addonWalk.setFly(false));
+  const hold = await page.evaluate(t => window.__addonWalk.simClient.runStep({ kind: 'hold', label: 'board the console' }, { typeId: t }), consoleType);
   await page.waitForTimeout(500);
-  const boardedState = await page.evaluate(() => {
-    const w = window.__addonWalk;
-    return w ? { riding: !!w.riding, interact: document.querySelector('.ap-interact')?.textContent ?? '', hint: document.querySelector('.ap-hint')?.textContent ?? '' } : null;
-  });
-  const boardedPath = withSuffix(outPath, 'boarded');
-  await page.screenshot({ path: boardedPath });
-
-  await browser.close();
-  console.log(JSON.stringify({
-    pack: packPath, mode, out: outPath, movedPath, boardedPath,
-    before, after, movedDistanceBlocks: moved, near, boardedState, errors: errors.slice(0, 5),
-  }, null, 1));
+  const boarded = await readState();
+  await shot(outPath);
+  await tile(`boarded t ${await readTick()}`);
+  // The pack's plunger: the stick pulled back a second and let go (bedrock-pinball.ts), then the game runs.
+  await holdFor(['KeyS'], 20, 0, 'pull');
+  const ballAt = () => page.evaluate(() => { const w = window.__addonWalk, pb = w.previewModel.pinball, a = w.anchorPoint; const e = w.simClient.frame.entities.find(x => x.typeId === pb.ballType); return e ? { x: +(e.x - a.x).toFixed(2), y: +(e.y - a.y).toFixed(2), z: +(e.z - a.z).toFixed(2), props: w.simClient.propsOf(e.id) ?? null } : null; });
+  const ballBefore = await ballAt();
+  const t0 = await readTick();
+  const balls = [];
+  for (let t = every; t <= ticks; t += every) { await waitTick(t0 + t); await tile(`play t+${t}`); balls.push(await ballAt()); }
+  const strip = await writeStrip(withSuffix(outPath, 'strip'));
+  await finish({ consoleType, hold, riding: boarded.player?.riding ?? null, camera: boarded.camera, ballBefore, balls, strip, state: await readState() });
 }

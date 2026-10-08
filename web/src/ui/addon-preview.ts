@@ -539,7 +539,8 @@ class AddonWalk implements AddonPreviewHandle {
   private buildGround(dims: { width: number; length: number }): void {
     const pad = 24;
     const w = dims.width + 2 * pad, l = dims.length + 2 * pad;
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(w, l), new THREE.MeshStandardMaterial({ color: 0x141827, roughness: 1 }));
+    // The simulator's superflat ground runs on: a vehicle course lane is laid hundreds of blocks from the model.
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), new THREE.MeshStandardMaterial({ color: 0x141827, roughness: 1 }));
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(dims.width / 2, -0.002, dims.length / 2);
     this.worldGroup.add(ground);
@@ -816,7 +817,12 @@ class AddonWalk implements AddonPreviewHandle {
     if (f.lines.length || f.violations.length || f.player.riding !== (prev?.player.riding ?? null)) this.renderSimPanel();
   }
 
+  /** Every line of every kind, the last `LOG_LINES * 5`, for a shot's JSON (the action bar fades off the HUD). */
+  private readonly recentLines: SimLine[] = [];
+
   private pushLine(line: SimLine): void {
+    this.recentLines.push(line);
+    if (this.recentLines.length > LOG_LINES * 5) this.recentLines.shift();
     if (line.kind === 'actionbar') { this.actionbar = { text: line.text, at: performance.now() }; return; }
     if (line.kind === 'title') { this.title = { text: line.text, at: performance.now() }; return; }
     this.log.push(line);
@@ -1686,6 +1692,15 @@ class AddonWalk implements AddonPreviewHandle {
   get previewModel(): AddonPreviewModel { return this.model; }
   get violationList(): readonly Violation[] { return this.violations; }
   get logLines(): readonly SimLine[] { return this.log; }
+  get allLines(): readonly SimLine[] { return this.recentLines; }
+  /** What the block store holds: entries and a count per block type (a shot's JSON says what was drawn). */
+  get colliderStats(): { entries: number; byType: Record<string, number> } {
+    const byType: Record<string, number> = {};
+    for (const b of this.colliders.entries.values()) byType[b.typeId] = (byType[b.typeId] ?? 0) + 1;
+    return { entries: this.colliders.entries.size, byType };
+  }
+  /** The walk's own box on the page, for a shot clipped to the view. */
+  get viewRect(): { x: number; y: number; width: number; height: number } { const r = this.root.getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; }
   /** Pin-frame bounds of a holder's drawn cubes (a shot frames a figure or a car by them). */
   holderBounds(id: string): { min: THREE.Vector3; max: THREE.Vector3 } | null {
     const h = this.holders.get(id);

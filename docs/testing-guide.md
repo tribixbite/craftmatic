@@ -104,65 +104,120 @@ are wired but unexercised.
 ### The walkable add-on preview (LEGO tab → "Walk add-on")
 
 A first-person walk over a generated pack, borrowing the viewer's renderer.
-Its material preview reads the resource manifest's `pbr` capability and the
-actual texture-set MER values (inline bytes or uniform RGB8/RGBA8 PNG), with
-the viewer's studio reflections. ABS, rubber, pearl and metal therefore keep
-their separate roughness/metalness; printed faces retain their RGB and alpha.
-Missing, corrupt, non-uniform or unsupported maps use diffuse shading with a
-note. This is browser lighting, not a Vibrant Visuals reference image. Native
-graphics mode must be recorded separately; Saga's Fancy and Vibrant Visuals
-modes were both exercised in the October 5 audit.
-It is worth trusting because it collides against **the exact blocks the pack
-ships**: `web/src/engine/addon-walk.ts` over the runtime's own re-laid collider
-grid and the wand's own tread plan, at 20 Hz with Minecraft's numbers — a
-0.6 x 1.8 box, gravity 0.08 under 0.98 drag, a 0.42 jump peaking at 1.2522,
-4.317 blocks/s, and the reach walk's own 9/16 auto-step so the two models agree
-by construction. A blocked route is an offline defect to investigate; it is
-not independent proof of native behavior. Conversely, a browser pass cannot
-establish native mounting, dismount fallback, actor culling or interpolation.
+**Since 2026-10-08 the world under the player is the headless simulator**
+(`web/src/sim`, [sim engine](sim-engine.md)) running in a module Worker over
+the same `.mcaddon` bytes: the pack's own `placement.js` lays the blocks with
+its wand, `figures.js` walks the figures, `coaster.js`, `rides.js`,
+`interactives.js`, `vehicles.js` and `pinball.js` run unmodified, and the core
+invariants (`player-not-in-solid`, `no-unprotected-fall`, `no-script-error`,
+`actionbar-not-stolen`...) run every tick. The page is a renderer and an
+input device over it (`ui/addon-preview.ts`; the protocol is
+`ui/addon-sim-client.ts`, the session `ui/addon-sim-worker.ts`). Its tick IS
+the CLI's tick: `test/addon-walk.test.ts` "the walker's tick equals
+scripts/sim.ts's tick" runs 10261 for 600 ticks both ways and compares the
+whole timeline, every entity's pose and the player's (corpus-gated: it needs
+the round-30m pack, `CRAFTMATIC_ROUND_PACKS` names another folder). The
+walker therefore has NO second implementation of a ride, a door, a seat or a
+camera any more; what it shows is what `bun scripts/sim.ts` reports, drawn.
 
-The key counts figures, seats, doors, track, vehicles, colliders and treads,
-each with show and highlight toggles for markers and perimeter boxes, alongside
-the coaster route, station, lift travel and the reachable/unreachable overlay —
-that last one is what keeps costing device time. A size selector re-lays
-colliders and treads so scaling's effect on walkability is visible at once.
+Every entity is drawn at the simulator's pose through the pack's OWN client
+animations: `addon-preview-data.ts` compiles the RP's Molang
+(`compileMolang`: `query.property`, the queries the packs use - gait distance
+and speed at the Pixel-measured 3.88 units/block and 3.9 per block/tick,
+`body_y_rotation`, `life_time`, `delta_time`, `movement_direction` - `v.`
+variables, `math.*`, ternaries) and drives each bone's Group by it, so a
+figure's legs swing by `figures.js`'s motion, a coaster car pitches by
+`track_pitch`, a door eases by its `pre_animation`, a flipper flips. Queries
+the walker cannot answer read 0 and are listed per entity. Its material
+preview reads the resource manifest's `pbr` capability and the texture-set
+MER values with the viewer's studio reflections; this is browser lighting,
+not a Vibrant Visuals reference image.
+
+Controls. Desktop: click the view for pointer lock, WASD, Space, Shift sneak
+(C latches it), left click TAPS (`entityHitEntity`), E or right click HOLDS
+(the interact: mounts a seat or a vehicle, opens a screen), 1-9 the hotbar
+(1 the wand, 9 a vehicle's cockpit view), Ctrl sprint, F free-fly (the
+walker's own inspection mode), R respawn, `[` `]` size. Phone: the stick,
+Jump, **Sneak as a toggle** (the phone's default: on until pressed again, the
+rising edge dismounts), Hold, Sprint, a tap on the view, and Wand / Chase /
+Cockpit hotbar buttons. The HUD shows the action bar, chat and titles the
+scripts say, a form the scripts show (answered through the simulator's
+chooser), the invariants' violations as they happen, an orange banner when
+the scripts reached an UNMODELLED API member (unknown is never pass), and
+which client-side hooks are standing in: **"camera: raw"** (the script's
+`setCamera` drawn without the client's 0.1 s ease, 3.5-tick draw lag or
+spline animation - package B's `sim/client/camera.ts`), **"drag: direct"**
+(a drag turns the look; the control-scheme router is package C's
+`sim/input/drag.ts`), **"tap: crosshair"** (the phone's screen-space pick is
+C's `sim/input/screen.ts`), "sneak: walker toggle" (until `PlayerControls`
+carries `sneakToggle`). The reach BFS stays what it was - the pure
+"can a player on foot reach this surface?" of `engine/addon-walk.ts`, off
+thread in `addon-reach-worker.ts` over the shipped collider grid, drawn as
+the green/red plates and the per-target verdicts - and below 100 % it
+declines (the simulator still places and walks the real blocks).
+
+Playing it from a phone on the LAN: `bun dev:web --host`, read vite's
+Network line, open `http://<lan-ip>:4000/?tab=lego`, export or "Open
+.mcaddon…", then "Walk add-on". The whole simulator runs in the phone's
+browser; a Pixel 8 Pro keeps 20 Hz on 10261 at 100 %.
+
+What it proves and what it does not: everything the simulator models (the
+quirk registry, CLAUDE.md) - the integrator over the wand's blocks, the
+scripts, seats, dismounts, the camera the scripts ASK for. It does not prove
+Bedrock's rendering, culling, form text, the client camera's easing and lag,
+or the phone's own touch pick; a browser pass is not device evidence.
+
+Shots and strips (`node scripts/_shoot_addon_walk.mjs <pack> <out.png> model
+<mode> --url=http://localhost:<port>`, Node, against a dev server of the tree
+under test; every shot is clipped to the walk and a moving mode writes a
+sheet of tiles every `--strip=N` ticks, under 2000 px, with a JSON of what
+the simulator measured):
+
+| mode | what it does | reads |
+|---|---|---|
+| `flyout` | three-quarter establishing shot | - |
+| `figures` | close-up on a figure (`--figure`, `--view`, `--kind`, `--isolate`) | drawn bounds |
+| `figures-live --ticks=6000 --strip=600` | the figures live at full speed, framed on them | how far each walked, how many never moved |
+| `ride --ride-wait=2500 --ticks=1200 --strip=60` | two static shots of a moving car, then the native HOLD on a car dwelling at the station, the rider camera drawn raw | moved distance, riding, the script camera |
+| `drive --obstacle=kerb2 --strip=10` | the simulator's OWN course lane (`stuckCourse`) drawn while it runs; without `--obstacle`, a hold mounts the placed vehicle, W, then hotbar 9 | the course row (passed, rose, clips), the cockpit camera |
+| `fly --sequence=up,hover,back,down --phase=60` | the spaceship controls pressed, then hotbar 9 | rise / run / turn per phase |
+| `doors --door=<n> --sneak=on` | the closed leaf from the simulator's own tapping spot, the adapter's `doorwayLines` (the DOOR-01 check: tap from up to four spots, the pair, the device lines both sides, attributed), the open leaf, then a sneak walk from that spot | the lines' findings, props, crossed blocks, violations |
+| `pinball` | a hold boards the console, the stick pulled back, the game | the ball per tile |
 
 Walker HUD toggles rebuild their DOM. Do not capture a NodeList and click its
 nodes repeatedly: after the first toggle, later nodes are detached and their
 clicks silently miss the delegated listener. Capture kind strings, re-query a
-live selector before each click, and assert the actual `legend` flags plus
-`routeGroup.visible` before claiming a model-only screenshot. A yellow station
-beam is a route overlay, not shipped geometry. The first spatial A/B captures
-had this harness error (2026-10-06); only re-queried captures count.
+live selector before each click, and assert the actual legend flags before
+claiming a model-only screenshot. A yellow station beam is a route overlay,
+not shipped geometry. The first spatial A/B captures had this harness error
+(2026-10-06); only re-queried captures count.
 
-Below 100 % the walk module refuses by design (`ScaledColliderGrid` is defined
-for f >= 1); the preview falls back to free-fly and says why.
+The reach BFS has already earned itself twice. It settled that 10303's
+station IS reachable on foot, bare, at 100 % — a device agent had concluded
+otherwise and used `/tp`. And simulating a player over the grid the BFS
+walks found a real bug in the BFS: it allowed a DROP into an adjacent column
+without checking that column was passable, stepping through the column's own
+floor into the underpass beneath. That walk decides what the walk-through
+recommendation reports and where treads are laid, so it had been claiming
+reachability no player had. Fixed; the two now agree on 12,112 surfaces at
+400 %.
 
-It has already earned itself twice. It settled that 10303's station IS
-reachable on foot, bare, at 100 % — a device agent had concluded otherwise and
-used `/tp`. And simulating a player over the grid the BFS walks found a real
-bug in the BFS: it allowed a DROP into an adjacent column without checking that
-column was passable, stepping through the column's own floor into the underpass
-beneath. That walk decides what the walk-through recommendation reports and
-where treads are laid, so it had been claiming reachability no player had.
-Fixed; the two now agree on 12,112 surfaces at 400 %.
-
-**Moving parts (2026-09-24, `docs/bedrock-interactivity.md`).** E (or the touch
-Interact button) toggles the nearest door, window, hatch, lever or turnable with
-the pack runtime's own rules (double doors together, a too-small opening opened
-but still blocked, no closing on the player); the leaf eases about its real
-hinge and closed leaves collide and draw door-blue. Whether a DOORWAY works is
+**Moving parts (2026-09-24, `docs/bedrock-interactivity.md`).** A tap on a
+door, window, hatch, lever or turnable runs the pack's `interactives.js`
+(double doors together, a too-small opening opened but still blocked, no
+closing on the player, "behind a wall" refusals from the wrong spot); the
+leaf eases by its own `pre_animation` and the doorway's closed cells are
+drawn door-blue from the blocks the runtime laid. Whether a DOORWAY works is
 not judged by eye: `bun scripts/_ix_passability.ts <pack…>` walks the 0.6 x 1.8
 player through every doorway open and closed at each size and turn over the
 shipped blocks (verdicts OK / SMALL / SEALED / STEP / NO-APPROACH / FAIL, exit 1
 on FAIL), `bun scripts/_ix_sweep_report.ts <sweep dir> --md=…` does it for a
 whole favourites sweep, `bun scripts/_ix_doorway_map.ts <pack> <i>` prints one
-doorway's collider plan, and `node scripts/_shoot_addon_walk.mjs <pack> <out.png>
-model doors --door=<i> [--isolate[=shell]] [--side=back] [--elev=]` shoots a
-part closed, open and after a player tried to walk through. SEALED means the
-MODEL closes the approach (solid behind the leaf, a drop, a false door) - look
-at it before calling it a door fault; STEP means it passed at 100 % and a riser
-grew past the jump at the bigger size.
+doorway's collider plan, and the walker's `doors` mode above runs the
+simulator's doorway lines drawn. SEALED means the MODEL closes the approach
+(solid behind the leaf, a drop, a false door) - look at it before calling it
+a door fault; STEP means it passed at 100 % and a riser grew past the jump at
+the bigger size.
 
 **The corpus coaster tests read the PROD part mirror.** With `setLDrawRoot`
 the CLI resolver asks `https://craftmatic.click/ldraw-parts` for any part the
