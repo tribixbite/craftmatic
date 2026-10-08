@@ -99,10 +99,17 @@ export class ScriptHost implements FacadeHost {
     engine.addSystem({ name: 'scripts', order: ORDER.scripts, tick: () => this.tick() });
   }
 
-  /** The module a script importing `name` gets (`@minecraft/server`, `@minecraft/server-ui`), or undefined. */
+  /** The module a script importing `name` gets (`@minecraft/server`, `@minecraft/server-ui`, a registered one), or undefined. */
   builtin(name: string): Record<string, unknown> | undefined {
-    return name === '@minecraft/server' ? this.serverModule : name === '@minecraft/server-ui' ? this.uiModule : undefined;
+    return name === '@minecraft/server' ? this.serverModule : name === '@minecraft/server-ui' ? this.uiModule : this.modules.get(name);
   }
+
+  /** Modules beyond the server and UI ones (`@minecraft/server-gametest`, script-host/gametest-module.ts). */
+  private readonly modules = new Map<string, Record<string, unknown>>();
+  /** Make `name` importable (the simulation registers the GameTest module). */
+  registerModule(name: string, module: Record<string, unknown>): void { this.modules.set(name, module); }
+  /** A GameTest simulated player's own members (the GameTest module sets this; facades.ts adds them). */
+  simulatedMembers: ((sim: SimEntity) => Record<string, unknown>) | undefined;
 
   // ─── Loading ───────────────────────────────────────────────────────────────
 

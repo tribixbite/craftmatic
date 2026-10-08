@@ -47,6 +47,8 @@ export class SimEntity {
    * scenario that stands a player at an exact point in the air flies it there.
    */
   flying = false;
+  /** A GameTest simulated player (`spawnSimulatedPlayer`): its facade adds the SimulatedPlayer members; its stick never reaches `inputInfo`. */
+  simulated = false;
   valid = true;
   readonly tags = new Set<string>();
   /** Dynamic properties: the engine's view, with each pack's own values (`DynamicStore`, quirk `dynamic-properties-per-pack`). */

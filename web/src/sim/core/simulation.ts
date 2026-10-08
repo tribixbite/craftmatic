@@ -8,6 +8,7 @@ import { SimEngine, type EngineOptions } from './engine.js';
 import { ControlState } from '../input/controls.js';
 import { installPhysics } from '../physics/systems.js';
 import { installBodySystems } from '../physics/body-systems.js';
+import { GametestRegistry, createGametestModule } from '../script-host/gametest-module.js';
 import { ScriptHost, type ScriptHostOptions } from '../script-host/host.js';
 import { readAddon, type Addon } from '../pack/pack.js';
 import { FLAT_GROUND_Y } from '../world/voxel-world.js';
@@ -21,12 +22,15 @@ export class Simulation {
   readonly controls = new ControlState();
   readonly host: ScriptHost;
   readonly addons: Addon[] = [];
+  /** The GameTests the scripts registered (`@minecraft/server-gametest`, script-host/gametest-module.ts; run with `runGametest`). */
+  readonly gametests = new GametestRegistry();
 
   constructor(readonly options: SimulationOptions = {}) {
     this.engine = new SimEngine(options);
     installPhysics(this.engine, this.controls);
     installBodySystems(this.engine);
     this.host = new ScriptHost(this.engine, this.controls, options);
+    this.host.registerModule('@minecraft/server-gametest', createGametestModule(this, this.gametests));
   }
 
   /** Load an add-on (its definitions, structures and scripts). Scripts start at once, as when a world opens. */

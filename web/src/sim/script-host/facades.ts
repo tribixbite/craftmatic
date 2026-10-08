@@ -41,6 +41,10 @@ export interface FacadeHost {
   resolvePermutation(typeId: string, states?: BlockStates): Permutation;
   /** Sound and particle counters (not timeline entries: they are too many). */
   stats: Map<string, number>;
+  /** A GameTest simulated player's own members (script-host/gametest-module.ts), when the module is in. */
+  simulatedMembers?: ((sim: SimEntity) => Record<string, unknown>) | undefined;
+  /** Fire a cancelable before-event (a GameTest simulated player's interact); true when a subscriber cancelled it. */
+  before(name: 'playerInteractWithEntity' | 'playerInteractWithBlock', payload: Record<string, unknown>): boolean;
 }
 
 /** A player's hands and head-up state. */
@@ -198,8 +202,10 @@ export function entityFacade(host: FacadeHost, sim: SimEntity): Record<string, u
       return raycastEntities(engine.loadedEntities(s.dimension), head, dir, opts?.maxDistance ?? 16, s).map(h => ({ entity: host.entity(h.entity), distance: h.distance }));
     },
   };
-  // A player adds its own members; property descriptors are copied (not values) so the getters stay live.
-  return guard(defineAccessors(f, sim.isPlayer ? playerMembers(host, sim, live) : {}), sim.isPlayer ? 'Player' : 'Entity', timeline);
+  // A player adds its own members (a GameTest simulated player its own too); property descriptors are copied (not
+  // values) so the getters stay live.
+  const own = sim.isPlayer ? defineAccessors(playerMembers(host, sim, live), sim.simulated && host.simulatedMembers ? host.simulatedMembers(sim) : {}) : {};
+  return guard(defineAccessors(f, own), sim.simulated ? 'SimulatedPlayer' : sim.isPlayer ? 'Player' : 'Entity', timeline);
 }
 
 /** `Object.assign` flattens getters into values; copy property descriptors instead. */
@@ -292,9 +298,10 @@ function playerMembers(host: FacadeHost, sim: SimEntity, _live: () => SimEntity)
     playAnimation: (_spline: unknown, opts?: { totalTimeSeconds?: number }) => { const c = st().camera; c.animation = `spline ${opts?.totalTimeSeconds ?? '?'}s`; c.tick = host.engine.tick; },
     get isValid() { return sim.valid; },
   }, 'Camera', timeline);
+  // A GameTest simulated player's stick never reaches `inputInfo` (quirk `gametest-simulated-player`: every sample 0, 0).
   const inputInfo = guard({
-    getMovementVector: () => { const c = controls.get(sim.id); return { x: c.strafe, y: c.forward }; },
-    getButtonState: (b: string) => { const c = controls.get(sim.id); return (b === 'Jump' ? c.jump : b === 'Sneak' ? c.sneak : false) ? 'Pressed' : 'Released'; },
+    getMovementVector: () => { if (sim.simulated) return { x: 0, y: 0 }; const c = controls.get(sim.id); return { x: c.strafe, y: c.forward }; },
+    getButtonState: (b: string) => { if (sim.simulated) return 'Released'; const c = controls.get(sim.id); return (b === 'Jump' ? c.jump : b === 'Sneak' ? c.sneak : false) ? 'Pressed' : 'Released'; },
     get lastInputModeUsed() { return 'Touch'; },
     get touchOnlyAffectsHotbar() { return false; },
   }, 'InputInfo', timeline);
