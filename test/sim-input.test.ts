@@ -140,6 +140,40 @@ describe('a native hover mount moves in bursts (quirk native-mount-bursts)', () 
   });
 });
 
+describe('a native hover mount moves in its BODY\'s frame (quirk hover-stick-body-frame)', () => {
+  it('flies forward along the body\'s heading while the rider looks 90 degrees off it (Saga 30m: look 107, body 0, flew 94 off the look)', () => {
+    const h = simHost({ entities: { 'x:cloud': { components: {
+      'minecraft:collision_box': { width: 1, height: 0.5 }, 'minecraft:physics': { has_gravity: false, has_collision: false },
+      'minecraft:movement.hover': {}, 'minecraft:free_camera_controlled': {}, 'minecraft:flying_speed': { value: 0.1 },
+      'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: [{ position: [0, 0.5, 0], lock_rider_rotation: 181 }] },
+    } } }, terrain: solidBelow(10) });
+    const cloud = h.spawn('x:cloud', { x: 0.5, y: 64, z: 0.5 });
+    const p = h.addPlayer('P', cloud.location);
+    h.seat(p, cloud);
+    h.run(20);
+    // The look 90 degrees right of the body (Bedrock: yaw 90 faces -X); the body held at 0 every tick, as the 30m
+    // driver writes its heading (its `carried` verdict never turns it), so the controller's chase never lands.
+    // The controller's per-tick chase (`hover-turn-chase`) turns the body ~13 degrees toward the look inside a tick
+    // before it moves, so the travel is judged by its heading, not to the last digit.
+    const travel = (stick: { forward?: number; strafe?: number }): { yaw: number; moved: number } => {
+      p.rotation = { x: 0, y: 90 };
+      const x0 = cloud.location.x, z0 = cloud.location.z;
+      h.controls(p, { forward: stick.forward ?? 0, strafe: stick.strafe ?? 0 });
+      for (let t = 0; t < 16; t++) { cloud.rotation = { x: 0, y: 0 }; h.run(1); }
+      h.controls(p, { forward: 0, strafe: 0 });
+      const dx = cloud.location.x - x0, dz = cloud.location.z - z0;
+      return { yaw: Math.atan2(-dx, dz) * 180 / Math.PI, moved: Math.hypot(dx, dz) };
+    };
+    const fwd = travel({ forward: 1 });
+    expect(fwd.moved).toBeGreaterThan(5);
+    expect(Math.abs(wrap(fwd.yaw - 0))).toBeLessThan(20); // along the body (+Z)
+    expect(Math.abs(wrap(fwd.yaw - 90))).toBeGreaterThan(60); // not along the look (-X)
+    // A positive strafe (the stick's left) goes to the BODY's left (+X, yaw -90), not the look's left (+Z).
+    const left = travel({ strafe: 1 });
+    expect(Math.abs(wrap(left.yaw + 90))).toBeLessThan(20);
+  });
+});
+
 describe('screen-space touch (quirk touch-screen-pick)', () => {
   it('casts the rasteriser\'s rays: the centre is the view, a projected point casts back onto itself', () => {
     const cam = { eye: { x: 0, y: 70, z: 0 }, forward: { x: 0, y: 0, z: 1 }, source: 'eye' as const };
