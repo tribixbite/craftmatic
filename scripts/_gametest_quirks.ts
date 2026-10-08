@@ -23,6 +23,18 @@
  *     `attackEntity` is documented as reach-free; one far sample confirms it.
  *     `CMGT QREACH {json}`.
  *
+ *   - push (2026-10-08, `quirk_push`, not yet run on a phone; quirk
+ *     `entity-push-soft` and `entity-collidable-solid` wait on it): two
+ *     `pushable_by_entity` walkers spawned overlapping (do they push apart,
+ *     how fast?), a walker pushed by velocity into a vehicle-like box that is
+ *     only `pushable_by_block` (does it stop, or pass through?), a simulated
+ *     player walked into a walker, into the vehicle-like box and into an
+ *     `is_collidable` box (pushed? stopped? through?). Positions every 2 ticks.
+ *     `CMGT QPUSH {json}` per case.
+ *   - aabb (`quirk_aabb`; quirk `aabb-axis-aligned-when-yawed`): `getAABB()`
+ *     of one 1 x 1 box read at yaw 0, 30, 45 and 90 - does a turned entity's
+ *     box stay axis-aligned and the same size? `CMGT QAABB {json}`.
+ *
  * Every test ends with `CMGT QUIRK_DONE {"test": ...}`. The pack is NOT a
  * model pack: it defines the collider blocks (`colliderBlockDefinition`), the
  * moulded seat (`seatBehavior`), a small tap target and a player-sized dummy,
@@ -53,7 +65,7 @@ const ARENA = { width: 48, height: 8, length: 48 } as const;
 /** The collider forms the probe places: the full collider and the half-block x wall band. */
 const PROBE_COLLIDERS = ['craftmatic:collider', 'craftmatic:collider_w2', 'craftmatic:collider_w5', 'craftmatic:collider_w9'] as const;
 /** Every test the probe has; `--tests=a,b` registers a subset. */
-const ALL_TESTS = ['quirk_tp', 'quirk_dismount', 'quirk_dismount2', 'quirk_bands', 'quirk_reach'] as const;
+const ALL_TESTS = ['quirk_tp', 'quirk_dismount', 'quirk_dismount2', 'quirk_bands', 'quirk_reach', 'quirk_push', 'quirk_aabb'] as const;
 
 /**
  * The tests, serialised into the pack with `.toString()` (no outside
@@ -405,6 +417,73 @@ function quirkRuntime(mods: { mc: any; gt: any }, ns: string, only: readonly str
     test.succeed();
   }, 12000);
 
+  // ── entity-push-soft / entity-collidable-solid ──────────────────────────
+  register('quirk_push', async (test: any) => {
+    try {
+      const fy = floorY(test);
+      const S = fy + 1;
+      const dim = test.getDimension();
+      const at = (e: any): number[] => { try { const p = rel(test, e); return [r3(p.x), r3(p.y), r3(p.z)]; } catch { return []; } };
+      const track = async (ticks: number, who: any[], each?: (t: number) => void): Promise<number[][][]> => {
+        const out: number[][][] = who.map(() => []);
+        for (let t = 0; t <= ticks; t++) { each?.(t); if (t % 2 === 0) who.forEach((e, k) => out[k]!.push([t, ...at(e)])); if (t < ticks) await test.idle(1); }
+        return out;
+      };
+      // 1. Two walkers spawned 0.3 apart (their 0.6 boxes overlap by half): do they push apart?
+      {
+        const a = dim.spawnEntity('craftmatic:gtq_walker', test.worldLocation({ x: 4.5, y: S, z: 4.5 }));
+        const b = dim.spawnEntity('craftmatic:gtq_walker', test.worldLocation({ x: 4.8, y: S, z: 4.5 }));
+        const [ta, tb] = await track(40, [a, b]);
+        log('QPUSH', { case: 'walker-walker', a: ta, b: tb });
+        try { a.remove(); b.remove(); } catch { /* gone */ }
+      }
+      // 2. A walker pushed by velocity (0.1 blocks/tick, +x) into a vehicle-like box (pushable_by_block only).
+      {
+        const car = dim.spawnEntity('craftmatic:gtq_car', test.worldLocation({ x: 12.5, y: S, z: 4.5 }));
+        const w = dim.spawnEntity('craftmatic:gtq_walker', test.worldLocation({ x: 9.5, y: S, z: 4.5 }));
+        const [tw, tc] = await track(60, [w, car], () => { try { const v = w.getVelocity(); w.applyImpulse({ x: 0.1 - v.x, y: 0, z: -v.z }); } catch { /* gone */ } });
+        log('QPUSH', { case: 'walker-into-car', walker: tw, car: tc });
+        try { car.remove(); w.remove(); } catch { /* gone */ }
+      }
+      // 3-5. A simulated player walked +x into a walker, a vehicle-like box and an is_collidable box.
+      for (const [name, type, x] of [['player-into-walker', 'craftmatic:gtq_walker', 20.5], ['player-into-car', 'craftmatic:gtq_car', 28.5], ['player-into-solid', 'craftmatic:gtq_solid', 36.5]] as const) {
+        const target = dim.spawnEntity(type, test.worldLocation({ x, y: S, z: 4.5 }));
+        const p = await spawnSim(test, { x: x - 4, y: S, z: 4.5 }, `cmps_${name.length}${Math.floor(Math.random() * 1000)}`, SURVIVAL);
+        await test.idle(10);
+        p.moveToLocation({ x: x + 4, y: S, z: 4.5 });
+        const [tp, tt] = await track(60, [p, target]);
+        try { p.stopMoving(); } catch { /* idle */ }
+        log('QPUSH', { case: name, player: tp, target: tt });
+        try { test.removeSimulatedPlayer(p); target.remove(); } catch { /* gone */ }
+      }
+    } catch (err) { log('QPUSH_ERROR', { error: String(err), stack: (err as any)?.stack }); }
+    log('QUIRK_DONE', { test: 'quirk_push' });
+    flush();
+    test.succeed();
+  }, 1200);
+
+  // ── aabb-axis-aligned-when-yawed ───────────────────────────────────────
+  register('quirk_aabb', async (test: any) => {
+    try {
+      const fy = floorY(test);
+      const S = fy + 1;
+      const e = test.getDimension().spawnEntity('craftmatic:gtq_target', test.worldLocation({ x: 6.5, y: S, z: 6.5 }));
+      const rows: unknown[] = [];
+      for (const yaw of [0, 30, 45, 90]) {
+        try { e.setRotation({ x: 0, y: yaw }); } catch (err) { rows.push([yaw, String(err)]); continue; }
+        await test.idle(3);
+        let box: any;
+        try { box = e.getAABB(); } catch (err) { rows.push([yaw, String(err)]); continue; }
+        rows.push([yaw, r3(box.extent.x), r3(box.extent.y), r3(box.extent.z), r3(e.getRotation().y)]);
+      }
+      log('QAABB', { cols: ['yaw', 'extentX', 'extentY', 'extentZ', 'readYaw'], declared: { width: 0.5, height: 0.5 }, rows });
+      try { e.remove(); } catch { /* gone */ }
+    } catch (err) { log('QAABB_ERROR', { error: String(err), stack: (err as any)?.stack }); }
+    log('QUIRK_DONE', { test: 'quirk_aabb' });
+    flush();
+    test.succeed();
+  }, 400);
+
   let started = false;
   world.afterEvents.playerSpawn.subscribe((ev: any) => {
     if (started || !ev.initialSpawn || /^cm(tp|dm|rc)_/.test(String(ev.player?.name))) return;
@@ -444,6 +523,34 @@ function pinBehavior(): unknown {
 }
 
 /** The small tap target: a 0.5 box, no gravity, no collision, unhurt (like a seat, not rideable). */
+/** A player-sized walker that may be pushed by entities (`pushable_by_entity`, as the figures are), moved by velocity. */
+function walkerBehavior(): unknown {
+  return { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:gtq_walker', is_spawnable: false, is_summonable: true }, components: {
+    'minecraft:type_family': { family: ['craftmatic_gtq', 'mob'] },
+    'minecraft:collision_box': { width: 0.6, height: 1.6 },
+    'minecraft:physics': { has_gravity: true, has_collision: true },
+    'minecraft:pushable_by_block': {},
+    'minecraft:pushable_by_entity': {},
+    'minecraft:health': { value: 20, max: 20 },
+    'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
+    'minecraft:movement': { value: 0 },
+  } } };
+}
+
+/** A vehicle-like box: `pushable_by_block` only, as the packs' vehicles are; `solid` adds `minecraft:is_collidable`. */
+function boxBehavior(id: string, solid: boolean): unknown {
+  return { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: id, is_spawnable: false, is_summonable: true }, components: {
+    'minecraft:type_family': { family: ['craftmatic_gtq'] },
+    'minecraft:collision_box': { width: 2, height: 1.5 },
+    'minecraft:physics': { has_gravity: true, has_collision: true },
+    'minecraft:pushable_by_block': {},
+    ...(solid ? { 'minecraft:is_collidable': {} } : {}),
+    'minecraft:health': { value: 20, max: 20 },
+    'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
+    'minecraft:movement': { value: 0 },
+  } } };
+}
+
 function targetBehavior(): unknown {
   return { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:gtq_target', is_spawnable: false, is_summonable: true }, components: {
     'minecraft:type_family': { family: ['craftmatic_gtq'] },
@@ -482,6 +589,9 @@ const files: Array<{ name: string; data: Uint8Array }> = [
   { name: `${bp}entities/gtq_dummy.json`, data: json(dummyBehavior()) },
   { name: `${bp}entities/gtq_target.json`, data: json(targetBehavior()) },
   { name: `${bp}entities/gtq_pin.json`, data: json(pinBehavior()) },
+  { name: `${bp}entities/gtq_walker.json`, data: json(walkerBehavior()) },
+  { name: `${bp}entities/gtq_car.json`, data: json(boxBehavior('craftmatic:gtq_car', false)) },
+  { name: `${bp}entities/gtq_solid.json`, data: json(boxBehavior('craftmatic:gtq_solid', true)) },
   ...colliderVariants.map(v => ({ name: `${bp}blocks/${colliderBlockFile(v)}`, data: json(colliderBlockDefinition(v)) })),
   { name: `${rp}manifest.json`, data: json({ format_version: 2, header: { name: label, description: 'Quirk probe resources.', uuid: rpUuid, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: uid('rp.res'), version }] }) },
   { name: `${rp}blocks.json`, data: json({ format_version: '1.21.40', ...Object.fromEntries(PROBE_COLLIDERS.map(id => [id, { sound: 'stone' }])) }) },

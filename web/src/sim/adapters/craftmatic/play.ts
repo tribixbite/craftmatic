@@ -24,11 +24,11 @@
  */
 
 import type { AnyStep, StepContext, StepHandler } from '../../scenario/types.js';
-import { CORE_HANDLERS, findEntity } from '../../scenario/runner.js';
+import { APPROACH_KEY, CORE_HANDLERS, FOOTING_KEY, FOOT_ORIGIN_KEY, findEntity } from '../../scenario/runner.js';
 import { lookAngles, rotateYaw, type Box, type Vec3 } from '../../core/vec.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { teleport } from '../../script-host/facades.js';
-import { approachSpots, findApproach, standsAt, type ApproachSpot } from '../../scenario/approach.js';
+import { approachSpots, findApproach, floorBelow, standsAt, type ApproachSpot } from '../../scenario/approach.js';
 import { lookAt, pick } from '../../input/touch.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import { JUMP_PEAK, STEP_HEIGHT } from '../../physics/body.js';
@@ -618,6 +618,7 @@ export function staticDrawn(ctx: StepContext, appearance: AddonAppearance, pack:
  */
 export async function tapPart(ctx: StepContext, part: SimEntity, label: string, changed: () => boolean, pack?: CraftmaticPack): Promise<boolean> {
   const tried: Vec3[] = [], log: string[] = [];
+  await nearEnoughToLoad(ctx, part, label);
   for (let attempt = 0; attempt < 4; attempt++) {
     // After a refusal the child steps IN FRONT of the part (where nothing solid hides it), as the refusal tells it to,
     // and out of the doorway when that is what the refusal says.
@@ -634,6 +635,47 @@ export async function tapPart(ctx: StepContext, part: SimEntity, label: string, 
   }
   ctx.note(`${label}: no tap changed it; ${log.join('; ') || 'no spot to tap from'}`);
   return false;
+}
+
+/**
+ * A part beyond the simulation distance of the child is not loaded (quirk `unloaded-entity-invisible`): no tap can
+ * pick it, and a scenario's selector cannot even find it - 300-400 % placements put parts 100+ blocks from where the
+ * child placed. The child goes over first, as a child walks up to a big model: to the ground just outside the
+ * placement's box nearest the part when the part loads from there, else onto the floor under the part itself. In a
+ * walked run (`--walk`) that spot becomes the child's on-foot origin (it is noted): reaching a part a whole
+ * simulation distance away is not what the walk measures.
+ */
+async function nearEnoughToLoad(ctx: StepContext, part: SimEntity, label: string): Promise<void> {
+  const engine = ctx.sim.engine;
+  if (!part.valid || engine.isEntityLoaded(part)) return;
+  const placed = ctx.state[PLACED_KEY] as Placed | undefined;
+  const w = engine.dimension(part.dimension);
+  const edge = placed ? { x: Math.min(Math.max(part.location.x, placed.from.x - 2), placed.to.x + 3), y: placed.from.y, z: Math.min(Math.max(part.location.z, placed.from.z - 2), placed.to.z + 3) } : undefined;
+  // Outside the box only when that spot is outside it on some axis (the clamp leaves an inside point inside).
+  const outside = edge && placed && (edge.x < placed.from.x || edge.x > placed.to.x + 1 || edge.z < placed.from.z || edge.z > placed.to.z + 1);
+  const floor = w.supportBelow(part.location.x, part.location.y + 1, part.location.z, 64);
+  const spots = [...(outside && edge ? [edge] : []), { x: part.location.x, y: Number.isFinite(floor) ? floor : part.location.y, z: part.location.z }];
+  for (const at of spots) {
+    // A spot the child can STAND at: the free floor nearest the candidate, searched outward a few blocks (a teleport
+    // into a collider is the device's push, not a walk-up).
+    const s = w.withAllLoaded(() => {
+      for (const r of [0, 1, 2, 3]) for (let k = 0; k < (r ? 8 : 1); k++) {
+        const x = at.x + r * Math.cos(k * Math.PI / 4), z = at.z + r * Math.sin(k * Math.PI / 4);
+        for (let from = at.y + 3; from >= at.y - 6; from -= 0.5) {
+          const y = floorBelow(engine, part.dimension, x, from, z, 0.5);
+          if (y !== undefined && standsAt(engine, part.dimension, { x, y, z })) return { x, y, z };
+        }
+      }
+      return undefined;
+    });
+    if (!s) continue;
+    teleport(ctx.sim.host, ctx.player, s);
+    ctx.player.onGround = true;
+    await ctx.run(2);
+    if (engine.isEntityLoaded(part)) break;
+  }
+  ctx.note(`${label}: beyond the simulation distance of the child; it went over to ${JSON.stringify(pt(ctx.player.location))} first`);
+  if (ctx.state[APPROACH_KEY] === 'walk') { ctx.state[FOOT_ORIGIN_KEY] = { ...ctx.player.location }; ctx.state[FOOTING_KEY] = 'foot'; }
 }
 
 /**

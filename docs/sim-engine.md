@@ -28,6 +28,10 @@ bun scripts/sim.ts <pack> --scenario=input --device-script=<round session or too
                                                          # an adb round's own tools replayed on the phone's screen model
 bun scripts/sim.ts <packs> --sneak-toggle                # child play's doorway scenarios with the touch sneak left ON
 bun scripts/sim.ts <packs> --scenario=vehicles --cost    # + predicted ms/tick per phone (quirks/cost.ts)
+bun scripts/sim.ts <packs> --sizes=100,150,200,300,400   # child play at those wand sizes (default 100,150)
+bun scripts/sim.ts <packs> --walk                        # taps WALK the child there; lists targets unreachable on foot
+bun scripts/sim-gametest.ts <pack> [--only=] [--log=]    # the pack's GameTests, offline, writing the device's CMGT lines
+bun scripts/sim-gametest.ts --replay=<log> [--pack=]     # a past device GameTest log, re-derived row by row
 ```
 
 ## Where it sits: the tiers of evidence
@@ -65,10 +69,12 @@ web/src/sim/
                timeline (what the game says, with its source script) · simulation (a ready world)
   world/       voxel-world (chunked blocks, loaded area, collision query) · block-types (pack block
                JSON, permutations, vanilla shapes) · molang (permutation conditions) · nbt · mcstructure
+               liquids (water as volumes: surface heights, submersion) · write-log (which blocks were written)
   entity/      definitions (entity JSON, refusals, groups, events, properties) · entity (state, riding)
-  physics/     body (THE per-tick integrator: tickPlayer, tickBody, moveBox) · systems (mobs, effects,
+               dynamic-store (dynamic properties scoped by the writing pack)
+  physics/     body (THE per-tick integrator: tickPlayer, tickBody, moveBox; water) · systems (mobs, effects,
                falls) · player-systems (players and their drags, hover mounts in bursts, riders, the
-               mount snap) · shared
+               mount snap) · shared · body-systems (the soft push, collidable solids)
   input/       controls (stick, jump, sneak hold/toggle, queued drags) · touch (tap = hit, hold =
                interact, item use) · ray · scheme (where a drag goes) · drag (pixels to look, applied
                and recorded) · screen (phone viewports, the camera's screen ray, crosshair/touch pick)
@@ -76,10 +82,13 @@ web/src/sim/
                interpreted, the phone's screen model)
   script-host/ host (the mock, the tick) · facades (Entity, Player, Dimension, Block, components)
                module-loader (all scripts in one context) · scheduler · commands · ui-module (forms)
-               unmodelled (the honesty guard) · api-catalog (GENERATED) · text
+               unmodelled (the honesty guard, restricted-execution mode) · api-catalog (GENERATED) · text
+               enums (the typings' values) · pack-context (which pack's code runs) · gametest-module
+               (@minecraft/server-gametest and the test runner)
   quirks/      registry (device-measured facts with evidence) · cost (the per-tick cost model:
                PREDICTED ms/tick from the rounds' telemetry)
-  scenario/    types (the step language) · runner · invariants · approach (where to stand) · report
+  scenario/    types (the step language) · runner · invariants · world-invariants · approach (where to
+               stand, and the route there on foot) · report
   render/      rasterizer (z-buffered quads → RGB)
   pack/        pack (.mcaddon → packs) · json (literal-preserving JSON) · script-config (CONFIG reader)
                fixture (a pack built in memory: one runtime and its definitions, for tests and probes)
@@ -91,7 +100,8 @@ web/src/sim/
                appearance (the pack's drawn geometry) · drawn · snapshot
                fixture (the collider kit's shipped block JSON) · figure-life (figures.js over a
                pack's collider cells: the roam census) · coaster (a coaster config's entities and
-               placement, for the coaster tests and replay probes)
+               placement, for the coaster tests and replay probes) · gametest-replay (a device GameTest
+               log read back and compared) · regressions-world (the regression cases that need water)
 ```
 
 The runtime tests run on this engine too: `test/_sim-host.ts` (`simHost`)
@@ -100,7 +110,7 @@ drives it tick by tick - the vehicle, rides, flyer, driver, cockpit camera,
 coaster, pinball, interactives (`test/_ix-host.ts`), placement wand
 (`test/_placement-host.ts`), Minifig Creator wand, figure-life and HotSchem
 tests all do. There is no other mock of `@minecraft/server` in `test/` or
-`scripts/` except the GameTest harness's (below, `TODO(sim-gametest)`).
+`scripts/` except `test/gametest-pack.test.ts`'s injected-outcome fakes (below: the GameTest module itself now runs in the simulator).
 
 **Dependency rule.** Nothing under `web/src/sim` imports `web/src/ui` or the
 DOM. The core (everything outside `adapters/`) imports nothing of craftmatic
@@ -136,7 +146,16 @@ edit of the loop.
 
 - `core/simulation.ts` `Simulation`: `loadAddon(addon)`, `loadAddonBytes(bytes)`,
   `addPlayer(name, at, items)`, `run(ticks)`, `runSync(ticks)`, `reloadScripts()` (a world
-  reopened: fresh script context, same world), `itemIds()`; `.engine`, `.host`, `.controls`.
+  reopened: fresh script context, same world), `itemIds()`; `.engine`, `.host`, `.controls`,
+  `.gametests` (the GameTests the scripts registered).
+- `script-host/gametest-module.ts`: `GametestRegistry`, `createGametestModule(sim, registry)`
+  (the simulation registers it as `@minecraft/server-gametest`), `runGametest(sim, def, origin?)` →
+  `{ id, status, message, ticks, lines }` (the CMGT lines); `adapters/craftmatic/gametest-replay.ts`:
+  `parseCmgt`, `verdictRows`, `compareRows`, `isQuirkLog`, `replayMarkdown`.
+- `world/liquids.ts`: `liquidSurface`, `submersion`, `liquidSurfaceBelow`; `physics/body-systems.ts`:
+  `installBodySystems`, `pushBodies`, `pushableByEntity`, `isCollidable`, `collidableSolids`,
+  `bodyFluid`; `scenario/approach.ts`: `walkRoute(engine, dim, from, goal, refused?)`, `walkEdgeKey`;
+  `scenario/runner.ts`: `RunOptions.approach` (`teleport` | `walk`), `tapReachOf(state)`.
 - `core/engine.ts` `SimEngine`: `loadAddon`, `addSystem`, `on`/`emit` (engine events:
   `entityHitEntity`, `playerInteractWithEntity`, `itemUse`, `scriptEventReceive`,
   `entitySpawn`, `entityRemove`, `entityLoad`, `landed`, `dismounted`), `step`/`run`,
@@ -147,7 +166,8 @@ edit of the loop.
   `unmodelledRanking()`.
 - `world/voxel-world.ts` `VoxelWorld`: `rawId`, `permutationAt`, `setPermutation`, `shapeOf(id)`,
   `shapeAt`, `isLoaded`, `setAllLoaded` (a world with no loading rule), `solidsNear` (the
-  physics' `SolidQuery`), `overlapping`, `supportBelow`, `onWrite`; `flatTerrain(groundY)` (the
+  physics' `SolidQuery`, collidable entities included through `entitySolids`), `submersion`
+  (liquids), `overlapping`, `supportBelow`, `onWrite`, `writes` (a `WriteLog`: one bit per block); `flatTerrain(groundY)` (the
   QA worlds' superflat, standing height -60); a `TerrainGenerator` may be `verticalOnly` or
   `materialiseOnRead` (a world read from another model, filled a section at a time).
 - `pack/fixture.ts`: `fixturePack`, `fixtureAddon`, `entityDefinition`, `entityFilePath`.
@@ -228,8 +248,29 @@ bun scripts/_sim_api_catalog.ts <server/index.d.ts> <server-ui/index.d.ts>
 ```
 
 Regenerate it when the packs' manifests move to a new module version. An
-export the mock lacks is importable (as on the device) and throws when used;
-the catalog's enums are provided as name → name (`TODO(sim-api)`: numeric enums).
+export the mock lacks is importable (as on the device) and throws when used.
+The generator (2026-10-08) also records each enum's VALUES - a numeric enum
+(`InputPermissionCategory.Camera` is 1) hands scripts numbers, a string enum
+its ids (`EntityComponentTypes.Rideable` is `"minecraft:rideable"`) - and the
+members the typings mark "can't be called / edited in restricted-execution
+mode" (`restricted`): a BEFORE-event callback runs in that mode on the device
+("Event callbacks are executed in read-only mode"), so in one a restricted
+member throws (`executionMode`, quirk `restricted-execution-before-events`);
+a script defers the change with `system.run`. Its third input is the
+`@minecraft/server-gametest` typings (1.0.0-beta.1.26.52-stable):
+
+```
+bun scripts/_sim_api_catalog.ts <server/index.d.ts> <server-ui/index.d.ts> <server-gametest/index.d.ts>
+```
+
+**Dynamic properties are scoped by the writing pack** (quirk
+`dynamic-properties-per-pack`): each pack's module is evaluated, and every
+callback it hands `system` or a `world` / `system` event signal runs, as that
+pack's code (`script-host/pack-context.ts`; an `await` continuation is read
+off the stack's `pack://<uuid>/` frame), and a script reads and writes its own
+pack's values (`entity/dynamic-store.ts`): another pack's reads undefined, as
+on the device. The engine's own view (`SimEntity.dynamic` as a Map) holds the
+last value any pack wrote, so adapters and test hosts still read and seed it.
 
 A scenario that reached any unmodelled member ends `unknown`, never `pass`.
 The run's **unmodelled ranking** (the markdown report's last table) is the
@@ -263,6 +304,32 @@ steps (`INPUT_HANDLERS`, merged in by the CLI; "Input" below): `drag`,
 `sneakToggle`, `sneakMode`, `tapScreen`. A `tap` or
 `hold` first stands the player where a tap would pick the target
 (`scenario/approach.ts`); no such spot is a `tap-target-reachable` violation.
+
+**Walking there** (`--walk`, `RunOptions.approach: 'walk'`; `TODO(sim-walk)`
+closed 2026-10-08): the child is WALKED to the spot instead of teleported.
+`walkRoute` plans over the world's collision - stand points per column (the
+centre, then the quarter points: a clearance band can take a column's
+centre), rises within auto-jump's 1.2, drops within 3, the player's box
+passing between two columns at the higher floor (two thin bands on a shared
+face are a wall, not a gap: 10326's Door 1 stair) - and `walkTo` walks it
+with `tickPlayer` and auto-jump on; an edge the walk could not take (auto-jump
+refused a rise the plan allowed: a band in the cell over a step) is refused
+on the next plan. A target no spot of which is reachable on foot is recorded
+(`state.tapReach`, the report's "Tap targets unreachable on foot" section:
+`tap-target-unreachable-on-foot`) and the child is then put on the spot, so
+the tap is still tried - never a failure (IX-04: invisible geometry may
+unlock, never restrict; the model's own geometry may hide a part from feet).
+Round 30m at 100-400 % with `--walk` (`output/engine-d-20261008/walk.md`, 264
+scenarios): 818 walked approaches, 263 reached on foot, 555 not (about 85
+distinct parts over 19 packs, most of them upper-floor windows and doors).
+Read that count as an UPPER bound: the planner searches 24 blocks round the
+child and the goal, moves in 4 directions and drops at most 1.7, so a stair
+or a long way round outside that is missed; no route here has been compared
+with a device walk yet.
+
+The world invariant `no-entity-overlap` (`scenario/world-invariants.ts`) runs
+with the core ones: a mob never interpenetrates a `minecraft:is_collidable`
+entity.
 
 Core invariants (`scenario/invariants.ts`): `player-not-in-solid` (2 ticks'
 grace for a teleport's set-down), `no-unprotected-fall` (over 3 blocks
@@ -328,7 +395,8 @@ lacks in `limits`, and is never tuned to the answer.
 ## Child play (`adapters/craftmatic/child-play.ts`)
 
 For every craftmatic pack: `place-<size>-<turn>` at 100 % and 150 % (when its
-blocks resize) and turns 0 and 90 - tap every moving part (from another spot
+blocks resize; `--sizes=` names others: COL-01 / SCALE-05 ask 200, 300 and
+400 too) and turns 0 and 90 - tap every moving part (from another spot
 when the part refuses a tap from behind its wall), walk every doorway's device
 lines from both sides, Undo; and `play-100-0` - ride every ride by a tap,
 drive every vehicle 30 s (under the model's overhangs, then a course) and sneak
@@ -393,9 +461,10 @@ plane catching a train's rear car and sitting in its front one, hovering where
 left; a full train; a figure yielding its chair; two packs owning the plane;
 the back-hop cooldown; a car at a slide's foot) are `test/bedrock-ride-hop.test.ts`.
 The assumed device facts are quirks `rider-seat-order`, `add-rider-after-eject`,
-`aabb-is-collision-box` and `dynamic-properties-per-pack` (the simulator shares
-one dynamic-property map between packs; the hop uses tags for anything another
-pack reads, so it does not depend on that gap).
+`aabb-is-collision-box` and `dynamic-properties-per-pack` (since 2026-10-08
+the simulator scopes dynamic properties by pack as the device does; the hop
+uses tags for anything another pack reads, and still passes: round 30m's
+10261 + Nimbus + 42639, `output/engine-d-20261008/hop.md`).
 
 ## The vehicle course (`adapters/craftmatic/vehicle-course.ts`)
 
@@ -466,8 +535,32 @@ positions relative to the obstacle, for a diagnosis. The course quiets
 `player-not-in-solid` and `nothing-below-ground` while the child rides (a low
 car's seated rider has its feet under the road; the pits are dug under the
 flat world on purpose) and judges the vehicle by its own band instead.
-Boats (no water lane yet, `TODO(sim-boat-course)`) and native mounts (the
-simulator's hover controller is a stand-in) are left out.
+Boats run the water lanes instead ("Water: the boat lanes", below); native
+mounts (the simulator's hover controller is a stand-in) are left out.
+
+### Water: the boat lanes (2026-10-08, `TODO(sim-boat-course)` closed)
+
+Water is a VOLUME (`world/liquids.ts`: a source fills 8/9 of its cell, quirk
+`liquid-surface-height`) and a body in it moves by Java's water rules (quirk
+`liquid-motion`, ASSUMED: physics spec §4.4b). Every scripted BOAT runs
+`boatCourse` in pools as deep as its draft needs, the surface 1.11 under the
+shore as in the GameTest arena (`GT_VEHICLE_LAYOUT`), stick forward up to
+`COURSE_PUSH_TICKS`: `water-flat` (it makes 20 blocks and stays on its
+waterline: `boat-not-afloat`), `water-bank` (a bank met bow-on: it stops at
+the waterline and backs off - `boat-climbs-bank`, `vehicle-escapes`),
+`water-shallow` (a one-block channel: measured, how deep the keel would sit
+in the bed), `water-wall` (a pier post met 19 degrees off square: never
+through it, `vehicle-no-clip`). Then `waterEgress` (SEAT-05 "water": a sneak
+on open water and with a bank a block beside the hull at 100/200/400 %; never
+under the hull, `water-egress-under-hull`; where the child ended is
+recorded), and the free look and the cockpit eye on a pool. `boatFloat`
+measures the DRAWN hull against the surface (regression `ship-floats-29b`).
+Round 30m (`output/engine-d-20261008/boats.md`): 60221 and 10786 pass
+THROUGH a pier post met off square (32 and 22 ticks of band in the post: the
+sweep blocks once, `resolveMove` steps aside, and the post then sits inside
+the footprint where the enter-only probes never see it); 10365 stops and
+backs off; the egress swims the child beside the hull even with a bank a
+block away.
 
 What it cannot show: whether the engine turns a scripted vehicle toward its
 rider's look (quirk `rider-free-look`: measured no on the Saga, applied as
@@ -671,11 +764,18 @@ seats' set-down order is physics spec §4.8.
 
 - **Rendering, culling, cameras** are device-only (quirk registry); snapshots
   draw geometry and apply the ~70-block draw ceiling only.
-- **Vanilla blocks** are a small table (terrain, lights, doors as panels,
-  slabs, carpets, plants, liquids); others are full cubes and counted
-  (`BlockTypes.unknownVanilla`). Water has no buoyancy or flow.
+- **Vanilla blocks** are a small table (terrain, lights, doors by facing, open
+  bit and hinge - quirk `vanilla-door-shape` -, straight stairs, slabs,
+  carpets, plants, liquids); others are full cubes and counted
+  (`BlockTypes.unknownVanilla`). Water is a volume with Java's swimming rules
+  (quirk `liquid-motion`, assumed) but does not FLOW.
 - **Entity AI** (navigation, behaviours) is not run; only what scripts do and
-  `minecraft:physics` gravity/collision. Entities do not collide with each other.
+  `minecraft:physics` gravity/collision. Two pushable bodies (players, the
+  figures' `pushable_by_entity`) push apart softly (quirk `entity-push-soft`,
+  Java's rule, assumed until the `quirk_push` GameTest runs); a
+  `minecraft:is_collidable` entity is solid to mobs (quirk
+  `entity-collidable-solid`); every other pair passes through, as on the
+  device (no pack ships a collidable entity).
 - **Native controllers**: only the hover controller (rotorcraft, flyer) is
   modelled; its server position moves in 4-tick bursts (quirk
   `native-mount-bursts`, since 2026-10-08), its yaw every tick.
@@ -726,17 +826,22 @@ seats' set-down order is physics spec §4.8.
   window are guesses (`TODO(dismount-order)`, `TODO(dismount-floor)`); a real
   sneak cannot be sent by a simulated player; a mob rider is left where it
   sat.
-- **Before-events** do not enforce the read-only restriction scripts meet on
-  the device; **numeric enums** are names.
+- **Before-events** run read-only (the typings' restricted members throw;
+  the exception's wording is remembered, not captured); **enums** carry the
+  typings' values.
 - **Timing of deferred calls** follows Microsoft's contract, not a device
   probe: a `system.run` from an event handler runs at the end of the same
   tick, from other code in the next (`Scheduler.inEventHandler`); a
   `runTimeout` counts its delay from the same point. `world.afterEvents.worldLoad`
   fires once in the first script tick after the scripts load (and again
   after a reload).
-- **Dynamic properties are shared between packs** here; on the device each
-  pack sees only its own (quirk `dynamic-properties-per-pack`). A script that
-  reads another pack's property works here and not there.
+- **Dynamic properties are scoped by pack**, as on the device (quirk
+  `dynamic-properties-per-pack`, from the Script API docs, not device-measured).
+- **`getAABB` of a turned entity** is the unturned box (quirk
+  `aabb-axis-aligned-when-yawed`, assumed until the `quirk_aabb` GameTest runs).
+- **A seated player's reported feet** are 1.62 under its eye here and 1.52 on
+  the device (quirk `rider-location-under-head`, found by the GameTest replay;
+  not applied: the eye every seat check reads is right).
 - **Performance** is not the device's: a tick is as fast as the host runs it.
   `--cost` PREDICTS a vehicle tick's ms on each phone from its probe count
   (`quirks/cost.ts`, "Input" above); nothing else is predicted.
@@ -759,38 +864,58 @@ player on a non-zero-lock seat is turned by the vehicle's turn of 6 ticks
 ago), and so is the hover controller's chase of the look (`hover-turn-chase`,
 the `mounts` system): together they reproduce the Nimbus's spin.
 
-## The GameTest and the simulator: one scenario definition (`TODO(sim-gametest)`)
+## The GameTest and the simulator: one scenario definition
 
-The one mock left is the GameTest harness's: `test/gametest-pack.test.ts`
-fakes `@minecraft/server-gametest` (and the slice of `@minecraft/server` its
-runtime touches) to test the harness's decisions with outcomes the test
-chooses; `test/gametest-creator-wand.test.ts` runs its wand on the simulator
-but still hands the GameTest a hand-made `Test` (real ticks behind `idle`, a
-real player behind `spawnSimulatedPlayer`). Running the SAME definitions here and on the Pixel needs the
-simulator to provide that module, which the fold did not leave cheap:
+Since 2026-10-08 the simulation provides `@minecraft/server-gametest`
+(`script-host/gametest-module.ts`; `TODO(sim-gametest)` closed): the SAME test
+definitions the Pixel runs - a GameTest variant's `scripts/gametest.js`
+(`web/src/engine/gametest-pack.ts`), the quirk probe (`scripts/_gametest_quirks.ts`) -
+register as they do on the device and run offline:
 
-- `registerAsync(class, name, fn)` and its builder (`maxTicks`,
-  `structureName`, `padding`, `tag`, ... recorded, not applied), and a runner
-  that builds the test's arena and runs one test by name;
-- a `Test`: `idle(ticks)` (a promise the scheduler resolves), `succeed`,
-  `fail`, `getDimension`, `worldLocation`, `worldBlockLocation`,
-  `relativeLocation`, `getBlock`, `getTestDirection`,
-  `spawnSimulatedPlayer(location, name, gameMode)`;
-- a `SimulatedPlayer` (a sim player) with `attackEntity` (a tap:
-  `entityHitEntity`), `interactWithEntity` (`input/touch.ts` `interact`),
-  `lookAtEntity`, `moveToLocation` / `moveRelative` / `stopMoving` (steering
-  the controls at a point: the simulator has no navigation), `jump`,
-  `rotateBody`, `setRotation`.
+- `register` / `registerAsync(class, name, fn)` and the builder (`maxTicks`
+  and `structureName` applied; `tag`, `padding`, `batch`, ... recorded);
+- a `Test`: `idle` (the scheduler resolves it), `succeed`, `fail`, `failIf`,
+  `getDimension`, `worldLocation`, `worldBlockLocation`, `relativeLocation`,
+  `relativeBlockLocation`, `getBlock`, `getTestDirection`, `setBlockType`,
+  `setBlockPermutation`, `spawn`, `spawnSimulatedPlayer`,
+  `removeSimulatedPlayer`, `isCompleted`, `print`;
+- a `SimulatedPlayer` (the player facade with its members, quirk
+  `gametest-simulated-player`): `attackEntity` (a hit, reach-free),
+  `attack` (7 blocks in Creative, 3 in Survival), `interactWithEntity` (mounts
+  a rideable; on anything else returns true and raises nothing, as the Pixel
+  did on six door leaves), `interact` (5 blocks), `lookAtEntity`,
+  `lookAtLocation`, `moveToLocation` / `moveRelative` / `stopMoving` (steering
+  the controls at test-RELATIVE targets; it walks straight, no navigation),
+  `jump` (none while riding), `rotateBody`, `isSneaking` (no dismount); its
+  stick never reaches `inputInfo`.
 
-`web/src/engine/gametest-pack.ts` uses `idle` 74 times, `fail` 20,
-`succeed` 11, `teleport` 10, `lookAtEntity` / `attackEntity` /
-`getDimension` 7 each, `worldLocation` / `interactWithEntity` 6,
-`worldBlockLocation` / `spawnSimulatedPlayer` 5, `moveToLocation` /
-`stopMoving` / `jump` 3, `moveRelative` / `relativeLocation` /
-`getTestDirection` 2, `rotateBody` 1. With them, `bun scripts/sim.ts` runs a
-GameTest pack (`scripts/_gametest_pack.ts`) as the Pixel does, the four fake
-harnesses of `gametest-pack.test.ts` become simulator worlds, and a device
-finding can land as a GameTest and a regression case written once.
+`runGametest` lays the test's structure (layer 0 at relative y 1, as the Pixel
+measured), keeps the arena loaded and ticks to a verdict. The CLI:
+
+```
+bun scripts/sim-gametest.ts <pack.mcaddon> [--tag=craftmatic_gt] [--only=<test>] [--log=<cmgt.log>] [--md=] [--json=]
+bun scripts/sim-gametest.ts --replay=<cmgt.log | ContentLog.txt> [--pack=<variant or model pack>] [--md=]
+```
+
+A model pack is built into its variant by `scripts/_gametest_pack.ts` first;
+each test runs in a fresh world. `--replay` re-derives a past device run's
+VERDICT rows (a doorway's closed/open outcome and how it opened, a part's
+angles, a seat, a figure's summary, a vehicle's checks, a quirk subject's
+rest position) and lists each differing field: a finding - a quirk row to add
+or correct - never a test to tune. Results (`output/engine-d-20261008/`):
+the Pixel's 41732 doors run 5 re-derives 26 of 26 fields; the quirk probe's
+runs 1-3 (on the packs those runs used) 39/42, 47/89 and 62/65 - every
+eject dismount spot and every collider band matches; the mob lift on teleport
+(known), a 0.08-block push-out drift, a seated player's reported feet
+(`rider-location-under-head`), `/ride ... stop_riding` (not modelled) and the
+probe's health reads (`Entity.getComponent(minecraft:health)`, not modelled)
+do not. The quirk probe gained `quirk_push` and `quirk_aabb` (not yet run on
+a phone); their expected log is `output/engine-d-20261008/quirk-probe/expected-cmgt.log`.
+
+What stays a hand-made fake: `test/gametest-pack.test.ts`'s injected-outcome
+cases (a door that does not open, a vehicle that does not move) - the
+simulator runs the real runtime and cannot be told to misbehave there
+(`test/sim-gametest.test.ts` runs the real one).
 
 ## Towards a standalone engine
 

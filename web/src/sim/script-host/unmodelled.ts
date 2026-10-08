@@ -11,7 +11,7 @@
  * throw is still seen.
  */
 
-import { SERVER_TYPES, SERVER_UI_TYPES, type ApiType } from './api-catalog.js';
+import { GAMETEST_TYPES, SERVER_TYPES, SERVER_UI_TYPES, type ApiType } from './api-catalog.js';
 import type { Timeline } from '../core/timeline.js';
 
 /** Thrown for an API member the simulator does not model. */
@@ -22,7 +22,31 @@ export class UnmodelledError extends Error {
   }
 }
 
-const catalogType = (name: string): ApiType | undefined => SERVER_TYPES[name] ?? SERVER_UI_TYPES[name];
+const catalogType = (name: string): ApiType | undefined => SERVER_TYPES[name] ?? SERVER_UI_TYPES[name] ?? GAMETEST_TYPES[name];
+
+/**
+ * The script execution mode. A BEFORE-event callback runs in restricted-execution (read-only) mode on the device
+ * ("Event callbacks are executed in read-only mode", `World.beforeEvents` in @minecraft/server 2.9's typings):
+ * every member the typings mark "can't be called / edited in restricted-execution mode" (`ApiType.restricted`)
+ * throws there; a script defers the change with `system.run`. The script host sets `restricted` around each
+ * before-event callback (`ScriptHost.before`).
+ */
+export const executionMode = { restricted: false };
+
+/** Whether the real API forbids a member in restricted-execution mode (the catalog's `restricted`). */
+export function isRestricted(typeName: string, member: string): boolean {
+  return catalogType(typeName)?.restricted?.includes(member) ?? false;
+}
+
+/**
+ * The error a restricted member throws. # TODO(sim-api): the wording is the device's as remembered
+ * ("Native function [Entity::teleport] does not have required privileges."), not captured from a content log.
+ */
+export function restrictedError(timeline: Timeline, member: string): Error {
+  const source = timeline.callerSource();
+  timeline.add('note', `${member} called in restricted-execution (read-only) mode: it throws on the device`, source ? { source } : {});
+  return Object.assign(new Error(`Native function [${member.replace('.', '::')}] does not have required privileges.`), { name: 'ReferenceError' });
+}
 
 /** Whether the real API's type has a member (instance, or static when `isStatic`). */
 export function apiHas(typeName: string, member: string, isStatic = false): boolean {
@@ -47,12 +71,19 @@ const LANGUAGE_PROBES = new Set(['then', 'toJSON', 'constructor', 'valueOf', 'to
 export function guard<T extends object>(target: T, typeName: string, timeline: Timeline): T {
   return new Proxy(target, {
     get(t, prop, receiver) {
-      if (typeof prop === 'symbol' || prop in t) return Reflect.get(t, prop, receiver);
+      if (typeof prop === 'symbol') return Reflect.get(t, prop, receiver);
+      if (prop in t) {
+        const v = Reflect.get(t, prop, receiver);
+        // A restricted method read in a before-event callback throws when CALLED (the device's privilege check).
+        if (executionMode.restricted && typeof v === 'function' && isRestricted(typeName, prop)) return () => { throw restrictedError(timeline, `${typeName}.${prop}`); };
+        return v;
+      }
       if (LANGUAGE_PROBES.has(prop)) return undefined;
       if (apiHas(typeName, prop)) throw unmodelled(timeline, `${typeName}.${prop}`);
       return undefined;
     },
     set(t, prop, value, receiver) {
+      if (typeof prop === 'string' && executionMode.restricted && isRestricted(typeName, prop)) throw restrictedError(timeline, `${typeName}.${prop} (set)`);
       if (typeof prop === 'symbol' || prop in t) return Reflect.set(t, prop, value, receiver);
       if (apiHas(typeName, prop)) throw unmodelled(timeline, `${typeName}.${prop} (set)`);
       return Reflect.set(t, prop, value, receiver);

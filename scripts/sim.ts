@@ -9,6 +9,9 @@
  *        [--new=<dir>]   (regressions: the current tree's packs, `<dir>/<stem>.mcaddon`)
  *        [--runtime=pack|tree]   (tree: each pack's figures/rides/vehicles scripts rebuilt from its own
  *                                 CONFIG with THIS tree's runtimes; regressions: the new side only)
+ *        [--sizes=100,150,...]   (child-play: the wand sizes placed; default 100,150)
+ *        [--walk]                (taps WALK the child to their spot with auto-jump instead of teleporting it;
+ *                                 the report lists every tap target unreachable on foot)
  *   bun scripts/sim.ts --scenario=hop --coaster=<10261> --flyer=<nimbus> [--car=<42639>|same] [--slide=<10788>] [--json=] [--md=]
  *   bun scripts/sim.ts <packs> --scenario=input [--only=tap-occlusion] [--md=]
  *   bun scripts/sim.ts <pack> --scenario=input --device-script=<round tool or session file> [--device-args=<$1>]
@@ -102,6 +105,9 @@ const mode = flag('scenario') ?? 'child-play';
 const quick = args.includes('--quick');
 const only = flag('only');
 const shotsDir = flag('shots');
+// `--sizes=`: child play's wand sizes; `--walk`: taps walk the child there (scenario/runner.ts `reachFor`).
+const sizes = flag('sizes')?.split(',').map(Number).filter(n => Number.isFinite(n) && n > 0);
+const approach = args.includes('--walk') ? 'walk' as const : 'teleport' as const;
 const inputs = args.filter(a => !a.startsWith('--'));
 
 // ─── Package B: the client's eye (web/src/sim/client) ───
@@ -468,7 +474,7 @@ for (const file of packs) {
   const report: PackReport = { pack: basename(file), results: [], ms: 0 };
   try {
     const addon = await load(file);
-    const cp = childPlay(addon, { quick, shots: !!shotsDir });
+    const cp = childPlay(addon, { quick, shots: !!shotsDir, ...(sizes?.length ? { sizes } : {}) });
     if (!cp) { failed++; report.error = 'not a craftmatic pack (no scripts/placement.js)'; reports.push(report); console.log(`${report.pack}: ${report.error}`); continue; }
     report.label = cp.pack.placement.label;
     const base = custom ? custom(cp.pack) : cp.scenarios;
@@ -483,7 +489,7 @@ for (const file of packs) {
       const scen = costOn ? { ...s, allowLines: [...(s.allowLines ?? []), /CMVT|CMCAM/] } : s;
       const profile = clientProfiles[0]!;
       const handlers = { ...cp.handlers, ...INPUT_HANDLERS, ...(clientShots ? { snapshot: clientSteps(cp.pack, packAppearance(fresh), clientStepOptions, profile)['snapshot']! } : {}) };
-      const r = await runScenario(scen, [fresh], { handlers, ...combineRun(costOptions(capture), clientShots ? clientRun(profile) : {}) });
+      const r = await runScenario(scen, [fresh], { handlers, approach, ...combineRun(costOptions(capture), clientShots ? clientRun(profile) : {}) });
       recordCost(report.pack, r, capture.sim);
       delete r.timeline;
       // Pictures go to --shots as PNG files; the report keeps their names only.

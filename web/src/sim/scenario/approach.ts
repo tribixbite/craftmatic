@@ -138,3 +138,103 @@ export function approachSpots(engine: SimEngine, player: SimEntity, target: SimE
   player.location = saved.loc; player.rotation = saved.rot;
   return found;
 }
+
+// ─── Walking there (TODO(sim-walk) closed 2026-10-08) ────────────────────────
+
+/** How high a walked route may rise from one column to the next (blocks): auto-jump's reach (quirk `auto-jump`: at most 1.2). */
+export const WALK_MAX_RISE = 1.2;
+/**
+ * How far a walked route may drop from one column to the next (blocks): with auto-jump's 1.25 peak taken on the way
+ * (a jump at the lip), the fall stays inside the invariants' unprotected-fall limit of 3.
+ */
+export const WALK_MAX_DROP = 1.7;
+/** How far round the start and the goal the route search looks (blocks). */
+const WALK_SEARCH_MARGIN = 24;
+/** The most nodes one route search visits (a guard for an open world). */
+const WALK_MAX_NODES = 40000;
+
+/** A standing node of the walk graph: a column, the floor the player stands on and the point in the column it stands at (`px`, `pz`). */
+export interface WalkNode { x: number; z: number; y: number; px: number; pz: number }
+
+/**
+ * Where in a column a player may stand: the centre first, then the four quarter points. A column whose centre is
+ * taken by a clearance form's band (a partial collider) can still be stood in beside it, as on the device.
+ */
+const STAND_POINTS: ReadonlyArray<readonly [number, number]> = [[0.5, 0.5], [0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7]];
+
+const nodeKey = (n: WalkNode): string => `${n.x},${n.z},${Math.round(n.y * 64)}`;
+
+/** An edge of the walk graph, for `walkRoute`'s `refused` set: from one column's floor to the next column. */
+export function walkEdgeKey(a: Pick<WalkNode, 'x' | 'z' | 'y'>, b: Pick<WalkNode, 'x' | 'z' | 'y'>): string {
+  return `${a.x},${a.z},${Math.round(a.y * 64)}>${b.x},${b.z},${Math.round(b.y * 64)}`;
+}
+
+/**
+ * A route of standing nodes from where the player stands to `goal` (feet), over the world's collision: 4-connected
+ * columns, each step rising at most `WALK_MAX_RISE` (what auto-jump climbs) and dropping at most `WALK_MAX_DROP`,
+ * the player's box free at every node (`standsAt`). The goal's own column is the last node, entered at the goal's
+ * feet; undefined when no such route exists inside `WALK_SEARCH_MARGIN` of the start and the goal. Breadth first: the
+ * fewest columns, not the shortest distance. The route is a PLAN; the integrator walking it decides (`walkTo`), and an
+ * edge it could not walk (auto-jump refuses a rise the plan allowed: a band in the cell over a step raises it past
+ * 1.2) is `refused` on the next plan (`walkEdgeKey`).
+ */
+export function walkRoute(engine: SimEngine, dimension: string, from: Vec3, goal: Vec3, refused: ReadonlySet<string> = new Set()): WalkNode[] | undefined {
+  const fx = Math.floor(from.x), fz = Math.floor(from.z), gx = Math.floor(goal.x), gz = Math.floor(goal.z);
+  const box = { x0: Math.min(fx, gx) - WALK_SEARCH_MARGIN, x1: Math.max(fx, gx) + WALK_SEARCH_MARGIN, z0: Math.min(fz, gz) - WALK_SEARCH_MARGIN, z1: Math.max(fz, gz) + WALK_SEARCH_MARGIN };
+  const start: WalkNode = { x: fx, z: fz, y: from.y, px: from.x, pz: from.z };
+  // A column point's floors, read once per band (a column is reached from up to four sides).
+  const floorCache = new Map<string, number[]>();
+  const floorsAt = (px: number, pz: number, top: number, bottom: number): number[] => {
+    const k = `${px},${pz},${Math.round(top * 64)},${Math.round(bottom * 64)}`;
+    let f = floorCache.get(k);
+    if (!f) floorCache.set(k, f = floorsIn(engine, dimension, px, pz, top, bottom));
+    return f;
+  };
+  const w = engine.dimension(dimension), h = PLAYER_WIDTH / 2;
+  /**
+   * Whether the player's box passes from one stand point to the next: free along the segment between them at the
+   * HIGHER of the two floors (it climbs before it crosses, and crosses before it drops). Two standable columns can be
+   * parted by a thin wall - a clearance form's band on each side of their shared face (10326's Door 1 stair).
+   */
+  const passes = (a: WalkNode, b: WalkNode): boolean => {
+    const y = Math.max(a.y, b.y) + 0.01;
+    const d = Math.hypot(b.px - a.px, b.pz - a.pz), n = Math.max(1, Math.ceil(d / 0.2));
+    for (let i = 1; i <= n; i++) {
+      const x = a.px + (b.px - a.px) * i / n, z = a.pz + (b.pz - a.pz) * i / n;
+      if (w.overlapping({ x0: x - h, y0: y, z0: z - h, x1: x + h, y1: y + PLAYER_HEIGHT - 0.02, z1: z + h }, 0.01)) return false;
+    }
+    return true;
+  };
+  // The route is planned over every block the world holds, loaded or not: at 300-400 % the far side of a model is
+  // beyond the simulation distance of the child standing at this side (it loads as the child walks there).
+  return w.withAllLoaded(() => search());
+  function search(): WalkNode[] | undefined {
+  const parent = new Map<string, { node: WalkNode; from?: string }>([[nodeKey(start), { node: start }]]);
+  const queue: WalkNode[] = [start];
+  for (let h = 0; h < queue.length && parent.size < WALK_MAX_NODES; h++) {
+    const n = queue[h]!;
+    if (n.x === gx && n.z === gz && Math.abs(n.y - goal.y) < 0.6) {
+      const route: WalkNode[] = [];
+      for (let k: string | undefined = nodeKey(n); k; k = parent.get(k)!.from) route.unshift(parent.get(k)!.node);
+      return route;
+    }
+    for (const [nx, nz] of [[n.x + 1, n.z], [n.x - 1, n.z], [n.x, n.z + 1], [n.x, n.z - 1]] as const) {
+      if (nx < box.x0 || nx > box.x1 || nz < box.z0 || nz > box.z1) continue;
+      const goalColumn = nx === gx && nz === gz;
+      // Every floor at each stand point of the column (the goal's column: the goal's own feet).
+      const options: Array<{ px: number; pz: number; y: number }> = [];
+      if (goalColumn) options.push({ px: goal.x, pz: goal.z, y: goal.y });
+      else for (const [ox, oz] of STAND_POINTS) for (const y of floorsAt(nx + ox, nz + oz, n.y + WALK_MAX_RISE + 0.05, n.y - WALK_MAX_DROP)) options.push({ px: nx + ox, pz: nz + oz, y });
+      for (const o of options) {
+        if (o.y > n.y + WALK_MAX_RISE + 1e-6 || o.y < n.y - WALK_MAX_DROP - 1e-6) continue;
+        const m: WalkNode = { x: nx, z: nz, y: o.y, px: o.px, pz: o.pz };
+        const k = nodeKey(m);
+        if (parent.has(k) || refused.has(walkEdgeKey(n, m)) || !standsAt(engine, dimension, { x: o.px, y: o.y, z: o.pz }) || !passes(n, m)) continue;
+        parent.set(k, { node: m, from: nodeKey(n) });
+        queue.push(m);
+      }
+    }
+  }
+  return undefined;
+  }
+}

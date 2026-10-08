@@ -5,7 +5,7 @@
  */
 
 import type { UnmodelledUse } from '../core/timeline.js';
-import type { ScenarioResult } from './runner.js';
+import { tapReachOf, type ScenarioResult } from './runner.js';
 
 /** Every scenario of one pack. */
 export interface PackReport {
@@ -45,6 +45,17 @@ export function markdownReport(reports: readonly PackReport[], title = 'Simulato
   for (const r of reports) for (const res of r.results) {
     for (const v of res.violations) lines.push(`- **${esc(r.pack)}** \`${res.name}\` [${v.invariant}] tick ${v.tick}${v.step ? ` (${esc(v.step)})` : ''}: ${esc(v.message)}`);
     for (const s of res.steps.filter(x => !x.ok)) lines.push(`- **${esc(r.pack)}** \`${res.name}\` step ${esc(s.label)} ERROR: ${esc(s.error ?? '?')}`);
+  }
+  // Walked approaches (`--walk`): every tap target the child could not reach on foot (IX-04: invisible geometry may
+  // unlock, never restrict - a target unreachable on foot is the model's or a restriction to read, never a failure).
+  const walked = reports.flatMap(r => r.results.flatMap(res => tapReachOf(res.state).map(t => ({ pack: r.pack, scenario: res.name, ...t }))));
+  if (walked.length) {
+    const off = walked.filter(t => !t.onFoot);
+    lines.push('', '## Tap targets unreachable on foot (`tap-target-unreachable-on-foot`)', '', `${walked.length} walked approaches: ${walked.length - off.length} reached on foot, ${off.length} not.`, '');
+    if (off.length) {
+      lines.push('| pack | scenario | target | why |', '|---|---|---|---|');
+      for (const t of off) lines.push(`| ${esc(t.pack)} | ${esc(t.scenario)} | ${esc(t.label)} | ${esc(t.why ?? '')} |`);
+    }
   }
   const ranking = unmodelledTotals(all);
   lines.push('', '## Unmodelled API members, by uses', '');

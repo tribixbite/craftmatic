@@ -18,6 +18,7 @@ import { tickBody } from './body.js';
 import type { ControlState } from '../input/controls.js';
 import { installPlayerSystems, isHoverMount } from './player-systems.js';
 import { stateOf, trackFall } from './shared.js';
+import { bodyFluid } from './body-systems.js';
 
 // The player-side exports moved to `player-systems.ts`; re-exported for the modules that read them here.
 export { DISMOUNT_FALLBACK_LIFT, DISMOUNT_FLOOR_ABOVE, DISMOUNT_FLOOR_BELOW, DISMOUNT_OFFSETS, dismountReference, isHoverMount, setDownRider } from './player-systems.js';
@@ -35,7 +36,8 @@ export function installPhysics(engine: SimEngine, controls: ControlState): void 
         if (!ph.gravity && !moving) continue;
         const dims = { width: e.collisionSize().width, height: e.collisionSize().height };
         if (ph.collision) {
-          const r = tickBody(en.dimension(e.dimension), stateOf(e), dims, ph.gravity);
+          // In water a mob swims (behavior.float) or floats (buoyant): `bodyFluid`, quirk `liquid-motion`.
+          const r = tickBody(en.dimension(e.dimension), stateOf(e), dims, ph.gravity, bodyFluid(e));
           e.location = { x: r.state.x, y: r.state.y, z: r.state.z };
           e.velocity = { x: r.state.vx, y: r.state.vy, z: r.state.vz };
           e.onGround = r.state.onGround;

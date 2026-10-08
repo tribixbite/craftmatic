@@ -18,6 +18,8 @@
 import type { Box } from '../core/vec.js';
 import { quirkValue } from '../quirks/registry.js';
 import { permutationKey, type BlockStates, type BlockShape, type BlockTypes } from './block-types.js';
+import { submersion } from './liquids.js';
+import { WriteLog } from './write-log.js';
 
 /** An interned permutation. */
 export interface Permutation { readonly id: number; readonly typeId: string; readonly states: Readonly<BlockStates> }
@@ -59,6 +61,8 @@ export interface WorldSolid extends Box {
   block?: { x: number; y: number; z: number; typeId: string };
   /** An unloaded block (treated as solid). */
   unloaded?: boolean;
+  /** The id of the ENTITY this box is (a `minecraft:is_collidable` mob, physics/body-systems.ts), not a block. */
+  entity?: string;
 }
 
 /** One dimension's blocks. */
@@ -73,10 +77,12 @@ export class VoxelWorld {
   private loaded = new Set<string>();
   /** Every column loaded (`setAllLoaded`). */
   private allLoaded = false;
-  /** Every block write, for scenarios that want to know what changed (undo checks). */
-  readonly writes = new Map<string, number>();
+  /** Every block ever written (undo checks, the test hosts), one bit per block (world/write-log.ts). */
+  readonly writes = new WriteLog();
   /** Called after every write (a recorder, a test host). */
   onWrite: ((x: number, y: number, z: number, p: Permutation) => void) | undefined;
+  /** Solid boxes that are ENTITIES near a region (collidable mobs; physics/body-systems.ts installs it), joined to `solidsNear`. */
+  entitySolids: ((region: Box) => WorldSolid[]) | undefined;
 
   constructor(readonly id: string, readonly palette: BlockPalette, readonly types: BlockTypes, private readonly generator: TerrainGenerator = flatTerrain(), heightRange = { min: -64, max: 320 }) {
     this.heightRange = heightRange;
@@ -90,6 +96,15 @@ export class VoxelWorld {
    * walk may leave in any direction). An engine never calls this.
    */
   setAllLoaded(): void { this.allLoaded = true; }
+  /**
+   * Run `fn` reading the world as if every column were loaded (a route planned over blocks the player has not come
+   * within the simulation distance of yet: the world holds them), then restore the loaded area exactly.
+   */
+  withAllLoaded<T>(fn: () => T): T {
+    const loaded = this.loaded, all = this.allLoaded;
+    this.allLoaded = true;
+    try { return fn(); } finally { this.loaded = loaded; this.allLoaded = all; }
+  }
   /** Whether the block's chunk column is loaded. */
   isLoaded(x: number, z: number): boolean { return this.allLoaded || this.loaded.has(`${Math.floor(x) >> 4},${Math.floor(z) >> 4}`); }
   /** The loaded chunk columns. */
@@ -133,7 +148,7 @@ export class VoxelWorld {
     if (y < this.heightRange.min || y >= this.heightRange.max) return;
     const s = this.section(x, y, z, true)!;
     s[((x & 15) * 16 + (y & 15)) * 16 + (z & 15)] = p.id;
-    this.writes.set(`${x},${y},${z}`, p.id);
+    this.writes.add(x, y, z);
     this.onWrite?.(x, y, z, p);
   }
 
@@ -168,8 +183,12 @@ export class VoxelWorld {
         for (const b of shape.collision) out.push({ x0: x + b.x0, y0: y + b.y0, z0: z + b.z0, x1: x + b.x1, y1: y + b.y1, z1: z + b.z1, block: { x, y, z, typeId } });
       }
     }
+    if (this.entitySolids) out.push(...this.entitySolids({ x0, y0, z0, x1: x1 + 1, y1: y1 + 1, z1: z1 + 1 }));
     return out;
   }
+
+  /** How much of a box's height is under a liquid surface, 0..1 (world/liquids.ts; the physics' water test). */
+  submersion(box: Box): number { return submersion(this, box); }
 
   /** Whether a box overlaps any solid (the "player inside a wall" test). Returns the first solid it overlaps. */
   overlapping(box: Box, eps = 1e-3): WorldSolid | undefined {

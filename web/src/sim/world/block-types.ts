@@ -151,23 +151,62 @@ export class BlockTypes {
       const b = top ? { ...FULL, y0: 0.5 } : { ...FULL, y1: 0.5 };
       return { collision: [b], selection: [b], isAir: false, isLiquid: false, friction: 0.6 };
     }
-    if (/_door$/.test(id)) {
-      // TODO(sim-vanilla): Bedrock's door panel side from `direction`, `open_bit`
-      // and `door_hinge_bit` is not measured here; a closed door is modelled as
-      // a 3/16 panel on its facing side, an open one as passable. Runtime door
-      // candidates only exist above 100 %.
-      const open = states['open_bit'] === 1 || states['open_bit'] === true;
-      if (open) return { collision: NONE, selection: [FULL], isAir: false, isLiquid: false, friction: 0.6 };
-      const dir = Number(states['direction'] ?? 0) % 4;
-      const t = 3 / 16;
-      const panel = dir === 0 ? { ...FULL, x1: t } : dir === 1 ? { ...FULL, z1: t } : dir === 2 ? { ...FULL, x0: 1 - t } : { ...FULL, z0: 1 - t };
+    if (/_door$/.test(id) && !/trapdoor$/.test(id)) {
+      const panel = doorPanel(states);
       return { collision: [panel], selection: [panel], isAir: false, isLiquid: false, friction: 0.6 };
+    }
+    if (/_stairs$/.test(id)) {
+      const boxes = stairBoxes(states);
+      return { collision: boxes, selection: boxes, isAir: false, isLiquid: false, friction: 0.6 };
     }
     if (!/^(grass_block|dirt|bedrock|stone|glass|barrier|planks|oak_planks|cobblestone|sand|gravel|redstone_lamp|lit_redstone_lamp|concrete|wool|.*_concrete|.*_wool|.*_planks|.*_log|.*_block)$/.test(id)) {
       this.unknownVanilla.set(typeId, (this.unknownVanilla.get(typeId) ?? 0) + 1);
     }
     return SOLID_SHAPE;
   }
+}
+
+/** A door's facing (`minecraft:cardinal_direction`, or the legacy `direction` int in the exporter's order: south 0, west 1, north 2, east 3; bedrock-blocks.ts). */
+function doorFacing(states: BlockStates): 'south' | 'west' | 'north' | 'east' {
+  const c = states['minecraft:cardinal_direction'];
+  if (c === 'south' || c === 'west' || c === 'north' || c === 'east') return c;
+  return (['south', 'west', 'north', 'east'] as const)[((Number(states['direction'] ?? 0) % 4) + 4) % 4]!;
+}
+
+/**
+ * A vanilla door's panel, 3/16 thick (quirk `vanilla-door-shape`, ASSUMED): Java's `DoorBlock.getShape` table read
+ * through Bedrock's states - a door FACING f (the way the player faced placing it; "a door facing east occupies the
+ * west part of its block when closed", minecraft.wiki "Door", Bedrock block states) stands closed on the side
+ * opposite f; open, it swings to the side its hinge (`door_hinge_bit`: false left, true right, seen facing the same
+ * way) puts it. Not measured on a Bedrock device: the runtime's vanilla doors exist only above the wand's measured
+ * door step (DOOR-02).
+ */
+export function doorPanel(states: BlockStates): Box {
+  const t = 3 / 16;
+  const south = { ...FULL, z1: t }, north = { ...FULL, z0: 1 - t }, west = { ...FULL, x0: 1 - t }, east = { ...FULL, x1: t };
+  const open = states['open_bit'] === 1 || states['open_bit'] === true;
+  const right = states['door_hinge_bit'] === 1 || states['door_hinge_bit'] === true;
+  switch (doorFacing(states)) {
+    case 'east': return !open ? east : right ? north : south;
+    case 'south': return !open ? south : right ? east : west;
+    case 'west': return !open ? west : right ? south : north;
+    case 'north': return !open ? north : right ? west : east;
+  }
+}
+
+/**
+ * A straight stair's boxes (quirk `vanilla-door-shape` covers the same ASSUMED reading): the bottom half, and the top
+ * half on the side it FACES (`weirdo_direction` in the exporter's order: east 0, west 1, south 2, north 3), both
+ * mirrored when `upside_down_bit`. Corner stairs (Java's `shape` inner/outer, computed from the neighbours) are not
+ * modelled: a corner reads as a straight stair (`TODO(sim-vanilla)`).
+ */
+export function stairBoxes(states: BlockStates): Box[] {
+  const up = states['upside_down_bit'] === 1 || states['upside_down_bit'] === true;
+  const base: Box = up ? { ...FULL, y0: 0.5 } : { ...FULL, y1: 0.5 };
+  const half: Box = up ? { ...FULL, y1: 0.5 } : { ...FULL, y0: 0.5 };
+  const d = ((Number(states['weirdo_direction'] ?? 0) % 4) + 4) % 4;
+  const step = d === 0 ? { ...half, x0: 0.5 } : d === 1 ? { ...half, x1: 0.5 } : d === 2 ? { ...half, z0: 0.5 } : { ...half, z1: 0.5 };
+  return [base, step];
 }
 
 /** A permutation's stable key: the type and its states sorted by name. */

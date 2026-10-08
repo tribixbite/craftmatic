@@ -45,14 +45,31 @@ function confirmSummary(f: ShownForm): { dims?: { w: number; h: number; l: numbe
 }
 
 /** Wait until a chat line matches, or the timeout. */
-async function waitForChat(ctx: StepContext, re: RegExp, maxTicks: number, since: number): Promise<string | undefined> {
-  for (let t = 0; t < maxTicks; t++) {
-    const hit = ctx.sim.engine.timeline.entries.slice(since).find(e => e.kind === 'chat' && re.test(plainText(e.text)));
-    if (hit) return plainText(hit.text);
+async function waitForChat(ctx: StepContext, re: RegExp, maxTicks: number, since: number, stop: () => boolean = () => false): Promise<string | undefined> {
+  // Scanned from where the last tick left off: a long placement's timeline is not re-read every tick.
+  let from = since;
+  for (let t = 0; t < maxTicks && !stop(); t++) {
+    const entries = ctx.sim.engine.timeline.entries;
+    for (; from < entries.length; from++) { const e = entries[from]!; if (e.kind === 'chat' && re.test(plainText(e.text))) return plainText(e.text); }
     await ctx.run(1);
   }
   return undefined;
 }
+
+/**
+ * How many times the menu may come back after a child pressed Place before the pack is taken to refuse the
+ * placement. The runtime's `confirmPlace` answers a refused one (`validate` throws) by telling the reason and
+ * reopening the menu; a chooser that pressed Place again recursed for ever - an unbounded async chain that grew past
+ * 64 GB on 76457 at 300 % and crashed Bun (`TODO(seat-sweep-memory)`, found 2026-10-08 with
+ * `scripts/_sim_memory_probe.ts`: the stack was menu -> confirmPlace -> menu -> ...).
+ */
+const MAX_PLACE_PRESSES = 3;
+/**
+ * How far (blocks) the wand's aim reaches: `getBlockFromViewDirection({ maxDistance: 96 })` in the placement
+ * runtime, less a margin. A spot farther ahead - where a model at 300-400 % must be centred to miss the child - is
+ * entered through the menu's "Edit coordinates" instead, as a child who cannot aim that far would.
+ */
+const WAND_AIM_REACH = 90;
 
 /** Select the wand in the hotbar (slot 0) or put it away (slot 1). */
 function holdWand(ctx: StepContext, pack: CraftmaticPack, hold: boolean): void {
@@ -93,13 +110,21 @@ export function wandHandlers(pack: CraftmaticPack): Record<string, StepHandler> 
       const target = { x: Math.floor(p.location.x) + ahead + 0.5, y: FLAT_GROUND_Y, z: Math.floor(p.location.z) + 0.5 };
       lookAt(p, target);
       let confirmed: ShownForm | undefined;
+      let presses = 0, refused = false, entered = false;
+      // Beyond the aim's reach, the origin is entered as coordinates (the runtime anchors at the block under the aim).
+      const typed = Math.hypot(target.x - p.location.x, target.z - p.location.z) > WAND_AIM_REACH;
       ctx.sim.host.chooser = (form: ShownForm): FormAnswer => {
         const title = plainText(form.title);
+        // The coordinates are the model's CORNER (the aim centres it there instead: `pinCentredAt`), on the ground.
+        if (/· Coordinates$/.test(title)) { entered = true; return { values: [String(Math.floor(target.x - turned.w * f / 2)), String(target.y), String(Math.floor(target.z - turned.l * f / 2))] }; }
         if (/· Brick Wand$/.test(title)) {
           const s = menuState(form);
           if (form.buttons.some(b => b.startsWith('Cancel placement'))) return { cancel: true };
+          if (typed && !entered && form.buttons.some(b => plainText(b) === 'Edit coordinates')) return { button: 'Edit coordinates' };
           if (s.rotation !== undefined && s.rotation !== rotation) return { button: 'Rotate' };
           if (s.size !== undefined && s.size !== size) return { button: 'Size' };
+          // The menu back again after Place, again and again: the pack refuses this placement (a child would stop).
+          if (++presses > MAX_PLACE_PRESSES) { refused = true; return { cancel: true }; }
           return { button: 'Place' };
         }
         if (/^Place .*\?$/.test(title) && form.buttons.includes('Place now')) {
@@ -117,9 +142,14 @@ export function wandHandlers(pack: CraftmaticPack): Record<string, StepHandler> 
       };
       const since = ctx.sim.engine.timeline.entries.length;
       await openMenu(ctx, pack, since);
-      const line = await waitForChat(ctx, /Placed |Placement stopped/, PLACE_TIMEOUT_TICKS, since);
+      const line = await waitForChat(ctx, /Placed |Placement stopped/, PLACE_TIMEOUT_TICKS, since, () => refused);
       holdWand(ctx, pack, false);
       ctx.sim.host.chooser = () => ({ cancel: true });
+      if (refused) {
+        // What the pack told the child (its `tell`: chat or action bar) is the reason.
+        const said = ctx.sim.engine.timeline.entries.slice(since).filter(e => e.kind === 'chat' || e.kind === 'actionbar').map(e => plainText(e.text)).filter(t => !/Brick Wand.*percent/.test(t)).slice(-2).join(' / ');
+        throw new Error(`place: the pack refused ${size} percent turn ${rotation}${said ? `: ${said}` : ''} (the menu came back after Place ${MAX_PLACE_PRESSES} times)`);
+      }
       if (!line) throw new Error(`place: no "Placed" line within ${PLACE_TIMEOUT_TICKS} ticks`);
       if (/stopped/.test(line)) ctx.violate({ invariant: 'placement-completes', message: line });
       const sum = confirmed ? confirmSummary(confirmed) : {};

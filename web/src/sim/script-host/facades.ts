@@ -20,6 +20,8 @@ import { setDownRider } from '../physics/systems.js';
 import type { BlockStates } from '../world/block-types.js';
 import type { Permutation, VoxelWorld } from '../world/voxel-world.js';
 import { guard, unmodelled } from './unmodelled.js';
+import { callerPack } from './pack-context.js';
+import type { DynamicStore } from '../entity/dynamic-store.js';
 import { messageText } from './text.js';
 
 /** What the facades need from the host. */
@@ -39,6 +41,10 @@ export interface FacadeHost {
   resolvePermutation(typeId: string, states?: BlockStates): Permutation;
   /** Sound and particle counters (not timeline entries: they are too many). */
   stats: Map<string, number>;
+  /** A GameTest simulated player's own members (script-host/gametest-module.ts), when the module is in. */
+  simulatedMembers?: ((sim: SimEntity) => Record<string, unknown>) | undefined;
+  /** Fire a cancelable before-event (a GameTest simulated player's interact); true when a subscriber cancelled it. */
+  before(name: 'playerInteractWithEntity' | 'playerInteractWithBlock', payload: Record<string, unknown>): boolean;
 }
 
 /** A player's hands and head-up state. */
@@ -148,10 +154,11 @@ export function entityFacade(host: FacadeHost, sim: SimEntity): Record<string, u
     removeTag: (t: string) => live().tags.delete(t),
     hasTag: (t: string) => live().tags.has(t),
     getTags: () => [...live().tags],
-    getDynamicProperty: (k: string) => { const v = live().dynamic.get(k); return v && typeof v === 'object' ? { ...(v as object) } : v; },
+    // Scoped by the calling pack (quirk `dynamic-properties-per-pack`): another pack's value reads undefined.
+    getDynamicProperty: (k: string) => { const v = live().dynamic.getFor(callerPack(), k); return v && typeof v === 'object' ? { ...(v as object) } : v; },
     setDynamicProperty: (k: string, v?: unknown) => { setDynamic(timeline, live().dynamic, k, v); },
-    getDynamicPropertyIds: () => [...live().dynamic.keys()],
-    clearDynamicProperties: () => { live().dynamic.clear(); },
+    getDynamicPropertyIds: () => live().dynamic.keysFor(callerPack()),
+    clearDynamicProperties: () => { live().dynamic.clearFor(callerPack()); },
     getProperty: (k: string) => {
       const s = live();
       if (s.def?.propertiesRefused) return undefined;
@@ -195,8 +202,10 @@ export function entityFacade(host: FacadeHost, sim: SimEntity): Record<string, u
       return raycastEntities(engine.loadedEntities(s.dimension), head, dir, opts?.maxDistance ?? 16, s).map(h => ({ entity: host.entity(h.entity), distance: h.distance }));
     },
   };
-  // A player adds its own members; property descriptors are copied (not values) so the getters stay live.
-  return guard(defineAccessors(f, sim.isPlayer ? playerMembers(host, sim, live) : {}), sim.isPlayer ? 'Player' : 'Entity', timeline);
+  // A player adds its own members (a GameTest simulated player its own too); property descriptors are copied (not
+  // values) so the getters stay live.
+  const own = sim.isPlayer ? defineAccessors(playerMembers(host, sim, live), sim.simulated && host.simulatedMembers ? host.simulatedMembers(sim) : {}) : {};
+  return guard(defineAccessors(f, own), sim.simulated ? 'SimulatedPlayer' : sim.isPlayer ? 'Player' : 'Entity', timeline);
 }
 
 /** `Object.assign` flattens getters into values; copy property descriptors instead. */
@@ -215,15 +224,19 @@ function effectFacade(host: FacadeHost, sim: SimEntity, key: string): Record<str
   return guard({ get typeId() { return key; }, get duration() { return fx().duration; }, get amplifier() { return fx().amplifier; }, get displayName() { return key; }, get isValid() { return sim.effects.has(key); } }, 'Effect', host.timeline);
 }
 
-/** Dynamic property write: the API's value types and the string limit (quirk `dynamic-property-string-limit`). */
-function setDynamic(timeline: Timeline, store: Map<string, unknown>, key: string, value: unknown): void {
-  if (value === undefined) { store.delete(key); return; }
+/**
+ * Dynamic property write, as the CALLING pack (quirk `dynamic-properties-per-pack`): the API's value types and the
+ * string limit (quirk `dynamic-property-string-limit`).
+ */
+export function setDynamic(timeline: Timeline, store: DynamicStore, key: string, value: unknown): void {
+  const pack = callerPack();
+  if (value === undefined) { store.setFor(pack, key, undefined); return; }
   if (typeof value === 'string' && value.length > quirkValue('dynamic-property-string-limit', 'maxChars')) {
     timeline.add('note', `setDynamicProperty ${key}: ${value.length} characters exceeds the limit`, withSource(timeline));
     throw new Error(`Dynamic property ${key} string is too long (${value.length} > ${quirkValue('dynamic-property-string-limit', 'maxChars')})`);
   }
   if (!(typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || isVec(value))) throw new TypeError(`Dynamic property ${key}: unsupported value type ${typeof value}`);
-  store.set(key, isVec(value) ? copy(value) : value);
+  store.setFor(pack, key, isVec(value) ? copy(value) : value);
 }
 
 /** Actor property write, type-checked against the declaration (and refused when the component was dropped). */
@@ -285,9 +298,10 @@ function playerMembers(host: FacadeHost, sim: SimEntity, _live: () => SimEntity)
     playAnimation: (_spline: unknown, opts?: { totalTimeSeconds?: number }) => { const c = st().camera; c.animation = `spline ${opts?.totalTimeSeconds ?? '?'}s`; c.tick = host.engine.tick; },
     get isValid() { return sim.valid; },
   }, 'Camera', timeline);
+  // A GameTest simulated player's stick never reaches `inputInfo` (quirk `gametest-simulated-player`: every sample 0, 0).
   const inputInfo = guard({
-    getMovementVector: () => { const c = controls.get(sim.id); return { x: c.strafe, y: c.forward }; },
-    getButtonState: (b: string) => { const c = controls.get(sim.id); return (b === 'Jump' ? c.jump : b === 'Sneak' ? c.sneak : false) ? 'Pressed' : 'Released'; },
+    getMovementVector: () => { if (sim.simulated) return { x: 0, y: 0 }; const c = controls.get(sim.id); return { x: c.strafe, y: c.forward }; },
+    getButtonState: (b: string) => { if (sim.simulated) return 'Released'; const c = controls.get(sim.id); return (b === 'Jump' ? c.jump : b === 'Sneak' ? c.sneak : false) ? 'Pressed' : 'Released'; },
     get lastInputModeUsed() { return 'Touch'; },
     get touchOnlyAffectsHotbar() { return false; },
   }, 'InputInfo', timeline);

@@ -18,6 +18,7 @@ import { rotateYaw, type Box, type Vec3 } from '../core/vec.js';
 import { quirkValue } from '../quirks/registry.js';
 import { PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH } from '../physics/body.js';
 import type { Components, EntityDefinition } from './definitions.js';
+import { DynamicStore } from './dynamic-store.js';
 
 /** One seat of a rideable, entity frame. */
 export interface SeatDef { position: Vec3; lockRiderRotation?: number }
@@ -46,9 +47,12 @@ export class SimEntity {
    * scenario that stands a player at an exact point in the air flies it there.
    */
   flying = false;
+  /** A GameTest simulated player (`spawnSimulatedPlayer`): its facade adds the SimulatedPlayer members; its stick never reaches `inputInfo`. */
+  simulated = false;
   valid = true;
   readonly tags = new Set<string>();
-  readonly dynamic = new Map<string, unknown>();
+  /** Dynamic properties: the engine's view, with each pack's own values (`DynamicStore`, quirk `dynamic-properties-per-pack`). */
+  readonly dynamic = new DynamicStore();
   readonly properties = new Map<string, number | boolean | string>();
   readonly effects = new Map<string, ActiveEffect>();
   /** Effective components: base, then each added group; removal strips per the quirk. */
