@@ -5,9 +5,12 @@
  * seat times its `minecraft:scale` is where the device puts the rider (quirk
  * `seat-scales-with-entity`, Saga round 30k: 76286's rider at 200 % sat six
  * blocks over the hull because the seat was written pre-scaled); the rider's
- * eye is 1.12 over it. A seat is IN or ON its vehicle when it stands within
- * the drawn footprint and no more than `SEAT_ON_DRAWN.over` blocks over the
- * drawn surface under it (SEAT-01: "in the cockpit, never on top or outside").
+ * eye is 1.12 over it. At 100 % a seat is IN or ON its vehicle when it stands
+ * within the drawn footprint and no more than `SEAT_ON_DRAWN.over` blocks over
+ * the drawn surface under it (SEAT-01: "in the cockpit, never on top or
+ * outside"); at every other size it must sit where the 100 % seat sits scaled
+ * once (x, z; y between the plain-scaled and the eye-anchored seat), and its
+ * place against the geometry at that scale is reported beside the verdict.
  *
  * Usage: bun scripts/_seat_scale_check.ts <pack.mcaddon | dir>... [--json=<out.json>] [--md=<out.md>] [--all]
  *   --all   print every row, not only the seats off their vehicle
@@ -58,10 +61,12 @@ const json = flag('json');
 if (json) writeFileSync(json, JSON.stringify(report, null, 1));
 const md = flag('md');
 if (md) {
-  const lines = ['| pack | rideable | size | scale | seat (declared) | seat (device) | eye | verdict |', '|---|---|---|---|---|---|---|---|'];
+  const lines = ['| pack | rideable | size | scale | seat (declared) | seat (device) | eye | place at this scale | vs the 100 % seat scaled once | verdict |', '|---|---|---|---|---|---|---|---|---|---|'];
   const v = (p: { x: number; y: number; z: number }): string => `${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}`;
-  for (const p of report) for (const r of p.rows) lines.push(`| ${p.pack} | ${r.typeId.replace(/^craftmatic:/, '')} | ${r.pct} % | ${r.scale} | ${v(r.declared)} | ${v(r.seat)} | ${v(r.eye)} | ${r.ok ? r.place.verdict : `**${r.place.verdict.toUpperCase()}**${r.place.over !== undefined ? ` (${r.place.over.toFixed(2)} over)` : ''}`} |`);
-  for (const p of report) if (p.error) lines.push(`| ${p.pack} | - | - | - | - | - | - | ERROR ${p.error} |`);
+  const place = (r: SeatScaleRow): string => `${r.place.verdict}${r.place.over !== undefined ? ` (${r.place.over.toFixed(2)} over the drawn top)` : ''}`;
+  const drift = (r: SeatScaleRow): string => (r.pct === 100 ? '-' : r.drift.ok ? 'same' : `drifts x ${r.drift.dx.toFixed(2)} y ${r.drift.dy.toFixed(2)} z ${r.drift.dz.toFixed(2)}`);
+  for (const p of report) for (const r of p.rows) lines.push(`| ${p.pack} | ${r.typeId.replace(/^craftmatic:/, '')} | ${r.pct} % | ${r.scale} | ${v(r.declared)} | ${v(r.seat)} | ${v(r.eye)} | ${place(r)} | ${drift(r)} | ${r.ok ? 'ok' : '**OFF**'} |`);
+  for (const p of report) if (p.error) lines.push(`| ${p.pack} | - | - | - | - | - | - | - | - | ERROR ${p.error} |`);
   writeFileSync(md, lines.join('\n') + '\n');
 }
 process.exit(failed ? 1 : 0);

@@ -4264,16 +4264,26 @@ too. The camera radius is still written scaled and clamped - whether the
 device scales it as well is unmeasured (`TODO(seat-camera-radius)`; the
 rounds ride the script chase camera).
 
-Offline, every size: `bun scripts/_seat_scale_check.ts <packs>` judges every
-rideable's realised seat against what the vehicle draws at that scale
-(`seatOnDrawn`: within the drawn footprint and no more than 0.75 over the
-drawn surface under it; the hidden body may hang under a small car's floor
-below 100 %, the eye may not), and `bun scripts/sim.ts <packs>` runs the same
-as the `seats-every-size` scenario plus a `seat-on-vehicle` check on every
-mounted driver; regression case `milano-seat-200-30k`. On the round's packs
-(78e06246) every 100 % row is in or on its vehicle and the 200-400 % rows of
-every vehicle, coaster car, ship, Gabby car and the Nimbus cloud are over or
-beside it - the same fault in every rideable kind, found on one.
+Offline, every size (`web/src/sim/adapters/craftmatic/seat-scale.ts`):
+`bun scripts/_seat_scale_check.ts <packs>` judges every rideable's realised
+seat (declared x scale) twice. At 100 % it must be IN or ON what the vehicle
+draws (`seatOnDrawn`: within the drawn footprint and no more than 0.75 over
+the drawn surface under it; the hidden body may hang under a small car's
+floor below 100 %, the eye may not) - the 100 % seats are the ones the device
+rounds verified. At every other size it must sit where the 100 % seat sits
+SCALED ONCE (`seatScaleDrift`: x and z the 100 % seat's times the scale, y
+anywhere between the plain-scaled seat and the eye-anchored one, 0.3 of
+slack) - a judgement that does not depend on the hull, because the model
+scales and the player does not: an open deck's rider sits (f - 1) x 1.12
+higher over the deck at size f by the eye-anchor's design, and a coaster
+tub's rider f x its 100 % height over the rim. The place against the
+geometry at that scale is reported beside it. `bun scripts/sim.ts <packs>`
+runs the same as the `seats-every-size` scenario plus a `seat-on-vehicle`
+check on every mounted driver; regression case `milano-seat-200-30k`. On the
+round's packs (78e06246) every 100 % row is in or on its vehicle and the
+150-400 % rows of every vehicle, coaster car, ship, Gabby car and the Nimbus
+cloud drift by (f - 1) x their whole offset - the same fault in every
+rideable kind, found on one.
 
 ### The driver's eye sees the road ahead (2026-09-30, `output/cockpit-0930/`)
 

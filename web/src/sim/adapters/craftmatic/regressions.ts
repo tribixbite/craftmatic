@@ -369,7 +369,7 @@ export const REGRESSIONS: RegressionCase[] = [
     // The JSON at every size first (the 200-400 % groups), then the device's own test: placed at 200 % by the
     // wand and mounted, the seat the engine realises (declared x scale) against the drawn hull.
     scenario: pack => ({ name: 'milano-seat-200-30k', steps: [{ kind: 'seatsEverySize' }, { kind: 'place', size: 200, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'driveVehicle', type: shipType(pack), ticks: 20, overhangs: 0 }], allowLines: vehicleAllow }),
-    judge: r => { const v = violated(r, 'seat-on-vehicle'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /the rider's seat .* is (inside|on) the drawn vehicle/.test(n)) ?? 'no seat note') }; },
+    judge: r => { const v = violated(r, 'seat-on-vehicle'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /the rider's seat .* is (inside|on) the hull/.test(n)) ?? 'no seat note') }; },
   },
   {
     id: 'xwing-parks-on-rider-30j', title: '7140 X-wing: sneak off in the air and the empty ship sinks and parks ON the child standing under it',

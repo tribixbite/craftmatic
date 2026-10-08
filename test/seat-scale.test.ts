@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { SIZE_STEPS, withSizeGroups } from '../web/src/engine/bedrock-placement-pack.js';
 import { RIDER_EYE_ABOVE_SEAT, seatPositionAt } from '../web/src/engine/cockpit-seat.js';
 import { buildAddonAppearance } from '../web/src/sim/adapters/craftmatic/appearance.js';
-import { SEAT_ON_DRAWN, describeSeatRow, seatOnDrawn, seatScaleAudit } from '../web/src/sim/adapters/craftmatic/seat-scale.js';
+import { SEAT_ON_DRAWN, describeSeatRow, seatOnDrawn, seatScaleAudit, seatScaleDrift } from '../web/src/sim/adapters/craftmatic/seat-scale.js';
 import type { DrawnBox } from '../web/src/sim/adapters/craftmatic/drawn.js';
 import { fixturePack } from '../web/src/sim/pack/fixture.js';
 
@@ -35,6 +35,30 @@ describe('seatOnDrawn: in or on the drawn vehicle', () => {
     expect(seatOnDrawn({ x: 0, y: 1, z: 0 }, [])).toMatchObject({ verdict: 'nothing-drawn', ok: false });
     // Inside the hull's box but over a gap between two parts (between a hull and a wingtip) is beside the vehicle.
     expect(seatOnDrawn({ x: 0, y: 1, z: 0 }, [box(-5, 0, -1, -3, 1, 1), box(3, 0, -1, 5, 1, 1)])).toMatchObject({ verdict: 'beside', ok: false });
+  });
+});
+
+describe('seatScaleDrift: where the 100 % seat sits, scaled once', () => {
+  const seat100 = { x: 0.5, y: 0.4, z: -1 };
+  it('is zero at 100 %, and accepts a plain-scaled seat and an eye-anchored one at every size', () => {
+    expect(seatScaleDrift(seat100, seat100, 1)).toMatchObject({ ok: true, dx: 0, dy: 0, dz: 0 });
+    for (const f of [0.25, 0.5, 1.5, 2, 4]) {
+      const plain = { x: 0.5 * f, y: 0.4 * f, z: -f };
+      const anchored = { x: 0.5 * f, y: (0.4 + RIDER_EYE_ABOVE_SEAT) * f - RIDER_EYE_ABOVE_SEAT, z: -f };
+      expect(seatScaleDrift(plain, seat100, f).ok, `plain at ${f}`).toBe(true);
+      expect(seatScaleDrift(anchored, seat100, f).ok, `anchored at ${f}`).toBe(true);
+    }
+  });
+  it('rejects a seat scaled twice (the Saga 30k fault) and a seat moved sideways', () => {
+    // 76286: seat (0, 4.58, 3.6); the device read (0, 20.56, 14.4) at 200 % - the eye-anchored seat scaled again.
+    const milano = { x: 0, y: 4.58, z: 3.6 };
+    const d = seatScaleDrift({ x: 0, y: 20.56, z: 14.4 }, milano, 2);
+    expect(d.ok).toBe(false);
+    expect(d.yBand[0]).toBeCloseTo(9.16, 9);
+    expect(d.yBand[1]).toBeCloseTo(10.28, 9);
+    expect(d.dy).toBeCloseTo(20.56 - 10.28, 9);
+    expect(d.dz).toBeCloseTo(7.2, 9);
+    expect(seatScaleDrift({ x: 0.5 * 2 + SEAT_ON_DRAWN.drift + 0.01, y: 0.8, z: -2 }, seat100, 2).ok).toBe(false);
   });
 });
 
@@ -78,22 +102,28 @@ describe('seatScaleAudit: every rideable at every wand size', () => {
     expect(rows.map(r => r.pct)).toEqual([...SIZE_STEPS]);
     for (const r of rows) {
       expect(r.ok, describeSeatRow(r)).toBe(true);
-      // The realised eye is the 100 % eye scaled with the cabin.
+      expect(r.drift.ok, describeSeatRow(r)).toBe(true);
+      // In or on the cabin at the realised scale too, and the realised eye is the 100 % eye scaled with it.
+      expect(r.place.ok, describeSeatRow(r)).toBe(true);
       expect(r.eye.y).toBeCloseTo(EYE * r.scale, 2);
       expect(r.seat.z).toBeCloseTo(-r.scale, 2);
     }
   });
 
-  it('the old encoding (the seat written pre-scaled, as every pack before 2026-10-07) puts the rider over the roof from 200 % (the Saga 30k fault)', () => {
+  it('the old encoding (the seat written pre-scaled, as every pack before 2026-10-07) drifts from the 100 % seat at every size above it and puts the rider over the roof from 200 % (the Saga 30k fault)', () => {
     const { behavior, appearance } = vehiclePack(pct => seatPositionAt(seat100, pct / 100));
     const { rows } = seatScaleAudit(behavior, appearance);
     const at = (pct: number) => rows.find(r => r.pct === pct)!;
     expect(at(100).ok).toBe(true);
     expect(at(200).place.verdict).toBe('over');
-    // Declared (EYE x 2 - 1.12), realised x 2 again: 4.96, a block over the 4-block roof.
+    // Declared (EYE x 2 - 1.12), realised x 2 again: 4.96, a block over the 4-block roof, and
+    // 2.48 past the band the 100 % seat scaled once allows.
     expect(at(200).seat.y).toBeCloseTo((EYE * 2 - RIDER_EYE_ABOVE_SEAT) * 2, 2);
+    expect(at(200).drift.dy).toBeCloseTo((EYE * 2 - RIDER_EYE_ABOVE_SEAT) * 2 - (EYE * 2 - RIDER_EYE_ABOVE_SEAT), 2);
     expect(at(400).ok).toBe(false);
-    expect(rows.filter(r => !r.ok).map(r => r.pct)).toEqual([200, 300, 400]);
+    // Below 100 % the error is (f - 1) x a small offset: under the drift tolerance here, as the
+    // 25-75 % steps of the device packs were (never ridden on a device either way).
+    expect(rows.filter(r => !r.ok).map(r => r.pct)).toEqual([150, 200, 300, 400]);
   });
 
   it('a rideable the pack draws nothing for is skipped and named, never judged', () => {

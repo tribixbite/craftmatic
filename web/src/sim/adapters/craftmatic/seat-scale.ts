@@ -4,29 +4,41 @@
  * `minecraft:rideable` seat times the group's `minecraft:scale` is where the
  * device puts the rider (quirk `seat-scales-with-entity`, Saga round 30k),
  * the rider's eye 1.12 over it (quirk `rider-eye-above-seat`), and the
- * geometry at that scale is `drawnBoxes`. A seat is IN or ON its vehicle
- * when it stands within the drawn footprint and no higher than
- * `SEAT_ON_DRAWN.over` blocks above the highest drawn surface under it;
- * anything else - over the hull, beside it, under it, over nothing drawn -
- * is what SEAT-01 forbids ("the player sits IN the cockpit, never on top or
- * outside").
+ * geometry at that scale is `drawnBoxes`.
+ *
+ * Two judgements, one per question:
+ *   - `seatOnDrawn`: is a seat IN or ON its vehicle? Within the drawn
+ *     footprint and no higher than `SEAT_ON_DRAWN.over` over the highest
+ *     drawn surface under it; anything else - over the hull, beside it,
+ *     under it, over nothing drawn - is what SEAT-01 forbids ("the player
+ *     sits IN the cockpit, never on top or outside"). The 100 % seats are
+ *     the ones the device rounds verified, so this is the verdict at 100 %
+ *     and a report at every other size.
+ *   - `seatScaleDrift`: does a seat at size f sit where the 100 % seat sits,
+ *     scaled ONCE? The realised seat is compared with the pack's own 100 %
+ *     seat times the scale: x and z must agree; y may lie anywhere between
+ *     the plain-scaled seat and the eye-anchored one (cockpit-seat.ts
+ *     `seatPositionAt`: the rider's eye on the scaled driver's eye, the
+ *     unscaled body hanging 1.12 under it), because the model scales and the
+ *     player does not. A seat written pre-scaled, which the device scales
+ *     again, drifts by (f - 1) x the whole offset - 76286's by 10.3 blocks
+ *     at 200 % - and fails here at every size but 100 %, whatever the hull
+ *     looks like. This is the verdict above and below 100 %.
  *
  * Why the drawn hull and not the collision box: a vehicle's box is its hit
  * target (a coaster car's covers the tub, a shell's is a cull needle); only
  * the geometry says where the cabin is. Why every size and not the sizes a
- * scenario places at: the fault this catches (a seat written pre-scaled, so
- * the device scales it twice) grows with the size - 76286's rider was still
- * inside the hull's envelope at 150 % and six blocks over it at 200 %.
+ * scenario places at: the drift grows with the size, and 76286's rider was
+ * still inside the hull's envelope at 150 %.
  *
- * `seatOnDrawn` is the one judgement; `play.ts` applies it to the mounted
- * rider in a live scenario (`seat-on-vehicle`), `seatScaleAudit` to the
- * shipped JSON at every step (`seatsEverySize`), and
- * `scripts/_seat_scale_check.ts` prints the table.
+ * `play.ts` applies both to the mounted rider in a live scenario
+ * (`seat-on-vehicle`), `seatScaleAudit` to the shipped JSON at every step
+ * (`seatsEverySize`), and `scripts/_seat_scale_check.ts` prints the table.
  */
 
 import { SIZE_EVENT_PREFIX, SIZE_STEPS, seatWorldOffset } from '../../../engine/bedrock-placement-pack.js';
 import type { Box, Vec3 } from '../../core/vec.js';
-import { EntityDefinitions, type Components } from '../../entity/definitions.js';
+import { EntityDefinitions, type Components, type EntityDefinition } from '../../entity/definitions.js';
 import { packFiles, type Pack } from '../../pack/pack.js';
 import { quirkValue } from '../../quirks/registry.js';
 import type { AddonAppearance } from './appearance.js';
@@ -43,9 +55,14 @@ import { drawnBoxes, drawnTopOver, type DrawnBox } from './drawn.js';
  *     The hips are not judged here on purpose: a seat is the driver's eye
  *     less 1.12 at every size while the model scales and the player does not
  *     (cockpit-seat.ts `seatPositionAt`), so below 100 % the hidden body
- *     hangs under a small car's floor by design (42172 at 25 %: 0.8).
+ *     hangs under a small car's floor by design (42172 at 25 %: 0.8);
+ *   - `drift`: how far (blocks, at the realised scale, per axis) a seat at
+ *     another size may stray from the 100 % seat scaled once, beyond the
+ *     eye-anchor band - the 3-decimal rounding of a declared seat times the
+ *     scale is under 0.01; a seat moved on purpose between sizes would be a
+ *     new design, and should change this rule knowingly.
  */
-export const SEAT_ON_DRAWN = { footprint: 0.3, over: 0.75, under: 0.5 } as const;
+export const SEAT_ON_DRAWN = { footprint: 0.3, over: 0.75, under: 0.5, drift: 0.3 } as const;
 
 /** Where a seat point stands against the drawn geometry. `ok` is SEAT-01's verdict. */
 export interface SeatPlace {
@@ -94,6 +111,29 @@ export function seatOnDrawn(seat: Vec3, drawn: readonly DrawnBox[], tolerance = 
   return { verdict: inside ? 'inside' : 'on', ok: true, topUnder, over, hull };
 }
 
+/** How far a seat at scale `scale` strays from the 100 % seat scaled once (blocks at the realised scale, per axis). */
+export interface SeatDrift {
+  ok: boolean;
+  /** The realised seat less the expected one: x and z exact; y past the plain-to-eye-anchored band (0 inside it). */
+  dx: number; dy: number; dz: number;
+  /** The expected y band at this scale: the plain-scaled seat to the eye-anchored one. */
+  yBand: [number, number];
+}
+
+/**
+ * The drift of a realised seat (world offset from the entity at `scale`)
+ * from the pack's own 100 % seat scaled once. Zero at 100 % by definition.
+ */
+export function seatScaleDrift(seat: Vec3, seat100: Vec3, scale: number, tolerance = SEAT_ON_DRAWN): SeatDrift {
+  const eye = quirkValue('rider-eye-above-seat', 'eyeAboveSeatBlocks');
+  const plain = seat100.y * scale, anchored = (seat100.y + eye) * scale - eye;
+  const yBand: [number, number] = [Math.min(plain, anchored), Math.max(plain, anchored)];
+  const dx = seat.x - seat100.x * scale, dz = seat.z - seat100.z * scale;
+  const dy = seat.y < yBand[0] ? seat.y - yBand[0] : seat.y > yBand[1] ? seat.y - yBand[1] : 0;
+  const tol = tolerance.drift;
+  return { ok: Math.abs(dx) <= tol && Math.abs(dy) <= tol && Math.abs(dz) <= tol, dx, dy, dz, yBand };
+}
+
 /** One seat of one rideable at one wand step, as the device realises it. */
 export interface SeatScaleRow {
   typeId: string;
@@ -107,7 +147,10 @@ export interface SeatScaleRow {
   seat: Vec3;
   /** The rider's eye: the seat + 1.12. */
   eye: Vec3;
+  /** Against the geometry drawn at this scale (the verdict at 100 %, a report elsewhere). */
   place: SeatPlace;
+  /** Against the 100 % seat scaled once (the verdict at every other size). */
+  drift: SeatDrift;
   ok: boolean;
 }
 
@@ -129,11 +172,22 @@ function seatsOf(components: Components): Vec3[] {
   return raw.map(s => asVec((s as { position?: unknown }).position));
 }
 
+/** An entity's components with its size group for `pct` applied, and that group's scale. */
+function atSize(def: EntityDefinition, pct: number): { components: Components; scale: number } {
+  const group = def.groups[`${SIZE_EVENT_PREFIX}${pct}`] ?? {};
+  const components: Components = { ...def.components, ...group };
+  return { components, scale: (components['minecraft:scale'] as { value?: number } | undefined)?.value ?? 1 };
+}
+
+/** The 100 % seats of a sized entity: its `size_100` group's, else the base component's. */
+export function seats100(def: EntityDefinition): Vec3[] { return seatsOf(atSize(def, 100).components); }
+
 /**
  * Every rideable with size groups in a behaviour pack, at every wand step:
- * the seat the device realises against the geometry drawn at that scale.
- * An entity the pack draws nothing for (the invisible scenery and ride
- * seats, placed on the model by the runtime) is skipped, named.
+ * the seat the device realises against the geometry drawn at that scale and
+ * against the 100 % seat scaled once. An entity the pack draws nothing for
+ * (the invisible scenery and ride seats, placed on the model by the runtime)
+ * is skipped, named.
  */
 export function seatScaleAudit(behavior: Pack, appearance: AddonAppearance): SeatScaleAudit {
   const defs = new EntityDefinitions();
@@ -149,16 +203,16 @@ export function seatScaleAudit(behavior: Pack, appearance: AddonAppearance): Sea
     if (!steps.length) { skipped.push({ typeId: def.identifier, why: 'no-size-groups' }); continue; }
     const entry = appearance.byType.get(def.identifier);
     if (!entry || !entry.cubeCount) { skipped.push({ typeId: def.identifier, why: 'no-geometry' }); continue; }
+    const base = seats100(def);
     for (const pct of steps) {
-      const group = def.groups[`${SIZE_EVENT_PREFIX}${pct}`]!;
-      const components: Components = { ...def.components, ...group };
-      const scale = (components['minecraft:scale'] as { value?: number } | undefined)?.value ?? 1;
+      const { components, scale } = atSize(def, pct);
       const drawn = drawnBoxes(entry, { x: 0, y: 0, z: 0 }, 0, scale);
       seatsOf(components).forEach((declared, seatIndex) => {
         const [x, y, z] = seatWorldOffset([declared.x, declared.y, declared.z], scale);
         const seat = { x, y, z }, eye = { x, y: y + eyeAbove, z };
         const place = seatOnDrawn(seat, drawn);
-        rows.push({ typeId: def.identifier, pct, scale, seatIndex, declared, seat, eye, place, ok: place.ok });
+        const drift = seatScaleDrift(seat, base[seatIndex] ?? base[0] ?? { x: 0, y: 0, z: 0 }, scale);
+        rows.push({ typeId: def.identifier, pct, scale, seatIndex, declared, seat, eye, place, drift, ok: pct === 100 ? place.ok : drift.ok });
       });
     }
   }
@@ -168,13 +222,27 @@ export function seatScaleAudit(behavior: Pack, appearance: AddonAppearance): Sea
 const r2 = (v: number): string => (Math.round(v * 100) / 100).toFixed(2);
 const vec = (p: Vec3): string => `(${r2(p.x)}, ${r2(p.y)}, ${r2(p.z)})`;
 
-/** One row as a sentence: where the seat is and, when off the vehicle, by how much. */
-export function describeSeatRow(r: SeatScaleRow): string {
-  const p = r.place;
-  const where = p.verdict === 'over' ? `${r2(p.over!)} blocks OVER the drawn top (${r2(p.topUnder!)}) under it`
+/** A seat's place against the drawn geometry as a phrase. */
+export function describePlace(p: SeatPlace): string {
+  return p.verdict === 'over' ? `${r2(p.over!)} blocks OVER the drawn top (${r2(p.topUnder!)}) under it`
     : p.verdict === 'beside' ? `BESIDE the hull (x ${r2(p.hull!.x0)}..${r2(p.hull!.x1)}, z ${r2(p.hull!.z0)}..${r2(p.hull!.z1)})`
-    : p.verdict === 'under' ? `eye ${r2(p.hull!.y0 - r.eye.y)} blocks UNDER the hull's bottom`
+    : p.verdict === 'under' ? `UNDER the hull's bottom (${r2(p.hull!.y0)})`
     : p.verdict === 'nothing-drawn' ? 'over NOTHING drawn'
     : `${p.verdict} the hull (drawn top under it ${r2(p.topUnder!)})`;
-  return `${r.typeId} at ${r.pct} %, seat ${r.seatIndex}: declared ${vec(r.declared)} x scale ${r.scale} = ${vec(r.seat)}, eye ${vec(r.eye)}: ${where}`;
+}
+
+/** A seat's drift from the 100 % seat scaled once as a phrase. */
+export function describeDrift(d: SeatDrift): string {
+  if (d.ok) return `where the 100 % seat sits, scaled once (y ${r2(d.yBand[0])}..${r2(d.yBand[1])})`;
+  const parts = [];
+  if (Math.abs(d.dx) > SEAT_ON_DRAWN.drift) parts.push(`x ${r2(d.dx)}`);
+  if (Math.abs(d.dy) > SEAT_ON_DRAWN.drift) parts.push(`y ${r2(d.dy)} past ${r2(d.yBand[0])}..${r2(d.yBand[1])}`);
+  if (Math.abs(d.dz) > SEAT_ON_DRAWN.drift) parts.push(`z ${r2(d.dz)}`);
+  return `DRIFTS from the 100 % seat scaled once: ${parts.join(', ')}`;
+}
+
+/** One row as a sentence: where the seat is and, when off the vehicle or drifting, by how much. */
+export function describeSeatRow(r: SeatScaleRow): string {
+  const judged = r.pct === 100 ? describePlace(r.place) : `${describeDrift(r.drift)}; ${describePlace(r.place)}`;
+  return `${r.typeId} at ${r.pct} %, seat ${r.seatIndex}: declared ${vec(r.declared)} x scale ${r.scale} = ${vec(r.seat)}, eye ${vec(r.eye)}: ${judged}`;
 }
