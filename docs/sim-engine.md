@@ -237,7 +237,9 @@ Core steps: `wait`, `teleport`, `look`, `walkLine` (a straight walk with
 Core invariants (`scenario/invariants.ts`): `player-not-in-solid` (2 ticks'
 grace for a teleport's set-down), `no-unprotected-fall` (over 3 blocks
 without slow falling), `nothing-below-ground` (fell through the world),
-`no-script-error`, `no-content-log-error` (refused definitions),
+`rider-drag-reaches-look` (a riding player held in `player_relative` or
+`camera_relative`, whose drag turns only the camera: the Nimbus, Saga 30k;
+quirk `control-scheme-drag-to-camera`), `no-script-error`, `no-content-log-error` (refused definitions),
 `no-unexpected-line` (chat / action bar / console lines that read as faults,
 unless the scenario allows them), `actionbar-not-stolen` (another script
 replaced a line within a second, unless the player got off something, or
@@ -399,7 +401,13 @@ kerb met off square: measured, `TODO(car-oblique-kerb)`), `vehicle-escapes`,
 along an obstacle's face instead of lifting over it, passed or not: the
 old pack "passed" the oblique lane by running 84 blocks round the hill's
 end), `ship-turn-climbs`, `ship-parks-on-player`, `ship-parks`,
-`ship-controls`, `free-look`. `bun scripts/_course_trace.ts <pack>
+`ship-controls`, `free-look` (also: the chase camera must open behind the
+nose when the child climbed on looking at the vehicle's face and the seat
+turned them 4 ticks later, quirk `mount-snaps-rider-yaw`),
+`cockpit-eye-on-seat` (hotbar slot 9 at full stick: the camera's target
+within half a block, along the heading, of the eye on the pose the runtime
+saw `cockpit-draw-lag` ticks back - where the device draws the seat; Saga
+30k). `bun scripts/_course_trace.ts <pack>
 --obstacle=<lane> [--runtime=tree] [--every=4]` prints one lane's per-tick
 positions relative to the obstacle, for a diagnosis. The course quiets
 `player-not-in-solid` and `nothing-below-ground` while the child rides (a low

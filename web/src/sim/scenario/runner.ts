@@ -215,7 +215,7 @@ export async function runScenario(scenario: Scenario, addons: readonly Addon[], 
   };
   const all = [...coreInvariants(), ...(options.invariants ?? [])].filter(i => !scenario.invariants || scenario.invariants.includes(i.id));
   let quiet: ReadonlySet<string> = new Set();
-  const ictx: InvariantContext = quietable({ engine: sim.engine, player, allowLines: scenario.allowLines ?? [], ...(scenario.yieldingLines ? { yieldingLines: scenario.yieldingLines } : {}), report }, () => quiet);
+  const ictx: InvariantContext = quietable({ engine: sim.engine, player, allowLines: scenario.allowLines ?? [], ...(scenario.yieldingLines ? { yieldingLines: scenario.yieldingLines } : {}), controlScheme: p => sim.host.playerState(p).controlScheme, report }, () => quiet);
   for (const inv of all) inv.setup?.(ictx);
   const run = async (n: number): Promise<void> => {
     for (let i = 0; i < n; i++) { await sim.engine.step(); for (const inv of all) inv.tick?.(ictx); }
