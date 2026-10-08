@@ -133,7 +133,13 @@ function makeReader(root: string): (rel: string) => string | undefined {
 const SIM_SOURCES = [
   'web/src/sim/adapters/craftmatic/regressions.ts', // device-bug regression cases
   'web/src/sim/adapters/craftmatic/child-play.ts', // child-play scenarios
-  'web/src/sim/adapters/craftmatic/vehicle-course.ts', // the vehicle course lanes
+  'web/src/sim/adapters/craftmatic/vehicle-course.ts', // the vehicle course lanes (boat lanes, water egress)
+  'web/src/sim/adapters/craftmatic/regressions-world.ts', // world regression cases (water, bodies)
+  'web/src/sim/adapters/craftmatic/input-probe.ts', // the input scenarios (sneak toggle, tap occlusion)
+  'web/src/sim/adapters/craftmatic/client-steps.ts', // the client's scenarios (coaster camera, walk-away)
+  'web/src/sim/client/invariants.ts', // the client's invariants (hatching, LOD under the cull)
+  'web/src/sim/scenario/world-invariants.ts', // world invariants (no entity overlap)
+  'web/src/sim/scenario/report.ts', // report sections (unreachable on foot)
   'scripts/sim.ts', // scenario names
 ];
 

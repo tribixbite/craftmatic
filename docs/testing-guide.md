@@ -71,7 +71,11 @@ not gravity (native physics checks: "Saga input" below).
 
 ### The operator console — `bun run console` (`tools/console/`)
 
-http://127.0.0.1:4600. **`tools/console/inventory.ts` is the cheat sheet and the
+http://127.0.0.1:4600. From a phone on the LAN: `bun run console --host 0.0.0.0`
+and open `http://<this machine's LAN address>:4600` (verified 2026-10-08:
+200 from the 192.168.x address). It spawns real scripts on this machine for
+whoever reaches it, so open it only on a trusted network.
+**`tools/console/inventory.ts` is the cheat sheet and the
 single source of truth**: 43 operations, each with what it answers, its real
 argv template with options read from that script's own argument parsing, how
 its output is parsed, where its evidence lands and roughly how long it takes.
