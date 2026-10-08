@@ -59,9 +59,13 @@ tools now check, and how:
   seat z). NEW defect, not on the device list yet.
 - cost (predicted): Milano Pixel p50 10.1 / p95 19.1 ms (device cruise
   14.56); every vehicle p95 under 25 ms.
-- `--scenario=input` and child play `--sizes=100,200,400 --walk`: see
-  `input.md` / `childplay.md` there (D's own run: 555 of 818 approaches not
-  reached on foot, an upper bound).
+- input: 26 pass, 1 fail (41732 Door 3's tap picks Door 6).
+- child play `--sizes=100,200,400 --walk`: 159 pass, 17 fail - 42639 Door 1
+  and 910004 Door 3 doorway lines stopped by colliders with nothing drawn
+  (200/400 %); at 400 % no reachable spot picks 41732 Door 2, 76417 Door 2,
+  60380 Turnable 1; taps picking a figure (76417 Door 3 -> fig 5 at 100 %,
+  910004 Drawer 1 -> fig 7); 10261 at 200 % FIGURE_RETAKE_NO_SEAT fig 2.
+  Unreachable-on-foot list: `childplay.md` section `tap-target-unreachable-on-foot`.
 
 **Open device defects from round 30m - REPRODUCED offline as OPEN regression
 cases** (`web/src/sim/adapters/craftmatic/regressions-30m.ts`; an OPEN case
