@@ -1345,6 +1345,9 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
           let scale = 1;
           try { const s = Number(e.getComponent('minecraft:scale')?.value); if (Number.isFinite(s) && s > 0) scale = s; } catch { /* unscaled */ }
           st.scale = scale;
+          // TODO(vehicle-scale-cache): read once at first sight (or after a jump): a size event that lands after the
+          // runtime first saw the vehicle (a wand resize of a parked one) leaves the footprint and probes at the old
+          // size until it is moved by something else. The set-down reads the live scale (`liveK` below).
         }
         const k = st.scale || 1;
         let riders: any[] = [];
@@ -1352,12 +1355,16 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
         const driver = riders.find((r: any) => r && r.typeId === 'minecraft:player');
         // Who is aboard, and where they sit: a player missing next tick got off (`setDown`).
         poses.set(e.id, { x: loc.x, y: loc.y, z: loc.z, yaw: rot.y });
+        // The set-down reads the LIVE scale: `st.scale` is read once at first sight, and a size event that lands
+        // after it (a wand resize, a placement whose event follows the spawn) would leave it at the old size.
+        let liveK = k;
+        if (riders.length) { try { const s = Number(e.getComponent('minecraft:scale')?.value); if (Number.isFinite(s) && s > 0) liveK = s; } catch { /* unscaled */ } }
         for (const r of riders) {
           if (!r || r.typeId !== 'minecraft:player') continue;
           let at: any;
           try { at = r.location; } catch { continue; }
           seen.add(r.id);
-          aboard.set(r.id, { player: r, vid: e.id, dim, seat: { x: at.x, y: at.y, z: at.z }, pose: { x: loc.x, y: loc.y, z: loc.z, yaw: rot.y }, k, type });
+          aboard.set(r.id, { player: r, vid: e.id, dim, seat: { x: at.x, y: at.y, z: at.z }, pose: { x: loc.x, y: loc.y, z: loc.z, yaw: rot.y }, k: liveK, type });
         }
         const input: { x: number; y: number; jump: boolean; rider: boolean; lookPitch?: number } = { x: 0, y: 0, jump: false, rider: !!driver };
         if (driver) {

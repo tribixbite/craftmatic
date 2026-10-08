@@ -1012,6 +1012,17 @@ describe('getting off a scripted vehicle (SEAT-05: vehicleEgress)', () => {
       expect(Math.abs(p.z - 0.5)).toBeGreaterThanOrEqual(milano.noseReach * k);
     }
   });
+  it('reads the vehicle\'s LIVE scale for the set-down: a size event after the runtime first saw it still lands the rider beside the resized hull', () => {
+    const host = vehicleHost({ type: { ...milano }, at: { x: 0.5, y: 64, z: 0.5 }, yaw: 0, seat: SEAT100, egress: true });
+    host.run(4);
+    // The wand's size event, after the runtime's first sight of the vehicle (its state keeps scale 1).
+    host.vehicle.components['minecraft:scale'] = { value: 2 };
+    host.run(4);
+    host.sneak();
+    host.run(40);
+    expect(host.player.location.y).toBeCloseTo(64, 3);
+    expect(Math.abs(host.player.location.z - 0.5)).toBeGreaterThanOrEqual(milano.noseReach * 2);
+  });
   it('without the set-down (a pack built before it) the same sneak drops the rider from the seat\'s height (Pixel 30l: ~9 blocks at 200 percent)', () => {
     const host = vehicleHost({ type: { ...milano }, at: { x: 0.5, y: 64, z: 0.5 }, yaw: 0, seat: SEAT100, scale: 2 });
     host.run(4);
