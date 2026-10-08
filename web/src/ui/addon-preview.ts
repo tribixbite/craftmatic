@@ -1,33 +1,72 @@
 /**
  * The add-on WALK: a first-person, in-browser preview of a generated Bedrock
  * add-on, mounted over the LEGO tab's own Three.js renderer. It exists to
- * answer the semantic questions that otherwise cost a 20-90 minute device
- * round ("can a player get to the station?", "what does 150 % do to the
- * stairs?", "where are the figures?") in seconds.
+ * answer the questions that otherwise cost a 20-90 minute device round ("can
+ * a player get to the station?", "does the door open and can I walk
+ * through?", "what does the cockpit view look like at speed?") in seconds.
  *
- * WHAT IT PROVES, AND WHAT IT DOES NOT. The player walks the EXACT collider
- * blocks the pack ships at the chosen size and quarter turn (the wand's own
- * re-lay arithmetic plus the shipped tread plan, engine/addon-walk.ts).
- * Reachability here is a simulation result, requiring native confirmation.
- * It does NOT prove Bedrock's
- * rendering, its entity culling, form text, ride physics or memory limits — a
- * device round still decides those, and the banner on screen says so.
+ * ONE ENGINE. The world under the player is the headless simulator
+ * (`web/src/sim`, docs/sim-engine.md) running in a module Worker over the
+ * SAME `.mcaddon` bytes - the pack's own `placement.js` lays the blocks with
+ * its wand, its `figures.js` walks the figures, its `coaster.js`, `rides.js`,
+ * `interactives.js`, `vehicles.js` and `pinball.js` run unmodified, and the
+ * core invariants are checked every tick (`addon-sim-worker.ts`). This module
+ * is a RENDERER and an INPUT DEVICE over it: it draws every entity at the
+ * simulator's pose through the pack's own client animations (gait, track
+ * pitch, a door's swing, read from the RP's Molang: `addon-preview-data.ts`),
+ * draws the blocks the runtime laid, sends the stick, Jump, the sneak toggle,
+ * taps and holds, the hotbar slot and the look, and shows what the scripts
+ * say (action bar, chat, titles, forms) and what the invariants raise. What
+ * `scripts/sim.ts` reports and what this shows are the same tick
+ * (`test/addon-walk.test.ts`, "the walker's tick equals scripts/sim.ts's").
  *
- * Division of labour: engine/addon-walk.ts owns motion and collision (pure);
- * ui/addon-preview-data.ts owns reading the pack and the legend arithmetic
- * (pure, unit-tested); this module owns everything visual — the scene, the
- * markers and overlays, the HUD, pointer lock, keys and the touch fallback.
+ * WHAT IT PROVES, AND WHAT IT DOES NOT. Everything the simulator models
+ * (CLAUDE.md, the quirk registry): the integrator over the shipped blocks,
+ * the scripts' behaviour, seats, dismounts, the camera the scripts ASK for.
+ * It does not prove Bedrock's rendering, its entity culling, form text, the
+ * client's camera easing and draw lag (package B of the engine plan draws
+ * those; until then the camera is drawn RAW and the HUD says so), nor the
+ * phone's own touch pick (package C; until then a tap is the crosshair and a
+ * drag turns the look directly).
+ *
+ * The reach BFS (`engine/addon-walk.ts`) stays what it was: the pure
+ * question "can a player on foot reach this surface?", computed off-thread
+ * (`addon-reach-worker.ts`) over the shipped collider grid and drawn as the
+ * green/red plates and the per-target verdicts.
+ *
+ * Division of labour: ui/addon-preview-data.ts owns reading the pack, the
+ * legend arithmetic and the Molang (pure, unit-tested); ui/addon-sim-client.ts
+ * the protocol; ui/addon-sim-worker.ts the simulator session; this module
+ * owns everything visual - the scene, the holders, the markers and overlays,
+ * the HUD, pointer lock, keys and the touch controls.
  *
  * Rendering reuses the viewer's WebGLRenderer with a scene of its own (the
- * pack's frame is blocks from the pin, not the model's LDU frame), drawn by
- * this module's own frame loop while the viewer's OrbitControls are disabled;
- * the viewer's loop is idle meanwhile (it composites only on demand). Loaded
- * lazily from lego.ts so the QA surface never grows the main chunk.
+ * pin frame: blocks from the placement's anchor), drawn by this module's own
+ * frame loop while the viewer's OrbitControls are disabled. Loaded lazily
+ * from lego.ts so the QA surface never grows the main chunk.
  */
 
 import * as THREE from 'three';
 import type { LDrawViewer } from '@viewer/ldraw/index.js';
 import { BEDROCK_FACE_CORNERS, IDENTITY, bedrockFaceUv, cubeCorners, pivotRotation } from '@engine/bedrock-geometry-faces.js';
+import { QUARTER_TURNS, type QuarterTurn, type ReachTarget } from '@engine/bedrock-collider-scale.js';
+import type { PlacementRotation } from '@engine/bedrock-placement-pack.js';
+import { ixWorldBlocks } from '@engine/bedrock-interactives.js';
+import { COLLIDER_KIT } from '@engine/collider-form.js';
+import { MINIFIG_GAIT } from '@engine/minifig-rig.js';
+import type { AppearanceBone, AppearanceCube, AppearanceGroup } from './addon-appearance.js';
+import type { ReachWorkerRequest, ReachWorkerResponse } from './addon-reach-worker.js';
+import {
+  classifyAddonEntity, defaultLegendState, entitySpawnsAt, evaluateClientAnimations, initializeClientAnimations, LEGEND_KINDS, LEGEND_LABELS, legendCounts, legendKindOf,
+  placedPoint, recommendedSize, toggleLegend, treadBlocksAt,
+  type AddonEntity, type AddonEntityKind, type AddonPreviewModel, type AddonRoute, type ClientAnimationSet, type LegendKind, type LegendState, type MolangEnv, type ReachSurface,
+} from './addon-preview-data.js';
+import {
+  AddonSimClient, interpolatePose, SIM_TICK_MS, wrapDeg,
+  type BlockChange, type EntityPose, type FormEvent, type ReadyInfo, type SimFrame, type SimLine, type WalkerInput,
+} from './addon-sim-client.js';
+import type { Violation } from '../sim/scenario/invariants.js';
+import { quirkValue } from '../sim/quirks/registry.js';
 
 /**
  * A geometry rotation (JSON degrees) about `pivot` as a three.js matrix: the
@@ -40,28 +79,6 @@ function bedrockTurn(rx: number, ry: number, rz: number, px: number, py: number,
   const a = pivotRotation([rx, ry, rz], [px, py, pz]);
   return new THREE.Matrix4().set(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!, a[7]!, a[8]!, a[9]!, a[10]!, a[11]!, 0, 0, 0, 1);
 }
-import {
-  buildWalkWorld, PLAYER_HEIGHT, spawnState, tickPlayer, TICKS_PER_SECOND,
-  type EntitySolid, type PlayerState, type PointReach, type WalkInput, type WalkWorld,
-} from '@engine/addon-walk.js';
-import { QUARTER_TURNS, type QuarterTurn, type ReachTarget } from '@engine/bedrock-collider-scale.js';
-import { COASTER_PHYSICS, RIDE_INTERACT_TEXT, coasterRiderLook, coasterRiderView, type CoasterRiderLook, type CoasterRiderView } from '@engine/bedrock-coaster.js';
-import { PINBALL_INTERACT_TEXT } from '@engine/bedrock-pinball.js';
-import { createPinballSim, type PinballSim } from '@engine/pinball-physics.js';
-import { SWING_SECONDS, ixClosedBlocks, ixWorldBlocks, type InteractiveRuntimeItem } from '@engine/bedrock-interactives.js';
-import { COLLIDER_KIT } from '@engine/collider-form.js';
-import {
-  coasterCarEyePoint, initCoasterPreviewState, stepCoasterPreviewTick,
-  type CoasterPreviewCarFrame, type CoasterPreviewRouteInput, type CoasterPreviewState,
-} from '@engine/coaster-preview.js';
-import { MINIFIG_ANIMATIONS, MINIFIG_ANIMATION_IDS } from '@engine/minifig-rig.js';
-import type { AppearanceCube, AppearanceGroup } from './addon-appearance.js';
-import type { ReachWorkerRequest, ReachWorkerResponse } from './addon-reach-worker.js';
-import {
-  columnBoxes, defaultLegendState, entitySpawnsAt, laidColliderBlocks, LEGEND_KINDS, LEGEND_LABELS, legendCounts, legendKindOf,
-  pinballPlanePoint, placedDirection, placedPoint, reachSurfacesFromGrid, recommendedSize, spawnPoint, toggleLegend, treadBlocksAt,
-  type AddonEntity, type AddonEntityKind, type AddonPreviewModel, type AddonRoute, type LegendKind, type LegendState, type ReachSurface,
-} from './addon-preview-data.js';
 
 // ─── Public surface ──────────────────────────────────────────────────────────
 
@@ -69,6 +86,8 @@ export interface AddonPreviewOptions {
   /** The LEGO tab's viewer: its renderer, container and controls are borrowed while the walk is open. */
   viewer: LDrawViewer;
   model: AddonPreviewModel;
+  /** The `.mcaddon` itself: the simulator runs the pack from these bytes, exactly as shipped. */
+  bytes: ArrayBuffer;
   /** Initial size step (percent); defaults to the pack's recommendation, else 100. */
   sizePct?: number;
   onClose?: () => void;
@@ -92,7 +111,7 @@ const KIND_COLOR: Record<AddonEntityKind, number> = {
 const LEGEND_COLOR: Record<LegendKind, number> = {
   model: 0xe2e8f0, figure: KIND_COLOR.figure, seat: KIND_COLOR.seat, door: KIND_COLOR.door, track: 0x22d3ee, vehicle: KIND_COLOR.car, collider: 0x7c8aa5, tread: 0xf5a623,
 };
-const COLOR_REACHED = 0x22c55e, COLOR_UNREACHED = 0xef4444, COLOR_STATION = 0xfde047, COLOR_CHAIN = 0xf97316;
+const COLOR_REACHED = 0x22c55e, COLOR_UNREACHED = 0xef4444, COLOR_STATION = 0xfde047, COLOR_CHAIN = 0xf97316, COLOR_BLOCK = 0x8b7f6a;
 const hex = (c: number): string => `#${c.toString(16).padStart(6, '0')}`;
 
 /** Three.js material backed only by material evidence the loaded pack carries. */
@@ -156,14 +175,6 @@ export function faceDecalGeometry(
   return geometry;
 }
 
-/** The pack's own sit pose (`MINIFIG_ANIMATIONS`'s `sit` animation, legs -90°),
- * read out as a bone-name -> rotation-degrees overlay for `buildModel`'s
- * `boneWorld` rather than re-typing the numbers here. */
-const SIT_POSE_OVERLAY: ReadonlyMap<string, readonly [number, number, number]> = new Map(
-  Object.entries(MINIFIG_ANIMATIONS.animations[MINIFIG_ANIMATION_IDS.sit].bones)
-    .map(([name, b]) => [name, b.rotation as readonly [number, number, number]] as const),
-);
-
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
 /** Open the walk over the viewer. Returns a handle; the HUD's Exit button and Escape (when the pointer is not locked) close it too. */
@@ -180,18 +191,34 @@ const MARKER_SIZE: Record<AddonEntityKind, [number, number, number]> = {
 /** Kinds whose marker scales with the wand size (entities compiled at the model scale). */
 const SCALES_WITH_SIZE = new Set<AddonEntityKind>(['car', 'lift', 'counterweight', 'vehicle', 'screen', 'door']);
 
+/**
+ * `query.modified_move_speed` per block per tick, measured on the Pixel 8 Pro
+ * (minifig-rig.ts: 3.9 x blocks/tick, GameTest `gait_<id>`, 2026-09-25); the
+ * gait's distance units are `MINIFIG_GAIT.unitsPerBlock` (3.88) from the same
+ * probe. The walker feeds the pack's gait expressions these so its figures'
+ * legs swing as the phone draws them.
+ */
+const MODIFIED_MOVE_SPEED_PER_BLOCK_TICK = 3.9;
+/** How many chat lines the HUD log keeps. */
+const LOG_LINES = 8;
+/** How long an action-bar line stays on screen (the game's own fade), ms. */
+const ACTIONBAR_MS = 3000;
+/** Look sensitivity of a MOUSE: degrees per pixel of movement (a finger's pixels go to the simulator as they are). */
+const MOUSE_DEG_PER_PX = 0.14;
+
 interface Marker {
   entity: AddonEntity;
   legend: LegendKind | null;
   mesh: THREE.Mesh;
   beam: THREE.Mesh;
   label: HTMLDivElement;
-  /** World position of the marker's base at the current size and turn. */
+  /** Pin-frame position of the marker's base (follows the simulator's entity once matched). */
   at: THREE.Vector3;
   height: number;
-  reach: PointReach | null;
-  /** `buildModel` already draws this entity's real geometry: keep the beam/label, hide the placeholder box/capsule. */
+  /** `buildHolder` draws this entity's real geometry: keep the beam/label, hide the placeholder box/capsule. */
   hasRealGeometry: boolean;
+  /** The simulator entity this placement actor became, once matched by type and placed point. */
+  simId?: string;
 }
 
 interface Target {
@@ -200,16 +227,59 @@ interface Target {
   /** Model blocks at 100 % (the frame `reachPoint` takes). */
   point: { x: number; y: number; z: number };
   /** Null until the verdict arrives from the reach worker. */
-  reach: PointReach | null;
+  reach: import('@engine/addon-walk.js').PointReach | null;
   world: THREE.Vector3;
   labelEl: HTMLDivElement;
   labelText: string;
+}
+
+/** A simulator entity drawn: its root (pin frame, yaw, scale, Z mirror), its bone groups and its animation state. */
+interface EntityHolder {
+  id: string;
+  typeId: string;
+  kind: AddonEntityKind;
+  legend: LegendKind | null;
+  root: THREE.Group;
+  bones: Map<string, { group: THREE.Group; bone: AppearanceBone }>;
+  anim: ClientAnimationSet | null;
+  vars: Map<string, number>;
+  /** Molang's view of the entity: when it was first seen, its last pose, the distance it walked, its speed. */
+  molang: { firstMs: number; lastEvalMs: number; prev: { x: number; y: number; z: number; tick: number } | null; distance: number; speed: number; vy: number; dir: [number, number, number]; unknown: Set<string> };
+}
+
+/**
+ * The blocks the runtime laid, as the boxes the player collides with: full
+ * cubes stacked in a column arrive merged (`addon-sim-worker.ts`), a later
+ * change inside a run splits it.
+ */
+class ColliderStore {
+  readonly entries = new Map<string, BlockChange>();
+  dirty = false;
+  apply(changes: readonly BlockChange[]): void {
+    for (const c of changes) {
+      // A change at a block inside a merged run splits the run around it.
+      for (const [key, run] of this.entries) {
+        const box = run.boxes[0];
+        if (!box || run.boxes.length !== 1 || box[4] <= 1 || run.x !== c.x || run.z !== c.z) continue;
+        const top = run.y + box[4];
+        if (c.y < run.y || c.y >= top) continue;
+        this.entries.delete(key);
+        if (c.y > run.y) this.entries.set(`${run.x},${run.y},${run.z}`, { ...run, boxes: [[0, 0, 0, 1, c.y - run.y, 1]] });
+        if (c.y + 1 < top) this.entries.set(`${run.x},${c.y + 1},${run.z}`, { ...run, y: c.y + 1, boxes: [[0, 0, 0, 1, top - c.y - 1, 1]] });
+      }
+      const key = `${c.x},${c.y},${c.z}`;
+      if (c.boxes.length) this.entries.set(key, c); else this.entries.delete(key);
+    }
+    this.dirty = true;
+  }
+  clear(): void { this.entries.clear(); this.dirty = true; }
 }
 
 class AddonWalk implements AddonPreviewHandle {
   open = false;
   private readonly viewer: LDrawViewer;
   private readonly model: AddonPreviewModel;
+  private readonly bytes: ArrayBuffer;
   private readonly onStatus: (m: string, k: 'info' | 'error' | 'success') => void;
   private readonly onClose: (() => void) | undefined;
 
@@ -221,6 +291,7 @@ class AddonWalk implements AddonPreviewHandle {
   private readonly routeGroup = new THREE.Group();
   private readonly reachGroup = new THREE.Group();
   private readonly highlightGroup = new THREE.Group();
+  private readonly modelGroup = new THREE.Group();
   private readonly disposables: Array<{ dispose(): void }> = [];
   private readonly unitBox = new THREE.BoxGeometry(1, 1, 1);
   private readonly plateGeom = new THREE.BoxGeometry(0.92, 0.04, 0.92);
@@ -230,97 +301,68 @@ class AddonWalk implements AddonPreviewHandle {
   private rotation: QuarterTurn = 0;
   private legend: LegendState = defaultLegendState();
   private showReach = true;
-  private noclip = false;
   private hudVisible = !(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);
   private laidDims = { width: 1, height: 1, length: 1 };
-  private world: WalkWorld | null = null;
   private markers: Marker[] = [];
   private targets: Target[] = [];
   private reachSummary = '';
   private treadCount = 0;
-  /** Reach verdicts run off-thread (addon-reach-worker.ts); null when a Worker cannot be made and the inline fallback runs instead. */
+  /** Reach verdicts and the overlay run off-thread (addon-reach-worker.ts); null when a Worker cannot be made and the inline fallback runs instead. */
   private reachWorker: Worker | null | undefined;
   private reachJob = 0;
-  /** What the HUD says about the verdicts: pending, or how long they took. */
   private verdictNote = '';
 
-  // Ride animation and interactivity. `entityHolders` is every drawn entity's
-  // Group, by its index in `model.entities` (built once in `buildModel`); the
-  // coaster loop repositions the ones that are cars/lifts/counterweights each
-  // tick, and the door toggle rotates a door leaf's holder in place.
-  private entityHolders = new Map<number, THREE.Group>();
-  /** `entity.label` marker, by `model.entities` index — for repositioning a moving car that ships no RP appearance data. */
-  private markerByIndex = new Map<number, Marker>();
-  /** `${coasterRouteIndex}:${coasterCarIndex}` -> entity index, train 0 only (its slot indices ARE `coasterCarIndex`). */
-  private carEntityIndex = new Map<string, number>();
-  /** One `stepCoasterPreviewTick` state per route index, riderless by default. */
-  private coasterStates = new Map<number, CoasterPreviewState>();
-  /** Every route's train-0 car slots' CURRENT world pose this tick, for the
-   * "board" reach test and the ride camera; keyed by `entity` index. */
-  private carWorld = new Map<number, { x: number; y: number; z: number; yawDeg: number; frame: CoasterPreviewCarFrame }>();
-  /** Door LEAF entities toggled open (their holder rotated), by entity index. */
-  private openDoorLeaves = new Set<number>();
+  // The simulator
+  private readonly client: AddonSimClient;
+  private ready: ReadyInfo | null = null;
+  /** The pin frame: world minus the placement's anchor. Until the pack is placed, the flat world's ground height. */
+  private anchor = { x: 0, y: -60, z: 0 };
+  private readonly holders = new Map<string, EntityHolder>();
+  private prevPoses = new Map<string, EntityPose>();
+  private readonly colliders = new ColliderStore();
+  private colliderMeshes: THREE.InstancedMesh[] = [];
+  /** Pin-frame keys of the shipped tread blocks and of the doorways' closed cells, for their colours. */
+  private treadKeys = new Set<string>();
+  private doorwayKeys = new Set<string>();
+  private readonly log: SimLine[] = [];
+  private actionbar: { text: string; at: number } | null = null;
+  private title: { text: string; at: number } | null = null;
+  private readonly violations: Violation[] = [];
+  private readonly violationCounts = new Map<string, number>();
+  private unmodelled: string[] = [];
+  private form: FormEvent | null = null;
+  private simState: 'loading' | 'placing' | 'live' | 'error' = 'loading';
+  private simError = '';
+  private stepLabel: string | undefined;
+  private tickMs = 0;
+  /** Look turns sent and not yet seen in a frame: the drawn look runs ahead of the simulator by them. */
+  private pendingLook: Array<{ seq: number; dyaw: number; dpitch: number }> = [];
+
+  // Input
+  private readonly keys = new Set<string>();
+  private touchMove = { x: 0, y: 0 };
+  private touchJump = false;
+  private touchSprint = false;
+  private touchHold = false;
   /**
-   * The moving parts (`model.interactives`, the pack's own
-   * `scripts/interactives.js` config), by ITEM index: open or closed (a
-   * turnable's accumulated angle), and the angle each is drawn at while it
-   * eases toward its target over `SWING_SECONDS`, as the client's Molang does.
+   * The sneak control's mode (`ControlState.setSneakMode`): the phone's button is a TOGGLE (each press flips it;
+   * the simulator latches it, quirk `touch-sneak-toggle`), a keyboard's Shift a hold. C on a keyboard switches to
+   * the toggle and presses it. `sneakPress` is one press, sent once.
    */
-  private readonly ixOpen = new Map<number, boolean>();
-  private readonly ixTarget = new Map<number, number>();
-  private readonly ixShown = new Map<number, number>();
-  /** Item index -> entity index, and each interactive holder's un-swung pose. */
-  private readonly ixEntity = new Map<number, number>();
-  private readonly ixBase = new Map<number, { pos: THREE.Vector3; quat: THREE.Quaternion }>();
-  /** The closed leaves' collider blocks, drawn over the static ones (legend: colliders). */
-  private ixColliderMesh: THREE.InstancedMesh | null = null;
-  /** The nearest thing an Interact key/button would act on right now. */
-  private nearestInteract: { label: string; act: () => void } | null = null;
-  /** Riding a car: which route/slot, and the player state to restore on dismount. */
-  private riding: { routeIndex: number; slot: number; entityIndex: number; restore: PlayerState; restoreYaw: number; restorePitch: number;
-    /** The rider camera's state, exactly as the pack's runtime keeps it per rider: the look reference and the last view (for unwrapping). */
-    look: CoasterRiderLook | null; view: CoasterRiderView | null } | null = null;
-  /** Sitting at a static (non-coaster) seat: just parks the camera there. */
-  private sitting: { entityIndex: number; restore: PlayerState; restoreYaw: number; restorePitch: number } | null = null;
-  private interactQueued = false;
-
-  // Pinball: the console/ball/flipper indices into `model.entities` (found
-  // once, by matching `model.pinball`'s own type ids — stable across rebuilds
-  // since `model.entities` never changes shape, only its placed positions
-  // do), the running game while boarded, and each flipper's UN-SPUN base pose
-  // (`buildModel`'s own placement) the spin is applied on top of every tick.
-  private pinballIndices: { console: number; ball: number; flippers: number[] } | null = null;
-  private pinball: {
-    sim: PinballSim;
-    restore: { state: PlayerState; yaw: number; pitch: number };
-    /** The reach overlay / collider / tread / model legend rows, as the user had them before boarding — restored on `leavePinball`. */
-    restoreView: { showReach: boolean; collider: boolean; tread: boolean; model: boolean };
-  } | null = null;
-  private pinballBest = 0;
-  /** Each flipper's pivot in WORLD coordinates, this tick's — exposed for the
-   * dev hook (`_shoot_addon_walk.mjs`'s close-up shot): a flipper's compiled
-   * geometry can sit many blocks from its entity's own placement origin (the
-   * bind pose's bone pivots, in 1/16-block units, run well outside the
-   * origin), so the pivot the physics itself rotates about is a far more
-   * reliable "near the flipper" point than `AddonEntity.x/y/z`. */
-  private readonly pinballFlipperPivots = new Map<number, { x: number; y: number; z: number }>();
-  private readonly pinballFlipperBase = new Map<number, { pos: THREE.Vector3; quat: THREE.Quaternion }>();
-  private readonly touchPinball = { left: false, right: false, launch: false };
-
-  // Player
-  private state: PlayerState;
-  private prevState: PlayerState;
-  private yaw = 0;
-  private pitch = 0;
-  private accumulator = 0;
+  private sneakToggleMode = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  private sneakPress = false;
+  /** A mouse's turn, degrees; a finger's drag, pixels (the simulator turns those at the phone's measured sensitivity). */
+  private lookDelta = { yaw: 0, pitch: 0 };
+  private dragPx = { dx: 0, dy: 0 };
+  private tapQueued = false;
+  private tapAt: { x: number; y: number } | undefined;
+  private holdQueued = false;
+  private slotQueued: number | undefined;
+  private fly = false;
+  private autoJump = true;
   private lastFrame = 0;
   private animId = 0;
-  private readonly keys = new Set<string>();
-  private jumpQueued = false;
-  private touchMove = { x: 0, y: 0 };
-  private touchSneak = false;
-  private touchSprint = false;
-  private touchJump = false;
+  private lastInputMs = 0;
 
   // DOM
   private root!: HTMLDivElement;
@@ -331,10 +373,15 @@ class AddonWalk implements AddonPreviewHandle {
   private sizeEl!: HTMLDivElement;
   private reachEl!: HTMLDivElement;
   private targetsEl!: HTMLDivElement;
+  private simEl!: HTMLDivElement;
   private hintEl!: HTMLDivElement;
   private interactEl!: HTMLDivElement;
-  private touchMoveEl!: HTMLDivElement;
-  private pinballTouchEl!: HTMLDivElement;
+  private actionbarEl!: HTMLDivElement;
+  private titleEl!: HTMLDivElement;
+  private logEl!: HTMLDivElement;
+  private violationsEl!: HTMLDivElement;
+  private formEl!: HTMLDivElement;
+  private bannerEl!: HTMLDivElement;
   private resizeObs: ResizeObserver | null = null;
   private readonly listeners: Array<() => void> = [];
   private savedHover: LDrawViewer['onBrickHover'] = null;
@@ -344,21 +391,21 @@ class AddonWalk implements AddonPreviewHandle {
   constructor(opts: AddonPreviewOptions) {
     this.viewer = opts.viewer;
     this.model = opts.model;
+    this.bytes = opts.bytes;
     this.onStatus = opts.onStatus ?? (() => {});
     this.onClose = opts.onClose;
     const rec = recommendedSize(this.model);
     const initial = opts.sizePct ?? rec?.sizePct ?? 100;
     this.sizePct = this.model.sizes.includes(initial) ? initial : 100;
     this.camera = new THREE.PerspectiveCamera(75, 1, 0.05, 800);
-    this.state = spawnState(null as unknown as WalkWorld);
-    this.prevState = this.state;
-    const pb = this.model.pinball;
-    if (pb) {
-      const flippers = pb.flipperTypes.map(t => this.model.entities.findIndex(e => e.typeId === t));
-      const consoleIndex = this.model.entities.findIndex(e => e.typeId === pb.consoleType);
-      const ballIndex = this.model.entities.findIndex(e => e.typeId === pb.ballType);
-      if (consoleIndex >= 0 && ballIndex >= 0 && flippers.every(i => i >= 0)) this.pinballIndices = { console: consoleIndex, ball: ballIndex, flippers };
-    }
+    this.client = new AddonSimClient({
+      onReady: info => this.onReady(info),
+      onFrame: (f, prev) => this.onFrame(f, prev),
+      onForm: form => { this.form = form; if (document.pointerLockElement) document.exitPointerLock?.(); this.renderForm(); },
+      onStatus: (text, kind) => this.note(text, kind === 'error' ? 'script-error' : 'console'),
+      onStepDone: () => { this.stepLabel = undefined; },
+      onError: message => { this.simState = 'error'; this.simError = message; this.note(`simulator: ${message}`, 'script-error'); this.renderHud(); },
+    });
   }
 
   // ── Mount / unmount ─────────────────────────────────────────────────────
@@ -383,24 +430,24 @@ class AddonWalk implements AddonPreviewHandle {
     const hemi = new THREE.HemisphereLight(0xdfe8ff, 0x1a1d2b, 1.1);
     const sun = new THREE.DirectionalLight(0xffffff, 1.6);
     sun.position.set(0.6, 1, 0.35);
-    this.scene.add(hemi, sun, this.worldGroup, this.entityGroup, this.routeGroup, this.reachGroup, this.highlightGroup);
+    this.modelGroup.name = 'model';
+    this.scene.add(hemi, sun, this.worldGroup, this.modelGroup, this.entityGroup, this.routeGroup, this.reachGroup, this.highlightGroup);
 
     this.buildDom(container);
     this.hud.style.display = this.hudVisible ? '' : 'none';
-    this.rebuild(true);
+    this.rebuild();
     this.open = true;
     // On a phone the viewer panel sits under the tab's controls: bring the walk into sight.
     container.scrollIntoView({ block: 'nearest' });
     this.lastFrame = performance.now();
     this.animId = requestAnimationFrame(this.frame);
     // Dev-only debugging hook, same convention as viewer.ts's __ldrawViewer:
-    // expose ride state and interactivity for the console / E2E screenshots,
-    // since a moving car's exact position is otherwise only provable by
-    // pixel-diffing two screenshots.
+    // expose the simulator client, the holders and the input for the console
+    // and `scripts/_shoot_addon_walk.mjs`.
     if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
       (globalThis as Record<string, unknown>)['__addonWalk'] = this;
     }
-    this.onStatus(`Add-on walk: ${this.model.label} at ${this.sizePct} % — click the view to look around, WASD to walk, Space to jump, Shift to sneak, F for free-fly, Esc to release the mouse.`, 'info');
+    this.onStatus(`Add-on walk: ${this.model.label} at ${this.sizePct} % — the pack's own scripts run in the simulator. Click the view to look, WASD to walk, Space to jump, Shift to sneak (C toggles), left click taps, E holds, 1-9 hotbar, F free-fly, Esc releases the mouse.`, 'info');
   }
 
   close(): void {
@@ -414,7 +461,9 @@ class AddonWalk implements AddonPreviewHandle {
     this.reachWorker?.terminate();
     this.reachWorker = undefined;
     this.reachJob++;
-    this.clearGroup(this.worldGroup); this.clearGroup(this.entityGroup); this.clearGroup(this.routeGroup); this.clearGroup(this.reachGroup); this.clearGroup(this.highlightGroup);
+    this.client.close();
+    for (const g of [this.worldGroup, this.modelGroup, this.entityGroup, this.routeGroup, this.reachGroup, this.highlightGroup]) this.clearGroup(g);
+    this.holders.clear();
     for (const d of this.disposables) d.dispose();
     this.unitBox.dispose(); this.plateGeom.dispose();
     this.root.remove();
@@ -430,7 +479,7 @@ class AddonWalk implements AddonPreviewHandle {
     if (!this.model.sizes.includes(sizePct)) return;
     const changed = sizePct !== this.sizePct || rotation !== this.rotation;
     this.sizePct = sizePct; this.rotation = rotation;
-    if (changed) this.rebuild(true);
+    if (changed) this.rebuild();
   }
 
   // ── The scene at a size ─────────────────────────────────────────────────
@@ -447,107 +496,105 @@ class AddonWalk implements AddonPreviewHandle {
     }
   }
 
-  /** Lay the world, the entities, the track, the reach overlay and the HUD for the current size and turn. */
-  private rebuild(respawn: boolean): void {
+  /**
+   * Start the simulator at the size and turn (a fresh world, the pack placed
+   * by its own wand), and lay out what is known before the first frame: the
+   * ground, the track, the markers at their placed points, the highlights,
+   * and the reach overlay and verdicts from the shipped collider grid.
+   */
+  private rebuild(): void {
     const { model, sizePct, rotation } = this;
-    const f = sizePct / 100;
     const treads = treadBlocksAt(model, sizePct, rotation);
     this.treadCount = treads.length;
-    const laid = laidColliderBlocks(model.cells, model.dims, sizePct, rotation, treads);
-    this.laidDims = laid.dims;
+    this.treadKeys = new Set(treads.map(t => `${t.x},${t.y},${t.z}`));
+    const f = sizePct / 100;
+    const turned = rotation % 180 ? { width: model.dims.length, length: model.dims.width } : { width: model.dims.width, length: model.dims.length };
+    this.laidDims = { width: Math.ceil(turned.width * f), height: Math.ceil(model.dims.height * f), length: Math.ceil(turned.length * f) };
+    this.doorwayKeys = new Set(model.interactives ? [...ixWorldBlocks(model.interactives.items.flatMap(it => it.blocking), model.dims, f, rotation, COLLIDER_KIT).keys()] : []);
 
-    // Dismount/leave a seat across a size or turn change: the world under the
-    // ride is about to be torn down and rebuilt.
-    if (this.riding || this.sitting) this.dismount();
-    if (this.pinball) this.leavePinball();
-    this.coasterStates.clear();
-    this.carWorld.clear();
-    this.openDoorLeaves.clear();
-    // A size or turn change re-places the build: every moving part starts closed, as a fresh placement does.
-    this.ixOpen.clear(); this.ixTarget.clear(); this.ixShown.clear(); this.ixEntity.clear(); this.ixBase.clear();
-    this.ixColliderMesh = null;
-    model.entities.forEach((e, i) => { if (e.interactive !== undefined) this.ixEntity.set(e.interactive, i); });
-    this.nearestInteract = null;
-    this.carEntityIndex.clear();
-    model.entities.forEach((e, i) => {
-      if (e.coasterRouteIndex !== undefined && e.coasterCarIndex !== undefined) this.carEntityIndex.set(`${e.coasterRouteIndex}:${e.coasterCarIndex}`, i);
-    });
+    for (const g of [this.worldGroup, this.modelGroup, this.reachGroup]) this.clearGroup(g);
+    this.holders.clear();
+    this.prevPoses = new Map();
+    this.colliders.clear();
+    this.colliderMeshes = [];
+    this.ready = null;
+    this.simState = 'placing';
+    this.simError = '';
+    this.log.length = 0;
+    this.violations.length = 0;
+    this.violationCounts.clear();
+    this.unmodelled = [];
+    this.form = null;
+    this.pendingLook = [];
+    this.fly = false;
+    this.sneakPress = false;
+    this.reachSummary = sizePct >= 100 && model.cells.length ? 'Reach on foot: checking…' : model.cells.length
+      ? 'No reach walk below 100 %: the wand merges several cells into a block there and the reach module declines to guess. The simulator still lays and walks the real blocks.'
+      : 'This pack ships no collider grid: nothing for the reach walk to grade. The simulator still places it.';
 
-    // The walk world (motion + reach) exists from 100 % up; below it the wand merges cells and the walk module declines.
-    this.world = null;
-    if (sizePct >= 100 && model.cells.length) {
-      try { this.world = buildWalkWorld({ cells: model.cells, dims: model.dims, sizePct, rotation, treads, entitySolids: this.computeEntitySolids() }); }
-      catch (err) { this.onStatus(`Walk physics unavailable: ${err instanceof Error ? err.message : String(err)}`, 'error'); }
-    }
-    if (!this.world) this.noclip = true;
-
-    this.clearGroup(this.worldGroup);
-    this.buildGround(laid.dims);
-    this.buildColliders(columnBoxes(laid.blocks));
-    this.buildModel(f);
-    this.applyInteractiveColliders();
-    model.routes.forEach((_route, routeIndex) => this.initCoasterRoute(routeIndex));
-
-    this.clearGroup(this.reachGroup);
-    if (this.world) {
-      const reach = this.world.reach();
-      const surfaces = reachSurfacesFromGrid(this.world.grid, reach);
-      this.buildReach(surfaces);
-      const reached = surfaces.filter(s => s.reached).length;
-      const columns = new Set(surfaces.filter(s => s.reached).map(s => `${s.x},${s.z}`)).size;
-      const highest = reach.highest16 / 16;
-      this.reachSummary = `Reach on foot at ${sizePct} % (turn ${rotation}): ${reached.toLocaleString()} of ${surfaces.length.toLocaleString()} standable surfaces over ${columns.toLocaleString()} columns; highest ${highest.toFixed(2)} blocks (${(highest / f).toFixed(2)} at 100 %). Treads laid: ${treads.length}.`;
-    } else {
-      this.reachSummary = model.cells.length
-        ? `No walk below 100 %: the wand merges several cells into a block there and the walk module declines to guess. Free-fly only; the boxes are still the exact re-lay.`
-        : 'This pack ships no collider grid, so there is nothing to walk on: free-fly only.';
-    }
-
+    this.buildGround(this.laidDims);
     this.buildEntities(f);
     this.buildRoutes();
     this.buildHighlights();
     this.applyLegendVisibility();
     this.requestVerdicts();
-
-    if (respawn) this.respawn();
     this.renderHud();
+    this.renderForm();
+    void this.client.start(this.bytes, sizePct, rotation as PlacementRotation).catch((e: unknown) => {
+      this.simState = 'error'; this.simError = e instanceof Error ? e.message : String(e); this.renderHud();
+    });
   }
 
   private buildGround(dims: { width: number; length: number }): void {
     const pad = 24;
     const w = dims.width + 2 * pad, l = dims.length + 2 * pad;
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(w, l), new THREE.MeshStandardMaterial({ color: 0x141827, roughness: 1 }));
+    // The simulator's superflat ground runs on: a vehicle course lane is laid hundreds of blocks from the model.
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), new THREE.MeshStandardMaterial({ color: 0x141827, roughness: 1 }));
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(dims.width / 2, -0.002, dims.length / 2);
     this.worldGroup.add(ground);
     const grid = new THREE.GridHelper(Math.max(w, l), Math.max(w, l), 0x3a4160, 0x232a42);
     grid.position.set(dims.width / 2, 0.001, dims.length / 2);
     this.worldGroup.add(grid);
-    // The footprint's outline on the ground: where the pin's re-lay ends and the player's own world begins.
+    // The footprint's outline on the ground: where the placement ends and the player's own world begins.
     const outline = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(dims.width, dims.length)), new THREE.LineBasicMaterial({ color: 0x7c8aa5 }));
     outline.rotation.x = -Math.PI / 2;
     outline.position.set(dims.width / 2, 0.01, dims.length / 2);
     this.worldGroup.add(outline);
   }
 
-  private buildColliders(boxes: ReturnType<typeof columnBoxes>): void {
-    const solids = boxes.filter(b => !b.tread), treads = boxes.filter(b => b.tread);
-    const top = this.laidDims.height || 1;
-    const make = (list: typeof boxes, color: THREE.Color | null, name: string): void => {
+  /**
+   * The blocks the runtime laid (every write since the placement began),
+   * drawn as the boxes the player collides with: the collider kit's forms in
+   * a height ramp, the shipped tread plan's blocks amber, a doorway's closed
+   * cells door-blue, vanilla blocks (a course lane's stone, a hung door) in
+   * their own colour. Rebuilt whenever the store changed (a door toggled).
+   */
+  private rebuildColliderMeshes(): void {
+    for (const m of this.colliderMeshes) { this.worldGroup.remove(m); (m.material as THREE.Material).dispose(); }
+    this.colliderMeshes = [];
+    this.colliders.dirty = false;
+    const a = this.anchor, top = this.laidDims.height || 1;
+    const solids: Array<{ b: BlockChange; box: [number, number, number, number, number, number] }> = [], treads: typeof solids = [], doors: typeof solids = [], blocks: typeof solids = [];
+    for (const b of this.colliders.entries.values()) {
+      const key = `${b.x - a.x},${b.y - a.y},${b.z - a.z}`;
+      const list = !b.typeId.startsWith('craftmatic:collider') ? blocks : this.treadKeys.has(key) ? treads : this.doorwayKeys.has(key) ? doors : solids;
+      for (const box of b.boxes) list.push({ b, box });
+    }
+    const make = (list: typeof solids, color: THREE.Color | null, name: string, opacity = 1): void => {
       if (!list.length) return;
-      const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0.05, flatShading: true, ...(color ? { emissive: color, emissiveIntensity: 0.25 } : {}) });
+      const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0.05, flatShading: true, ...(color ? { emissive: color, emissiveIntensity: 0.25 } : {}), ...(opacity < 1 ? { transparent: true, opacity } : {}) });
       const mesh = new THREE.InstancedMesh(this.unitBox, mat, list.length);
       const m = new THREE.Matrix4(), c = new THREE.Color();
-      list.forEach((b, i) => {
-        // A clearance form's box covers part of its column (collider-form.ts); a full block the whole column.
-        const fx0 = (b.fx0 ?? 0) / 16, fx1 = (b.fx1 ?? 16) / 16, fz0 = (b.fz0 ?? 0) / 16, fz1 = (b.fz1 ?? 16) / 16;
-        m.makeScale(fx1 - fx0, b.y1 - b.y0, fz1 - fz0);
-        m.setPosition(b.x + (fx0 + fx1) / 2, (b.y0 + b.y1) / 2, b.z + (fz0 + fz1) / 2);
+      list.forEach(({ b, box }, i) => {
+        const [x0, y0, z0, x1, y1, z1] = box;
+        m.makeScale(x1 - x0, y1 - y0, z1 - z0);
+        m.setPosition(b.x - a.x + (x0 + x1) / 2, b.y - a.y + (y0 + y1) / 2, b.z - a.z + (z0 + z1) / 2);
         mesh.setMatrixAt(i, m);
         if (color) c.copy(color);
         else {
           // A gentle height ramp so floors and roofs read apart from ten blocks away.
-          const t = Math.min(1, b.y1 / top);
+          const t = Math.min(1, (b.y - a.y + y1) / top);
           c.setRGB(0.36 + 0.22 * t, 0.40 + 0.22 * t, 0.50 + 0.18 * t);
         }
         mesh.setColorAt(i, c);
@@ -555,109 +602,71 @@ class AddonWalk implements AddonPreviewHandle {
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       mesh.name = name;
+      mesh.visible = name === 'treads' ? this.legend.tread.show : this.legend.collider.show;
       this.worldGroup.add(mesh);
+      this.colliderMeshes.push(mesh);
     };
     make(solids, null, 'colliders');
     make(treads, new THREE.Color(LEGEND_COLOR.tread), 'treads');
+    make(doors, new THREE.Color(LEGEND_COLOR.door), 'colliders-doors', 0.75);
+    make(blocks, new THREE.Color(COLOR_BLOCK), 'blocks');
+    this.buildHighlights();
   }
 
+  // ── Entities: holders at the simulator's poses ──────────────────────────
+
   /**
-   * What the pack DRAWS, from its own geometry — the layer that answers "does
-   * the model look right" without a phone.
-   *
-   * Bedrock model units are 1/16 block, so a cube's extent divides by 16 and
-   * then scales with the wand size exactly as the colliders do. Cubes are
-   * instanced per COLOUR CHUNK (the compiler emits one chunk per material), so
-   * a 46,000-cuboid shell is ~80 draw calls rather than 46,000 meshes.
-   *
-   * Bone transforms are composed up the parent chain, and a cube's own
-   * rotation (what a stud facet carries) is applied about its pivot first, so
-   * a posed rider and a fanned stud both land where the game puts them.
+   * What the pack DRAWS for one simulator entity, from its own geometry: a
+   * root at the entity's pose (the pin frame, Bedrock's yaw negated, the
+   * engine's `minecraft:scale` over 16, and the Z mirror of `worldFaces`),
+   * one Group per bone composed up the parent chain (a bone turns about its
+   * pivot, so a child's local matrix is in model space and the parent's
+   * multiplies it), and the cubes instanced per colour chunk INSIDE their
+   * bone with their own facet rotation - so an animation moves a bone's
+   * Group and never a cube. A face atlas draws one textured face per cube.
    */
-  private buildModel(f: number): void {
-    const appearance = this.model.appearance;
-    this.entityHolders.clear();
-    this.pinballFlipperBase.clear();
-    if (!appearance) return;
-    const group = new THREE.Group();
-    group.name = 'model';
-
-    const deg = Math.PI / 180;
-    // Bedrock adds a playing animation's bone rotation to the geometry's own
-    // bind-pose rotation (component-wise, in degrees) rather than composing a
-    // second matrix; `overlay` is exactly that addition, used for the sit pose
-    // below (`MINIFIG_ANIMATIONS`'s own numbers, not re-derived).
-    const boneWorld = (entry: NonNullable<ReturnType<typeof appearance.byType.get>>, overlay?: ReadonlyMap<string, readonly [number, number, number]>): Map<string, THREE.Matrix4> => {
-      const byName = new Map(entry.bones.map(b => [b.name, b]));
-      const done = new Map<string, THREE.Matrix4>();
-      const resolve = (name: string, seen: Set<string>): THREE.Matrix4 => {
-        const hit = done.get(name);
-        if (hit) return hit;
-        const bone = byName.get(name);
-        const m = new THREE.Matrix4();
-        if (!bone || seen.has(name)) { done.set(name, m); return m; }
-        seen.add(name);
-        const parent = bone.parent ? resolve(bone.parent, seen) : new THREE.Matrix4();
-        // Bedrock turns a bone about its pivot (`bedrockTurn`).
-        const [px, py, pz] = bone.pivot;
-        const add = overlay?.get(name);
-        const [brx, bry, brz] = bone.rotation ?? [0, 0, 0];
-        const rx = brx + (add?.[0] ?? 0), ry = bry + (add?.[1] ?? 0), rz = brz + (add?.[2] ?? 0);
-        const local = rx || ry || rz ? bedrockTurn(rx, ry, rz, px, py, pz) : new THREE.Matrix4();
-        const world = parent.clone().multiply(local);
-        done.set(name, world);
-        return world;
-      };
-      for (const b of entry.bones) resolve(b.name, new Set());
-      return done;
+  private buildHolder(pose: EntityPose, kind: AddonEntityKind): EntityHolder | null {
+    const entry = this.model.appearance?.byType.get(pose.typeId);
+    if (!entry) return null;
+    const root = new THREE.Group();
+    root.name = pose.typeId;
+    const bones = new Map<string, { group: THREE.Group; bone: AppearanceBone }>();
+    const byName = new Map(entry.bones.map(b => [b.name, b]));
+    const groupOf = (name: string, seen: Set<string>): THREE.Group => {
+      const hit = bones.get(name);
+      if (hit) return hit.group;
+      const bone = byName.get(name);
+      const g = new THREE.Group();
+      g.matrixAutoUpdate = false;
+      g.name = name;
+      if (!bone || seen.has(name)) { root.add(g); bones.set(name, { group: g, bone: bone ?? { name, pivot: [0, 0, 0] } }); return g; }
+      seen.add(name);
+      const parent = bone.parent ? groupOf(bone.parent, seen) : root;
+      parent.add(g);
+      bones.set(name, { group: g, bone });
+      return g;
     };
-
+    for (const b of entry.bones) groupOf(b.name, new Set());
     const m = new THREE.Matrix4(), cube = new THREE.Matrix4(), spin = new THREE.Matrix4();
-    this.model.entities.forEach((entity, index) => {
-      if (!entitySpawnsAt(entity, this.sizePct)) return;
-      const entry = appearance.byType.get(entity.typeId);
-      if (!entry) return;
-      const at = placedPoint(entity, this.model.dims, this.sizePct, this.rotation);
-      // The actor's own Bedrock yaw, plus the quarter turn the whole placement took. Bedrock's yaw turns +X toward
-      // +Z - three.js `rotation.y` by the NEGATED angle (`worldFaces`, bedrock-geometry-faces.ts); the holder turned
-      // by +yaw drew a shell placed at 90 degrees the other way round from its colliders (2026-09-30).
-      // `QuarterTurn` is already in DEGREES (0 | 90 | 180 | 270); multiplying it by 90
-      // again drew every actor facing the wrong way at every non-zero turn (browser check 2026-09-30).
-      const yaw = -(entity.yaw + this.rotation) * deg;
-      // A figure seated on a MANUAL seat (`rideOf`) is startRiding()'d at spawn,
-      // so `query.is_riding` is true from the first tick and the pack's own
-      // sit animation (legs -90°) is its default pose, not the standing bind
-      // pose. A coaster car's own posed rider is baked geometry already; this
-      // never applies there. Riders inside a coaster car use a DIFFERENT
-      // mechanism (rider_N bone visibility), below.
-      const overlay = entity.kind === 'figure' && entity.rideOf !== undefined ? SIT_POSE_OVERLAY : undefined;
-      const bones = boneWorld(entry, overlay);
-      // Which rider variant a coaster car shows by default (occupied: false):
-      // `route.cars.slots[coasterCarIndex].rider`, exactly what the pack's own
-      // `rider_N` bone-visibility animation keys off. null = don't filter
-      // (the fabricated cart has no rider bones at all).
-      const activeRider = this.activeRiderOf(entity);
-
-      const holder = new THREE.Group();
-      holder.position.set(at.x, at.y, at.z);
-      holder.rotation.y = yaw;
-      // Geometry JSON → world is a Z mirror (`worldFaces`, bedrock-geometry-faces.ts):
-      // without it every door, figure and seat stood mirrored across its actor's
-      // origin, a door two blocks in front of its doorway.
-      holder.scale.set(f / 16, f / 16, -f / 16);
-
-      for (const chunk of entry.groups) {
-        // The LOD hull draws only past its switch distance; the walk shows the close-up model.
-        if (chunk.far) continue;
-        const cubes = activeRider === null ? chunk.cubes : chunk.cubes.filter(c => {
-          const rider = /^rider_(\d+)$/.exec(c.bone);
-          return !rider || Number(rider[1]) === activeRider;
-        });
-        if (!cubes.length) continue;
+    const identityBones = new Map<string, THREE.Matrix4>();
+    for (const chunk of entry.groups) {
+      // The LOD hull draws only past its switch distance; the walk shows the close-up model.
+      if (chunk.far) continue;
+      const byBone = new Map<string, AppearanceCube[]>();
+      for (const c of chunk.cubes) { const l = byBone.get(c.bone); if (l) l.push(c); else byBone.set(c.bone, [c]); }
+      for (const [boneName, cubes] of byBone) {
+        const holder = groupOf(boneName, new Set());
         if (chunk.texture) {
-          // A face atlas: each decal cube draws ONE textured face, nothing else.
-          const faces = this.faceDecalMesh(chunk, cubes, bones);
-          if (faces) holder.add(faces);
+          // A face atlas: each decal cube draws ONE textured face, nothing else, in the bone's own frame.
+          const texture = this.faceTexture(chunk.texture.path);
+          const geometry = texture ? faceDecalGeometry(chunk.texture, cubes, identityBones) : null;
+          if (texture && geometry) {
+            const material = addonAppearanceMaterial(chunk, texture);
+            this.disposables.push(material);
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.frustumCulled = false;
+            holder.add(mesh);
+          }
           continue;
         }
         const material = addonAppearanceMaterial(chunk);
@@ -673,646 +682,346 @@ class AddonWalk implements AddonPreviewHandle {
             spin.copy(bedrockTurn(rx, ry, rz, px, py, pz));
             cube.premultiply(spin);
           }
-          m.copy(bones.get(c.bone) ?? new THREE.Matrix4()).multiply(cube);
+          m.copy(cube);
           mesh.setMatrixAt(i, m);
         });
         mesh.instanceMatrix.needsUpdate = true;
         mesh.frustumCulled = false;
         holder.add(mesh);
       }
-      group.add(holder);
-      this.entityHolders.set(index, holder);
-      // A pinball flipper's placed pose is the UN-SPUN reference every tick's
-      // spin is applied on top of (see `applyPinballFlipperSpin`): capture it
-      // here, right after `buildModel` has set it, before any spin runs.
-      if (this.pinballIndices?.flippers.includes(index)) this.pinballFlipperBase.set(index, { pos: holder.position.clone(), quat: holder.quaternion.clone() });
-      if (entity.interactive !== undefined) this.ixBase.set(entity.interactive, { pos: holder.position.clone(), quat: holder.quaternion.clone() });
-    });
-    this.worldGroup.add(group);
+    }
+    const anim = this.model.animations.get(pose.typeId) ?? null;
+    const holder: EntityHolder = {
+      id: pose.id, typeId: pose.typeId, kind, legend: legendKindOf(kind), root, bones, anim, vars: new Map(),
+      molang: { firstMs: performance.now(), lastEvalMs: performance.now(), prev: null, distance: 0, speed: 0, vy: 0, dir: [0, 0, 0], unknown: new Set() },
+    };
+    if (anim) initializeClientAnimations(anim, this.molangEnv(holder, pose));
+    this.poseBones(holder, new Map());
+    this.modelGroup.add(root);
+    return holder;
   }
 
-  /** Face atlases decoded once per pack, by resource path. */
-  private readonly faceTextureCache = new Map<string, THREE.Texture>();
-
-  /** The face atlas at `path` as a nearest-sampled texture, or null when the pack does not ship it. */
-  private faceTexture(path: string): THREE.Texture | null {
-    const hit = this.faceTextureCache.get(path);
-    if (hit) return hit;
-    const bytes = this.model.faceTextures?.get(path);
-    if (!bytes) return null;
-    const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'image/png' }));
-    const image = new Image();
-    const texture = new THREE.Texture(image);
-    // Texel-exact, as the game samples an entity texture; row 0 of the PNG is v = 0.
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
-    texture.generateMipmaps = false;
-    texture.flipY = false;
-    texture.colorSpace = THREE.SRGBColorSpace;
-    image.onload = () => { texture.needsUpdate = true; URL.revokeObjectURL(url); };
-    image.src = url;
-    this.faceTextureCache.set(path, texture);
-    this.disposables.push(texture);
-    return texture;
+  /** Every bone's local matrix from its bind pose and this frame's animated pose. */
+  private poseBones(holder: EntityHolder, poses: ReadonlyMap<string, { rotation: [number, number, number]; position: [number, number, number]; scale: [number, number, number] }>): void {
+    const t = new THREE.Matrix4(), s = new THREE.Matrix4(), p = new THREE.Matrix4(), pm = new THREE.Matrix4();
+    for (const [name, { group, bone }] of holder.bones) {
+      const a = poses.get(name);
+      const [px, py, pz] = bone.pivot;
+      const [brx, bry, brz] = bone.rotation ?? [0, 0, 0];
+      const rx = brx + (a?.rotation[0] ?? 0), ry = bry + (a?.rotation[1] ?? 0), rz = brz + (a?.rotation[2] ?? 0);
+      // T(animated position) · T(pivot) · R(bind + animated) · S(animated) · T(-pivot): Bedrock adds a playing
+      // animation's rotation to the bind pose component-wise, scales about the pivot, and moves the bone by an
+      // animated position in the geometry's own frame (measured on the Pixel for the pinball ball, 2026-09-25).
+      const local = bedrockTurn(rx, ry, rz, 0, 0, 0);
+      if (a && (a.scale[0] !== 1 || a.scale[1] !== 1 || a.scale[2] !== 1)) local.multiply(s.makeScale(a.scale[0], a.scale[1], a.scale[2]));
+      local.premultiply(p.makeTranslation(px, py, pz)).multiply(pm.makeTranslation(-px, -py, -pz));
+      if (a && (a.position[0] || a.position[1] || a.position[2])) local.premultiply(t.makeTranslation(a.position[0], a.position[1], a.position[2]));
+      group.matrix.copy(local);
+      group.matrixWorldNeedsUpdate = true;
+    }
   }
 
-  /**
-   * Face decals (`head-face.ts`): one quad per cube on the face its per-face
-   * UV names, textured from the atlas, alpha-tested. The corner a texel
-   * rectangle's top-left lands on follows the rule the compiler lays the
-   * atlas out by, in geometry-JSON terms: north u → +X, south u → −X,
-   * east u → −Z, west u → +Z, v → −Y. Numeric east is the −X
-   * plane and west the +X plane after Blockbench's export mirror.
-   */
-  private faceDecalMesh(group: AppearanceGroup, cubes: ReadonlyArray<AppearanceCube>, bones: Map<string, THREE.Matrix4>): THREE.Mesh | null {
-    const tex = group.texture!;
-    const texture = this.faceTexture(tex.path);
-    if (!texture) return null;
-    const geometry = faceDecalGeometry(tex, cubes, bones);
-    if (!geometry) return null;
-    const material = addonAppearanceMaterial(group, texture);
-    this.disposables.push(material);
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.frustumCulled = false;
-    return mesh;
-  }
-
-  /** The rider variant a coaster car currently shows (see `buildModel`), or
-   * null when this entity is not a coaster car slot (nothing to filter). */
-  private activeRiderOf(entity: AddonEntity): number | null {
-    if (entity.coasterRouteIndex === undefined || entity.coasterCarIndex === undefined) return null;
-    const route = this.model.routes[entity.coasterRouteIndex];
-    const slot = route?.cars.slots?.[entity.coasterCarIndex];
-    return slot ? slot.rider : null;
-  }
-
-  /**
-   * Static entity collision the player bumps into RIGHT NOW: only where the
-   * pack's own behaviour file declares `has_collision: true`
-   * (`model.entityCollision`, read by `entityCollisionFromSources`) — a
-   * standing figure (0.6 x 1.8, same box as the player), never a ride car
-   * (the pack gives those `has_collision: false`; see CLAUDE.md and
-   * bedrock-coaster.ts's `coasterCartAssets`/`carBehavior`). Baked once per
-   * `rebuild()`, not per tick: nothing here moves (a coaster car's own box is
-   * `false`, so a moving entity never needs one).
-   */
-  private computeEntitySolids(): EntitySolid[] {
-    const { model, sizePct, rotation } = this;
-    const out: EntitySolid[] = [];
-    model.entities.forEach((entity, index) => {
-      const box = model.entityCollision.get(entity.typeId);
-      if (!box || !entitySpawnsAt(entity, sizePct)) return;
-      const at = placedPoint(entity, model.dims, sizePct, rotation);
-      out.push({ key: `entity${index}`, x0: at.x - box.width / 2, y0: at.y, z0: at.z - box.width / 2, x1: at.x + box.width / 2, y1: at.y + box.height, z1: at.z + box.width / 2 });
-    });
-    return out;
-  }
-
-  /** The route fields `coaster-preview.ts` needs, off `AddonRoute`. */
-  private routeInput(route: AddonRoute): CoasterPreviewRouteInput {
+  /** Molang's view of one entity this frame (the queries the packs' animations read; the rest is `unknown`, reported once). */
+  private molangEnv(holder: EntityHolder, pose: EntityPose): MolangEnv {
+    const st = holder.molang, props = this.client.propsOf(pose.id) ?? pose.props ?? {};
+    const nowMs = performance.now();
+    const dt = Math.max(0.001, (nowMs - st.lastEvalMs) / 1000);
+    st.lastEvalMs = nowMs;
+    const dist = this.camera.position.distanceTo(new THREE.Vector3(pose.x - this.anchor.x, pose.y - this.anchor.y, pose.z - this.anchor.z));
     return {
-      points: route.points, cumulative: route.cumulative, length: route.length, closed: route.closed,
-      ...(route.station ? { station: { start: route.station.start, end: route.station.end, stop: route.station.stop } } : {}),
-      ...(route.chain ? { chain: route.chain } : {}),
-      ...(route.lift ? { lift: { deckLength: route.lift.deckLength, travel: route.lift.travel, parkedPoint: route.lift.parkedPoint } } : {}),
-      cars: { count: route.cars.count, spacing: route.cars.spacing, extent: route.cars.extent, heading: route.cars.heading },
-      direction: route.direction,
+      property: name => props[name],
+      vars: holder.vars,
+      unknown: name => { st.unknown.add(name); },
+      query: (name, args) => {
+        switch (name) {
+          case 'is_riding': return pose.riding ? 1 : 0;
+          case 'is_moving': return st.speed > 1e-4 ? 1 : 0;
+          case 'is_on_ground': return 1;
+          case 'modified_distance_moved': return st.distance * MINIFIG_GAIT.unitsPerBlock;
+          case 'modified_move_speed': return st.speed * MODIFIED_MOVE_SPEED_PER_BLOCK_TICK;
+          case 'ground_speed': return st.speed * (1000 / SIM_TICK_MS);
+          case 'vertical_speed': return st.vy * (1000 / SIM_TICK_MS);
+          case 'movement_direction': return st.dir[Math.max(0, Math.min(2, Math.round(args[0] ?? 0)))]!;
+          case 'body_y_rotation': case 'head_y_rotation': return pose.yaw;
+          case 'body_x_rotation': case 'head_x_rotation': return pose.pitch;
+          case 'target_x_rotation': case 'target_y_rotation': return 0;
+          case 'life_time': case 'anim_time': return (nowMs - st.firstMs) / 1000;
+          case 'delta_time': return dt;
+          case 'distance_from_camera': return dist;
+          case 'all_animations_finished': case 'any_animation_finished': return 1;
+          case 'scale': return pose.scale;
+          default: return undefined;
+        }
+      },
     };
   }
 
-  /** The measured wheel-contact spacing of train 0's car at `slot`, when its type measured one. */
-  private wheelbaseFor(route: AddonRoute, slot: number): number | undefined {
-    const type = route.cars.slots?.[slot]?.type;
-    return type ? this.model.coasterTypes[type]?.wheelbase : undefined;
-  }
-
-  /** A fresh, riderless ride state for one route (a route too short/degenerate to build a path leaves its cars parked). */
-  private initCoasterRoute(routeIndex: number): void {
-    const route = this.model.routes[routeIndex];
-    if (!route || route.points.length < 2) return;
-    try { this.coasterStates.set(routeIndex, initCoasterPreviewState(this.routeInput(route))); }
-    catch (err) { this.onStatus(`Route "${route.label}" cannot be animated: ${err instanceof Error ? err.message : String(err)}`, 'error'); }
-  }
-
-  /**
-   * One physics tick (1/20 s) of every route's train 0, riderless by default
-   * — see coaster-preview.ts. Moves the car/platform/counterweight holders
-   * (real geometry) or their fallback markers (a pack with no RP appearance
-   * data still shows its cars moving), and records each car's current world
-   * pose in `carWorld` for the "board" reach test and the ride camera.
-   *
-   * # TODO: the entity's own transform (position + yaw) is exactly what the
-   * real runtime teleports to; the geometry's `track_pitch`/`track_roll` bone
-   * animation (the visual bank through a climb or a loop) is NOT applied here
-   * — reproducing it needs the per-tick InstancedMesh rebuild `buildModel`
-   * does once at rebuild time, which is more than this preview's motion-proof
-   * bar needs today.
-   */
-  private updateCoasterAnimation(): void {
-    const { model, sizePct, rotation } = this;
-    const f = sizePct / 100;
-    for (const [routeIndex, state] of this.coasterStates) {
-      const route = model.routes[routeIndex];
-      if (!route) continue;
-      let result: ReturnType<typeof stepCoasterPreviewTick>;
-      try { result = stepCoasterPreviewTick(this.routeInput(route), state, f, COASTER_PHYSICS, (slot: number) => this.wheelbaseFor(route, slot)); }
-      catch { continue; }
-      this.coasterStates.set(routeIndex, result.state);
-      for (const frameResult of result.frames) {
-        const entityIndex = this.carEntityIndex.get(`${routeIndex}:${frameResult.slot}`);
-        if (entityIndex === undefined) continue;
-        const [mx, my, mz] = frameResult.position;
-        const w = placedPoint({ x: mx, y: my, z: mz }, model.dims, sizePct, rotation);
-        const yawDeg = frameResult.yaw + rotation;
-        this.moveEntityHolder(entityIndex, w, yawDeg);
-        this.carWorld.set(entityIndex, { x: w.x, y: w.y, z: w.z, yawDeg, frame: frameResult });
-      }
-      if (route.lift) {
-        const [px, py, pz] = route.lift.parkedPoint, [tx, ty, tz] = route.lift.travel, progress = result.state.liftProgress;
-        const liftIndex = model.entities.findIndex(e => e.kind === 'lift' && e.coasterRouteIndex === routeIndex);
-        if (liftIndex >= 0) {
-          const w = placedPoint({ x: px + tx * progress, y: py + ty * progress, z: pz + tz * progress }, model.dims, sizePct, rotation);
-          this.moveEntityHolder(liftIndex, w, (model.entities[liftIndex]!.yaw + rotation));
-        }
-        if (route.lift.counterweightPoint) {
-          const [cx, cy, cz] = route.lift.counterweightPoint;
-          const cwIndex = model.entities.findIndex(e => e.kind === 'counterweight' && e.coasterRouteIndex === routeIndex);
-          if (cwIndex >= 0) {
-            const w = placedPoint({ x: cx - tx * progress, y: cy - ty * progress, z: cz - tz * progress }, model.dims, sizePct, rotation);
-            this.moveEntityHolder(cwIndex, w, (model.entities[cwIndex]!.yaw + rotation));
-          }
-        }
-      }
+  /** The placement actor a simulator entity stands for: the same type, nearest its placed point, claimed once. */
+  private matchMarker(pose: EntityPose): Marker | undefined {
+    let best: Marker | undefined, bestD = Infinity;
+    const p = { x: pose.x - this.anchor.x, y: pose.y - this.anchor.y, z: pose.z - this.anchor.z };
+    for (const mk of this.markers) {
+      if (mk.simId !== undefined || mk.entity.typeId !== pose.typeId) continue;
+      const at = placedPoint(mk.entity, this.model.dims, this.sizePct, this.rotation);
+      const d = Math.hypot(at.x - p.x, at.y - p.y, at.z - p.z);
+      if (d < bestD) { bestD = d; best = mk; }
     }
+    if (best) best.simId = pose.id;
+    return best;
   }
 
-  /** Reposition an entity's real-geometry holder and/or its fallback marker (whichever exists) to a fresh world pose. */
-  private moveEntityHolder(entityIndex: number, world: { x: number; y: number; z: number }, yawDeg: number): void {
-    const yawRad = yawDeg * Math.PI / 180;
-    const holder = this.entityHolders.get(entityIndex);
-    // A Bedrock yaw is three.js `rotation.y` by the negated angle, mirrored holder or plain marker alike.
-    if (holder) { holder.position.set(world.x, world.y, world.z); holder.rotation.y = -yawRad; }
-    const marker = this.markerByIndex.get(entityIndex);
-    if (marker) {
-      marker.mesh.position.set(world.x, world.y + marker.height / 2, world.z);
-      marker.mesh.rotation.y = -yawRad;
-      const beamTop = marker.beam.scale.y;
-      marker.beam.position.set(world.x, beamTop / 2, world.z);
-      marker.at.set(world.x, world.y, world.z);
-    }
+  private kindOf(pose: EntityPose): AddonEntityKind {
+    const actor = this.model.entities.find(e => e.typeId === pose.typeId);
+    if (actor) return actor.kind;
+    const roles = Object.fromEntries(Object.entries(this.model.coasterTypes).map(([t, v]) => [t, v.role]));
+    return classifyAddonEntity(pose.typeId, {}, roles, this.model.pinball?.consoleType);
   }
 
-  // ── Interactivity: board a seat/car, dismount, toggle a door ────────────
+  // ── Simulator events ────────────────────────────────────────────────────
 
-  /** What an Interact key/button would do right now, and how the HUD prompt reads it. */
-  private updateInteract(): void {
-    if (this.riding || this.sitting || this.pinball) {
-      const label = this.pinball ? 'Shift or Esc to leave pinball' : 'Sneak to dismount';
-      this.nearestInteract = { label, act: (): void => { if (this.pinball) this.leavePinball(); else this.dismount(); } };
-      this.renderInteractHud();
-      return;
-    }
-    const REACH = 2.5;
-    const cam = this.camera.position;
-    let best: { d: number; label: string; act: () => void } | null = null;
-    const consider = (d: number, label: string, act: () => void): void => { if (d <= REACH && (!best || d < best.d)) best = { d, label, act }; };
-
-    for (const [entityIndex, car] of this.carWorld) consider(Math.hypot(car.x - cam.x, car.y - cam.y, car.z - cam.z), RIDE_INTERACT_TEXT, () => this.board(entityIndex));
-
-    if (this.pinballIndices) {
-      const consoleEntity = this.model.entities[this.pinballIndices.console];
-      if (consoleEntity && entitySpawnsAt(consoleEntity, this.sizePct)) {
-        const at = placedPoint(consoleEntity, this.model.dims, this.sizePct, this.rotation);
-        consider(Math.hypot(at.x - cam.x, at.y - cam.y, at.z - cam.z), PINBALL_INTERACT_TEXT, () => this.enterPinball());
-      }
-    }
-
-    this.model.entities.forEach((entity, index) => {
-      if (!entitySpawnsAt(entity, this.sizePct)) return;
-      if (entity.kind !== 'seat' && entity.kind !== 'door') return;
-      // The pinball console classifies as a seat (a fitting fallback marker
-      // for an intentionally invisible entity) but its own interact — "Play
-      // pinball", handled above — replaces the plain "Sit".
-      if (this.pinballIndices && index === this.pinballIndices.console) return;
-      const at = placedPoint(entity, this.model.dims, this.sizePct, this.rotation);
-      const d = Math.hypot(at.x - cam.x, at.y - cam.y, at.z - cam.z);
-      if (entity.kind === 'seat') consider(d, 'Sit', () => this.sit(index));
-      else if (entity.interactive !== undefined && this.model.interactives?.items[entity.interactive]) {
-        const item = this.model.interactives.items[entity.interactive]!;
-        // A leaf's reach is measured from its middle, not its foot: a tall door is reached at head height.
-        const mid = Math.hypot(at.x - cam.x, at.y + 1 - cam.y, at.z - cam.z);
-        consider(Math.min(d, mid), this.ixPrompt(item, entity.interactive), () => this.toggleInteractive(entity.interactive!));
-      } else consider(d, this.openDoorLeaves.has(index) ? 'Close door' : 'Open door', () => this.toggleDoorLeaf(index));
-    });
-
-    this.model.doorCandidates.forEach((cand, index) => {
-      if (this.sizePct < cand.requiredSize || !this.world) return;
-      const at = placedPoint({ x: cand.x + 0.5, y: cand.y, z: cand.z + 0.5 }, this.model.dims, this.sizePct, this.rotation);
-      const d = Math.hypot(at.x - cam.x, at.y - cam.y, at.z - cam.z);
-      const id = `cand${index}`;
-      consider(d, this.world.isDoorOpen(id) ? 'Close door' : 'Open door', () => this.toggleDoorCandidate(index, at));
-    });
-
-    this.nearestInteract = best;
-    this.renderInteractHud();
-  }
-
-  private renderInteractHud(): void {
-    if (!this.interactEl) return;
-    this.interactEl.textContent = this.nearestInteract ? `[E] ${this.nearestInteract.label}` : '';
-    this.interactEl.style.display = this.nearestInteract ? '' : 'none';
-  }
-
-  /** Board the nearest ride car within reach: the camera follows it (`applyRidingCamera`) until dismounted. */
-  private board(entityIndex: number): void {
-    const entity = this.model.entities[entityIndex];
-    if (!entity || entity.coasterRouteIndex === undefined || entity.coasterCarIndex === undefined) return;
-    this.riding = { routeIndex: entity.coasterRouteIndex, slot: entity.coasterCarIndex, entityIndex, restore: this.state, restoreYaw: this.yaw, restorePitch: this.pitch, look: null, view: null };
-    this.onStatus(`Boarded ${entity.label} — ${RIDE_INTERACT_TEXT.toLowerCase()}. Sneak (Shift) to dismount.`, 'success');
-  }
-
-  /** Sit at a static (non-coaster) seat: parks the camera there, no ride motion. */
-  private sit(entityIndex: number): void {
-    this.sitting = { entityIndex, restore: this.state, restoreYaw: this.yaw, restorePitch: this.pitch };
-    this.onStatus('Seated. Sneak (Shift) to get up.', 'success');
-  }
-
-  /** Leave a car or seat, restoring exactly the player state from before boarding. */
-  private dismount(): void {
-    const saved = this.riding ?? this.sitting;
-    if (!saved) return;
-    this.state = saved.restore; this.prevState = saved.restore;
-    this.yaw = saved.restoreYaw; this.pitch = saved.restorePitch;
-    this.riding = null; this.sitting = null;
-  }
-
-  // ── Pinball: play the table a pack ships ────────────────────────────────
-
-  /**
-   * Board the console: run the SAME `createPinballSim` the device does (never
-   * copied — imported straight off `pinball-physics.ts`) over the pack's own
-   * `CONFIG.sim`, and take over the camera and flipper/plunger controls until
-   * `leavePinball`. The player's own position is frozen (not teleported into
-   * the table) so a walk back out lands exactly where boarding happened.
-   */
-  private enterPinball(): void {
-    const cfg = this.model.pinball, idx = this.pinballIndices;
-    if (!cfg || !idx) return;
-    const restoreView = { showReach: this.showReach, collider: this.legend.collider.show, tread: this.legend.tread.show, model: this.legend.model.show };
-    this.pinball = { sim: createPinballSim(cfg.sim), restore: { state: this.state, yaw: this.yaw, pitch: this.pitch }, restoreView };
-    // The reach overlay and the raw collider/tread debug boxes answer the
-    // wrong question for a table nobody walks on: a pinball playfield's own
-    // surfaces read almost entirely "not reached" (nothing here is meant to
-    // be stood on), which paints the whole shell red and hides it. Force
-    // them off and the full-detail model ON for the duration of the game,
-    // whatever the user had toggled; `leavePinball` restores it exactly.
-    this.showReach = false;
-    this.legend = { ...this.legend, collider: { ...this.legend.collider, show: false }, tread: { ...this.legend.tread, show: false }, model: { ...this.legend.model, show: true } };
-    this.applyLegendVisibility();
-    this.updatePinballEntities();
-    this.setPinballTouchVisible(true);
+  private onReady(info: ReadyInfo): void {
+    this.ready = info;
+    this.anchor = { ...info.anchor };
+    this.simState = 'live';
+    this.rebuildColliderMeshes();
     this.renderHud();
-    // A locked pointer has no screen position: release it so a click picks a half.
-    if (document.pointerLockElement) document.exitPointerLock?.();
-    this.onStatus(`Playing pinball — ${cfg.label}. Click / tap the left or right half for that flipper (a press while the ball waits launches it), or A/D, Left/Right, W both, hold Space to charge; Shift or Esc to leave.`, 'success');
+    this.note(`Placed at ${info.sizePct} % turn ${info.rotation} (anchor ${info.anchor.x}, ${info.anchor.y}, ${info.anchor.z}); simulator ${info.inline ? 'inline on the page' : 'in a Worker'}.`, 'console');
   }
 
-  /** Leave the table, restoring exactly the player state and the reach/collider/tread/model view from before boarding. The ball/flippers stay where the game left them. */
-  private leavePinball(): void {
-    if (!this.pinball) return;
-    this.state = this.pinball.restore.state; this.prevState = this.state;
-    this.yaw = this.pinball.restore.yaw; this.pitch = this.pinball.restore.pitch;
-    const rv = this.pinball.restoreView;
-    this.showReach = rv.showReach;
-    this.legend = { ...this.legend, collider: { ...this.legend.collider, show: rv.collider }, tread: { ...this.legend.tread, show: rv.tread }, model: { ...this.legend.model, show: rv.model } };
-    this.applyLegendVisibility();
-    this.pinball = null;
-    this.setPinballTouchVisible(false);
-    this.renderHud();
+  private onFrame(f: SimFrame, prev: SimFrame | undefined): void {
+    this.prevPoses = new Map((prev?.entities ?? []).map(e => [e.id, e]));
+    this.tickMs = f.ms;
+    this.stepLabel = f.step;
+    if (f.blocks?.length) this.colliders.apply(f.blocks);
+    for (const id of f.removed) {
+      const h = this.holders.get(id);
+      if (h) { this.modelGroup.remove(h.root); this.holders.delete(id); }
+      for (const mk of this.markers) if (mk.simId === id) delete mk.simId;
+    }
+    for (const line of f.lines) this.pushLine(line);
+    for (const v of f.violations) {
+      this.violations.push(v);
+      if (this.violations.length > 60) this.violations.shift();
+      this.violationCounts.set(v.invariant, (this.violationCounts.get(v.invariant) ?? 0) + 1);
+    }
+    this.unmodelled = f.unmodelled;
+    // The look the frame carries has seen every input up to `seq`: those predictions are spent.
+    this.pendingLook = this.pendingLook.filter(l => l.seq > f.seq);
+    // Molang's motion state is per TICK: distance walked and speed from the pose deltas.
+    for (const e of f.entities) {
+      const h = this.holders.get(e.id);
+      if (!h) continue;
+      const st = h.molang;
+      if (st.prev && f.tick > st.prev.tick) {
+        const dx = e.x - st.prev.x, dy = e.y - st.prev.y, dz = e.z - st.prev.z, n = f.tick - st.prev.tick;
+        const horizontal = Math.hypot(dx, dz);
+        st.distance += horizontal;
+        st.speed = horizontal / n;
+        st.vy = dy / n;
+        const len = Math.hypot(dx, dy, dz);
+        st.dir = len > 1e-9 ? [dx / len, dy / len, dz / len] : [0, 0, 0];
+      }
+      st.prev = { x: e.x, y: e.y, z: e.z, tick: f.tick };
+    }
+    if (f.player.sneaking !== (prev?.player.sneaking ?? false)) this.root.querySelector('.ap-tbtn[data-t="sneak"]')?.classList.toggle('on', f.player.sneaking);
+    if (f.lines.length || f.violations.length || f.player.riding !== (prev?.player.riding ?? null)) this.renderSimPanel();
   }
 
-  /** A/D or Left/Right work one flipper each, W (or the touch "Interact"-style hold buttons) works both; Space holds to charge the plunger and fires on release; Shift or Escape leaves (Escape is also wired directly in the key handler). */
-  private pinballInputForTick(): { left: boolean; right: boolean; launch: boolean; leave: boolean } {
-    const k = this.keys;
-    const both = k.has('KeyW') || k.has('ArrowUp');
-    return {
-      left: both || k.has('KeyA') || k.has('ArrowLeft') || this.touchPinball.left,
-      right: both || k.has('KeyD') || k.has('ArrowRight') || this.touchPinball.right,
-      launch: k.has('Space') || this.touchPinball.launch,
-      leave: k.has('ShiftLeft') || k.has('ShiftRight'),
-    };
+  /** Every line of every kind, the last `LOG_LINES * 5`, for a shot's JSON (the action bar fades off the HUD). */
+  private readonly recentLines: SimLine[] = [];
+
+  private pushLine(line: SimLine): void {
+    this.recentLines.push(line);
+    if (this.recentLines.length > LOG_LINES * 5) this.recentLines.shift();
+    if (line.kind === 'actionbar') { this.actionbar = { text: line.text, at: performance.now() }; return; }
+    if (line.kind === 'title') { this.title = { text: line.text, at: performance.now() }; return; }
+    this.log.push(line);
+    if (this.log.length > LOG_LINES) this.log.shift();
+    this.renderLog();
   }
 
-  /** One 0.05 s tick of the table's own simulation, called from the walk's existing 20 Hz accumulator (`tick()`) — no separate accumulator needed. */
-  private tickPinball(): void {
-    const pb = this.pinball;
-    if (!pb) return;
-    const input = this.pinballInputForTick();
-    if (input.leave) { this.leavePinball(); return; }
-    const events = pb.sim.step({ left: input.left, right: input.right, launch: input.launch }, 1 / TICKS_PER_SECOND);
-    for (const ev of events) if (ev.kind === 'over' && typeof ev.score === 'number' && ev.score > this.pinballBest) this.pinballBest = ev.score;
-    this.updatePinballEntities();
-  }
+  private note(text: string, kind: SimLine['kind']): void { this.pushLine({ tick: this.client.frame?.tick ?? 0, kind, text }); }
 
-  /**
-   * Move the ball and swing the flippers to match the sim's current state,
-   * mapping the sim's plane exactly as `pinballRuntime` does (`pinballPlanePoint`
-   * + `ballOffset`) but through the WALK's own quarter-turn placement
-   * (`placedPoint`/`placedDirection`) rather than the runtime's raw
-   * continuous-rotation `toWorld` — the walk's world is laid out with the same
-   * corner-preserving turn as every other entity here, and using the runtime's
-   * own origin/rotation convention would put the table adrift from its shell
-   * at any turn but 0.
-   */
-  private updatePinballEntities(): void {
-    const cfg = this.model.pinball, idx = this.pinballIndices, pb = this.pinball;
-    if (!cfg || !idx || !pb) return;
-    const { dims } = this.model, { sizePct, rotation } = this;
-    const st = pb.sim.state;
+  // ── Per-frame drawing ───────────────────────────────────────────────────
 
-    const ballModel = pinballPlanePoint(cfg.map, st.u, st.w, cfg.ballH);
-    const ballWorld = placedPoint({ x: ballModel.x + cfg.ballOffset[0], y: ballModel.y + cfg.ballOffset[1], z: ballModel.z + cfg.ballOffset[2] }, dims, sizePct, rotation);
-    this.moveEntityHolder(idx.ball, ballWorld, 0);
+  private readonly frame = (now: number): void => {
+    if (!this.open) return;
+    this.animId = requestAnimationFrame(this.frame);
+    const dt = Math.min(0.1, (now - this.lastFrame) / 1000);
+    this.lastFrame = now;
+    this.sendInput(now);
+    const f = this.client.frame;
+    if (f) {
+      const alpha = this.client.alpha(now);
+      this.drawEntities(f, alpha);
+      this.placeCamera(f, alpha);
+    }
+    if (this.colliders.dirty && this.ready) this.rebuildColliderMeshes();
+    this.updateInteract(f);
+    const { renderer } = this.viewer;
+    renderer.setRenderTarget(null);
+    renderer.render(this.scene, this.camera);
+    this.placeLabels();
+    this.updatePositionReadout(f, dt);
+    this.fadeLines(now);
+  };
 
-    const floorH = cfg.ballH - cfg.sim.ballRadius;
-    const axis = placedDirection({ x: cfg.map.n[0], y: cfg.map.n[1], z: cfg.map.n[2] }, dims, sizePct, rotation);
-    const axisVec = new THREE.Vector3(axis.x, axis.y, axis.z);
-    if (axisVec.lengthSq() > 1e-12) axisVec.normalize();
-    cfg.sim.flippers.forEach((f, i) => {
-      const entityIndex = idx.flippers[i];
-      if (entityIndex === undefined) return;
-      const pivotWorld = placedPoint(pinballPlanePoint(cfg.map, f.pivot[0], f.pivot[1], floorH), dims, sizePct, rotation);
-      this.pinballFlipperPivots.set(entityIndex, pivotWorld);
-      const angleRad = (cfg.restAngles[i]! - st.flipperAngles[i]!) * cfg.spinSign;
-      this.applyPinballFlipperSpin(entityIndex, pivotWorld, axisVec, angleRad);
-    });
-  }
-
-  /**
-   * Swing a flipper's WHOLE holder (every cube in the compiled entity hangs
-   * off the same `pb_untilt` bone, per `flipperRig`'s tilt -> spin -> untilt
-   * chain) by `angleRad` about `axis` through `pivot`, relative to its
-   * UN-SPUN placed pose: this is exactly what the bone chain computes (tilt
-   * and untilt cancel at zero spin and conjugate the spin's local-Y rotation
-   * into a rotation about the world playfield normal through the shared
-   * pivot — see the derivation in the task's own working notes / this
-   * module's tests), without rebuilding the entity's per-cube instance
-   * matrices every tick.
-   */
-  private applyPinballFlipperSpin(entityIndex: number, pivot: { x: number; y: number; z: number }, axis: THREE.Vector3, angleRad: number): void {
-    const holder = this.entityHolders.get(entityIndex);
-    const base = this.pinballFlipperBase.get(entityIndex);
-    if (!holder || !base || axis.lengthSq() < 1e-12) return;
-    const q = new THREE.Quaternion().setFromAxisAngle(axis, angleRad);
-    const pivotVec = new THREE.Vector3(pivot.x, pivot.y, pivot.z);
-    holder.position.copy(base.pos.clone().sub(pivotVec).applyQuaternion(q).add(pivotVec));
-    holder.quaternion.copy(q.clone().multiply(base.quat));
-  }
-
-  /** The fixed spectator camera the real runtime uses while a player is seated: `toWorld(cameraEye)` looking at `toWorld(cameraLook)`. */
-  private applyPinballCamera(): void {
-    const cfg = this.model.pinball;
-    if (!cfg) return;
-    const { dims } = this.model, { sizePct, rotation } = this;
-    const eye = placedPoint({ x: cfg.cameraEye[0], y: cfg.cameraEye[1], z: cfg.cameraEye[2] }, dims, sizePct, rotation);
-    const look = placedPoint({ x: cfg.cameraLook[0], y: cfg.cameraLook[1], z: cfg.cameraLook[2] }, dims, sizePct, rotation);
-    this.camera.up.set(0, 1, 0);
-    this.camera.position.set(eye.x, eye.y, eye.z);
-    this.camera.lookAt(look.x, look.y, look.z);
-  }
-
-  /** The HUD's bottom-line status while playing: ball/score/best, and the phase (charge bar or game over). */
-  private pinballHudLine(): string {
-    if (!this.pinball) return '';
-    const st = this.pinball.sim.state;
-    const base = `Ball ${st.ball}/${st.balls} · ${Math.round(st.score)} · best ${Math.round(this.pinballBest)}`;
-    if (st.phase === 'over') return `${base} — GAME OVER, Space for a new game`;
-    if (st.phase === 'ready') return `${base} — hold Space to charge ${'|'.repeat(Math.round(st.charge * 10))}`;
-    return `${base} — A/D flippers, W both, Shift/Esc leave`;
-  }
-
-  /** Swap the touch overlay: the movement stick while walking, big flipper/plunger/leave buttons while playing. No-op off-touch. */
-  private setPinballTouchVisible(on: boolean): void {
-    if (!this.isTouch) return;
-    this.pinballTouchEl.style.display = on ? '' : 'none';
-    this.touchMoveEl.style.display = on ? 'none' : '';
+  /** Every simulator entity at its interpolated pose, its bones by the pack's own animations. */
+  private drawEntities(f: SimFrame, alpha: number): void {
+    const a = this.anchor;
+    for (const e of f.entities) {
+      let h = this.holders.get(e.id);
+      if (!h) {
+        const kind = this.kindOf(e);
+        const built = this.buildHolder(e, kind);
+        const mk = this.matchMarker(e);
+        if (mk && built) mk.hasRealGeometry = true;
+        if (!built) continue;
+        h = built;
+        this.holders.set(e.id, h);
+        this.applyHolderVisibility(h);
+      }
+      const p = interpolatePose(this.prevPoses.get(e.id), e, alpha);
+      h.root.position.set(p.x - a.x, p.y - a.y, p.z - a.z);
+      // A Bedrock yaw is three.js `rotation.y` by the negated angle (`worldFaces`, bedrock-geometry-faces.ts).
+      h.root.rotation.y = -p.yaw * Math.PI / 180;
+      const s = e.scale / 16;
+      h.root.scale.set(s, s, -s);
+      if (h.anim) this.poseBones(h, evaluateClientAnimations(h.anim, this.molangEnv(h, e)));
+    }
+    // Markers follow the entities they stand for.
+    for (const mk of this.markers) {
+      if (!mk.simId) continue;
+      const e = f.entities.find(x => x.id === mk.simId);
+      if (!e) continue;
+      const p = interpolatePose(this.prevPoses.get(e.id), e, alpha);
+      const w = { x: p.x - a.x, y: p.y - a.y, z: p.z - a.z };
+      mk.mesh.position.set(w.x, w.y + mk.height / 2, w.z);
+      mk.mesh.rotation.y = -p.yaw * Math.PI / 180;
+      const beamTop = mk.beam.scale.y;
+      mk.beam.position.set(w.x, beamTop / 2, w.z);
+      mk.at.set(w.x, w.y, w.z);
+    }
   }
 
   /**
-   * Rotate a door LEAF entity's own holder ±90° about its placed origin. A
-   * cosmetic swing, not a hinge-accurate one: the compiler does not hand the
-   * preview a hinge-edge pivot, so this turns the leaf about whatever point
-   * its geometry origin sits at. # TODO: read the leaf's actual hinge offset
-   * once bedrock-placement-pack.ts exposes one.
+   * The camera: the SCRIPT's request when one is in force (`setCamera`
+   * minecraft:free at a location looking at a point or along a rotation -
+   * the chase and cockpit cameras, the coaster's rider view), drawn RAW: no
+   * easing, no draw lag, no spline (package B's client model draws those; the
+   * HUD's "camera: raw" says so). Otherwise the player's own first person at
+   * the simulator's eye, the look predicted ahead by the turns not yet seen.
    */
-  private toggleDoorLeaf(entityIndex: number): void {
-    const entity = this.model.entities[entityIndex];
-    if (!entity) return;
-    const open = !this.openDoorLeaves.has(entityIndex);
-    if (open) this.openDoorLeaves.add(entityIndex); else this.openDoorLeaves.delete(entityIndex);
-    const holder = this.entityHolders.get(entityIndex);
-    const base = (entity.yaw + this.rotation) * Math.PI / 180;
-    // A Bedrock yaw is three.js `rotation.y` negated (as in `moveEntityHolder`); the leaf swings as its marker does.
-    if (holder) holder.rotation.y = open ? -base - Math.PI / 2 : -base;
-    const marker = this.markerByIndex.get(entityIndex);
-    if (marker) marker.mesh.rotation.y = open ? -base - Math.PI / 2 : -base;
-  }
-
-  /** The Interact prompt for a moving part in its current state. */
-  private ixPrompt(item: InteractiveRuntimeItem, index: number): string {
-    const noun = item.kind === 'turnable' ? 'Turn' : item.kind === 'lever' ? 'Flip lever' : `${this.ixOpen.get(index) ? 'Close' : 'Open'} ${item.label.replace(/ \d+$/, '').toLowerCase()}`;
-    return noun;
-  }
-
-  /**
-   * Toggle a moving part exactly as `scripts/interactives.js` does: a
-   * turnable turns a step; anything else opens or closes, a double door's
-   * leaves together (`pairs`). A doorway lays its closed cells over the
-   * static colliders while closed (`ixClosedBlocks`, the runtime's own
-   * `layDoorway` state) and stays blocked when opened at a size where the
-   * opening is under the player's 1 x 2-block passage - said in the status.
-   * It will not close on the player.
-   */
-  toggleInteractive(index: number): void {
-    const cfg = this.model.interactives, item = cfg?.items[index];
-    if (!cfg || !item) return;
-    if (item.kind === 'turnable') {
-      this.ixTarget.set(index, (this.ixTarget.get(index) ?? 0) + item.angle);
-      this.onStatus(`${item.label} turned ${Math.abs(item.angle)} degrees.`, 'info');
+  private placeCamera(f: SimFrame, alpha: number): void {
+    const a = this.anchor, cam = f.camera;
+    const prevP = this.client.prevFrame?.player;
+    const p = interpolatePose(prevP, f.player, alpha);
+    const look = this.predictedLook(f);
+    if (cam?.preset === 'minecraft:free' && (cam.location || cam.rotation)) {
+      const eye = cam.location ? { x: cam.location.x - a.x, y: cam.location.y - a.y, z: cam.location.z - a.z } : { x: p.x - a.x, y: p.y - a.y + 1.62, z: p.z - a.z };
+      this.camera.position.set(eye.x, eye.y, eye.z);
+      this.camera.up.set(0, 1, 0);
+      if (cam.facing) this.camera.lookAt(cam.facing.x - a.x, cam.facing.y - a.y, cam.facing.z - a.z);
+      else this.setLook(cam.rotation?.y ?? look.yaw, cam.rotation?.x ?? look.pitch);
       return;
     }
-    const open = !this.ixOpen.get(index);
-    const group = [index, ...(item.pairs ?? [])];
-    if (!open && this.world && item.blocking.length) {
-      // Never close a door on the player: the runtime refuses the same way.
-      const f = this.sizePct / 100;
-      const blocks = ixWorldBlocks(group.flatMap(i => cfg.items[i]?.blocking ?? []), this.model.dims, f, this.rotation, COLLIDER_KIT);
-      const p = this.state, w = 0.3;
-      for (const [key, [lo, hi]] of blocks) {
-        const [x, y, z] = key.split(',').map(Number) as [number, number, number];
-        if (p.x + w > x && p.x - w < x + 1 && p.z + w > z && p.z - w < z + 1 && p.y + PLAYER_HEIGHT > y + lo / 16 && p.y < y + hi / 16) {
-          this.onStatus(`You are standing in the ${item.label.toLowerCase()} - step out to close it.`, 'error');
-          return;
-        }
-      }
-    }
-    for (const i of group) {
-      if (!cfg.items[i]) continue;
-      this.ixOpen.set(i, open);
-      this.ixTarget.set(i, open ? cfg.items[i]!.angle : 0);
-    }
-    this.applyInteractiveColliders();
-    const tooSmall = open && item.passSize !== undefined && !(item.passSize > 0 && this.sizePct >= item.passSize);
-    if (tooSmall) {
-      const size = item.opening ? `${item.opening.width} x ${item.opening.height} blocks at 100 %` : 'too small';
-      this.onStatus(item.passSize ? `${item.label} is open, but its opening is ${size}: too small to walk through at ${this.sizePct} %. Pick ${item.passSize} % or larger to pass.` : `${item.label} is open, but its opening is ${size}: too small to walk through at any wand size.`, 'error');
-    } else this.onStatus(`${item.label} ${item.kind === 'lever' ? (open ? 'flipped' : 'flipped back') : open ? 'opened' : 'closed'}${open && item.passSize ? ' - walk through' : ''}.`, 'info');
-  }
-
-  /** Lay the closed doorways over the walk world and redraw them (the static collider boxes are drawn once per rebuild). */
-  private applyInteractiveColliders(): void {
-    const cfg = this.model.interactives;
-    if (!cfg) return;
-    const f = this.sizePct / 100;
-    const closed = ixClosedBlocks(cfg.items, this.model.dims, f, this.rotation, i => this.ixOpen.get(i) === true);
-    this.world?.setOverlayBlocks(closed);
-    if (this.ixColliderMesh) { this.worldGroup.remove(this.ixColliderMesh); (this.ixColliderMesh.material as THREE.Material).dispose(); this.ixColliderMesh = null; }
-    if (!closed.size) return;
-    const mat = new THREE.MeshStandardMaterial({ color: LEGEND_COLOR.door, roughness: 0.8, transparent: true, opacity: 0.55, emissive: new THREE.Color(LEGEND_COLOR.door), emissiveIntensity: 0.2 });
-    const mesh = new THREE.InstancedMesh(this.unitBox, mat, closed.size);
-    const m = new THREE.Matrix4();
-    let i = 0;
-    for (const [key, [lo, hi]] of closed) {
-      const [x, y, z] = key.split(',').map(Number) as [number, number, number];
-      m.makeScale(1, (hi - lo) / 16, 1);
-      m.setPosition(x + 0.5, y + (lo + hi) / 32, z + 0.5);
-      mesh.setMatrixAt(i++, m);
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.name = 'colliders-doors';
-    mesh.visible = this.legend.collider.show;
-    this.ixColliderMesh = mesh;
-    this.worldGroup.add(mesh);
-  }
-
-  /** Ease every moving part toward its target angle (the client's Molang rate) and swing its holder about the hinge. */
-  private updateInteractives(dtSeconds: number): void {
-    const cfg = this.model.interactives;
-    if (!cfg) return;
-    const { sizePct, rotation } = this, dims = this.model.dims;
-    for (const [index, target] of this.ixTarget) {
-      const item = cfg.items[index];
-      const shown = this.ixShown.get(index) ?? 0;
-      if (!item || Math.abs(shown - target) < 1e-3) continue;
-      const rate = Math.max(Math.abs(item.angle), 1) / SWING_SECONDS;
-      const next = shown + Math.max(-rate * dtSeconds, Math.min(rate * dtSeconds, target - shown));
-      this.ixShown.set(index, next);
-      const entityIndex = this.ixEntity.get(index), base = this.ixBase.get(index);
-      const holder = entityIndex !== undefined ? this.entityHolders.get(entityIndex) : undefined;
-      if (!holder || !base || !item.pivot || !item.axis) continue;
-      const pivot = placedPoint({ x: item.pivot[0], y: item.pivot[1], z: item.pivot[2] }, dims, sizePct, rotation);
-      const a = placedDirection({ x: item.axis[0], y: item.axis[1], z: item.axis[2] }, dims, sizePct, rotation);
-      const axis = new THREE.Vector3(a.x, a.y, a.z);
-      if (axis.lengthSq() < 1e-12) continue;
-      axis.normalize();
-      if (item.slide) {
-        // A drawer, a roller or sliding door: it moves along the axis by the eased distance.
-        holder.position.copy(base.pos.clone().add(axis.clone().multiplyScalar(next * item.slide * sizePct / 100)));
-        holder.quaternion.copy(base.quat);
-        continue;
-      }
-      // A positive angle is a right-handed turn about the axis (bedrock-interactives.ts `interactiveRig`).
-      const q = new THREE.Quaternion().setFromAxisAngle(axis, next * Math.PI / 180);
-      const p = new THREE.Vector3(pivot.x, pivot.y, pivot.z);
-      holder.position.copy(base.pos.clone().sub(p).applyQuaternion(q).add(p));
-      holder.quaternion.copy(q.clone().multiply(base.quat));
-    }
-  }
-
-  /**
-   * Toggle a vanilla door candidate's collision (`WalkWorld.setDoorOpen`): an
-   * approximation stated in that method's own doc, not hidden — it drops the
-   * whole column's colliders in the opening's height band, which is sound at
-   * a door candidate (the wand only proposes one where the opening is
-   * exactly door sized). The rendered grey collider boxes do not yet redraw
-   * when a door opens; only collision does. # TODO: repaint them too.
-   */
-  private toggleDoorCandidate(index: number, at: { x: number; y: number; z: number }): void {
-    if (!this.world) return;
-    const id = `cand${index}`;
-    const open = !this.world.isDoorOpen(id);
-    this.world.setDoorOpen(id, at.x, at.z, at.y, open);
-    this.onStatus(open ? 'Door opened — walk through.' : 'Door closed.', 'info');
-  }
-
-  /**
-   * The camera while riding a car: the rider's eye through the car's own frame
-   * (`coasterCarEyePoint`, the pack's own seat offset when it measured one),
-   * looking the way the pack's runtime points the device camera — the SAME
-   * `coasterRiderView`/`coasterRiderLook` over the SAME config, with a mouse or
-   * touch drag standing in for the player's head turn (clamped, ratcheting).
-   * In `clamp` the device draws a roll-free rotation, so this draws the same
-   * (yaw, pitch) turned back into vectors; in the roll modes it draws the view
-   * exactly, as the device's spline keyframes do. A pack built before the rider camera rides in plain first
-   * person facing the car, as it did.
-   */
-  private applyRidingCamera(): void {
-    if (!this.riding) return;
-    const car = this.carWorld.get(this.riding.entityIndex);
-    if (!car) return;
-    const route = this.model.routes[this.riding.routeIndex];
-    const type = route?.cars.slots?.[this.riding.slot]?.type;
-    const seat = type ? this.model.coasterTypes[type]?.seat : undefined;
-    const [ex, ey, ez] = coasterCarEyePoint(car.frame, seat);
-    const eye = placedPoint({ x: ex, y: ey, z: ez }, this.model.dims, this.sizePct, this.rotation);
-    this.camera.position.set(eye.x, eye.y, eye.z);
-    const camera = this.model.coasterCamera;
-    if (!camera || camera.mode === 'off') {
-      this.camera.rotation.set(0, 0, 0);
-      this.camera.rotation.order = 'YXZ';
-      this.camera.rotation.y = car.yawDeg * Math.PI / 180;
-      this.camera.rotation.x = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, -car.frame.pitch * Math.PI / 180));
+    const eye = f.player.sneaking && !f.player.flying && !f.player.riding ? 1.27 : 1.62;
+    if (cam?.preset && cam.preset !== 'minecraft:first_person') {
+      // A third-person preset: the walker's own chase boom, 4 blocks behind the look (not the client's own camera).
+      const yaw = look.yaw * Math.PI / 180, pitch = look.pitch * Math.PI / 180;
+      const d = { x: -Math.sin(yaw) * Math.cos(pitch), y: -Math.sin(pitch), z: Math.cos(yaw) * Math.cos(pitch) };
+      this.camera.position.set(p.x - a.x - d.x * 4, p.y - a.y + eye - d.y * 4 + 0.5, p.z - a.z - d.z * 4);
+      this.setLook(look.yaw, look.pitch);
       return;
     }
-    // The drag as a head turn in Bedrock's sense: +yaw turns right, +pitch looks down.
-    const toDeg = 180 / Math.PI;
-    this.riding.look = coasterRiderLook(-(this.yaw - this.riding.restoreYaw) * toDeg, -this.pitch * toDeg, this.riding.look, camera.lookYaw, camera.lookPitch, camera.ratchet);
-    // `loop` is `reflect` tick by tick, and the pack hands each inversion to one
-    // rolling camera animation (from ~10 ticks before it until the car is
-    // upright again); the preview draws that stretch as the exact view.
-    const inverting = camera.mode === 'loop' && car.frame.up[1] < 0.7;
-    // The pack's animation keyframes are `over` views (continuous pitch, no chart flip at the zenith).
-    const view = coasterRiderView(car.frame.nose, car.frame.up, this.riding.look, this.riding.view, camera.mode === 'loop' ? (inverting ? 'over' : 'reflect') : camera.mode, camera.maxTurn);
-    this.riding.view = view;
-    // The roll modes draw the view exactly (the device rolls its camera through
-    // a spline keyframe); `clamp` draws the roll-free (yaw, pitch) it sends.
-    const exact = camera.mode === 'roll' || inverting;
-    const yaw = view.yaw / toDeg, pitch = view.pitch / toDeg;
-    const d = exact ? { x: view.direction[0]!, y: view.direction[1]!, z: view.direction[2]! }
-      : { x: -Math.sin(yaw) * Math.cos(pitch), y: -Math.sin(pitch), z: Math.cos(yaw) * Math.cos(pitch) };
-    const u = exact ? { x: view.up[0]!, y: view.up[1]!, z: view.up[2]! }
-      : { x: -Math.sin(yaw) * Math.sin(pitch), y: Math.cos(pitch), z: Math.cos(yaw) * Math.sin(pitch) };
-    const direction = placedDirection(d, this.model.dims, 100, this.rotation);
-    const up = placedDirection(u, this.model.dims, 100, this.rotation);
-    this.camera.up.set(up.x, up.y, up.z);
-    this.camera.lookAt(eye.x + direction.x, eye.y + direction.y, eye.z + direction.z);
-    this.camera.up.set(0, 1, 0);
+    this.camera.position.set(p.x - a.x, p.y - a.y + eye, p.z - a.z);
+    this.setLook(look.yaw, look.pitch);
   }
 
-  /** The camera while sitting at a static seat: parked at the seat's own placed point, facing its yaw. */
-  private applySittingCamera(): void {
-    if (!this.sitting) return;
-    const entity = this.model.entities[this.sitting.entityIndex];
-    if (!entity) return;
-    const at = placedPoint(entity, this.model.dims, this.sizePct, this.rotation);
-    this.camera.position.set(at.x, at.y + PLAYER_HEIGHT - 0.53, at.z);
+  /**
+   * The simulator's look plus the turns sent since the frame it reports (so the mouse feels immediate). A
+   * prediction only: the simulator routes a drag by the control scheme and the seat, and a riding player on a
+   * lock-181 seat may see its drag go to the camera orbit instead; the next frame corrects the picture.
+   */
+  private predictedLook(f: SimFrame): { yaw: number; pitch: number } {
+    let yaw = f.player.yaw, pitch = f.player.pitch;
+    for (const l of this.pendingLook) { yaw += l.dyaw; pitch += l.dpitch; }
+    const k = quirkValue('touch-drag-degrees-per-pixel', 'degreesPerPixel');
+    yaw += this.lookDelta.yaw + this.dragPx.dx * k; pitch += this.lookDelta.pitch + this.dragPx.dy * k;
+    return { yaw: wrapDeg(yaw), pitch: Math.max(-89.9, Math.min(89.9, pitch)) };
+  }
+
+  /** Point the camera along a Bedrock look (yaw 0 = +Z, +yaw right; +pitch down): three.js looks down -Z, so yaw maps to π − yaw. */
+  private setLook(yawDeg: number, pitchDeg: number): void {
     this.camera.rotation.set(0, 0, 0);
     this.camera.rotation.order = 'YXZ';
-    this.camera.rotation.y = (entity.yaw + this.rotation) * Math.PI / 180;
-    this.camera.rotation.x = 0;
+    this.camera.rotation.y = Math.PI - yawDeg * Math.PI / 180;
+    this.camera.rotation.x = -pitchDeg * Math.PI / 180;
   }
 
+  // ── Input to the simulator ──────────────────────────────────────────────
+
+  private inputForTick(): Omit<WalkerInput, 'seq'> {
+    const k = this.keys;
+    let fwd = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) + this.touchMove.y;
+    // The stick's strafe is +LEFT in the simulator's controls (`stickToWorld`); D is right.
+    let side = (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) - (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - this.touchMove.x;
+    const mag = Math.hypot(fwd, side);
+    if (mag > 1) { fwd /= mag; side /= mag; }
+    // Shift on a keyboard is a HOLD: pressing it leaves the toggle mode; a sneak press (the button, C) is one press.
+    const shift = k.has('ShiftLeft') || k.has('ShiftRight');
+    if (shift) this.sneakToggleMode = false;
+    const input: Omit<WalkerInput, 'seq'> = {
+      forward: fwd, strafe: side,
+      jump: k.has('Space') || this.touchJump,
+      sneak: this.sneakPress || (!this.sneakToggleMode && shift),
+      sneakMode: this.sneakToggleMode ? 'toggle' : 'hold',
+      sprint: k.has('ControlLeft') || k.has('ControlRight') || this.touchSprint,
+      autoJump: this.autoJump,
+      dyaw: this.lookDelta.yaw, dpitch: this.lookDelta.pitch,
+      ...(this.dragPx.dx || this.dragPx.dy ? { dragPx: { ...this.dragPx } } : {}),
+      viewport: { width: this.viewer.container.clientWidth || 1, height: this.viewer.container.clientHeight || 1, fovDeg: this.camera.fov },
+      fly: this.fly,
+    };
+    this.sneakPress = false;
+    if (this.slotQueued !== undefined) { input.slot = this.slotQueued; this.slotQueued = undefined; }
+    if (this.tapQueued) { input.tap = true; this.tapQueued = false; if (this.tapAt) { input.tapAt = this.tapAt; this.tapAt = undefined; } }
+    if (this.holdQueued || this.touchHold) { input.hold = true; this.holdQueued = false; this.touchHold = false; }
+    return input;
+  }
+
+  /** Post the input to the simulator at most once per tick, and whenever something was pressed. */
+  private sendInput(now: number): void {
+    if (this.simState !== 'live' || this.form) return;
+    const due = now - this.lastInputMs >= SIM_TICK_MS;
+    const pressed = this.tapQueued || this.holdQueued || this.touchHold || this.sneakPress || this.slotQueued !== undefined;
+    if (!due && !pressed) return;
+    this.lastInputMs = now;
+    const input = this.inputForTick();
+    const seq = this.client.sendInput(input);
+    const k = quirkValue('touch-drag-degrees-per-pixel', 'degreesPerPixel');
+    const dyaw = input.dyaw + (input.dragPx?.dx ?? 0) * k, dpitch = input.dpitch + (input.dragPx?.dy ?? 0) * k;
+    // The drag is applied at the start of the NEXT tick, so it is spent one frame after the one that carries `seq`.
+    if (dyaw || dpitch) this.pendingLook.push({ seq: seq + 1, dyaw, dpitch });
+    this.lookDelta = { yaw: 0, pitch: 0 };
+    this.dragPx = { dx: 0, dy: 0 };
+  }
+
+  /** The prompt over the crosshair: what a tap or a hold acts on, as the simulator's pick reports it. */
+  private updateInteract(f: SimFrame | undefined): void {
+    if (!this.interactEl) return;
+    const aim = f?.aim;
+    const text = f?.player.riding ? 'Sneak to get off' : aim ? `${this.labelOf(aim.typeId)} · tap (click) / hold (E)` : '';
+    if (this.interactEl.textContent !== text) this.interactEl.textContent = text;
+    this.interactEl.style.display = text ? '' : 'none';
+  }
+
+  private labelOf(typeId: string): string { return this.model.entities.find(e => e.typeId === typeId)?.label ?? typeId.replace(/^[^:]*:/, ''); }
+
+  // ── Reach overlay, markers, routes, highlights ─────────────────────────
+
   private buildReach(surfaces: ReachSurface[]): void {
+    this.clearGroup(this.reachGroup);
     if (!surfaces.length) return;
     const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false });
     const mesh = new THREE.InstancedMesh(this.plateGeom, mat, surfaces.length);
@@ -1326,6 +1035,7 @@ class AddonWalk implements AddonPreviewHandle {
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.name = 'reach';
     this.reachGroup.add(mesh);
+    this.reachGroup.visible = this.showReach;
   }
 
   private buildEntities(f: number): void {
@@ -1333,12 +1043,11 @@ class AddonWalk implements AddonPreviewHandle {
     this.labelLayer.replaceChildren();
     this.markers = [];
     this.targets = [];
-    this.markerByIndex.clear();
     const { model } = this;
     const laidHeight = this.laidDims.height;
     const beamGeom = new THREE.CylinderGeometry(0.06, 0.06, 1, 6, 1, true);
     this.disposables.push(beamGeom);
-    const addMarker = (entity: AddonEntity, index: number): void => {
+    const addMarker = (entity: AddonEntity): void => {
       const kind = entity.kind;
       const legend = legendKindOf(kind);
       const [bw, bh, bd] = MARKER_SIZE[kind];
@@ -1350,12 +1059,9 @@ class AddonWalk implements AddonPreviewHandle {
       const height = bh * s;
       mesh.position.set(at.x, at.y + height / 2, at.z);
       mesh.rotation.y = -entity.yaw * Math.PI / 180;
-      mesh.userData['index'] = index;
-      // Real geometry (buildModel) already draws this entity: the solid
-      // marker would just be a translucent box floating over it, which is the
-      // "capsule markers instead of the pack's own model" complaint. Keep the
-      // beam and label (still useful for finding it, and clicking "go" on a
-      // NOT-reachable verdict) but hide the placeholder shape.
+      // Real geometry (the holders) draws this entity once the simulator spawns it: the solid marker would just be
+      // a translucent box floating over it. Keep the beam and label (still useful for finding it, and clicking
+      // "go" on a NOT-reachable verdict) but hide the placeholder shape.
       const hasRealGeometry = !!model.appearance?.byType.has(entity.typeId);
       // A translucent beam from the ground through the marker: the location, visible through walls when highlighted.
       const beam = new THREE.Mesh(beamGeom, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, depthTest: false }));
@@ -1370,19 +1076,18 @@ class AddonWalk implements AddonPreviewHandle {
       label.style.borderColor = hex(color);
       label.textContent = entity.label;
       this.labelLayer.appendChild(label);
-      const marker: Marker = { entity, legend, mesh, beam, label, at: new THREE.Vector3(at.x, at.y, at.z), height, reach: null, hasRealGeometry };
+      const marker: Marker = { entity, legend, mesh, beam, label, at: new THREE.Vector3(at.x, at.y, at.z), height, hasRealGeometry };
       this.markers.push(marker);
-      if (index >= 0) this.markerByIndex.set(index, marker);
       // Reach verdict per entity (asked of the worker): can a player on foot stand within a block of where this actor's feet are?
       if (legend && (kind === 'figure' || kind === 'seat' || kind === 'door' || kind === 'vehicle')) {
         this.targets.push({ label: entity.label, kind: legend, point: { x: entity.x, y: entity.y, z: entity.z }, reach: null, world: new THREE.Vector3(at.x, at.y, at.z), labelEl: label, labelText: entity.label });
       }
     };
-    model.entities.forEach((e, i) => { if (e.kind !== 'shell' && entitySpawnsAt(e, this.sizePct)) addMarker(e, i); });
+    for (const e of model.entities) if (e.kind !== 'shell' && entitySpawnsAt(e, this.sizePct)) addMarker(e);
     // Runtime door candidates: vanilla doors the wand hangs once the opening is big enough.
     model.doorCandidates.forEach((d, i) => {
       if (this.sizePct < d.requiredSize) return;
-      addMarker({ typeId: `door-candidate-${i}`, label: `Vanilla door ${i + 1} (from ${d.requiredSize} %)`, kind: 'door', x: d.x + 0.5, y: d.y, z: d.z + 0.5, yaw: 0 }, -1);
+      addMarker({ typeId: `door-candidate-${i}`, label: `Vanilla door ${i + 1} (from ${d.requiredSize} %)`, kind: 'door', x: d.x + 0.5, y: d.y, z: d.z + 0.5, yaw: 0 });
     });
     // The pin marker: the model's corner, where the wand's origin is.
     const pin = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
@@ -1442,17 +1147,6 @@ class AddonWalk implements AddonPreviewHandle {
           this.routeGroup.add(cwLine);
         }
       }
-      // Car slots: spacing along the track from the station stop, so a train's extent is visible even before a car marker is placed.
-      if (route.cars.count > 1 && route.station) {
-        for (let k = 0; k < route.cars.count; k++) {
-          const arc = route.station.stop + route.cars.extent / 2 - k * route.cars.spacing;
-          const p = this.pointAtArc(route, arc);
-          if (!p) continue;
-          const dot = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6), new THREE.MeshBasicMaterial({ color: KIND_COLOR.car }));
-          dot.position.copy(toWorld(p));
-          this.routeGroup.add(dot);
-        }
-      }
     });
   }
 
@@ -1465,22 +1159,6 @@ class AddonWalk implements AddonPreviewHandle {
       if (c >= lo - 1e-9 && c <= hi + 1e-9) out.push(route.points[i]!);
     }
     return out;
-  }
-
-  /** Linear interpolation along the route at an arc length (wrapping on a closed route). */
-  private pointAtArc(route: AddonRoute, arc: number): [number, number, number] | null {
-    const L = route.length || route.cumulative[route.cumulative.length - 1] || 0;
-    if (!L) return null;
-    const s = route.closed ? ((arc % L) + L) % L : Math.max(0, Math.min(L, arc));
-    for (let i = 1; i < route.points.length; i++) {
-      const c0 = route.cumulative[i - 1]!, c1 = route.cumulative[i]!;
-      if (s <= c1) {
-        const t = c1 > c0 ? (s - c0) / (c1 - c0) : 0;
-        const p = route.points[i - 1]!, q = route.points[i]!;
-        return [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t];
-      }
-    }
-    return route.points[route.points.length - 1] ?? null;
   }
 
   private addBeam(group: THREE.Group, geom: THREE.BufferGeometry, at: THREE.Vector3, top: number, color: number): THREE.Mesh {
@@ -1500,26 +1178,52 @@ class AddonWalk implements AddonPreviewHandle {
     label.style.color = hex(color);
     this.labelLayer.appendChild(label);
     // A label with no entity: a pseudo-marker so the projection loop places it.
-    this.markers.push({ entity: { typeId: '', label: text, kind: 'other', x: 0, y: 0, z: 0, yaw: 0 }, legend: 'track', mesh: new THREE.Mesh(), beam: new THREE.Mesh(), label, at: at.clone(), height: 0.5, reach: null, hasRealGeometry: false });
+    this.markers.push({ entity: { typeId: '', label: text, kind: 'other', x: 0, y: 0, z: 0, yaw: 0 }, legend: 'track', mesh: new THREE.Mesh(), beam: new THREE.Mesh(), label, at: at.clone(), height: 0.5, hasRealGeometry: false });
     return label;
   }
 
-  // ── Reach verdicts, off the main thread ─────────────────────────────────
+  /** Face atlases decoded once per pack, by resource path. */
+  private readonly faceTextureCache = new Map<string, THREE.Texture>();
+
+  /** The face atlas at `path` as a nearest-sampled texture, or null when the pack does not ship it. */
+  private faceTexture(path: string): THREE.Texture | null {
+    const hit = this.faceTextureCache.get(path);
+    if (hit) return hit;
+    const bytes = this.model.faceTextures?.get(path);
+    if (!bytes) return null;
+    const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'image/png' }));
+    const image = new Image();
+    const texture = new THREE.Texture(image);
+    // Texel-exact, as the game samples an entity texture; row 0 of the PNG is v = 0.
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    texture.generateMipmaps = false;
+    texture.flipY = false;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    image.onload = () => { texture.needsUpdate = true; URL.revokeObjectURL(url); };
+    image.src = url;
+    this.faceTextureCache.set(path, texture);
+    this.disposables.push(texture);
+    return texture;
+  }
+
+  // ── Reach verdicts and the overlay, off the main thread ────────────────
 
   /**
    * Ask the worker whether a player on foot reaches each target at this size
-   * and turn. The scene is already on screen; the HUD says the verdicts are
-   * pending until they arrive, and a stale job (the size changed meanwhile)
-   * is ignored by its id. Without a Worker the same code runs inline, deferred
-   * a frame so the size change still paints first.
+   * and turn, and for the overlay of every standable surface. The HUD says
+   * the verdicts are pending until they arrive, and a stale job (the size
+   * changed meanwhile) is ignored by its id. Without a Worker the same code
+   * runs inline, deferred a frame so the size change still paints first.
    */
   private requestVerdicts(): void {
     const id = ++this.reachJob;
-    if (!this.targets.length || !this.world) { this.verdictNote = ''; return; }
+    if (this.sizePct < 100 || !this.model.cells.length) { this.verdictNote = ''; return; }
     const req: ReachWorkerRequest = {
       id, cells: this.model.cells, dims: this.model.dims, sizePct: this.sizePct, rotation: this.rotation,
       treads: treadBlocksAt(this.model, this.sizePct, this.rotation),
       targets: this.targets.map((t): ReachTarget => ({ label: t.label, x: t.point.x, y: t.point.y, z: t.point.z })),
+      overlay: true,
     };
     this.verdictNote = `checking ${req.targets.length} points on foot (reach walk + simulated player)…`;
     if (this.reachWorker === undefined) {
@@ -1546,6 +1250,11 @@ class AddonWalk implements AddonPreviewHandle {
       t.labelEl.textContent = `${t.labelText} · ${reach.bfs ? 'reachable' : 'NOT reachable'}`;
       t.labelEl.style.color = hex(reach.bfs ? COLOR_REACHED : COLOR_UNREACHED);
     });
+    if (res.surfaces && res.overlay) {
+      this.buildReach(res.surfaces);
+      const o = res.overlay, f = this.sizePct / 100;
+      this.reachSummary = `Reach on foot at ${this.sizePct} % (turn ${this.rotation}): ${o.reached.toLocaleString()} of ${o.total.toLocaleString()} standable surfaces over ${o.columns.toLocaleString()} columns; highest ${o.highestBlocks.toFixed(2)} blocks (${(o.highestBlocks / f).toFixed(2)} at 100 %). Treads laid: ${this.treadCount}.`;
+    }
     this.verdictNote = `${res.results.length} points checked in ${(res.ms / 1000).toFixed(1)} s${this.reachWorker ? '' : ' (inline)'}`;
     this.renderHud();
   }
@@ -1572,14 +1281,18 @@ class AddonWalk implements AddonPreviewHandle {
       helper.renderOrder = 11;
       this.highlightGroup.add(helper);
     }
+    this.applyLegendVisibility();
+  }
+
+  private applyHolderVisibility(h: EntityHolder): void {
+    const { legend } = this;
+    h.root.visible = legend.model.show && (h.legend ? legend[h.legend].show : true);
   }
 
   private applyLegendVisibility(): void {
     const { legend } = this;
-    const drawn = this.worldGroup.getObjectByName('model'); if (drawn) drawn.visible = legend.model.show;
-    const colliders = this.worldGroup.getObjectByName('colliders'); if (colliders) colliders.visible = legend.collider.show;
-    const doorColliders = this.worldGroup.getObjectByName('colliders-doors'); if (doorColliders) doorColliders.visible = legend.collider.show;
-    const treads = this.worldGroup.getObjectByName('treads'); if (treads) treads.visible = legend.tread.show;
+    for (const h of this.holders.values()) this.applyHolderVisibility(h);
+    for (const m of this.colliderMeshes) m.visible = m.name === 'treads' ? legend.tread.show : legend.collider.show;
     this.routeGroup.visible = legend.track.show;
     this.reachGroup.visible = this.showReach;
     for (const mk of this.markers) {
@@ -1587,8 +1300,8 @@ class AddonWalk implements AddonPreviewHandle {
       const show = row ? legend[row].show : true;
       // A row's "show" toggle still hides everything about that kind, real
       // geometry included (it is how a user isolates one legend row); the
-      // placeholder shape ALSO stays hidden the rest of the time, since
-      // buildModel already drew the real thing.
+      // placeholder shape ALSO stays hidden the rest of the time, since the
+      // holder already draws the real thing.
       mk.mesh.visible = show && !mk.hasRealGeometry;
       mk.beam.visible = show && !!row && legend[row].highlight;
       mk.label.style.display = show ? '' : 'none';
@@ -1599,101 +1312,34 @@ class AddonWalk implements AddonPreviewHandle {
     }
   }
 
-  // ── Player ──────────────────────────────────────────────────────────────
+  // ── Player commands ─────────────────────────────────────────────────────
 
   private respawn(): void {
-    const sp = spawnPoint(this.laidDims);
-    this.state = spawnState(this.world as WalkWorld, { x: sp.x, y: sp.y, z: sp.z });
-    this.prevState = this.state;
-    this.yaw = sp.yawDeg * Math.PI / 180;
-    this.pitch = -0.08;
-    this.accumulator = 0;
+    this.fly = false;
+    this.client.respawn();
+    this.renderHud();
   }
 
   /** Put the player beside a target, in free-fly, so a NOT-reachable verdict can be inspected up close. */
   private goTo(t: Target): void {
-    this.noclip = true;
-    this.state = { ...this.state, x: t.world.x - 2, y: t.world.y + 1.2, z: t.world.z, vx: 0, vy: 0, vz: 0, onGround: false };
-    this.prevState = this.state;
-    this.yaw = Math.PI / 2 * 3; // face +x, toward the target
-    this.pitch = -0.35;
+    this.fly = true;
+    const a = this.anchor;
+    this.client.teleport({ x: t.world.x - 2 + a.x, y: t.world.y + 1.2 + a.y, z: t.world.z + a.z, yaw: -90, pitch: 20, fly: true });
+    this.pendingLook = [];
     this.renderHud();
   }
 
-  private inputForTick(): WalkInput {
-    const k = this.keys;
-    let fwd = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) + this.touchMove.y;
-    let side = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) + this.touchMove.x;
-    const mag = Math.hypot(fwd, side);
-    if (mag > 1) { fwd /= mag; side /= mag; }
-    // Camera yaw → world axes. Yaw 0 looks down −z (three's convention); +x is to the right.
-    const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
-    const move = { x: -sin * fwd + cos * side, z: -cos * fwd - sin * side };
-    const jump = this.jumpQueued || k.has('Space') || this.touchJump;
-    this.jumpQueued = false;
-    return { move, jump, sneak: k.has('ShiftLeft') || k.has('ShiftRight') || this.touchSneak, sprint: k.has('ControlLeft') || k.has('ControlRight') || this.touchSprint };
+  private toggleFly(): void {
+    this.fly = !this.fly;
+    this.renderHud();
   }
 
-  private tick(): void {
-    // Ride motion advances every tick regardless of the player: "riderless by default".
-    this.updateCoasterAnimation();
-    if (this.interactQueued) { this.interactQueued = false; this.nearestInteract?.act(); }
-    const input = this.inputForTick();
-    if (this.pinball) {
-      this.tickPinball();
-      this.prevState = this.state;
-      return;
-    }
-    if (this.riding || this.sitting) {
-      // Sneak dismounts instead of its usual meaning while boarded/seated.
-      if (input.sneak) this.dismount();
-      this.prevState = this.state;
-      return;
-    }
-    this.prevState = this.state;
-    if (this.world && !this.noclip) {
-      this.state = tickPlayer(this.world, this.state, input).state;
-      return;
-    }
-    // Free-fly: no collision, no gravity. Space rises, Shift sinks; sprint doubles the speed.
-    const speed = (input.sprint ? 0.9 : 0.45);
-    const up = (input.jump ? 1 : 0) - (input.sneak ? 1 : 0);
-    const s = { ...this.state, tick: this.state.tick + 1 };
-    s.x += input.move.x * speed; s.z += input.move.z * speed; s.y = Math.max(-2, s.y + up * speed);
-    s.vx = 0; s.vy = 0; s.vz = 0; s.onGround = false; s.sneaking = input.sneak;
-    this.state = s;
+  private toggleHud(): void {
+    this.hudVisible = !this.hudVisible;
+    this.hud.style.display = this.hudVisible ? '' : 'none';
   }
 
-  private readonly frame = (now: number): void => {
-    if (!this.open) return;
-    this.animId = requestAnimationFrame(this.frame);
-    const dt = Math.min(0.1, (now - this.lastFrame) / 1000);
-    this.lastFrame = now;
-    this.accumulator += dt;
-    const step = 1 / TICKS_PER_SECOND;
-    let ticks = 0;
-    while (this.accumulator >= step && ticks < 5) { this.tick(); this.accumulator -= step; ticks++; }
-    if (this.riding) this.applyRidingCamera();
-    else if (this.sitting) this.applySittingCamera();
-    else if (this.pinball) this.applyPinballCamera();
-    else {
-      const alpha = Math.min(1, this.accumulator / step);
-      const a = this.prevState, b = this.state;
-      const eye = (b.sneaking && !this.noclip ? PLAYER_HEIGHT - 0.53 : PLAYER_HEIGHT - 0.18);
-      this.camera.position.set(a.x + (b.x - a.x) * alpha, a.y + (b.y - a.y) * alpha + eye, a.z + (b.z - a.z) * alpha);
-      this.camera.rotation.set(0, 0, 0);
-      this.camera.rotation.order = 'YXZ';
-      this.camera.rotation.y = this.yaw;
-      this.camera.rotation.x = this.pitch;
-    }
-    this.updateInteractives(dt);
-    this.updateInteract();
-    const { renderer } = this.viewer;
-    renderer.setRenderTarget(null);
-    renderer.render(this.scene, this.camera);
-    this.placeLabels();
-    this.updatePositionReadout();
-  };
+  // ── Labels and the readout ──────────────────────────────────────────────
 
   private placeLabels(): void {
     const w = this.viewer.container.clientWidth, h = this.viewer.container.clientHeight;
@@ -1716,14 +1362,23 @@ class AddonWalk implements AddonPreviewHandle {
     }
   }
 
-  private updatePositionReadout(): void {
+  private updatePositionReadout(f: SimFrame | undefined, _dt: number): void {
     const el = this.hintEl;
-    if (this.riding) { const c = this.camera.position; el.textContent = `riding · ${(this.carWorld.get(this.riding.entityIndex)?.frame.moving ? 'under way' : 'stopped')} · x ${c.x.toFixed(1)} y ${c.y.toFixed(2)} z ${c.z.toFixed(1)}`; return; }
-    if (this.sitting) { el.textContent = 'seated'; return; }
-    if (this.pinball) { el.textContent = this.pinballHudLine(); return; }
-    const s = this.state;
-    const f = this.sizePct / 100;
-    el.textContent = `${this.noclip ? 'free-fly' : s.onGround ? 'on ground' : 'airborne'} · x ${s.x.toFixed(1)} y ${s.y.toFixed(2)} z ${s.z.toFixed(1)} (blocks from the pin at ${this.sizePct} %; ${(s.y / f).toFixed(2)} up at 100 %)`;
+    if (this.simState === 'placing') { el.textContent = 'placing with the pack\'s own wand…'; return; }
+    if (this.simState === 'error') { el.textContent = `simulator error: ${this.simError}`; return; }
+    if (!f) return;
+    const a = this.anchor, p = f.player, fs = this.sizePct / 100;
+    const where = `x ${(p.x - a.x).toFixed(1)} y ${(p.y - a.y).toFixed(2)} z ${(p.z - a.z).toFixed(1)} (blocks from the pin at ${this.sizePct} %; ${((p.y - a.y) / fs).toFixed(2)} up at 100 %)`;
+    const state = p.riding ? `riding ${this.labelOf(this.holders.get(p.riding)?.typeId ?? '')}` : p.flying ? 'free-fly' : p.onGround ? 'on ground' : 'airborne';
+    el.textContent = `tick ${f.tick} · ${state}${p.sneaking ? ' · sneaking' : ''} · slot ${p.slot + 1} · ${where}${this.stepLabel ? ` · step: ${this.stepLabel}` : ''}`;
+  }
+
+  /** The action bar and the title fade as the game's do. */
+  private fadeLines(now: number): void {
+    const ab = this.actionbar && now - this.actionbar.at < ACTIONBAR_MS ? this.actionbar.text : '';
+    if (this.actionbarEl.textContent !== ab) { this.actionbarEl.textContent = ab; this.actionbarEl.style.display = ab ? '' : 'none'; }
+    const t = this.title && now - this.title.at < ACTIONBAR_MS ? this.title.text : '';
+    if (this.titleEl.textContent !== t) { this.titleEl.textContent = t; this.titleEl.style.display = t ? '' : 'none'; }
   }
 
   // ── DOM ─────────────────────────────────────────────────────────────────
@@ -1739,50 +1394,62 @@ class AddonWalk implements AddonPreviewHandle {
       <div class="ap-look" tabindex="0" aria-label="Add-on walk view"></div>
       <div class="ap-labels"></div>
       <div class="ap-crosshair"></div>
-      <div class="ap-banner">Walks the <b>exact collider blocks</b> this pack lays at the chosen size and turn. Reachability is simulated; confirm it in Minecraft. ${materialEvidence} It does <b>not</b> prove Bedrock's rendering, entity culling, form text, ride physics or memory — a device round still decides those.</div>
+      <div class="ap-banner">The <b>simulator</b> runs this pack's own scripts over the blocks its wand lays; the walker draws it. ${materialEvidence} It does <b>not</b> prove Bedrock's rendering, culling, form text, camera easing or the phone's touch pick — a device round still decides those.</div>
+      <div class="ap-title-line" style="display:none"></div>
       <div class="ap-interact"></div>
+      <div class="ap-actionbar" style="display:none"></div>
+      <div class="ap-log"></div>
       <div class="ap-hud">
         <div class="ap-panel ap-legend"></div>
         <div class="ap-panel ap-size"></div>
         <div class="ap-panel ap-reach"></div>
         <div class="ap-panel ap-targets"></div>
       </div>
+      <div class="ap-side">
+        <div class="ap-panel ap-sim"></div>
+        <div class="ap-panel ap-violations"></div>
+      </div>
       <div class="ap-top">
         <button type="button" class="ap-btn" data-act="hud" title="Hide or show the panels (H)">Panels</button>
-        <button type="button" class="ap-btn" data-act="respawn" title="Back to the start beside the model (R)">Respawn</button>
-        <button type="button" class="ap-btn" data-act="fly" title="Free-fly through everything, no collision (F)">Free-fly</button>
+        <button type="button" class="ap-btn" data-act="respawn" title="Back to where the child placed from (R)">Respawn</button>
+        <button type="button" class="ap-btn" data-act="fly" title="Free-fly: the walker's own inspection mode, no collision (F)">Free-fly</button>
         <button type="button" class="ap-btn ap-exit" data-act="exit" title="Leave the walk and return to the model">Exit walk</button>
       </div>
       <div class="ap-hint"></div>
-      <div class="ap-keys">${this.isTouch ? 'Left pad: move · drag right side: look · buttons: jump / sneak / interact / sprint' : 'Click to look · WASD move · Space jump · E interact · Shift sneak/dismount · Ctrl sprint · F fly · R respawn · [ ] size · H panels · Esc release'}</div>
+      <div class="ap-keys">${this.isTouch ? 'Left pad: move · drag right side: look · tap the view: tap · buttons: jump / sneak (toggle) / hold / sprint · hotbar: wand, chase, cockpit' : 'Click to look · WASD move · Space jump · Shift sneak · C sneak toggle · click tap · E / right click hold · 1-9 hotbar (9 cockpit) · Ctrl sprint · F fly · R respawn · [ ] size · H panels · Esc release'}</div>
       <div class="ap-touch" ${this.isTouch ? '' : 'hidden'}>
         <div class="ap-stick"><div class="ap-knob"></div></div>
         <div class="ap-touch-btns">
-          <button type="button" class="ap-tbtn ap-tbtn-interact" data-t="interact">Interact</button>
+          <button type="button" class="ap-tbtn ap-tbtn-interact" data-t="hold">Hold</button>
           <button type="button" class="ap-tbtn" data-t="jump">Jump</button>
           <button type="button" class="ap-tbtn" data-t="sneak">Sneak</button>
           <button type="button" class="ap-tbtn" data-t="sprint">Sprint</button>
         </div>
+        <div class="ap-slots">
+          <button type="button" class="ap-tbtn ap-slot" data-slot="0" title="Hotbar 1: the Brick Wand">Wand</button>
+          <button type="button" class="ap-tbtn ap-slot" data-slot="1" title="Hotbar 2: chase camera while riding">Chase</button>
+          <button type="button" class="ap-tbtn ap-slot" data-slot="8" title="Hotbar 9: cockpit view while riding">Cockpit</button>
+        </div>
       </div>
-      <div class="ap-pinball-touch" style="display:none">
-        <button type="button" class="ap-tbtn ap-pb-left" data-pb="left">Left</button>
-        <button type="button" class="ap-tbtn ap-pb-right" data-pb="right">Right</button>
-        <button type="button" class="ap-tbtn ap-tbtn-interact ap-pb-launch" data-pb="launch">Launch</button>
-        <button type="button" class="ap-tbtn ap-exit ap-pb-leave" data-pb="leave">Leave</button>
-      </div>`;
+      <div class="ap-form" style="display:none"></div>`;
     container.appendChild(root);
     this.root = root;
     this.lookLayer = root.querySelector('.ap-look')!;
     this.labelLayer = root.querySelector('.ap-labels')!;
     this.interactEl = root.querySelector('.ap-interact')!;
+    this.actionbarEl = root.querySelector('.ap-actionbar')!;
+    this.titleEl = root.querySelector('.ap-title-line')!;
+    this.logEl = root.querySelector('.ap-log')!;
     this.hud = root.querySelector('.ap-hud')!;
     this.legendEl = root.querySelector('.ap-legend')!;
     this.sizeEl = root.querySelector('.ap-size')!;
     this.reachEl = root.querySelector('.ap-reach')!;
     this.targetsEl = root.querySelector('.ap-targets')!;
+    this.simEl = root.querySelector('.ap-sim')!;
+    this.violationsEl = root.querySelector('.ap-violations')!;
+    this.formEl = root.querySelector('.ap-form')!;
+    this.bannerEl = root.querySelector('.ap-banner')!;
     this.hintEl = root.querySelector('.ap-hint')!;
-    this.touchMoveEl = root.querySelector('.ap-touch')!;
-    this.pinballTouchEl = root.querySelector('.ap-pinball-touch')!;
     this.wireInput();
     this.resizeObs = new ResizeObserver(() => this.onResize());
     this.resizeObs.observe(container);
@@ -1802,46 +1469,45 @@ class AddonWalk implements AddonPreviewHandle {
 
   private wireInput(): void {
     const look = this.lookLayer;
-    // Mouse look: pointer lock on click (fine pointers); a plain drag looks around when the lock is refused or on touch.
-    this.on(look, 'click', () => { if (!this.isTouch && !this.pinball && document.pointerLockElement !== look) look.requestPointerLock?.(); });
+    // Mouse: pointer lock on the first click (fine pointers); once locked, a left click TAPS and a right click HOLDS
+    // at the crosshair (the phone's tap and press). A plain drag looks around when the lock is refused or on touch.
+    this.on(look, 'click', () => { if (!this.isTouch && !this.form && document.pointerLockElement !== look) look.requestPointerLock?.(); });
+    this.on(look, 'mousedown', (e: MouseEvent) => {
+      if (document.pointerLockElement !== look || this.form) return;
+      if (e.button === 0) this.tapQueued = true;
+      else if (e.button === 2) this.holdQueued = true;
+    });
+    this.on(look, 'contextmenu', (e: MouseEvent) => { e.preventDefault(); });
     this.on(document, 'mousemove', (e: MouseEvent) => {
       if (document.pointerLockElement !== look) return;
-      this.turn(e.movementX, e.movementY);
+      this.turn(e.movementX * MOUSE_DEG_PER_PX, e.movementY * MOUSE_DEG_PER_PX);
     });
-    let drag: { id: number; x: number; y: number } | null = null;
-    // Pinball: a press on the left / right half of the view holds that
-    // flipper, and a press while a ball waits charges the plunger (released on
-    // lift) — the same screen halves the pack's tap zones give on the device.
-    let pinballPress: { id: number; side: 'left' | 'right'; launch: boolean } | null = null;
+    let drag: { id: number; x: number; y: number; startX: number; startY: number; at: number; moved: boolean } | null = null;
     this.on(look, 'pointerdown', (e: PointerEvent) => {
-      if (this.pinball) {
-        const r = look.getBoundingClientRect();
-        const side = e.clientX < r.left + r.width / 2 ? 'left' : 'right';
-        const launch = this.pinball.sim.state.phase !== 'play';
-        pinballPress = { id: e.pointerId, side, launch };
-        this.touchPinball[side] = true;
-        if (launch) this.touchPinball.launch = true;
-        look.setPointerCapture(e.pointerId);
-        return;
-      }
-      if (document.pointerLockElement === look) return;
-      drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      if (document.pointerLockElement === look || this.form) return;
+      drag = { id: e.pointerId, x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, at: performance.now(), moved: false };
       look.setPointerCapture(e.pointerId);
     });
-    const endPinballPress = (e: PointerEvent): void => {
-      if (!pinballPress || e.pointerId !== pinballPress.id) return;
-      this.touchPinball[pinballPress.side] = false;
-      if (pinballPress.launch) this.touchPinball.launch = false;
-      pinballPress = null;
-    };
-    this.on(look, 'pointerup', endPinballPress);
-    this.on(look, 'pointercancel', endPinballPress);
     this.on(look, 'pointermove', (e: PointerEvent) => {
       if (!drag || e.pointerId !== drag.id) return;
-      this.turn((e.clientX - drag.x) * 1.6, (e.clientY - drag.y) * 1.6);
-      drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > 8) drag.moved = true;
+      // A finger's drag goes to the simulator in PIXELS (it turns them at the phone's measured sensitivity); a
+      // mouse drag without the lock in degrees.
+      if (e.pointerType === 'touch') { if (!this.form) this.dragPx = { dx: this.dragPx.dx + (e.clientX - drag.x), dy: this.dragPx.dy + (e.clientY - drag.y) }; }
+      else this.turn((e.clientX - drag.x) * MOUSE_DEG_PER_PX, (e.clientY - drag.y) * MOUSE_DEG_PER_PX);
+      drag = { ...drag, x: e.clientX, y: e.clientY };
     });
-    const endDrag = (e: PointerEvent): void => { if (drag && e.pointerId === drag.id) drag = null; };
+    const endDrag = (e: PointerEvent): void => {
+      if (!drag || e.pointerId !== drag.id) return;
+      // A short touch that did not move is a TAP where the finger landed: the simulator's screen pick decides what it
+      // hits (with Split Controls, the QA phones' setting, the crosshair; without, the touched point).
+      if (e.pointerType === 'touch' && !drag.moved && performance.now() - drag.at < 300) {
+        const r = look.getBoundingClientRect();
+        this.tapAt = { x: e.clientX - r.left, y: e.clientY - r.top };
+        this.tapQueued = true;
+      }
+      drag = null;
+    };
     this.on(look, 'pointerup', endDrag);
     this.on(look, 'pointercancel', endDrag);
 
@@ -1849,18 +1515,20 @@ class AddonWalk implements AddonPreviewHandle {
     this.on(window, 'keydown', (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-      if (e.code === 'Escape') { if (this.pinball) { this.leavePinball(); e.preventDefault(); return; } if (!document.pointerLockElement) { this.close(); e.preventDefault(); } return; }
+      if (e.code === 'Escape') { if (this.form) { this.answerForm({ cancel: true }); e.preventDefault(); return; } if (!document.pointerLockElement) { this.close(); e.preventDefault(); } return; }
       if (e.code === 'KeyF') { this.toggleFly(); e.preventDefault(); return; }
       if (e.code === 'KeyR') { this.respawn(); e.preventDefault(); return; }
       if (e.code === 'KeyH') { this.toggleHud(); e.preventDefault(); return; }
-      if (e.code === 'KeyE' && !e.repeat) { this.interactQueued = true; e.preventDefault(); return; }
+      if (e.code === 'KeyC' && !e.repeat) { this.pressSneakToggle(); e.preventDefault(); return; }
+      if (e.code === 'KeyE' && !e.repeat) { this.holdQueued = true; e.preventDefault(); return; }
+      if (e.code === 'KeyT' && !e.repeat) { this.tapQueued = true; e.preventDefault(); return; }
+      if (/^Digit[1-9]$/.test(e.code)) { this.slotQueued = Number(e.code.slice(5)) - 1; e.preventDefault(); return; }
       if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
         const i = this.model.sizes.indexOf(this.sizePct) + (e.code === 'BracketRight' ? 1 : -1);
         const next = this.model.sizes[i];
         if (next !== undefined) this.setSize(next);
         e.preventDefault(); return;
       }
-      if (e.code === 'Space' && !e.repeat) this.jumpQueued = true;
       this.keys.add(e.code);
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     });
@@ -1884,9 +1552,12 @@ class AddonWalk implements AddonPreviewHandle {
         this.applyLegendVisibility(); this.renderHud();
       }
       else if (act === 'goto') { const t = this.targets[Number(btn.dataset['i'])]; if (t) this.goTo(t); }
+      else if (act === 'autojump') { this.autoJump = !this.autoJump; this.renderSimPanel(); }
+      else if (act === 'form') { const i = Number(btn.dataset['i']); this.answerForm(i < 0 ? { cancel: true } : { button: i }); }
+      else if (act === 'clear-violations') { this.violations.length = 0; this.violationCounts.clear(); this.renderSimPanel(); }
     });
 
-    // Touch: a virtual stick and hold buttons.
+    // Touch: a virtual stick and hold buttons; Sneak is a TOGGLE (the phone's default).
     const stick = this.root.querySelector('.ap-stick') as HTMLDivElement;
     const knob = this.root.querySelector('.ap-knob') as HTMLDivElement;
     let stickId: number | null = null;
@@ -1904,62 +1575,53 @@ class AddonWalk implements AddonPreviewHandle {
     const endStick = (e: PointerEvent): void => { if (e.pointerId !== stickId) return; stickId = null; this.touchMove = { x: 0, y: 0 }; knob.style.transform = ''; };
     this.on(stick, 'pointerup', endStick);
     this.on(stick, 'pointercancel', endStick);
-    for (const b of this.root.querySelectorAll<HTMLButtonElement>('.ap-tbtn')) {
+    for (const b of this.root.querySelectorAll<HTMLButtonElement>('.ap-tbtn[data-t]')) {
       const which = b.dataset['t'];
       const set = (on: boolean): void => {
-        if (which === 'jump') { this.touchJump = on; if (on) this.jumpQueued = true; }
-        else if (which === 'sneak') this.touchSneak = on;
+        if (which === 'jump') this.touchJump = on;
         else if (which === 'sprint') this.touchSprint = on;
-        else if (which === 'interact') { if (on) this.interactQueued = true; }
-        b.classList.toggle('on', on);
+        else if (which === 'hold') { if (on) this.touchHold = true; }
+        if (which !== 'sneak') b.classList.toggle('on', on);
       };
+      if (which === 'sneak') { this.on(b, 'pointerdown', (e: PointerEvent) => { this.pressSneakToggle(); e.preventDefault(); }); continue; }
       this.on(b, 'pointerdown', (e: PointerEvent) => { set(true); b.setPointerCapture(e.pointerId); e.preventDefault(); });
       this.on(b, 'pointerup', () => set(false));
       this.on(b, 'pointercancel', () => set(false));
     }
-
-    // Pinball touch controls: hold buttons for the flippers and the plunger, a tap to leave.
-    for (const b of this.root.querySelectorAll<HTMLButtonElement>('.ap-pinball-touch [data-pb]')) {
-      const which = b.dataset['pb'];
-      if (which === 'leave') {
-        this.on(b, 'pointerdown', (e: PointerEvent) => { this.leavePinball(); b.setPointerCapture(e.pointerId); e.preventDefault(); });
-        continue;
-      }
-      const set = (on: boolean): void => {
-        if (which === 'left') this.touchPinball.left = on;
-        else if (which === 'right') this.touchPinball.right = on;
-        else if (which === 'launch') this.touchPinball.launch = on;
-        b.classList.toggle('on', on);
-      };
-      this.on(b, 'pointerdown', (e: PointerEvent) => { set(true); b.setPointerCapture(e.pointerId); e.preventDefault(); });
-      this.on(b, 'pointerup', () => set(false));
-      this.on(b, 'pointercancel', () => set(false));
+    for (const b of this.root.querySelectorAll<HTMLButtonElement>('.ap-slot')) {
+      this.on(b, 'pointerdown', (e: PointerEvent) => { this.slotQueued = Number(b.dataset['slot']); e.preventDefault(); });
     }
   }
 
-  private turn(dx: number, dy: number): void {
-    this.yaw -= dx * 0.0025;
-    this.pitch = Math.max(-Math.PI / 2 + 0.02, Math.min(Math.PI / 2 - 0.02, this.pitch - dy * 0.0025));
+  /** One press of the sneak TOGGLE (the phone's button, C on a keyboard): the simulator flips and latches it. */
+  private pressSneakToggle(): void {
+    this.sneakToggleMode = true;
+    this.sneakPress = true;
   }
 
-  private toggleFly(): void {
-    if (!this.world) { this.onStatus(this.reachSummary, 'info'); return; }
-    this.noclip = !this.noclip;
-    if (!this.noclip) this.state = { ...this.state, vx: 0, vy: 0, vz: 0 };
-    this.renderHud();
+  private turn(dxDeg: number, dyDeg: number): void {
+    if (this.form) return;
+    this.lookDelta = { yaw: this.lookDelta.yaw + dxDeg, pitch: this.lookDelta.pitch + dyDeg };
   }
 
-  private toggleHud(): void {
-    this.hudVisible = !this.hudVisible;
-    this.hud.style.display = this.hudVisible ? '' : 'none';
+  private answerForm(answer: { cancel: true } | { button: number }): void {
+    if (!this.form) return;
+    const id = this.form.id;
+    this.form = null;
+    this.client.answerForm(id, answer);
+    this.renderForm();
   }
+
+  // ── HUD ─────────────────────────────────────────────────────────────────
+
+  private esc(s: string): string { return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] ?? c)); }
 
   private renderHud(): void {
     const { model } = this;
     const counts = legendCounts(model, this.sizePct, this.rotation);
     const rec = recommendedSize(model);
     const prov = model.provenance;
-    const esc = (s: string): string => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] ?? c));
+    const esc = (s: string): string => this.esc(s);
     this.legendEl.innerHTML = `
       <div class="ap-title">${esc(model.label)}${prov?.display ? ` <span class="ap-dim">${esc(prov.display)}</span>` : ''}</div>
       ${prov?.source?.file ? `<div class="ap-dim">${esc(prov.source.file)}${prov.source.hash ? ` · ${esc(prov.source.hash)}` : ''}${model.pack?.cuboids ? ` · ${model.pack.cuboids.toLocaleString()} cuboids / ${model.pack.entities} entities` : ''}</div>` : ''}
@@ -1981,16 +1643,16 @@ class AddonWalk implements AddonPreviewHandle {
       ${model.notes.length ? `<div class="ap-notes">${model.notes.map(n => `<div>${esc(n)}</div>`).join('')}</div>` : ''}`;
 
     this.sizeEl.innerHTML = `
-      <div class="ap-row ap-sizes">${model.sizes.map(s => `<button type="button" class="ap-tog ${s === this.sizePct ? 'on' : ''} ${rec?.sizePct === s ? 'rec' : ''}" data-act="size" data-size="${s}" title="${rec?.sizePct === s ? 'Recommended by the walk-through measurement' : `Re-lay the colliders at ${s} percent`}">${s}${rec?.sizePct === s ? ' <small>rec</small>' : ''}</button>`).join('')}<span class="ap-dim">%</span></div>
+      <div class="ap-row ap-sizes">${model.sizes.map(s => `<button type="button" class="ap-tog ${s === this.sizePct ? 'on' : ''} ${rec?.sizePct === s ? 'rec' : ''}" data-act="size" data-size="${s}" title="${rec?.sizePct === s ? 'Recommended by the walk-through measurement' : `Place again at ${s} percent`}">${s}${rec?.sizePct === s ? ' <small>rec</small>' : ''}</button>`).join('')}<span class="ap-dim">%</span></div>
       <div class="ap-row">turn ${QUARTER_TURNS.map(r => `<button type="button" class="ap-tog ${r === this.rotation ? 'on' : ''}" data-act="turn" data-turn="${r}" title="The wand's quarter turn; tread plans differ per turn">${r}°</button>`).join('')}
         <span class="ap-dim">${this.laidDims.width}×${this.laidDims.height}×${this.laidDims.length} blocks</span></div>
       ${rec ? `<div class="ap-dim ap-reason"><b>Walk-through size: ${rec.sizePct !== null ? `${rec.sizePct} %` : 'none'}.</b> ${esc(rec.reason)}</div>` : '<div class="ap-dim">This pack carries no walk-through measurement.</div>'}`;
 
     this.reachEl.innerHTML = `<div>${esc(this.reachSummary)}</div>
-      <div class="ap-dim">${this.noclip ? 'Free-fly: no collision, no gravity — reach claims do not apply to where you are.' : 'Walking: the player is the 0.6 × 1.8 box with Minecraft\'s jump and step.'}${this.treadCount && this.sizePct > 100 ? ` The ${this.treadCount} amber blocks are the invisible steps the pack lays at this size.` : ''}</div>`;
+      <div class="ap-dim">${this.fly ? 'Free-fly: the walker\'s own inspection mode, no collision — reach claims do not apply to where you are.' : 'Walking: the simulator\'s 0.6 × 1.8 player with Minecraft\'s jump and step over the blocks the wand laid.'}${this.treadCount && this.sizePct > 100 ? ` The ${this.treadCount} amber blocks are the invisible steps the pack lays at this size.` : ''}</div>`;
 
     const verdict = (t: Target): string => {
-      if (!this.world) return '<span class="ap-dim">no walk at this size</span>';
+      if (this.sizePct < 100 || !model.cells.length) return '<span class="ap-dim">no reach walk at this size</span>';
       if (!t.reach) return '<span class="ap-dim">checking…</span>';
       if (t.reach.bfs) return `<span style="color:${hex(COLOR_REACHED)}">reachable</span>`;
       return `<span style="color:${hex(COLOR_UNREACHED)}">NOT reachable</span>${t.reach.refusal ? ` <span class="ap-dim">— ${esc(t.reach.refusal.detail)}</span>` : ''}`;
@@ -1998,10 +1660,116 @@ class AddonWalk implements AddonPreviewHandle {
     const order = { station: 0, lift: 1, seat: 2, door: 3, figure: 4, vehicle: 5, track: 6, model: 7, collider: 8, tread: 9 } as const;
     const sorted = this.targets.map((t, i) => ({ t, i })).sort((a, b) => order[a.t.kind] - order[b.t.kind]);
     this.targetsEl.innerHTML = `<div class="ap-title">Can a player get there on foot?</div>
-      ${sorted.length ? sorted.map(({ t, i }) => `<div class="ap-target"><button type="button" class="ap-tog" data-act="goto" data-i="${i}" title="Fly to it">go</button> ${esc(t.label)}: ${verdict(t)}</div>`).join('') : `<div class="ap-dim">${this.world ? 'Nothing to test at this size.' : 'No walk at this size, so no verdicts.'}</div>`}
+      ${sorted.length ? sorted.map(({ t, i }) => `<div class="ap-target"><button type="button" class="ap-tog" data-act="goto" data-i="${i}" title="Fly to it">go</button> ${esc(t.label)}: ${verdict(t)}</div>`).join('') : `<div class="ap-dim">${model.cells.length ? 'Nothing to test at this size.' : 'No collider grid, so no verdicts.'}</div>`}
       ${this.verdictNote ? `<div class="ap-dim">${esc(this.verdictNote)}</div>` : ''}`;
-    this.root.querySelector<HTMLButtonElement>('[data-act="fly"]')?.classList.toggle('on', this.noclip);
+    this.root.querySelector<HTMLButtonElement>('[data-act="fly"]')?.classList.toggle('on', this.fly);
+    this.renderSimPanel();
+    this.renderLog();
   }
+
+  /** The simulator's own panel: its state, the client-side hooks present or standing in, the live violations. */
+  private renderSimPanel(): void {
+    const esc = (s: string): string => this.esc(s);
+    const info = this.ready, hooks = info?.hooks;
+    const ind = (on: boolean | undefined, yes: string, no: string): string => `<span class="ap-ind ${on ? 'ok' : 'raw'}">${on ? yes : no}</span>`;
+    const f = this.client.frame;
+    const state = this.simState === 'live' ? `live · tick ${f?.tick ?? 0} · ${this.tickMs.toFixed(1)} ms/tick${info?.inline ? ' · inline' : ' · Worker'}` : this.simState;
+    this.simEl.innerHTML = `<div class="ap-title">Simulator <span class="ap-dim">${esc(state)}</span></div>
+      <div class="ap-row ap-inds">
+        ${ind(hooks?.clientCamera, 'camera: client model', 'camera: raw')}
+        ${ind(hooks?.drag, 'drag: scheme-routed', 'drag: direct')}
+        ${ind(hooks?.tapScreen, 'tap: screen pick', 'tap: crosshair')}
+        ${ind(hooks?.sneakToggle, `sneak: sim ${this.sneakToggleMode ? 'toggle' : 'hold'}${f?.player.sneaking ? ' (ON)' : ''}`, 'sneak: walker toggle')}
+        <button type="button" class="ap-tog ${this.autoJump ? 'on' : ''}" data-act="autojump" title="Auto-jump (Bedrock's touch default, quirk auto-jump)">auto-jump ${this.autoJump ? 'on' : 'off'}</button>
+      </div>
+      ${this.unmodelled.length ? `<div class="ap-notes">UNKNOWN, never pass: the scripts reached API members the simulator does not model: ${esc(this.unmodelled.slice(0, 4).join(', '))}${this.unmodelled.length > 4 ? '…' : ''}</div>` : ''}
+      ${this.simError ? `<div class="ap-notes">${esc(this.simError)}</div>` : ''}`;
+    const counts = [...this.violationCounts].map(([id, n]) => `<span class="ap-vcount">${esc(id)} ×${n}</span>`).join(' ');
+    this.violationsEl.innerHTML = `<div class="ap-title">Invariants <span class="ap-dim">${this.violations.length ? `${this.violations.length} violation${this.violations.length === 1 ? '' : 's'}` : 'nothing raised'}</span>
+      ${this.violations.length ? '<button type="button" class="ap-tog" data-act="clear-violations" title="Forget the violations seen so far">clear</button>' : ''}</div>
+      ${counts ? `<div class="ap-row">${counts}</div>` : ''}
+      ${this.violations.slice(-6).reverse().map(v => `<div class="ap-violation"><b>${esc(v.invariant)}</b> <span class="ap-dim">tick ${v.tick}${v.step ? ` · ${esc(v.step)}` : ''}</span><br>${esc(v.message.slice(0, 220))}</div>`).join('')}`;
+    this.bannerEl.classList.toggle('ap-banner-warn', this.unmodelled.length > 0);
+  }
+
+  private renderLog(): void {
+    if (!this.logEl) return;
+    this.logEl.innerHTML = this.log.map(l => `<div class="ap-line ap-line-${l.kind}"><span class="ap-dim">${l.tick}${l.source ? ` ${this.esc(l.source.replace(/^scripts\//, ''))}` : ''}</span> ${this.esc(l.text.slice(0, 200))}</div>`).join('');
+  }
+
+  private renderForm(): void {
+    const form = this.form;
+    this.formEl.style.display = form ? '' : 'none';
+    if (!form) return;
+    const esc = (s: string): string => this.esc(s);
+    this.formEl.innerHTML = `<div class="ap-form-box">
+      <div class="ap-title">${esc(form.title)}</div>
+      ${form.body ? `<div class="ap-form-body">${esc(form.body).replace(/\n/g, '<br>')}</div>` : ''}
+      <div class="ap-form-btns">${form.buttons.map((b, i) => `<button type="button" class="ap-btn" data-act="form" data-i="${i}">${esc(b)}</button>`).join('')}
+        <button type="button" class="ap-btn ap-exit" data-act="form" data-i="-1">Close</button></div>
+      <div class="ap-dim">A form the pack's script showed (${form.kind}); answered through the simulator's chooser.</div>
+    </div>`;
+  }
+
+  // ── Dev hook surface (scripts/_shoot_addon_walk.mjs) ───────────────────
+
+  /** Where the camera stands and looks, world blocks and Bedrock angles (for a shot's JSON). */
+  get cameraState(): { x: number; y: number; z: number } { const p = this.camera.position; return { x: p.x + this.anchor.x, y: p.y + this.anchor.y, z: p.z + this.anchor.z }; }
+  get anchorPoint(): { x: number; y: number; z: number } { return { ...this.anchor }; }
+  get simClient(): AddonSimClient { return this.client; }
+  get entityHolders(): ReadonlyMap<string, EntityHolder> { return this.holders; }
+  get markerList(): readonly Marker[] { return this.markers; }
+  get legendState(): LegendState { return this.legend; }
+  get view(): WalkView { return { sizePct: this.sizePct, rotation: this.rotation }; }
+  get previewModel(): AddonPreviewModel { return this.model; }
+  get violationList(): readonly Violation[] { return this.violations; }
+  get logLines(): readonly SimLine[] { return this.log; }
+  get allLines(): readonly SimLine[] { return this.recentLines; }
+  /** What the block store holds: entries and a count per block type (a shot's JSON says what was drawn). */
+  get colliderStats(): { entries: number; byType: Record<string, number> } {
+    const byType: Record<string, number> = {};
+    for (const b of this.colliders.entries.values()) byType[b.typeId] = (byType[b.typeId] ?? 0) + 1;
+    return { entries: this.colliders.entries.size, byType };
+  }
+  /** The walk's own box on the page, for a shot clipped to the view. */
+  get viewRect(): { x: number; y: number; width: number; height: number } { const r = this.root.getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; }
+  /** Pin-frame bounds of a holder's drawn cubes (a shot frames a figure or a car by them). */
+  holderBounds(id: string): { min: THREE.Vector3; max: THREE.Vector3 } | null {
+    const h = this.holders.get(id);
+    if (!h) return null;
+    h.root.updateWorldMatrix(true, true);
+    const box = new THREE.Box3();
+    const m = new THREE.Matrix4(), corner = new THREE.Vector3();
+    h.root.traverse(o => {
+      const mesh = o as THREE.InstancedMesh;
+      if (!mesh.isInstancedMesh) return;
+      mesh.geometry.computeBoundingBox();
+      const b = mesh.geometry.boundingBox;
+      if (!b) return;
+      for (let i = 0; i < mesh.count; i++) {
+        mesh.getMatrixAt(i, m);
+        for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) box.expandByPoint(corner.set(x, y, z).applyMatrix4(m).applyMatrix4(mesh.matrixWorld));
+      }
+    });
+    return box.isEmpty() ? null : { min: box.min, max: box.max };
+  }
+  /** Free-fly the camera to a pin-frame point looking along a Bedrock yaw/pitch (a shot's framing). */
+  flyTo(x: number, y: number, z: number, yaw: number, pitch: number): void {
+    this.fly = true;
+    this.client.teleport({ x: x + this.anchor.x, y: y + this.anchor.y - 1.62, z: z + this.anchor.z, yaw, pitch, fly: true });
+    this.pendingLook = [];
+    this.lookDelta = { yaw: 0, pitch: 0 };
+  }
+  setFly(on: boolean): void { this.fly = on; }
+  queueTap(): void { this.tapQueued = true; }
+  queueHold(): void { this.holdQueued = true; }
+  selectSlot(i: number): void { this.slotQueued = i; }
+  /** Press the sneak toggle until the simulator reports the asked state (a harness's "Sneak on"). */
+  sneakToggle(on: boolean): void { if ((this.client.frame?.player.sneaking ?? false) !== on) this.pressSneakToggle(); }
+  pressKey(code: string, on: boolean): void { if (on) this.keys.add(code); else this.keys.delete(code); }
+  hidePanels(): void { this.hudVisible = false; this.hud.style.display = 'none'; this.root.querySelector<HTMLElement>('.ap-side')!.style.display = 'none'; }
+  /** Hide every holder but the named ids (a part seen through the building it stands in). */
+  isolate(ids: readonly string[] | null): void { for (const h of this.holders.values()) h.root.visible = ids === null ? true : ids.includes(h.id); }
 }
 
 // ─── Styles (scoped, injected once, so the lazy chunk carries its own look) ──
@@ -2018,8 +1786,16 @@ function ensureStyles(): void {
 .ap-crosshair{position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;pointer-events:none;border:1px solid rgba(255,255,255,.55);border-radius:50%}
 .ap-crosshair::after{content:"";position:absolute;left:6px;top:6px;width:2px;height:2px;background:#fff}
 .ap-banner{position:absolute;left:8px;right:8px;top:8px;padding:6px 10px;border-radius:6px;background:rgba(124,58,237,.18);border:1px solid rgba(167,139,250,.45);font-size:11px;pointer-events:none}
-.ap-interact{position:absolute;left:50%;bottom:34%;transform:translateX(-50%);padding:6px 14px;border-radius:20px;background:rgba(10,12,22,.85);border:1px solid rgba(250,204,21,.6);color:#fde68a;font-weight:600;font-size:13px;pointer-events:none;display:none;text-shadow:0 1px 2px #000}
-.ap-hud{position:absolute;left:8px;top:58px;bottom:48px;width:min(360px,calc(100% - 16px));display:flex;flex-direction:column;gap:6px;overflow:auto;pointer-events:none}
+.ap-banner-warn{background:rgba(234,88,12,.22);border-color:rgba(251,146,60,.6)}
+.ap-interact{position:absolute;left:50%;bottom:34%;transform:translateX(-50%);padding:6px 14px;border-radius:20px;background:rgba(10,12,22,.85);border:1px solid rgba(250,204,21,.6);color:#fde68a;font-weight:600;font-size:13px;pointer-events:none;display:none;text-shadow:0 1px 2px #000;max-width:70%;text-align:center}
+.ap-actionbar{position:absolute;left:50%;bottom:22%;transform:translateX(-50%);padding:5px 14px;border-radius:6px;background:rgba(10,12,22,.72);color:#fff;font-size:14px;pointer-events:none;text-shadow:0 1px 2px #000;max-width:80%;text-align:center}
+.ap-title-line{position:absolute;left:50%;top:38%;transform:translateX(-50%);font-size:28px;font-weight:700;color:#fff;pointer-events:none;text-shadow:0 2px 4px #000;text-align:center}
+.ap-log{position:absolute;left:8px;bottom:44px;width:min(440px,60%);pointer-events:none;display:flex;flex-direction:column;gap:2px}
+.ap-line{padding:2px 8px;border-radius:4px;background:rgba(8,10,18,.62);font-size:11px;text-shadow:0 1px 2px #000;white-space:pre-wrap;word-break:break-word}
+.ap-line-script-error,.ap-line-content-log{background:rgba(220,38,38,.35)}
+.ap-line-form{background:rgba(124,58,237,.3)}
+.ap-hud{position:absolute;left:8px;top:58px;bottom:190px;width:min(360px,calc(100% - 16px));display:flex;flex-direction:column;gap:6px;overflow:auto;pointer-events:none}
+.ap-side{position:absolute;right:8px;top:96px;bottom:48px;width:min(320px,calc(100% - 16px));display:flex;flex-direction:column;gap:6px;overflow:auto;pointer-events:none}
 .ap-panel{pointer-events:auto;padding:8px 10px;border-radius:8px;background:rgba(10,12,22,.82);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(4px)}
 .ap-title{font-weight:600;margin-bottom:4px}
 .ap-dim{opacity:.7}
@@ -2034,6 +1810,11 @@ function ensureStyles(): void {
 .ap-tog{min-width:34px;min-height:26px;padding:2px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.18);background:transparent;color:#cfd3e6;cursor:pointer;font:inherit}
 .ap-tog.on{background:#7c3aed;border-color:transparent;color:#fff}
 .ap-tog small{font-size:9px;opacity:.9}
+.ap-ind{padding:2px 7px;border-radius:10px;font-size:10px;border:1px solid}
+.ap-ind.ok{border-color:rgba(34,197,94,.6);color:#86efac}
+.ap-ind.raw{border-color:rgba(251,146,60,.6);color:#fdba74}
+.ap-vcount{padding:1px 6px;border-radius:10px;background:rgba(220,38,38,.3);font-size:10px}
+.ap-violation{margin:3px 0;padding:4px 6px;border-radius:4px;background:rgba(220,38,38,.18);font-size:11px}
 .ap-top{position:absolute;right:8px;top:58px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .ap-btn{min-height:30px;padding:4px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:rgba(10,12,22,.85);color:#e4e4ef;cursor:pointer;font:inherit}
 .ap-btn.on{background:#7c3aed;border-color:transparent}
@@ -2046,17 +1827,17 @@ function ensureStyles(): void {
 .ap-stick{position:absolute;left:18px;bottom:56px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);pointer-events:auto;touch-action:none}
 .ap-knob{position:absolute;left:50%;top:50%;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;background:rgba(167,139,250,.6)}
 .ap-touch-btns{position:absolute;right:14px;bottom:56px;display:flex;flex-direction:column;gap:10px;pointer-events:auto}
+.ap-slots{position:absolute;right:96px;bottom:56px;display:flex;flex-direction:column;gap:10px;pointer-events:auto}
 .ap-tbtn{width:70px;height:48px;border-radius:24px;border:1px solid rgba(255,255,255,.3);background:rgba(10,12,22,.75);color:#fff;font:inherit;touch-action:none}
 .ap-tbtn.on{background:#7c3aed}
 .ap-tbtn-interact{border-color:rgba(250,204,21,.6);color:#fde68a}
 .ap-tbtn-interact.on{background:#a16207}
-.ap-pinball-touch{position:absolute;inset:0;pointer-events:none}
-.ap-pinball-touch .ap-tbtn{position:absolute;pointer-events:auto}
-.ap-pb-left{left:18px;bottom:56px}
-.ap-pb-right{left:98px;bottom:56px}
-.ap-pb-launch{right:98px;bottom:56px;width:80px}
-.ap-pb-leave{right:14px;bottom:130px}
-@media (max-width:700px){.ap-banner{font-size:10px;padding:4px 8px}.ap-top{top:auto;bottom:auto;left:8px;right:8px;top:calc(8px + 5.5em);justify-content:space-between;gap:4px;z-index:3}.ap-btn{padding:3px 7px;font-size:11px;min-height:28px}.ap-hud{width:calc(100% - 16px);top:calc(8px + 5.5em + 36px);bottom:190px;z-index:2}.ap-keys{display:none}.ap-hint{bottom:8px;font-size:10px}}
+.ap-slot{width:64px;height:40px;font-size:11px}
+.ap-form{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:5}
+.ap-form-box{min-width:min(360px,90%);max-width:90%;padding:12px 14px;border-radius:10px;background:rgba(14,16,28,.96);border:1px solid rgba(167,139,250,.5)}
+.ap-form-body{margin:6px 0 10px;white-space:pre-wrap}
+.ap-form-btns{display:flex;flex-wrap:wrap;gap:6px}
+@media (max-width:700px){.ap-banner{font-size:10px;padding:4px 8px}.ap-top{top:auto;bottom:auto;left:8px;right:8px;top:calc(8px + 5.5em);justify-content:space-between;gap:4px;z-index:3}.ap-btn{padding:3px 7px;font-size:11px;min-height:28px}.ap-hud{width:calc(100% - 16px);top:calc(8px + 5.5em + 36px);bottom:190px;z-index:2}.ap-side{display:none}.ap-keys{display:none}.ap-hint{bottom:8px;font-size:10px}.ap-log{bottom:200px;width:50%}.ap-actionbar{bottom:30%}}
 `;
   document.head.appendChild(style);
 }

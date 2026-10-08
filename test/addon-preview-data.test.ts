@@ -8,10 +8,10 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import {
-  buildAddonPreviewModel, classifyAddonEntity, columnBoxes, defaultLegendState, entityCollisionFromSources, entitySpawnsAt, extractJsonAfter,
-  laidColliderBlocks, legendCounts, loadAddonPreviewModel, pinballPlanePoint, pinballRuntimeWorldPoint, placedDirection, placedPoint,
-  reachOverlay, readAddonPreviewFiles, recommendedSize, toggleLegend, treadBlocksAt,
-  type AddonPreviewModel,
+  buildAddonPreviewModel, classifyAddonEntity, columnBoxes, compileMolang, defaultLegendState, entityCollisionFromSources, entitySpawnsAt, evaluateClientAnimations, extractJsonAfter,
+  initializeClientAnimations, laidColliderBlocks, legendCounts, loadAddonPreviewModel, pinballPlanePoint, pinballRuntimeWorldPoint, placedDirection, placedPoint,
+  reachOverlay, readAddonPreviewFiles, readClientAnimations, recommendedSize, toggleLegend, treadBlocksAt,
+  type AddonPreviewModel, type MolangEnv,
 } from '../web/src/ui/addon-preview-data.js';
 import { ScaledColliderGrid, type SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
 import { encodeColliderRuns, encodeTreadPlan } from '../web/src/engine/bedrock-placement-pack.js';
@@ -381,6 +381,109 @@ describe('placedDirection', () => {
     const dims = { width: 20, height: 5, length: 30 };
     expect(placedDirection({ x: 2, y: 0, z: 0 }, dims, 150, 0)).toEqual({ x: 3, y: 0, z: 0 });
   });
+});
+
+// ─── Client animations: the pack's own Molang ────────────────────────────────
+
+/** An environment over fixed properties and queries, with its own variables. */
+function env(props: Record<string, number | boolean>, queries: Record<string, number> = {}): MolangEnv & { unknowns: string[] } {
+  const unknowns: string[] = [];
+  return { property: n => props[n], query: (n, args) => (n === 'movement_direction' ? [0.6, 0, 0.8][args[0] ?? 0] : queries[n]), vars: new Map(), unknown: n => unknowns.push(n), unknowns };
+}
+
+describe('compileMolang', () => {
+  it('reads properties, the math library in degrees, comparisons and ternaries as Molang does', () => {
+    const e = env({ 'craftmatic:rider': 1, 'craftmatic:occupied': false, 'craftmatic:track_pitch': -12.5 });
+    expect(compileMolang("query.property('craftmatic:track_pitch')")(e)).toBe(-12.5);
+    expect(compileMolang("-query.property('craftmatic:track_pitch')")(e)).toBe(12.5);
+    expect(compileMolang("query.property('craftmatic:rider') == 1 && !query.property('craftmatic:occupied') ? 1.0 : 0.0")(e)).toBe(1);
+    expect(compileMolang("query.property('craftmatic:rider') == 0 && !query.property('craftmatic:occupied') ? 1.0 : 0.0")(e)).toBe(0);
+    expect(compileMolang('math.cos(90)')(e)).toBeCloseTo(0, 12);
+    expect(compileMolang('math.clamp(5, -2, 2) + math.lerp(0, 10, 0.25)')(e)).toBe(4.5);
+    expect(compileMolang('math.atan2(1, 1)')(e)).toBeCloseTo(45, 9);
+    expect(compileMolang('(1 + 2) * 3 - 4 / 2')(e)).toBe(7);
+    expect(compileMolang('1 / 0')(e)).toBe(0);
+    expect(compileMolang("query.property('missing')")(e)).toBe(0);
+  });
+  it('runs statement lists over variables, as a pre_animation script does, and answers queries with arguments', () => {
+    const e = env({ 'craftmatic:angle': 90 }, { delta_time: 0.05 });
+    const ease = compileMolang("v.ix_angle = v.ix_angle + math.clamp(q.property('craftmatic:angle') - v.ix_angle, -q.delta_time * 225, q.delta_time * 225);");
+    expect(ease(e)).toBeCloseTo(11.25, 9);
+    expect(e.vars.get('ix_angle')).toBeCloseTo(11.25, 9);
+    for (let i = 0; i < 20; i++) ease(e);
+    expect(e.vars.get('ix_angle')).toBe(90);
+    expect(compileMolang('-v.ix_angle')(e)).toBe(-90);
+    expect(compileMolang('q.movement_direction(2) * 10')(e)).toBeCloseTo(8, 9);
+    expect(compileMolang('v.a = 1; v.b = v.a + 1; v.b * 2')(e)).toBe(4);
+  });
+  it('reports a query it has no answer for, once, and reads it as 0', () => {
+    const e = env({});
+    expect(compileMolang('q.head_bob_phase * 3')(e)).toBe(0);
+    expect(e.unknowns).toEqual(['head_bob_phase']);
+    expect(() => compileMolang('math.nonsense(1)')).toThrow(/unknown math/);
+    expect(() => compileMolang('q.property(')).toThrow();
+  });
+});
+
+describe('readClientAnimations', () => {
+  const entity = (typeId: string, animations: Record<string, string>, scripts: Record<string, unknown>): string =>
+    JSON.stringify({ format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: typeId, animations, scripts } } });
+  const clips = JSON.stringify({ format_version: '1.8.0', animations: {
+    'animation.x.track': { loop: true, bones: { track_pitch: { position: ["query.property('craftmatic:body_x')", 0, "query.property('craftmatic:body_z')"], rotation: ["query.property('craftmatic:track_pitch')", 0, 0] }, rider_0: { scale: "query.property('craftmatic:rider') == 0 && !query.property('craftmatic:occupied') ? 1.0 : 0.0" } } },
+    'animation.x.walk': { loop: true, bones: { leg_right: { rotation: ['math.cos(query.modified_distance_moved * 10) * 35 * query.is_moving', 0, 0] } } },
+    'animation.x.sit': { loop: true, bones: { leg_right: { rotation: [-90, 0, 0] } } },
+    'animation.x.turn': { loop: true, bones: { ix_spin: { rotation: [0, '-v.ix_angle', 0] } } },
+  } });
+  const sources = new Map([
+    ['RP/entity/car.entity.json', entity('craftmatic:car', { track: 'animation.x.track' }, { animate: ['track'] })],
+    ['RP/entity/fig.entity.json', entity('craftmatic:fig', { walk: 'animation.x.walk', sit: 'animation.x.sit' }, { animate: [{ walk: '!query.is_riding' }, { sit: 'query.is_riding' }] })],
+    ['RP/entity/door.entity.json', entity('craftmatic:door', { turn: 'animation.x.turn' }, { initialize: ["v.ix_angle = q.property('craftmatic:angle');"], pre_animation: ["v.ix_angle = v.ix_angle + math.clamp(q.property('craftmatic:angle') - v.ix_angle, -q.delta_time * 225, q.delta_time * 225);"], animate: ['turn'] })],
+    ['RP/entity/bad.entity.json', entity('craftmatic:bad', { gone: 'animation.x.missing' }, { animate: ['gone'] })],
+  ]);
+  const notes: string[] = [];
+  const sets = readClientAnimations(sources, new Map([['RP/animations/x.animation.json', clips]]), notes);
+
+  it('compiles each type\'s clips with their conditions, and notes a clip the pack does not ship', () => {
+    expect([...sets.keys()].sort()).toEqual(['craftmatic:car', 'craftmatic:door', 'craftmatic:fig']);
+    expect(sets.get('craftmatic:fig')!.clips.map(c => c.name)).toEqual(['walk', 'sit']);
+    expect(notes).toEqual(['craftmatic:bad animates "gone" but the pack ships no such clip (animation.x.missing).']);
+  });
+  it('a coaster car: the track_pitch bone turns and moves by the properties, a rider bone scales to 0 when another rider is chosen', () => {
+    const poses = evaluateClientAnimations(sets.get('craftmatic:car')!, env({ 'craftmatic:track_pitch': -20, 'craftmatic:body_x': 1.5, 'craftmatic:body_z': -3, 'craftmatic:rider': 1, 'craftmatic:occupied': false }));
+    expect(poses.get('track_pitch')).toEqual({ rotation: [-20, 0, 0], position: [1.5, 0, -3], scale: [1, 1, 1] });
+    expect(poses.get('rider_0')!.scale).toEqual([0, 0, 0]);
+  });
+  it('a figure: the walk clip swings the leg while moving and the sit clip replaces it while riding', () => {
+    const fig = sets.get('craftmatic:fig')!;
+    const walking = evaluateClientAnimations(fig, env({}, { is_riding: 0, is_moving: 1, modified_distance_moved: 0 }));
+    expect(walking.get('leg_right')!.rotation[0]).toBeCloseTo(35, 9);
+    const still = evaluateClientAnimations(fig, env({}, { is_riding: 0, is_moving: 0, modified_distance_moved: 0 }));
+    expect(still.get('leg_right')!.rotation[0]).toBe(0);
+    const seated = evaluateClientAnimations(fig, env({}, { is_riding: 1, is_moving: 0, modified_distance_moved: 0 }));
+    expect(seated.get('leg_right')!.rotation).toEqual([-90, 0, 0]);
+  });
+  it('a door: initialize sets the eased angle, pre_animation eases it toward the property at the clip\'s rate', () => {
+    const door = sets.get('craftmatic:door')!;
+    const e = env({ 'craftmatic:angle': 0 }, { delta_time: 0.05 });
+    initializeClientAnimations(door, e);
+    expect(evaluateClientAnimations(door, e).get('ix_spin')!.rotation[1]).toBe(0);
+    (e as { property: MolangEnv['property'] }).property = () => 90;
+    expect(evaluateClientAnimations(door, e).get('ix_spin')!.rotation[1]).toBeCloseTo(-11.25, 9);
+    for (let i = 0; i < 10; i++) evaluateClientAnimations(door, e);
+    expect(evaluateClientAnimations(door, e).get('ix_spin')!.rotation[1]).toBe(-90);
+  });
+});
+
+describe.skipIf(!havePacks)('client animations of the QA packs', () => {
+  it('10261: every coaster car plays its track clip and every figure its walk/sit clips', async () => {
+    const m = await loadAddonPreviewModel(readPack(PACK_10261));
+    const car = m.entities.find(e => e.kind === 'car')!;
+    const set = m.animations.get(car.typeId);
+    expect(set, car.typeId).toBeDefined();
+    expect(set!.clips.some(c => c.bones.has('track_pitch'))).toBe(true);
+    const fig = m.entities.find(e => e.kind === 'figure')!;
+    expect(m.animations.get(fig.typeId)!.clips.map(c => c.name).sort()).toEqual(['look', 'sit', 'walk']);
+  }, 60000);
 });
 
 describe.skipIf(!havePinballPack)('pinball CONFIG (real pack)', () => {
