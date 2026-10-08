@@ -289,6 +289,14 @@ on the next plan. A target no spot of which is reachable on foot is recorded
 `tap-target-unreachable-on-foot`) and the child is then put on the spot, so
 the tap is still tried - never a failure (IX-04: invisible geometry may
 unlock, never restrict; the model's own geometry may hide a part from feet).
+Round 30m at 100-400 % with `--walk` (`output/engine-d-20261008/walk.md`, 264
+scenarios): 818 walked approaches, 263 reached on foot, 555 not (about 85
+distinct parts over 19 packs, most of them upper-floor windows and doors).
+Read that count as an UPPER bound: the planner searches 24 blocks round the
+child and the goal, moves in 4 directions and drops at most 1.7, so a stair
+or a long way round outside that is missed; no route here has been compared
+with a device walk yet.
+
 The world invariant `no-entity-overlap` (`scenario/world-invariants.ts`) runs
 with the core ones: a mob never interpenetrates a `minecraft:is_collidable`
 entity.
