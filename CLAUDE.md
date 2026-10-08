@@ -65,6 +65,13 @@ and conventions there; keep this file as the short project entry point.
   runner, which globs the whole tree including copied apps under `output/`
   (2,755 tests, 74 failures that are not this code) and takes 16 minutes.
   See the [testing guide](docs/testing-guide.md) for suites and manual gates.
+  **`[vitest-worker]: Timeout calling "onTaskUpdate"` with every test green
+  is a worker whose event loop was blocked > 60 s**, not a flaky test: the
+  real-set export tests hold 10-15 s synchronous phases, which contention
+  stretched past the timeout at cores-1 workers (2026-10-08). The config caps
+  local workers at a third of the cores. To find the blocker, log
+  event-loop stalls with the current test name from a setup file
+  (`expect.getState().currentTestName`).
 - **Commit before generating any add-on pack.** A pack stamps the export
   pipeline's provenance into its NAME so an older build is recognisable at a
   glance in Minecraft's pack list; built from a dirty tree it can only say
@@ -373,10 +380,14 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   Nimbus out of place above 100 %. So `withSizeGroups`/`rideableAtSize`
   declare seats in the UNSCALED frame (`seatWorldOffset`), and the sim models
   it (quirk `seat-scales-with-entity`; `bun scripts/_seat_scale_check.ts
-  <packs>`). Whether `third_person_camera_radius` and the pre-scaled
-  `minecraft:collision_box` are also scaled again is UNMEASURED
-  (`TODO(seat-camera-radius)`). Measure that before trusting cull or hit
-  boxes above 100 %.
+  <packs>`). The `minecraft:collision_box` is scaled the same way
+  (MEASURED, Saga 30l: 14 x 10 for a declared 7 x 5 at 200 %), so boxes are
+  declared unscaled too (`collisionWorldBox`, quirk
+  `collision-box-scales-with-entity`). A seat's `third_person_camera_radius`
+  showed no effect at any size; the script chase camera scales its own boom
+  (`CHASE_BOOM_MAX_BLOCKS`). Bedrock sets a dismounted rider down near the
+  SEAT (inside a big hull at 200 %): scripted vehicles re-set it beside the
+  hull (`vehicleEgress`).
 - **The touch Sneak button is a TOGGLE.** After a seat's "Sneak to get off"
   it stays on, and a sneaking player never steps off a drop deeper than the
   step height. A Pixel round (30j) reported 10326 Door 3 as REGRESSED: the

@@ -1,6 +1,7 @@
 import { defineConfig, configDefaults } from 'vitest/config';
 import path from 'path';
 import { existsSync } from 'fs';
+import { availableParallelism } from 'os';
 
 // The local copy of the prod part mirror (clego's `ldraw_ref/`), when this
 // machine has it: tests needing post-2020 parts then read the disk instead of
@@ -47,6 +48,14 @@ export default defineConfig({
       ...(process.env['RUN_LIVE_TESTS'] ? [] : LIVE_TESTS),
     ],
     testTimeout: 60000,
+    // A third of the logical cores locally. The real-set export tests run
+    // synchronous phases of 10-15 s (shell compile, figure compiles,
+    // passability; the web runs them in a Worker, so no UI freezes); with the
+    // default cores-1 workers on this 24-thread box contention stretched one
+    // past vitest's 60 s worker RPC timeout ("Timeout calling onTaskUpdate",
+    // 2026-10-08: 910004's 13 s stall measured 59-65 s under load, still
+    // failing at half the cores). CI keeps vitest's default.
+    ...(process.env.CI ? {} : { maxWorkers: Math.max(2, Math.floor(availableParallelism() / 3)) }),
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],

@@ -6,7 +6,7 @@ import { currentPipelineStamp, packDisplayName, packProvenance, packVersionAt, p
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
-import { buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, visibleBoundsForSizeSteps, withSizeGroups, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
+import { buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, visibleBoundsForSizeSteps, withColliderTreadsAsync, withSizeGroups, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
 import { FLYER, flyerScript, type FlyerRuntimeConfig } from './bedrock-flyer.js';
 import type { CanonMount } from './set-canon.js';
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
@@ -3710,13 +3710,17 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         { name: `${rp}textures/entity/${id}_preview.png`, data: ghost.texturePng },
     );
     addEntityName(ghost.typeId, `${label} Preview`, false);
+    // Plan the treads in yielding steps: 16 size x turn plans run for minutes on a large set.
+    const doorCells = interactiveConfig ? interactiveConfig.items.flatMap(item => item.blocking) : undefined;
+    const plannedTreads = placementColliders ? await withColliderTreadsAsync(placementColliders, [], doorCells ?? []) : undefined;
     const placement = buildPlacementPackAssets({ stem: id, label, width: grid.width, height: grid.height, length: grid.length,
         tiles: plan.map(tile => ({ identifier: `${PACK_NAMESPACE}:${tile.name}`, dx: tile.x, dy: tile.y, dz: tile.z, width: tile.width, height: tile.height, length: tile.length, nonAir: tile.nonAir })), actors, previewPoints,
         ...(shellMigrations.length ? { shellMigrations } : {}),
         preview: { typeId: ghost.typeId },
         ...(placementColliders ? { colliders: placementColliders } : {}),
         // A doorway's threshold keeps the steps that climb to it from either side (`planColliderTreads` `doorCells`).
-        ...(interactiveConfig ? { doorCells: interactiveConfig.items.flatMap(item => item.blocking) } : {}),
+        ...(doorCells ? { doorCells } : {}),
+        ...(plannedTreads ? { plannedTreads } : {}),
         ...(timeMachineConfig ? { vehicleControls: true } : {}),
         ...(options.interactionNote || ixWalkNote ? { interactionNote: bedrockInGameText([options.interactionNote, ixWalkNote].filter(Boolean).join(' ')) } : {}),
         // The wand names the measured walk-through step and quotes the reason

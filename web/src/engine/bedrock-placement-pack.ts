@@ -170,6 +170,11 @@ export interface PlacementPackSpec {
    */
   doorCells?: ReadonlyArray<readonly (number | undefined)[]>;
   /**
+   * Treads already planned from `colliders`, `reachTargets` and `doorCells` by `withColliderTreadsAsync`
+   * (the async export path); when absent `buildPlacementPackAssets` plans them synchronously.
+   */
+  plannedTreads?: ColliderTreadsResult;
+  /**
    * Ticks each tile's ticking area stays alive after its `structure load`, and
    * ticks the last area is held after the final piece. A ticking area removed
    * the moment the command returns can unload the chunk before its block
@@ -592,13 +597,14 @@ export function decodeTreadPlan(plan: string): TreadBlock[] {
 /** The planner's rule in one sentence, carried in the pack's diagnostics beside the counts. */
 export const TREAD_RULE = 'An invisible step is laid only where a rise between two standable surfaces exceeds the player\'s 1.25-block jump at the chosen size while being within that jump in the 100 % grid (a rise the model\'s own figures climb), laid back over floor the player already reaches, in half-block hops where the floor allows and the fewest jump-height hops otherwise, keeping full standing headroom; a run that would make any previously reachable surface unreachable is reverted, so reachability only grows. A straight climb (a hill or a stair) whose riser exceeds the 1.2-block auto-jump also gets one, in auto-jump hops, kept only where the per-tick walker with auto-jump then climbs it and no other straight walk into its columns gets shorter. Where a surface these steps made reachable meets a fall of more than 4 blocks, the column it would fall into gets an invisible rail 1.5 blocks tall (on the footprint\'s border the surface itself is capped), never in a doorway and never cutting off a surface reached before.';
 
+/** The colliders with their tread plans attached, and the per-plan report (`withColliderTreads`). */
+export interface ColliderTreadsResult { colliders: PlacementColliders; report: PlacementTreadReport }
+
 /**
- * Plan treads for every size step above 100 % and every quarter turn, and
- * attach the encoded plans to the shipped colliders. 100 % is never planned:
- * the tiles carry the grid verbatim and the planner is empty there by
- * construction (asserted in test/bedrock-collider-treads.test.ts).
+ * One tread planning job: the planner's inputs, prepared once, and a `plan(pct, r)` step that adds one size
+ * and turn's plan to the result. Shared by the sync and async entry points so they cannot drift.
  */
-export function withColliderTreads(colliders: PlacementColliders, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = []): { colliders: PlacementColliders; report: PlacementTreadReport } {
+function colliderTreadsJob(colliders: PlacementColliders, targets: readonly ReachTarget[], doorCells: ReadonlyArray<readonly (number | undefined)[]>): { plan: (pct: number, r: QuarterTurn) => void; result: () => ColliderTreadsResult } {
   // Planned over the grid as it was BEFORE clearance: every clearance form
   // (collider-form.ts) read as the full cell over its vertical extent. A tread
   // only ever fills a column the planner found standable and clear, and its
@@ -617,20 +623,52 @@ export function withColliderTreads(colliders: PlacementColliders, targets: reado
   const plans: Record<string, string> = {}, counts: Record<string, number> = {};
   const report: PlacementTreadReport = { rule: TREAD_RULE, plans: [] };
   const blocksAt100 = (t16: number, f: number): number => Math.round(t16 / 16 / f * 100) / 100;
-  for (const pct of SIZE_STEPS) {
-    if (pct <= 100) continue;
-    for (const r of QUARTER_TURNS) {
+  return {
+    plan(pct, r) {
       const plan = planColliderTreads(cells, dims, pct, r, targets, doorCells, { walk: colliderLaneWalk(formCells, dims, pct, r), cells: formCells });
       const f = pct / 100;
       const { blocks, before, after, ...rest } = plan;
       report.plans.push({ ...rest, blocks: blocks.length, before: { surfaces: before.surfaces, columns: before.columns, highestBlocks: blocksAt100(before.highest16, f) }, after: { surfaces: after.surfaces, columns: after.columns, highestBlocks: blocksAt100(after.highest16, f) } });
-      if (!blocks.length) continue;
+      if (!blocks.length) return;
       const key = `${pct}:${r}`;
       plans[key] = encodeTreadPlan(blocks);
       counts[key] = blocks.length;
-    }
+    },
+    result: () => ({ colliders: Object.keys(plans).length ? { ...colliders, treads: { plans, counts } } : colliders, report }),
+  };
+}
+
+/** Every planned size step (above 100 %) and quarter turn, in planning order. */
+function treadPlanSteps(): Array<[number, QuarterTurn]> {
+  return SIZE_STEPS.filter(pct => pct > 100).flatMap(pct => QUARTER_TURNS.map(r => [pct, r] as [number, QuarterTurn]));
+}
+
+/**
+ * Plan treads for every size step above 100 % and every quarter turn, and
+ * attach the encoded plans to the shipped colliders. 100 % is never planned:
+ * the tiles carry the grid verbatim and the planner is empty there by
+ * construction (asserted in test/bedrock-collider-treads.test.ts).
+ */
+export function withColliderTreads(colliders: PlacementColliders, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = []): ColliderTreadsResult {
+  const job = colliderTreadsJob(colliders, targets, doorCells);
+  for (const [pct, r] of treadPlanSteps()) job.plan(pct, r);
+  return job.result();
+}
+
+/**
+ * `withColliderTreads`, yielding to the event loop between plans. One large set's 16 plans run for minutes
+ * since the lane and guard passes (10261: ~180 s); in one synchronous stretch that starved the vitest
+ * worker's RPC ("Timeout calling onTaskUpdate", 2026-10-08) and would freeze a page's main thread the same
+ * way. The async export path (`buildPlayableAddon`) plans here and hands the result to
+ * `buildPlacementPackAssets` as `spec.plannedTreads`.
+ */
+export async function withColliderTreadsAsync(colliders: PlacementColliders, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = []): Promise<ColliderTreadsResult> {
+  const job = colliderTreadsJob(colliders, targets, doorCells);
+  for (const [pct, r] of treadPlanSteps()) {
+    job.plan(pct, r);
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
   }
-  return { colliders: Object.keys(plans).length ? { ...colliders, treads: { plans, counts } } : colliders, report };
+  return job.result();
 }
 
 /**
@@ -1981,7 +2019,9 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
   const shortAlias = placementAlias(spec.stem);
   // Invisible steps are planned from the shipped grid here, so a brick-shell
   // pack carries them without the pipeline knowing (bedrock-collider-scale.ts).
-  const treads = spec.colliders && spec.treads !== false ? withColliderTreads(spec.colliders, spec.reachTargets ?? [], spec.doorCells ?? []) : undefined;
+  const treads = spec.colliders && spec.treads !== false
+    ? spec.plannedTreads ?? withColliderTreads(spec.colliders, spec.reachTargets ?? [], spec.doorCells ?? [])
+    : undefined;
   const config = { id, shortAlias, vehicleControls: spec.vehicleControls === true, label: spec.label, itemId, width: spec.width, height: spec.height, length: spec.length, tiles: spec.tiles, actors: spec.actors ?? [], previewPoints: (spec.previewPoints ?? []).slice(0, 120),
     preview: spec.preview ?? null, colliders: treads ? treads.colliders : spec.colliders ?? null, interactionNote: spec.interactionNote ?? '', access: spec.access ?? null, manualSeatTypeId: spec.manualSeatTypeId ?? '', runtimeDoorCandidates: spec.runtimeDoorCandidates ?? [], sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40,
     // Last, so a reader keying on the older fields' order (a test's regex) reads unchanged.

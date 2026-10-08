@@ -113,6 +113,9 @@ describe.skipIf(!HAVE)('doorways of real sets are passable open and blocked clos
       const failures: string[] = [];
       let okAt100 = 0;
       for (const { it, i } of doorways) for (const size of [100, 200]) for (const rot of [0, 90] as QuarterTurn[]) {
+        // Yield between walks: the whole loop runs ~60 s on a large set and, in one synchronous
+        // stretch under the parallel suite, starved the worker's RPC ("Timeout calling onTaskUpdate").
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
         const open = walkThroughDoorway(pack, i, size, rot, true);
         const closed = walkThroughDoorway(pack, i, size, rot, false);
         const passed100 = size > 100 && walkThroughDoorway(pack, i, 100, rot, true).outcome === 'passed';
