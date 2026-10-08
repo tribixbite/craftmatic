@@ -1,16 +1,21 @@
 /**
  * The engine systems that move PLAYERS and what they ride, each tick:
  *
- *   players   the per-tick player (`tickPlayer`) over the dimension's voxels,
- *             from the held controls; a riding player instead drives its
- *             mount (native hover controller) or dismounts on a sneak;
+ *   players   each player's queued touch drag first (input/drag.ts, routed
+ *             by the control scheme), then the per-tick player (`tickPlayer`)
+ *             over the dimension's voxels from the held controls; a riding
+ *             player instead drives its mount (native hover controller) or
+ *             dismounts on a sneak;
  *   mounts    native hover mounts (`free_camera_controlled` + hover movement,
  *             a flyer's or rotorcraft's controller) at the device-measured
  *             speeds (quirks `hover-controller-speed`, `hover-climb-descend`,
- *             `hover-descend-needs-jump`);
- *   riders    every rider back on its seat after its mount moved, a player on
- *             a lock-181 seat turned round with its vehicle `rider-yaw-lag`
- *             ticks late (the carry that spun the Nimbus, Saga 30l).
+ *             `hover-descend-needs-jump`), moved in 4-tick bursts (quirk
+ *             `native-mount-bursts`);
+ *   riders    a newly seated player's yaw snapped onto the heading (quirk
+ *             `mount-snaps-rider-yaw`), then every rider back on its seat
+ *             after its mount moved, a player on a lock-181 seat turned round
+ *             with its vehicle `rider-yaw-lag` ticks late (the carry that spun
+ *             the Nimbus, Saga 30l).
  *
  * Split out of `systems.ts` (which keeps the bodies: mobs and effects) so the
  * input/client work and the world/body work edit different files.
@@ -23,6 +28,7 @@ import { PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, TICKS_PER_SECOND, moveB
 import type { VoxelWorld } from '../world/voxel-world.js';
 import { stickToWorld, type ControlState } from '../input/controls.js';
 import { hasEffect, stateOf, trackFall, wrapDeg } from './shared.js';
+import { applyPendingDrag } from '../input/drag.js';
 
 /**
  * The spots a dismounted player is tried at, in the device's order, as (dx, dz) blocks from the SEAT
@@ -117,6 +123,32 @@ export function isHoverMount(e: SimEntity): boolean {
   return 'minecraft:free_camera_controlled' in e.components && ('minecraft:movement.hover' in e.components || 'minecraft:can_fly' in e.components);
 }
 
+/**
+ * The mount snap (quirk `mount-snaps-rider-yaw`, modelled since 2026-10-08): the yaw OFFSET a PLAYER has from the
+ * mount's heading when it is first seen seated is taken out over the next ticks - `snapSharePerTick` of what is
+ * left each tick, the rest at `snapTicksMax` - and the pitch is kept. It is the offset at mounting that is removed,
+ * not every later look change: a drag made during those ticks stays (whether the device's client fights a finger
+ * through its snap is not measured), and the vehicle's own turns reach the rider by the carry (`rider-yaw-lag`).
+ * Any seat, however the rider got on (a hold, `addRider`, `/ride`): the riders system watches who sits where rather
+ * than hooking `SimEntity.addRider`, so a script mount and a scenario's direct `addRider` meet the same snap. Saga
+ * 30k: the free look read the device's snap as a 180-degree drag until `FREE_LOOK.MOUNT_SETTLE_TICKS`.
+ */
+function snapNewRiders(en: SimEngine, seatedOn: Map<string, { mount: string; ticks: number; left: number }>): void {
+  const share = quirkValue('mount-snaps-rider-yaw', 'snapSharePerTick'), last = Math.round(quirkValue('mount-snaps-rider-yaw', 'snapTicksMax'));
+  for (const p of en.players) {
+    const m = p.valid ? p.ridingOn : undefined;
+    if (!m) { seatedOn.delete(p.id); continue; }
+    const rec = seatedOn.get(p.id);
+    const s = rec && rec.mount === m.id ? { ...rec, ticks: rec.ticks + 1 } : { mount: m.id, ticks: 0, left: wrapDeg(m.rotation.y - p.rotation.y) };
+    if (s.ticks <= last && s.left !== 0) {
+      const step = s.ticks === last ? s.left : s.left * share;
+      p.rotation = { x: p.rotation.x, y: wrapDeg(p.rotation.y + step) };
+      s.left -= step;
+    }
+    seatedOn.set(p.id, s);
+  }
+}
+
 /** Install the player, mount and rider systems on an engine; the controls are the input module's. */
 export function installPlayerSystems(engine: SimEngine, controls: ControlState): void {
   /** Players whose last move decided an auto-jump (`PlayerControls.autoJump`): they jump on the next tick. */
@@ -125,6 +157,9 @@ export function installPlayerSystems(engine: SimEngine, controls: ControlState):
     name: 'players', order: ORDER.players, tick(en) {
       for (const p of en.players) {
         if (!p.valid) continue;
+        // The client's look arrives with its input: a queued touch drag turns the look (or only the camera orbit)
+        // before anything moves, routed by the control scheme (input/drag.ts, quirk `control-scheme-drag-to-camera`).
+        applyPendingDrag(en, controls, p);
         const c = controls.get(p.id);
         const sneakEdge = controls.takeSneakEdge(p.id);
         if (p.ridingOn) {
@@ -156,8 +191,12 @@ export function installPlayerSystems(engine: SimEngine, controls: ControlState):
     },
   });
 
+  /** Each native mount's move not yet applied: the controller's server position moves every `burstTicks` ticks. */
+  const burstMove = new Map<string, { x: number; y: number; z: number }>();
   engine.addSystem({
     name: 'mounts', order: ORDER.mounts, tick(en) {
+      const burst = Math.max(1, Math.round(quirkValue('native-mount-bursts', 'burstTicks')));
+      for (const id of [...burstMove.keys()]) if (!en.entities.get(id)?.valid) burstMove.delete(id);
       for (const m of en.loadedEntities()) {
         if (!isHoverMount(m)) continue;
         const driver = m.riders[0];
@@ -180,11 +219,18 @@ export function installPlayerSystems(engine: SimEngine, controls: ControlState):
             vy = action > 0 ? quirkValue('hover-climb-descend', 'climbBlocksPerSecond') / TICKS_PER_SECOND : action < 0 ? -quirkValue('hover-climb-descend', 'descendBlocksPerSecond') / TICKS_PER_SECOND : 0;
           }
         }
-        if (!vx && !vy && !vz) continue;
+        // The server position moves in BURSTS (quirk `native-mount-bursts`, modelled since 2026-10-08): the
+        // controller's move is summed and applied on the world ticks divisible by `burstTicks`, so a script reading
+        // the mount sees it stand, then jump; its yaw chase above stays per tick.
+        const acc = burstMove.get(m.id) ?? { x: 0, y: 0, z: 0 };
+        acc.x += vx; acc.y += vy; acc.z += vz;
+        if (!acc.x && !acc.y && !acc.z) { burstMove.delete(m.id); continue; }
+        if (en.tick % burst !== 0) { burstMove.set(m.id, acc); continue; }
+        burstMove.delete(m.id);
         const world = en.dimension(m.dimension);
         const { width, height } = m.collisionSize();
         const box = { x0: m.location.x - width / 2, y0: m.location.y, z0: m.location.z - width / 2, x1: m.location.x + width / 2, y1: m.location.y + height, z1: m.location.z + width / 2 };
-        const r = m.physics().collision ? moveBox(world, box, { dx: vx, dy: vy, dz: vz }, false) : { dx: vx, dy: vy, dz: vz };
+        const r = m.physics().collision ? moveBox(world, box, { dx: acc.x, dy: acc.y, dz: acc.z }, false) : { dx: acc.x, dy: acc.y, dz: acc.z };
         m.location = { x: m.location.x + r.dx, y: m.location.y + r.dy, z: m.location.z + r.dz };
       }
     },
@@ -195,9 +241,12 @@ export function installPlayerSystems(engine: SimEngine, controls: ControlState):
    * turns a lock-181 seat's rider round with its vehicle, `rider-yaw-lag` ticks late.
    */
   const yawTrail = new Map<string, number[]>();
+  /** Each seated PLAYER's mount and the ticks since it was first seen on it, for the mount snap. */
+  const seatedOn = new Map<string, { mount: string; ticks: number; left: number }>();
   engine.addSystem({
     name: 'riders', order: ORDER.riders, tick(en) {
       const lag = Math.max(0, Math.round(quirkValue('rider-yaw-lag', 'ticks')));
+      snapNewRiders(en, seatedOn);
       for (const id of [...yawTrail.keys()]) { const e = en.entities.get(id); if (!e?.valid || !e.riders.length) yawTrail.delete(id); }
       for (const e of en.entities.values()) {
         if (!e.valid || !e.riders.length) continue;

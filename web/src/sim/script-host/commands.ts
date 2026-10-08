@@ -1,7 +1,8 @@
 /**
  * The slash commands the packs run through `runCommand`, executed on the
  * engine: `tickingarea add|remove`, `structure load`, `ride ... start_riding`,
- * `controlscheme`, `setblock`, and `tp` for scenarios. A command the
+ * `controlscheme`, `setblock`, `scriptevent`, and `tp` (with its optional
+ * rotation) for scenarios and device-script replays. A command the
  * simulator does not implement is Unmodelled (recorded and thrown), never a
  * silent success.
  */
@@ -148,8 +149,19 @@ export function runCommand(host: FacadeHost, dimension: string, line: string, so
     case 'tp': case 'teleport': {
       const targets = selectEntities(engine, t[1] ?? '@s', source, dimension);
       const to = { x: coord(t[2], base.x), y: coord(t[3], base.y), z: coord(t[4], base.z) };
-      for (const e of targets) teleport(host, e, to);
+      // `/tp <target> <x y z> [yRot] [xRot]`: the optional rotation (each may be relative, `~`) is the target's own.
+      for (const e of targets) {
+        const rot = t[5] !== undefined && t[5] !== 'facing' ? { y: coord(t[5], e.rotation.y), x: t[6] !== undefined ? coord(t[6], e.rotation.x) : e.rotation.x } : undefined;
+        teleport(host, e, to, rot ? { rotation: rot } : undefined);
+      }
       return { successCount: targets.length };
+    }
+    case 'scriptevent': {
+      // `/scriptevent <namespace:id> [message]`: `system.afterEvents.scriptEventReceive` with this source.
+      const id = t[1] ?? '';
+      if (!/^[a-z0-9_.-]+:[a-z0-9_./-]+$/i.test(id)) return { successCount: 0 };
+      engine.emit('scriptEventReceive', { id, message: t.slice(2).join(' '), ...(source ? { sourceEntity: source } : {}) });
+      return { successCount: 1 };
     }
     default: break;
   }
