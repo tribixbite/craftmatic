@@ -159,7 +159,8 @@ declines (the simulator still places and walks the real blocks).
 Playing it from a phone on the LAN: `bun dev:web --host`, read vite's
 Network line, open `http://<lan-ip>:4000/?tab=lego`, export or "Open
 .mcaddon…", then "Walk add-on". The whole simulator runs in the phone's
-browser; a Pixel 8 Pro keeps 20 Hz on 10261 at 100 %.
+browser (its tick rate on a phone is not measured yet: the HUD's ms/tick
+readout is the number to record the first time).
 
 What it proves and what it does not: everything the simulator models (the
 quirk registry, CLAUDE.md) - the integrator over the wand's blocks, the
