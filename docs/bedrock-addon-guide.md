@@ -715,8 +715,10 @@ round settles them.
   - *Size* (menu 10, steps 150/200/300/400/25/50/75/100 %): actor positions scale
     about the pin (`worldPoint`), each spawned actor gets `craftmatic:size_<pct>`
     (`withSizeGroups`: one component group per step with `minecraft:scale`, a scaled
-    `collision_box` and, for a mount, `minecraft:rideable` with seat positions and
-    camera radius scaled - `minecraft:scale` is assumed NOT to move a rider's seat), the
+    `collision_box` and, for a mount, `minecraft:rideable` with every seat declared in
+    the entity's UNSCALED frame and the camera radius scaled - `minecraft:scale`
+    MULTIPLIES a declared seat position, measured on the Saga 2026-10-07; see "A seat
+    is declared unscaled" under "Where the player sits"), the
     ghost gets the same event. Blocks: a brick-shell pack ships its collider grid as
     run-length text (`encodeColliderRuns`, value 0..136 = air or a `(lo,hi)` pair,
     `[valueChar][countChar]` pairs, chalet ≈ a few KB) and the script re-lays it at the
@@ -4271,6 +4273,61 @@ now counted from the source and judged against the pack
 - An invisible rider still shows what it holds (the invisibility effect); the
   chase camera then shows the vehicle without a driver.
 - None of round 2 is seen on a device yet.
+
+### A seat is declared unscaled: Bedrock scales it with the entity (2026-10-07, SEAT-01)
+
+Saga round 30k (`output/device-round-2026-10-07k/saga/notes.md` item 8): the
+Milano 76286 at 100 % seats the player in the front cabin looking out of the
+nose (`r27-strip.jpg`, rider eye (0, 5.7, 3.6) = the shipped seat (0, 4.58,
+3.6) + 1.12). At 200 % - by `/summon` + `craftmatic:size_200`, and again by
+the wand (`s105-strip.jpg`, `r29-grid.jpg`) - the player floated ~6 blocks
+over the hull and 14 ahead of it (`r28-mil200-side-zoom.jpg`): eye (0, 21.68,
+14.4), feet (0, 20.16, 14.4). The pack's `size_200` group declared its seat
+at (0, 10.28, 7.2) - the 100 % seat ALREADY scaled (`5.7 x 2 - 1.12`) - under
+`minecraft:scale` 2, and 21.68 = 2 x 10.28 + 1.12: **the device multiplies a
+declared seat position by the entity's `minecraft:scale`, and does not scale
+the rider's 1.12 eye offset over it.** The 25-150 % groups had never been
+ridden on a device (the X-wing at 150 % "sat in the cockpit" with its seat
+1.3 blocks further back than meant, which a long canopy hides), so the
+2026-09-17 assumption that scale does not move a seat survived three weeks.
+Microsoft's `minecraft:scale` page says only "the scale multiplier for visual
+size"; nothing documents the seat.
+
+The rule now (`rideableAtSize`, bedrock-placement-pack.ts; quirk
+`seat-scales-with-entity`): a size group declares every seat in the entity's
+unscaled frame - the world offset the device realises is `declared x scale`.
+A plain seat (a coaster car's measured seat, the scenery seat's -0.3 under
+the pan, the pinball pad, a companion seat) is therefore the SAME authored
+position in every group; a compiled vehicle's eye-anchored seat
+(`seatPositionAt`, which is and always was the wanted WORLD offset: the
+scaled driver's eye less the unscaled 1.12) is divided by the group's scale
+on the way into the JSON, so 76286's 200 % group now declares (0, 5.14, 3.6)
+and the device realises (0, 10.28, 7.2): eye (0, 11.4, 7.2), the 100 % eye
+scaled. Player-sized entities (scale capped at 1) keep their authored seat
+too. The camera radius is still written scaled and clamped - whether the
+device scales it as well is unmeasured (`TODO(seat-camera-radius)`; the
+rounds ride the script chase camera).
+
+Offline, every size (`web/src/sim/adapters/craftmatic/seat-scale.ts`):
+`bun scripts/_seat_scale_check.ts <packs>` judges every rideable's realised
+seat (declared x scale) twice. At 100 % it must be IN or ON what the vehicle
+draws (`seatOnDrawn`: within the drawn footprint and no more than 0.75 over
+the drawn surface under it; the hidden body may hang under a small car's
+floor below 100 %, the eye may not) - the 100 % seats are the ones the device
+rounds verified. At every other size it must sit where the 100 % seat sits
+SCALED ONCE (`seatScaleDrift`: x and z the 100 % seat's times the scale, y
+anywhere between the plain-scaled seat and the eye-anchored one, 0.3 of
+slack) - a judgement that does not depend on the hull, because the model
+scales and the player does not: an open deck's rider sits (f - 1) x 1.12
+higher over the deck at size f by the eye-anchor's design, and a coaster
+tub's rider f x its 100 % height over the rim. The place against the
+geometry at that scale is reported beside it. `bun scripts/sim.ts <packs>`
+runs the same as the `seats-every-size` scenario plus a `seat-on-vehicle`
+check on every mounted driver; regression case `milano-seat-200-30k`. On the
+round's packs (78e06246) every 100 % row is in or on its vehicle and the
+150-400 % rows of every vehicle, coaster car, ship, Gabby car and the Nimbus
+cloud drift by (f - 1) x their whole offset - the same fault in every
+rideable kind, found on one.
 
 ### The driver's eye sees the road ahead (2026-09-30, `output/cockpit-0930/`)
 

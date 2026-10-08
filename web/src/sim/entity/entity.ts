@@ -184,11 +184,16 @@ export class SimEntity {
     return true;
   }
 
-  /** A seat's position in the world. */
+  /**
+   * A seat's position in the world: the declared seat times `minecraft:scale`
+   * (quirk `seat-scales-with-entity`, Saga 30k: a 200 % group's seat written
+   * pre-scaled put the rider at 2 x 2 x the 100 % offset), turned by the yaw.
+   */
   seatWorld(seat: number): Vec3 {
     const r = this.rideable();
-    const s = r?.seats[Math.min(seat, Math.max(0, (r?.seats.length ?? 1) - 1))]?.position ?? { x: 0, y: 0, z: 0 };
-    const o = rotateYaw(s, this.rotation.y);
+    const d = r?.seats[Math.min(seat, Math.max(0, (r?.seats.length ?? 1) - 1))]?.position ?? { x: 0, y: 0, z: 0 };
+    const k = this.scale();
+    const o = rotateYaw({ x: d.x * k, y: d.y * k, z: d.z * k }, this.rotation.y);
     return { x: this.location.x + o.x, y: this.location.y + o.y, z: this.location.z + o.z };
   }
 

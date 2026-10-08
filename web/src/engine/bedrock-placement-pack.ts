@@ -327,26 +327,62 @@ const clampCameraRadius = (v: number): number =>
   Math.min(CAMERA_RADIUS_MAX, Math.max(CAMERA_RADIUS_MIN, v));
 
 /**
- * A `minecraft:rideable` component with every seat position (and camera
- * radius) scaled by `f`. `seatAt` overrides how a position scales (a vehicle
- * whose rider is hidden at `f` keeps the rider's EYE on the scaled driver's
- * eye, cockpit-seat.ts `seatPositionAt`); by default it scales about the origin.
+ * A `minecraft:rideable` component as the size group whose `minecraft:scale`
+ * is `scale` ships it.
+ *
+ * **Bedrock multiplies a seat's `position` by the entity's `minecraft:scale`;
+ * the rider's eye offset over the seat (1.12) is not scaled** (SEAT-01, Saga
+ * round 30k, 2026-10-07: 76286's `size_200` group declared the seat at
+ * (0, 10.28, 7.2) - the 100 % seat already scaled - and the device read the
+ * rider's eye at (0, 21.68, 14.4) = 2 x seat + 1.12, six blocks over the hull
+ * and fourteen ahead; at 100 % the same pack read (0, 5.7, 3.6) = seat
+ * (0, 4.58, 3.6) + 1.12. `output/device-round-2026-10-07k/saga/notes.md`
+ * item 8, `r28-mil200-side-zoom.jpg`, `r29-grid.jpg`; the 25-150 % groups
+ * were never ridden on a device, and the documentation says only that the
+ * scale "sets the entity's visual size".) So a seat is declared in the
+ * entity's UNSCALED frame: the world offset the device realises is
+ * `declared x scale`, and the declared value is the wanted world offset
+ * divided by the scale.
+ *
+ * Wanted world offset at `scale`: by default the authored seat scaled about
+ * the origin with the model (`position x scale`), so the declared seat is
+ * simply the authored one at every step; a vehicle passes `seatAt`
+ * (cockpit-seat.ts `seatPositionAt`: the rider's EYE stays on the scaled
+ * driver's eye, so the unscaled eye offset is taken out before the scale),
+ * and its result is divided by `scale` on the way into the JSON.
+ *
+ * # TODO(seat-camera-radius): whether `third_person_camera_radius` is scaled
+ * by the device as the seat is was not measured (the rounds ride the script
+ * chase camera); it is still written scaled and clamped.
  */
-function scaleRideable(rideable: Record<string, unknown>, f: number, seatAt?: SeatAtSize): Record<string, unknown> {
-  const scaleSeat = (seat: Record<string, unknown>): Record<string, unknown> => ({
+function rideableAtSize(rideable: Record<string, unknown>, scale: number, seatAt?: SeatAtSize): Record<string, unknown> {
+  const declare = (position: [number, number, number]): [number, number, number] => {
+    if (!seatAt) return position;
+    const world = seatAt(position, scale);
+    return [round3(world[0] / scale), round3(world[1] / scale), round3(world[2] / scale)];
+  };
+  const seatAtSize = (seat: Record<string, unknown>): Record<string, unknown> => ({
     ...seat,
-    ...(Array.isArray(seat.position)
-      ? { position: seatAt ? seatAt(seat.position as [number, number, number], f) : (seat.position as number[]).map(v => round3(v * f)) }
-      : {}),
+    ...(Array.isArray(seat.position) ? { position: declare(seat.position as [number, number, number]) } : {}),
     ...(typeof seat.third_person_camera_radius === 'number'
-      ? { third_person_camera_radius: clampCameraRadius(round3(seat.third_person_camera_radius * f)) }
+      ? { third_person_camera_radius: clampCameraRadius(round3(seat.third_person_camera_radius * scale)) }
       : {}),
   });
   const seats = rideable.seats;
   return {
     ...rideable,
-    seats: Array.isArray(seats) ? seats.map(s => scaleSeat(s as Record<string, unknown>)) : seats && typeof seats === 'object' ? scaleSeat(seats as Record<string, unknown>) : seats,
+    seats: Array.isArray(seats) ? seats.map(s => seatAtSize(s as Record<string, unknown>)) : seats && typeof seats === 'object' ? seatAtSize(seats as Record<string, unknown>) : seats,
   };
+}
+
+/**
+ * The world offset of a seat the device realises from a size group: the
+ * declared position times the group's `minecraft:scale` (the rule above).
+ * The simulator's entity model applies the same fact (quirk
+ * `seat-scales-with-entity`); exported so a test can state it once.
+ */
+export function seatWorldOffset(declared: readonly [number, number, number], scale: number): [number, number, number] {
+  return [declared[0] * scale, declared[1] * scale, declared[2] * scale];
 }
 
 /**
@@ -366,11 +402,15 @@ function scaleRideable(rideable: Record<string, unknown>, f: number, seatAt?: Se
  */
 export interface SizeGroupOptions {
   playerSized?: boolean;
-  /** A seat's position at wand factor `f` (a vehicle's rider seat, cockpit-seat.ts); default: scaled about the origin. */
+  /** A seat's WORLD offset at wand factor `f` (a vehicle's rider seat, cockpit-seat.ts); default: the authored seat scaled about the origin. */
   seatAt?: SeatAtSize;
 }
 
-/** Where a seat authored at `position` (100 %) goes at wand factor `f`. */
+/**
+ * Where a seat authored at `position` (100 %) goes at wand factor `f`, as a
+ * WORLD offset from the entity (what the device realises, not what the JSON
+ * declares: `rideableAtSize` divides it by the group's scale).
+ */
 export type SeatAtSize = (position: [number, number, number], f: number) => [number, number, number];
 
 /** The size factor a player-sized entity takes at wand factor `f`: never above 1. */
@@ -379,11 +419,13 @@ export const figureSizeFactor = (f: number): number => Math.min(1, f);
 /**
  * Give an entity definition one component group per size step, each setting
  * `minecraft:scale`, a collision box scaled to match and (for a mount) its
- * seats scaled too - `minecraft:scale` does not move a rider's seat, so a
- * half-size car would otherwise seat the player at full height. The
- * `craftmatic:size_<pct>` event selects one step and drops the others;
- * `craftmatic:size_100` drops them all. Groups and events the definition
- * already has (an aircraft's descend group) are kept.
+ * `minecraft:rideable` with every seat declared in the entity's UNSCALED
+ * frame - `minecraft:scale` scales a seat position itself (measured, see
+ * `rideableAtSize`; until 2026-10-07 the seats were written pre-scaled and
+ * the device scaled them again: 76286's rider at 200 % sat six blocks over
+ * the hull). The `craftmatic:size_<pct>` event selects one step and drops the
+ * others; `craftmatic:size_100` drops them all. Groups and events the
+ * definition already has (an aircraft's descend group) are kept.
  *
  * A `playerSized` entity (see `SizeGroupOptions`) still carries every group,
  * so the runtime's one `triggerEvent(size_<pct>)` per actor works unchanged,
@@ -408,11 +450,13 @@ export function withSizeGroups(
   const names = SIZE_STEPS.map(p => `${SIZE_EVENT_PREFIX}${p}`);
   for (const pct of SIZE_STEPS) {
     const name = `${SIZE_EVENT_PREFIX}${pct}`;
-    const f = options.playerSized ? figureSizeFactor(pct / 100) : pct / 100;
+    const f = pct / 100;
+    // The group's own scale: a player-sized entity never grows past 1.
+    const scale = options.playerSized ? figureSizeFactor(f) : f;
     groups[name] = {
-      'minecraft:scale': { value: f },
-      'minecraft:collision_box': { width: round3(collision.width * f), height: round3(collision.height * f) },
-      ...(rideable ? { 'minecraft:rideable': scaleRideable(rideable, f, options.seatAt) } : {}),
+      'minecraft:scale': { value: scale },
+      'minecraft:collision_box': { width: round3(collision.width * scale), height: round3(collision.height * scale) },
+      ...(rideable ? { 'minecraft:rideable': rideableAtSize(rideable, scale, options.seatAt) } : {}),
     };
     events[name] = { remove: { component_groups: names.filter(n => n !== name) }, add: { component_groups: [name] } };
   }

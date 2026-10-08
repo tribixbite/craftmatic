@@ -21,6 +21,7 @@ import { runSchemPipeline, type SchemPipelineResult } from '../web/src/engine/sc
 import { discoverSceneActors } from '../web/src/engine/bedrock-scene-actors.js';
 import { FLYER, findMounts } from '../web/src/engine/bedrock-flyer.js';
 import { RIDE } from '../web/src/engine/bedrock-rides.js';
+import { seatWorldOffset } from '../web/src/engine/bedrock-placement-pack.js';
 import { SET_CANON } from '../web/src/engine/set-canon.js';
 import { modelExportStem } from '../web/src/engine/export-name.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
@@ -100,8 +101,12 @@ function nimbusPackTests(get: () => Pack): void {
     expect(seat.seats.position[2]).toBe(0);
     expect(seat.seats.position[1]).toBeGreaterThan(0.15); // on top of a cloud a few plates and a slope tall
     expect(seat.seats.position[1]).toBeLessThan(1.5);
-    // The seat scales with the mount (a 200 % cloud seats the rider twice as high).
-    expect(e.component_groups['craftmatic:size_200']['minecraft:rideable'].seats.position[1]).toBeCloseTo(seat.seats.position[1] * 2, 2);
+    // The seat scales with the mount (a 200 % cloud seats the rider twice as high, on its top): the
+    // group declares the SAME seat and the device multiplies it by its scale 2 (quirk
+    // seat-scales-with-entity, Saga 30k) - written pre-scaled, the 30k Nimbus seat sat 1.67 over its cloud.
+    const declared200 = e.component_groups['craftmatic:size_200']['minecraft:rideable'].seats.position[1];
+    expect(declared200).toBeCloseTo(seat.seats.position[1], 3);
+    expect(seatWorldOffset([0, declared200, 0], 2)[1]).toBeCloseTo(seat.seats.position[1] * 2, 2);
     // Drawn with the drive animation that bobs it.
     const anim = await json(`${rp}animations/${flyer}.animation.json`);
     expect(anim.animations[`animation.craftmatic.${flyer}.drive`].bones.body.position).toEqual([0, 'v.cm_bob', 0]);

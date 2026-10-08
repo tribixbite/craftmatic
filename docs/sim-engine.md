@@ -253,7 +253,12 @@ every entity the placement tagged), `tapInteractives`, `doorwayLines`,
 `tapPartFrom` (a device round's tap replayed: `{ label, feet, at }` in blocks
 from the placement's anchor, the device's pinned corner; a tap that does not
 move the part is a `tap-in-plain-view` violation carrying the refusal
-record), `rideSlide`, `rideLift`, `driveVehicle`, `driveUnderFixture`, `flyMount`,
+record), `rideSlide`, `rideLift`, `driveVehicle` (which also checks the
+mounted driver's seat - the declared seat times the vehicle's scale, quirk
+`seat-scales-with-entity` - is in or on the drawn vehicle: `seat-on-vehicle`),
+`seatsEverySize` (every rideable's seat at every wand step from the JSON
+alone, `adapters/craftmatic/seat-scale.ts`; the child-play scenario
+`seats-every-size`), `driveUnderFixture`, `flyMount`,
 `figuresLive`, `visitSeatedFigures`, `snapshot`;
 the hop's (`adapters/craftmatic/hop.ts`): `mountSpawned`, `fillTrain`,
 `flyIntoTrain`, `slideIntoParked`.

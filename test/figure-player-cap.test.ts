@@ -86,14 +86,17 @@ describe('the cap itself', () => {
       const f = Math.min(1, pct / 100);
       expect(g['minecraft:scale'].value).toBe(f);
       expect(g['minecraft:collision_box']).toEqual({ width: Math.round(0.6 * f * 1000) / 1000, height: Math.round(1.8 * f * 1000) / 1000 });
-      expect(g['minecraft:rideable'].seats.position).toEqual([0, Math.round(-0.3 * f * 1000) / 1000, 0]);
+      // The seat is declared unscaled at every step: the device multiplies it by the group's scale
+      // (quirk seat-scales-with-entity, Saga 30k), so the realised offset is -0.3 x f.
+      expect(g['minecraft:rideable'].seats.position).toEqual([0, -0.3, 0]);
     }
     expect(groups['craftmatic:size_400']['minecraft:scale'].value).toBe(1);
     expect(groups['craftmatic:size_50']['minecraft:scale'].value).toBe(0.5);
     // The default (a vehicle, a shell) is unchanged: it scales all the way.
     const vehicle = withSizeGroups(base, { width: 0.6, height: 1.8 }, rideable) as any;
     expect(vehicle['minecraft:entity'].component_groups['craftmatic:size_400']['minecraft:scale'].value).toBe(4);
-    expect(vehicle['minecraft:entity'].component_groups['craftmatic:size_400']['minecraft:rideable'].seats.position).toEqual([0, -1.2, 0]);
+    // Declared unscaled; the device realises -0.3 x 4 = -1.2 from the scale 4 (seat-scales-with-entity).
+    expect(vehicle['minecraft:entity'].component_groups['craftmatic:size_400']['minecraft:rideable'].seats.position).toEqual([0, -0.3, 0]);
   });
 });
 
@@ -151,7 +154,9 @@ describe('a figure in a 2× export is compiled at 1× (player height), while the
     const groups = seatBehavior['minecraft:entity'].component_groups;
     expect(groups['craftmatic:size_400']['minecraft:rideable'].seats.position).toEqual([0, -0.3, 0]);
     expect(groups['craftmatic:size_200']['minecraft:rideable'].seats.position).toEqual([0, -0.3, 0]);
-    expect(groups['craftmatic:size_50']['minecraft:rideable'].seats.position).toEqual([0, -0.15, 0]);
+    // At 50 % the group's scale is 0.5 and the device realises -0.15 from the same declared -0.3.
+    expect(groups['craftmatic:size_50']['minecraft:scale'].value).toBe(0.5);
+    expect(groups['craftmatic:size_50']['minecraft:rideable'].seats.position).toEqual([0, -0.3, 0]);
     // The seat ACTOR is a point inside the model and scales with it (worldPoint), the figure rides it.
     const actors = config.actors as Array<{ typeId: string; x: number; y: number; z: number; rideOf?: number }>;
     const seat = actors.findIndex(a => a.typeId === 'craftmatic:giant_seat');

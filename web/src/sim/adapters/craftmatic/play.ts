@@ -25,7 +25,7 @@
 
 import type { AnyStep, StepContext, StepHandler } from '../../scenario/types.js';
 import { CORE_HANDLERS, findEntity } from '../../scenario/runner.js';
-import { lookAngles, type Box, type Vec3 } from '../../core/vec.js';
+import { lookAngles, rotateYaw, type Box, type Vec3 } from '../../core/vec.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { teleport } from '../../script-host/facades.js';
 import { approachSpots, findApproach, standsAt, type ApproachSpot } from '../../scenario/approach.js';
@@ -37,6 +37,7 @@ import type { AddonAppearance } from './appearance.js';
 import type { VoxelWorld } from '../../world/voxel-world.js';
 import { driverViewWorld, drawnReaches, drawnTopOver, entityDrawn, type DrawnBox } from './drawn.js';
 import { modelToWorld, type CraftmaticPack, type Placed } from './pack-facts.js';
+import { describeDrift, describePlace, describeSeatRow, seatOnDrawn, seatScaleAudit, seatScaleDrift, seats100 } from './seat-scale.js';
 import { PLACED_KEY } from './wand.js';
 import { treadBlocksFor } from '../../../engine/bedrock-placement-pack.js';
 import { relayRounding, type QuarterTurn } from '../../../engine/bedrock-collider-scale.js';
@@ -172,6 +173,20 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       }
     },
 
+    /**
+     * Every rideable's seat against the drawn vehicle at EVERY wand step, from the pack's JSON alone
+     * (seat-scale.ts): the seat the device realises - the group's declared seat times its
+     * `minecraft:scale` - must be in or on what that scale draws. One `seat-on-vehicle` violation per
+     * seat and size off it. Needs no placement: `{ }`.
+     */
+    async seatsEverySize(_step: AnyStep, ctx: StepContext) {
+      const { rows, skipped } = seatScaleAudit(pack.pack, appearance);
+      const bad = rows.filter(r => !r.ok);
+      for (const r of bad) ctx.violate({ invariant: 'seat-on-vehicle', message: describeSeatRow(r), evidence: { type: r.typeId, pct: r.pct, declared: pt(r.declared), seat: pt(r.seat), eye: pt(r.eye), verdict: r.place.verdict } });
+      const types = new Set(rows.map(r => r.typeId)).size;
+      ctx.note(`seats at every size: ${rows.length} seat-size rows over ${types} drawn rideable(s), ${bad.length} off the vehicle${skipped.length ? `; not judged: ${skipped.map(s => `${s.typeId} (${s.why})`).join(', ')}` : ''}`);
+    },
+
     /** Board a vehicle by a hold, check the driver's view, drive a course, sneak off: `{ type, ticks }`. */
     async driveVehicle(step: AnyStep, ctx: StepContext) {
       const type = String(step['type']);
@@ -183,6 +198,21 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       const drawn = entityDrawn(appearance, v);
       if (drawn && v.riders[0] === ctx.player) {
         const eye = ctx.player.headLocation();
+        // The seat the device realises (quirk `seat-scales-with-entity`: the declared seat times the
+        // vehicle's scale) must be in or on the drawn vehicle at 100 %, and at any other size sit where the
+        // 100 % seat sits scaled once (seat-scale.ts; SEAT-01). The Saga saw 76286's rider at 200 % six
+        // blocks over the hull and fourteen ahead when the pack wrote its seats pre-scaled.
+        const index = v.riders.indexOf(ctx.player), scale = v.scale();
+        const seat = v.seatWorld(index);
+        const place = seatOnDrawn(seat, drawn);
+        const base = v.def ? seats100(v.def) : [];
+        const seat100 = base[index] ?? base[0];
+        const rel = { x: seat.x - v.location.x, y: seat.y - v.location.y, z: seat.z - v.location.z };
+        const drift = seat100 ? seatScaleDrift(rel, rotateYaw(seat100, v.rotation.y), scale) : undefined;
+        const ok = Math.abs(scale - 1) < 1e-9 ? place.ok : (drift?.ok ?? place.ok);
+        const text = `${type} at scale ${r3(scale)}: the rider's seat ${JSON.stringify(pt(seat))} is ${describePlace(place)}${drift ? `; ${describeDrift(drift)}` : ''}`;
+        if (!ok) ctx.violate({ invariant: 'seat-on-vehicle', message: text, evidence: { seat: pt(seat), eye: pt(eye), scale: r3(scale), hull: place.hull, verdict: place.verdict, ...(drift ? { drift: { dx: r3(drift.dx), dy: r3(drift.dy), dz: r3(drift.dz) } } : {}) } });
+        else ctx.note(text);
         // Judged by the compiler's own rule for every seat (`driverSeesOut`, cockpit-seat.ts): the horizon
         // ahead and the view to either side, over the DRAWN geometry. The wider `VIEW` fan (the guessed seat's
         // test) is reported beside it: a real bonnet fills its low rays (42172: 6 of 15, device-good).

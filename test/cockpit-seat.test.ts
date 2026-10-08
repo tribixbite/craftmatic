@@ -146,11 +146,13 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
     expect(camera).toMatch(/addEffect\(["']invisibility/);
     expect(camera).toMatch(/removeEffect\(["']invisibility/);
     // Size groups: the eye stays on the scaled driver's eye; at 400 % this quarter-scale
-    // car is the minifig-scale one, and the body fits there.
+    // car is the minifig-scale one, and the body fits there. The group DECLARES the seat
+    // divided by its scale, because the device multiplies a seat by `minecraft:scale`
+    // (SEAT-01, Saga 30k): the realised seat is `declared x scale`.
     const groups = entity.component_groups;
     const at = (pct: number): number[] => { const s = groups[`craftmatic:size_${pct}`]['minecraft:rideable'].seats; return (Array.isArray(s) ? s[0] : s).position; };
-    expect(at(200)[1] + RIDER_EYE_ABOVE_SEAT).toBeCloseTo((seat[1] + RIDER_EYE_ABOVE_SEAT) * 2, 2);
-    expect(at(400)[1]).toBeGreaterThan(0);
+    expect(at(200)[1] * 2 + RIDER_EYE_ABOVE_SEAT).toBeCloseTo((seat[1] + RIDER_EYE_ABOVE_SEAT) * 2, 2);
+    expect(at(400)[1] * 4).toBeGreaterThan(0);
     expect(from).toBeLessThanOrEqual(4);
   });
 
