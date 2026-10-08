@@ -626,6 +626,39 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   `seat-scales-with-entity`), so `rideableAtSize` writes the wanted world
   offset divided by the group's scale - written pre-scaled, 76286's rider at
   200 % sat at 2 x 2 x the 100 % offset, six blocks over the hull (SEAT-01).
+  The COLLISION BOX is scaled by the device the same way (Saga 30l: 76286's
+  200 % group declared 7 x 5, already doubled, and volume tests found 14 x 10;
+  quirk `collision-box-scales-with-entity`), so every size group declares the
+  100 % box and the device realises it times the scale (`collisionWorldBox`,
+  COL-03). That box is a scripted vehicle's tap / interact target, `getAABB`
+  (the hop) and its cull; it is not its block collision, which is the
+  runtime's swept footprint (`sweepFootprint`, `resolveMove`, scaled from
+  `minecraft:scale`) - unchanged by the fix. A NATIVE mount (the rotorcraft,
+  the Nimbus) does collide with blocks by its realised box: since the fix its
+  box at 200 % is 2x, not 4x, the 100 % box.
+- **Getting off** (SEAT-05, `vehicleEgress`, 2026-10-08). Bedrock sets a
+  dismounted rider down about its SEAT (quirk `dismount-near-seat`): off
+  76286 at 200 % on the ground that was ~10 blocks up inside the hull, and the
+  player fell ~9 blocks (Pixel 30l, `62b`). `scriptedVehicleRuntime` records
+  every player aboard each tick; one missing the next tick (and on no other
+  mount: a hop) is set down by `vehicleEgress` over the collider body probe:
+  Bedrock's own spot when it is outside the footprint and has a walk exit;
+  else the nearest spot to the seat on a ring `MARGIN` + half a body outside
+  the footprint whose floor lies within `ABOVE_BASE` over and `DROP` under the
+  vehicle's base, with room and a walk exit, not in water; else (walled in)
+  the probe's escape, refused inside the footprint; else such a floor whose
+  walk exit the probe could not confirm (it reads a plant as a block). A boat
+  afloat with no shore beside it puts the swimmer beside the hull at its
+  waterline; a vehicle with nothing within `AIRBORNE_BLOCKS` under it puts the
+  rider beside the hull at the seat's height under slow falling
+  (`SLOW_FALL_TICKS`), never under the hull, where an empty ship parks. A
+  player found farther than `NATIVE_REACH` (times the scale, plus the
+  footprint's half extent) from the seat was moved on purpose and is left
+  alone. Native mounts (rotorcraft, flyer) keep Bedrock's set-down; the
+  flyer's own float (`FLYER.DISMOUNT_*`) covers a rider leaving a cloud aloft.
+  Offline: `test/bedrock-vehicle.test.ts` "getting off a scripted vehicle",
+  the course's `dismountEverySize` (`bun scripts/sim.ts <packs>
+  --scenario=vehicles`), regression `milano-dismount-200-30l`.
 - Seats are not physics but ride with it: a compiled vehicle's seat is the
   driver's eye from the source less the measured 1.12, written in the entity
   frame (nose +Z; the render seat turned half round, x AND z,
@@ -820,7 +853,7 @@ Each device runtime is a function turned into the pack's script text with
 | pinball script | `pinballScript` | `pinballRuntime`, `createPinballSim`, `fitPinballZone` |
 | `BP/scripts/figures.js` | `figureLifeScript` | `figureLifeRuntime`, `standFeetAt`, `exploreWalkable`, `pathTo`, `blockSpan`, `startCell`, `refugeCell` |
 | vehicle scripts | `playable-addon.ts` | `vehicleDriverRuntime`, `vehicleCameraRuntime` (with `freeLookStep`, `freeLookStart`, `cockpitCamera`), `timeMachineRuntime` |
-| `BP/scripts/vehicles.js` | `scriptedVehicleScript` | `scriptedVehicleRuntime`, `carStep`, `flightStep`, `boatStep`, `sweepFootprint`, `resolveMove`, `isNightTime`, `headlightCell` |
+| `BP/scripts/vehicles.js` | `scriptedVehicleScript` | `scriptedVehicleRuntime`, `carStep`, `flightStep`, `boatStep`, `sweepFootprint`, `resolveMove`, `isNightTime`, `headlightCell`, `vehicleEgress`, `colliderBodyProbe` (with `colliderFormKit`) |
 | `BP/scripts/rides.js` | `ridesScript` | `ridesRuntime` (module-private; slides, lifts and orbits) |
 | `BP/scripts/flyer.js` | `flyerScript` | `flyerRuntime` (module-private; summons and fades the player's clouds, floats a rider who leaves one in the air) |
 | `BP/scripts/hop.js` | `hopScript` | `hopRuntime` (module-private), `hopKit`, `hopContact`; `rides.js` also carries `hopKit` (a slide's set-down) |
@@ -866,6 +899,7 @@ Each device runtime is a function turned into the pack's script text with
 | every serialised runtime above | serialised | — | the headless simulator runs them UNMODIFIED, all of a pack's scripts in one context, against its `@minecraft/server` mock (docs/sim-engine.md) |
 | `carStep`, `flightStep`, `boatStep` (`CAR`, `HOVER`, `FLIGHT`, `BOAT` via `config.car` / `config.hover` / `config.flight` / `config.boat`) | serialised | — | `test/bedrock-vehicle.test.ts` |
 | `sweepFootprint` (`FOOTPRINT`), `resolveMove` (`MOVE`), `isNightTime`, `headlightCell` (`HEADLIGHTS`) | serialised | — | `test/bedrock-vehicle.test.ts` (pure, and the runtime on the headless simulator), the simulator's `vehicles` course (`adapters/craftmatic/vehicle-course.ts`) |
+| `vehicleEgress` (`VEHICLE_EGRESS`), `colliderBodyProbe` (`ESCAPE`) | serialised into `vehicles.js` (the probe also into `figures.js`, `rides.js`, `interactives.js`) | — | `test/bedrock-vehicle.test.ts` (pure, and a sneak off the 100/200/400 % Milano on the simulator), the course's `dismountEverySize` |
 | `freeLookStep`, `freeLookStart`, `cockpitCamera` (`FREE_LOOK`) | serialised into `vehicle-camera.js` | — | `test/vehicle-free-look.test.ts` (pure, and the camera runtime on the headless simulator) |
 | `vehicleClientAnimation` | client Molang, not a script | — | `test/bedrock-vehicle.test.ts`, `test/bedrock-flyer.test.ts` (the flyer's bob) |
 | `findMounts`, `orbitPathLdu` (`FLYER`) | export time: the orbit on the seat's `ridePath`, followed by `ridesRuntime` | — | `test/bedrock-flyer.test.ts`, `test/nimbus-fixture.test.ts` |
@@ -1124,6 +1158,14 @@ literal inside a function body (`§` marks the number).
 | `HEADLIGHTS.AHEAD` | `web/src/engine/bedrock-vehicle.ts` | 2 | blocks | Past the nose, along the heading. |
 | `HEADLIGHTS.PARK_TICKS` | `web/src/engine/bedrock-vehicle.ts` | 100 | ticks | A light switches off after 5 s parked. |
 | `HEADLIGHTS.DUSK` | `web/src/engine/bedrock-vehicle.ts` | 12500 | time of day | Minecraft sunset; night until `DAWN` 23500. |
+| `VEHICLE_EGRESS.MARGIN` | `web/src/engine/bedrock-vehicle.ts` | 0.5 | blocks | Clearance between a scripted vehicle's footprint and a dismounted player's body (0.3 half wide): the set-down is clear of the drawn hull, not grazing it (SEAT-05). |
+| `VEHICLE_EGRESS.SPACING` | `web/src/engine/bedrock-vehicle.ts` | 1 | blocks | Between candidate set-down spots round the footprint: under two body widths, so no gap a body fits is stepped over. |
+| `VEHICLE_EGRESS.MAX_CANDIDATES` | `web/src/engine/bedrock-vehicle.ts` | 64 | spots | Tried nearest the seat first (the driver's own side): a 400 % ship's ring is ~270 and each spot costs a walk-exit probe on the one tick of the dismount. |
+| `VEHICLE_EGRESS.ABOVE_BASE` | `web/src/engine/bedrock-vehicle.ts` | 1 | blocks | A set-down floor lies at most this over the vehicle's base: the ground it stands on, never a balcony at the seat's height. |
+| `VEHICLE_EGRESS.DROP` | `web/src/engine/bedrock-vehicle.ts` | 3 | blocks | ... and at most the no-damage fall under it (the rides' `SETDOWN_DROP_BLOCKS`). |
+| `VEHICLE_EGRESS.AIRBORNE_BLOCKS` | `web/src/engine/bedrock-vehicle.ts` | 3 | blocks | No ground or water within this under the base is a vehicle in the air: its rider is put beside the hull at the seat's height and floats down. |
+| `VEHICLE_EGRESS.SLOW_FALL_TICKS` | `web/src/engine/bedrock-vehicle.ts` | 600 | ticks | The float off a vehicle in the air: 30 s covers a 90-block drop at ~3 blocks/s, the flyer's own `DISMOUNT_SLOW_FALL_TICKS`. |
+| `VEHICLE_EGRESS.NATIVE_REACH` | `web/src/engine/bedrock-vehicle.ts` | 2 | blocks (times the vehicle's scale, plus its half extent) | Farther from the seat the tick after a dismount is a deliberate move (a `/tp`), left alone, as `SEAT_EGRESS.NATIVE_REACH_BLOCKS`. |
 | `TIME_MACHINE.TOP_MARGIN` | `web/src/engine/playable-addon.ts` | 1.03 | × | The time machine's top speed is 3 % past its jump speed (88 mph: 40.5 blocks/s), so a full stick reaches it. |
 | `TIME_MACHINE.TELEPORT_BLOCKS` | `web/src/engine/playable-addon.ts` | 10 | blocks per 2 ticks | A longer move is a teleport, not speed: 100 blocks/s, past the 150 mph slider's 67. |
 | `RIDE.SLIDE_V0` | `web/src/engine/bedrock-rides.ts` | 2 | blocks/s | A slide rider leaves the top at a walk, so the start reads as a push-off. |
@@ -1350,8 +1392,13 @@ one of these files fails the check until its row is written.
 | `VEHICLE_DYNAMIC` | const | Dynamic property names another runtime sets on a scripted vehicle (top speed, HUD line, the hop's hold, the view's pitch) and the headlight's saved cell. |
 | `ScriptedVehicleType` | interface | One type as the runtime sees it: mode, half length, half width, height, draft, per-type car overrides. |
 | `ScriptedVehicleConfig` | interface | The JSON the runtime reads. |
-| `scriptedVehicleRuntime` | function | SERIALISED. Per tick: input, probes (solid spans: collider sixteenths, slabs), step, swept footprint, headlight, teleport, properties, HUD. |
-| `scriptedVehicleScript` | function | Serialises the runtime, the three steppers and the helpers into `BP/scripts/vehicles.js` (§5). |
+| `VEHICLE_EGRESS` | const | Where a rider who gets off a scripted vehicle is set down (§4.6 "Getting off", §9); `config.egress`. |
+| `VehicleEgressParams` | type | `VEHICLE_EGRESS` as numbers. |
+| `VehicleEgressInput`, `VehicleEgressProbe` | interface | The vehicle's pose and footprint, the seat and Bedrock's set-down, airborne / waterline; the world probes (floor, room, walk exit, water, the collider probe's escape). |
+| `VehicleEgressHow` | type | `native` / `moved` / `beside` / `escape` / `plain` / `float` / `swim` / `none`. |
+| `vehicleEgress` | function | SERIALISED. The set-down: Bedrock's own spot when it is outside the hull and walkable, else a walkable floor on a ring beside the footprint at the vehicle's ground level (nearest the seat first), the collider probe's escape, a waterline swim, or a float beside a vehicle in the air (SEAT-05). |
+| `scriptedVehicleRuntime` | function | SERIALISED. Per tick: input, probes (solid spans: collider sixteenths, slabs), step, swept footprint, headlight, teleport, properties, HUD; a rider gone since the last tick is set down (`vehicleEgress` over the collider body probe). |
+| `scriptedVehicleScript` | function | Serialises the runtime, the three steppers, the helpers, `vehicleEgress` and the collider body probe into `BP/scripts/vehicles.js` (§5). |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/vehicle-free-look.ts -->
@@ -1515,7 +1562,8 @@ one of these files fails the check until its row is written.
 | Export | Kind | Role |
 |---|---|---|
 | `installPhysics` | function | The simulator's motion systems: players (walk, sneak-dismount, the device's push out of blocks - sideways 0.1/tick, never up, quirk `teleport-into-floor`), native hover mounts at the measured speeds, mobs under `minecraft:physics`, riders to their seats, effects; falls tracked for the invariants. |
-| `setDownRider` | function | Where a PLAYER that left a seat stands (sneak, `ejectRider`): the first free floor one block from the seat entity in the device's order, else the seat point 0.2 up (quirk `dismount-free-spot`, Pixel GameTest 2026-09-30). |
+| `setDownRider` | function | Where a PLAYER that left a seat stands (sneak, `ejectRider`): the first free floor one block from `dismountReference` in the device's order, else that point 0.2 up (quirk `dismount-free-spot`, Pixel GameTest 2026-09-30). |
+| `dismountReference` | function | The point that search runs about: the rider's seat, raised to the seat entity's point where the seat sits under it - the entity's point on every measured scenery seat, the seat high in a big hull (quirk `dismount-near-seat`, Pixel 30l: ~9 blocks off the 200 % Milano). |
 | `DISMOUNT_OFFSETS` | const | That order, (dx, dz) blocks: (0,-1), (0,+1), (+1,-1), (+1,+1), (-1,+1) measured; (-1,-1), (+1,0), (-1,0) placed by guess (`TODO(dismount-order)`). |
 | `DISMOUNT_FLOOR_ABOVE`, `DISMOUNT_FLOOR_BELOW` | const | The floor window about the seat entity's point, blocks (0.5, 1): +0.2 and -0.3 were taken on the device, +0.7 and -1.3 refused (`TODO(dismount-floor)`). |
 | `DISMOUNT_FALLBACK_LIFT` | const | Walled in on all eight sides, the rider is put at the seat entity's point this far up (0.2, measured) and falls. |

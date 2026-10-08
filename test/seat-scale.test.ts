@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { SIZE_STEPS, withSizeGroups } from '../web/src/engine/bedrock-placement-pack.js';
 import { RIDER_EYE_ABOVE_SEAT, seatPositionAt } from '../web/src/engine/cockpit-seat.js';
 import { buildAddonAppearance } from '../web/src/sim/adapters/craftmatic/appearance.js';
-import { SEAT_ON_DRAWN, describeSeatRow, seatOnDrawn, seatScaleAudit, seatScaleDrift } from '../web/src/sim/adapters/craftmatic/seat-scale.js';
+import { SEAT_ON_DRAWN, collisionScaleAudit, describeBoxRow, describeSeatRow, seatOnDrawn, seatScaleAudit, seatScaleDrift } from '../web/src/sim/adapters/craftmatic/seat-scale.js';
 import type { DrawnBox } from '../web/src/sim/adapters/craftmatic/drawn.js';
 import { fixturePack } from '../web/src/sim/pack/fixture.js';
 
@@ -67,11 +67,11 @@ describe('seatScaleDrift: where the 100 % seat sits, scaled once', () => {
  * JSON frame: 16 units = 1 block, the geometry is Z-mirrored in the world)
  * and a rideable whose size groups are `declare(pct)`.
  */
-function vehiclePack(declare: (pct: number) => [number, number, number]) {
+function vehiclePack(declare: (pct: number) => [number, number, number], box: (f: number) => { width: number; height: number } = f => ({ width: 3 * f, height: 2 * f })) {
   const groups: Record<string, unknown> = {}, events: Record<string, unknown> = {};
   for (const pct of SIZE_STEPS) {
     const f = pct / 100;
-    groups[`craftmatic:size_${pct}`] = { 'minecraft:scale': { value: f }, 'minecraft:collision_box': { width: 3 * f, height: 2 * f }, 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: { position: declare(pct) } } };
+    groups[`craftmatic:size_${pct}`] = { 'minecraft:scale': { value: f }, 'minecraft:collision_box': box(f), 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: { position: declare(pct) } } };
     events[`craftmatic:size_${pct}`] = { add: { component_groups: [`craftmatic:size_${pct}`] } };
   }
   const entity = { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:test_car' }, component_groups: groups, events, components: { 'minecraft:collision_box': { width: 3, height: 2 }, 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: { position: declare(100) } } } } };
@@ -131,5 +131,37 @@ describe('seatScaleAudit: every rideable at every wand size', () => {
     const { rows, skipped } = seatScaleAudit(behavior, buildAddonAppearance(new Map()));
     expect(rows).toEqual([]);
     expect(skipped).toEqual([{ typeId: 'craftmatic:test_car', why: 'no-geometry' }]);
+  });
+});
+
+describe('collisionScaleAudit: the collision box at every wand size (COL-03)', () => {
+  const seat: [number, number, number] = [0, 0.5, -1];
+  it('a box declared unscaled, as withSizeGroups writes it, is the 100 % box scaled once at every size', () => {
+    const { behavior } = vehiclePack(() => seat, () => ({ width: 3, height: 2 }));
+    const rows = collisionScaleAudit(behavior);
+    expect(rows.map(r => r.pct)).toEqual([...SIZE_STEPS]);
+    for (const r of rows) {
+      expect(r.ok, describeBoxRow(r)).toBe(true);
+      expect(r.realised.width).toBeCloseTo(3 * r.scale, 9);
+      expect(r.realised.height).toBeCloseTo(2 * r.scale, 9);
+    }
+  });
+  it('the old encoding (the box written pre-scaled, every pack before 2026-10-08) is scaled twice at every size but 100 % (Saga 30l: 76286 at 200 % realised 14 x 10 for 7 x 5)', () => {
+    const { behavior } = vehiclePack(() => seat);
+    const rows = collisionScaleAudit(behavior);
+    expect(rows.filter(r => !r.ok).map(r => r.pct)).toEqual(SIZE_STEPS.filter(p => p !== 100));
+    const at200 = rows.find(r => r.pct === 200)!;
+    expect(at200.realised).toEqual({ width: 12, height: 8 });
+    expect(at200.wanted).toEqual({ width: 6, height: 4 });
+    expect(describeBoxRow(at200)).toMatch(/SCALED TWICE/);
+  });
+  it('a player-sized entity keeps its 100 % box above 100 % (its scale is capped at 1) and passes', () => {
+    const base = { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:fig' }, components: { 'minecraft:collision_box': { width: 0.6, height: 1.8 } } } };
+    const built = withSizeGroups(base, { width: 0.6, height: 1.8 }, undefined, { playerSized: true });
+    const rows = collisionScaleAudit(fixturePack({ files: { 'entities/fig.json': built } }));
+    expect(rows).toHaveLength(SIZE_STEPS.length);
+    expect(rows.every(r => r.ok)).toBe(true);
+    expect(rows.find(r => r.pct === 400)!.realised).toEqual({ width: 0.6, height: 1.8 });
+    expect(rows.find(r => r.pct === 50)!.realised).toEqual({ width: 0.3, height: 0.9 });
   });
 });

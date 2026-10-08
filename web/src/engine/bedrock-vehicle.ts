@@ -24,6 +24,7 @@
  */
 import type { VehicleWheelBone } from './ldraw-entity-compiler.js';
 import { floatActorProperty } from './bedrock-json.js';
+import { COLLIDER_STATES, colliderBodyProbe, colliderFormKit, type ColliderBodyProbe, type EscapeOptions } from './collider-form.js';
 
 declare const world: any;
 declare const system: any;
@@ -901,6 +902,144 @@ export const VEHICLE_TELEMETRY_EVENT = 'craftmatic:vehicle_telemetry';
  */
 export const VEHICLE_DYNAMIC = { topSpeed: 'craftmatic:top_speed', hud: 'craftmatic:vehicle_hud', headlight: 'craftmatic:headlight', hold: 'craftmatic:hop_hold', lookPitch: 'craftmatic:look_pitch' } as const;
 
+/**
+ * Where a player who gets off a scripted vehicle is set down (SEAT-05; `vehicleEgress`, run by
+ * `scriptedVehicleRuntime` the tick after it sees a rider gone). Bedrock sets the rider down about its SEAT
+ * (quirk `dismount-near-seat`): off 76286 at 200 % on the ground that was ~10 blocks up, inside the drawn
+ * hull, and the player fell ~9 blocks (Pixel round 30l, `output/device-round-2026-10-07l/pixel/notes.md`
+ * item 5, `62b`). So the runtime moves the player to a walkable floor BESIDE the hull at the vehicle's own
+ * ground level:
+ *   - `MARGIN` 0.5: blocks of clearance between the hull's footprint and the body (0.3 half wide), so the
+ *     set-down is clear of the drawn hull, not grazing it;
+ *   - `SPACING` 1: blocks between candidate spots round the footprint (a body is 0.6 wide; a gap a body fits
+ *     through is never stepped over);
+ *   - `MAX_CANDIDATES` 64: spots tried, nearest the seat first - the driver's own side - a 400 % ship's whole
+ *     ring is ~270, and each spot costs a walk-exit probe on the one tick of the dismount;
+ *   - `ABOVE_BASE` 1 / `DROP` 3: a spot's floor lies at most a block over the vehicle's base and at most the
+ *     no-damage fall (the rides' `SETDOWN_DROP_BLOCKS`) under it: the ground the vehicle stands on, never a
+ *     balcony at the seat's height nor a pit;
+ *   - `AIRBORNE_BLOCKS` 3: a vehicle with no ground or water within this under its base is in the air; its
+ *     rider is put beside the hull at the seat's height and floats down under slow falling for
+ *     `SLOW_FALL_TICKS` 600 (30 s covers a 90-block drop at ~3 blocks/s; the flyer's own float,
+ *     `FLYER.DISMOUNT_SLOW_FALL_TICKS`);
+ *   - `NATIVE_REACH` 2: blocks (times the vehicle's scale) from the seat beyond which the player was moved on
+ *     purpose (a `/tp`, a hop's set-down) and is left alone, as `SEAT_EGRESS.NATIVE_REACH_BLOCKS`.
+ */
+export const VEHICLE_EGRESS = { MARGIN: 0.5, SPACING: 1, MAX_CANDIDATES: 64, ABOVE_BASE: 1, DROP: 3, AIRBORNE_BLOCKS: 3, SLOW_FALL_TICKS: 600, NATIVE_REACH: 2 } as const;
+export type VehicleEgressParams = typeof VEHICLE_EGRESS;
+
+/** A world point, blocks. */
+interface EgressPoint { x: number; y: number; z: number }
+
+/** What `vehicleEgress` needs to know about the vehicle and the player (world blocks, the vehicle at its wand size). */
+export interface VehicleEgressInput {
+  /** The vehicle's origin and Bedrock yaw (degrees; 0 faces +Z). */
+  pose: { x: number; y: number; z: number; yaw: number };
+  /** Its footprint: half length along the nose, half width, height - already times its scale. */
+  halfLength: number; halfWidth: number; height: number;
+  /** Its `minecraft:scale` (the native reach scales with it). */
+  scale: number;
+  /** Where the rider's feet were while seated (the tick before). */
+  seat: EgressPoint;
+  /** Where the player is now (Bedrock's own set-down). */
+  current: EgressPoint;
+  /** No ground or water within `AIRBORNE_BLOCKS` under the base. */
+  airborne: boolean;
+  /** Afloat on water (a boat's waterline height, else undefined). */
+  waterline?: number | undefined;
+}
+
+/** The world probes `vehicleEgress` asks (the runtime builds them from its block reads and the collider body probe). */
+export interface VehicleEgressProbe {
+  /** The highest floor top under a body standing at (x, z), at most `top` and at least `top - depth`; null for none. */
+  floor(x: number, z: number, top: number, depth: number): number | null;
+  /** Whether a player's body (0.6 x 1.8) with its feet at `q` meets nothing solid. */
+  free(q: EgressPoint): boolean;
+  /** Whether `q` (on its floor, or falling at most `fall` onto one) has a walking exit (`ColliderBodyProbe.hasWalkExit`). */
+  walkExit(q: EgressPoint, fall: number): boolean;
+  /** Whether the body at `q` stands in water (its feet or head). */
+  wet(q: EgressPoint): boolean;
+  /** The collider body probe's last-resort way out from `from` (`ColliderBodyProbe.escape`), or undefined. */
+  escape(from: EgressPoint): EgressPoint | undefined;
+}
+
+/**
+ * How a set-down was decided: `native` Bedrock's own spot was already outside the hull and walkable; `moved`
+ * the player went somewhere on purpose (left alone); `beside` a walkable floor beside the hull; `escape` the
+ * body probe's flood or exterior; `plain` a floor beside the hull the walk-exit probe could not confirm (it
+ * reads a plant as a block); `float` the vehicle is in the air (beside it, slow falling); `swim` afloat with
+ * no shore beside it (beside it, at the waterline); `none` nothing found (left where Bedrock put it).
+ */
+export type VehicleEgressHow = 'native' | 'moved' | 'beside' | 'escape' | 'plain' | 'float' | 'swim' | 'none';
+
+/**
+ * SERIALISED (into `scripts/vehicles.js`, an argument of `scriptedVehicleRuntime`). Where a player who left a
+ * scripted vehicle should stand: never inside the hull (its footprint, under its top), never a fall past
+ * `DROP`, beside the vehicle at its ground level, the spot nearest the seat first. Pure: the world is read
+ * through `probe`. The hull is an entity, which no block probe sees, so "outside the hull" is the footprint
+ * test here; the spots are on a ring `MARGIN` + half a body outside it.
+ */
+export function vehicleEgress(input: VehicleEgressInput, probe: VehicleEgressProbe, P: VehicleEgressParams): { at: EgressPoint; how: VehicleEgressHow } {
+  const BODY_HALF = 0.3;
+  const { pose, seat, current } = input;
+  const rad = pose.yaw * Math.PI / 180, fx = -Math.sin(rad), fz = Math.cos(rad), rx = -Math.cos(rad), rz = -Math.sin(rad);
+  const k = Math.max(1, input.scale);
+  // Moved on purpose (a /tp out of the seat, another runtime's set-down): not ours to correct.
+  const reach = P.NATIVE_REACH * k;
+  if (Math.hypot(current.x - seat.x, current.z - seat.z) > reach + Math.max(input.halfLength, input.halfWidth) || current.y > seat.y + reach) return { at: current, how: 'moved' };
+  /** Inside the hull: within its footprint and under its top (under the hull counts: it parks there). */
+  const inHull = (q: EgressPoint): boolean => {
+    const dx = q.x - pose.x, dz = q.z - pose.z;
+    return Math.abs(dx * fx + dz * fz) < input.halfLength + BODY_HALF && Math.abs(dx * rx + dz * rz) < input.halfWidth + BODY_HALF && q.y < pose.y + input.height;
+  };
+  if (!inHull(current) && !input.airborne && !probe.wet(current) && probe.walkExit(current, P.DROP)) return { at: current, how: 'native' };
+  // The ring of spots round the footprint, in the vehicle's frame (a along the nose, b along its right), nearest the seat first.
+  const L = input.halfLength + P.MARGIN + BODY_HALF, W = input.halfWidth + P.MARGIN + BODY_HALF;
+  const ring: Array<{ x: number; z: number; d: number }> = [];
+  const add = (a: number, b: number): void => {
+    const x = pose.x + fx * a + rx * b, z = pose.z + fz * a + rz * b;
+    if (ring.some(q => Math.abs(q.x - x) < 1e-6 && Math.abs(q.z - z) < 1e-6)) return;
+    ring.push({ x, z, d: Math.hypot(x - seat.x, z - seat.z) });
+  };
+  const nA = Math.max(1, Math.ceil(2 * L / P.SPACING)), nB = Math.max(1, Math.ceil(2 * W / P.SPACING));
+  for (let i = 0; i <= nA; i++) { const a = -L + 2 * L * i / nA; add(a, W); add(a, -W); }
+  for (let i = 0; i <= nB; i++) { const b = -W + 2 * W * i / nB; add(L, b); add(-L, b); }
+  ring.sort((p, q) => p.d - q.d);
+  const spots = ring.slice(0, Math.max(1, P.MAX_CANDIDATES));
+  const nearest = spots[0]!;
+  if (input.airborne) {
+    // In the air: beside the hull at the seat's height (never inside it, never under it where it parks), floating down.
+    const q = { x: nearest.x, y: seat.y, z: nearest.z };
+    return { at: probe.free(q) ? q : current, how: 'float' };
+  }
+  const top = pose.y + P.ABOVE_BASE, depth = P.ABOVE_BASE + P.DROP;
+  const standAt = (s: { x: number; z: number }): EgressPoint | undefined => {
+    const y = probe.floor(s.x, s.z, top, depth);
+    if (y === null) return undefined;
+    const q = { x: s.x, y, z: s.z };
+    return probe.free(q) && !probe.wet(q) ? q : undefined;
+  };
+  // 1. A walkable floor beside the hull, the spot nearest the seat first.
+  const stands: EgressPoint[] = [];
+  for (const s of spots) {
+    const q = standAt(s);
+    if (!q) continue;
+    if (probe.walkExit(q, 0)) return { at: q, how: 'beside' };
+    stands.push(q);
+  }
+  // 2. Afloat with no shore beside it: in the water beside the hull, at its waterline.
+  if (input.waterline !== undefined) {
+    const q = { x: nearest.x, y: input.waterline, z: nearest.z };
+    return { at: probe.free(q) ? q : current, how: 'swim' };
+  }
+  // 3. Walled in beside it (a car in a garage): the body probe's walk-connected flood, else the model's exterior.
+  const out = probe.escape({ x: nearest.x, y: pose.y, z: nearest.z });
+  if (out && !inHull(out) && !probe.wet(out)) return { at: out, how: 'escape' };
+  // 4. A floor beside it that the walk-exit probe could not confirm (it reads a plant as a block).
+  if (stands.length) return { at: stands[0]!, how: 'plain' };
+  return { at: current, how: 'none' };
+}
+
 /** One scripted vehicle type as the runtime sees it. */
 export interface ScriptedVehicleType {
   mode: 'plane' | 'boat' | 'car' | 'hover';
@@ -933,6 +1072,10 @@ export interface ScriptedVehicleConfig {
   colliders?: { block: string; loState: string; hiState: string } | undefined;
   inputEvent: string;
   telemetryEvent: string;
+  /** Where a rider who gets off is set down (`VEHICLE_EGRESS`); absent in a hand-built test config: no set-down. */
+  egress?: VehicleEgressParams | undefined;
+  /** The collider body probe's last-resort bounds (`ESCAPE_OPTIONS`), for a set-down walled in beside the hull. */
+  escape?: EscapeOptions | undefined;
 }
 
 /**
@@ -951,7 +1094,7 @@ export interface ScriptedVehicleConfig {
  * sixteenths, a bottom slab's lower half, a top slab's upper half, a full
  * block otherwise; plants, torches, snow layers and light blocks are passed.
  */
-export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: typeof flightStep, boat: typeof boatStep, car: typeof carStep, sweep: typeof sweepFootprint, night: typeof isNightTime, lightCell: typeof headlightCell, resolve: typeof resolveMove): void {
+export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: typeof flightStep, boat: typeof boatStep, car: typeof carStep, sweep: typeof sweepFootprint, night: typeof isNightTime, lightCell: typeof headlightCell, resolve: typeof resolveMove, egress?: typeof vehicleEgress, body?: ColliderBodyProbe): void {
   const F = config.flight, B = config.boat, C = config.car, H = config.hover, FP = config.footprint, MV = config.move, HL = config.headlights, DYN = config.dynamic;
   const COL = config.colliders;
   const typeIds = Object.keys(config.types);
@@ -1098,10 +1241,79 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       for (const e of list) if (!m.id || e.id === m.id) overrides.set(e.id, { x: Number(m.x) || 0, y: Number(m.y) || 0, jump: !!m.jump, ticks: Math.max(1, Number(m.ticks) || 20) });
     }
   }, { namespaces: ['craftmatic'] });
+  /** A rider as last seen aboard: the vehicle, where the rider's feet were, the vehicle's pose, scale and type. */
+  interface Aboard { player: any; vid: string; dim: any; seat: { x: number; y: number; z: number }; pose: { x: number; y: number; z: number; yaw: number }; k: number; type: string }
+  /**
+   * Players aboard a scripted vehicle last tick, by id (SEAT-05). A player missing from every vehicle's riders
+   * this tick got off (there is no dismount event, quirk `no-dismount-event`) and is set down by `setDown`.
+   */
+  const aboard = new Map<string, Aboard>();
+  /** This tick's riders (player ids) and every vehicle's pose as last read. */
+  let seen = new Set<string>();
+  const poses = new Map<string, { x: number; y: number; z: number; yaw: number }>();
+  /**
+   * Put a player who got off a vehicle on a walkable floor beside it (`vehicleEgress`): Bedrock sets the rider
+   * down about its seat, which in a big hull is high up and inside it (Pixel 30l: ~9 blocks off 76286 at 200 %).
+   */
+  const setDown = (rec: Aboard): void => {
+    const E = config.egress, kind = config.types[rec.type];
+    if (!E || !egress || !kind) return;
+    const p = rec.player;
+    try { if (p.isValid === false || (typeof p.isValid === 'function' && !p.isValid())) return; } catch { return; }
+    let riding: any;
+    try { riding = p.getComponent('minecraft:riding')?.entityRidingOn; } catch { riding = undefined; }
+    // On another mount already: a hop (bedrock-ride-hop.ts) or a seat of its own choosing.
+    if (riding) return;
+    let current: { x: number; y: number; z: number };
+    try { const l = p.location; current = { x: l.x, y: l.y, z: l.z }; } catch { return; }
+    const dim = rec.dim, k = rec.k, pose = poses.get(rec.vid) ?? rec.pose;
+    const vs = states.get(rec.vid);
+    const afloat = kind.mode === 'boat' && !!vs?.afloat;
+    const isWet = (q: { x: number; y: number; z: number }): boolean => isWater(blockOf(dim, q.x, q.y + 0.2, q.z)) || isWater(blockOf(dim, q.x, q.y + 1.6, q.z));
+    // TODO(egress-plants): the collider body probe reads any non-air block - a short grass or a flower - as a
+    // full block, so on a planted lawn a spot's floor can read a block high (the player then drops that block) and
+    // its walk exit can fail (`vehicleEgress` then falls back to `plain`, a floor beside the hull). The fix belongs
+    // in `colliderBodyProbe` (collider-form.ts),
+    // shared with the seats, rides and doors.
+    const probe = {
+      floor: (x: number, z: number, top: number, depth: number): number | null => {
+        if (body) { try { return body.floorTop(dim, x, z, top, depth) ?? null; } catch { return null; } }
+        return solidTop(dim, x, top, z, Math.ceil(depth));
+      },
+      free: (q: { x: number; y: number; z: number }): boolean => {
+        try { return body ? body.bodyFree(dim, q) : !solidAt(dim, q.x, q.y + 0.1, q.z) && !solidAt(dim, q.x, q.y + 1, q.z) && !solidAt(dim, q.x, q.y + 1.7, q.z); } catch { return false; }
+      },
+      walkExit: (q: { x: number; y: number; z: number }, fall: number): boolean => { try { return !!body && body.hasWalkExit(dim, q, fall); } catch { return false; } },
+      wet: isWet,
+      escape: (from: { x: number; y: number; z: number }): { x: number; y: number; z: number } | undefined => {
+        if (!body || !config.escape) return undefined;
+        try { return body.escape(dim, from, config.escape)?.at; } catch { return undefined; }
+      },
+    };
+    const res = egress({
+      pose, halfLength: kind.noseReach * k, halfWidth: kind.halfWidth * k, height: kind.height * k, scale: k,
+      seat: rec.seat, current,
+      airborne: groundUnder(dim, pose.x, pose.z, pose.y, 0.5, E.AIRBORNE_BLOCKS, true) === null,
+      // A boat afloat: its waterline (origin + draft), the swimmer's feet half a block under it.
+      waterline: afloat ? pose.y + (kind.draft ?? B.DRAFT) * k - 0.5 : undefined,
+    }, probe, E);
+    if (res.how === 'native' || res.how === 'moved' || res.how === 'none') {
+      if (res.how === 'none') console.warn(`[craftmatic vehicle] no safe set-down for ${p.id} off ${rec.type}; left where Bedrock put it at ${current.x},${current.y},${current.z}`);
+      else if (telemetry) console.warn(`CMVT ${JSON.stringify({ dismount: res.how, type: rec.type, at: current })}`);
+      return;
+    }
+    let moved = false;
+    try { moved = p.tryTeleport(res.at, { dimension: dim, checkForBlocks: true, keepVelocity: false }) === true; } catch { moved = false; }
+    if (!moved) { try { p.teleport(res.at, { dimension: dim, keepVelocity: false }); moved = true; } catch { moved = false; } }
+    // In the air: float down beside the hull (no fall damage), as off the flyer's cloud.
+    if (moved && res.how === 'float') { try { p.addEffect('slow_falling', E.SLOW_FALL_TICKS, { amplifier: 0, showParticles: false }); } catch { /* no effect */ } }
+    if (telemetry) console.warn(`CMVT ${JSON.stringify({ dismount: res.how, type: rec.type, from: current, at: res.at, moved })}`);
+  };
   let tick = 0, busyMs = 0, busyTicks = 0;
   system.runInterval(() => {
     tick++;
     cells = new Map();
+    seen = new Set();
     const started = Date.now();
     let isNight = false;
     try { isNight = night(world.getTimeOfDay(), HL); } catch { /* no clock */ }
@@ -1138,6 +1350,15 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
         let riders: any[] = [];
         try { riders = e.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch { /* none */ }
         const driver = riders.find((r: any) => r && r.typeId === 'minecraft:player');
+        // Who is aboard, and where they sit: a player missing next tick got off (`setDown`).
+        poses.set(e.id, { x: loc.x, y: loc.y, z: loc.z, yaw: rot.y });
+        for (const r of riders) {
+          if (!r || r.typeId !== 'minecraft:player') continue;
+          let at: any;
+          try { at = r.location; } catch { continue; }
+          seen.add(r.id);
+          aboard.set(r.id, { player: r, vid: e.id, dim, seat: { x: at.x, y: at.y, z: at.z }, pose: { x: loc.x, y: loc.y, z: loc.z, yaw: rot.y }, k, type });
+        }
         const input: { x: number; y: number; jump: boolean; rider: boolean; lookPitch?: number } = { x: 0, y: 0, jump: false, rider: !!driver };
         if (driver) {
           try { const v = driver.inputInfo?.getMovementVector?.(); input.x = v?.x ?? 0; input.y = v?.y ?? 0; } catch { /* no input */ }
@@ -1377,6 +1598,12 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
         }
       }
     }
+    // Riders who got off since the last tick: set down beside their vehicle.
+    for (const [pid, rec] of aboard) {
+      if (seen.has(pid)) continue;
+      aboard.delete(pid);
+      setDown(rec);
+    }
     busyMs += Date.now() - started; busyTicks++;
     if (busyTicks >= 20) { busyMs = busyMs / busyTicks; busyTicks = 1; }
   }, 1);
@@ -1384,5 +1611,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
 
 /** `scripts/vehicles.js`: the runtime with the pure models' and helpers' own text. */
 export function scriptedVehicleScript(config: ScriptedVehicleConfig): string {
-  return `import { world, system } from "@minecraft/server";\n(${scriptedVehicleRuntime.toString()})(${JSON.stringify(config)}, ${flightStep.toString()}, ${boatStep.toString()}, ${carStep.toString()}, ${sweepFootprint.toString()}, ${isNightTime.toString()}, ${headlightCell.toString()}, ${resolveMove.toString()});\n`;
+  // The collider body probe the seats and rides use, over this pack's collider states: the set-down's floors, room and walk exits.
+  const probe = `(${colliderBodyProbe.toString()})((${colliderFormKit.toString()})(), ${JSON.stringify(config.colliders?.loState ?? COLLIDER_STATES.lo)}, ${JSON.stringify(config.colliders?.hiState ?? COLLIDER_STATES.hi)})`;
+  return `import { world, system } from "@minecraft/server";\n(${scriptedVehicleRuntime.toString()})(${JSON.stringify(config)}, ${flightStep.toString()}, ${boatStep.toString()}, ${carStep.toString()}, ${sweepFootprint.toString()}, ${isNightTime.toString()}, ${headlightCell.toString()}, ${resolveMove.toString()}, ${vehicleEgress.toString()}, ${probe});\n`;
 }

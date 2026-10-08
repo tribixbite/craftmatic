@@ -36,7 +36,7 @@
  * (`seatsEverySize`), and `scripts/_seat_scale_check.ts` prints the table.
  */
 
-import { SIZE_EVENT_PREFIX, SIZE_STEPS, seatWorldOffset } from '../../../engine/bedrock-placement-pack.js';
+import { SIZE_EVENT_PREFIX, SIZE_STEPS, collisionWorldBox, seatWorldOffset } from '../../../engine/bedrock-placement-pack.js';
 import type { Box, Vec3 } from '../../core/vec.js';
 import { EntityDefinitions, type Components, type EntityDefinition } from '../../entity/definitions.js';
 import { packFiles, type Pack } from '../../pack/pack.js';
@@ -217,6 +217,74 @@ export function seatScaleAudit(behavior: Pack, appearance: AddonAppearance): Sea
     }
   }
   return { rows, skipped };
+}
+
+// ─── The collision box at every size (COL-03) ─────────────────────────────────
+
+/**
+ * How far a realised collision box may stray from the 100 % box scaled once: 2 % of the wanted size or a
+ * hundredth of a block, whichever is larger (the 3-decimal rounding of a declared box times the scale is under
+ * 0.005). A box scaled twice strays by (f - 1) x the whole box: 3.5 blocks of 76286's at 200 %.
+ */
+export const BOX_SCALE_TOLERANCE = { share: 0.02, blocks: 0.01 } as const;
+
+/** One sized entity's collision box at one wand step, as the device realises it. */
+export interface BoxScaleRow {
+  typeId: string;
+  pct: number;
+  /** The group's `minecraft:scale`. */
+  scale: number;
+  /** The box as the size group declares it. */
+  declared: { width: number; height: number };
+  /** What the device realises: declared x scale (quirk `collision-box-scales-with-entity`). */
+  realised: { width: number; height: number };
+  /** The 100 % box (as realised at the 100 % group's scale) scaled by this group's scale over the 100 % group's. */
+  wanted: { width: number; height: number };
+  ok: boolean;
+}
+
+/**
+ * Every entity with size groups in a behaviour pack, at every wand step: the collision box the device realises
+ * against the 100 % box scaled ONCE (COL-03). The Saga (round 30l) found 76286's box at 200 % 14 x 10 for a
+ * wanted 7 x 5: the group wrote the box pre-scaled and the device scaled it again. The box sets the touch and
+ * interact target, `getAABB` (the hop's reach) and the actor's cull (`entityRenderCullBlocks`). A player-sized
+ * entity (a figure, a scenery seat) keeps its 100 % box above 100 % by design: its groups' scale is capped at 1,
+ * so its wanted box is too.
+ */
+export function collisionScaleAudit(behavior: Pack): BoxScaleRow[] {
+  const defs = new EntityDefinitions();
+  const dec = new TextDecoder();
+  const rows: BoxScaleRow[] = [];
+  const boxOf = (c: Components): { width: number; height: number } | undefined => {
+    const b = c['minecraft:collision_box'] as { width?: unknown; height?: unknown } | undefined;
+    return typeof b?.width === 'number' && typeof b.height === 'number' ? { width: b.width, height: b.height } : undefined;
+  };
+  for (const [path, data] of packFiles(behavior, 'entities/', '.json')) {
+    const def = defs.load(path, dec.decode(data));
+    if (!def) continue;
+    const steps = SIZE_STEPS.filter(pct => `${SIZE_EVENT_PREFIX}${pct}` in def.groups);
+    if (!steps.length) continue;
+    const at100 = atSize(def, 100), box100 = boxOf(at100.components);
+    if (!box100) continue;
+    const real100 = collisionWorldBox(box100, at100.scale);
+    for (const pct of steps) {
+      const { components, scale } = atSize(def, pct);
+      const declared = boxOf(components);
+      if (!declared) continue;
+      const realised = collisionWorldBox(declared, scale);
+      const ratio = scale / (at100.scale || 1);
+      const wanted = { width: real100.width * ratio, height: real100.height * ratio };
+      const near = (a: number, b: number): boolean => Math.abs(a - b) <= Math.max(BOX_SCALE_TOLERANCE.blocks, BOX_SCALE_TOLERANCE.share * Math.abs(b));
+      rows.push({ typeId: def.identifier, pct, scale, declared, realised, wanted, ok: near(realised.width, wanted.width) && near(realised.height, wanted.height) });
+    }
+  }
+  return rows;
+}
+
+/** A box row as a sentence. */
+export function describeBoxRow(r: BoxScaleRow): string {
+  const b = (x: { width: number; height: number }): string => `${r2(x.width)} x ${r2(x.height)}`;
+  return `${r.typeId} at ${r.pct} %: collision box declared ${b(r.declared)} x scale ${r.scale} = ${b(r.realised)}${r.ok ? '' : `, wanted ${b(r.wanted)} (the 100 % box scaled once) - SCALED TWICE`}`;
 }
 
 const r2 = (v: number): string => (Math.round(v * 100) / 100).toFixed(2);

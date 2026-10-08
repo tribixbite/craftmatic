@@ -82,11 +82,17 @@ export class SimEntity {
     return typeof v === 'number' ? v : 1;
   }
 
-  /** The collision box's width and height, blocks (the player's own for a player). */
+  /**
+   * The collision box the device realises, blocks (the player's own for a player): the declared
+   * `minecraft:collision_box` times `minecraft:scale` (quirk `collision-box-scales-with-entity`, Saga 30l:
+   * 76286's 200 % group declared 7 x 5 and the device's box was 14 x 10). Everything that reads an
+   * entity's box - the tap pick, `getAABB`, a mob's sweep, the actor cull - reads this one.
+   */
   collisionSize(): { width: number; height: number } {
     if (this.isPlayer) return { width: PLAYER_WIDTH, height: PLAYER_HEIGHT };
     const b = this.components['minecraft:collision_box'] as { width?: number; height?: number } | undefined;
-    return { width: typeof b?.width === 'number' ? b.width : 1, height: typeof b?.height === 'number' ? b.height : 1 };
+    const k = this.scale();
+    return { width: (typeof b?.width === 'number' ? b.width : 1) * k, height: (typeof b?.height === 'number' ? b.height : 1) * k };
   }
 
   /** The world box a ray picks: `minecraft:collision_box` about the feet (custom hit tests are the caller's). */

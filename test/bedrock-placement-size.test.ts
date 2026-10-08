@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  SIZE_STEPS, buildPlacementPackAssets, colliderPairIndex, colliderPairOf, decodeColliderRuns, encodeColliderRuns, seatWorldOffset, withSizeGroups,
+  SIZE_STEPS, buildPlacementPackAssets, colliderPairIndex, colliderPairOf, collisionWorldBox, decodeColliderRuns, encodeColliderRuns, seatWorldOffset, withSizeGroups,
 } from '../web/src/engine/bedrock-placement-pack.js';
 import { RIDER_EYE_ABOVE_SEAT, seatPositionAt } from '../web/src/engine/cockpit-seat.js';
 import { BlockGrid } from '@craft/schem/types.js';
@@ -38,7 +38,7 @@ describe('withSizeGroups', () => {
     expect(radiusOf(50)).toBe(15);    // untouched below the ceiling
   });
 
-  it('adds one group per step with scale and collision box, keeping existing groups; every seat is declared in the unscaled frame because Bedrock scales it with minecraft:scale (SEAT-01, Saga 30k)', () => {
+  it('adds one group per step with scale and collision box, keeping existing groups; every seat is declared in the unscaled frame because Bedrock scales it with minecraft:scale (SEAT-01, Saga 30k), and so is the collision box (COL-03, Saga 30l)', () => {
     const base = { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:x' },
       component_groups: { 'craftmatic:descending': { 'minecraft:vertical_movement_action': { vertical_velocity: -.5 } } },
       events: { 'craftmatic:descend_on': { add: { component_groups: ['craftmatic:descending'] } } },
@@ -52,12 +52,17 @@ describe('withSizeGroups', () => {
     // scale (76286 at 200 %, written pre-scaled, seated the rider at 2 x 2 x the 100 % offset, six
     // blocks over the hull). The camera radius is still written scaled (TODO(seat-camera-radius)).
     expect(e.component_groups['craftmatic:size_50']).toEqual({
-      'minecraft:scale': { value: 0.5 }, 'minecraft:collision_box': { width: 1, height: 0.75 },
+      'minecraft:scale': { value: 0.5 }, 'minecraft:collision_box': { width: 2, height: 1.5 },
       'minecraft:rideable': { seat_count: 2, seats: [{ position: [0.5, 1, -2], third_person_camera_radius: 4 }, { position: [-0.5, 1, -2] }] },
     });
     for (const pct of SIZE_STEPS) {
-      const seats = e.component_groups[`craftmatic:size_${pct}`]['minecraft:rideable'].seats;
+      const g = e.component_groups[`craftmatic:size_${pct}`];
+      const seats = g['minecraft:rideable'].seats;
       expect(seatWorldOffset(seats[0].position, pct / 100)).toEqual([0.5 * pct / 100, pct / 100, -2 * pct / 100]);
+      // The box too: declared as at 100 %, realised x scale (76286 at 200 % declared 7 x 5 pre-scaled and the
+      // device's volume tests found 14 x 10, Saga 30l r21).
+      expect(g['minecraft:collision_box']).toEqual({ width: 2, height: 1.5 });
+      expect(collisionWorldBox(g['minecraft:collision_box'], g['minecraft:scale'].value)).toEqual({ width: 2 * pct / 100, height: 1.5 * pct / 100 });
     }
     // 100 % is a group too: removing a group removes its components even where the
     // base declares them, so a size_100 that only removed the others left a vehicle

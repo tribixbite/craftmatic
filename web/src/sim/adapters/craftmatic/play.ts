@@ -37,7 +37,7 @@ import type { AddonAppearance } from './appearance.js';
 import type { VoxelWorld } from '../../world/voxel-world.js';
 import { driverViewWorld, drawnReaches, drawnTopOver, entityDrawn, type DrawnBox } from './drawn.js';
 import { modelToWorld, type CraftmaticPack, type Placed } from './pack-facts.js';
-import { describeDrift, describePlace, describeSeatRow, seatOnDrawn, seatScaleAudit, seatScaleDrift, seats100 } from './seat-scale.js';
+import { collisionScaleAudit, describeBoxRow, describeDrift, describePlace, describeSeatRow, seatOnDrawn, seatScaleAudit, seatScaleDrift, seats100 } from './seat-scale.js';
 import { PLACED_KEY } from './wand.js';
 import { treadBlocksFor } from '../../../engine/bedrock-placement-pack.js';
 import { relayRounding, type QuarterTurn } from '../../../engine/bedrock-collider-scale.js';
@@ -185,6 +185,11 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       for (const r of bad) ctx.violate({ invariant: 'seat-on-vehicle', message: describeSeatRow(r), evidence: { type: r.typeId, pct: r.pct, declared: pt(r.declared), seat: pt(r.seat), eye: pt(r.eye), verdict: r.place.verdict } });
       const types = new Set(rows.map(r => r.typeId)).size;
       ctx.note(`seats at every size: ${rows.length} seat-size rows over ${types} drawn rideable(s), ${bad.length} off the vehicle${skipped.length ? `; not judged: ${skipped.map(s => `${s.typeId} (${s.why})`).join(', ')}` : ''}`);
+      // The collision box the device realises (declared x scale, quirk `collision-box-scales-with-entity`) must
+      // be the 100 % box scaled once at every step (COL-03; Saga 30l: 76286 at 200 % had 14 x 10 for 7 x 5).
+      const boxes = collisionScaleAudit(pack.pack), twice = boxes.filter(r => !r.ok);
+      for (const r of twice) ctx.violate({ invariant: 'collision-box-scale', message: describeBoxRow(r), evidence: { type: r.typeId, pct: r.pct, declared: r.declared, realised: r.realised, wanted: r.wanted } });
+      ctx.note(`collision boxes at every size: ${boxes.length} entity-size rows over ${new Set(boxes.map(r => r.typeId)).size} sized entities, ${twice.length} scaled twice`);
     },
 
     /** Board a vehicle by a hold, check the driver's view, drive a course, sneak off: `{ type, ticks }`. */

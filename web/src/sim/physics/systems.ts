@@ -20,7 +20,7 @@
 import { ORDER, type SimEngine } from '../core/engine.js';
 import type { SimEntity } from '../entity/entity.js';
 import { quirkValue } from '../quirks/registry.js';
-import { PLAYER_HEIGHT, PLAYER_WIDTH, TICKS_PER_SECOND, moveBox, tickBody, tickPlayer, type PlayerState } from './body.js';
+import { PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, TICKS_PER_SECOND, moveBox, tickBody, tickPlayer, type PlayerState } from './body.js';
 import type { VoxelWorld } from '../world/voxel-world.js';
 import { stickToWorld, type ControlState } from '../input/controls.js';
 
@@ -61,6 +61,22 @@ export const DISMOUNT_FLOOR_BELOW = 1;
 export const DISMOUNT_FALLBACK_LIFT = 0.2;
 
 /**
+ * The point a dismount's search runs about (quirk `dismount-near-seat`): the rider's SEAT - recovered from
+ * where the rider sat, its feet `PLAYER_EYE_HEIGHT - eyeAboveSeat` under the seat (`SimEntity.placeRider`) -
+ * raised to the seat entity's point where the seat sits under it. On every measured scenery seat (the
+ * moulded `seatBehavior`, its seat 0.3 under the entity) that IS the seat entity's point, as
+ * `dismount-free-spot` was measured; on a vehicle whose seat is high in a big hull it is the seat (Pixel 30l:
+ * off 76286 at 200 % the player fell ~9 blocks from the seat's height, not from the ground at its origin).
+ * TODO(dismount-ref): the horizontal order about a vehicle seat is assumed to be the scenery seat's.
+ */
+export function dismountReference(p: SimEntity, mount: SimEntity): { x: number; y: number; z: number } {
+  const m = mount.location;
+  if (!p.isPlayer) return { ...m };
+  const seatY = p.location.y + PLAYER_EYE_HEIGHT - quirkValue('rider-eye-above-seat', 'eyeAboveSeatBlocks');
+  return { x: p.location.x, y: Math.max(m.y, seatY), z: p.location.z };
+}
+
+/**
  * Put a PLAYER that left a seat (a sneak, `ejectRider`, `/ride stop_riding`) where the device puts it
  * (quirk `dismount-free-spot`): on the floor of the first free candidate one block from the seat
  * entity (`DISMOUNT_OFFSETS`), its box free there; else at the seat entity's point 0.2 up. The device
@@ -70,7 +86,7 @@ export const DISMOUNT_FALLBACK_LIFT = 0.2;
 export function setDownRider(p: SimEntity, mount: SimEntity, world: VoxelWorld): void {
   const h = PLAYER_WIDTH / 2, eps = 0.001;
   const boxAt = (q: { x: number; y: number; z: number }) => ({ x0: q.x - h, y0: q.y, z0: q.z - h, x1: q.x + h, y1: q.y + PLAYER_HEIGHT, z1: q.z + h });
-  const ref = mount.location;
+  const ref = dismountReference(p, mount);
   const standAt = (x: number, z: number): { x: number; y: number; z: number } | undefined => {
     let top = -Infinity;
     for (const [dx, dz] of [[0, 0], [-h + 0.01, -h + 0.01], [h - 0.01, -h + 0.01], [-h + 0.01, h - 0.01], [h - 0.01, h - 0.01]] as const) top = Math.max(top, world.supportBelow(x + dx, ref.y + DISMOUNT_FLOOR_ABOVE, z + dz, 3));

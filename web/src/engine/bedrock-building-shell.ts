@@ -805,8 +805,16 @@ export const COLLIDER_TERRAIN_TEXTURE = { craftmatic_collider: { textures: 'text
  * The needle is KEPT: it costs nothing (no taps, over the roof), and whether a
  * box scaled past 100 % by the size groups lifts the ceiling is unmeasured.
  *
+ * The device scales the declared box by the group's `minecraft:scale` itself
+ * (quirk `collision-box-scales-with-entity`, Saga 30l), so the groups declare
+ * the 100 % needle and the realised one is f x it - what `actorCullFit(box, f)`
+ * computes. Packs built before 2026-10-08 wrote the box pre-scaled, so their
+ * needle was f² x (4x at 200 %, 16x at 400 %): any 200-400 % cull seen on those
+ * packs was with that box. Under the ceiling it changes nothing a player sees
+ * (every needle is past 64 / 70 at 100 % already).
+ *
  * TODO(cull): measure a 200 % and a 400 % placement's shell on a phone (the
- * needle's box scaled 2x/4x): if it is also gone at ~72, drop the needle for
+ * needle's box realised 2x/4x): if it is also gone at ~72, drop the needle for
  * a plain small box and `SHELL_CULL_PER_MODEL_BLOCK` with it.
  *
  * `playable-addon.ts` passes the compiled `sizeBlocks`; the fallback extent

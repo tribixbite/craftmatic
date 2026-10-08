@@ -142,6 +142,26 @@ describe('entities load as the game loads them', () => {
     expect(p.location.z).toBeCloseTo(14.4, 9);
     expect(quirk('seat-scales-with-entity').simulated).toBe('modelled');
   });
+
+  it('realises a size group\'s collision box times its scale: the old pre-scaled 7 x 5 at 200 % is the Saga\'s 14 x 10 (quirk collision-box-scales-with-entity, round 30l)', () => {
+    const defs = new EntityDefinitions();
+    const load = (box200: { width: number; height: number }) => defs.load('entities/m.json', JSON.stringify({ format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'x:milano' },
+      components: { 'minecraft:collision_box': { width: 3.5, height: 2.5 } },
+      component_groups: { 'craftmatic:size_200': { 'minecraft:scale': { value: 2 }, 'minecraft:collision_box': box200 } }, events: { 'craftmatic:size_200': { add: { component_groups: ['craftmatic:size_200'] } } } } }))!;
+    const ship = (box200: { width: number; height: number }): SimEntity => {
+      const e = new SimEntity('x:milano', 'minecraft:overworld', { x: 0, y: 0, z: 0 }, 0, load(box200));
+      expect(e.collisionSize()).toEqual({ width: 3.5, height: 2.5 });
+      e.triggerEvent('craftmatic:size_200');
+      return e;
+    };
+    // The packs before the fix: declared 7 x 5 (already doubled), realised 14 x 10 - the volume tests' box (`r21-hitbox-*.jpg`).
+    expect(ship({ width: 7, height: 5 }).collisionSize()).toEqual({ width: 14, height: 10 });
+    // Declared unscaled: the box is the 100 % box scaled once, and the pick / getAABB box follows it.
+    const fixed = ship({ width: 3.5, height: 2.5 });
+    expect(fixed.collisionSize()).toEqual({ width: 7, height: 5 });
+    expect(fixed.aabb()).toEqual({ x0: -3.5, y0: 0, z0: -3.5, x1: 3.5, y1: 5, z1: 3.5 });
+    expect(quirk('collision-box-scales-with-entity').simulated).toBe('modelled');
+  });
 });
 
 describe('first-person entity snapshots use the device draw cull', () => {
@@ -304,6 +324,30 @@ describe('the script host', () => {
     expect(at(3).dx).toBe(0);
     expect(at(3).dz).toBe(0);
     expect(quirk('dismount-free-spot').simulated).toBe('partial');
+  });
+
+  it('a rider leaving a seat high in a big hull is set down about the SEAT, not the origin: with no floor near it, it falls from the seat\'s height (quirk dismount-near-seat, Pixel 30l: ~9 blocks off the 200 % Milano)', async () => {
+    // 76286 at 200 %: the seat declared (0, 4.58, 3.6), realised x 2 (seat-scales-with-entity), the hull parked on the ground.
+    const ship = entityJson('x:ship', { 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: { position: [0, 4.58, 3.6] } }, 'minecraft:scale': { value: 2 }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
+    const sim = new Simulation();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'ship.json': ship }), 'mini'));
+    const G = FLAT_GROUND_Y;
+    const v = sim.engine.spawnEntity('x:ship', 'overworld', { x: 0.5, y: G, z: 0.5 });
+    const p = sim.addPlayer('Child', { x: 3.5, y: G, z: 0.5 });
+    await sim.run(2);
+    expect(v.addRider(p, sim.engine.tick).ok).toBe(true);
+    await sim.run(1);
+    const seatY = v.seatWorld(0).y;
+    expect(seatY).toBeCloseTo(G + 9.16, 6);
+    sim.controls.set(p.id, { sneak: true });
+    await sim.run(1);
+    sim.controls.set(p.id, { sneak: false });
+    expect(p.ridingOn).toBeUndefined();
+    // Set down at the seat entity's point would have been the ground; about the seat it is in the air, 0.2 over the seat.
+    expect(p.location.y).toBeGreaterThan(G + 8);
+    await sim.run(60);
+    expect(p.location.y).toBeCloseTo(G, 3);
+    expect(quirk('dismount-near-seat').simulated).toBe('partial');
   });
 
   it('a player teleported into a block falls through it, pushed sideways only where a side is free (quirk teleport-into-floor, Pixel GameTest 2026-09-30)', async () => {
