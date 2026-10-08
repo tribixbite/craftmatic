@@ -114,10 +114,21 @@ Round 30l BUILT from main `77a9f172`: `output/device-round-2026-10-07l/`
 (`craftmatic-packs-77a9f172.zip` sha256 `a1163501...`). Offline: check 0 bad
 of 23, regressions 21 / 0 failed / 0 not tested, course ships 9/9 car 6/9,
 hop 3/3, child play 132/132, seat scale 0 off at every size, passability 340
-rows 256 OK / 20 STEP / 60 SEALED / 4 ONE-WAY / 0 FAIL. Device round 30l IN
-PROGRESS (Saga: seats at 200/400 %, camera radius, cockpit at speed, first
-mount, Nimbus drag; Pixel: Gate 1 step-out, lift hill auto-jump, seats at
-200 %, Milano ms/tick) -> `output/device-round-2026-10-07l/{saga,pixel}/notes.md`.
+rows 256 OK / 20 STEP / 60 SEALED / 4 ONE-WAY / 0 FAIL. Device round 30l
+DONE (`output/device-round-2026-10-07l/{saga,pixel}/notes.md`). PASS: seats
+at 50/150/200/400 % (Milano eye exactly as planned, X-wing, coaster car,
+Nimbus, scenery seats), first mount behind the nose, Nimbus dive/strafe/HUD,
+lift hill to the top with auto-jump only, Gate 1 close-from-inside, Door 3,
+Milano 13.4 ms/tick, all 30k regressions. FAIL / open (round 30m):
+1. Nimbus: one drag spins the cloud forever (~130 deg/s; rider yaw 45-74 ahead).
+2. Cockpit eye LAGS the seat at top speed with lag 4 (30k led at 1.5).
+3. Collision box double-scaled above 100 % (Milano 200 %: 14x10 for a
+   declared 7x5) - also feeds the cull needle and tap target.
+4. Chase camera boom is the 100 % length at every size (400 %: on the hull).
+5. 10261 at 200 %: past the lift-hill top the walk runs off the model's east
+   end into a 43-block fall (newly reachable thanks to the lane pass).
+6. 200 % Milano: a ground dismount drops ~9 blocks (vehicle dismounts are not
+   egress-checked).
 Open: `TODO(car-oblique-kerb)` (McLaren slides 62 along an oblique kerb);
 11 other hull-leaving cockpit eyes not re-audited for `AHEAD_CABIN`.
 - # TODO(seat-sweep-memory): `_seat_egress_sweep.ts` on 76457 at 300/400 %
