@@ -75,6 +75,9 @@ export function verdictRows(lines: readonly CmgtLine[]): ReplayRow[] {
       case 'QTP': push(l.tag, `${String(d['layout'])}/${String(d['mat'])}/${String(d['d'])}/${String(d['method'])}/${String(d['who'])}`, { rest: restOf(d['samples']) }); break;
       case 'QDM': push(l.tag, `${String(d['test'] ?? 'quirk_dismount')}/${String(d['name'])}/${String(d['method'])}`, { off: r2(d['stillRiding'] === false), rest: restOf(d['samples']) }); break;
       case 'QREACH': push(l.tag, String(d['mode']), { hits: r2(((d['rows'] as unknown[][] | undefined) ?? []).filter(r => r[4] === true).map(r => `${String(r[0])}@${String(r[1])}`)), mounts: r2(((d['rows'] as unknown[][] | undefined) ?? []).filter(r => r[6] === true).map(r => `${String(r[0])}@${String(r[1])}`)) }); break;
+      // The push probe: where each body ended (its last sample), the walker-walker gap, and the deepest overlap with the box.
+      case 'QPUSH': push(l.tag, String(d['case']), { ends: r2(Object.fromEntries(Object.entries(d).filter(([k]) => k !== 'case').map(([k, v]) => [k, Array.isArray(v) && v.length ? (v[v.length - 1] as number[]).slice(1) : null]))) }); break;
+      case 'QAABB': push(l.tag, 'aabb', { rows: r2(d['rows']) }); break;
       case 'QBANDS': push(l.tag, 'bands', { rows: r2(((d['rows'] as unknown[][] | undefined) ?? []).map(r => `${String(r[0]).split(' ')[0]}:${String(r[1])},${String(r[2])}=${String(r[3])}`)) }); break;
       default: break;
     }
@@ -100,7 +103,7 @@ export function compareRows(device: readonly ReplayRow[], sim: readonly ReplayRo
 }
 
 /** Whether a log is the quirk probe's (scripts/_gametest_quirks.ts) rather than a model pack's. */
-export const isQuirkLog = (lines: readonly CmgtLine[]): boolean => lines.some(l => /^Q(TP|DM|REACH|BANDS)/.test(l.tag) || (l.tag === 'READY' && l.data?.['probe'] === 'quirks'));
+export const isQuirkLog = (lines: readonly CmgtLine[]): boolean => lines.some(l => /^Q(TP|DM|REACH|BANDS|PUSH|AABB)/.test(l.tag) || (l.tag === 'READY' && l.data?.['probe'] === 'quirks'));
 
 /** The diff as a markdown table. */
 export function replayMarkdown(diffs: readonly ReplayDiff[], title: string): string {
