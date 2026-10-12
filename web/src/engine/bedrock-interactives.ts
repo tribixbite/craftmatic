@@ -1112,6 +1112,11 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
           // reaches that column, as it reaches a standable one. Only that one column, only where the span rule
           // found nothing - every doorway the rule already serves is cut as before.
           const first = firstPassageColumn(cx, cz, gn, dir, columns);
+          // TODO(passage-geometry): one column only, and judged on clearance's layers, which hold ONE box per
+          // sixteenth per cell (the union of everything in it): 910004 Door 3's inner column holds a lamp at one
+          // corner and a scrap at the other, its layers read full, and it stays a full collider where nothing is
+          // drawn over most of it. The model seals that doorway further in anyway (`_ix_sealed_causes --drawn`:
+          // model at every size), so opening it would gain nothing there.
           // The column's own floor stays: opened as if the doorway's floor were a step under it, so a floor up to a
           // jump over the doorway's (10326 Door 3's WC floor, 12/16 over its sunken sill) is kept, not cut away.
           if (first) {
