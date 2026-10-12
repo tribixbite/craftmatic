@@ -280,6 +280,25 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   The LOD plan caps the cull at `ACTOR_DRAW_CEILING_BLOCKS` (70), so a large
   shell's hull is dropped rather than planned at ~120 where nothing draws; the
   needle is kept (harmless; 200-400 % unmeasured, `TODO(cull)`).
+- **A shell chunk's root must be within draw reach of its cubes at EVERY
+  size group, and the device culls by the camera-to-ROOT distance.** The
+  lattice (`splitStaticShell`) is planned for the largest step
+  (`STATIC_SHELL_CULL_MAX_SCALE` = 4): 13-block cells, the root at each
+  cell's CENTRE, y cells counted from the model's floor plane. Planned for
+  200 % with top-face roots (until 2026-10-11) 10261's roots sat up to 98
+  blocks from their cubes at 400 % and the phone drew no shell from 40 blocks
+  west of the pin (round 30m, COL-03). A lattice per size group would
+  multiply the resident cuboids; one lattice, sized for the largest.
+- **A walking body does not drop into the next column: it overshoots.** The
+  reach guards (`guardPass`, bedrock-collider-scale.ts) measure a fall as the
+  WALK-OFF (`WALK_OFF_FALL16`: a column catches the body only when its top
+  is no further down than the body has fallen while still over it), guard
+  every reached edge above 100 % (the model's own too), and run again over
+  the clearance FORM grid, because the full-cell reading hid 10261's lift-top
+  edge at 200 % and the guard stood two columns past where the Pixel walked
+  off and fell 43 blocks (round 30m, COL-01; the ledge 3.6 blocks down was
+  overshot). Judge any guard change with the simulator's walks
+  (`top-east-fall-10261-30m`) and `_ix_passability.ts`, never by the grid alone.
 - **Every rideable needs `action.hint.exit.<namespace>:<name>` in every
   `.lang`**, or the raw key shows under the hotbar while riding (Saga, 76457's
   Bed). Written from the emitted behaviour files (`rideableExitHintLines`);

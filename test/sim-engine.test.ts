@@ -516,10 +516,13 @@ describe('historical regression replay inputs', () => {
 
   it('round 30m\'s open device defects are cases: open ones reproduce, the unreproduced one says what is missing', () => {
     const ids = ['nimbus-steer-30m', 'milano-chase-400-30m', 'xwing-air-park-30m', 'mclaren-walls-30m', 'top-east-fall-10261-30m', 'shell-unseen-400-10261-30m', 'milano-mount-reach-200-30m'];
+    // Fixed 2026-10-11 (COL-01, COL-03): closed cases carry neither field and read OK on the current tree's pack.
+    const fixed = new Set(['top-east-fall-10261-30m', 'shell-unseen-400-10261-30m']);
     for (const id of ids) {
       const c = REGRESSIONS.find(x => x.id === id);
       expect(c, id).toBeDefined();
       expect(c!.oldPack).toContain('device-round-2026-10-08m/packs-6a8c7121/');
+      if (fixed.has(id)) { expect(c!.open, id).toBeUndefined(); expect(c!.knownUnreproduced, id).toBeFalsy(); continue; }
       // Either an open defect the simulator shows, or a known-unreproduced one with its missing model: never both.
       expect(!!c!.open !== !!c!.knownUnreproduced, id).toBe(true);
       if (c!.knownUnreproduced) expect(c!.limits, id).toMatch(/\S{20,}|.{40,}/);

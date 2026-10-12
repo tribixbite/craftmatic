@@ -547,19 +547,32 @@ standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
   (bedrock-building-shell.ts) partitions the FINISHED cubes - after the one
   global grain/cull/merge/coplanar plan, never recompiling a part - by the cell
   holding each cube's drawn centre on a fixed lattice in the model's JSON
-  frame: `STATIC_SHELL_CELL_BLOCKS` (20) per edge, derived from the 54-block
+  frame: `STATIC_SHELL_CELL_BLOCKS` (13) per edge, derived from the 54-block
   reach target (`STATIC_SHELL_RADIUS_LIMIT_BLOCKS`: the 70-block draw ceiling
-  less the 16-block LOD margin) at the 200 % planning scale with a 2-block
+  less the 16-block LOD margin) at the LARGEST size step
+  (`STATIC_SHELL_CULL_MAX_SCALE`, 4 = `max(SIZE_STEPS)`) with a 2-block
   straddle margin, so every cube inside a cell is within reach of the cell's
-  root, the centre of its TOP face. A shell whose whole radius fits at 200 %
-  keeps its single actor and id. Chunk id and root depend on the cell alone -
-  `<shell>_c<ix>_<iy>_<iz>` (`n` spells a negative index; `shellChunkId`,
-  `shellChunkCell`, `isShellEntityId` and `SHELL_ENTITY_ID_PATTERN` are the one
-  classifier the Walk preview, the geometry audit and the reports use) - so a
-  later compile of the same model keeps every placed chunk's id and root
-  (a list-position id and a median-split root moved 1.4 blocks on one added
-  cube). Roots are whole geometry units and every shifted origin and pivot is
-  rounded to the compiler's two decimals; a chunk keeps only the bones with a
+  root, its CENTRE (`shellCellRoot`: `sqrt(3)/2 x 13 x 4` + 8 = 53 blocks at
+  400 %), at every size group. The x/z lattice is anchored at the origin (the
+  floor centre), the y lattice at the model's floor plane (`-originLiftBlocks`),
+  so no root is ever in the ground. Until 2026-10-11 the lattice was 20-block
+  cells planned for 200 % with the root at each cell's TOP face: at 400 % a
+  root sat up to 98 blocks from its cubes and 10261's whole shell culled from
+  40 blocks west of the pin (round 30m, COL-03; the simulator's
+  `shell-unseen-400-10261-30m`). A shell whose whole radius fits at 400 %
+  keeps its single actor and id. Chunk id and root depend on the cell and the
+  floor plane alone - `<shell>_c<ix>_<iy>_<iz>` (`n` spells a negative index;
+  `shellChunkId`, `shellChunkCell`, `isShellEntityId` and
+  `SHELL_ENTITY_ID_PATTERN` are the one classifier the Walk preview, the
+  geometry audit and the reports use) - so a later compile of the same model
+  keeps every placed chunk's id and root (a list-position id and a
+  median-split root moved 1.4 blocks on one added cube). A pack built before
+  2026-10-11 counted y cells from the origin (negative indices), so none of
+  its chunk ids coincides with a new one: a saved world's old chunks are
+  undefined types under the new pack (inert), never new geometry at an old
+  root; re-place the model. Roots are whole geometry units (a cell's centre
+  is a half-block: 8 units) and every shifted origin and pivot is rounded to
+  the compiler's two decimals; a chunk keeps only the bones with a
   cube in it plus their ancestors; the chunks of one shell bind one face atlas
   (`<shell>_faces.png`); a rotated cube without a pivot is refused. A cube
   straddling its cell past the target is retained and counted
@@ -568,14 +581,22 @@ standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
   root, entity cubes dampen no light, the colliders dampen none, and every
   cell root is above the model's floor. Colliders and the aggregate
   diagnostics stay keyed by the whole-model id; `spatialShell` lists every
-  chunk's cell, root offset, radius, cubes, meshes and bones. Measured on the
-  shipped packs (`bun scripts/_shell_chunk_report.ts <before> <after>`): 10261
-  draws as 12 chunks and 76417 as 8 at every size; shell geo.json bytes
-  7.42 MB -> 3.14 MB (10261) and 9.78 MB -> 4.02 MB (76417) against the
-  median-split build that also shipped the whole monolith, with no empty
-  bone and no literal longer than 7 characters (was 20-22); two 10261 chunks
-  carry one straddling cube each reaching ~59 blocks at 200 % (warned,
-  retained; under the 70-block ceiling).
+  chunk's cell, root offset, radius, cubes, meshes and bones
+  (`bun scripts/_shell_chunk_report.ts <before> <after>` compares two packs).
+  Measured on the 2026-10-11 builds (`output/fix-scale-1011/`): the 13-block
+  lattice draws 10261 as 16 chunks (was 12), 76417 as 11 (was 8) and 10326
+  as 6 (was a single actor), the same cubes (42,391 / 47,862 / 46,614); the
+  largest root-to-corner reach at 400 % is 51.7 blocks on 76417, while a
+  cube whose CENTRE sits in a cell but whose length straddles it is drawn
+  from that cell's root all the same: 10261 keeps three such cubes (one
+  reaching 102 blocks at 400 %) and 10326 seventeen (84 blocks), so a part
+  of those cubes is not drawn until the camera is within 70 of the root
+  (`oversizedCubes`, warned; splitting a final cube is outside the split's
+  contract, `TODO(cull)`). In the simulator 10261 at 400 % from 40 blocks
+  west of the pin now draws 1 and 2 of its 4 loaded chunks (nearest root
+  53.9 / 57.2 blocks) where the 20-block lattice drew none of 6 (nearest
+  87.1). Whether the phone draws a 400 % chunk out to the 70-block ceiling
+  is unmeasured (`TODO(cull)`: the 300/400 % draw ceiling).
 - **An old whole-model shell migrates into the chunks when it loads.** The old
   type `<shell>` stays defined with its behaviour document unchanged (so a
   saved actor's size group and `minecraft:scale` still read) and a client
