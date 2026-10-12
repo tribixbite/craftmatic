@@ -6,7 +6,7 @@ import { currentPipelineStamp, packDisplayName, packProvenance, packVersionAt, p
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
-import { buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, visibleBoundsForSizeSteps, withColliderTreadsAsync, withSizeGroups, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
+import { buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsForSizeSteps, withColliderTreadsAsync, withSizeGroups, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
 import { FLYER, flyerScript, type FlyerRuntimeConfig } from './bedrock-flyer.js';
 import type { CanonMount } from './set-canon.js';
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
@@ -722,6 +722,9 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
                 return seatList;
             })(),
         };
+    // The drawn hull's tap box at 100 %: a compiled model's extent (`sizeBlocks`, centred on the origin at
+    // the floor), or the grid-built fallback's layout. A square of the longest reach: see `hullHitBox`.
+    const hullHit = sizeHitBox(entitySize ?? { width: layout.width, height: layout.height, length: layout.length });
     const common: Record<string, unknown> = {
         'minecraft:type_family': { family: ['craftmatic_vehicle', kind, ...(motion === 'hover' ? ['hover'] : motion === 'flyer' ? ['flyer'] : [])] },
         'minecraft:nameable': {}, 'minecraft:persistent': {},
@@ -733,6 +736,13 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         // Clamp to practical navigation bounds (<= 3.5m wide, <= 2.5m tall) so oversized models
         // can navigate dunes, terrain steps, and doorways without clipping into terrain.
         'minecraft:collision_box': collisionBoxOverride ?? { width: Math.min(3.5, Math.max(0.8, layout.width * .85)), height: Math.min(2.5, Math.max(.8, layout.height * .8)) },
+        // The touch / interact (Mount) target: the collision box above is clamped to 3.5 x 2.5 so a
+        // hull can pass terrain, and until 2026-10-11 it was the ONLY pick target - the 200 % Milano
+        // (realised 7 x 5) showed its Mount prompt only ~3 blocks from the hull centre, none at its
+        // nose 15.5 blocks out (VEH-17, Pixel 30m). A hit-test box the size of the drawn hull is picked
+        // for the interact too (Bedrock 1.21.60 changelog; quirk `custom-hit-test-pick`); every size
+        // group re-declares it at that size (`withSizeGroups` `hitTest`: not scaled by `minecraft:scale`).
+        'minecraft:custom_hit_test': { hitboxes: [hullHit] },
         'minecraft:rideable': rideableComponent,
         // Format 1.26.30 dropped `minecraft:pushable` from the schema (the whole
         // entity then fails to parse - measured on the Pixel's content log);
@@ -828,7 +838,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true, ...(scripted ? { properties: flightProperties() } : {}) }, ...aircraftGroups, components: common } },
         common['minecraft:collision_box'] as { width: number; height: number },
         rideableComponent,
-        seatPlan ? { seatAt: seatPositionAt } : {},
+        { ...(seatPlan ? { seatAt: seatPositionAt } : {}), hitTest: [hullHit] },
     );
 }
 /**

@@ -24,6 +24,7 @@ import { PLAYER_WIDTH_BLOCKS } from '../web/src/engine/addon-scale.js';
 import { PLAYER_HEIGHT_BLOCKS } from '../web/src/engine/lego-scale.js';
 import { STEP16 } from '../web/src/engine/bedrock-collider-scale.js';
 import { FLAT_GROUND_Y } from '../web/src/sim/world/voxel-world.js';
+import { pickBoxes } from '../web/src/sim/input/ray.js';
 import { REGRESSIONS, regressionVerdict } from '../web/src/sim/adapters/craftmatic/regressions.js';
 import { craftmaticHandlers, figureMode } from '../web/src/sim/adapters/craftmatic/child-play.js';
 import { FLOOR_LEVEL_TOLERANCE, floorLevelInRecordedCell, judgeSide, onRunout } from '../web/src/sim/adapters/craftmatic/play.js';
@@ -296,6 +297,25 @@ describe('the script host', () => {
     expect(out).toBeDefined();
     expect(Math.hypot(out!.feet.x - 12.5, out!.feet.z - 0.5)).toBeGreaterThanOrEqual(2);
     expect(findApproach(sim.engine, p, target, undefined, [], { notWhere: () => true })).toBeUndefined();
+  });
+
+  it('reads a hit-test box as declared under minecraft:scale, where the collision box is scaled (quirk custom-hit-test-pick, VEH-17)', async () => {
+    // A 200 % vehicle: its size group doubles the scale and declares a 4-wide hit-test box over its 2-wide collision box
+    // (declared unscaled, realised 4). The pick box is the declared 4, not 8: a pack writes each group's box at that size.
+    const hull = entityJson('x:hull', { 'minecraft:collision_box': { width: 2, height: 1 }, 'minecraft:custom_hit_test': { hitboxes: [{ width: 2, height: 1, pivot: [0, 0.5, 0] }] }, 'minecraft:physics': { has_gravity: false, has_collision: false } },
+      { groups: { 'craftmatic:size_200': { 'minecraft:scale': { value: 2 }, 'minecraft:collision_box': { width: 2, height: 1 }, 'minecraft:custom_hit_test': { hitboxes: [{ width: 4, height: 2, pivot: [0, 1, 0] }] } } }, events: { 'craftmatic:size_200': { add: { component_groups: ['craftmatic:size_200'] } } } });
+    const sim = new Simulation();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'hull.json': hull }), 'mini'));
+    const v = sim.engine.spawnEntity('x:hull', 'overworld', { x: 20.5, y: FLAT_GROUND_Y, z: 0.5 });
+    await sim.run(2);
+    expect(pickBoxes(v)[0]!.x1 - pickBoxes(v)[0]!.x0).toBeCloseTo(2, 6);
+    v.triggerEvent('craftmatic:size_200');
+    const [box] = pickBoxes(v);
+    expect(box!.x1 - box!.x0).toBeCloseTo(4, 6);
+    expect(box!.y1 - box!.y0).toBeCloseTo(2, 6);
+    expect(box!.y0).toBeCloseTo(FLAT_GROUND_Y, 6);
+    // The collision box IS scaled (quirk `collision-box-scales-with-entity`): the realised 4 equals the declared hit test here.
+    expect(v.collisionSize()).toEqual({ width: 4, height: 2 });
   });
 
   it('a rider that gets off is set on the floor one block to -z, then +z, then a diagonal; walled in, at the seat 0.2 up (quirk dismount-free-spot, Pixel GameTest 2026-09-30)', async () => {

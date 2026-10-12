@@ -16,6 +16,7 @@ import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometr
 import { setLDrawRoot } from '../web/src/engine/ldraw-geometry.js';
 import { sceneGridPoint } from '../web/src/engine/bedrock-scene-actors.js';
 import { BEDROCK_UNITS_PER_LDU, SEATED_EYE_HEIGHT_BLOCKS as EYE } from '../web/src/engine/lego-scale.js';
+import { renderSeatToEntity } from '../web/src/engine/cockpit-seat.js';
 import { buildCoasterFrames, buildCoasterPath } from '../web/src/engine/coaster-path.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { BlockGrid } from '../src/schem/types.js';
@@ -916,6 +917,12 @@ describe('coaster pack assets', () => {
     expect(entity.components['minecraft:rideable'].interact_text).toBe('Ride the coaster');
     // The tub and the seated rider have to be inside the box a player aims at.
     expect(entity.components['minecraft:collision_box']).toEqual({ width: 1.375, height: 0.9 });
+    // The tap / interact target is the hit-test box over the drawn tub (VEH-17): x -11..11 and z -10..10 entity
+    // units -> a 1.375 square; the wheels reach -6.6 and the ends 7 -> 0.85 tall about y 0.0125. Every size group
+    // re-declares it at that size (a hit-test box is not scaled by `minecraft:scale`, quirk `custom-hit-test-pick`).
+    expect(entity.components['minecraft:custom_hit_test']).toEqual({ hitboxes: [{ width: 1.375, height: 0.85, pivot: [0, 0.013, 0] }] });
+    expect(entity.component_groups['craftmatic:size_400']['minecraft:custom_hit_test']).toEqual({ hitboxes: [{ width: 5.5, height: 3.4, pivot: [0, 0.052, 0] }] });
+    expect(entity.component_groups['craftmatic:size_400']['minecraft:collision_box']).toEqual({ width: 1.375, height: 0.9 });
   });
   it('scales cart geometry, collision and seat at export before applying wand size', () => {
     const assets = coasterCartAssets('craftmatic:ride', 4);
@@ -1882,6 +1889,12 @@ describe.skipIf(!HAVE_CORPUS)('10303 Loop Coaster: its own three cars, its platf
       const rideable = (car.behavior as any)['minecraft:entity'].components['minecraft:rideable'];
       expect(rideable.seats.position[1]).toBeGreaterThanOrEqual(0.3);
       expect(Math.abs(rideable.seats.position[2])).toBeLessThan(0.5);
+      // The declared seat is the ENTITY frame's (+Z the nose) of the render-frame seat the runtime keeps (COAST-06).
+      expect(rideable.seats.position).toEqual(renderSeatToEntity(assets.types[car.typeId]!.seat!));
+      // The tap / interact box covers the whole drawn car, wheels included (VEH-17).
+      const [hit] = (car.behavior as any)['minecraft:entity'].components['minecraft:custom_hit_test'].hitboxes;
+      expect(hit.width).toBeGreaterThan((car.behavior as any)['minecraft:entity'].components['minecraft:collision_box'].width);
+      expect(hit.pivot[1] - hit.height / 2).toBeLessThan(0);
     }
     // Two trains: six car actors (indices 0..5), the second train a copy of the first's types.
     expect(runtime!.cars.trains).toBe(2);
@@ -2140,6 +2153,34 @@ function loopCourse(): CoasterRoute {
 const finiteView = (view: any) => Number.isFinite(view.rotation.x) && Number.isFinite(view.rotation.y) && Number.isFinite(view.location.x);
 
 describe('the rider camera follows the track', () => {
+  it('the camera eye sits on the seat Bedrock realises: the runtime\'s render-frame seat (+Z back) is declared as the entity-frame seat (+Z nose), renderSeatToEntity (COAST-06)', () => {
+    // 10261's measured seat: 0.3 up, 0.338 BACK along the car (render frame). The runtime carries the player's eye
+    // through the car's real frame from this seat and places the ENTITY so that the seat Bedrock realises from the
+    // declared `minecraft:rideable` position lands on it. Declared as it was (until 2026-10-11), the device read
+    // +0.338 as 0.338 AHEAD: the player sat 0.676 ahead of the camera, the camera 0.5-0.7 off the eye on both clients.
+    const h = rideHost(loopCourse(), { seat: [0, 0.3, 0.338], camera: { mode: 'reflect', tickLag: 0 } });
+    const { player } = cameraRider(h.entity);
+    const rider = coasterSims.get(h.entity)!.h.simOf(player)!;
+    h.run(1); h.seat(player);
+    let compared = 0, worst = 0;
+    const diag: string[] = [];
+    for (let t = 0; t < 400; t++) {
+      h.run(1);
+      const calls = player.camera.setCamera.mock.calls;
+      const eye = calls.length ? (calls[calls.length - 1]![1] as { location?: { x: number; y: number; z: number } }).location : undefined;
+      const car = h.positions.at(-1);
+      const speed = h.speeds().at(-1) ?? 0;
+      if (t % 40 === 0) diag.push(`t${t}: car ${JSON.stringify(car)} speed ${speed.toFixed(2)} setCamera calls ${calls.length} eye ${JSON.stringify(eye)}`);
+      // Steady running on the level entry straight (0..60 along +z from the test origin), before the loop.
+      if (!eye || !car || car.z - COASTER_TEST_ORIGIN.z > 50 || speed < 2) continue;
+      const head = rider.headLocation();
+      worst = Math.max(worst, Math.abs(eye.z - head.z), Math.abs(eye.x - head.x), Math.abs(eye.y - head.y));
+      compared++;
+    }
+    expect(compared, diag.join('\n')).toBeGreaterThan(50);
+    // Lag 0, a setCamera every tick: the eye IS the realised seat plus the seated eye height - never 2 x 0.338 off it.
+    expect(worst).toBeLessThan(0.05);
+  });
   it('over mode: puts the view along the car\'s nose through a vertical loop, over the top and upside down, with no yaw snap', () => {
     // A pitch past ±90 is REFUSED by Bedrock's script API on the Pixel
     // ("Pitch (x rot) is outside accepted range of [-90, 90]"), so this mode is

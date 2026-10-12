@@ -1,6 +1,7 @@
 import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type GridDims, type LaneWalk, type QuarterTurn, type ReachTarget, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
 import { WalkWorld, tickPlayer, type PlayerState } from './addon-walk.js';
 import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
+import { drawnCubeBox } from './bedrock-geometry-faces.js';
 
 declare const world: any;
 declare const system: any;
@@ -405,6 +406,72 @@ export function collisionWorldBox(declared: { width: number; height: number }, s
 }
 
 /**
+ * One `minecraft:custom_hit_test` box: a square footprint `width` wide,
+ * `height` tall, centred on `pivot` (blocks from the entity origin, world
+ * axes). Structurally the interactives' `HitBox` (bedrock-interactives.ts).
+ */
+export interface HitTestBox { width: number; height: number; pivot: [number, number, number] }
+
+/**
+ * The tap / interact box of a rideable whose drawn hull reaches `extent`
+ * blocks from its origin: ONE square as wide as the hull's longest horizontal
+ * reach either way, as tall as the hull, over `[bottom, bottom + height]`.
+ *
+ * Why a square, and why the longest axis: Bedrock keeps a hit-test box
+ * world-aligned (quirk `custom-hit-test-pick`; docs/bedrock-interactivity.md
+ * "yaw 0, turned and scaled by its root bone"), so no set of boxes can follow
+ * a hull that turns - a driven vehicle turns every tick, a placed one sits at
+ * a quarter turn. A square of the longest reach covers the whole hull at every
+ * quarter turn; what it costs is reach past the shorter side (76286 at 100 %:
+ * 30 wide, 16 long - 7 blocks of air fore and aft), where a tap meant for
+ * something standing in that air picks the vehicle instead. Until 2026-10-11
+ * the only pick target was the `minecraft:collision_box` (VEH-17, Pixel 30m:
+ * 76286 at 200 % showed no Mount prompt at its nose, 15.5 blocks out, only
+ * ~3 blocks from the hull centre).
+ * # TODO(hit-test-footprint): a hull much longer than wide (a ship) would do
+ * better as a row of squares swapped by heading; unmeasured whether the
+ * device turns a box with its entity after all (the interactives never turn).
+ */
+export function hullHitBox(extent: { halfWidth: number; halfLength: number; height: number }, bottom = 0): HitTestBox {
+  const side = 2 * Math.max(extent.halfWidth, extent.halfLength);
+  return { width: round3(Math.max(0.2, side)), height: round3(Math.max(0.2, extent.height)), pivot: [0, round3(bottom + extent.height / 2), 0] };
+}
+
+/**
+ * `hullHitBox` of a compiled entity's extent (`sizeBlocks`: width across,
+ * length nose-to-tail, render frame), whose origin is the floor centre
+ * (`originLdu`: the bounds' middle x/z at the floor).
+ */
+export function sizeHitBox(size: { width: number; height: number; length: number }): HitTestBox {
+  return hullHitBox({ halfWidth: size.width / 2, halfLength: size.length / 2, height: size.height });
+}
+
+/**
+ * `hullHitBox` of a shipped geometry (`.geo.json` value: every mesh, bone and
+ * cube, read through `drawnCubeBox` so an inflated cube counts its drawn
+ * box), in blocks about the entity origin; the farthest horizontal reach from
+ * the origin either way sets the square, so an off-centre body is still
+ * covered at every turn. `undefined` for a geometry with no cube.
+ */
+export function geometryHitBox(geometry: unknown): HitTestBox | undefined {
+  const meshes = (geometry as { 'minecraft:geometry'?: Array<{ bones?: Array<{ cubes?: Array<{ origin: readonly number[]; size: readonly number[]; inflate?: unknown }> }> }> } | undefined)?.['minecraft:geometry'] ?? [];
+  let reach = 0, bottom = Infinity, top = -Infinity, cubes = 0;
+  for (const mesh of meshes) for (const bone of mesh.bones ?? []) for (const cube of bone.cubes ?? []) {
+    const d = drawnCubeBox(cube);
+    cubes++;
+    for (const axis of [0, 2] as const) reach = Math.max(reach, Math.abs(d.origin[axis]), Math.abs(d.origin[axis] + d.size[axis]));
+    bottom = Math.min(bottom, d.origin[1]); top = Math.max(top, d.origin[1] + d.size[1]);
+  }
+  if (!cubes) return undefined;
+  return hullHitBox({ halfWidth: reach / 16, halfLength: reach / 16, height: (top - bottom) / 16 }, bottom / 16);
+}
+
+/** `hullHitBox` boxes as a size group whose `minecraft:scale` is `scale` ships them: at the realised (world) size, see `withSizeGroups`. */
+export function hitTestAtSize(boxes: readonly HitTestBox[], scale: number): HitTestBox[] {
+  return boxes.map(b => ({ width: round3(b.width * scale), height: round3(b.height * scale), pivot: [round3(b.pivot[0] * scale), round3(b.pivot[1] * scale), round3(b.pivot[2] * scale)] }));
+}
+
+/**
  * How an entity follows the wand's size steps.
  *
  * `playerSized` marks a FIGURE, or a seat whose rider is one. The rule
@@ -423,6 +490,16 @@ export interface SizeGroupOptions {
   playerSized?: boolean;
   /** A seat's WORLD offset at wand factor `f` (a vehicle's rider seat, cockpit-seat.ts); default: the authored seat scaled about the origin. */
   seatAt?: SeatAtSize;
+  /**
+   * The entity's `minecraft:custom_hit_test` boxes at 100 % (a rideable's
+   * drawn hull, `hullHitBox`): every group then declares them at that
+   * group's REALISED size, because a hit-test box is NOT multiplied by
+   * `minecraft:scale` the way a seat and the collision box are (quirk
+   * `custom-hit-test-pick`: vanilla hoglin.json declares its baby's
+   * collision box "0.85/0.5" - pre-divided by its 0.5 scale - and its hit
+   * test at the baby's own 1.0 x 0.85, half the adult's 2.0 x 1.75).
+   */
+  hitTest?: readonly HitTestBox[];
 }
 
 /**
@@ -451,7 +528,9 @@ export const figureSizeFactor = (f: number): number => Math.min(1, f);
  *
  * A `playerSized` entity (see `SizeGroupOptions`) still carries every group,
  * so the runtime's one `triggerEvent(size_<pct>)` per actor works unchanged,
- * but the groups above 100 % hold the 100 % values.
+ * but the groups above 100 % hold the 100 % values. A rideable's tap boxes
+ * (`hitTest`) go the OTHER way - written at each group's realised size - and
+ * the base `components` must carry the 100 % boxes too (`hullHitBox`).
  */
 export function withSizeGroups(
   behavior: unknown,
@@ -480,6 +559,8 @@ export function withSizeGroups(
       // Declared UNSCALED: the device realises `declared x scale` (collisionWorldBox, Saga 30l).
       'minecraft:collision_box': { width: round3(collision.width), height: round3(collision.height) },
       ...(rideable ? { 'minecraft:rideable': rideableAtSize(rideable, scale, options.seatAt) } : {}),
+      // Declared at the REALISED size: a hit-test box is not scaled by `minecraft:scale` (`SizeGroupOptions.hitTest`).
+      ...(options.hitTest?.length ? { 'minecraft:custom_hit_test': { hitboxes: hitTestAtSize(options.hitTest, scale) } } : {}),
     };
     events[name] = { remove: { component_groups: names.filter(n => n !== name) }, add: { component_groups: [name] } };
   }

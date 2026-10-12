@@ -123,7 +123,8 @@
 import { buildCoasterFrames, buildCoasterPath, sampleCoasterPath, type CoasterPath, type CoasterVec3 } from './coaster-path.js';
 import type { PartGeometryProvider, Vec3 } from './ldraw-part-geometry.js';
 import type { ParsedBrick } from './ldraw-parser.js';
-import { withSizeGroups, type PlacementActor } from './bedrock-placement-pack.js';
+import { geometryHitBox, sizeHitBox, withSizeGroups, type HitTestBox, type PlacementActor } from './bedrock-placement-pack.js';
+import { renderSeatToEntity } from './cockpit-seat.js';
 import { bedrockJsonText, floatActorProperty } from './bedrock-json.js';
 import { boxUvSafeCube, compileLdrawEntityGeometry, ldrawToRenderRotation, type CompiledLdrawGeometry } from './ldraw-entity-compiler.js';
 import type { EntityRig } from './minifig-rig.js';
@@ -1492,6 +1493,26 @@ export function coasterCartAssets(typeId: string, modelScale = 1) {
     crouching_skip_interact: true, seats: { position: [0, 0.35 * modelScale, 0], lock_rider_rotation: 181 } };
   const geometryId = `geometry.${typeId.replace(':', '.')}`;
   const animationId = `animation.${typeId.replace(':', '.')}.track_pitch`;
+  // The tub's cubes (entity units, model frame): the body the player aims at.
+  const cartCubes = [
+    { origin: [-11, 0, -10], size: [22, 2, 20], uv: [0, 0] },
+    { origin: [-11, 2, -10], size: [1, 4, 20], uv: [0, 0] },
+    { origin: [10, 2, -10], size: [1, 4, 20], uv: [0, 0] },
+    { origin: [-10, 2, -10], size: [20, 5, 1], uv: [0, 0] },
+    { origin: [-10, 2, 9], size: [20, 3, 1], uv: [0, 0] },
+    // Standard rails are 60 LDU apart: wheel centres ±9 entity units.
+    // The running datum is 32 LDU above sleepers, rail tops 10 LDU:
+    // wheels reach down 22 LDU = 6.6 entity units, avoiding a floating tub.
+    ...[-11, 7].flatMap(x => [-8, 4].map(z => ({ origin: [x, -6.6, z], size: [4, 6.6, 4], uv: [0, 0] }))),
+  ].map(cube => {
+    // Scaled below 1x a side drops under one unit; declare it box-UV safe (`boxUvSafeCube`).
+    const scaled = { ...cube, origin: cube.origin.map(v => v * modelScale) as [number, number, number], size: cube.size.map(v => v * modelScale) as [number, number, number] } as { origin: [number, number, number]; size: [number, number, number]; uv: number[]; inflate?: number };
+    boxUvSafeCube(scaled);
+    return scaled;
+  });
+  // The tap / interact box over the whole drawn tub (VEH-17; `hullHitBox`): the collision box is the hit target no
+  // longer, only the cull and the seat's home.
+  const hitTest = [geometryHitBox({ 'minecraft:geometry': [{ bones: [{ cubes: cartCubes }] }] })!];
   return {
     behavior: withSizeGroups({ format_version: '1.26.30', 'minecraft:entity': {
       description: { identifier: typeId, is_spawnable: false, is_summonable: true,
@@ -1509,10 +1530,11 @@ export function coasterCartAssets(typeId: string, modelScale = 1) {
         'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
         'minecraft:fire_immune': {},
         'minecraft:collision_box': collision,
+        'minecraft:custom_hit_test': { hitboxes: hitTest },
         'minecraft:physics': { has_gravity: false, has_collision: false },
         'minecraft:rideable': rideable,
       },
-    } }, collision, rideable),
+    } }, collision, rideable, { hitTest }),
     client: { format_version: '1.10.0', 'minecraft:client_entity': { description: {
       identifier: typeId, materials: { default: 'entity_alphatest' },
       textures: { default: 'textures/entity/craftmatic_coaster' }, geometry: { default: geometryId },
@@ -1525,22 +1547,7 @@ export function coasterCartAssets(typeId: string, modelScale = 1) {
       // Separate pitch/roll bones make composition explicit, independent of
       // the engine's Euler order. The entity itself only rotates in yaw.
       bones: [{ name: 'track_pitch', pivot: [0, 0, 0], cubes: [] as Array<{ origin: number[]; size: number[]; uv: number[]; inflate?: number }> },
-      { name: 'cart', parent: 'track_pitch', pivot: [0, 0, 0], cubes: [
-        { origin: [-11, 0, -10], size: [22, 2, 20], uv: [0, 0] },
-        { origin: [-11, 2, -10], size: [1, 4, 20], uv: [0, 0] },
-        { origin: [10, 2, -10], size: [1, 4, 20], uv: [0, 0] },
-        { origin: [-10, 2, -10], size: [20, 5, 1], uv: [0, 0] },
-        { origin: [-10, 2, 9], size: [20, 3, 1], uv: [0, 0] },
-        // Standard rails are 60 LDU apart: wheel centres ±9 entity units.
-        // The running datum is 32 LDU above sleepers, rail tops 10 LDU:
-        // wheels reach down 22 LDU = 6.6 entity units, avoiding a floating tub.
-        ...[-11, 7].flatMap(x => [-8, 4].map(z => ({ origin: [x, -6.6, z], size: [4, 6.6, 4], uv: [0, 0] }))),
-      ].map(cube => {
-        // Scaled below 1x a side drops under one unit; declare it box-UV safe (`boxUvSafeCube`).
-        const scaled = { ...cube, origin: cube.origin.map(v => v * modelScale) as [number, number, number], size: cube.size.map(v => v * modelScale) as [number, number, number] } as { origin: [number, number, number]; size: [number, number, number]; uv: number[]; inflate?: number };
-        boxUvSafeCube(scaled);
-        return scaled;
-      }) }],
+      { name: 'cart', parent: 'track_pitch', pivot: [0, 0, 0], cubes: cartCubes }],
     }] },
     animations: { format_version: '1.8.0', animations: { [animationId]: {
       loop: true, bones: {
@@ -1642,8 +1649,13 @@ function countCuboids(geo: CompiledLdrawGeometry, riderPrefix = 'rider_'): { tot
   return { total, rider };
 }
 
-/** The rideable ride-car behaviour: the fabricated cart's, with the compiled body's hit box and the measured seat. */
-function carBehavior(typeId: string, riders: number, collision: { width: number; height: number }, seat: [number, number, number], interactText = RIDE_INTERACT_TEXT): unknown {
+/**
+ * The rideable ride-car behaviour: the fabricated cart's, with the compiled
+ * body's collision box, its tap box over the drawn body (`hitTest`, VEH-17)
+ * and the measured seat - `seat` in the ENTITY frame (+Z the nose, x turned
+ * with it: `renderSeatToEntity` of the render-frame seat the runtime keeps).
+ */
+function carBehavior(typeId: string, riders: number, collision: { width: number; height: number }, seat: [number, number, number], hitTest: HitTestBox[], interactText = RIDE_INTERACT_TEXT): unknown {
   const rideable = { seat_count: 1, family_types: ['player'], interact_text: interactText,
     crouching_skip_interact: true, seats: { position: seat, lock_rider_rotation: 181 } };
   return withSizeGroups({ format_version: '1.26.30', 'minecraft:entity': {
@@ -1663,10 +1675,11 @@ function carBehavior(typeId: string, riders: number, collision: { width: number;
       'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
       'minecraft:fire_immune': {},
       'minecraft:collision_box': collision,
+      'minecraft:custom_hit_test': { hitboxes: hitTest },
       'minecraft:physics': { has_gravity: false, has_collision: false },
       'minecraft:rideable': rideable,
     },
-  } }, collision, rideable);
+  } }, collision, rideable, { hitTest });
 }
 
 /** The platform / counterweight: a moving prop the runtime teleports; nothing rides it, nothing hurts it. */
@@ -1788,7 +1801,16 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
     files.push({ name: `${rp}animations/${type.id}.animation.json`, data: jsonBytes(carAnimation(animationId, type.riders.length)) });
     compiled.push({
       id: type.id, typeId: type.typeId, role: 'car', label: `${label} ${type.chassis.replace(/\.dat$/i, '')} car`, geo,
-      behavior: carBehavior(type.typeId, type.riders.length, geo.collisionBox, seat, railTypes.has(type.typeId) ? RAIL_INTERACT_TEXT : RIDE_INTERACT_TEXT),
+      // The runtime keeps `seat` in the car's RENDER frame (+X right, +Y up, +Z back; `carPose` reads it so),
+      // and places the entity so that the seat Bedrock realises lands on the rider's head through the car's
+      // real frame - computed as `renderSeatToEntity(seat)` in the entity's yaw frame (`flat`). The declared
+      // `minecraft:rideable` seat has to BE that: +Z is the entity's nose and x turns with it. Until 2026-10-11
+      // the render-frame seat was declared as it was, so the device seated the player 2 x seat z ahead of the
+      // drawn rider (10261: declared z +0.338, the posed rider's hips at -0.338 along the nose) and the rider
+      // camera, which rides the drawn seat, sat 0.5-0.7 blocks off the player's eye on both clients (COAST-06,
+      // `bun scripts/sim.ts <pack> --scenario=coaster-camera`, 2026-10-08 engine run). The hit box over the
+      // drawn body is the tap / interact target (VEH-17).
+      behavior: carBehavior(type.typeId, type.riders.length, geo.collisionBox, renderSeatToEntity(seat), [geometryHitBox(geo.value) ?? sizeHitBox(geo.sizeBlocks)], railTypes.has(type.typeId) ? RAIL_INTERACT_TEXT : RIDE_INTERACT_TEXT),
       animations: { animations: { track: animationId }, animate: ['track'] },
       cuboids: counted.total, riderCuboids: counted.rider, riders: type.riders.length,
     });
@@ -2935,7 +2957,9 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           const yawRad = yaw * Math.PI / 180;
           // ── Where the rider's head belongs ──
           // The seat is a fixed offset in the entity's yaw-only frame (model
-          // +X right, +Y up, +Z back; the entity faces model -Z), so on inverted
+          // +X right, +Y up, +Z back; the entity faces model -Z - the pack
+          // declares it to Bedrock as `renderSeatToEntity(seat)`, +Z the nose,
+          // which is what `flat` below realises), so on inverted
           // track it would put the player outside the loop. Carry the seat and
           // the player's eye through the car's real frame instead, place the
           // ENTITY so the upright seat lands there, and draw the body back on
