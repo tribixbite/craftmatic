@@ -536,7 +536,17 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   up - because the rest of its column was the vehicle's own. Skipping those
   points lets a car drop its rear into a hill it has almost cleared; probing
   them at every level cost a climbing Milano 2,376 probes a tick (8,040 at
-  2x) where the leading faces need 916 (2,853). `bun scripts/_sweep_checks.ts
+  2x) where the leading faces need 916 (2,853). The leading boundary is
+  CONTINUOUS (2026-10-11, VEH-16): a stretch between two neighbouring probes
+  that crosses cell lines on two axes (an edge slanted to the grid) is also
+  tested in every cell it passes that neither end lies in. Probes alone let
+  a post met off square poke its corner between two bow probes (up to 0.26
+  deep at 19 degrees, 0.45 at 45); a sidestep along the bow then put a probe
+  a hundredth inside it, the "clear at the old pose" rule let that probe on,
+  and the whole post crossed the hull: 60221 and 10786 spent 32 and 22 ticks
+  inside the course's pier post (engine run 2026-10-08). Only slanted
+  stretches are walked: an axis-aligned one at 0.9 spacing has no cell
+  between its ends. `bun scripts/_sweep_checks.ts
   [--impl=<older bedrock-vehicle.ts>]…` prints the per-tick count of fixed
   moves for any implementation; `test/bedrock-vehicle.test.ts` bounds it.
 - **Never stuck** (`resolveMove`, `MOVE`, 2026-09-30: "it's too easy to get
@@ -561,7 +571,15 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   the footprint has more room ahead than the other (a slanted wall of
   blocks), the move turned toward it up to `GLANCE_MAX_DEG` and shortened by
   the cosine, or edged sideways off a stair corner; the speed scaled by the
-  share kept: along a wall met at an angle); RISE (straight up by the climb
+  share kept: along a wall met at an angle; where both edges see the same
+  room - square across the whole nose - the side within `OPEN_SIDE` where
+  the footprint, stepped across in `OPEN_STEP`s and swept, finds this tick's
+  push clear: the nearer wins, the right on a tie, and it steps that way by
+  the deflect's share keeping its speed. A narrow car (10303's, 10796's,
+  1.9-2.5 wide) sat square in a 30-degree wall's two-row stair step, and
+  centred on the course's trunk, and stopped dead where every wider car
+  glanced past, 2026-10-08; a wall across the way that runs on past
+  `OPEN_SIDE` still holds it); RISE (straight up by the climb
   allowance where it stands: the face of a wall - only while the move
   PUSHES, `MIN_PROGRESS` of travel: until 2026-10-07 a turn on the spot rose
   too, and the X-wing turned with its tail against a post climbed 4-6 blocks
@@ -1213,6 +1231,8 @@ literal inside a function body (`§` marks the number).
 | `MOVE.GLANCE_STEP_DEG` | `web/src/engine/bedrock-vehicle.ts` | 20 | degrees | A slanted wall across the way (a diagonal of blocks): the move is turned toward the roomier edge in these steps. |
 | `MOVE.GLANCE_MAX_DEG` | `web/src/engine/bedrock-vehicle.ts` | 60 | degrees | The most it turns (keeping cos 60 = half the push); pinned by a stair corner past that, it edges sideways by the sidestep. A wall at 30 degrees off square across a car's way stopped 10797's and 60380's cars dead until this (simulator vehicle course, 2026-09-30). |
 | `MOVE.GLANCE_PROBE` | `web/src/engine/bedrock-vehicle.ts` | 1.5 | blocks | How far ahead each edge's room is probed (in quarters): a square wall leaves both edges the same room, so a car nosed into one does not crawl sideways along it. |
+| `MOVE.OPEN_SIDE` | `web/src/engine/bedrock-vehicle.ts` | 2.5 | blocks | How far beside itself a vehicle square against something across its whole nose looks for where it ENDS (a trunk met dead centre, a stair step of a slanted wall at least as wide as it): 10303's car (1.9 wide) needed 2 in the course's 30-degree wall. A wall running on past it still holds the vehicle. |
+| `MOVE.OPEN_STEP` | `web/src/engine/bedrock-vehicle.ts` | 0.5 | blocks | The steps of that search, each swept from where the vehicle stands (it never looks through a wall beside it): at most 10 sideways and 10 forward sweeps, only when square against something. |
 | `MOVE.NARROW_CELLS` | `web/src/engine/bedrock-vehicle.ts` | 12 | cells | The most solid cells joined to the hit cell (8-connected, in its own horizontal plane) a block may have for a SHIP to step round it instead of lifting over: a trunk (1), a 2x2 pillar, a 3x3 crown (9) are narrow; a wall or a hill of any shape or angle is not. Cell reads only (cached per tick), no sweep. |
 | `FREE_LOOK.SEAT_LOCK_DEG` | `web/src/engine/vehicle-free-look.ts` | 181 | degrees | A scripted vehicle seat's `lock_rider_rotation`: the component's documented default and "no limit"; the coaster's seats have it and their riders look round. Was 0 (yaw held to the seat). |
 | `FREE_LOOK.IDLE_TICKS` | `web/src/engine/vehicle-free-look.ts` | 20 | ticks | One second with no drag before the view starts back to the nose ("semi gradually"): a child lifting a thumb to drag again is not fought. |
@@ -1435,7 +1455,10 @@ an earlier "~5 forward" was read off a ramped touch stick).
   covers full-block crowns at every height (October 5 audit reproduced the
   old Milano's 28 clipped ticks and X-wing's 3), but sub-block slabs can still
   fit between samples, very large perimeters spread the capped horizontal
-  probes, and a vertical move does not sample the footprint's entire interior.
+  probes (past `MAX_POINTS` a stretch along an axis can pass a whole cell, and
+  only slanted stretches are walked between probes: walking every stretch cost
+  the climbing 2x Milano 2,853 -> 3,933 probes a tick. # TODO(sweep-wide-spacing)),
+  and a vertical move does not sample the footprint's entire interior.
   The full-height leading face is the price of the crown coverage: a level
   Milano cruise is 770 probes a tick (280 with the old four levels), near the
   890 a 36-block barge spent in 20-24 ms on the Pixel.
