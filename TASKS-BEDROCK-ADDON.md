@@ -95,8 +95,10 @@ tools now check, and how:
    `entityHitEntity` on a no-damage figure); 42639 Door 1 unsealed at every
    size; 910004 Doors 3/5 sealed by the model (`TODO(passage-geometry)`).
 
-**Round 30n** (`output/device-round-2026-10-12n/`, `build.sh` there; packs in
-`packs-<commit>/`). Device checklist, one line each:
+**Round 30n** (`output/device-round-2026-10-12n/`, `build.sh` there; BUILT
+2026-10-12 as `packs-53e3caf3/`, stamp `5c5084e5`; regressions on these packs:
+33 cases, 0 failed, 0 open, 2 known-unreproduced). Device agents deploying
+(evidence `pixel/`, `saga/` there). Device checklist, one line each:
 - Pixel 924 / Saga 925: Nimbus swipe then forward flies where the view looks;
   400 % Milano chase shows the full ship (not the coarse hull); 200 % Milano
   Mount prompt from the nose AND at the wingtip but not 2x out (hit-test
