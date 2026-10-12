@@ -26,7 +26,7 @@ import { registeredAppearance, scriptedVehicleTypes, type ScriptedTypeFacts } fr
 import { drawnBoxes, type DrawnBox } from './drawn.js';
 import { clientSnapshot } from './snapshot.js';
 import { attachClient, ClientView } from '../../client/camera.js';
-import { lookAt, pick } from '../../input/touch.js';
+import { interact, lookAt, pick, tap } from '../../input/touch.js';
 import { pickBoxes } from '../../input/ray.js';
 import { teleport } from '../../script-host/facades.js';
 import { quirkValue } from '../../quirks/registry.js';
@@ -40,6 +40,8 @@ import { REACH_GUARD_DROP16 } from '../../../engine/bedrock-collider-scale.js';
 const ROUND = 'C:/git/craftmatic/output';
 /** The round's packs (what both phones ran). */
 const PACKS_30M = `${ROUND}/device-round-2026-10-08m/packs-6a8c7121`;
+/** Round 30n's packs (VEH-17's 400 % case was first seen on them). */
+const PACKS_30N = `${ROUND}/device-round-2026-10-12n/packs-53e3caf3`;
 const SAGA_30M = '`output/device-round-2026-10-08m/saga/notes.md`';
 const PIXEL_30M = '`output/device-round-2026-10-08m/pixel/notes.md`';
 
@@ -453,67 +455,118 @@ const shellUnseen400: RegressionCase = {
   },
 };
 
-// ─── 7. Milano at 200 %: the Mount target is only the small box at the hull centre ───
+// ─── 7. Milano at 200 / 400 %: boarded only near the root, never from beside the nose or a wingtip ───
 
-/** What `milano-mount-reach-200-30m` measured (blocks from the ship's root along the walk). */
-interface MountReach { drawnNose: number; box: Box; atNose: { aimHull: boolean; aimBox: boolean }; firstHull: number | null; firstBox: number | null }
+/** One standpoint's outcome: whether a HOLD, then a TAP, on what the child aims at seated them in the ship. */
+interface BoardTry { at: string; rootDistance: number; picked: string; hold: boolean; holdRefused?: string; tap: boolean }
+/** What `milano-mount-reach-<pct>` measured (blocks from the ship's root). */
+interface MountReach { pct: number; drawnNose: number; drawnWing: number; box: Box; tries: BoardTry[] }
 
-const milanoMountReach: RegressionCase = {
-  id: 'milano-mount-reach-200-30m', title: '76286 Milano at 200 % (30m): walking up to the nose shows no Mount prompt; it appears only ~3 blocks from the hull centre - the interact target is the 7 x 5 collision box, not the drawn ship (VEH-17)',
-  evidence: `${PIXEL_30M} item 3 (\`22a-f\`, \`24d\`): walking toward the nose from z 4995 (pin 8600,-60,5000, root ~8636,5016), no prompt at the nose, the prompt at z 5013 under the hull by the gear leg; at 100 % ~1 block from the root. ${SAGA_30M} item 4: the 200 % box measured 7 x 5 (hits +-3.4, misses +-3.6; top +4.9 / +5.1) - the pack's 3.5 x 2.5 under scale 2 (quirk \`collision-box-scales-with-entity\`); that pack's pick is its collision box (input/ray.ts \`pickBoxes\`: no \`custom_hit_test\` declared). Fixed 2026-10-11: every rideable declares a \`minecraft:custom_hit_test\` square over its drawn hull per size group (quirk \`custom-hit-test-pick\`, \`hullHitBox\`), and the current pack is picked at the nose`,
-  oldPack: `${PACKS_30M}/76286-the-milano-spaceship.mcaddon`, newStem: '76286-the-milano-spaceship', expectNew: 'pass',
-  // The ship summoned at 200 % (the device's was placed by the wand at 200 %: the same entity, box and scale). The child
-  // walks in along the nose axis from 2 blocks off the drawn nose to the root, every half block aiming (a) at the drawn
-  // hull straight ahead at eye height, as a child aims at what it sees, and (b) at the pick box's centre, the best aim.
-  scenario: pack => ({
-    name: 'milano-mount-reach-200-30m', allowLines: vehicleAllow, steps: [{ kind: 'expect', label: 'walk to the nose and in', check: async ctx => {
-      const f = vehicleOf(pack, 'plane');
-      const v = ctx.sim.engine.spawnEntity(f.typeId, 'overworld', { x: 60.5, y: FLAT_GROUND_Y, z: -1500.5 });
-      v.rotation = { x: 0, y: 0 };
-      await ctx.run(2);
-      v.triggerEvent('craftmatic:size_200');
-      await ctx.run(4);
-      const hull = hullBoxes(pack, v), root = v.location;
-      // The drawn nose along +z (yaw 0): the farthest drawn point ahead of the root.
-      const drawnNose = hull.reduce((m, b) => Math.max(m, b.box.z1 - root.z), 0);
-      const box = pickBoxes(v)[0]!;
-      const reach = quirkValue('hold-is-interact', 'reachBlocks');
-      let firstHull: number | null = null, firstBox: number | null = null, atNose = { aimHull: false, aimBox: false };
-      for (let d = drawnNose + 2; d >= 0; d -= 0.5) {
-        const feet = { x: root.x, y: FLAT_GROUND_Y, z: root.z + d };
-        teleport(ctx.sim.host, ctx.player, feet);
-        await ctx.run(1);
-        const eye = ctx.player.headLocation();
-        // (a) Straight back at the hull at eye height (the child faces the ship): the nearest drawn point on that line.
-        lookAt(ctx.player, { x: root.x, y: eye.y, z: root.z });
-        const hullHit = pick(ctx.sim.engine, ctx.player, reach).entity === v;
-        // (b) The best aim: the pick box's centre.
-        lookAt(ctx.player, { x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2, z: (box.z0 + box.z1) / 2 });
-        const boxHit = pick(ctx.sim.engine, ctx.player, reach).entity === v;
-        if (hullHit && firstHull === null) firstHull = r2(d);
-        if (boxHit && firstBox === null) firstBox = r2(d);
-        // "At the nose": standing a body's width off the drawn nose.
-        if (Math.abs(d - (drawnNose + 0.5)) < 0.26) atNose = { aimHull: hullHit, aimBox: boxHit };
-      }
-      const out: MountReach = { drawnNose: r2(drawnNose), box: { x0: r2(box.x0 - root.x), y0: r2(box.y0 - root.y), z0: r2(box.z0 - root.z), x1: r2(box.x1 - root.x), y1: r2(box.y1 - root.y), z1: r2(box.z1 - root.z) }, atNose, firstHull, firstBox };
-      ctx.state['mountReach'] = out;
-      ctx.note(`Milano at 200 %: the drawn nose is ${out.drawnNose} blocks ahead of the root, the pick box ${out.box.z1 - out.box.z0} x ${out.box.y1 - out.box.y0} about it; at the nose the Mount target is ${atNose.aimHull || atNose.aimBox ? 'PICKED' : 'NOT picked'} (aim at the hull ${atNose.aimHull}, at the box ${atNose.aimBox}); walking in it is first picked ${firstHull ?? 'never'} blocks from the root aiming at the hull, ${firstBox ?? 'never'} aiming at the box (Pixel: ~3); interact reach ${reach}`);
-      ctx.sim.engine.removeEntity(v);
-      await ctx.run(2);
-      return undefined;
-    } }],
-  }),
-  judge: r => {
-    const s = r.state['mountReach'] as MountReach | undefined;
-    const notes = r.notes.filter(n => /Milano at 200 %: the drawn nose/.test(n)).join('; ') || 'no reach note';
-    if (!s) return { reproduced: false, evidence: notes, untested: 'the ship was not spawned' };
-    if (s.firstBox === null) return { reproduced: false, evidence: notes, untested: 'the box was never picked, even from under the hull' };
-    // The fault the Pixel reported: standing at the drawn nose, no Mount target whatever the aim. How near the centre
-    // it first appears differs (the simulator's 5-block interact reach to the box, quirk `hold-is-interact`, picks
-    // from ~8 at 200 %; the phone's touch button appeared ~3 blocks from the root: its own reach is not measured).
-    return { reproduced: !s.atNose.aimHull && !s.atNose.aimBox, evidence: notes };
-  },
-};
+/** The point of the drawn hull nearest the eye, a hair inside its box (where a child's finger lands on the part in front of it). */
+function nearestDrawnPoint(eye: Vec3, hull: readonly DrawnBox[]): Vec3 {
+  let best = eye, bestD = Infinity;
+  for (const { box: b } of hull) {
+    const inset = (lo: number, hi: number, v: number): number => { const m = Math.min(0.05, (hi - lo) / 4); return Math.max(lo + m, Math.min(hi - m, v)); };
+    const p = { x: inset(b.x0, b.x1, eye.x), y: inset(b.y0, b.y1, eye.y), z: inset(b.z0, b.z1, eye.z) };
+    const d = Math.hypot(p.x - eye.x, p.y - eye.y, p.z - eye.z);
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  return best;
+}
+
+const PIXEL_30N = '`output/device-round-2026-10-12n/pixel/notes.md`';
+
+/**
+ * The Milano placed at `pct` and a child walking up to it: at a standpoint a body's width off the drawn NOSE, one off
+ * the drawn WINGTIP (+x), and - the control - 12 blocks from the root along the nose, the child aims at the nearest
+ * drawn part of the hull and HOLDS (the interact, through the ray's pick, refused beyond the root reach: quirk
+ * `interact-root-reach`), then, off again, TAPS (`entityHitEntity`). The fault is a standpoint beside the hull from
+ * which no hold seats the child in the ship.
+ */
+function milanoMountReachCase(pct: 200 | 400): RegressionCase {
+  const id = pct === 200 ? 'milano-mount-reach-200-30m' : 'milano-mount-reach-400-30n';
+  const noteRe = new RegExp(`Milano at ${pct} %: the drawn nose`);
+  return {
+    id,
+    title: pct === 200
+      ? '76286 Milano at 200 % (30m, 30n): no Mount from beside the nose or a wingtip - 30m only ~3 blocks from the hull centre (the 7 x 5 collision box), 30n only within 12 blocks of the root although the hit box covered the hull (VEH-17)'
+      : '76286 Milano at 400 % (30n): the hold mounts only within 12 blocks of the root, never from 16 out, although the hit box covers the hull (VEH-17)',
+    evidence: pct === 200
+      ? `${PIXEL_30M} item 3 (\`22a-f\`, \`24d\`): walking toward the nose from z 4995 (pin 8600,-60,5000, root ~8636,5016), no prompt at the nose, the prompt at z 5013 under the hull by the gear leg; at 100 % ~1 block from the root. ${SAGA_30M} item 4: the 200 % box measured 7 x 5 (hits +-3.4, misses +-3.6; top +4.9 / +5.1) - the pack's 3.5 x 2.5 under scale 2 (quirk \`collision-box-scales-with-entity\`); that pack's pick is its collision box (input/ray.ts \`pickBoxes\`: no \`custom_hit_test\` declared). Round 30n (${PIXEL_30N} item 1, \`mount-nose.txt\`; packs-53e3caf3): with the 60 x 17.7 hit box over the hull the hold MOUNTED from 4.5, 8, 12 blocks north of the root and NOT from 13, 14, 15, 20, 32 (nose 16 out), nor at the wingtips (x +-36); the Mount button never showed at 200 % - the interact is refused beyond ~12 blocks of the ROOT (quirk \`interact-root-reach\`), so the 30n pack reproduces too. Fixed 2026-10-12 by board points at the far extremities of a parked, empty vehicle (bedrock-vehicle.ts \`BOARD\`)`
+      : `Round 30n (${PIXEL_30N} item 1, \`mount-400.txt\`; packs-53e3caf3): 76286 at 400 % (root 9872,-60,5070), the hold mounted from 6 and 12 blocks of the root, not from 16, 24, 32; the Mount button showed once 4 blocks from the root under the hull (\`41b.jpg\`). The interact is refused beyond ~12 blocks of the ROOT (quirk \`interact-root-reach\`). Fixed 2026-10-12 by board points (bedrock-vehicle.ts \`BOARD\`)`,
+    oldPack: pct === 200 ? `${PACKS_30M}/76286-the-milano-spaceship.mcaddon` : `${PACKS_30N}/76286-the-milano-spaceship.mcaddon`,
+    newStem: '76286-the-milano-spaceship', expectNew: 'pass',
+    // The ship summoned and sized by its own event (the device's was placed by the wand at that size: the same entity,
+    // boxes and scale), parked on the flat world; the vehicle runtime then runs as on the device (board points included).
+    scenario: pack => ({
+      name: id, allowLines: vehicleAllow, steps: [{ kind: 'expect', label: 'board from the nose, a wingtip and 12 out', check: async ctx => {
+        const f = vehicleOf(pack, 'plane');
+        const v = ctx.sim.engine.spawnEntity(f.typeId, 'overworld', { x: 60.5, y: FLAT_GROUND_Y, z: -1500.5 });
+        v.rotation = { x: 0, y: 0 };
+        await ctx.run(2);
+        v.triggerEvent(`craftmatic:size_${pct}`);
+        await ctx.run(40);
+        const hull = hullBoxes(pack, v), root = { ...v.location };
+        // The drawn nose along +z (yaw 0) and the drawn wingtip along +x, with where along the length that tip is.
+        const drawnNose = hull.reduce((m, b) => Math.max(m, b.box.z1 - root.z), 0);
+        let drawnWing = 0, wingZ = root.z;
+        for (const b of hull) if (b.box.x1 - root.x > drawnWing) { drawnWing = b.box.x1 - root.x; wingZ = (b.box.z0 + b.box.z1) / 2; }
+        const box = pickBoxes(v)[0]!;
+        const holdReach = quirkValue('hold-is-interact', 'reachBlocks');
+        const before = (p: SimEntity, t: SimEntity): boolean => ctx.sim.host.before('playerInteractWithEntity', { player: ctx.sim.host.entity(p), target: ctx.sim.host.entity(t) });
+        const getOff = async (): Promise<void> => {
+          const on = ctx.player.ridingOn;
+          if (on) on.removeRider(ctx.player);
+          // Long enough for the runtime to see the ship parked and empty again (board points re-placed).
+          await ctx.run(30);
+        };
+        const tries: BoardTry[] = [];
+        const stand = async (label: string, feet: Vec3): Promise<void> => {
+          await getOff();
+          const aim = async (): Promise<SimEntity | undefined> => {
+            teleport(ctx.sim.host, ctx.player, feet);
+            await ctx.run(1);
+            lookAt(ctx.player, nearestDrawnPoint(ctx.player.headLocation(), hull));
+            return pick(ctx.sim.engine, ctx.player, holdReach).entity;
+          };
+          const target = await aim();
+          const res = target ? interact(ctx.sim.engine, ctx.player, target, before) : undefined;
+          await ctx.run(8);
+          const hold = ctx.player.ridingOn === v;
+          await getOff();
+          await aim();
+          tap(ctx.sim.engine, ctx.player);
+          await ctx.run(8);
+          const tapped = ctx.player.ridingOn === v;
+          tries.push({ at: label, rootDistance: r2(Math.hypot(feet.x - root.x, feet.z - root.z)), picked: target ? (target === v ? 'ship' : target.typeId.replace(/^craftmatic:/, '')) : 'nothing', hold, ...(res?.refused ? { holdRefused: res.refused } : {}), tap: tapped });
+        };
+        await stand('nose', { x: root.x, y: FLAT_GROUND_Y, z: root.z + drawnNose + 0.6 });
+        await stand('wingtip', { x: root.x + drawnWing + 0.6, y: FLAT_GROUND_Y, z: wingZ });
+        await stand('12 out', { x: root.x, y: FLAT_GROUND_Y, z: root.z + 12 });
+        await getOff();
+        const out: MountReach = { pct, drawnNose: r2(drawnNose), drawnWing: r2(drawnWing), box: { x0: r2(box.x0 - root.x), y0: r2(box.y0 - root.y), z0: r2(box.z0 - root.z), x1: r2(box.x1 - root.x), y1: r2(box.y1 - root.y), z1: r2(box.z1 - root.z) }, tries };
+        ctx.state['mountReach'] = out;
+        const said = (t: BoardTry): string => `${t.at} (${t.rootDistance} from the root, picks ${t.picked}): hold ${t.hold ? 'BOARDS' : `does not board${t.holdRefused ? ` (${t.holdRefused})` : ''}`}, tap ${t.tap ? 'BOARDS' : 'does not board'}`;
+        ctx.note(`Milano at ${pct} %: the drawn nose is ${out.drawnNose} blocks ahead of the root, the wingtip ${out.drawnWing} aside, the ship's pick box ${r2(out.box.x1 - out.box.x0)} x ${r2(out.box.y1 - out.box.y0)}; ${tries.map(said).join('; ')} (Pixel 30n: the hold boards within 12 of the root only)`);
+        ctx.sim.engine.removeEntity(v);
+        await ctx.run(2);
+        return undefined;
+      } }],
+    }),
+    judge: r => {
+      const s = r.state['mountReach'] as MountReach | undefined;
+      const notes = r.notes.filter(n => noteRe.test(n)).join('; ') || 'no reach note';
+      if (!s) return { reproduced: false, evidence: notes, untested: 'the ship was not spawned' };
+      // The fault the Pixel reported: beside the drawn nose or a wingtip, no HOLD seats the child (the device's gesture;
+      // the tap is reported, not judged - its reach from a root is unmeasured, quirk `interact-root-reach`).
+      const beside = s.tries.filter(t => t.at === 'nose' || t.at === 'wingtip');
+      return { reproduced: beside.some(t => !t.hold), evidence: notes };
+    },
+  };
+}
+
+const milanoMountReach = milanoMountReachCase(200);
+const milanoMountReach400 = milanoMountReachCase(400);
 
 /** Round 30m's open defects. */
-export const ROUND_30M_REGRESSIONS: RegressionCase[] = [nimbusSteer, milanoChase400, xwingAirPark, mclarenWalls, topEastFall, shellUnseen400, milanoMountReach];
+export const ROUND_30M_REGRESSIONS: RegressionCase[] = [nimbusSteer, milanoChase400, xwingAirPark, mclarenWalls, topEastFall, shellUnseen400, milanoMountReach, milanoMountReach400];

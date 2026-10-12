@@ -104,11 +104,23 @@ export function tap(engine: SimEngine, player: SimEntity, target?: SimEntity): T
 }
 
 /**
- * The END of a hold on an entity: the interact. `before` runs the cancelable
+ * Whether the interact can reach `target` from where `player` stands: its feet within the root reach of the target's
+ * location (quirk `interact-root-reach`). The tap is not limited this way (the quirk's gap).
+ */
+export function interactReachesRoot(player: SimEntity, target: SimEntity): boolean {
+  const a = player.location, b = target.location;
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) <= quirkValue('interact-root-reach', 'rootReachBlocks') + 1e-6;
+}
+
+/**
+ * The END of a hold on an entity: the interact. Refused outright (no event) beyond the root reach. `before` runs the cancelable
  * before-event (the script host's); when not cancelled, a vanilla rideable
  * the player may ride takes it as a rider, then the after-event fires.
  */
-export function interact(engine: SimEngine, player: SimEntity, target: SimEntity, before?: (player: SimEntity, target: SimEntity) => boolean): { mounted: boolean; cancelled: boolean } {
+export function interact(engine: SimEngine, player: SimEntity, target: SimEntity, before?: (player: SimEntity, target: SimEntity) => boolean): { mounted: boolean; cancelled: boolean; refused?: 'root-reach' } {
+  // Beyond the interact's reach from the target's ROOT the device does nothing at all - no mount, no event - whatever
+  // box the press aimed at (quirk `interact-root-reach`, Pixel 30n: the 200 % Milano mounted from 12, never from 13).
+  if (!interactReachesRoot(player, target)) return { mounted: false, cancelled: false, refused: 'root-reach' };
   if (before?.(player, target)) return { mounted: false, cancelled: true };
   let mounted = false;
   const r = target.rideable();
