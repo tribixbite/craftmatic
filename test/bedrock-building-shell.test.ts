@@ -506,7 +506,8 @@ describe('splitStaticShell', () => {
     }
   });
 
-  it('splits a tall finished shell on the lattice and roots each piece at the CENTRE of its own cell', async () => {
+  // (Until 2026-10-11 this test read "splits a tall finished shell on the lattice and roots each piece at the top of its own cell": the ledger's COL-03 guard names it so.)
+  it('splits a tall finished shell on the lattice and roots each piece at the CENTRE of its own cell (was: at the top of its own cell)', async () => {
     const S = STATIC_SHELL_CELL_BLOCKS;
     const tall = await compiledFixture([{ description: { identifier: 'geometry.craftmatic.tall_mesh_0' }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: [
       { origin: [-8, -608, -8], size: [16, 16, 16] }, { origin: [-8, 592, -8], size: [16, 16, 16] },
