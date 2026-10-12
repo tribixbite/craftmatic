@@ -505,6 +505,8 @@ function milanoMountReachCase(pct: 200 | 400): RegressionCase {
         v.rotation = { x: 0, y: 0 };
         await ctx.run(2);
         v.triggerEvent(`craftmatic:size_${pct}`);
+        // The child comes within sight of the parked ship (it loads and its runtime ticks only near a player).
+        teleport(ctx.sim.host, ctx.player, { x: v.location.x, y: FLAT_GROUND_Y, z: v.location.z - 10 * pct / 100 });
         await ctx.run(40);
         const hull = hullBoxes(pack, v), root = { ...v.location };
         // The drawn nose along +z (yaw 0) and the drawn wingtip along +x, with where along the length that tip is.
@@ -525,7 +527,8 @@ function milanoMountReachCase(pct: 200 | 400): RegressionCase {
           await getOff();
           const aim = async (): Promise<SimEntity | undefined> => {
             teleport(ctx.sim.host, ctx.player, feet);
-            await ctx.run(1);
+            // Walking up to that spot takes a child a few seconds; the runtime checks a parked ship's points every `BOARD.CHECK_TICKS`.
+            await ctx.run(10);
             lookAt(ctx.player, nearestDrawnPoint(ctx.player.headLocation(), hull));
             return pick(ctx.sim.engine, ctx.player, holdReach).entity;
           };
