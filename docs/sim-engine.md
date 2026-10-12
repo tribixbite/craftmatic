@@ -764,7 +764,7 @@ case runs the 30m pack (`output/device-round-2026-10-08m/packs-6a8c7121`):
 | `mclaren-walls-30m` (SEAT-05) | set down at -3.04, 0, 0.48 from the root, beyond the west wall | reproduced on the 30m pack (-3.04, 0, 0.48); FIXED 2026-10-11 (`vehicleEgress` `lineClear`: a set-down must be reached from the seat): 0.43, 0, 4.29, ahead of the car in the gap |
 | `top-east-fall-10261-30m` (COL-01) | +z along the top to pin + (79.5, 43.6, 27.7), then +x: falls 42+; at z 16.1 holds at x 83.70 | OPEN: ends the +z walk at (79.7, 43.63, 27.7), falls 43 from x 80.4; z 16.1 holds at 83.7 |
 | `shell-unseen-400-10261-30m` (COL-03) | from 40 west of the pin only figures and cars | OPEN: shell chunks drawn 0 of 6 (nearest root 87 blocks, cull 70), 5 of 12 other actors |
-| `milano-mount-reach-200-30m` | no Mount prompt at the nose; it appears ~3 blocks from the root | OPEN: not picked from beside the drawn nose (15.5 ahead); first picked 8 from the root (the sim's interact reach 5 to the 7 x 5 box; the phone's own reach is not measured) |
+| `milano-mount-reach-200-30m` (VEH-17) | no Mount prompt at the nose; it appears ~3 blocks from the root | reproduced (not picked from beside the drawn nose 15.5 ahead; first picked 8 from the root - the sim's interact reach 5 to the 7 x 5 box; the phone's own reach is not measured); FIXED 2026-10-11 by the hit-test box over the drawn hull (quirk `custom-hit-test-pick`): the current pack is picked at the nose |
 | `xwing-air-park-30m` (SEAT-05) | the parked engines touch the child | KNOWN-UNREPRODUCED: set-down (-7.16 along the nose) and park match exactly, but the body clears the drawn tail (engine glow included) by 0.50 - the device did not measure the gap and the sim has no drawn-skin model. Since 2026-10-11 the float set-down keeps `FLOAT_MARGIN` 1.5 (current pack: -8.16 along the nose, 1.50 clear) - a precaution, not a reproduction |
 
 `drawnBoxes(entry, at, yaw, scale, lod)` takes `'far'` for the LOD hull a
@@ -829,6 +829,14 @@ seats' set-down order is physics spec §4.8.
   realised box (`SimEntity.collisionSize`). A pack built before 2026-10-08
   (size groups writing the box pre-scaled) shows f² x the 100 % box, as the
   phone did.
+- **An entity that declares `minecraft:custom_hit_test` is picked by those
+  boxes - for a hit and for the interact (the Mount prompt) - as declared:
+  square, world-aligned, never times `minecraft:scale`** (quirk
+  `custom-hit-test-pick`, from vanilla hoglin.json and the 1.21.60 changelog,
+  not a phone). Every rideable's size group declares its hull box at that
+  size (`withSizeGroups` `hitTest`); a pack built before 2026-10-11 has only
+  its collision box to pick, which is the 200 % Milano's missing Mount
+  prompt (regression `milano-mount-reach-200-30m`, VEH-17).
 - **Block collision boxes are read MIRRORED in x**, as the device reads them
   (quirk `block-collision-x-mirrored`, Pixel GameTest 2026-09-30): a pack
   built before the fix to `collisionBox` shows its x-banded clearance forms on

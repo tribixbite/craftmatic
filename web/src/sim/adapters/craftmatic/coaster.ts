@@ -10,6 +10,7 @@
  */
 
 import { COASTER_FAMILY, coasterCartAssets, type CoasterRuntimeConfig } from '../../../engine/bedrock-coaster.js';
+import { renderSeatToEntity } from '../../../engine/cockpit-seat.js';
 
 /** Where the tests and probes pin a placement (the replay host's origin; every expected point is measured from it). */
 export const COASTER_TEST_ORIGIN = { x: 100, y: 64, z: 200 } as const;
@@ -38,7 +39,10 @@ export function coasterEntityTypes(config: Pick<CoasterRuntimeConfig, 'types'>):
     const entity = doc['minecraft:entity'];
     if (type.riders) Object.assign(entity.description.properties, { 'craftmatic:rider': { type: 'int', range: [0, type.riders], default: 0, client_sync: true }, 'craftmatic:occupied': { type: 'bool', default: false, client_sync: true } });
     const seats = entity.components['minecraft:rideable']?.seats;
-    if (type.seat && seats) seats.position = [...type.seat];
+    // The runtime's `seat` is in the car's RENDER frame (+Z back); the declared rideable seat is the entity
+    // frame's (+Z the nose), as `buildCoasterRideAssets` declares it (COAST-06: declared as it was, the
+    // rider sat 2 x seat z ahead of the camera).
+    if (type.seat && seats) seats.position = renderSeatToEntity([...type.seat]);
     out[typeId] = doc as unknown as Record<string, unknown>;
   }
   return out;

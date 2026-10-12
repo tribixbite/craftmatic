@@ -4473,6 +4473,62 @@ box is 7 x 5 (was 14 x 10), the same share of the hull as 3.5 x 2.5 at
 per step and exits 1 on one scaled twice (`collisionScaleAudit`); the
 simulator realises the box the same way, regression `milano-box-200-30l`.
 
+**The touch / interact target is a hit-test box over the drawn hull, not
+the collision box** (VEH-17, 2026-10-11; quirk `custom-hit-test-pick`). The
+box above is clamped to 3.5 x 2.5 so a hull can pass terrain, and as the
+only pick target it left the 200 % Milano with no Mount prompt at its nose
+15.5 blocks out - the prompt came ~3 blocks from the hull centre (Pixel 30m;
+regression `milano-mount-reach-200-30m`). Every rideable - vehicles
+(`behaviorEntity`), compiled coaster cars and the fabricated cart - now
+declares `minecraft:custom_hit_test`: ONE square footprint of the hull's
+longest horizontal reach either way, as tall as the hull, over its bottom
+(`hullHitBox`; `sizeHitBox` from a compiled model's `sizeBlocks`,
+`geometryHitBox` from a shipped `.geo.json`). A square because Bedrock keeps a
+hit-test box world-aligned (the interactives spawn at yaw 0 for that reason)
+and a driven hull turns; the cost is reach past the shorter side (the
+Milano: 7 blocks of air fore and aft at 100 %), where a tap picks the ship
+over whatever stands there - `TODO(hit-test-footprint)`. The box is written
+at each size group's REALISED size (`withSizeGroups` `hitTest`,
+`hitTestAtSize`): unlike a seat and the collision box, a hit-test box is NOT
+multiplied by `minecraft:scale` - Mojang's own hoglin.json declares its baby
+group's collision box "0.85/0.5" (pre-divided by the 0.5 scale) and its hit
+test at the baby's own 1.0 x 0.85, half the adult's 2.0 x 1.75. That the
+interact (the Mount prompt) picks through the hit test is the 1.21.60
+changelog ("entities with no collision box but with the
+minecraft:custom_hit_test component are no longer sometimes unable to be
+interacted with"). Unmeasured on a phone: the no-scaling rule (a 200 %
+vehicle picked at its wingtip, or 2 x too far out, decides it), the
+world-alignment, and which box wins where both are declared (ours contains
+the collision box, so either way picks the hull). The simulator picks through
+the declared box unturned and unscaled (`input/ray.ts` `pickBoxes`);
+`scripts/_mcaddon_check.py` gates every box's shape.
+
+**A coaster car's seat was declared in the render frame** (COAST-06,
+2026-10-11). `buildCoasterRideAssets` measures a compiled car's seat in the
+runtime's frame (+X right, +Y up, +Z back - what `carPose` carries through an
+inversion) and wrote it to `minecraft:rideable` as it was, where +Z is the
+nose; the entity is placed so that the seat Bedrock realises from the
+DECLARED position lands on the rider's head (`flat` = `renderSeatToEntity`
+of the runtime seat), so the device seated the player 2 x seat z ahead of
+the drawn rider (10261: declared z +0.338 against the posed rider's hips at
+-0.338 along the nose) while the track camera stayed on the drawn seat -
+0.56 behind the eye on the Pixel client, 0.5 ahead on the Saga (the
+2026-10-08 engine run, `--scenario=coaster-camera`). The declared seat is
+now `renderSeatToEntity(seat)`, the runtime keeps the render-frame seat, and
+the camprobe-measured lags (`tickLag` 1.5, `animLag` 3.5) are untouched -
+they were measured on a marker, not a seat. Guards:
+`test/bedrock-coaster.test.ts :: the camera eye sits on the seat Bedrock
+realises` and the 10303 corpus assets test; offline the coaster-camera
+scenario's worst seat lead (`output/fix-seat-1011/{baseline,after}/`): on
+the Pixel client 10261 -0.7 -> 0.1, 76417 0.86 -> 0.14 (both pass), 42703
+0.15 -> 0.15 (its seats sit at z 0: the control), 10303 -0.84 -> -0.68 (its
+residual is at 12 blocks/s through the loop animations, not the seat). The
+Saga client keeps a speed-proportional lead on every coaster, 42703
+included (1.61 before and after), so that lead is the lag model's (entity
+lag 4, no ease) and not the seat frame - note the old reading measured the
+camera against a player eye 0.676 AHEAD of the drawn seat, so its Saga
+numbers were flattered by that much.
+
 ### Getting off a vehicle lands beside it (SEAT-05, 2026-10-08)
 
 Pixel round 30l (`output/device-round-2026-10-07l/pixel/notes.md` item 5,

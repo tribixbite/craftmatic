@@ -73,7 +73,13 @@ export function raycastBlocks(world: VoxelWorld, origin: Vec3, dir: Vec3, maxDis
   return undefined;
 }
 
-/** The boxes a ray can pick an entity by: its custom hit test, else its collision box. */
+/**
+ * The boxes a ray can pick an entity by - for a hit AND for the interact
+ * (the Mount prompt): its custom hit test, else its collision box (quirk
+ * `custom-hit-test-pick`). A hit-test box is read AS DECLARED, never times
+ * `minecraft:scale` (a seat and the collision box are: `collisionSize`), so a
+ * pack declares a size group's boxes at that size (`withSizeGroups` `hitTest`).
+ */
 export function pickBoxes(e: SimEntity): Box[] {
   const hit = e.components['minecraft:custom_hit_test'] as { hitboxes?: Array<{ width?: number; height?: number; pivot?: number[] }> } | undefined;
   if (hit?.hitboxes?.length) {

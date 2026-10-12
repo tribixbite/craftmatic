@@ -352,6 +352,21 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   (measured), and removing a component group removes its components even where
   the base declares them (a `size_100` that only removed groups left vehicles
   unrideable). Seats: `cockpit-seat.ts`, add-on guide "Where the player sits".
+  **A coaster car's seat is measured in the same render frame** and was
+  declared as it was until 2026-10-11: the device seated the rider 2 x seat z
+  ahead of the drawn rider and the track camera 0.5-0.7 off the eye on both
+  clients (COAST-06). `buildCoasterRideAssets` declares
+  `renderSeatToEntity(seat)`; the runtime (`carPose`) keeps the render-frame
+  seat, which its `flat` placement already assumed.
+- **A rideable's touch / interact target is a `minecraft:custom_hit_test`
+  box over its drawn hull, not its collision box** (VEH-17, Pixel 30m: the
+  200 % Milano's 7 x 5 box gave no Mount prompt at its nose). One square of
+  the hull's longest reach (`hullHitBox`), re-declared at each size group's
+  realised size: a hit-test box is NOT multiplied by `minecraft:scale` (a seat
+  and the collision box are) - vanilla hoglin.json pre-divides its baby's
+  collision box and writes its hit test at the baby's own size - and the
+  interact picks through it (1.21.60 changelog). Quirk `custom-hit-test-pick`
+  lists what is still unmeasured on a phone.
 - **Scripted vehicles (cars, hover craft, boats, ships) have FREE LOOK and
   never stop dead** (2026-09-30): their seats are `lock_rider_rotation` 181
   (a native rotorcraft/flyer keeps 0: it flies where its rider looks), the

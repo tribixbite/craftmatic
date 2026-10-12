@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  SIZE_STEPS, buildPlacementPackAssets, colliderPairIndex, colliderPairOf, collisionWorldBox, decodeColliderRuns, encodeColliderRuns, seatWorldOffset, withSizeGroups,
+  SIZE_STEPS, buildPlacementPackAssets, colliderPairIndex, colliderPairOf, collisionWorldBox, decodeColliderRuns, encodeColliderRuns, geometryHitBox, hitTestAtSize, hullHitBox, seatWorldOffset, sizeHitBox, withSizeGroups,
 } from '../web/src/engine/bedrock-placement-pack.js';
 import { RIDER_EYE_ABOVE_SEAT, seatPositionAt } from '../web/src/engine/cockpit-seat.js';
 import { BlockGrid } from '@craft/schem/types.js';
@@ -115,6 +115,51 @@ describe('withSizeGroups', () => {
       expect(g['minecraft:scale'].value).toBe(Math.min(1, pct / 100));
       expect(g['minecraft:rideable'].seats.position).toEqual([0, -0.3, 0]);
     }
+  });
+});
+
+describe('hit-test boxes: the tap / interact target over a rideable\'s drawn hull (VEH-17)', () => {
+  it('hullHitBox is one square of the longest horizontal reach either way, as tall as the hull, centred over its bottom', () => {
+    // 76286 at 100 %: 30 wide, 16 long, 8.96 tall, origin at the floor centre -> a 30 square, 8.96 tall, pivot at mid height.
+    expect(sizeHitBox({ width: 30, height: 8.96, length: 16 })).toEqual({ width: 30, height: 8.96, pivot: [0, 4.48, 0] });
+    // A long hull: the length sets the square (it turns while driven; the box never turns).
+    expect(sizeHitBox({ width: 2, height: 1.5, length: 6 })).toEqual({ width: 6, height: 1.5, pivot: [0, 0.75, 0] });
+    // A body under the origin (a coaster car's wheels) keeps its bottom: the pivot is over the drawn middle.
+    expect(hullHitBox({ halfWidth: 0.5, halfLength: 1.5, height: 2.5 }, -0.7)).toEqual({ width: 3, height: 2.5, pivot: [0, 0.55, 0] });
+    // Never a sliver: a 0.1-block part still gets a 0.2 box.
+    expect(hullHitBox({ halfWidth: 0.05, halfLength: 0.05, height: 0.1 })).toEqual({ width: 0.2, height: 0.2, pivot: [0, 0.05, 0] });
+  });
+  it('geometryHitBox reads a shipped geometry\'s drawn cubes (inflate included), the farthest reach from the origin either way', () => {
+    const geometry = { 'minecraft:geometry': [{ bones: [
+      { cubes: [{ origin: [-8, 0, -4], size: [16, 8, 8] }, { origin: [-9, -2, 2], size: [2, 2, 2] }] },
+      // Declared 2 larger with inflate -1: the drawn box is [4, 10, 4]..[12, 12, 6], the reach 12 (not the declared 13).
+      { cubes: [{ origin: [3, 9, 3], size: [10, 4, 4], inflate: -1 }] },
+    ] }] };
+    expect(geometryHitBox(geometry)).toEqual({ width: 1.5, height: 0.875, pivot: [0, 0.313, 0] });
+    expect(geometryHitBox({ 'minecraft:geometry': [{ bones: [{ cubes: [] }] }] })).toBeUndefined();
+    expect(geometryHitBox(undefined)).toBeUndefined();
+  });
+  it('withSizeGroups writes the boxes at each group\'s REALISED size (a hit-test box is not scaled by minecraft:scale: vanilla hoglin.json), a player-sized entity never past 1', () => {
+    const base = { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:x' }, components: {} } };
+    const hit = [{ width: 30, height: 8.96, pivot: [0, 4.48, 0] as [number, number, number] }];
+    const out = withSizeGroups(base, { width: 3.5, height: 2.5 }, { seat_count: 1, seats: { position: [0, 4.58, 3.6] } }, { hitTest: hit }) as any;
+    const g = out['minecraft:entity'].component_groups;
+    for (const pct of SIZE_STEPS) {
+      const f = pct / 100;
+      expect(g[`craftmatic:size_${pct}`]['minecraft:custom_hit_test'].hitboxes).toEqual(hitTestAtSize(hit, f));
+      expect(g[`craftmatic:size_${pct}`]['minecraft:custom_hit_test'].hitboxes[0].width).toBeCloseTo(30 * f, 3);
+      expect(g[`craftmatic:size_${pct}`]['minecraft:custom_hit_test'].hitboxes[0].pivot[1]).toBeCloseTo(4.48 * f, 3);
+      // The seat and the collision box go the other way: declared unscaled, the device multiplies them.
+      expect(g[`craftmatic:size_${pct}`]['minecraft:collision_box']).toEqual({ width: 3.5, height: 2.5 });
+      expect(g[`craftmatic:size_${pct}`]['minecraft:rideable'].seats.position).toEqual([0, 4.58, 3.6]);
+    }
+    // No `hitTest`: no box in any group (the base's, if any, is the pack's own business).
+    const plain = withSizeGroups(base, { width: 1, height: 1 }) as any;
+    expect(plain['minecraft:entity'].component_groups['craftmatic:size_200']['minecraft:custom_hit_test']).toBeUndefined();
+    // A player-sized entity (a figure, an invisible seat) keeps the 100 % box from 100 % up.
+    const capped = withSizeGroups(base, { width: 0.6, height: 1.8 }, undefined, { playerSized: true, hitTest: [{ width: 0.6, height: 1.8, pivot: [0, 0.9, 0] }] }) as any;
+    expect(capped['minecraft:entity'].component_groups['craftmatic:size_400']['minecraft:custom_hit_test'].hitboxes).toEqual([{ width: 0.6, height: 1.8, pivot: [0, 0.9, 0] }]);
+    expect(capped['minecraft:entity'].component_groups['craftmatic:size_50']['minecraft:custom_hit_test'].hitboxes).toEqual([{ width: 0.3, height: 0.9, pivot: [0, 0.45, 0] }]);
   });
 });
 

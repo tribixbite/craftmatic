@@ -121,6 +121,22 @@ def check(path):
                     problems.append(f'{n}: {where} uses {dropped!r}, which format 1.26.30 dropped (the entity fails to load)')
             if 'minecraft:rideable' in comps and ident not in rideables:
                 rideables.append(ident)
+            # A tap / interact box (`minecraft:custom_hit_test`, VEH-17: every
+            # rideable's drawn hull, every interactive's leaf): a square `width`
+            # x `height` about a 3-number `pivot`. A box with no size or a
+            # malformed pivot is nothing a finger can land on, silently.
+            hit = comps.get('minecraft:custom_hit_test')
+            if hit is not None:
+                boxes = hit.get('hitboxes') if isinstance(hit, dict) else None
+                if not isinstance(boxes, list) or not boxes:
+                    problems.append(f'{n}: {where} custom_hit_test has no hitboxes')
+                for i, b in enumerate(boxes or []):
+                    ok = (isinstance(b, dict) and isinstance(b.get('width'), (int, float)) and b['width'] > 0
+                          and isinstance(b.get('height'), (int, float)) and b['height'] > 0
+                          and isinstance(b.get('pivot'), list) and len(b['pivot']) == 3
+                          and all(isinstance(v, (int, float)) for v in b['pivot']))
+                    if not ok:
+                        problems.append(f'{n}: {where} custom_hit_test hitbox {i} is not a positive width x height about a 3-number pivot: {b!r}')
         # An int/float actor property whose range is not wider than one value:
         # Bedrock refuses it ("range max is less than range min" for [0, 0],
         # Pixel 2026-09-25) and with it the entity's WHOLE property component,

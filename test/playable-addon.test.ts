@@ -197,6 +197,19 @@ describe('playable Bedrock add-on',()=>{
     expect(components['minecraft:rideable'].seats.position[2]).toBeCloseTo(.264);
     // A scripted car's rider may look all round (free look): the seat does not hold the rider's yaw.
     expect(components['minecraft:rideable'].seats.lock_rider_rotation).toBe(FREE_LOOK.SEAT_LOCK_DEG);
+    // The touch / interact (Mount) target is a hit-test box over the whole hull, not the clamped collision
+    // box (VEH-17, Pixel 30m: no Mount prompt at the 200 % Milano's nose): one square of the hull's longest
+    // reach, as tall as the hull, and every size group re-declares it at that size (a hit-test box is not
+    // scaled by `minecraft:scale`, quirk `custom-hit-test-pick`), the 200 % group's twice the base one.
+    const hit = components['minecraft:custom_hit_test'].hitboxes;
+    expect(hit).toHaveLength(1);
+    expect(hit[0].width).toBeGreaterThanOrEqual(components['minecraft:collision_box'].width);
+    expect(hit[0].height).toBeGreaterThanOrEqual(components['minecraft:collision_box'].height);
+    expect(hit[0].pivot).toEqual([0, Math.round(hit[0].height / 2 * 1000) / 1000, 0]);
+    const groups = entity['minecraft:entity'].component_groups;
+    expect(groups['craftmatic:size_100']['minecraft:custom_hit_test'].hitboxes).toEqual(hit);
+    expect(groups['craftmatic:size_200']['minecraft:custom_hit_test'].hitboxes[0].width).toBeCloseTo(hit[0].width * 2, 3);
+    expect(groups['craftmatic:size_200']['minecraft:custom_hit_test'].hitboxes[0].pivot[1]).toBeCloseTo(hit[0].pivot[1] * 2, 3);
     expect(components['minecraft:variable_max_auto_step']).toBeUndefined();
     // scripts/vehicles.js drives it (carStep, the swept footprint, headlights); the rotorcraft-only driver script is not shipped.
     expect(entries).not.toContain('Craftmatic_batmobile_BP/scripts/vehicle-driver.js');
