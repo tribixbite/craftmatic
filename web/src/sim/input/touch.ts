@@ -38,14 +38,36 @@ export function lookAt(player: SimEntity, target: Vec3): void {
   player.rotation = { x: a.pitch, y: a.yaw };
 }
 
-/** The centre of an entity's nearest pick box (where a child's finger lands on it). */
-export function aimPoint(player: SimEntity, target: SimEntity): Vec3 {
+/** How far inside a pick box's nearest point the aim is pulled (blocks): a ray on a face or an edge is a float coin toss. */
+const AIM_INSET = 0.1;
+
+/**
+ * Where a child's finger lands on an entity: the centre of its nearest pick box
+ * when the centre is within `reach` of the eye (every part's box, a figure's);
+ * for a box too big for that - a rideable's hull box (quirk
+ * `custom-hit-test-pick`: the 200 % Milano's is 60 wide and 17.7 tall, its
+ * middle 7 blocks over a child's head) - the point of it nearest the eye, pulled
+ * `AIM_INSET` in, and from an eye INSIDE it the box's middle at eye height.
+ * Until 2026-10-11 the centre was the only aim, and no standing spot reached it.
+ */
+export function aimPoint(player: SimEntity, target: SimEntity, reach = quirkValue('tap-is-hit', 'reachBlocks')): Vec3 {
   const h = player.headLocation();
   let best: Vec3 | undefined, bestD = Infinity;
   for (const b of pickBoxes(target)) {
     const c = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, z: (b.z0 + b.z1) / 2 };
-    const d = Math.hypot(c.x - h.x, c.y - h.y, c.z - h.z);
-    if (d < bestD) { bestD = d; best = c; }
+    let p = c;
+    if (Math.hypot(c.x - h.x, c.y - h.y, c.z - h.z) > reach) {
+      const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+      const n = { x: clamp(h.x, b.x0, b.x1), y: clamp(h.y, b.y0, b.y1), z: clamp(h.z, b.z0, b.z1) };
+      const inside = n.x === h.x && n.y === h.y && n.z === h.z;
+      if (inside) p = { x: c.x, y: n.y, z: c.z };
+      else {
+        const toC = { x: c.x - n.x, y: c.y - n.y, z: c.z - n.z }, l = Math.hypot(toC.x, toC.y, toC.z);
+        p = l > AIM_INSET ? { x: n.x + toC.x / l * AIM_INSET, y: n.y + toC.y / l * AIM_INSET, z: n.z + toC.z / l * AIM_INSET } : c;
+      }
+    }
+    const d = Math.hypot(p.x - h.x, p.y - h.y, p.z - h.z);
+    if (d < bestD) { bestD = d; best = p; }
   }
   return best ?? target.location;
 }
