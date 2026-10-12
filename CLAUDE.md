@@ -458,6 +458,9 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   place (verified with `exec-out cat`; an `adb pull` right after the rewrite
   can return 0 bytes). A listing of a folder the running game writes can be
   stale: an early "no log, no packs" reading cost a day of guessing.
+  **Deploy dev mode with `--prune-stale`**: with the previous round's pack
+  folders left beside the new ones the Saga crashed loading the world (SIGSEGV,
+  then SIGABRT, round 30n after the shell lattice changed); pruning fixed it.
 - **Bedrock rejects a `float` actor property written as an integer literal.**
   `"default": 0` fails with "'default' value does not match the specified type
   'float'" and drops the entity's WHOLE property component, so `query.property`
