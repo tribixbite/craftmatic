@@ -4453,6 +4453,19 @@ own float). Offline: the simulator's `vehicles` scenarios end with
 `dismountEverySize` (100/200/400 %), regression `milano-dismount-200-30l`.
 Not yet on a device.
 
+Round 30m (Saga, 2026-10-08, item 5) found two faults, fixed 2026-10-11:
+the 42172 McLaren parked between two walls set its rider down BEYOND the
+west wall (the nearest ring spot; no check that the seat could reach it),
+and the 7140 X-wing left at altitude came down with its drawn engines on
+the floating child (set down only `MARGIN` 0.5 off the footprint, which the
+empty ship then sinks onto). Every set-down, Bedrock's own included, is now
+reached from under the seat in a straight line at body height through no
+solid (`lineClear`); the rings widen outward (`RINGS`), so a boat reaches a
+bank a block or two off its hull (`SHORE_ABOVE`: a pool's bank is 1.11 over
+the water's surface - every boat used to set its rider down swimming beside
+one); an air set-down floats `FLOAT_MARGIN` 1.5 clear of the footprint.
+Regressions `mclaren-walls-30m`, `xwing-air-park-30m`. Not yet on a device.
+
 ### The driver's eye sees the road ahead (2026-09-30, `output/cockpit-0930/`)
 
 Pixel round 30f: 42639's car in the cockpit view (hotbar 9) was two thirds
