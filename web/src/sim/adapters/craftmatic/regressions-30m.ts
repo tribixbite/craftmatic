@@ -194,7 +194,9 @@ function screenSpanX(camera: { eye: Vec3; dir: Vec3; up: Vec3 }, boxes: readonly
 const milanoChase400: RegressionCase = {
   id: 'milano-chase-400-30m', title: '76286 Milano at 400 % (30m): grey/blue cuboids fill the chase view ("the camera sits on the hull") - the 48-block boom cannot frame the ship, whose coarse LOD hull is drawn past its 54-block switch; 50/100/200 % are fine (VEH-06)',
   evidence: `${SAGA_30M} item 3 (\`b-chase-grid.jpg\`, \`b-mil400-grid.jpg\`, \`b-mil400-later.jpg\`, 01:37:00; 50/100/200 % wingspan ~410/410/540 of 900 px): the shipped \`chase()\` boom is \`min(radius x size, CHASE_BOOM_MAX_BLOCKS 48)\` (playable-addon.ts) - capped at 200 % already, so 400 % keeps the 48-block boom while the hull doubles; the frames' coarse cuboids are the LOD hull (the camera is 58 blocks from the root, past the hull's 54-block switch, quirk \`lod-switch-camera-root\`)`,
-  oldPack: `${PACKS_30M}/76286-the-milano-spaceship.mcaddon`, newStem: '76286-the-milano-spaceship', expectNew: 'pass', open: OPEN_30M,
+  oldPack: `${PACKS_30M}/76286-the-milano-spaceship.mcaddon`, newStem: '76286-the-milano-spaceship', expectNew: 'pass',
+  // Fixed 2026-10-11: the chase boom and its height shorten together until the camera is within `maxRootBlocks` of the
+  // root (playable-addon.ts `chaseMaxRootBlocks`: the LOD switch less `FREE_LOOK.CHASE_LOD_MARGIN_BLOCKS`).
   // The ship summoned on the flat world at each size the tester tried, the child seated, the chase camera left to
   // settle 4 s at rest; then the picture the phone shows (snapshot.ts `clientSnapshot`: the DRAWN camera, the Saga's
   // client, each actor full / LOD hull / culled by its camera-to-root distance) and where the drawn eye is.

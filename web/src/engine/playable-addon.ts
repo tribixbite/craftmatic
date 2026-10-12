@@ -2197,6 +2197,9 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
     const fromRoot = (p: { x: number; y: number; z: number }): number => Math.hypot(p.x - v.x, p.y - v.y, p.z - v.z);
     let k = 1;
     for (let i = 0; i < 4 && fromRoot(location) > maxRoot; i++) { k *= maxRoot / fromRoot(location); ({ location, facingLocation } = boom(k)); }
+    // # TODO(chase-400): at 400 % the 76286 Milano (72 blocks across) is drawn in full from 50 blocks but no longer
+    // fits the frame (sim `milano-chase-400-30m`: 28 percent of the picture, screen x -2.49..2.49, the camera 18.6
+    // over its tail); a tighter framing or the cockpit view as the default at 300/400 % is unmeasured on a phone.
     const over = fromRoot(location);
     if (over > maxRoot) location = { x: v.x + (location.x - v.x) * maxRoot / over, y: v.y + (location.y - v.y) * maxRoot / over, z: v.z + (location.z - v.z) * maxRoot / over };
     // Never behind a wall: the first solid block on the line from the vehicle's pivot to the camera pulls the
@@ -2205,6 +2208,12 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
     const pulled = inFrontOfWalls(vehicle, { x: v.x, y: v.y + pivotY, z: v.z }, location);
     if (cfg.kind === 'plane' && !cfg.scripted) facingLocation = { x: facingLocation.x + pulled.x - location.x, y: facingLocation.y + pulled.y - location.y, z: facingLocation.z + pulled.z - location.z };
     location = pulled;
+    // # TODO(chase-ease): the simulator's client model (`--scenario=vehicles`, invariant `camera-continuous`, Pixel
+    // profile: the ease played) reads this 0.15 s ease catching up after the target stops - on the 76286 Milano at
+    // 100 % the drawn eye moves 3.04 -> 2.03 -> 1.35 blocks over three frames once a recentre's target has stopped
+    // (and 1.1-3.2 blocks in the ship-controls stops), identical on the 30m pack and after the 2026-10-11 boom fit.
+    // It is a geometric decay, not a cut; the Saga (no ease played, quirk `camera-ease-lag`) reported nothing of it.
+    // Whether a shorter or no ease reads better on the Pixel is a device question, so the ease is left as it is.
     try { player.camera.setCamera('minecraft:free', { location, facingLocation, easeOptions: { easeTime: 0.15, easeType: 'Linear' } }); return true; } catch { return false; }
   };
   // Measured on the Pixel 2026-09-16: a scheme set ONCE from the script on a
