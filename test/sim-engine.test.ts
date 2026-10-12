@@ -534,8 +534,8 @@ describe('historical regression replay inputs', () => {
     expect(regressionVerdict(open, side(false), side(true))).toMatchObject({ failing: true, notTested: true });
   });
 
-  it('round 30m\'s open device defects are cases: open ones reproduce, the unreproduced one says what is missing', () => {
-    const ids = ['nimbus-steer-30m', 'milano-chase-400-30m', 'xwing-air-park-30m', 'mclaren-walls-30m', 'top-east-fall-10261-30m', 'shell-unseen-400-10261-30m', 'milano-mount-reach-200-30m'];
+  it('round 30m\'s open device defects are cases: open ones reproduce, the unreproduced one says what is missing, a fixed one guards', () => {
+    const ids = ['nimbus-steer-30m', 'milano-chase-400-30m', 'xwing-air-park-30m', 'mclaren-walls-30m', 'top-east-fall-10261-30m', 'shell-unseen-400-10261-30m'];
     for (const id of ids) {
       const c = REGRESSIONS.find(x => x.id === id);
       expect(c, id).toBeDefined();
@@ -544,6 +544,14 @@ describe('historical regression replay inputs', () => {
       expect(!!c!.open !== !!c!.knownUnreproduced, id).toBe(true);
       if (c!.knownUnreproduced) expect(c!.limits, id).toMatch(/\S{20,}|.{40,}/);
     }
+    // Fixed 2026-10-11 (VEH-17, the hit-test box over the drawn hull): a plain regression case now - the old pack must
+    // still reproduce and the current one must not.
+    const fixed = REGRESSIONS.find(x => x.id === 'milano-mount-reach-200-30m');
+    expect(fixed).toBeDefined();
+    expect(fixed!.oldPack).toContain('device-round-2026-10-08m/packs-6a8c7121/');
+    expect(fixed!.open).toBeUndefined();
+    expect(fixed!.knownUnreproduced).toBeUndefined();
+    expect(fixed!.expectNew).toBe('pass');
   });
 });
 
