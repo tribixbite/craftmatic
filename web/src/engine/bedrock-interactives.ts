@@ -43,12 +43,12 @@ import { isDoorLeafDescription, sceneGridPoint, type SceneGridFrame } from './be
 import { cleanPartId } from './ldraw-entity-compiler.js';
 import { floatActorProperty } from './bedrock-json.js';
 import { SIZE_EVENT_PREFIX, SIZE_STEPS } from './bedrock-placement-pack.js';
-import { LDU_PER_BLOCK } from './lego-scale.js';
+import { LDU_PER_BLOCK, PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
 import { relayRounding } from './bedrock-collider-scale.js';
-import { DOORWAY_PASS_HEIGHT_LDU, DOORWAY_PASS_WIDTH_LDU, PASSAGE_WIDTH_BLOCKS } from './addon-scale.js';
+import { DOORWAY_PASS_HEIGHT_LDU, DOORWAY_PASS_WIDTH_LDU, PASSAGE_WIDTH_BLOCKS, PLAYER_WIDTH_BLOCKS } from './addon-scale.js';
 import { COLLIDER_BLOCK_ID, colliderState } from './bedrock-building-shell.js';
 import { COLLIDER_KIT, colliderBodyProbe, colliderFormKit, type ColliderFormKit } from './collider-form.js';
-import { LANDING_REACH, LANDING_RISE, LeakFlood, layerBoxes, parseFormState, type CellLayers } from './collider-clearance.js';
+import { EMPTY_LAYER, LANDING_REACH, LANDING_RISE, LeakFlood, layerBoxes, parseFormState, type CellLayers } from './collider-clearance.js';
 
 declare const world: any;
 declare const system: any;
@@ -858,6 +858,50 @@ function fillSunkenSills(grid: BlockGrid, layers: CellLayers | undefined, column
   return raised;
 }
 
+/** A player's width in sixteenths of a block (0.6 rounded up): the free strip a column must leave to be walked through. */
+const PLAYER_WIDTH16 = Math.ceil(PLAYER_WIDTH_BLOCKS * 16);
+/** A standing player's height in sixteenths (1.8 rounded up): the strip's height over the doorway's floor. A header over it (42639 Door 1's frame at 2.375) is no obstacle. */
+const PLAYER_HEIGHT16 = Math.ceil(PLAYER_HEIGHT_BLOCKS * 16);
+
+/**
+ * The first column a doorway's passage enters from a leaf column (`cx`, `cz`) along the leaf's horizontal
+ * normal `gn` (grid frame) in direction `dir`: the column the leaf's own frame continues into. Undefined for a
+ * diagonal normal (the passage steps through corner connectors there) or when it is another leaf column.
+ */
+function firstPassageColumn(cx: number, cz: number, gn: Vec3, dir: number, columns: ReadonlyMap<string, [number, number]>): [number, number] | undefined {
+  if (Math.abs(gn[0]) < 0.99 && Math.abs(gn[2]) < 0.99) return undefined;
+  const x = Math.floor(cx + 0.5 + gn[0] * dir), z = Math.floor(cz + 0.5 + gn[2] * dir);
+  return columns.has(`${x},${z}`) ? undefined : [x, z];
+}
+
+/**
+ * Whether column (`x`, `z`)'s part GEOMETRY (`layers`, the per-sixteenth footprints clearance covers) leaves a
+ * strip at least a player wide (`PLAYER_WIDTH16`) running the whole cell along the axis-aligned normal `gn`, in
+ * the band `[lo16, hi16]` (absolute sixteenths): a player walks through it along the doorway's line. A collider
+ * cell in the band with no layer record (a tread, a stair) is solid. Without layers nothing is passable.
+ */
+export function geometryPassable(grid: BlockGrid, layers: CellLayers | undefined, x: number, z: number, [lo16, hi16]: readonly [number, number], gn: Vec3): boolean {
+  if (!layers || x < 0 || z < 0 || x >= grid.width || z >= grid.length) return false;
+  // The footprint's extent ACROSS the normal: z (layer bytes 2, 3) for a normal along x, else x (bytes 0, 1).
+  const across = Math.abs(gn[0]) >= 0.99 ? 2 : Math.abs(gn[2]) >= 0.99 ? 0 : -1;
+  if (across < 0) return false;
+  const taken: Array<[number, number]> = [];
+  for (let y = Math.max(0, Math.floor(lo16 / 16)); y < grid.height && y * 16 < hi16; y++) {
+    if (!grid.get(x, y, z).startsWith(COLLIDER_BLOCK_ID)) continue;
+    const a = layers.get((x * grid.height + y) * grid.length + z);
+    if (!a) return false;
+    for (let l = 0; l < 16; l++) {
+      const abs = y * 16 + l;
+      if (abs < lo16 || abs >= hi16 || a[4 * l] === EMPTY_LAYER) continue;
+      taken.push([a[4 * l + across]!, a[4 * l + across + 1]!]);
+    }
+  }
+  taken.sort((p, q) => p[0] - q[0]);
+  let at = 0, gap = 0;
+  for (const [s, e] of taken) { gap = Math.max(gap, s - at); at = Math.max(at, e); }
+  return Math.max(gap, 16 - at) >= PLAYER_WIDTH16;
+}
+
 /**
  * Cut every passage interactive's doorway into the COLLIDER grid (not the
  * voxel grid, which is half a block off the entity world - CLAUDE.md) and
@@ -1043,7 +1087,20 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
           px = x; pz = z;
           if (visit(x, z) === 'open') { open = true; break; }
         }
-        if (!open) continue;
+        if (!open) {
+          // No column a player stands in within reach, by the full-cell spans: every cell holding ANY geometry in
+          // the band reads solid. Before clearance a door frame's far half (a jamb post at each edge of the
+          // doorway) is such a cell, and clearance later covers each post with a band ACROSS the cell (a form is a
+          // band, never a corner post): an invisible wall over the open doorway that nothing drawn stands for
+          // (42639 Door 1 at every size, child play 2026-10-08, DOOR-01). So the column next to the leaf is opened
+          // when its GEOMETRY leaves a player's width free along the normal from a step over the doorway's floor to
+          // a player's height (`geometryPassable`; the frame's header may sit lower than the band): the passage then
+          // reaches that column, as it reaches a standable one. Only that one column, only where the span rule
+          // found nothing - every doorway the rule already serves is cut as before.
+          const first = firstPassageColumn(cx, cz, gn, dir, columns);
+          if (first && geometryPassable(grid, layers, first[0], first[1], [door16 + PASSAGE_STEP16, door16 + PLAYER_HEIGHT16], gn)) openUp(first[0], first[1], door16);
+          continue;
+        }
         for (const [x, z] of cells) openUp(x, z, door16);
       }
       // A raised threshold (a leaf standing on a plate or two over the floor
@@ -2440,8 +2497,9 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
    * ray. The nearest other moving part or seat on the player's view ray, in
    * reach, with a clear line of sight, takes the tap instead: a part is
    * toggled, a seat is mounted. Nothing else does: then the refusal stands.
+   * `seats` false: moving parts only (a tap forwarded from a figure, `use`).
    */
-  const forward = (player: any, from: any): boolean => {
+  const forward = (player: any, from: any, seats = true): boolean => {
     let head: any, view: any;
     try { head = player.getHeadLocation(); view = player.getViewDirection(); } catch { return false; }
     if (!head || !view) return false;
@@ -2453,7 +2511,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
       if (!e || e.id === from.id) continue;
       const i = itemOf(e), pl = i !== undefined ? placementOf(e) : undefined;
       let seat = false;
-      try { seat = i === undefined && /_seat(_\d+)?$/.test(e.typeId || '') && !!e.getComponent('minecraft:rideable'); } catch { seat = false; }
+      try { seat = seats && i === undefined && /_seat(_\d+)?$/.test(e.typeId || '') && !!e.getComponent('minecraft:rideable'); } catch { seat = false; }
       if (!(i !== undefined && pl) && !seat) continue;
       const l = e.location;
       const boxes = seat ? [{ x0: l.x - 0.3, x1: l.x + 0.3, y0: l.y, y1: l.y + 0.6, z0: l.z - 0.3, z1: l.z + 0.3 }] : placedBoxes(e, config.items[i!]!, pl);
@@ -2477,8 +2535,19 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     system.run(() => toggle(target, player));
     return true;
   };
+  /** A craftmatic figure (a walking or seated NPC, the wand's creator figures): family `craftmatic_figure`. */
+  const isFigure = (e: any): boolean => {
+    try { return !!e.getComponent('minecraft:type_family')?.hasTypeFamily('craftmatic_figure'); } catch { return false; }
+  };
   const use = (player: any, target: any): void => {
-    if (!target || !target.typeId || itemOf(target) === undefined) return;
+    if (!target || !target.typeId) return;
+    // A tap that lands on a FIGURE standing (or walking) between the player and a
+    // moving part: figures take no tap of their own (no damage, no handler), so the
+    // tap goes on along the view ray to the nearest moving part behind the figure,
+    // in reach and in plain sight - never to a seat (the figure may be sitting on
+    // it). Offline 2026-10-08: 76417's Door 3 picked figure 5 and 910004's Drawer 1
+    // figure 7 (IX-01); a child taps where the part is drawn, not round the figure.
+    if (itemOf(target) === undefined) { if (isFigure(target)) forward(player, target, false); return; }
     if (behindWall(player, target)) {
       if (forward(player, target)) return;
       // Never refuse silently: a tap that does nothing reads as a broken part (device 2026-09-24e).
