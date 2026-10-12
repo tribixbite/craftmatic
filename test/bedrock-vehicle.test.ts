@@ -617,6 +617,93 @@ describe('the collision response (resolveMove): never stuck', () => {
     expect(b.how).toBe('blocked');
     expect(b.pose.y).toBe(64);
   });
+  it('steps a car square against something that ENDS beside it (a trunk dead centre) toward the nearer open side, keeping the push (VEH-16)', () => {
+    // A trunk centred on the nose (cell z 0, the car's centre at z 0.5): both halves meet it, so no deflect, and both
+    // edges have the same room, so no glance. It steps right (+z heading +x) on the tie, by the deflect's share.
+    const trunk = cells(['2,64,0']);
+    const r = resolveMove(from, to, fp, trunk, FOOTPRINT, MOVE, car, sweepFootprint);
+    expect(r.how).toBe('slide');
+    expect(r.kept).toBe(1);
+    expect(r.pose.x).toBeCloseTo(from.x, 9);
+    expect(r.pose.z).toBeCloseTo(from.z + MOVE.DEFLECT_SHARE * 0.6, 9);
+    expect(sweepFootprint(from, r.pose, fp, trunk, FOOTPRINT).blocked).toBe(false);
+    // A wall along its right side (cells z 2, beside it): the right is not reachable, so it steps left.
+    const walled = cells(['2,64,0', ...Array.from({ length: 12 }, (_, i) => `${i - 6},64,2`)]);
+    const l = resolveMove(from, to, fp, walled, FOOTPRINT, MOVE, car, sweepFootprint);
+    expect(l.how).toBe('slide');
+    expect(l.pose.z).toBeCloseTo(from.z - MOVE.DEFLECT_SHARE * 0.6, 9);
+    // A wall across the whole way, and one that ends past `OPEN_SIDE` beyond its side, still hold it.
+    const across = (x: number, y: number, z: number): boolean => Math.floor(x) === 2 && Math.floor(y) === 64 && Math.abs(z - 0.5) < 1.2 + MOVE.OPEN_SIDE + 1;
+    expect(resolveMove(from, to, fp, across, FOOTPRINT, MOVE, car, sweepFootprint).how).toBe('blocked');
+  });
+});
+
+describe('the swept footprint never lets a block INTO the hull (VEH-16: 60221 and 10786 crossed the course pier post)', () => {
+  /**
+   * Drive a boat at a one-block pier post 19 degrees off square (the course's `water-wall`) with the pure models the
+   * runtime runs (`boatStep`, `resolveMove`), and count the ticks a post cell sits inside the hull's band.
+   */
+  const run = (t: { noseReach: number; halfWidth: number; height: number; draft: number }): { clips: number; passed: boolean } => {
+    const surface = 66.9, yaw = -71, rad = 19 * Math.PI / 180;
+    const sx = Math.floor(0.5 + t.noseReach * Math.cos(rad) + t.halfWidth * Math.sin(rad)) + 4, tz = Math.floor(Math.max(0, t.halfWidth - 0.35));
+    const post = (x: number, y: number, z: number): boolean => Math.floor(x) === sx && Math.floor(z) === tz && y >= 60 && y < 73;
+    const fp = { halfLength: t.noseReach, halfWidth: t.halfWidth, lo: t.draft + 0.05, hi: Math.max(t.draft + 0.5, Math.min(t.height, t.draft + 3)) };
+    let st: BoatState = { x: 0.5, y: surface - t.draft, z: 0.5, yaw, speed: 0, vy: 0, afloat: true, boost: 0, cooldown: 0, pitch: 0, bank: 0 };
+    let clips = 0;
+    const inside = (s: BoatState): boolean => {
+      const r = s.yaw * Math.PI / 180, fx = -Math.sin(r), fz = Math.cos(r), rx = -Math.cos(r), rz = -Math.sin(r), tilt = Math.tan(s.pitch * Math.PI / 180);
+      for (let a = -t.noseReach + 0.05; a <= t.noseReach - 0.05; a += 0.1) for (let b = -t.halfWidth + 0.05; b <= t.halfWidth - 0.05; b += 0.1) {
+        const lift = Math.max(0, a * tilt);
+        for (let h = fp.lo + 0.1; h <= fp.hi - 0.1; h += 0.25) if (post(s.x + fx * a + rx * b, s.y + lift + h, s.z + fz * a + rz * b)) return true;
+      }
+      return false;
+    };
+    for (let i = 0; i < 200 && st.x < sx + 2 + t.noseReach; i++) {
+      const r = boatStep(st, { x: 0, y: 1, jump: false, rider: true }, { surface, ground: null, shoreAhead: false, shoreAstern: false }, { ...BOAT, DRAFT: t.draft }, 0.05);
+      const ns = r.state;
+      const res = resolveMove({ x: st.x, y: st.y, z: st.z, yaw: st.yaw, pitch: st.pitch }, { x: ns.x, y: ns.y, z: ns.z, yaw: ns.yaw, pitch: ns.pitch }, fp, post, FOOTPRINT, MOVE, { climb: 0, climbFirst: false }, sweepFootprint);
+      if (res.how !== 'clear') {
+        ns.x = res.pose.x; ns.y = res.pose.y; ns.z = res.pose.z; ns.yaw = res.pose.yaw;
+        ns.speed = res.how === 'slide' ? ns.speed * res.kept : res.how === 'deflect' ? ns.speed : 0;
+      }
+      st = ns;
+      if (inside(st)) clips++;
+    }
+    return { clips, passed: st.x >= sx + 2 + t.noseReach };
+  };
+  it.each([
+    ['60221 (Diving Yacht)', { noseReach: 5.33, halfWidth: 2.59, height: 3.16, draft: 0.98 }],
+    ['10786 (Ship & Spa)', { noseReach: 3.47, halfWidth: 2.48, height: 2.97, draft: 0.36 }],
+  ])('%s steps round the post with 0 ticks inside it (32 / 22 before the stretches between probes were walked)', (_name, t) => {
+    expect(run(t)).toEqual({ clips: 0, passed: true });
+  });
+  it('catches a post corner poking between two bow probes of a hull turned off the grid', () => {
+    // Heading 19 degrees off +x (yaw -71): the post's near corner (2, 0) crosses the bow line between two of its
+    // probes (0.8 apart), so no probe is in the post at the end pose, yet its corner is inside the hull.
+    const fp = { halfLength: 2, halfWidth: 1.2, lo: 0.2, hi: 1.5 };
+    const yaw = -71, r = yaw * Math.PI / 180, fx = -Math.sin(r), fz = Math.cos(r);
+    const from = { x: -0.6, y: 64, z: 0, yaw, pitch: 0 };
+    const post = (x: number, y: number, z: number): boolean => Math.floor(x) === 2 && Math.floor(y) === 64 && Math.floor(z) === 0;
+    // Find a short advance whose end pose has no PROBE in the post but a corner of it inside the bow line.
+    const probesIn = (p: typeof from): boolean => {
+      const rx = -Math.cos(r), rz = -Math.sin(r), n = Math.ceil(2.4 / FOOTPRINT.SPACING);
+      for (let k = 0; k <= n; k++) { const b = -1.2 + 2.4 * k / n; for (const h of [0.2, 0.85, 1.5]) if (post(p.x + fx * 2 + rx * b, p.y + h, p.z + fz * 2 + rz * b)) return true; }
+      return false;
+    };
+    const cornerInside = (p: typeof from): boolean => {
+      const dx = 2 - p.x, dz = 0 - p.z, a = dx * fx + dz * fz, b = dx * -Math.cos(r) + dz * -Math.sin(r);
+      return a < 2 - 1e-3 && Math.abs(b) < 1.2;
+    };
+    // Every start across a cell's width and every short advance whose end pose pokes the corner in between probes.
+    const pokes: Array<[typeof from, typeof from]> = [];
+    for (let zo = 0; zo < 1; zo += 0.05) {
+      const start = { ...from, z: zo };
+      if (cornerInside(start) || probesIn(start)) continue;
+      for (let d = 0.01; d < 0.6; d += 0.01) { const p = { ...start, x: start.x + fx * d, z: start.z + fz * d }; if (cornerInside(p) && !probesIn(p)) { pokes.push([start, p]); break; } }
+    }
+    expect(pokes.length).toBeGreaterThan(0);
+    for (const [a, b] of pokes) expect(sweepFootprint(a, b, fp, post, FOOTPRINT).blocked).toBe(true);
+  });
 });
 
 describe('the vehicle runtime against blocks (scripts/vehicles.js on the simulator)', () => {
@@ -634,6 +721,24 @@ describe('the vehicle runtime against blocks (scripts/vehicles.js on the simulat
     expect(wide.entity.location.z).toBeLessThan(0.5 - 0.5);
     // ... and no pose put its body into the trunk's cell.
     expect(wide.poses.filter(p => overlapsCell(p, { l: car.noseReach, w: car.halfWidth }, 12, 1))).toEqual([]);
+  });
+  it('gets a NARROW car past a trunk met dead centre and a 30-degree wall it sits square in a step of, never into either (10303, 10796: stopped dead, VEH-16)', () => {
+    // 10303's car footprint. The trunk's cell spans the car's centre line (z 0.5): both halves meet it, both edges see the same room.
+    const narrow: ScriptedVehicleType = { mode: 'car', noseReach: 1.78, halfWidth: 0.94, height: 3.42 };
+    const tree = vehicleHost({ type: narrow, at: { x: 0.5, y: 64, z: 0.5 }, fills: [{ from: [8, 64, 0], to: [8, 68, 0], id: 'minecraft:oak_log' }] });
+    tree.set(0, 1);
+    tree.run(100);
+    expect(tree.entity.location.x).toBeGreaterThan(12);
+    expect(tree.poses.filter(p => p.y < 69 && overlapsCell(p, { l: narrow.noseReach, w: narrow.halfWidth }, 8, 0))).toEqual([]);
+    // The course's angled lane: a three-high wall 30 degrees off the drive, laid as stair steps one or two rows wide;
+    // the car (1.9 wide) noses square into a two-row step.
+    const steps: Array<[number, number]> = [];
+    for (let z = -5; z <= 5; z++) steps.push([8 + Math.round((5 - z) * Math.tan(30 * Math.PI / 180)), z]);
+    const wall = vehicleHost({ type: narrow, at: { x: 0.5, y: 64, z: 0.5 }, fills: steps.map(([x, z]) => ({ from: [x, 64, z] as [number, number, number], to: [x, 66, z] as [number, number, number], id: 'minecraft:stone' })) });
+    wall.set(0, 1);
+    wall.run(200);
+    expect(wall.entity.location.x).toBeGreaterThan(8 + 7 + narrow.noseReach);
+    expect(wall.poses.filter(p => p.y < 67 && steps.some(([x, z]) => overlapsCell(p, { l: narrow.noseReach, w: narrow.halfWidth }, x, z)))).toEqual([]);
   });
   it('steps a ship round a post met by its wingtip, never through it', () => {
     const plane: ScriptedVehicleType = { mode: 'plane', noseReach: 3, halfWidth: 4, height: 2.5 };

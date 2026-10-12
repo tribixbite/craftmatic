@@ -582,12 +582,25 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
     const dy = p1[1] - p0[1];
     return dy < -1e-6 ? floorLevel : dy > 1e-6 ? roofLevel : undefined;
   };
+  // The leading boundary is tested CONTINUOUSLY between its probes (VEH-16): each stretch of an edge between two
+  // neighbouring probes, one of them leading, is walked cell by cell at the target pose (`segments`, below). Probes
+  // alone left gaps of up to `SPACING`: a post met off square pokes its corner between two bow probes (a 1-block
+  // post at 19 degrees, up to 0.26 deep; at 45 degrees, 0.45), and once one probe sat a hundredth inside it - put
+  // there by a sidestep along the bow - the "already inside at the old pose" rule let that probe and the whole post
+  // through the hull: 60221 and 10786 crossed the course's pier post for 32 and 22 ticks (engine run 2026-10-08).
+  const segments: Array<[number, number, number, number, number[]]> = [];
   const edge = (a0: number, s0: number, a1: number, s1: number, na: number, ns: number): void => {
     const n = Math.max(1, Math.ceil(Math.hypot(a1 - a0, s1 - s0) / spacing));
+    let prev: [number, number, number[] | undefined] | undefined;
     for (let k = 0; k <= n; k++) {
       const a = a0 + (a1 - a0) * k / n, s = s0 + (s1 - s0) * k / n;
       const at = leading(a, s, na, ns);
       if (at) offsets.push([a, s, at]);
+      // A stretch with an end moving OUTWARD is walked at every level; a face that only rises or sinks (the floor or
+      // the roof level) is not: a corner cannot poke into it sideways, and walking it would add ~40 % to a climbing
+      // Milano's probes (2,853 -> 4,047 a tick at 2x).
+      if (prev && (prev[2] === allLevels || at === allLevels)) segments.push([prev[0], prev[1], a, s, allLevels]);
+      prev = [a, s, at];
     }
   };
   edge(L, -W, L, W, 1, 0); edge(L, W, -L, W, 0, 1); edge(-L, W, -L, -W, -1, 0); edge(-L, -W, L, -W, 0, -1);
@@ -609,21 +622,54 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
     }
     return occupiedAtFrom;
   };
+  /** The boundary point (a, s, h) at `pose` if it ENTERS a solid there (solid now, clear at the old pose), else undefined. */
+  const enters = (pose: FootprintPose, a: number, s: number, h: number): [number, number, number] | undefined => {
+    const p = pointAt(pose, a, s, h);
+    checks++;
+    if (!solid(p[0], p[1], p[2])) return undefined;
+    const q = pointAt(from, a, s, h);
+    if (solid(q[0], q[1], q[2])) return undefined;
+    // A source-placed vehicle may start partly inside the model it was
+    // extracted from. While it rises and moves out, a trailing point may
+    // enter a voxel another part of the original boundary already occupied.
+    // Permit no new occupied voxel: a new crown or ceiling still blocks.
+    if (p[1] > q[1] + 1e-6 && originalOccupiedCells().has(cellKey(p))) return undefined;
+    return p;
+  };
   for (let k = 1; k <= steps; k++) {
     const t = k / steps;
     const pose: FootprintPose = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, z: from.z + (to.z - from.z) * t, yaw: from.yaw + dyaw * t, pitch: from.pitch + (to.pitch - from.pitch) * t };
     for (const [a, s, at] of offsets) for (const h of at) {
-      const p = pointAt(pose, a, s, h);
-      checks++;
-      if (!solid(p[0], p[1], p[2])) continue;
-      const q = pointAt(from, a, s, h);
-      if (solid(q[0], q[1], q[2])) continue;
-      // A source-placed vehicle may start partly inside the model it was
-      // extracted from. While it rises and moves out, a trailing point may
-      // enter a voxel another part of the original boundary already occupied.
-      // Permit no new occupied voxel: a new crown or ceiling still blocks.
-      if (p[1] > q[1] + 1e-6 && originalOccupiedCells().has(cellKey(p))) continue;
-      return { blocked: true, checks, at: p };
+      const p = enters(pose, a, s, h);
+      if (p) return { blocked: true, checks, at: p };
+    }
+    // Between neighbouring probes: every cell the stretch crosses that neither end lies in, tested once at the
+    // middle of its share of the stretch (the ends' own cells are the probes'): about one extra lookup per slanted
+    // stretch that crosses a cell corner.
+    for (const [a0, s0, a1, s1, at] of segments) for (const h of at) {
+      const P = pointAt(pose, a0, s0, h), Q = pointAt(pose, a1, s1, h);
+      const cuts: number[] = [];
+      let axes = 0;
+      for (let ax = 0; ax < 3; ax++) {
+        const u = P[ax]!, v = Q[ax]!;
+        if (Math.floor(u) === Math.floor(v)) continue;
+        axes++;
+        for (let c = Math.floor(Math.min(u, v)) + 1; c <= Math.floor(Math.max(u, v)); c++) cuts.push((c - u) / (v - u));
+      }
+      // Only a stretch crossing cell lines on two axes (an edge slanted to the grid) can pass a cell neither end is
+      // in while it is under a block long: that is the corner poke. A stretch along one axis crosses at most one
+      // line at `SPACING` 0.9, so it has no cell between its ends.
+      // TODO(sweep-wide-spacing): past `MAX_POINTS` a big hull's stretches pass a block (the Milano at 2x: 1.44), and
+      // one along an axis can skip a whole trunk cell; walking those too cost the climbing 2x Milano 2,853 -> 3,933
+      // probes a tick, so they are left to the known sampling limit (docs/physics-architecture.md).
+      if (axes < 2 || cuts.length < 2) continue;
+      cuts.sort((x, y) => x - y);
+      for (let i = 0; i + 1 < cuts.length; i++) {
+        const m = (cuts[i]! + cuts[i + 1]!) / 2;
+        if (cuts[i + 1]! - cuts[i]! < 1e-9) continue;
+        const p = enters(pose, a0 + (a1 - a0) * m, s0 + (s1 - s0) * m, h);
+        if (p) return { blocked: true, checks, at: p };
+      }
     }
   }
   return { blocked: false, checks };
@@ -662,7 +708,10 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
  *   - `slide`: one world axis of the move only (Minecraft's walls run along
  *     the axes), else the move turned up to `GLANCE_MAX_DEG` toward a slanted
  *     wall's line and shortened by the cosine; the speed scaled by the share
- *     of the move it keeps - along a wall met at an angle;
+ *     of the move it keeps - along a wall met at an angle; square across the
+ *     whole nose, a sidestep (speed kept) toward the nearer side within
+ *     `OPEN_SIDE` where what it met ENDS (`sideOpen`: a trunk dead centre,
+ *     a slanted wall's stair step wider than a narrow car);
  *   - `rise`: straight up by the climb allowance where it stands (the face of
  *     a wall too high to climb in one move) - only while the move PUSHES
  *     (`MIN_PROGRESS` of horizontal travel): a turn on the spot never rises.
@@ -685,7 +734,7 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
  * `sweepFootprint`, passed in (a serialised function references nothing
  * outside itself).
  */
-export const MOVE = { DEFLECT_SHARE: 0.7, MIN_SIDESTEP: 0.1, MIN_PROGRESS: 0.002, GLANCE_STEP_DEG: 20, GLANCE_MAX_DEG: 60, GLANCE_PROBE: 1.5, NARROW_CELLS: 12 } as const;
+export const MOVE = { DEFLECT_SHARE: 0.7, MIN_SIDESTEP: 0.1, MIN_PROGRESS: 0.002, GLANCE_STEP_DEG: 20, GLANCE_MAX_DEG: 60, GLANCE_PROBE: 1.5, NARROW_CELLS: 12, OPEN_SIDE: 2.5, OPEN_STEP: 0.5 } as const;
 export type MoveParams = { readonly [K in keyof typeof MOVE]: number };
 export type MoveResolution = 'clear' | 'climb' | 'deflect' | 'slide' | 'rise' | 'pivot' | 'blocked';
 
@@ -755,6 +804,50 @@ export function resolveMove(
     for (const p of [aside(to, shift), aside({ ...to, x: from.x, z: from.z }, shift)]) if (clear(p).ok) return p;
     return undefined;
   };
+  /** Set when `trySlide` stepped sideways round something that ends beside the vehicle: the push goes on (speed kept). */
+  let sidestepped = false;
+  /**
+   * The side (1 right, -1 left) where something square across the whole nose ENDS within `OPEN_SIDE` blocks: the
+   * footprint stepped that far across in `OPEN_STEP` steps (every step swept from where it stands, so it never
+   * steps through a wall beside it) finds room ahead: this tick's push is clear from there. The nearer side
+   * wins, the right on a tie; undefined: a wall across the way.
+   */
+  const sideOpen = (): 1 | -1 | undefined => {
+    if (len < M.MIN_PROGRESS) return undefined;
+    // A cheap look first (cell reads, cached per tick): a side with no gap at all just past the nose - every point
+    // from the centre line out to `OPEN_SIDE` past the side, at the band's floor, middle and roof, solid - is a
+    // wall, and is not searched. Searched every tick a car pushed into a wall, the sweeps below raised its p95 from
+    // ~50 probes a tick to ~450-780 (vehicle course, 2026-10-11).
+    const r0 = from.yaw * Math.PI / 180, fx = -Math.sin(r0), fz = Math.cos(r0), rx = -Math.cos(r0), rz = -Math.sin(r0);
+    const L = Math.max(0.05, fp.halfLength), ux = dx / len, uz = dz / len;
+    const heights = [fp.lo + 0.05, (fp.lo + fp.hi) / 2, Math.max(fp.lo + 0.05, fp.hi - 0.05)];
+    const gap = (sgn: number): boolean => {
+      for (let b = 0; b <= fp.halfWidth + M.OPEN_SIDE + 1e-9; b += M.OPEN_STEP) {
+        const x = from.x + fx * L + rx * sgn * b + dx + ux * 0.05, z = from.z + fz * L + rz * sgn * b + dz + uz * 0.05;
+        let open = true;
+        for (const h of heights) { checks++; if (solid(x, from.y + h, z)) { open = false; break; } }
+        if (open) return true;
+      }
+      return false;
+    };
+    const reachable: Record<string, boolean> = { '1': gap(1), '-1': gap(-1) };
+    // Then the search: the footprint stepped across `OPEN_STEP` at a time (each step swept from the last), and from
+    // each place this tick's push swept ahead.
+    for (let d = M.OPEN_STEP; d <= M.OPEN_SIDE + 1e-9; d += M.OPEN_STEP) {
+      for (const sgn of [1, -1] as const) {
+        if (!reachable[sgn]) continue;
+        const at = aside(from, sgn * d);
+        const across = sweep(aside(from, sgn * (d - M.OPEN_STEP)), at, fp, solid, P);
+        checks += across.checks;
+        // Blocked stepping across: nothing further that way is reachable.
+        if (across.blocked) { reachable[sgn] = false; continue; }
+        const ahead = sweep(at, { ...at, x: at.x + dx, z: at.z + dz }, fp, solid, P);
+        checks += ahead.checks;
+        if (!ahead.blocked) return sgn;
+      }
+    }
+    return undefined;
+  };
   const trySlide = (): FootprintPose | undefined => {
     const axes: Array<[number, FootprintPose]> = [
       [Math.abs(dx), { ...to, z: from.z }],
@@ -782,9 +875,26 @@ export function resolveMove(
       return best;
     };
     const right = room(q), left = room(-q);
-    if (Math.abs(right - left) < M.GLANCE_PROBE / 4 - 1e-9) return undefined;
-    // The vehicle's right in the world (Bedrock: (-cos yaw, -sin yaw)); turn the move toward the roomier half.
-    const ry = from.yaw * Math.PI / 180, rx = -Math.cos(ry), rz = -Math.sin(ry), toward = right > left ? 1 : -1;
+    // The vehicle's right in the world (Bedrock: (-cos yaw, -sin yaw)).
+    const ry = from.yaw * Math.PI / 180, rx = -Math.cos(ry), rz = -Math.sin(ry);
+    if (Math.abs(right - left) < M.GLANCE_PROBE / 4 - 1e-9) {
+      // Square across the WHOLE nose. Either a wall across the way (it holds, below: a car nosed into a wall does not
+      // crawl along it) or something that ends within `OPEN_SIDE` of a side: a trunk met dead centre, or a stair
+      // step of a slanted wall at least as wide as the vehicle - a narrow car (10303's, 10796's: 1.9-2.5 wide) sat
+      // square in a 30-degree wall's two-block step, and centred on the course's trunk, and stopped dead where
+      // every wider car glanced past (engine run 2026-10-08). The way out is the nearer side where the whole
+      // footprint, stepped across (each step swept), has room ahead; the nearest wins, the right on a tie. It
+      // steps that way by the deflect's share of the push and keeps its speed, as a deflect does.
+      const open = sideOpen();
+      if (!open) return undefined;
+      const step = open * Math.max(M.DEFLECT_SHARE * len, M.MIN_SIDESTEP);
+      const side = { ...to, x: from.x + rx * step, z: from.z + rz * step };
+      if (!clear(side).ok) return undefined;
+      sidestepped = true;
+      return side;
+    }
+    // Turn the move toward the roomier half.
+    const toward = right > left ? 1 : -1;
     for (let deg = M.GLANCE_STEP_DEG; deg <= M.GLANCE_MAX_DEG + 1e-9; deg += M.GLANCE_STEP_DEG) {
       const t = deg * Math.PI / 180, c = Math.cos(t), sn = Math.sin(t);
       const turned = [1, -1].map(sgn => ({ x: (dx * c - dz * sn * sgn) * c, z: (dx * sn * sgn + dz * c) * c }))
@@ -824,7 +934,7 @@ export function resolveMove(
     : [['deflect', tryDeflect], ['slide', trySlide], ['climb', tryClimb], ['rise', tryRise], ['pivot', tryPivot]];
   for (const [how, attempt] of order) {
     const p = attempt();
-    if (p) return { pose: p, how, kept: how === 'slide' ? Math.max(0, Math.min(1, progress(p))) : how === 'rise' || how === 'pivot' ? 0 : 1, checks, ...(at ? { at } : {}) };
+    if (p) return { pose: p, how, kept: how === 'slide' ? (sidestepped ? 1 : Math.max(0, Math.min(1, progress(p)))) : how === 'rise' || how === 'pivot' ? 0 : 1, checks, ...(at ? { at } : {}) };
   }
   // Blocked: keep the turn and the vertical move where they are clear on their own.
   const fallbacks: FootprintPose[] = [
