@@ -72,6 +72,16 @@ export const FREE_LOOK = {
   /** Ticks a carried rider's reported yaw trails its vehicle (quirk `rider-yaw-lag`). */
   RIDER_YAW_LAG_TICKS: 6,
   /**
+   * The carry may land up to this many ticks LATER than `RIDER_YAW_LAG_TICKS`
+   * (the X-wing read ~8 against the coaster's and the cloud's 6, quirk
+   * `rider-yaw-lag`): the drag reading tries every lag in between and keeps
+   * the smallest explanation. Read at 6 alone, a carry landing at 8 reads as
+   * a drag for the 2 ticks after every turn ends - a camera that jumps, and on
+   * a native mount whose body FOLLOWS the drag (`nativeSteerStep`) a turn that
+   * feeds itself: 2 x 9 degrees read after every turn is a slow endless spin.
+   */
+  RIDER_YAW_LAG_SLACK_TICKS: 2,
+  /**
    * Ticks the cockpit camera's pose trails the server's vehicle: the client
    * draws a script-moved entity behind the server, and a camera on the
    * server's own schedule rides AHEAD of the drawn seat. Two Saga rounds
@@ -115,6 +125,19 @@ export const FREE_LOOK = {
    * ~67 blocks at the 70-degree field.
    */
   CHASE_BOOM_MAX_BLOCKS: 48,
+  /**
+   * The chase camera stands at least this far INSIDE its vehicle's LOD switch
+   * (or, with no hull, the actor draw ceiling), blocks, at every size: the
+   * switch is a camera-to-ROOT distance (quirk `lod-switch-camera-root`), and
+   * at 400 % the 48-block boom with its height stood 58 from the Milano's
+   * root, past the 54-block switch - the coarse hull filled the view (Saga
+   * 30m, VEH-06). The Saga's 200 % chase stood 50.7 from the root under the
+   * same switch and drew in full; the 09-19 round saw a switch land 4-6
+   * blocks early (against a nominal 32, an older build). 4 keeps the 200 %
+   * view as the device drew it (50 against 50.7) and holds 400 % at 50.
+   * The client's draw lag at speed (~3.5 ticks) is not in it.
+   */
+  CHASE_LOD_MARGIN_BLOCKS: 4,
   /** The chase camera's wall test marches the line from the vehicle's pivot in steps of this, blocks. */
   CHASE_WALL_STEP: 0.25,
   /** A wall on that line pulls the camera in to this short of it, blocks (the near plane stays out of the texture). */
@@ -168,8 +191,12 @@ export function freeLookStart(settleTicks = 0): FreeLookState { return { yaw: 0,
 export function freeLookStep(s: FreeLookState, input: FreeLookInput, P: FreeLookParams, dt: number): { state: FreeLookState; dragging: boolean; recentring: boolean } {
   const wrap = (a: number): number => ((a + 180) % 360 + 360) % 360 - 180;
   const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
-  const yaws = [...s.vehicleYaws, input.vehicleYaw].slice(-(Math.max(0, Math.round(P.RIDER_YAW_LAG_TICKS)) + 1));
-  const lagged = yaws[0]!;
+  const lag = Math.max(0, Math.round(P.RIDER_YAW_LAG_TICKS)), slack = Math.max(0, Math.round(P.RIDER_YAW_LAG_SLACK_TICKS));
+  const yaws = [...s.vehicleYaws, input.vehicleYaw].slice(-(lag + slack + 2));
+  const n = yaws.length;
+  // The vehicle's yaw `k` ticks back (the oldest kept when the history is shorter, as on the first ticks).
+  const back = (k: number): number => yaws[Math.max(0, n - 1 - k)]!;
+  const lagged = back(lag);
   const rel = wrap(input.playerYaw - lagged);
   // A mount's settle: the device is turning the rider onto the seat's heading. Re-read the look (no drag, the
   // view on the nose) until that turn has landed for `MOUNT_ALIGN_TICKS` ticks, the first reading included,
@@ -185,9 +212,14 @@ export function freeLookStep(s: FreeLookState, input: FreeLookInput, P: FreeLook
   // The rider's look changed by `dAbs` in the world and by `dRel` against the (lagged) vehicle: if the
   // device carries the rider round with the vehicle a turn moves dAbs and not dRel, if it does not a turn
   // moves dRel and not dAbs - the smaller is what the finger did.
+  // The carried explanation is tried at every lag from RIDER_YAW_LAG_TICKS to `slack` ticks later (the vehicle's turn
+  // that many ticks ago taken out of the look's change); the smallest of all explanations is the finger's.
   const dAbs = wrap(input.playerYaw - s.lastPlayerYaw);
-  const dRel = wrap(rel - s.lastRel);
-  const dYaw = Math.abs(dRel) < Math.abs(dAbs) ? dRel : dAbs;
+  let dYaw = dAbs;
+  for (let k = lag; k <= lag + slack; k++) {
+    const dRel = wrap(dAbs - wrap(back(k) - back(k + 1)));
+    if (Math.abs(dRel) < Math.abs(dYaw)) dYaw = dRel;
+  }
   const dPitch = input.playerPitch - s.lastPlayerPitch;
   const dragYaw = Math.abs(dYaw) > P.DRAG_EPS_DEG, dragPitch = Math.abs(dPitch) > P.DRAG_EPS_DEG;
   let yaw = s.yaw, pitch = s.pitch, idle = s.idle, recentring = false;
@@ -280,35 +312,51 @@ export function cockpitLagFromLead(lagTicks: number, speedBlocksPerSecond: numbe
  * teleport alike). So one drag opens an offset between the look and the
  * body that NO turn of the body can ever close: the Nimbus spun at 6.5
  * degrees a tick for 40 s after a single 400-pixel swipe (Saga 30l, FIG-08).
- * The view and the flight direction are the LOOK (the camera follows it,
- * the controller flies along it); the body's heading is what is drawn. So:
+ * And the controller moves the mount by the stick in the BODY's frame, not
+ * along the look (quirk `hover-stick-body-frame`, Saga 30m: look 107, body 0,
+ * forward flew 13 degrees off the body and 94 off the look). With the carry
+ * the look's offset from the body is the finger's total drag whatever the
+ * body does, so the rider's own look can NEVER be the flight direction once
+ * the child has dragged. The view is therefore not the look: the chase
+ * camera (vehicle-camera.js) shows the HEADING the script holds
+ * (`NATIVE_HEADING_PROPERTY`), and the body FOLLOWS every drag. So (since
+ * 2026-10-11, FIG-08 round 30m):
  *
  *   - the script owns the heading and writes it to the mount every tick,
- *     which undoes the controller's chase each tick: the body no longer
- *     turns toward the look, so a drag turns the view by the drag and the
- *     turning STOPS with the finger;
- *   - the body does not follow the drag by default: with the carry, any
- *     turn of the body turns the view with it (following a 90-degree swipe
- *     would turn the view 180). Whether a SCRIPT-set turn carries the look
- *     like the native one and the teleport do is not measured, so once per
- *     mount, after the seat's settle, the script PROBES: it turns the body
+ *     which undoes the controller's chase each tick, so the turning STOPS
+ *     with the finger (the 30l spin);
+ *   - a drag turns the heading by the drag, at most `RATE_DEG_PER_TICK` a
+ *     tick, under every verdict: the camera on the heading turns by the
+ *     drag, and forward flies where the camera looks. The rider's own look
+ *     runs ahead by the carry (a 90-degree swipe leaves it 180 round), which
+ *     nobody sees under the script camera; the controller's chase of that
+ *     look before the script writes the heading back still pulls the flight
+ *     ~13-14 degrees toward it on the device (the 30m residual; at most
+ *     0.144 x the offset uncapped). # TODO(nimbus-chase-residual): the chase
+ *     share at offsets past 74 degrees is unmeasured, so the heading is not
+ *     pre-compensated for it;
+ *   - whether a SCRIPT-set turn carries the look like the native one and the
+ *     teleport do changes only how a drag is READ, so once per mount, after
+ *     the seat's settle, the script still PROBES: it turns the body
  *     `PROBE_DEG` and, `PROBE_WAIT_TICKS` later, reads whether the look
- *     followed (the carry: the body stays put from then on, the view is
- *     the drag's alone) or stayed (no carry: the body then FOLLOWS every
- *     drag at `RATE_DEG_PER_TICK`, so the drawn cloud faces where it
- *     flies). The probe's turn is taken back either way; a drag during the
- *     wait voids it and it is tried again in a quiet moment, the other way,
- *     at most `PROBE_TRIES` times. Unproven, the body stays put (safe
- *     under the measured carry).
+ *     followed (carried) or stayed (free, confirmed `PROBE_FREE_CONFIRM`
+ *     times). The probe's turn is taken back either way; a drag during the
+ *     wait is held and turned after it; an inconclusive probe is tried again
+ *     in a quiet moment, the other way, at most `PROBE_TRIES` times.
  *
  * The drag is read as the free look reads it (`freeLookStep` against the
- * heading the client sees, through the mount's settle, never an ease back),
- * except that a body proven free is read against a fixed heading: a body
- * following the finger at the finger's own rate is otherwise indistinguishable
- * from a carry (the reading took the smaller explanation and halved it).
+ * heading the client sees, through the mount's settle, never an ease back):
+ * the carry of the body's own turns arrives `RIDER_YAW_LAG_TICKS` late and
+ * nets out. A body proven free is read against a fixed heading: a body
+ * following the finger at the finger's own rate is otherwise
+ * indistinguishable from a carry (the reading took the smaller explanation
+ * and halved it). Until 2026-10-11 the body followed only a body proven free
+ * and stayed put otherwise, with the view on the rider's look: on the Saga
+ * (round 30m, verdict `carried`) the view turned and forward flew along the
+ * unturned body - the cloud could not be steered.
  */
 export const NATIVE_STEER = {
-  /** Fastest a body proven free follows a drag, degrees a tick (180 degrees/s: ahead of a finger, which reads ~5 a tick, and of the controller's 6.5). */
+  /** Fastest the body follows a drag, degrees a tick (180 degrees/s: ahead of a finger, which reads ~5 a tick, and of the controller's 6.5). */
   RATE_DEG_PER_TICK: 9,
   /** The probe's turn of the body, degrees: three times the drag noise a quiet finger leaves over the wait (`DRAG_EPS_DEG` x `PROBE_WAIT_TICKS` / 2), small enough to pass unnoticed under the carry. */
   PROBE_DEG: 12,
@@ -316,12 +364,20 @@ export const NATIVE_STEER = {
   PROBE_WAIT_TICKS: 16,
   /** Ticks with no drag before a probe starts (and before an inconclusive one is tried again). */
   PROBE_QUIET_TICKS: 10,
-  /** Probes before the verdict is left unknown (the body then stays put). */
+  /** Probes before the verdict is left unknown (drags are then read as under the carry, the measured device). */
   PROBE_TRIES: 4,
-  /** Probes that must read "the look stayed" before the body is let follow drags: one could be a finger moving against the probe. A single "it followed" is the carry (the safe side). */
+  /** Probes that must read "the look stayed" before drags are read against a fixed heading: one could be a finger moving against the probe. A single "it followed" is the carry (the measured device). */
   PROBE_FREE_CONFIRM: 2,
 } as const;
 export type NativeSteerParams = { readonly [K in keyof typeof NATIVE_STEER]: number };
+
+/**
+ * The native mount's dynamic property the driver writes its held heading to
+ * every tick (Bedrock yaw, degrees), and the chase camera reads as the view's
+ * yaw (vehicle-camera.js): under the carry the rider's own look is never the
+ * flight direction, the heading is (see "Drag steering" above).
+ */
+export const NATIVE_HEADING_PROPERTY = 'craftmatic:native_heading';
 
 /** What the mount probe found: the device carries the look round with a script-set turn, or leaves it. */
 export type CarryVerdict = 'carried' | 'free';
@@ -332,13 +388,13 @@ export interface NativeSteerState {
   heading: number;
   /** The look reading (`freeLookStep` with the ease off): its `yaw` is the finger's total drag net of the mount's turns. */
   look: FreeLookState;
-  /** Degrees of drag a free body has yet to turn (signed). */
+  /** Degrees of drag the body has yet to turn (signed). */
   budget: number;
   /** Ticks since the last drag or turn. */
   quiet: number;
   /** Probes started, and how many read the look as staying put. */
   tries: number; freeVotes: number;
-  /** The probe's finding; unknown until one is reached (the body stays put meanwhile). */
+  /** The probe's finding; unknown until one is reached (drags are read as under the carry meanwhile). */
   verdict?: CarryVerdict;
   /** A probe in flight: which way the body was turned, the look when it was, ticks since. */
   probe?: { sign: number; riderYaw0: number; ticks: number };
@@ -370,7 +426,8 @@ export function nativeSteerStep(s: NativeSteerState, input: { riderYaw: number; 
   const settling = (s.look.settle ?? 0) > 0;
   const r = look(s.look, { playerYaw: input.riderYaw, playerPitch: input.riderPitch, vehicleYaw: free ? 0 : s.heading, speed: 0 }, { ...L, MOVING_SPEED: Infinity }, 0.05);
   const drag = r.dragging ? wrap(r.state.yaw - s.look.yaw) : 0;
-  let heading = s.heading, budget = s.budget, tries = s.tries, freeVotes = s.freeVotes, verdict = s.verdict, probe = s.probe, step = 0;
+  // Every drag is owed to the heading; one read while a probe is in flight is turned once the probe is over.
+  let heading = s.heading, budget = clamp(s.budget + drag, -360, 360), tries = s.tries, freeVotes = s.freeVotes, verdict = s.verdict, probe = s.probe, step = 0;
   if (probe) {
     // The wait is not cut short by a drag reading: the carry itself arrives as one when it lands later than the
     // lag the reading nets out (the X-wing's ~8 ticks against 6). The verdict reads the look's whole move instead.
@@ -384,16 +441,17 @@ export function nativeSteerStep(s: NativeSteerState, input: { riderYaw: number; 
       else if (Math.abs(followed) <= P.PROBE_DEG / 4 && ++freeVotes >= P.PROBE_FREE_CONFIRM) verdict = 'free';
       step = -probe.sign * P.PROBE_DEG; probe = undefined;
     }
-  } else if (free) {
-    // Proven free: the body follows every drag, at most RATE_DEG_PER_TICK a tick, and stops with the finger.
-    budget = clamp(budget + drag, -360, 360);
-    step = clamp(budget, -P.RATE_DEG_PER_TICK, P.RATE_DEG_PER_TICK);
-    budget -= step;
-  } else if (verdict === undefined && !settling && drag === 0 && s.quiet >= P.PROBE_QUIET_TICKS && tries < P.PROBE_TRIES) {
+  } else if (verdict === undefined && !settling && drag === 0 && budget === 0 && s.quiet >= P.PROBE_QUIET_TICKS && tries < P.PROBE_TRIES) {
     // A quiet moment after the settle: probe, alternating the side so the probes leave no net nudge.
     const sign = tries % 2 === 0 ? 1 : -1;
     step = sign * P.PROBE_DEG; tries++;
     probe = { sign, riderYaw0: input.riderYaw, ticks: 0 };
+  } else {
+    // Every verdict: the body follows the drag, at most RATE_DEG_PER_TICK a tick, and stops with the finger - the
+    // view (the chase camera on the heading) and the flight (the controller moves in the body's frame, quirk
+    // `hover-stick-body-frame`) turn together by the drag.
+    step = clamp(budget, -P.RATE_DEG_PER_TICK, P.RATE_DEG_PER_TICK);
+    budget -= step;
   }
   heading = wrap(heading + step);
   const quiet = drag !== 0 || step !== 0 ? 0 : s.quiet + 1;

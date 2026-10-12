@@ -99,6 +99,20 @@ export const MOUNT_STILL_DEG_PER_TICK = 0.5;
 /** A mount's turn for a swipe may miss the swipe by this (degrees): the drag reading's noise floor over a second of finger. */
 export const MOUNT_TURN_SLACK_DEG = 15;
 
+/**
+ * The yaw the player SEES along (Bedrock: 0 faces +Z): a script camera's, from its location toward the point it
+ * faces (or its rotation), else the player's own look. A native mount's chase camera looks along the heading its
+ * driver holds, not the rider's look, which the carry leaves off the heading by every drag (quirk `rider-yaw-lag`).
+ */
+export function viewYaw(ctx: StepContext): number {
+  const c = ctx.sim.host.playerState(ctx.player).camera;
+  if (c.preset && c.preset !== 'minecraft:first_person') {
+    if (c.location && c.facing) return Math.atan2(-(c.facing.x - c.location.x), c.facing.z - c.location.z) * 180 / Math.PI;
+    if (c.rotation) return c.rotation.y;
+  }
+  return ctx.player.rotation.y;
+}
+
 /** Board a ride by a tap on `target` (or a hold), waiting a second for the runtime to seat the player. */
 async function board(ctx: StepContext, target: SimEntity, how: 'tap' | 'hold', label: string): Promise<boolean> {
   await CORE_HANDLERS[how]!({ kind: how, target: { where: (e: SimEntity) => e === target, label } }, ctx);
@@ -326,12 +340,14 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       await ctx.run(60);
       const dragDeg = Number(step['dragDeg'] ?? 84), dragTicks = Math.max(1, Number(step['dragTicks'] ?? 16)), watchTicks = Number(step['watchTicks'] ?? 100);
       const wrap = (a: number): number => ((a + 180) % 360 + 360) % 360 - 180;
-      let last = v.rotation.y, turned = 0, lastLook = ctx.player.rotation.y, lookTurned = 0;
+      // The VIEW is what the player sees (`viewYaw`: the chase camera), not the rider's reported look.
+      let last = v.rotation.y, turned = 0, lastLook = viewYaw(ctx), lookTurned = 0;
       const rates: number[] = [];
       const tick = async (): Promise<void> => {
         await ctx.run(1);
         const d = wrap(v.rotation.y - last); last = v.rotation.y; turned += d; rates.push(Math.abs(d));
-        lookTurned += wrap(ctx.player.rotation.y - lastLook); lastLook = ctx.player.rotation.y;
+        const seen = viewYaw(ctx);
+        lookTurned += wrap(seen - lastLook); lastLook = seen;
       };
       for (let t = 0; t < dragTicks; t++) { ctx.player.rotation = { x: ctx.player.rotation.x, y: wrap(ctx.player.rotation.y + dragDeg / dragTicks) }; await tick(); }
       const duringSwipe = r3(turned);
@@ -342,8 +358,8 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       ctx.note(`${v.typeId} after one ${dragDeg}-degree swipe: the body turned ${out.turned} degrees (${duringSwipe} during the swipe), the view ${out.lookTurned}; ${rate} degrees/tick over the last second; the look ${out.lookOffset} off the heading`);
       if (rate > MOUNT_STILL_DEG_PER_TICK) ctx.violate({ invariant: 'mount-steer-stops', message: `${v.typeId} is still turning ${rate} degrees a tick ${(watchTicks / 20).toFixed(1)} s after a ${dragDeg}-degree swipe ended (the Saga's Nimbus spun at 6.5 for 40 s)`, evidence: out });
       else {
-        // The VIEW (the look: the camera and the flight follow it) turns by the swipe and no more; the body turns by
-        // the swipe (a device that leaves the look through a script-set turn) or not at all (one that carries it).
+        // The VIEW (the chase camera) turns by the swipe and no more; the body turns by the swipe (since 2026-10-11:
+        // forward flies along it, quirk `hover-stick-body-frame`) or, on a pack from before, not at all.
         const bodyOk = Math.abs(turned) <= MOUNT_TURN_SLACK_DEG || Math.abs(turned - dragDeg) <= MOUNT_TURN_SLACK_DEG;
         if (Math.abs(lookTurned - dragDeg) > MOUNT_TURN_SLACK_DEG || !bodyOk) ctx.violate({ invariant: 'mount-steer-by-drag', message: `${v.typeId}: a ${dragDeg}-degree swipe turned the view ${out.lookTurned} degrees and the body ${out.turned} (the view must turn by the swipe; the body by the swipe or not at all)`, evidence: out });
       }

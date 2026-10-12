@@ -19,7 +19,7 @@ import type { StepContext } from '../../scenario/types.js';
 import type { SimEntity } from '../../entity/entity.js';
 import type { CraftmaticPack } from './pack-facts.js';
 import { CRAFTMATIC_ALLOWED_LINES } from './child-play.js';
-import { placedOf } from './play.js';
+import { placedOf, viewYaw } from './play.js';
 import { swipeMount } from './input-probe.js';
 import { registeredAppearance, scriptedVehicleTypes, type ScriptedTypeFacts } from './vehicle-course.js';
 import { drawnBoxes, type DrawnBox } from './drawn.js';
@@ -118,29 +118,33 @@ async function sneakOff(ctx: StepContext): Promise<void> {
 
 // ─── 1. Nimbus: forward flies along the body, never the look (FIG-08) ───
 
-/** What `nimbus-steer-30m` measured. */
-interface NimbusSteer { lookTurned: number; bodyTurned: number; look: number; body: number; travel: number; moved: number; offLook: number; offBody: number }
+/** What `nimbus-steer-30m` measured (`look` is the VIEW: the chase camera's yaw, `viewYaw`; `riderLook` the rider's reported look). */
+interface NimbusSteer { lookTurned: number; bodyTurned: number; look: number; riderLook: number; body: number; travel: number; moved: number; offLook: number; offBody: number }
 
 const nimbusSteer: RegressionCase = {
   id: 'nimbus-steer-30m', title: 'Nimbus (30m): after a swipe turns the view, holding forward flies along the BODY\'s heading, not where the player looks - the cloud cannot be steered (FIG-08)',
   evidence: `${SAGA_30M} item 1 (CMVT 01:17:51-54: look 107, body 0, moved dx -6.1 dz +25.7 = 13 degrees off the body, 94 off the look; 200 %: look 133, dx -6.6 dz +27, 01:22:11-14; \`frames/n02-fwd2-sheet.jpg\`): the driver's mount probe reads \`carried\` (quirk \`rider-yaw-lag\`), and with that verdict nothing turns the body`,
-  oldPack: `${PACKS_30M}/nimbus-fixture.mcaddon`, newStem: 'nimbus-fixture', expectNew: 'pass', open: OPEN_30M,
+  oldPack: `${PACKS_30M}/nimbus-fixture.mcaddon`, newStem: 'nimbus-fixture', expectNew: 'pass',
+  // Fixed 2026-10-11: the body follows every drag and the chase camera looks along the held heading
+  // (vehicle-free-look.ts `nativeSteerStep`, `NATIVE_HEADING_PROPERTY`), so forward flies where the view looks.
+  // The view is judged as the player sees it (`viewYaw`: the script camera), not by the rider's reported look - the
+  // carry leaves that off the heading by every drag, and on the 30m pack the camera WAS that look.
   // The Saga's repro: summon, ride, wait 3 s (inside swipeMount), swipe right 400 px, then hold the stick forward 3 s.
   scenario: pack => ({
     name: 'nimbus-steer-30m', allowLines: allow, steps: [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 },
       { kind: 'expect', label: 'swipe, then forward', check: async ctx => {
         const v = await swipeMount(ctx, pack, { dxPx: 400, ticks: 16, watchTicks: 40 });
         if (!v) return 'the cloud was not summoned';
-        const body0 = v.rotation.y, look0 = ctx.player.rotation.y, start = { ...v.location };
+        const body0 = v.rotation.y, look0 = viewYaw(ctx), riderLook0 = ctx.player.rotation.y, start = { ...v.location };
         const d = ctx.state['dragMount'] as { lookTurned?: number; turned?: number } | undefined;
         for (let t = 0; t < 60; t++) { ctx.sim.controls.set(ctx.player.id, { forward: 1, strafe: 0, jump: false }); await ctx.run(1); }
         ctx.sim.controls.set(ctx.player.id, { forward: 0, strafe: 0, jump: false });
         const dx = v.location.x - start.x, dz = v.location.z - start.z, moved = Math.hypot(dx, dz);
         // Bedrock yaw: 0 faces +Z, 90 faces -X, so a displacement's yaw is atan2(-dx, dz).
         const travel = Math.atan2(-dx, dz) * 180 / Math.PI;
-        const out: NimbusSteer = { lookTurned: r2(d?.lookTurned ?? 0), bodyTurned: r2(d?.turned ?? 0), look: r2(look0), body: r2(body0), travel: r2(travel), moved: r2(moved), offLook: r2(Math.abs(wrap(travel - look0))), offBody: r2(Math.abs(wrap(travel - body0))) };
+        const out: NimbusSteer = { lookTurned: r2(d?.lookTurned ?? 0), bodyTurned: r2(d?.turned ?? 0), look: r2(look0), riderLook: r2(riderLook0), body: r2(body0), travel: r2(travel), moved: r2(moved), offLook: r2(Math.abs(wrap(travel - look0))), offBody: r2(Math.abs(wrap(travel - body0))) };
         ctx.state['nimbusSteer'] = out;
-        ctx.note(`Nimbus forward after a swipe: the view turned ${out.lookTurned} degrees (look ${out.look}), the body ${out.bodyTurned} (heading ${out.body}); 3 s of forward moved ${out.moved} blocks along yaw ${out.travel} = ${out.offBody} degrees off the body, ${out.offLook} off the look`);
+        ctx.note(`Nimbus forward after a swipe: the view turned ${out.lookTurned} degrees (view ${out.look}, the rider's look ${out.riderLook}), the body ${out.bodyTurned} (heading ${out.body}); 3 s of forward moved ${out.moved} blocks along yaw ${out.travel} = ${out.offBody} degrees off the body, ${out.offLook} off the view`);
         return undefined;
       } }],
   }),
@@ -148,10 +152,10 @@ const nimbusSteer: RegressionCase = {
     const s = r.state['nimbusSteer'] as NimbusSteer | undefined;
     const notes = r.notes.filter(n => /Nimbus forward after a swipe/.test(n)).join('; ') || 'no steer note';
     if (!s) return { reproduced: false, evidence: notes, untested: 'the cloud was not summoned or not flown' };
-    // The device's conditions: the view turned well off the body (the Saga: 108 and 114 degrees) and the cloud moved.
-    if (Math.abs(wrap(s.look - s.body)) < 45) return { reproduced: false, evidence: notes, untested: `the swipe left the look only ${r2(Math.abs(wrap(s.look - s.body)))} degrees off the body (the device's: 94-120)` };
+    // The device's conditions: the swipe turned the view well round (the Saga: 108 and 114 degrees) and the cloud moved.
+    if (Math.abs(s.lookTurned) < 45) return { reproduced: false, evidence: notes, untested: `the swipe turned the view only ${r2(Math.abs(s.lookTurned))} degrees (the device's: 94-120)` };
     if (s.moved < 3) return { reproduced: false, evidence: notes, untested: `forward moved the cloud only ${s.moved} blocks` };
-    // The fault: forward does not fly where the player looks (45 degrees: half-way between the look and a body 90 off).
+    // The fault: forward does not fly where the player looks (45 degrees: half-way between the view and a body 90 off).
     return { reproduced: s.offLook > 45, evidence: notes };
   },
 };
