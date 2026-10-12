@@ -67,47 +67,53 @@ tools now check, and how:
   910004 Drawer 1 -> fig 7); 10261 at 200 % FIGURE_RETAKE_NO_SEAT fig 2.
   Unreachable-on-foot list: `childplay.md` section `tap-target-unreachable-on-foot`.
 
-**Open device defects from round 30m - REPRODUCED offline as OPEN regression
-cases** (`web/src/sim/adapters/craftmatic/regressions-30m.ts`; an OPEN case
-reads OK once fixed - then drop its `open` field). Run:
-`bun scripts/sim.ts --scenario=regressions --new=<new packs>` (on the 30m packs:
-33 cases, 25 OK, 6 OPEN, 2 KNOWN-UNREPRODUCED, 0 failed). Fix with the case as guard:
-1. `nimbus-steer-30m` (FIG-08): the hover controller moves in the BODY's frame
-   (quirk `hover-stick-body-frame`); under `carried` `vehicle-free-look.ts`
-   (~:383-387) never turns the body. Fix: turn the heading by the stick's
-   left/right under `carried`, or fly the Nimbus as a scripted flyer.
-2. `milano-chase-400-30m` (VEH-06): at 400 % the 48-block boom
-   (`CHASE_BOOM_MAX_BLOCKS`, vehicle-free-look.ts:117; playable-addon.ts:2125)
-   puts the camera 58 from the root, past the 54-block LOD switch: the coarse
-   hull fills 56 % of the view. Fix: keep camera-to-root under the switch at
-   every size (or move the switch out, under the 70 cull); consider a tighter
-   framing / cockpit default at 300-400 %.
-3. `xwing-air-park-30m` KNOWN-UNREPRODUCED (SEAT-05): the sim clears the drawn
-   tail by 0.5 block; the phone's point-blank frame needs a measured gap or a
-   clearance rule (`VEHICLE_EGRESS` margin in bedrock-vehicle.ts).
-4. `mclaren-walls-30m` (SEAT-05): egress takes the nearest walkable ring spot
-   with no line from the seat (bedrock-vehicle.ts ~:1024-1029). Fix: reject
-   spots whose seat-to-spot line at body height crosses a solid.
-5. `top-east-fall-10261-30m` (COL-01): the guard pass
-   (bedrock-collider-scale.ts ~:1243-1336) guards only edges the new steps
-   made reachable, read at full-cell resolution (hypothesis, unconfirmed).
-   Fix: guard every reachable top edge over a fall > limit above 100 %.
-6. `shell-unseen-400-10261-30m` (COL-03): `STATIC_SHELL_CULL_MAX_SCALE = 2`
-   and 20-block cells rooted at the cell top (bedrock-building-shell.ts:60,75);
-   at 400 % roots sit up to ~98 blocks from their cubes. Fix: plan the
-   lattice for scale 4, or root at cell centres, or a lattice per size group.
-7. `milano-mount-reach-200-30m` (new row VEH-17): the 7x5 (unscaled-declared)
-   box is the only pick target. Fix: `minecraft:custom_hit_test` boxes over
-   the drawn hull per size group (whether they scale: unmeasured). The 30l and
-   30m box readings AGREE: realised box = declared x scale.
-Plus offline-only: coaster seat frame (above), boat pier-post clip, three
-cars stuck at tree/angled, 10326 Door 5 tap occluded by figure 3, 910004
-Drawer 1 picking Drawer 2 (4/9), 76417 figure 9 never moves, 42639 Door 1 /
-910004 doorways blocked by colliders from 200 %, `TODO(car-oblique-kerb)`.
+**Round-30m defects FIXED offline (merged 2026-10-12, main `53e3caf3`; every
+30m case reads OK on the fix agents' packs, full suite 3258 passed):**
+1. FIG-08 Nimbus: the body follows every drag, the native chase camera looks
+   along `craftmatic:native_heading` (forward 84 -> 14 deg off the view; the
+   14 is the controller's own chase, `TODO(nimbus-chase-residual)`). ASSUMED:
+   the rider's own (carried, now ~2x-turned) look is never shown under the
+   script camera. Cockpit view still the carried look (`TODO(nimbus-cockpit)`).
+2. VEH-06: every chase camera within its LOD switch - 4 blocks of its root
+   (400 % Milano 58 -> 50). Pixel-ease catch-up jumps unchanged (TODO).
+3. SEAT-05: set-downs reached from the seat through no solid (`lineClear`);
+   boats onto a bank; X-wing float set-down 1.5 clear (precaution only,
+   `xwing-air-park-30m` still KNOWN-UNREPRODUCED - measure the gap on device).
+4. VEH-16/VEH-08: slanted footprint edges swept cell by cell (boats 0 ticks in
+   the pier post); narrow cars sidestep an obstacle ending within 2.5 blocks.
+   Predicted 10365 p95 ~11 ms Pixel (it now steers round the post).
+5. COL-01: reach guards on every reached edge above 100 % (10261 top east).
+6. COL-03: shell lattice 13-block cells planned for 400 %, roots at cell
+   centres. **Worlds holding a model placed with an older pack must RE-PLACE
+   it** (old chunk ids are undefined now).
+7. VEH-17: `minecraft:custom_hit_test` over every vehicle's / coaster car's
+   drawn hull at each size group's realised size. ASSUMED: it drives the
+   Mount prompt and is not scaled by `minecraft:scale`.
+8. COAST-06: coaster car seats declared in the entity frame (`renderSeatToEntity`):
+   the rider sat 0.676 ahead of the drawn seat.
+9. IX-01: a tap on a figure passes to the part behind it (ASSUMED Bedrock fires
+   `entityHitEntity` on a no-damage figure); 42639 Door 1 unsealed at every
+   size; 910004 Doors 3/5 sealed by the model (`TODO(passage-geometry)`).
 
-**Next:** fix the reproduced defects with the
-case as the guard; build round 30n from a committed tree
-(`output/device-round-2026-10-08m/build.sh` recipe); deploy with
+**Round 30n** (`output/device-round-2026-10-12n/`, `build.sh` there; packs in
+`packs-<commit>/`). Device checklist, one line each:
+- Pixel 924 / Saga 925: Nimbus swipe then forward flies where the view looks;
+  400 % Milano chase shows the full ship (not the coarse hull); 200 % Milano
+  Mount prompt from the nose AND at the wingtip but not 2x out (hit-test
+  scale); McLaren between two walls -> lands in the gap; boat beside a bank ->
+  on the bank; X-wing air dismount -> measure the gap to the parked tail;
+  10261 at 200 % top east edge holds (Pixel `top-s-east` walk); 10261 at 400 %
+  shell drawn from 40 blocks west; coaster ride: eye on the drawn seat (all
+  four); 76417 Door 3 tap with figure 5 in front opens the door; 42639 Door 1
+  walk-through at 200 %; boats past the pier post; 10303 / 10796 cars past a
+  tree.
+Re-place every model (the shell lattice changed).
+
+**Still open offline:** cars `TODO(car-oblique-kerb)`; Milano chase ease jump;
+76417 figure 9 never moves; 10326 Door 5 behind figure 3 (now forwarded, re-run).
+
+**Next:** run round 30n (above) on both phones; the 30m cases stay as guards.
+Deploy with
 `python -u scripts/_pixel_dev_deploy.py <world> <packs> --exclusive` (Saga
 world 925, Pixel world 924; since 2026-10-11 the LAN is 192.168.0.x: Pixel
 `192.168.0.216:5555` (world 924 = `k4zNj8w+V6w=`, not rooted). TWO Sagas
@@ -116,17 +122,6 @@ not the test phone. The test Saga is serial O1N1XT412200373 at
 `192.168.0.86` (rooted, world 925 = `q-TUD3f7W6M=`), reachable over its mDNS
 serial `adb-O1N1XT412200373-SAllXE._adb-tls-connect._tcp` (no :5555 listener,
 2026-10-11 preflight). Never stop/start it.
-
-**In flight (2026-10-11):** six worktree fix agents, one per area, each
-verifying against its OPEN case with packs rebuilt in its own worktree
-(`output/fix-{flight,egress,motion,scale,seat,ix}-1011/`): flight (FIG-08
-Nimbus steer, VEH-06 400 % chase), egress (SEAT-05 McLaren walls / X-wing
-park, boat egress onto a bank), motion (VEH-16 boat pier-post clip, stuck
-cars), scale (COL-01 10261 east edge, COL-03 400 % shell lattice), seat
-(VEH-17 hit test, COAST-06 coaster seat frame), ix (IX-01 tap targets,
-doorway colliders at 200/400 %). If a session ends mid-way, their branches
-are `worktree-agent-*` under `.claude/worktrees/` (newest by date); merge
-each, rerun the regressions, then build round 30n.
 
 **Still open from earlier:**
 - # TODO(cull): the 300/400 % draw ceiling is unmeasured.
