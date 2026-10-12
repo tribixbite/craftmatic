@@ -9,7 +9,7 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
-### Handoff (2026-10-08, main `e4a1045a`+, CI green)
+### Handoff (2026-10-12, main `304a0df6`+, CI green)
 
 **Read [REQUIREMENTS.md](REQUIREMENTS.md) first**: every user request with
 status, guards and device evidence (`bun scripts/requirements-ledger.ts --open`).
@@ -67,56 +67,43 @@ tools now check, and how:
   910004 Drawer 1 -> fig 7); 10261 at 200 % FIGURE_RETAKE_NO_SEAT fig 2.
   Unreachable-on-foot list: `childplay.md` section `tap-target-unreachable-on-foot`.
 
-**Round-30m defects FIXED offline (merged 2026-10-12, main `53e3caf3`; every
-30m case reads OK on the fix agents' packs, full suite 3258 passed):**
-1. FIG-08 Nimbus: the body follows every drag, the native chase camera looks
-   along `craftmatic:native_heading` (forward 84 -> 14 deg off the view; the
-   14 is the controller's own chase, `TODO(nimbus-chase-residual)`). ASSUMED:
-   the rider's own (carried, now ~2x-turned) look is never shown under the
-   script camera. Cockpit view still the carried look (`TODO(nimbus-cockpit)`).
-2. VEH-06: every chase camera within its LOD switch - 4 blocks of its root
-   (400 % Milano 58 -> 50). Pixel-ease catch-up jumps unchanged (TODO).
-3. SEAT-05: set-downs reached from the seat through no solid (`lineClear`);
-   boats onto a bank; X-wing float set-down 1.5 clear (precaution only,
-   `xwing-air-park-30m` still KNOWN-UNREPRODUCED - measure the gap on device).
-4. VEH-16/VEH-08: slanted footprint edges swept cell by cell (boats 0 ticks in
-   the pier post); narrow cars sidestep an obstacle ending within 2.5 blocks.
-   Predicted 10365 p95 ~11 ms Pixel (it now steers round the post).
-5. COL-01: reach guards on every reached edge above 100 % (10261 top east).
-6. COL-03: shell lattice 13-block cells planned for 400 %, roots at cell
-   centres. **Worlds holding a model placed with an older pack must RE-PLACE
-   it** (old chunk ids are undefined now).
-7. VEH-17: `minecraft:custom_hit_test` over every vehicle's / coaster car's
-   drawn hull at each size group's realised size. ASSUMED: it drives the
-   Mount prompt and is not scaled by `minecraft:scale`.
-8. COAST-06: coaster car seats declared in the entity frame (`renderSeatToEntity`):
-   the rider sat 0.676 ahead of the drawn seat.
-9. IX-01: a tap on a figure passes to the part behind it (ASSUMED Bedrock fires
-   `entityHitEntity` on a no-damage figure); 42639 Door 1 unsealed at every
-   size; 910004 Doors 3/5 sealed by the model (`TODO(passage-geometry)`).
+**Round 30n (2026-10-12, `output/device-round-2026-10-12n/`, packs
+`packs-53e3caf3/` stamp `5c5084e5`; notes `pixel/notes.md`, `saga/notes.md`).**
+The round-30m fixes on the phones:
+- PASS: Nimbus steers (Saga: forward 14 deg off the view, was 94; no double
+  spin); 400 % Milano chase draws the full ship (Pixel); McLaren between walls
+  lands in the gap, 60221 beside a bank lands on the grass, X-wing air
+  dismount parks 0.8-1.3 from the player (Saga); boat steers round pier posts
+  (Saga); 10261 200 % top east edge holds, 400 % shell drawn from 40 west
+  (Pixel); 76417 Door 3 tap through figures, 42639 Door 1 walk-through at
+  200 % (Pixel). Content logs: 0 errors on both.
+- **FAIL - VEH-17 (Pixel):** the hold mounts the 200 % Milano only within
+  12 blocks of its root (was ~3), never at the nose (16) / wingtips (36); the
+  400 % one also only within 12. The hit box lifted the limit to 12, no
+  further; the sim still says the nose picks (`milano-mount-reach-200-30m`
+  reads OK offline - WRONG against the device; model the 12 before trusting
+  it). Cause unmeasured (interact range from the root? no pick from an eye
+  inside the box?). The on-screen Mount button never showed at 200 %.
+- NOT MEASURED: coaster eye vs drawn seat (COAST-06) - needs a marker or the
+  camera rows; on 10303's drop the seated figure's head overlaps the eye.
+- Deploy lesson: the Saga's first deploy CRASHED Minecraft loading world 925
+  (SIGSEGV, then SIGABRT) with the old-lattice shell folders still installed;
+  `--prune-stale` fixed it. Always deploy dev mode with `--prune-stale`.
 
-**Round 30n** (`output/device-round-2026-10-12n/`, `build.sh` there; BUILT
-2026-10-12 as `packs-53e3caf3/`, stamp `5c5084e5`; regressions on these packs:
-33 cases, 0 failed, 0 open, 2 known-unreproduced). Device agents deploying
-(evidence `pixel/`, `saga/` there). Device checklist, one line each:
-- Pixel 924 / Saga 925: Nimbus swipe then forward flies where the view looks;
-  400 % Milano chase shows the full ship (not the coarse hull); 200 % Milano
-  Mount prompt from the nose AND at the wingtip but not 2x out (hit-test
-  scale); McLaren between two walls -> lands in the gap; boat beside a bank ->
-  on the bank; X-wing air dismount -> measure the gap to the parked tail;
-  10261 at 200 % top east edge holds (Pixel `top-s-east` walk); 10261 at 400 %
-  shell drawn from 40 blocks west; coaster ride: eye on the drawn seat (all
-  four); 76417 Door 3 tap with figure 5 in front opens the door; 42639 Door 1
-  walk-through at 200 %; boats past the pier post; 10303 / 10796 cars past a
-  tree.
-Re-place every model (the shell lattice changed).
+**Next (priority order):**
+1. VEH-17 boarding: model the 12-block interact limit in the sim (quirk
+   `custom-hit-test-pick`, then the 30m case fails again on the 30n pack),
+   then add boarding points along big hulls (small hit targets at the nose /
+   wingtips that `addRider` on tap or hold, as rides' `board()`), round 30o.
+2. COAST-06: measure the eye against the drawn seat (marker on the seat,
+   `camprobe` recipe) on a 10261 ride.
+3. Offline leftovers: `TODO(car-oblique-kerb)`, Milano chase ease jump,
+   76417 figure 9 never moves, `TODO(nimbus-chase-residual)`,
+   `TODO(nimbus-cockpit)`, `TODO(hit-test-footprint)`, `TODO(sweep-wide-spacing)`,
+   `TODO(passage-geometry)` (910004 Doors 3/5).
 
-**Still open offline:** cars `TODO(car-oblique-kerb)`; Milano chase ease jump;
-76417 figure 9 never moves; 10326 Door 5 behind figure 3 (now forwarded, re-run).
-
-**Next:** run round 30n (above) on both phones; the 30m cases stay as guards.
-Deploy with
-`python -u scripts/_pixel_dev_deploy.py <world> <packs> --exclusive` (Saga
+**Phones.** Deploy with
+`python -u scripts/_pixel_dev_deploy.py <world> <packs> --exclusive --prune-stale` (Saga
 world 925, Pixel world 924; since 2026-10-11 the LAN is 192.168.0.x: Pixel
 `192.168.0.216:5555` (world 924 = `k4zNj8w+V6w=`, not rooted). TWO Sagas
 answer: `192.168.0.202` is serial O1N1XT172300325, NOT rooted, NO Minecraft -
