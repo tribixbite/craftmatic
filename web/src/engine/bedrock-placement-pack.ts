@@ -88,7 +88,7 @@ export interface PlacementTreads {
 /** What the planner found, per size and turn, for the pack's own diagnostics. */
 export interface PlacementTreadReport {
   rule: string;
-  plans: Array<Omit<TreadPlan, 'blocks' | 'before' | 'after'> & { blocks: number; before: TreadReachSummary; after: TreadReachSummary }>;
+  plans: Array<Omit<TreadPlan, 'blocks' | 'guardBlocks' | 'before' | 'after'> & { blocks: number; before: TreadReachSummary; after: TreadReachSummary }>;
 }
 
 /** A walk's result with its highest surface in blocks at 100 %, comparable across sizes. */
@@ -676,7 +676,7 @@ export function decodeTreadPlan(plan: string): TreadBlock[] {
 }
 
 /** The planner's rule in one sentence, carried in the pack's diagnostics beside the counts. */
-export const TREAD_RULE = 'An invisible step is laid only where a rise between two standable surfaces exceeds the player\'s 1.25-block jump at the chosen size while being within that jump in the 100 % grid (a rise the model\'s own figures climb), laid back over floor the player already reaches, in half-block hops where the floor allows and the fewest jump-height hops otherwise, keeping full standing headroom; a run that would make any previously reachable surface unreachable is reverted, so reachability only grows. A straight climb (a hill or a stair) whose riser exceeds the 1.2-block auto-jump also gets one, in auto-jump hops, kept only where the per-tick walker with auto-jump then climbs it and no other straight walk into its columns gets shorter. Where a surface these steps made reachable meets a fall of more than 4 blocks, the column it would fall into gets an invisible rail 1.5 blocks tall (on the footprint\'s border the surface itself is capped), never in a doorway and never cutting off a surface reached before.';
+export const TREAD_RULE = 'An invisible step is laid only where a rise between two standable surfaces exceeds the player\'s 1.25-block jump at the chosen size while being within that jump in the 100 % grid (a rise the model\'s own figures climb), laid back over floor the player already reaches, in half-block hops where the floor allows and the fewest jump-height hops otherwise, keeping full standing headroom; a run that would make any previously reachable surface unreachable is reverted, so reachability only grows. A straight climb (a hill or a stair) whose riser exceeds the 1.2-block auto-jump also gets one, in auto-jump hops, kept only where the per-tick walker with auto-jump then climbs it and no other straight walk into its columns gets shorter. Above 100 %, where a surface the player reaches meets a fall of more than 4 blocks, the column it would fall into gets an invisible rail 1.5 blocks tall (on the footprint\'s border a surface these steps made reachable is capped instead; the model\'s own border edge is left open), read over the full cells and again over the clearance forms, never in a doorway and never cutting off a surface reached before.';
 
 /** The colliders with their tread plans attached, and the per-plan report (`withColliderTreads`). */
 export interface ColliderTreadsResult { colliders: PlacementColliders; report: PlacementTreadReport }
@@ -708,7 +708,7 @@ function colliderTreadsJob(colliders: PlacementColliders, targets: readonly Reac
     plan(pct, r) {
       const plan = planColliderTreads(cells, dims, pct, r, targets, doorCells, { walk: colliderLaneWalk(formCells, dims, pct, r), cells: formCells });
       const f = pct / 100;
-      const { blocks, before, after, ...rest } = plan;
+      const { blocks, guardBlocks: _guardBlocks, before, after, ...rest } = plan;
       report.plans.push({ ...rest, blocks: blocks.length, before: { surfaces: before.surfaces, columns: before.columns, highestBlocks: blocksAt100(before.highest16, f) }, after: { surfaces: after.surfaces, columns: after.columns, highestBlocks: blocksAt100(after.highest16, f) } });
       if (!blocks.length) return;
       const key = `${pct}:${r}`;

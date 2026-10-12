@@ -1034,30 +1034,53 @@ reproduces it exactly (`FELL 43.50 from 80.31,43.50,4.60`), and so does the
 simulator's regression `lift-top-fall-10261` (the `walkLine` step's
 `autoJump` and `maxFall`).
 
-The rule, last in every plan above 100 %: a surface the treads made
-reachable - in the walk with them, not in the unassisted walk (which takes
-any jump, detour and drop) - whose neighbouring column the body walks into
-at its height and falls more than `REACH_GUARD_DROP16` (4 blocks, the
-doorway guards' `GUARD_DROP16`: fall damage is the distance past 3 blocks,
-so 4 costs at most half a heart) to the highest top there or the ground,
+The rule, last in every plan above 100 % (every reached surface, the
+walk-off fall and the form grid since 2026-10-11, after round 30m): a
+surface the walk with the treads reaches whose neighbouring column the body
+walks into at its height and, WALKING STRAIGHT ON, falls more than
+`REACH_GUARD_DROP16` (4 blocks, the doorway guards' `GUARD_DROP16`: fall
+damage is the distance past 3 blocks, so 4 costs at most half a heart),
 gets a guard in that column: its empty cells filled from the surface's top
 to `REACH_GUARD_HEIGHT16` (1.5 blocks, over the jump and auto-jump) above
-it, shipped as tread blocks. The model's own reach is never guarded, at any
-size: 100 % plans no treads, so nothing there is new. On the footprint's
-border there is no column past the edge to guard (the runtime re-lays and
-clears only its own boxes), so the border surface is CAPPED - the guard
-stands over its own top and the next column in becomes the edge; it gives up
-a column of the reach the treads made, never the model's. Certain only: the
-planner's full-cell reading over-reads solid, so a column it calls open is
-open and a fall it measures is at least that deep. Never in a doorway's
-column (`unguarded.door`). A guard whose top a reached surface steps onto is
-raised a block (up to three times). The guards are verified as a batch,
-then by halves down to one column: every surface reached before the treads
-and still reached with them, and every surface reached with them without a
-fall past the limit, must still be reached, and no guard's top may be; a
-column that fails is left open and counted (`unguarded.verify`, or
-`pastEdge` for a cap). The plan's report carries `guards` per size and turn
-(`craftmatic-treads.json`).
+it, shipped as tread blocks. The fall is the walk-off's (`walkOffDrop`,
+`WALK_OFF_FALL16`): a walking body does not drop straight into the next
+column, so column k past the edge catches it only when its top is no
+further down than the body has fallen while still over that column (0.77,
+3.35 and 6.59 blocks for k = 1, 2, 3, from the sim's gravity, drag and
+stick speed), a solid it meets in column k while still over k - 1 stops it
+there, and a body not caught by the third column has fallen past the limit.
+10261's lift top at 200 % (round 30m, COL-01) ends at world x 80 on the
+z 27 lane; the column past it holds a ledge 3.6 blocks down, the one past
+that nothing for 43 blocks, and the Pixel crossed the ledge's column having
+fallen a block and fell the 43 (the offline walker does the same). The
+model's OWN reach is guarded too above 100 % (a ledge a minifig drops off
+is, at 200-400 %, a fall of two to four times its height for a player who
+stays player-sized); 100 % plans nothing, and its drops are the set's own.
+On the footprint's border there is no column past the edge to guard (the
+runtime re-lays and clears only its own boxes), so a border surface the
+treads made reachable is CAPPED - the guard stands over its own top and the
+next column in becomes the edge; it gives up a column of the reach the
+treads made, never the model's: a border surface of the model's own reach
+is left open and counted (`pastEdge`). Certain only: the planner's
+full-cell reading over-reads solid, so a column it calls open is open; but
+a fall the full-cell reading HIDES is a fall all the same (the lift top's
+z 27 lane read solid to x 81 on the full cells, the shipped form of cell
+(40, 13) covers only its north half), so with the lane check the same pass
+runs a second time over the FORM grid - every form as its own pieces per
+world column, the treads and the first pass's guards laid - whose open
+columns hold no geometry either (`ReachGuardReport.formColumns`). Never in
+a doorway's column (`unguarded.door`). A guard whose top a reached surface
+steps onto is raised a block (up to three times). The guards are verified
+as a batch, then by halves down to one column: every surface reached before
+the treads and still reached with them, every run's target and tread, and
+every surface reached with them without a fall past the limit, must still
+be reached, and no guard's top may be - save a capped surface and the LEDGE
+under a guard's foot (the highest top under it in its column, and any
+surface within a body's height under the foot), which the guard gives up
+from that side; a column that fails is left open and counted
+(`unguarded.verify`, or `pastEdge` for a cap). The plan's report carries
+`guards` per size and turn (`craftmatic-treads.json`) and `TreadPlan.guardBlocks`
+lists the guards' blocks apart from the treads'.
 
 Measured (packs `output/lift-guard-20261008/packs-f6c7def5`, the 30l list
 and labels): the auto-jump walk up the lift at 200 % turn 0 now stops at
@@ -1081,12 +1104,13 @@ per set, summed over the 16 plans (sizes 150-400 x four turns): 10261
 edges), 910004 at 200-400 % (1-4 border edges). 10261's `placement.js`
 grows 518 -> 982 kB with the guard blocks.
 
-Not covered: the model's OWN reach. At 100 % the auto-jump walk climbs
-10261's lift by its own bricks (the tread planner lays nothing) and walks
-off the end at x 40.4 into a 21.75-block fall, on the 30l pack and this one
-alike; guarding it would restrict the model's own geometry (IX-04) and the
-runtime lays no plan at 100 %, so it is left to a decision
-(`TODO(reach-guards)`).
+Not covered: 100 %. There the auto-jump walk climbs 10261's lift by its own
+bricks (the tread planner lays nothing) and walks off the end at x 40.4
+into a 21.75-block fall, on the 30l pack and this one alike; guarding it
+would restrict the model's own geometry at the scale it was built for
+(IX-04) and the runtime lays no plan at 100 %, so it is left to a decision
+(`TODO(reach-guards)`). Above 100 % the model's own reach IS guarded since
+2026-10-11 (above).
 
 **Results over the 40 favourites** (sweeps `output/access-steps-0930/sweep-base2`
 at `dc699e3e`, built from an archive of the base tree: the sweep spawns one

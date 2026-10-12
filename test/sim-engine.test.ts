@@ -534,10 +534,11 @@ describe('historical regression replay inputs', () => {
     expect(regressionVerdict(open, side(false), side(true))).toMatchObject({ failing: true, notTested: true });
   });
 
-  it('round 30m's open device defects are cases: open ones reproduce, the unreproduced one says what is missing, a fixed one guards', () => {
+  it('round 30m\'s open device defects are cases: open ones reproduce, the unreproduced one says what is missing, a fixed one guards', () => {
     // Fixed since 2026-10-11 and guarding as normal cases: the set-down is reached from the seat (SEAT-05,
-    // `vehicleEgress` `lineClear`), the Nimbus steers (FIG-08), the 400 % Milano's chase camera stays under its LOD switch (VEH-06).
-    const FIXED_30M = new Set(['mclaren-walls-30m', 'nimbus-steer-30m', 'milano-chase-400-30m']);
+    // `vehicleEgress` `lineClear`), the Nimbus steers (FIG-08), the 400 % Milano's chase camera stays under its LOD
+    // switch (VEH-06), the 10261 top's east edge is guarded (COL-01), the 400 % shell lattice draws (COL-03).
+    const FIXED_30M = new Set(['mclaren-walls-30m', 'nimbus-steer-30m', 'milano-chase-400-30m', 'top-east-fall-10261-30m', 'shell-unseen-400-10261-30m']);
     const ids = ['nimbus-steer-30m', 'milano-chase-400-30m', 'xwing-air-park-30m', 'mclaren-walls-30m', 'top-east-fall-10261-30m', 'shell-unseen-400-10261-30m'];
     for (const id of ids) {
       const c = REGRESSIONS.find(x => x.id === id);

@@ -959,8 +959,13 @@ describe('playable add-on — brick-compiled entities', () => {
       expect(entries).toContain(`Craftmatic_long_shell_BP/entities/${chunk.id}.json`);
       expect(entries).toContain(`Craftmatic_long_shell_RP/models/entity/${chunk.id}.geo.json`);
       expect(chunk.radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toBeLessThanOrEqual(STATIC_SHELL_RADIUS_LIMIT_BLOCKS);
-      // The root is the cell's top-face centre, fixed by the cell alone (the world mirrors the JSON frame's z).
-      expect(chunk.offsetBlocks).toEqual([(chunk.cell[0] + 0.5) * S, (chunk.cell[1] + 1) * S, -(chunk.cell[2] + 0.5) * S]);
+      // The root is the cell's CENTRE, fixed by the cell and the model's floor plane alone (the world mirrors the
+      // JSON frame's z); the y lattice counts from the floor, so every chunk reads the same whole-number floor plane.
+      expect(chunk.offsetBlocks[0]).toBe((chunk.cell[0] + 0.5) * S);
+      expect(chunk.offsetBlocks[2]).toBe(-(chunk.cell[2] + 0.5) * S);
+      const floorPlane = chunk.offsetBlocks[1] - (chunk.cell[1] + 0.5) * S;
+      expect(Number.isInteger(floorPlane) && floorPlane <= 0, `floor plane ${floorPlane}`).toBe(true);
+      expect(chunk.cell[1]).toBeGreaterThanOrEqual(0);
       return { ...JSON.parse(new RegExp(`\\{"typeId":"craftmatic:${chunk.id}"[^}]*\\}`).exec(placement)![0]) as { x: number; y: number; z: number; yaw: number }, offset: chunk.offsetBlocks };
     });
     // Both chunks are placed from the ONE old root (where the whole-model actor stood) plus their offsets.

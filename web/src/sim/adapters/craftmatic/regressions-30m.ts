@@ -370,17 +370,21 @@ const SAFE_FALL = REACH_GUARD_DROP16 / 16;
 const topEastFall: RegressionCase = {
   id: 'top-east-fall-10261-30m', title: '10261 at 200 % (30m): walking +z along the curved top to pin+(79.5, 43.6, 27.7), then +x, the player walks off the east end and falls 42 blocks (COL-01)',
   evidence: `${PIXEL_30M} item 1 "FAIL (new edge)" (pin 7000,-60,5900, turn 0; \`top-s-east-pos\`, \`frames-top-s-east/pos-montage-small.png\`, \`rec/cm30m-top-s-east.mp4\`, reproduced in \`top-s-east2-pos\`): x 7079 -> 7081, then a fall to 7095.59,-60; the same walk at pin z+16.1 holds at pin x+83.70 (\`top-mid-east-pos\`); the reach guard covers the lift-end lanes, not the east edge at z~27.7`,
-  oldPack: `${PACKS_30M}/10261-roller-coaster.mcaddon`, newStem: '10261-roller-coaster', expectNew: 'pass', open: OPEN_30M,
+  // Fixed 2026-10-11 (COL-01): the guard pass reads every reached edge, the walk-off fall and the form grid.
+  oldPack: `${PACKS_30M}/10261-roller-coaster.mcaddon`, newStem: '10261-roller-coaster', expectNew: 'pass',
   // The Pixel's walks: from the lift-top stop (pin + 79.70, 43.5, 5.34) along +z to 27.7 ("top-south"), then the
   // repro `/tp @s <pin+79.5> <pin+43.62> <pin+27.7> -90 15` + 4 s of stick toward +x, and the control at z+16.1 (held).
+  // The `/tp`'s 43.62 is 0.005 INSIDE the lift top's slab (43.625) and Bedrock set the player on it (`top-s-east-pos`
+  // reads feet 43.6); the simulator's set-down leaves the body in the slab instead and it drops a block before
+  // auto-jumping back up, so the +x walks start on the slab's top, where the device stood.
   scenario: () => ({
     name: 'top-east-fall-10261-30m', allowLines: allow, steps: [{ kind: 'place', size: 200, rotation: 0 }, { kind: 'wait', ticks: 40 },
       { kind: 'expect', label: 'walks on the lift top', check: async ctx => {
         const a = placedOf(ctx).anchor;
         const walks: Array<{ label: string; from: Vec3; to: Vec3; ticks: number }> = [
           { label: 'top south (+z to 27.7)', from: { x: 79.7, y: 43.5, z: 5.34 }, to: { x: 79.7, y: 43.5, z: 27.7 }, ticks: 600 },
-          { label: 'top south-east (+x at z 27.7)', from: { x: 79.5, y: 43.62, z: 27.7 }, to: { x: 100, y: 43.62, z: 27.7 }, ticks: 400 },
-          { label: 'top mid-east (+x at z 16.1)', from: { x: 79.5, y: 43.62, z: 16.1 }, to: { x: 100, y: 43.62, z: 16.1 }, ticks: 400 },
+          { label: 'top south-east (+x at z 27.7)', from: { x: 79.5, y: 43.63, z: 27.7 }, to: { x: 100, y: 43.63, z: 27.7 }, ticks: 400 },
+          { label: 'top mid-east (+x at z 16.1)', from: { x: 79.5, y: 43.63, z: 16.1 }, to: { x: 100, y: 43.63, z: 16.1 }, ticks: 400 },
         ];
         const rows: TopWalk[] = [];
         for (const w of walks) {
@@ -413,7 +417,8 @@ interface ShellView { at: Vec3; shells: number; shellsDrawn: number; others: num
 const shellUnseen400: RegressionCase = {
   id: 'shell-unseen-400-10261-30m', title: '10261 at 400 % (30m): from 40 blocks west of the pin only figures and cars are drawn - every shell chunk is culled (the lattice is planned for 200 %) (COL-03)',
   evidence: `${PIXEL_30M} item 1 "400 % timing" (fresh pin 6500,-60,5500, 172x100x84; \`14b\`, \`14d\`, the chunks present by \`14k-testfor400.jpg\`): the shell's lattice is planned for \`STATIC_SHELL_CULL_MAX_SCALE\` 2 (bedrock-building-shell.ts: 20-block cells, a root at each cell's top centre), so at 400 % a chunk's root sits up to sqrt(1.5) x 80 = 98 blocks from its own cubes, past the 70-block draw ceiling (quirks \`actor-draw-ceiling\`, \`cull-by-collision-box\`)`,
-  oldPack: `${PACKS_30M}/10261-roller-coaster.mcaddon`, newStem: '10261-roller-coaster', expectNew: 'pass', open: OPEN_30M,
+  // Fixed 2026-10-11 (COL-03): the lattice is planned for 400 % with centre roots (13-block cells).
+  oldPack: `${PACKS_30M}/10261-roller-coaster.mcaddon`, newStem: '10261-roller-coaster', expectNew: 'pass',
   // The phone's picture from 40 blocks west of the pin (two rows: the pin's and the model's middle), looking at the
   // model's centre: each actor's cull from the DRAWN camera (snapshot.ts `clientSnapshot`, the Pixel's client).
   scenario: pack => ({
