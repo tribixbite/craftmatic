@@ -110,7 +110,12 @@ case as the guard; build round 30n from a committed tree
 (`output/device-round-2026-10-08m/build.sh` recipe); deploy with
 `python -u scripts/_pixel_dev_deploy.py <world> <packs> --exclusive` (Saga
 world 925, Pixel world 924; since 2026-10-11 the LAN is 192.168.0.x: Pixel
-`192.168.0.216:5555`, Saga `192.168.0.202:5555` (rooted, never stop/start)).
+`192.168.0.216:5555` (world 924 = `k4zNj8w+V6w=`, not rooted). TWO Sagas
+answer: `192.168.0.202` is serial O1N1XT172300325, NOT rooted, NO Minecraft -
+not the test phone. The test Saga is serial O1N1XT412200373 at
+`192.168.0.86` (rooted, world 925 = `q-TUD3f7W6M=`), reachable over its mDNS
+serial `adb-O1N1XT412200373-SAllXE._adb-tls-connect._tcp` (no :5555 listener,
+2026-10-11 preflight). Never stop/start it.
 
 **In flight (2026-10-11):** six worktree fix agents, one per area, each
 verifying against its OPEN case with packs rebuilt in its own worktree
