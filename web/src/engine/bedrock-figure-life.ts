@@ -594,7 +594,12 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
       } else console.warn(`[craftmatic seat] no safe dismount for ${player.id}; seat unavailable at ${left.at.x},${left.at.y},${left.at.z}`);
     }
   };
-  /** How far from its home (blocks) a seated figure looks for the seat to retake: 10261's kiosk seat entity sits ~2 below its home. */
+  /**
+   * How far from its home (blocks at 100 %) a seated figure looks for the seat
+   * to retake: 10261's kiosk seat entity sits ~2.5 below its home. The gap is
+   * the MODEL's, so it grows with the wand size (`h.f`): at 200 % it is 4.95
+   * and a fixed 4 found no seat (FIGURE_RETAKE_NO_SEAT, child play 2026-10-08).
+   */
   const RETAKE_REACH = 4;
   /**
    * Retake checks in a row (5 s apart) that find no seat near home before the
@@ -904,7 +909,7 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
           // home is ~2 blocks above the seat entity it rode).
           const at = { x: h.home[0], y: h.home[1], z: h.home[2] };
           const d2 = (s: any): number => (s.location.x - at.x) ** 2 + (s.location.y - at.y) ** 2 + (s.location.z - at.z) ** 2;
-          const seats = e.dimension.getEntities({ location: at, maxDistance: RETAKE_REACH })
+          const seats = e.dimension.getEntities({ location: at, maxDistance: RETAKE_REACH * Math.max(1, h.f) })
             .filter((s: any) => config.seatTypes.includes(s.typeId))
             .sort((a: any, b: any) => (a.id === l.seatId ? -1 : b.id === l.seatId ? 1 : d2(a) - d2(b)));
           const r = seats[0]?.getComponent('minecraft:rideable');

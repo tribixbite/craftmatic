@@ -11,7 +11,7 @@ import type { SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
 import { host } from './_placement-host.js';
 import { simHost, solidBelow } from './_sim-host.js';
 import { blockSpan, exploreWalkable, FIGURE_SEATING_GRACE_MS, FIGURE_SEATING_PROPERTY, FIGURE_TUNING, figureLifeScript, pathTo, resolveFigureSpawn, separateFigureSpawns, spawnLift, standFeetAt, type FigureLifeConfig, type SpanLookup } from '../web/src/engine/bedrock-figure-life.js';
-import { simulateFigureLife, type SimWorld } from '../web/src/sim/adapters/craftmatic/figure-life.js';
+import { simulateFigureLife, type SimSample, type SimWorld } from '../web/src/sim/adapters/craftmatic/figure-life.js';
 import { seatBehavior } from '../web/src/engine/playable-addon.js';
 import { RIDE } from '../web/src/engine/bedrock-rides.js';
 import { COLLIDER_BLOCK_ID, COLLIDER_HI_STATE, COLLIDER_LO_STATE } from '../web/src/engine/bedrock-building-shell.js';
@@ -546,6 +546,26 @@ describe('the serialised runtime', () => {
     const early: string[] = [];
     simulateFigureLife({ ...seatComes, seats: [], onWarn: l => early.push(l) }, { ...config, tuning }, 100, 5);
     expect(early).toEqual([]);
+  });
+
+  it('looks for its seat as far from home as the wand size puts it (10261 fig2 at 200 %: seat 4.95 from home, child play 2026-10-08)', () => {
+    // 10261's kiosk figure has its home ~2.5 blocks from the seat it rode at 100 %; the gap is the model's and
+    // doubles at 200 %, past a fixed 4-block search: FIGURE_RETAKE_NO_SEAT after every visit.
+    const tuning = { ...FIGURE_TUNING, idleMin: 20, idleMax: 30 };
+    const run = (f: number): { warns: string[]; track: SimSample[] } => {
+      const warns: string[] = [];
+      const w: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0, f,
+        seats: [{ typeId: 'craftmatic:a_seat', at: { x: 2.5, y: 0.6, z: 2.5 } }],
+        figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 2.5, y: 0.6, z: 2.5 }, mode: 'seated', home: { x: 6, y: 0.6, z: 6 } }],
+        player: { x: 3.5, y: 3 / 16, z: 2.5 }, playerLeavesAt: 300, onWarn: l => warns.push(l) };
+      const [track] = simulateFigureLife(w, { ...config, tuning }, 1200, 5);
+      return { warns, track: track! };
+    };
+    const big = run(2);
+    expect(big.warns.filter(l => l.includes('FIGURE_RETAKE_NO_SEAT'))).toEqual([]);
+    expect(big.track.slice(900).every(p => p.riding)).toBe(true);
+    // At 100 % the same 4.95 is past the reach (a seat that far from home is another figure's): the line, as before.
+    expect(run(1).warns.filter(l => l.includes('FIGURE_RETAKE_NO_SEAT'))).toHaveLength(1);
   });
 
   it('says nothing while the placement is still seating the figure, however long its seat takes to spawn (10261, ~2 min)', () => {
