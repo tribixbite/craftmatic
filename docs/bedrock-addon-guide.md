@@ -3785,7 +3785,7 @@ camera runtime in `playable-addon.ts`; numbers and reasons in
 | car, hover craft | drive / brake, reverse | steer; stopped, turn on the spot | boost | slides along walls, steps round trees, scrambles up to 2.15 blocks (two-block kerbs and pits) |
 | boat | throttle / astern | rudder | boost | deflects round posts, slides along piers |
 | every scripted vehicle | | | | DRAG the screen to look around; let go and while moving the view swings back behind the nose after 1 s (95 % in ~1.8 s more); at rest it stays; hotbar slot 9 is the view from the seat, a camera at the driver's eye that looks round and swings back to the front (yaw and pitch) the same way; either view starts on the nose |
-| rotorcraft, Nimbus (native) | forward / back along where the rider looks | strafe (since 2026-10-07; it turned under `player_relative`) | climb | a DRAG steers: they fly where the rider looks, so the view IS the direction of travel; the rider is held in the default control scheme, where a drag turns that look, so "look down + Jump" dives (HUD `DRAG: STEER`); back + Jump descends too. The mount's body is turned by the driver script by the drag, every tick (2026-10-08): left to Bedrock's controller it chased a look the seat carried round with it and spun for ever (Saga 30l) |
+| rotorcraft, Nimbus (native) | forward / back along the BODY's heading (quirk `hover-stick-body-frame`, Saga 30m) | strafe (since 2026-10-07; it turned under `player_relative`) | climb | a DRAG steers: the driver script turns the body by the drag every tick and the chase camera looks along that heading (`craftmatic:native_heading`, 2026-10-11), so the view IS the direction of travel; the rider is held in the default control scheme, where a drag turns the look the driver reads, so "look down + Jump" dives (HUD `DRAG: STEER`); back + Jump descends too. Left to Bedrock's controller the body chased a look the seat carried round with it and spun for ever (Saga 30l); left unturned it flew 94 degrees off the view (Saga 30m) |
 
 Sneak stays the dismount on every vehicle, so "down" had to be a
 combination: the Nimbus's own back + Jump and look down + Jump, so one rule
@@ -3965,6 +3965,46 @@ fixed offline here, not yet ridden.
   nothing relies on it, quirk `seat-camera-radius-unobserved`). Device: the
   Milano's wingspan on screen the same width at 50, 100 and 200 % and a whole
   ship at 400 %.
+
+Round 30m (Saga, 2026-10-08) found both fixes above short; fixed offline
+2026-10-11 (`output/fix-flight-1011/`, regression cases now normal guards):
+
+- **The Nimbus could not be steered (FIG-08, `nimbus-steer-30m`).** After a
+  swipe turned the view, holding forward flew along the BODY, 94 degrees
+  off the view (CMVT 01:17:51: look 107, body 0, forward 13 degrees off the
+  body): the hover controller moves the mount by the stick in its own frame
+  (quirk `hover-stick-body-frame`), and with the probe's verdict `carried`
+  the driver never turned the body. Under the carry the look's offset from
+  the body is every drag ever made, so the rider's own look can never be
+  the flight direction; the heading can. The body now follows every drag
+  (9 degrees a tick, any verdict), the driver writes the heading to the
+  mount's `craftmatic:native_heading` (`NATIVE_HEADING_PROPERTY`), and the
+  chase camera looks along it with the rider's pitch (look down + Jump
+  still dives). The drag reading tries carry lags 6..8
+  (`RIDER_YAW_LAG_SLACK_TICKS`): read at 6 alone, a carry landing later
+  feeds a following body into a slow endless spin. Sim on the new pack:
+  one 400-px swipe turns the view and the body 94 degrees and stops; 3 s of
+  forward flies 14 degrees off the view (the controller's chase of the
+  carried look before the heading is written back - the device's 13-14,
+  `TODO(nimbus-chase-residual)`). The cockpit view (slot 9) of a native
+  mount is still the rider's own first person, i.e. the carried look
+  (`TODO(nimbus-cockpit)`). Device: summon, `/ride`, wait 3 s, one swipe:
+  the view and the drawn cloud turn together and stop; forward flies where
+  the view looks; CMVT `steer.heading` follows the swipe.
+- **The 400 % Milano's chase camera showed the LOD hull (VEH-06,
+  `milano-chase-400-30m`).** The 48-block boom with its height stood 58
+  blocks from the root, past the ship's 54-block LOD switch
+  (camera-to-ROOT, quirk `lod-switch-camera-root`): the coarse hull filled
+  56 % of the view. Every chase camera now stands within `maxRootBlocks` of
+  its root (`chaseMaxRootBlocks`: the planned switch, or the 70-block draw
+  ceiling with no hull, less `CHASE_LOD_MARGIN_BLOCKS` 4), the boom and its
+  height shortened together. Sim (Saga client): 400 % at 50 from the root,
+  the ship drawn in full, 28 % of the picture; 200 % 50.7 -> 50; 50/100 %
+  unchanged. The 400 % ship (72 across) no longer fits the frame from 50
+  blocks (screen x -2.49..2.49, the camera 18.6 over its tail;
+  `TODO(chase-400)`: a tighter framing or the cockpit view by default at
+  300/400 %). Device: 400 % chase shows the full-detail ship, no cuboid
+  hull.
 
 ### Native evidence and remaining assumptions (quirk `rider-free-look`)
 
