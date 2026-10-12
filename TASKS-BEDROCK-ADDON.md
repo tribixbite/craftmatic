@@ -109,8 +109,19 @@ Drawer 1 picking Drawer 2 (4/9), 76417 figure 9 never moves, 42639 Door 1 /
 case as the guard; build round 30n from a committed tree
 (`output/device-round-2026-10-08m/build.sh` recipe); deploy with
 `python -u scripts/_pixel_dev_deploy.py <world> <packs> --exclusive` (Saga
-world 925, Pixel world 924; the Saga is `192.168.1.243:5555`, rooted, never
-stop/start).
+world 925, Pixel world 924; since 2026-10-11 the LAN is 192.168.0.x: Pixel
+`192.168.0.216:5555`, Saga `192.168.0.202:5555` (rooted, never stop/start)).
+
+**In flight (2026-10-11):** six worktree fix agents, one per area, each
+verifying against its OPEN case with packs rebuilt in its own worktree
+(`output/fix-{flight,egress,motion,scale,seat,ix}-1011/`): flight (FIG-08
+Nimbus steer, VEH-06 400 % chase), egress (SEAT-05 McLaren walls / X-wing
+park, boat egress onto a bank), motion (VEH-16 boat pier-post clip, stuck
+cars), scale (COL-01 10261 east edge, COL-03 400 % shell lattice), seat
+(VEH-17 hit test, COAST-06 coaster seat frame), ix (IX-01 tap targets,
+doorway colliders at 200/400 %). If a session ends mid-way, their branches
+are `worktree-agent-*` under `.claude/worktrees/` (newest by date); merge
+each, rerun the regressions, then build round 30n.
 
 **Still open from earlier:**
 - # TODO(cull): the 300/400 % draw ceiling is unmeasured.
