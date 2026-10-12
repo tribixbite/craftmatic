@@ -478,8 +478,7 @@ export function hitTestAtSize(boxes: readonly HitTestBox[], scale: number, maxHa
 /**
  * The drawn extremities of a shipped geometry (`.geo.json` value), in blocks at 100 % in the ENTITY frame at yaw 0
  * (+z the nose, +x the side; the JSON frame is the entity frame mirrored in z, as `drawnBoxes` places it): for each
- * horizontal direction, the point of the cube reaching farthest that way - on that face, at the cube's middle across
- * and in height. Read through `drawnCubeBox` (an inflated cube counts its drawn box) and unrotated, as
+ * horizontal direction, the point of the cube reaching farthest that way - on that face, at the cube's middle across. Read through `drawnCubeBox` (an inflated cube counts its drawn box) and unrotated, as
  * `geometryHitBox`. Two extremities closer than a block are one. Where a scripted vehicle's board points stand
  * (bedrock-vehicle.ts `BOARD`, VEH-17).
  */
@@ -493,10 +492,10 @@ export function boardPointsOf(geometry: unknown): BoardPoint[] {
     // Entity frame: x as drawn, z mirrored; sixteenths to blocks.
     const x0 = d.origin[0] / 16, x1 = (d.origin[0] + d.size[0]) / 16;
     const z0 = -(d.origin[2] + d.size[2]) / 16, z1 = -d.origin[2] / 16;
-    const y = (d.origin[1] + d.size[1] / 2) / 16, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
     dirs.forEach(([dx, dz], i) => {
       const reach = dx > 0 ? x1 : dx < 0 ? -x0 : dz > 0 ? z1 : -z0;
-      if (reach > (best[i]?.reach ?? 0)) best[i] = { reach, p: { x: round3(dx ? dx * reach : cx), y: round3(y), z: round3(dz ? dz * reach : cz), dx, dz } };
+      if (reach > (best[i]?.reach ?? 0)) best[i] = { reach, p: { x: round3(dx ? dx * reach : cx), z: round3(dz ? dz * reach : cz), dx, dz } };
     });
   }
   const out: BoardPoint[] = [];

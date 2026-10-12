@@ -1067,8 +1067,12 @@ export const VEHICLE_EGRESS = { MARGIN: 0.5, SPACING: 1, MAX_CANDIDATES: 64, ABO
  *     (its corners 11.3 from the root, inside the 12), so it never covers - and so never hides - a board point;
  *     an extremity within 8 is covered by that box and boarded directly;
  *   - `COLUMN_WIDTH` 2 / `COLUMN_HEIGHT` 3: a point's hit box at 100 %, blocks (the size groups scale it with the
- *     vehicle: 8 x 12 at 400 %), its outer face at the drawn tip, its middle at the tip's height (never under the
- *     vehicle's base): a child aiming at the drawn tip from beside it meets the column first;
+ *     vehicle: 8 x 12 at 400 %), standing on the vehicle's BASE under the tip - a child stands on the ground there,
+ *     and the Milano's wingtips are ~12 blocks up at 200 %;
+ *   - `OUTSET_BLOCKS` 0.5: how far the column's outer face stands past the drawn tip (not scaled). A child beside the
+ *     tip looking UP at it meets the column face within a block or two of the eye: the ray from an eye 0.1 outside
+ *     the face to a tip 10 blocks up crosses that face ~1.7 blocks up, inside the tap and hold reach; a face AT the
+ *     tip is crossed at the tip itself, out of reach (the first offline run picked nothing at the 200 % wingtip);
  *   - `CHECK_TICKS` 5: how often a parked vehicle's points are checked (moved, resized, gone, a player seated on
  *     one natively), so the per-tick cost of a parked vehicle stays a map lookup;
  *   - `SWEEP_TICKS` 200: how often every point in the world is checked against its owner - a point whose vehicle
@@ -1080,7 +1084,7 @@ export const VEHICLE_EGRESS = { MARGIN: 0.5, SPACING: 1, MAX_CANDIDATES: 64, ABO
  * # TODO(board-sides): only the four extremities are boarded; a player beside a 400 % hull's long side, farther
  * than 12 from the root and from a tip, still finds nothing to hold. A rotorcraft (native) has no board points.
  */
-export const BOARD = { MIN_REACH_BLOCKS: 8, HULL_HIT_HALF_MAX_BLOCKS: 8, COLUMN_WIDTH: 2, COLUMN_HEIGHT: 3, CHECK_TICKS: 5, SWEEP_TICKS: 200, STILL_SPEED: 0.05, RETRIES: 2, RETRY_TICKS: 2 } as const;
+export const BOARD = { MIN_REACH_BLOCKS: 8, HULL_HIT_HALF_MAX_BLOCKS: 8, COLUMN_WIDTH: 2, COLUMN_HEIGHT: 3, OUTSET_BLOCKS: 0.5, CHECK_TICKS: 5, SWEEP_TICKS: 200, STILL_SPEED: 0.05, RETRIES: 2, RETRY_TICKS: 2 } as const;
 export type BoardParams = typeof BOARD;
 /** The dynamic property a board point carries: its vehicle's entity id. */
 export const BOARD_OWNER_PROPERTY = 'craftmatic:board_of';
@@ -1089,25 +1093,25 @@ export const BOARD_OWNER_PROPERTY = 'craftmatic:board_of';
  * One drawn extremity of a vehicle at 100 %, in its entity frame at yaw 0 (blocks; +z is the nose, +x the side
  * Bedrock's yaw turns toward +z), with the horizontal axis it is extreme along (`dx`, `dz`: a unit vector).
  */
-export interface BoardPoint { x: number; y: number; z: number; dx: number; dz: number }
+export interface BoardPoint { x: number; z: number; dx: number; dz: number }
 
 /** What the runtime needs to keep board points: the point's entity type, the size steps it is sized by, the constants. */
 export interface BoardRuntimeConfig { type: string; sizeEventPrefix: string; sizes: readonly number[]; ownerProperty: string; params: BoardParams }
 
 /**
  * Where a vehicle's board points stand at a pose (pure; the runtime and the tests call it): for every extremity
- * farther than `MIN_REACH_BLOCKS` from the root at scale `k`, the column's BASE centre in the world, its outer face
- * at the drawn tip. `yawDeg` is Bedrock's (0 faces +z; +x turns toward +z: the colliders' and `drawnBoxes`' turn).
+ * farther than `MIN_REACH_BLOCKS` from the root at scale `k`, the column's BASE centre in the world: on the vehicle's
+ * base, its outer face `OUTSET_BLOCKS` past the drawn tip. `yawDeg` is Bedrock's (0 faces +z; +x turns toward +z: the colliders' and `drawnBoxes`' turn).
  */
 export function boardPointPlaces(points: readonly BoardPoint[], pose: { x: number; y: number; z: number; yaw: number }, k: number, P: BoardParams): Array<{ x: number; y: number; z: number }> {
   const out: Array<{ x: number; y: number; z: number }> = [];
   const r = pose.yaw * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
-  const w = P.COLUMN_WIDTH * k, h = P.COLUMN_HEIGHT * k;
+  // Along its own axis, the column's middle is half its width in from its outer face, which stands past the tip.
+  const back = P.COLUMN_WIDTH * k / 2 - P.OUTSET_BLOCKS;
   for (const p of points) {
     if (Math.abs(p.x * p.dx + p.z * p.dz) * k <= P.MIN_REACH_BLOCKS) continue;
-    // Pulled in along its own axis by half the column, so the column's outer face is the tip.
-    const ex = p.x * k - p.dx * w / 2, ez = p.z * k - p.dz * w / 2;
-    out.push({ x: pose.x + ex * c - ez * s, y: pose.y + Math.max(0, p.y * k - h / 2), z: pose.z + ex * s + ez * c });
+    const ex = p.x * k - p.dx * back, ez = p.z * k - p.dz * back;
+    out.push({ x: pose.x + ex * c - ez * s, y: pose.y, z: pose.z + ex * s + ez * c });
   }
   return out;
 }
