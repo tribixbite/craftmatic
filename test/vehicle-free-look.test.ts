@@ -8,9 +8,10 @@
  * and the view's pitch reaches the ship's "look down + Jump".
  */
 import { describe, expect, it } from 'vitest';
-import { FREE_LOOK, NATIVE_STEER, cockpitCamera, cockpitEyeLead, cockpitLagFromLead, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type CockpitPose, type FreeLookState } from '../web/src/engine/vehicle-free-look.js';
+import { FREE_LOOK, NATIVE_HEADING_PROPERTY, NATIVE_STEER, cockpitCamera, cockpitEyeLead, cockpitLagFromLead, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type CockpitPose, type FreeLookState } from '../web/src/engine/vehicle-free-look.js';
 import { quirkValue } from '../web/src/sim/quirks/registry.js';
-import { CHASE_PASSABLE_BLOCKS, vehicleCameraScript, type VehicleCameraConfig } from '../web/src/engine/playable-addon.js';
+import { CHASE_PASSABLE_BLOCKS, chaseMaxRootBlocks, vehicleCameraScript, type VehicleCameraConfig } from '../web/src/engine/playable-addon.js';
+import { ACTOR_DRAW_CEILING_BLOCKS } from '../web/src/engine/bedrock-lod-hull.js';
 import { FLIGHT_PROPS, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties } from '../web/src/engine/bedrock-vehicle.js';
 import { simHost, solidBelow } from './_sim-host.js';
 import type { SimEntity } from '../web/src/sim/entity/entity.js';
@@ -161,22 +162,38 @@ describe('drag steering of a native mount (pure; Saga 30l: one swipe spun the Ni
     }
     return { state: s, headings, steps, looks, verdicts, finger };
   }
-  it('under the carry (the device as measured) the probe reads it, the body stays put, the view turns by the swipe and nothing spins', () => {
+  it('under the carry (the device as measured) the probe reads it, and the body follows the swipe by the swipe and stops (Saga 30m: a body left put flew where it faced, not where the view looked)', () => {
+    // 6: the cloud's and the coaster's carry; 8: the X-wing's, inside RIDER_YAW_LAG_SLACK_TICKS (read at 6 alone, the
+    // 2 late ticks after every turn read as a drag the body then followed: an endless slow spin).
     for (const lag of [6, 8]) {
-      const { state, headings, steps, looks, verdicts } = ride(true, [[70, 84]], 200, lag);
+      const { state, headings, steps, looks, verdicts } = ride(true, [[70, 84]], 220, lag);
       // One probe: the body turned PROBE_DEG, the look followed, the turn was taken back; the view ends where it began.
       expect(state.verdict).toBe('carried');
       expect(state.tries).toBe(1);
       expect(verdicts.findIndex(v => v === 'carried')).toBeLessThan(40);
-      expect(Math.max(...headings.map(h => Math.abs(wrap(h))))).toBe(P.PROBE_DEG);
+      expect(Math.max(...headings.slice(0, 70).map(h => Math.abs(wrap(h))))).toBe(P.PROBE_DEG);
       expect(wrap(headings[60]!)).toBe(0);
       expect(wrap(looks[60]!)).toBe(0);
-      // The swipe: the body does not move (any turn would turn the view with it), the view turns by the swipe, and
-      // the heading is still a second and five seconds later - never the device's spin.
-      expect(steps.slice(60).every(v => v === 0)).toBe(true);
-      expect(wrap(headings.at(-1)!)).toBe(0);
-      expect(wrap(looks.at(-1)!)).toBeCloseTo(84, 6);
+      // The swipe: the heading (the chase camera's view, and the flight under the stick) turns by the swipe, never
+      // faster than the rate, and is still from a second after the swipe to the end - never the device's spin.
+      expect(Math.max(...steps.slice(70).map(Math.abs))).toBeLessThanOrEqual(P.RATE_DEG_PER_TICK);
+      // At the reading's own lag the turn is the swipe exactly; a carry 2 ticks later than it is read (the slack)
+      // costs the first 2 ticks of the finger (2 x 5.25), never more and never a turn of its own.
+      const turned = wrap(headings.at(-1)!), lost = lag === FREE_LOOK.RIDER_YAW_LAG_TICKS ? 0 : 2 * 84 / 16;
+      expect(turned).toBeCloseTo(84 - lost, 6);
+      expect(steps.slice(106).every(v => v === 0)).toBe(true);
+      // The rider's own look runs on by the carry (the finger's 84 + the body's turn): nobody sees it under the
+      // script camera, and nothing reads it as a drag.
+      expect(wrap(looks.at(-1)!)).toBeCloseTo(84 + turned, 6);
     }
+  });
+  it('under the carry a swipe before any probe (verdict unknown) is followed too', () => {
+    const { state, headings, steps } = ride(true, [[2, -84]], 160);
+    expect(wrap(headings[60]!)).toBeCloseTo(-84, 6);
+    // A probe runs once the turn is over and its carry has landed, and reads the carry.
+    expect(state.verdict).toBe('carried');
+    expect(steps.slice(120).every(v => v === 0)).toBe(true);
+    expect(wrap(headings.at(-1)!)).toBeCloseTo(-84, 6);
   });
   it('a body proven free (the look stayed through two probes) follows every swipe at the rate and stops with the finger', () => {
     const { state, headings, steps, looks } = ride(false, [[80, 84], [160, -30]], 240);
@@ -191,14 +208,14 @@ describe('drag steering of a native mount (pure; Saga 30l: one swipe spun the Ni
     expect(wrap(headings.at(-1)!)).toBeCloseTo(54, 6);
     expect(wrap(looks.at(-1)!)).toBeCloseTo(54, 6);
   });
-  it('a finger moving against the probe fakes one "stayed"; the second probe reads the carry, so the body never follows', () => {
+  it('a finger moving against the probe fakes one "stayed"; the second probe reads the carry; a swipe during a probe is turned once it is over', () => {
     // The finger drags -12 during the first probe's wait (the probe turned +12 and the carry +12 arrives): the look
-    // reads as unmoved. The next probe, the other way, in a quiet moment, sees the carry.
+    // reads as unmoved. The drag is held and turned after the probe; the next probe, the other way, sees the carry.
     const { state, headings } = ride(true, [[12, -12], [120, 60]], 220);
     expect(state.freeVotes).toBe(1);
     expect(state.verdict).toBe('carried');
     expect(state.tries).toBe(2);
-    expect(wrap(headings.at(-1)!)).toBe(0);
+    expect(wrap(headings.at(-1)!)).toBeCloseTo(48, 6);
   });
   it('a mount\'s settle: the seat turning the rider onto the heading is no swipe, and no probe runs through it (Saga 30k riderYaw 0 -> -180)', () => {
     let s = nativeSteerStart(-180, FREE_LOOK.MOUNT_SETTLE_TICKS, freeLookStart);
@@ -238,7 +255,7 @@ const CAR = 'craftmatic:t_car';
 const cameraCfg: VehicleCameraConfig = { typeId: CAR, preset: 'craftmatic:t_car_chase', kind: 'car', radius: 6, height: 2.6, pivotY: 0.75, scripted: true, riderVisibleSizes: null, eye: [0, 1.62, -0.4] };
 function cameraHost(cfg: VehicleCameraConfig = cameraCfg, terrain = solidBelow(64), extraComponents: Record<string, unknown> = {}) {
   const h = simHost({
-    script: vehicleCameraScript({ vehicles: [cfg], pitchProperty: FLIGHT_PROPS.pitch, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, telemetryEvent: VEHICLE_TELEMETRY_EVENT, passableBlocks: CHASE_PASSABLE_BLOCKS }),
+    script: vehicleCameraScript({ vehicles: [cfg], pitchProperty: FLIGHT_PROPS.pitch, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, nativeHeadingProperty: NATIVE_HEADING_PROPERTY, telemetryEvent: VEHICLE_TELEMETRY_EVENT, passableBlocks: CHASE_PASSABLE_BLOCKS }),
     entities: { [CAR]: { properties: flightProperties() as Record<string, Record<string, unknown>>, components: {
       'minecraft:type_family': { family: ['craftmatic_vehicle', 'car'] },
       'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: [{ position: [0, 0.5, 0], lock_rider_rotation: FREE_LOOK.SEAT_LOCK_DEG }] },
@@ -327,6 +344,38 @@ describe('the camera runtime with free look (scripts/vehicle-camera.js on the si
     // A 10x vehicle (a 60-block boom) is capped: the camera must stay under the ~70 blocks past which no actor draws.
     expect(boom(10).back).toBeCloseTo(FREE_LOOK.CHASE_BOOM_MAX_BLOCKS, 6);
     expect(FREE_LOOK.CHASE_BOOM_MAX_BLOCKS).toBeLessThan(70);
+  });
+  it('never stands past the vehicle\'s LOD switch from its root, at any size (Saga 30m: the 400 percent Milano\'s camera stood 58 from the root, past its 54-block switch, and the coarse hull filled the view)', () => {
+    // The 76286 Milano's chase numbers and its planned switch (54: the 70-block ceiling less the cull margin).
+    const milano: VehicleCameraConfig = { ...cameraCfg, kind: 'plane', radius: 30, height: 7.86, pivotY: 4.24, eyeY: 2.85, riderVisibleSizes: [2, 3, 4], maxRootBlocks: chaseMaxRootBlocks(54) };
+    expect(milano.maxRootBlocks).toBe(54 - FREE_LOOK.CHASE_LOD_MARGIN_BLOCKS);
+    const fromRoot = (scale: number, cfg: VehicleCameraConfig): number => {
+      const { h, car, drive } = cameraHost(cfg, solidBelow(64), { 'minecraft:scale': { value: scale } });
+      drive(2, 0);
+      const c = h.host.playerState(h.engine.players[0]!).camera.location!;
+      return Math.hypot(c.x - car.location.x, c.y - car.location.y, c.z - car.location.z);
+    };
+    const { maxRootBlocks: _drop, ...uncapped } = milano;
+    // Before: 400 % stood ~58 from the root; 200 % ~51 (drawn in full on the Saga).
+    expect(fromRoot(4, uncapped)).toBeGreaterThan(54);
+    for (const scale of [0.5, 1, 2, 3, 4]) expect(fromRoot(scale, milano)).toBeLessThanOrEqual(milano.maxRootBlocks! + 1e-6);
+    // Sizes that already stood inside keep their boom.
+    expect(fromRoot(1, milano)).toBeCloseTo(fromRoot(1, uncapped), 6);
+    // No hull: the draw ceiling less the margin.
+    expect(chaseMaxRootBlocks()).toBe(ACTOR_DRAW_CEILING_BLOCKS - FREE_LOOK.CHASE_LOD_MARGIN_BLOCKS);
+  });
+  it('a native mount\'s chase camera looks along the heading its driver holds, not the rider\'s carried look, with the rider\'s pitch (Saga 30m: the view on the look, forward along the body, 94 degrees apart)', () => {
+    const { h, car, rider, view, drive } = cameraHost({ ...cameraCfg, kind: 'plane', scripted: false });
+    const api = h.api(car);
+    api.setDynamicProperty(NATIVE_HEADING_PROPERTY, 40);
+    rider.rotation = { x: 20, y: 150 };
+    drive(3, 0);
+    expect(wrap(view()!.yaw - 40)).toBeCloseTo(0, 6);
+    expect(view()!.pitch).toBeCloseTo(20, 6);
+    // A pack from before the property (or a mount that never wrote it): the rider's look, as it was.
+    api.setDynamicProperty(NATIVE_HEADING_PROPERTY, undefined);
+    drive(3, 0);
+    expect(wrap(view()!.yaw - rider.rotation.y)).toBeCloseTo(0, 6);
   });
   it('a drag down tips the view and tells the vehicle where it looks (a ship\'s "look down + Jump")', () => {
     const { car, view, drive, drag } = cameraHost();

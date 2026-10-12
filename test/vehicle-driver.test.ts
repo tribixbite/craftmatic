@@ -11,6 +11,8 @@ import { AIRCRAFT_CLIMB_GROUP, AIRCRAFT_DESCEND_GROUP, AIRCRAFT_DESCEND_OFF, AIR
 import { simHost, solidBelow } from './_sim-host.js';
 import { FLYER } from '../web/src/engine/bedrock-flyer.js';
 import { quirkValue } from '../web/src/sim/quirks/registry.js';
+import { NATIVE_HEADING_PROPERTY } from '../web/src/engine/vehicle-free-look.js';
+import type { SimEntity } from '../web/src/sim/entity/entity.js';
 
 const CLOUD = 'craftmatic:t_cloud';
 /** mph per block/tick, the runtime's own factor (20 ticks/s, 1 block = 1 m, 2.236936 mph per m/s). */
@@ -245,51 +247,78 @@ describe('the driver: HUD speed of a client-driven mount', () => {
   });
 });
 
-describe('the driver: drag steering of the native mount (Saga 30l: one swipe spun the Nimbus at 6.5 degrees a tick for 40 s)', () => {
+describe('the driver: drag steering of the native mount (Saga 30l: one swipe spun the Nimbus at 6.5 degrees a tick for 40 s; Saga 30m: forward flew along an unturned body)', () => {
   const wrap = (a: number): number => ((a + 180) % 360 + 360) % 360 - 180;
-  it('one swipe at rest turns the view by the swipe and the cloud stops turning: the body stays put under the carry, the controller\'s chase undone every tick', () => {
+  /** The heading the driver holds, as the chase camera reads it (`NATIVE_HEADING_PROPERTY`). */
+  const headingOf = (h: ReturnType<typeof driverWorld>['h'], cloud: SimEntity): number => Number(h.api(cloud).getDynamicProperty(NATIVE_HEADING_PROPERTY));
+  it('one swipe at rest turns the heading (the view and where forward flies) by the swipe and the cloud stops turning, the controller\'s chase undone every tick', () => {
     const w = driverWorld(undefined, true);
     const { h, cloud, player } = w;
     // The seat's settle and the mount probe (the simulator carries the look, so it reads "carried" and takes its
     // turn back), then the Saga's swipe: 400 px, ~84 degrees over 0.8 s, nothing else held.
     h.run(60);
     const yaw0 = cloud.rotation.y, look0 = player.sim.rotation.y;
+    expect(headingOf(h, cloud)).toBeCloseTo(yaw0, 6);
     let last = cloud.rotation.y, turned = 0;
     const rates: number[] = [];
     const tick = (): void => { h.run(1); const d = wrap(cloud.rotation.y - last); last = cloud.rotation.y; turned += d; rates.push(Math.abs(d)); };
     for (let t = 0; t < 16; t++) { player.sim.rotation = { x: player.sim.rotation.x, y: wrap(player.sim.rotation.y + 84 / 16) }; tick(); }
     for (let t = 0; t < 100; t++) tick();
-    // The body did not turn (any turn would turn the view with it), the view turned by the swipe, and the cloud is
-    // still a second and five seconds later - never the device's 6.5 degrees a tick. The view's turn is the swipe
-    // times 1 / (1 - 0.144): the controller's chase still turns the body 0.144 of the offset within each tick
-    // before the script's heading is written back, the client carries that transient too, and it feeds the
-    // offset (a geometric series that converges within a second; the model's 98 for 84, the device's to be read).
+    // The body (and the heading the chase camera looks along) turned by the swipe and is still a second and five
+    // seconds later - never the device's 6.5 degrees a tick. The rider's own look is carried round with the body's
+    // turn, so it runs a swipe ahead of the heading: nobody sees it under the script camera.
+    // The body is read here after the controller's chase of the tick (0.144 of the look's offset), which the
+    // script's write undoes on the next: the heading is what it holds.
     const chase = quirkValue('hover-turn-chase', 'offsetShareTurnedPerTick');
-    expect(Math.abs(turned)).toBeLessThan(0.01);
+    // The heading turns by the swipe and a little more: the chase's transient turn of each tick is carried into the
+    // look as well (the 30l model's 84 -> 98 offset) and read as finger - a geometric series that converges, at most
+    // the swipe / (1 - 0.144); the Saga's 30m swipe turned the view 108 for 400 px.
+    const by = wrap(headingOf(h, cloud) - yaw0);
+    expect(by).toBeGreaterThanOrEqual(84 - 1);
+    expect(by).toBeLessThanOrEqual(84 / (1 - chase) + 1);
+    expect(Math.abs(wrap(cloud.rotation.y - headingOf(h, cloud)))).toBeLessThanOrEqual(chase * Math.abs(wrap(player.sim.rotation.y - headingOf(h, cloud))) + 1e-6);
     expect(Math.max(...rates.slice(-60))).toBeLessThan(0.01);
-    expect(wrap(cloud.rotation.y - yaw0)).toBeCloseTo(0, 6);
-    expect(wrap(player.sim.rotation.y - look0)).toBeCloseTo(84 / (1 - chase), 0);
-    // The look sits a swipe off the heading: the offset no turn of the cloud can close, which the controller chased.
-    expect(wrap(player.sim.rotation.y - cloud.rotation.y)).toBeCloseTo(84 / (1 - chase), 0);
+    expect(wrap(player.sim.rotation.y - headingOf(h, cloud))).toBeGreaterThan(70);
+    expect(Math.abs(wrap(player.sim.rotation.y - look0))).toBeGreaterThan(150); // ~190: wraps past 180
     expect(h.errors()).toEqual([]);
   });
-  it('a swipe back turns the view back; the body never moves, and the CMVT line names the verdict', () => {
+  it('a swipe back turns the heading back, and the CMVT line names the verdict', () => {
     const w = driverWorld(undefined, true);
     const { h, cloud, player } = w;
     h.run(60);
     const swipe = (deg: number): void => { for (let t = 0; t < 16; t++) { player.sim.rotation = { x: 0, y: wrap(player.sim.rotation.y + deg / 16) }; h.run(1); } h.run(60); };
-    const yaw0 = cloud.rotation.y, look0 = player.sim.rotation.y;
+    const yaw0 = cloud.rotation.y;
+    const chase = quirkValue('hover-turn-chase', 'offsetShareTurnedPerTick');
     swipe(60);
-    expect(wrap(cloud.rotation.y - yaw0)).toBeCloseTo(0, 6);
-    expect(wrap(player.sim.rotation.y - look0)).toBeCloseTo(60 / (1 - quirkValue('hover-turn-chase', 'offsetShareTurnedPerTick')), 0);
+    const there = wrap(headingOf(h, cloud) - yaw0);
+    expect(there).toBeGreaterThanOrEqual(60 - 1);
+    expect(there).toBeLessThanOrEqual(60 / (1 - chase) + 1);
+    // Back: the look's offset (the carry) now closes as the heading turns back, so the chase's feed reverses too.
     swipe(-60);
-    expect(wrap(cloud.rotation.y - yaw0)).toBeCloseTo(0, 6);
-    expect(wrap(player.sim.rotation.y - look0)).toBeCloseTo(0, 1);
+    expect(Math.abs(wrap(headingOf(h, cloud) - yaw0))).toBeLessThan(60 * chase / (1 - chase) + 1);
     h.engine.emit('scriptEventReceive', { id: 'craftmatic:vehicle_telemetry', message: 'fast' });
     h.run(8);
-    const row = h.lines('console').map(l => /CMVT (\{.*\})/.exec(l)?.[1]).filter((v): v is string => !!v).map(v => JSON.parse(v) as { steer?: { verdict?: string; off?: number } }).at(-1);
+    const row = h.lines('console').map(l => /CMVT (\{.*\})/.exec(l)?.[1]).filter((v): v is string => !!v).map(v => JSON.parse(v) as { steer?: { verdict?: string; heading?: number } }).at(-1);
     expect(row?.steer?.verdict).toBe('carried');
-    expect(row?.steer?.off).toBe(0);
+    expect(Math.round(wrap(row?.steer?.heading ?? NaN))).toBe(Math.round(wrap(headingOf(h, cloud))));
+    expect(h.errors()).toEqual([]);
+  });
+  it('forward after a swipe flies where the view looks, within the controller\'s chase residual (quirk hover-stick-body-frame, Saga 30m: 94 degrees off the view)', () => {
+    const w = driverWorld(undefined, true);
+    const { h, cloud, player } = w;
+    h.run(60);
+    for (let t = 0; t < 16; t++) { player.sim.rotation = { x: 0, y: wrap(player.sim.rotation.y + 84 / 16) }; h.run(1); }
+    h.run(40);
+    const view = headingOf(h, cloud), start = { ...cloud.location };
+    player.input.y = 1;
+    h.run(60);
+    player.input.y = 0;
+    const dx = cloud.location.x - start.x, dz = cloud.location.z - start.z;
+    expect(Math.hypot(dx, dz)).toBeGreaterThan(3);
+    // Bedrock yaw of the displacement: 0 faces +Z, 90 faces -X. The residual is the controller's chase of the
+    // rider's look (0.144 of the offset) before the heading is written back - the device read 13-14 degrees.
+    const travel = Math.atan2(-dx, dz) * 180 / Math.PI;
+    expect(Math.abs(wrap(travel - view))).toBeLessThan(20);
     expect(h.errors()).toEqual([]);
   });
 });

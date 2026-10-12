@@ -43,7 +43,7 @@ import { quirkValue } from '../../quirks/registry.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import { CRAFTMATIC_ALLOWED_LINES, CRAFTMATIC_YIELDING_LINES } from './child-play.js';
 import type { CraftmaticPack } from './pack-facts.js';
-import { MOUNT_STILL_DEG_PER_TICK, MOUNT_TURN_SLACK_DEG, placedOf } from './play.js';
+import { MOUNT_STILL_DEG_PER_TICK, MOUNT_TURN_SLACK_DEG, placedOf, viewYaw } from './play.js';
 import { scriptedVehicleTypes, type ScriptedTypeFacts } from './vehicle-course.js';
 import { entityDrawn, packAppearance } from './drawn.js';
 
@@ -116,12 +116,15 @@ export async function swipeMount(ctx: StepContext, pack: CraftmaticPack, opts: {
   await ctx.run(60);
   const dxPx = opts.dxPx ?? 400, ticks = Math.max(1, opts.ticks ?? 16), watchTicks = opts.watchTicks ?? 100;
   const dragDeg = r2(dxPx * quirkValue('touch-drag-degrees-per-pixel', 'degreesPerPixel'));
-  let last = v.rotation.y, turned = 0, lastLook = ctx.player.rotation.y, lookTurned = 0;
+  // The VIEW is what the player sees (`viewYaw`: the chase camera), not the rider's reported look: a native mount's
+  // camera looks along the heading its driver holds since 2026-10-11, and the carry leaves the look off it.
+  let last = v.rotation.y, turned = 0, lastLook = viewYaw(ctx), lookTurned = 0;
   const rates: number[] = [];
   const tick = async (): Promise<void> => {
     await ctx.run(1);
     const d = wrap(v.rotation.y - last); last = v.rotation.y; turned += d; rates.push(Math.abs(d));
-    lookTurned += wrap(ctx.player.rotation.y - lastLook); lastLook = ctx.player.rotation.y;
+    const seen = viewYaw(ctx);
+    lookTurned += wrap(seen - lastLook); lastLook = seen;
   };
   for (let t = 0; t < ticks; t++) { dragPixels(ctx.sim.controls, ctx.player.id, dxPx / ticks, 0); await tick(); }
   const duringSwipe = r2(turned);
