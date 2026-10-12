@@ -35,6 +35,12 @@ import {
 import { COLLIDER_BLOCK_ID, COLLIDER_HI_STATE, COLLIDER_LO_STATE, colliderState } from '../web/src/engine/bedrock-building-shell.js';
 import { host } from './_placement-host.js';
 
+/** A plan's blocks without the reach guards' (test/reach-guards.test.ts covers those): the treads alone. */
+function treadsOnly(plan: TreadPlan): TreadBlock[] {
+  const guards = new Set(plan.guardBlocks.map(b => `${b.x},${b.y},${b.z}`));
+  return plan.blocks.filter(b => !guards.has(`${b.x},${b.y},${b.z}`));
+}
+
 /** The pin the host's player uses (its `location`, floored). */
 const ANCHOR = { x: 100, y: 64, z: 200 };
 /** Label prefixes of the wand menu's buttons (`menu()` in bedrock-placement-pack.ts). */
@@ -184,10 +190,11 @@ describe('the rule: treads only where the 100 % grid allows the move, and only o
     }
   });
 
-  it('150 % and 200 %: the risers are still a jump, so nothing is laid and the upper floor is reached bare', () => {
+  it('150 % and 200 %: the risers are still a jump, so no tread is laid and the upper floor is reached bare', () => {
     for (const pct of [150, 200]) {
       const plan = planColliderTreads(cells, house.dims, pct, 0);
-      expect(plan.blocks, `${pct} %`).toEqual([]);
+      // (The reach guards rail the upper floor's open edges above 100 %; they are not treads.)
+      expect(treadsOnly(plan), `${pct} %`).toEqual([]);
       expect(plan.before.highest16).toBe(Math.ceil(house.upperTop16 * pct / 100));
     }
   });
@@ -350,8 +357,8 @@ describe('the pack ships the treads and the runtime lays them', () => {
       expect(r.to.t - r.from.t).toBeGreaterThan(AUTO_JUMP16);
       expect(r.hop16).toBeLessThanOrEqual(AUTO_JUMP16);
     }
-    // Without the walk (the grid-only callers) the lane pass lays nothing.
-    expect(planColliderTreads(cells, house.dims, 200, 0).blocks).toEqual([]);
+    // Without the walk (the grid-only callers) the lane pass lays nothing (the reach guards are not treads).
+    expect(treadsOnly(planColliderTreads(cells, house.dims, 200, 0))).toEqual([]);
   });
 
   for (const pct of [300, 400]) for (const r of [0, 90] as const) {

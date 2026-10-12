@@ -29,7 +29,7 @@
  * mapped through the voxelizer's grid origin like every figure and seat.
  */
 
-import { visibleBoundsForSizeSteps, withSizeGroups } from './bedrock-placement-pack.js';
+import { SIZE_STEPS, visibleBoundsForSizeSteps, withSizeGroups } from './bedrock-placement-pack.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import type { CompiledLdrawGeometry, CompiledMesh, OrientedBoxLdu } from './ldraw-entity-compiler.js';
@@ -56,8 +56,18 @@ export const colliderState = (lo: number, hi: number): string => `${COLLIDER_BLO
 /** The LDraw → render matrix for a building shell at yaw 0: a −Z nose, det +1 (see the header). */
 export const SHELL_FRAME: readonly number[] = ldrawToRenderRotation('-z');
 
-/** Largest supported wand factor for which spatial shell roots are planned. */
-export const STATIC_SHELL_CULL_MAX_SCALE = 2;
+/**
+ * The wand factor the lattice is planned for: the LARGEST size step (400 %),
+ * so every chunk's root stays within draw reach of its own cubes at every
+ * size group. Until 2026-10-11 this was 2: 10261 at 400 % put the roots of
+ * its 20-block cells, which sat at each cell's top face, up to 98 blocks from
+ * their cubes, past the 70-block draw ceiling, and from 40 blocks west of the
+ * pin the phone drew the figures and cars and no shell at all (Pixel round
+ * 30m, COL-03). A lattice per size group would multiply the resident cuboids
+ * by the number of groups (the shell budget is what binds a pack), so the ONE
+ * lattice is planned for the largest.
+ */
+export const STATIC_SHELL_CULL_MAX_SCALE = Math.max(...SIZE_STEPS) / 100;
 /** Root-to-corner reach left after the same safety margin used by the LOD planner. */
 export const STATIC_SHELL_RADIUS_LIMIT_BLOCKS = ACTOR_DRAW_CEILING_BLOCKS - LOD_CULL_MARGIN_BLOCKS;
 /**
@@ -67,12 +77,13 @@ export const STATIC_SHELL_RADIUS_LIMIT_BLOCKS = ACTOR_DRAW_CEILING_BLOCKS - LOD_
  */
 export const STATIC_SHELL_STRADDLE_MARGIN_BLOCKS = 2;
 /**
- * Edge of a lattice cell, blocks at 100 %. A cell's root sits at the centre
- * of its TOP face, so its farthest own corner is `sqrt(0.5² + 0.5² + 1²)·S`
- * = `sqrt(1.5)·S` away; at the largest planned wand factor that reach, plus
- * the straddle margin, must stay under the draw limit. 20 blocks today.
+ * Edge of a lattice cell, blocks at 100 %. A cell's root sits at its CENTRE
+ * (`cellRoot`), so its farthest own corner is `sqrt(3)/2 · S` away; at the
+ * largest planned wand factor that reach, plus the straddle margin, must stay
+ * under the draw limit: `(54 / 4 - 2) / 0.866` = 13 blocks (a 52-block cell at
+ * 400 %, reach 45 + 8). At 100 % a chunk reaches 11.3 + 2 blocks from its root.
  */
-export const STATIC_SHELL_CELL_BLOCKS = Math.floor((STATIC_SHELL_RADIUS_LIMIT_BLOCKS / STATIC_SHELL_CULL_MAX_SCALE - STATIC_SHELL_STRADDLE_MARGIN_BLOCKS) / Math.sqrt(1.5));
+export const STATIC_SHELL_CELL_BLOCKS = Math.floor((STATIC_SHELL_RADIUS_LIMIT_BLOCKS / STATIC_SHELL_CULL_MAX_SCALE - STATIC_SHELL_STRADDLE_MARGIN_BLOCKS) / (Math.sqrt(3) / 2));
 
 /** A lattice cell's integer index on each axis (JSON frame, `STATIC_SHELL_CELL_BLOCKS` per step). */
 export type ShellCell = readonly [number, number, number];
@@ -209,26 +220,45 @@ const shifted = (v: readonly number[] | undefined, delta: Vec3): [number, number
   round2((v?.[0] ?? 0) - delta[0]), round2((v?.[1] ?? 0) - delta[1]), round2((v?.[2] ?? 0) - delta[2]),
 ];
 
-/** The lattice cell holding a drawn centre (blocks). */
-const cellOf = (center: Vec3): ShellCell => [
-  Math.floor(center[0] / STATIC_SHELL_CELL_BLOCKS), Math.floor(center[1] / STATIC_SHELL_CELL_BLOCKS), Math.floor(center[2] / STATIC_SHELL_CELL_BLOCKS),
+/**
+ * The lattice cell holding a drawn centre (blocks). The x/z lattice is
+ * anchored at the JSON origin (the model's floor centre, so the cells are
+ * symmetric about it); the y lattice at the model's FLOOR plane (`floorY`,
+ * `-originLiftBlocks` blocks under the origin the compiler lifts above the
+ * roof), so no cell with cubes in it reaches under the floor - every real
+ * shell's cubes stand on or above its floor - and every root (`cellRoot`)
+ * stands over the ground.
+ */
+export const shellCellOf = (center: Vec3, floorY: number): ShellCell => [
+  Math.floor(center[0] / STATIC_SHELL_CELL_BLOCKS), Math.floor((center[1] - floorY) / STATIC_SHELL_CELL_BLOCKS), Math.floor(center[2] / STATIC_SHELL_CELL_BLOCKS),
 ];
 
 /**
- * A cell's root: the centre of its TOP face, blocks in the JSON frame. Fixed
- * by the cell alone, so it never moves with the cubes the cell holds. The
- * compiler puts the whole shell's root a block above its roof, in open sky,
- * because an entity is lit by the WORLD block at its root; the lattice keeps
- * the top cells' roots there and a lower cell's at its own top plane - always
- * above the model's floor (the floor is a whole number of blocks below the
- * JSON origin, so it never coincides with a cell's top plane), and so in the
- * air the colliders leave lit (`light_dampening: 0`). Entity cubes are not
- * blocks and dampen nothing, so a root inside a drawn cube is reported, not
- * avoided (`buriedRootCubes`).
+ * A cell's root: its CENTRE, blocks in the JSON frame. Fixed by the cell and
+ * the floor plane alone, so it never moves with the cubes the cell holds.
+ * Until 2026-10-11 the root was the centre of the cell's TOP face, after the
+ * compiler's own rule (the whole shell's root a block above its roof, in open
+ * sky, because an entity is lit by the WORLD block at its root). That put a
+ * root `sqrt(1.5)·S` from a cell's far bottom corner and, scaled by the wand,
+ * past the draw ceiling at 400 % (COL-03). The centre halves that reach, and
+ * the lighting concern does not apply inside the model: the colliders dampen
+ * no light (`light_dampening: 0`) and entity cubes are not blocks, so a root
+ * inside the model is lit like the air around it; the y lattice starts at the
+ * floor, so a root is never in the ground. A root inside a drawn cube is
+ * reported, not avoided (`buriedRootCubes`).
  */
-const cellRoot = (cell: ShellCell): Vec3 => [
-  (cell[0] + 0.5) * STATIC_SHELL_CELL_BLOCKS, (cell[1] + 1) * STATIC_SHELL_CELL_BLOCKS, (cell[2] + 0.5) * STATIC_SHELL_CELL_BLOCKS,
+export const shellCellRoot = (cell: ShellCell, floorY: number): Vec3 => [
+  (cell[0] + 0.5) * STATIC_SHELL_CELL_BLOCKS, floorY + (cell[1] + 0.5) * STATIC_SHELL_CELL_BLOCKS, (cell[2] + 0.5) * STATIC_SHELL_CELL_BLOCKS,
 ];
+
+/**
+ * The farthest any cube of a cell can reach from the cell's root at wand
+ * factor `f` when the cube's centre is in the cell and it straddles the
+ * cell's boundary by no more than `STATIC_SHELL_STRADDLE_MARGIN_BLOCKS`:
+ * what the lattice is sized to keep under `STATIC_SHELL_RADIUS_LIMIT_BLOCKS`
+ * at `STATIC_SHELL_CULL_MAX_SCALE` (asserted in test/bedrock-building-shell.test.ts).
+ */
+export const shellCellReachBlocks = (f: number): number => (Math.sqrt(3) / 2 * STATIC_SHELL_CELL_BLOCKS + STATIC_SHELL_STRADDLE_MARGIN_BLOCKS) * f;
 
 /**
  * Split an already-finished static shell into locally rooted actors on a
@@ -239,10 +269,16 @@ const cellRoot = (cell: ShellCell): Vec3 => [
  * changes a final cube: every cube goes to the cell holding its drawn centre,
  * every JSON origin and pivot in a chunk is translated by the same whole-unit
  * root, and `offsetBlocks` is the sole placement delta from the original
- * actor root. Chunk ids and roots depend only on the lattice, so a later
- * compile of the same model (one cube more or less) keeps every placed chunk
- * where it is - which is what lets the placement runtime migrate an old
- * whole-shell actor into chunks (`shellMigrations`, bedrock-placement-pack.ts).
+ * actor root. Chunk ids and roots depend only on the lattice and the model's
+ * floor plane, so a later compile of the same model (one cube more or less)
+ * keeps every placed chunk where it is - which is what lets the placement
+ * runtime migrate an old whole-shell actor into chunks (`shellMigrations`,
+ * bedrock-placement-pack.ts). A pack built before 2026-10-11 named its chunks
+ * on a 20-block lattice with y cells counted from the origin (negative
+ * indices, `n1`/`n2`); the 13-block lattice counts y from the floor, so no old
+ * chunk id coincides with a new one: a saved world's old chunks are undefined
+ * types under the new pack (inert, drawn nowhere), never new geometry at an
+ * old root. Re-place the model to draw it.
  *
  * A bone with no cube in a chunk is dropped unless it is an ancestor of one
  * that has (the parent chain sets a cube's transform); a rotated cube must
@@ -283,11 +319,13 @@ export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): S
     return { chunks: [{ id: shellId, cell: [0, 0, 0], geo, offsetBlocks: [0, 0, 0], radiusBlocks: originalRadius, oversizedCubes: 0, buriedRootCubes: 0, bones: bonesOf(geometries) }], warnings: [] };
   }
 
+  // The model's floor plane in the JSON frame (`originLiftBlocks` blocks under the lifted origin): the y lattice's anchor.
+  const floorY = -(geo.originLiftBlocks ?? 0);
   // Cells in a fixed order (x, then y, then z), so the chunk list - and with it
   // every per-chunk warning and diagnostic - reads the same from one build to the next.
   const partitions = new Map<string, { cell: ShellCell; records: ShellCubeRecord[] }>();
   for (const record of records) {
-    const cell = cellOf(record.center), key = cell.join(',');
+    const cell = shellCellOf(record.center, floorY), key = cell.join(',');
     const hit = partitions.get(key);
     if (hit) hit.records.push(record); else partitions.set(key, { cell, records: [record] });
   }
@@ -296,7 +334,7 @@ export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): S
   const warnings: string[] = [];
   const chunks = ordered.map(({ cell, records: partition }): StaticShellChunk => {
     const id = shellChunkId(shellId, cell);
-    const root = cellRoot(cell);
+    const root = shellCellRoot(cell, floorY);
     const delta: Vec3 = root.map(value => value * 16) as Vec3;
     const radiusBlocks = shellRadius(partition, root);
     const selected = new Set(partition.map(record => `${record.geometry}:${record.bone}:${record.cube}`));

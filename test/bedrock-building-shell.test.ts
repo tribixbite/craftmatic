@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import {
-  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, SHELL_BOX_WIDTH, SHELL_FRAME, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, actorCullDistance, actorCullFit, buildColliderGrid, clipParallelepiped, colliderBlockDefinition, colliderCellIndex, colliderState, gridParallelepiped, isSceneBlock, isShellEntityId, isTiltedBox, shellBehavior, shellChunkCell, shellChunkId, shellCollisionBox, splitStaticShell, yawStepKept, YAW_STEP_MAX_BLOCKS,
+  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, SHELL_BOX_WIDTH, SHELL_FRAME, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, actorCullDistance, actorCullFit, buildColliderGrid, clipParallelepiped, colliderBlockDefinition, colliderCellIndex, colliderState, gridParallelepiped, isSceneBlock, isShellEntityId, isTiltedBox, shellBehavior, shellCellReachBlocks, shellChunkCell, shellChunkId, shellCollisionBox, splitStaticShell, yawStepKept, YAW_STEP_MAX_BLOCKS,
 } from '../web/src/engine/bedrock-building-shell.js';
 import { SIZE_STEPS, collisionWorldBox } from '../web/src/engine/bedrock-placement-pack.js';
 import { BlockTypes } from '../web/src/sim/world/block-types.js';
@@ -506,19 +506,44 @@ describe('splitStaticShell', () => {
     }
   });
 
-  it('splits a tall finished shell on the lattice and roots each piece at the top of its own cell', async () => {
+  it('splits a tall finished shell on the lattice and roots each piece at the CENTRE of its own cell', async () => {
     const S = STATIC_SHELL_CELL_BLOCKS;
     const tall = await compiledFixture([{ description: { identifier: 'geometry.craftmatic.tall_mesh_0' }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: [
       { origin: [-8, -608, -8], size: [16, 16, 16] }, { origin: [-8, 592, -8], size: [16, 16, 16] },
     ] }] }], [{ color: 4 }]);
     const result = splitStaticShell('tall', tall);
     expect(result.chunks).toHaveLength(2);
-    // Cube centres at y = -37.5 and 37.5 blocks: the cell holding each, and its top plane.
+    // Cube centres at y = -37.5 and 37.5 blocks (the fixture's floor plane is the origin): the cell holding each, and its centre.
     const cells = [Math.floor(-37.5 / S), Math.floor(37.5 / S)];
     expect(result.chunks.map(chunk => chunk.id).sort()).toEqual(cells.map(iy => shellChunkId('tall', [0, iy, 0])).sort());
-    expect(result.chunks.map(chunk => chunk.offsetBlocks[1]).sort((a, b) => a - b)).toEqual(cells.map(iy => (iy + 1) * S));
+    expect(result.chunks.map(chunk => chunk.offsetBlocks[1]).sort((a, b) => a - b)).toEqual(cells.map(iy => (iy + 0.5) * S));
     expect(result.chunks.every(chunk => chunk.radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE <= STATIC_SHELL_RADIUS_LIMIT_BLOCKS)).toBe(true);
     expect(result.chunks.every(chunk => shellChunkCell(chunk.id)!.join() === chunk.cell.join())).toBe(true);
+  });
+
+  it('plans the lattice for the LARGEST size step, every chunk within draw reach of its cubes at 400 % (COL-03, round 30m)', async () => {
+    expect(STATIC_SHELL_CULL_MAX_SCALE).toBe(Math.max(...SIZE_STEPS) / 100);
+    expect(STATIC_SHELL_CULL_MAX_SCALE).toBe(4);
+    // A cube centred in a cell and straddling its boundary by the margin stays within the limit at the largest step.
+    expect(shellCellReachBlocks(STATIC_SHELL_CULL_MAX_SCALE)).toBeLessThanOrEqual(STATIC_SHELL_RADIUS_LIMIT_BLOCKS);
+    expect(shellCellReachBlocks(STATIC_SHELL_CULL_MAX_SCALE)).toBeGreaterThan(STATIC_SHELL_RADIUS_LIMIT_BLOCKS - Math.sqrt(3) / 2 * STATIC_SHELL_CULL_MAX_SCALE);
+    expect(STATIC_SHELL_CELL_BLOCKS).toBe(13);
+    // The y lattice starts at the model's floor plane: a shell lifted 30 blocks (originLiftBlocks) with cubes from
+    // its floor (y -30) up puts its bottom cell's root half a cell OVER the floor, never in the ground.
+    const S = STATIC_SHELL_CELL_BLOCKS;
+    const lifted = await compiledFixture([{ description: { identifier: 'geometry.craftmatic.lifted_mesh_0' }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: [
+      { origin: [-8, -30 * 16, -8], size: [16, 16, 16] }, { origin: [-8, -17, -8], size: [16, 16, 16] }, { origin: [3 * S * 16, -30 * 16, -8], size: [16, 16, 16] },
+    ] }] }], [{ color: 4 }]);
+    (lifted as { originLiftBlocks: number }).originLiftBlocks = 30;
+    const result = splitStaticShell('lifted', lifted);
+    const ys = new Set(result.chunks.map(chunk => chunk.cell[1]));
+    expect([...ys].every(iy => iy >= 0)).toBe(true);
+    for (const chunk of result.chunks) {
+      expect(chunk.offsetBlocks[1]).toBe(-30 + (chunk.cell[1] + 0.5) * S);
+      expect(chunk.offsetBlocks[1]).toBeGreaterThan(-30);
+      // Scaled by the wand (the root offset and every cube's reach grow with it), each chunk stays under the limit at 400 %.
+      expect(chunk.radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toBeLessThanOrEqual(STATIC_SHELL_RADIUS_LIMIT_BLOCKS);
+    }
   });
 
   it('retains and diagnoses a cube that straddles its cell past the reach target', async () => {
@@ -535,8 +560,9 @@ describe('splitStaticShell', () => {
   it('keeps a cell root that lies inside a drawn cube, reporting it instead of rejecting the split', async () => {
     const S = STATIC_SHELL_CELL_BLOCKS * 16;
     const buried = await compiledFixture([{ description: { identifier: 'geometry.craftmatic.buried_mesh_0' }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: [
-      // A slab across cell (0,1,0)'s bottom: its AABB contains cell (0,0,0)'s root (the centre of that cell's top face).
-      { origin: [0, S - 20, 0], size: [S, 40, S] },
+      // A post whose centre is in cell (0,1,0) (y 6.25..19.75 blocks, centre 13) reaching down through cell (0,0,0)'s
+      // root (the cell's centre, 6.5 blocks up): its AABB contains that root; thin, so it stays within reach at 4x.
+      { origin: [96, 100, 96], size: [16, 216, 16] },
       { origin: [8, 8, 8], size: [16, 16, 16] },
       // Far enough that the whole shell cannot keep one root.
       { origin: [3 * S, 8, 8], size: [16, 16, 16] },
@@ -545,11 +571,15 @@ describe('splitStaticShell', () => {
     expect(result.chunks.map(chunk => chunk.id).sort()).toEqual(['buried_c0_0_0', 'buried_c0_1_0', 'buried_c3_0_0']);
     const low = result.chunks.find(chunk => chunk.id === 'buried_c0_0_0')!;
     expect(low.buriedRootCubes).toBe(1);
-    expect(low.offsetBlocks).toEqual([STATIC_SHELL_CELL_BLOCKS / 2, STATIC_SHELL_CELL_BLOCKS, -STATIC_SHELL_CELL_BLOCKS / 2]);
+    expect(low.offsetBlocks).toEqual([STATIC_SHELL_CELL_BLOCKS / 2, STATIC_SHELL_CELL_BLOCKS / 2, -STATIC_SHELL_CELL_BLOCKS / 2]);
     const rawCubeCount = result.chunks.reduce((n, chunk) => n + (chunk.geo.value as { 'minecraft:geometry': TestGeometry[] })['minecraft:geometry']
       .reduce((m, geometry) => m + geometry.bones.reduce((k, bone) => k + (bone.cubes?.length ?? 0), 0), 0), 0);
     expect(rawCubeCount).toBe(3);
-    expect(result.warnings).toEqual([expect.stringMatching(/buried_c0_0_0: its cell root is inside the transformed AABB of 1 final cube; kept/)]);
+    // The post holds cell (0,1,0)'s own centre too (its centre is that cell's root): both are reported, neither rejected.
+    expect(result.warnings).toEqual([
+      expect.stringMatching(/buried_c0_0_0: its cell root is inside the transformed AABB of 1 final cube; kept/),
+      expect.stringMatching(/buried_c0_1_0: its cell root is inside the transformed AABB of 1 final cube; kept/),
+    ]);
   });
 
   it('keeps every other chunk\'s id and root when one more cube is compiled', async () => {
