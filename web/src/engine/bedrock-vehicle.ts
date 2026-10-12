@@ -814,12 +814,30 @@ export function resolveMove(
    */
   const sideOpen = (): 1 | -1 | undefined => {
     if (len < M.MIN_PROGRESS) return undefined;
-    const reachable: Record<string, boolean> = { '1': true, '-1': true };
+    // A cheap look first (cell reads, cached per tick): a side with no gap at all just past the nose - every point
+    // from the centre line out to `OPEN_SIDE` past the side, at the band's floor, middle and roof, solid - is a
+    // wall, and is not searched. Searched every tick a car pushed into a wall, the sweeps below raised its p95 from
+    // ~50 probes a tick to ~450-780 (vehicle course, 2026-10-11).
+    const r0 = from.yaw * Math.PI / 180, fx = -Math.sin(r0), fz = Math.cos(r0), rx = -Math.cos(r0), rz = -Math.sin(r0);
+    const L = Math.max(0.05, fp.halfLength), ux = dx / len, uz = dz / len;
+    const heights = [fp.lo + 0.05, (fp.lo + fp.hi) / 2, Math.max(fp.lo + 0.05, fp.hi - 0.05)];
+    const gap = (sgn: number): boolean => {
+      for (let b = 0; b <= fp.halfWidth + M.OPEN_SIDE + 1e-9; b += M.OPEN_STEP) {
+        const x = from.x + fx * L + rx * sgn * b + dx + ux * 0.05, z = from.z + fz * L + rz * sgn * b + dz + uz * 0.05;
+        let open = true;
+        for (const h of heights) { checks++; if (solid(x, from.y + h, z)) { open = false; break; } }
+        if (open) return true;
+      }
+      return false;
+    };
+    const reachable: Record<string, boolean> = { '1': gap(1), '-1': gap(-1) };
+    // Then the search: the footprint stepped across `OPEN_STEP` at a time (each step swept from the last), and from
+    // each place this tick's push swept ahead.
     for (let d = M.OPEN_STEP; d <= M.OPEN_SIDE + 1e-9; d += M.OPEN_STEP) {
       for (const sgn of [1, -1] as const) {
         if (!reachable[sgn]) continue;
         const at = aside(from, sgn * d);
-        const across = sweep(from, at, fp, solid, P);
+        const across = sweep(aside(from, sgn * (d - M.OPEN_STEP)), at, fp, solid, P);
         checks += across.checks;
         // Blocked stepping across: nothing further that way is reachable.
         if (across.blocked) { reachable[sgn] = false; continue; }
