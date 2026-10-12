@@ -200,7 +200,10 @@ quality) with:
   ray, in reach, with a clear line of sight, is toggled or mounted instead.
   On the Pixel a long press on 76457's Bed picked Door 4's box beyond a wall
   (walls have no selection box, so that box was first on the ray) and was
-  refused. The refusal record (`craftmatic:ix_refused`) carries the eyes, the
+  refused. A tap that lands on a FIGURE (family `craftmatic_figure`) goes on
+  the same way, to moving parts only, never a seat (2026-10-11): figures take
+  no tap of their own, and one standing or walking in front of a door ate
+  the tap meant for it ("Taps through figures" below). The refusal record (`craftmatic:ix_refused`) carries the eyes, the
   part's position and the collider cell that cut the line, for the GameTest.
 - **Reach**: Minecraft hands a tap on an entity to the script only within
   the player's reach - about 3 blocks on the Pixel (device 2026-09-24e: a door
@@ -1553,6 +1556,53 @@ static colliders in the pack (the f5 wall at 10,17,4, the full cell at
 11,17,3). Bedrock let a teleported player stand there, and the round's
 diagonal walk that ended at the second pose STARTED inside the first; a walk
 from a legal spot does not reach either.
+
+### Taps through figures, big parts, and a frame's far half (2026-10-11)
+
+From the combined engine run on the round-30m packs
+(`output/engine-combined-1008/`, child play `--sizes=100,200,400 --walk`):
+
+- **Taps through figures.** 76417's Door 3 picked figure 5 at 100 % and
+  910004's Drawer 1 figure 7 at 200 %: a figure walking or standing between
+  the child and the part was first on the ray. Figures take no tap (no
+  damage, no handler), so `use` now passes a tap on a `craftmatic_figure` to
+  `forward` - the nearest moving part on the view ray, in reach and in plain
+  sight - with seats left out (the figure may be sitting on one). Assumed,
+  not measured: that Bedrock fires `entityHitEntity` for a hit on a figure
+  whose damage sensor deals no damage (it does for the parts, which have the
+  same sensor).
+- **A double door's other leaf.** 41732's Door 3 "picking Door 6" is its
+  pair: one tap moves both. The input scenario tallies it `pair:`, not a
+  fault; the child's tap is judged by whether the part moved.
+- **Hidden cubes.** 910004's Drawer 1 "picking Drawer 2" in 4 of 9 samples:
+  those cubes are its body under Drawer 2, stacked on it, and the line to
+  each meets Drawer 2's drawn geometry first. Tallied `hidden:` (a child
+  cannot aim at what it cannot see); the drawn centre picks Drawer 1.
+- **Big parts.** At 400 % a door's tap box is 10 blocks tall; the simulator
+  aimed every tap at a box's centre, 5 blocks up and out of reach from every
+  floor, and reported 41732 Door 2, 76417 Door 2 / Gate 1 and 60380
+  Turnable 1 untappable. The device picks any point of a box within reach;
+  the sim now aims at the near point when the centre is out of reach
+  (docs/sim-engine.md "Touch reach"). Nothing in the pack changed.
+- **A frame's far half.** 42639's Door 1 was SEALED at every size: past the
+  leaf, the frame's other half holds a jamb post at each edge of the
+  doorway, and the room beyond is furnished, so the passage found no
+  standable column within three cells and cut nothing. Clearance then
+  covered each post with a band ACROSS its column (a form is a band, never
+  a corner post): an invisible wall 1/8 block thick over the open doorway.
+  The passage now opens the column next to the leaf when its geometry
+  leaves a strip a player wide along the normal, from a step over the
+  doorway's floor to a player's height (`geometryPassable`), keeping the
+  column's own floor (`columnFloorTop16`; trimmed from the sill it cut
+  10326 Door 3's WC floor in a first draft, a SNEAK-STOP). Only where the
+  span rule found nothing: every doorway it serves is cut as before.
+  42639 Door 1: SEALED -> OK at 100, 200 and 400 %.
+- **910004 Doors 3 and 5 stay sealed: the model.** Door 3 opens onto a
+  room whose floor is a step up with a lamp in the corner; clearance's
+  layers (one box per sixteenth per cell) read the inner column full, so
+  the line stops on a collider over most of which nothing is drawn - but
+  the drawn-geometry walk (`_ix_sealed_causes.ts --drawn`) cannot get
+  through at any size either (`TODO(passage-geometry)`).
 
 ### Known limits
 

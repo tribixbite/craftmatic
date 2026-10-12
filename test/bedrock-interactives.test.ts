@@ -15,6 +15,7 @@ import {
   rotateAbout, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type IxCell, type SceneInteractive,
 } from '../web/src/engine/bedrock-interactives.js';
 import { colliderState, COLLIDER_BLOCK_ID, COLLIDER_HI_STATE, COLLIDER_LO_STATE } from '../web/src/engine/bedrock-building-shell.js';
+import { addLayerBox, newCellLayers, type CellLayers } from '../web/src/engine/collider-clearance.js';
 import { ScaledColliderGrid, QUARTER_TURNS, relayRounding, type QuarterTurn, type SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
 import { laidColliderBlocks } from '../web/src/ui/addon-preview-data.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
@@ -319,6 +320,50 @@ describe('planInteractiveColliders', () => {
     for (let z = 0; z < 10; z++) expect(g.get(3, 0, z)).toBe(colliderState(0, 16));
   });
 
+  it('opens the frame column next to the leaf when its GEOMETRY leaves a player\'s width, though no standable column lies within reach (42639 Door 1, child play 2026-10-08, DOOR-01)', () => {
+    // The leaf in a wall at z 5; past it at z 6 the frame's far half - a jamb post at one edge of each column, which
+    // clearance would cover with a band ACROSS the column - and then furniture filling z 7..9 (no standable column).
+    const plan = (postX0: number, postX1: number): BlockGrid => {
+      const g = wallGrid();
+      const layers: CellLayers = new Map();
+      for (const x of [3, 4]) for (let y = 1; y <= 3; y++) {
+        for (const z of [6, 7, 8, 9]) g.set(x, y, z, colliderState(0, 16));
+        const post = newCellLayers();
+        addLayerBox(post, postX0, postX1, 0, 16, 0, 2);
+        layers.set((x * g.height + y) * g.length + 6, post);
+        for (const z of [7, 8, 9]) { const full = newCellLayers(); addLayerBox(full, 0, 16, 0, 16, 0, 16); layers.set((x * g.height + y) * g.length + z, full); }
+      }
+      planInteractiveColliders(g, [leafAt(3.25, 1.5, 5.5)], frame, layers);
+      return g;
+    };
+    // A post at the column's edge leaves 14/16 free across the walk: the frame column is opened over the floor.
+    const g = plan(0, 2);
+    for (const x of [3, 4]) for (const y of [1, 2]) expect(g.get(x, y, 6), `${x},${y},6`).toBe('minecraft:air');
+    // Only that column: the furniture past it stays, as does the floor.
+    for (const x of [3, 4]) for (const y of [1, 2, 3]) expect(g.get(x, y, 7), `${x},${y},7`).toBe(colliderState(0, 16));
+    expect(g.get(3, 0, 6)).toBe(colliderState(0, 16));
+    // A post in the middle of the column leaves 6/16 either side: no player fits, the column stays solid.
+    const mid = plan(5, 11);
+    for (const x of [3, 4]) expect(mid.get(x, 1, 6)).toBe(colliderState(0, 16));
+    // A floor in that column up to a jump over the doorway's (10326 Door 3's WC floor, 12/16 over its sill) is kept.
+    const g2 = wallGrid();
+    const layers2: CellLayers = new Map();
+    for (const x of [3, 4]) {
+      for (let y = 1; y <= 3; y++) for (const z of [6, 7, 8, 9]) g2.set(x, y, z, colliderState(0, 16));
+      const cell = newCellLayers();
+      addLayerBox(cell, 0, 16, 0, 12, 0, 16); // the raised floor
+      addLayerBox(cell, 0, 2, 12, 16, 0, 16); // a post at the edge on it
+      layers2.set((x * g2.height + 1) * g2.length + 6, cell);
+      for (const y of [2, 3]) { const post = newCellLayers(); addLayerBox(post, 0, 2, 0, 16, 0, 16); layers2.set((x * g2.height + y) * g2.length + 6, post); }
+      for (let y = 1; y <= 3; y++) for (const z of [7, 8, 9]) { const full = newCellLayers(); addLayerBox(full, 0, 16, 0, 16, 0, 16); layers2.set((x * g2.height + y) * g2.length + z, full); }
+    }
+    planInteractiveColliders(g2, [leafAt(3.25, 1.5, 5.5)], frame, layers2);
+    for (const x of [3, 4]) {
+      expect(g2.get(x, 1, 6), `${x},1,6`).toBe(colliderState(0, 12));
+      expect(g2.get(x, 2, 6), `${x},2,6`).toBe('minecraft:air');
+    }
+  });
+
   it('finds a passable size from the opening and says when none reaches the player\'s passage', () => {
     expect(passSizeFor('door', { width: 80, height: 144 })).toBe(100);
     expect(passSizeFor('door', { width: 40, height: 72 })).toBe(150);
@@ -575,6 +620,34 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     h.aim({ x: 103.5, y: 66.6, z: 199.5 }, { x: 103.5, y: 65.3, z: 200.8 });
     h.tap(a);
     expect(h.lastBar()).toMatch(/door 1 is behind a wall from here/);
+  });
+
+  it('passes a tap that lands on a FIGURE in front of a part on to the part behind it, never to a seat (76417 Door 3 and figure 5, combined run 2026-10-08, IX-01)', () => {
+    const cfg = doubleDoorConfig();
+    cfg.items[0]!.hit = { c: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }], o: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }] };
+    const FIG = 'craftmatic:gringotts_76417_fig5', SEAT = 'craftmatic:gringotts_76417_seat_1';
+    const h = runtimeHost(cfg, { types: {
+      [FIG]: { components: { 'minecraft:type_family': { family: ['craftmatic_figure', 'mob'] }, 'minecraft:collision_box': { width: 0.6, height: 1.8 } } },
+      [SEAT]: { components: { 'minecraft:type_family': { family: ['craftmatic_seat'] }, 'minecraft:collision_box': { width: 0.6, height: 0.6 }, 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: [{ position: [0, 0.3, 0] }] } } },
+    } });
+    const a = h.spawn(0, anchor, 1, 0, { x: 103, y: 65, z: 205.5 });
+    h.sync();
+    // A figure standing between the player and the door, on the view ray to the door's tap box.
+    const fig = h.host.spawn(FIG, { x: 103, y: 65, z: 203 });
+    h.aim({ x: 103, y: 66.6, z: 200.5 }, { x: 103, y: 66.25, z: 205.5 });
+    h.tap(h.host.api(fig));
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
+    // The same tap with the view ray on nothing but the figure moves nothing.
+    h.aim({ x: 103, y: 66.6, z: 200.5 }, { x: 108, y: 66.25, z: 203 });
+    h.tap(h.host.api(fig));
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
+    // A seat behind a figure is never mounted by a tap on the figure (the figure may be sitting on it).
+    h.host.remove(fig);
+    const seat = h.host.spawn(SEAT, { x: 105, y: 65, z: 203 });
+    const fig2 = h.host.spawn(FIG, { x: 105, y: 65, z: 201.5 });
+    h.aim({ x: 105, y: 66.6, z: 199.5 }, { x: 105, y: 65.3, z: 203 });
+    h.tap(h.host.api(fig2));
+    expect(seat.riderList()).toEqual([]);
   });
 
   it('judges a tap by the line of sight to the part, not by where the camera looks (a touch tap), and not by the cell the part itself pokes into', () => {

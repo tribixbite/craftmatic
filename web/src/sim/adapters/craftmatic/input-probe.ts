@@ -29,7 +29,7 @@
 import type { AnyStep, Scenario, Step, StepContext, StepHandler } from '../../scenario/types.js';
 import { CORE_HANDLERS, findEntity } from '../../scenario/runner.js';
 import type { SimEntity } from '../../entity/entity.js';
-import type { Vec3 } from '../../core/vec.js';
+import { rayBox, type Vec3 } from '../../core/vec.js';
 import type { Addon } from '../../pack/pack.js';
 import { FLAT_GROUND_Y } from '../../world/voxel-world.js';
 import { teleport } from '../../script-host/facades.js';
@@ -43,9 +43,14 @@ import { quirkValue } from '../../quirks/registry.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import { CRAFTMATIC_ALLOWED_LINES, CRAFTMATIC_YIELDING_LINES } from './child-play.js';
 import type { CraftmaticPack } from './pack-facts.js';
-import { MOUNT_STILL_DEG_PER_TICK, MOUNT_TURN_SLACK_DEG, placedOf, viewYaw } from './play.js';
+import { FIGURE_TYPE, MOUNT_STILL_DEG_PER_TICK, MOUNT_TURN_SLACK_DEG, placedOf, viewYaw } from './play.js';
 import { scriptedVehicleTypes, type ScriptedTypeFacts } from './vehicle-course.js';
 import { entityDrawn, packAppearance } from './drawn.js';
+
+/** How far (blocks) from a tapped part another entity's drawn cubes are read as possible occluders (tap-occlusion). */
+const OCCLUDER_RANGE = 8;
+/** The last stretch of a sight line to a cube that is the cube's own neighbourhood, never an occluder (blocks). */
+const HIDDEN_EPS = 0.05;
 
 const r2 = (v: number): number => Math.round(v * 100) / 100;
 const wrap = (a: number): number => ((a + 180) % 360 + 360) % 360 - 180;
@@ -293,27 +298,62 @@ export function inputProbeHandlers(pack: CraftmaticPack, addon: Addon, device?: 
         // it, so each sample is the centre pick with the look on that point. Split Controls OFF (`touchMode` 'touch') would
         // instead tap the point where it is drawn from one look: the row's `touchModeTally` is that reading.
         const look0 = { ...p.rotation }, cam = screenCamera(p), centreOf = { x: PIXEL_VIEWPORT.width / 2, y: PIXEL_VIEWPORT.height / 2 };
+        // A double door's leaves move together (`pairs`): a tap on the other leaf moves this one too.
+        const pairs = new Set(pack.interactives?.items[idx]?.pairs ?? []);
         const classify = (q: Vec3, mode: 'crosshair' | 'touch' = 'crosshair'): string => {
           let r: ReturnType<typeof screenPick>;
-          if (mode === 'crosshair') { lookAt(p, q); r = screenPick(ctx.sim.engine, p, centreOf, PIXEL_VIEWPORT); p.rotation = { ...look0 }; }
-          else {
+          // A FIGURE the ray meets first passes the tap on along the view ray (interactives `use`): picked again past figures.
+          const pickAt = (skip?: (e: SimEntity) => boolean): ReturnType<typeof screenPick> | 'off-screen' => {
+            if (mode === 'crosshair') { lookAt(p, q); const out = screenPick(ctx.sim.engine, p, centreOf, PIXEL_VIEWPORT, undefined, skip); p.rotation = { ...look0 }; return out; }
             const s = projectToScreen(cam, q, PIXEL_VIEWPORT);
             if (!s || s.x < 0 || s.y < 0 || s.x > PIXEL_VIEWPORT.width || s.y > PIXEL_VIEWPORT.height) return 'off-screen';
-            r = screenPick(ctx.sim.engine, p, s, touchModeOf(PIXEL_VIEWPORT, 'touch'));
+            return screenPick(ctx.sim.engine, p, s, touchModeOf(PIXEL_VIEWPORT, 'touch'), undefined, skip);
+          };
+          const first = pickAt();
+          if (first === 'off-screen') return first;
+          r = first;
+          let via = '';
+          if (r.entity && FIGURE_TYPE.test(r.entity.typeId)) {
+            const past = pickAt(e => FIGURE_TYPE.test(e.typeId));
+            if (past !== 'off-screen' && past.entity && typeof past.entity.dynamic.get(IX_KEYS.index) === 'number') { r = past; via = 'via-figure:'; }
           }
-          if (r.entity === part) return 'own';
-          if (r.entity) { const j = r.entity.dynamic.get(IX_KEYS.index); return `other:${typeof j === 'number' ? pack.interactives?.items[j]?.label ?? r.entity.typeId : r.entity.typeId}`; }
+          if (r.entity === part) return via ? `${via}own` : 'own';
+          if (r.entity) {
+            const j = r.entity.dynamic.get(IX_KEYS.index);
+            if (typeof j === 'number' && pairs.has(j)) return `${via}pair:${pack.interactives?.items[j]?.label ?? r.entity.typeId}`;
+            return `${via}other:${typeof j === 'number' ? pack.interactives?.items[j]?.label ?? r.entity.typeId : r.entity.typeId}`;
+          }
           if (r.blockedBy) return 'block';
           return r.outOfReach ? 'out-of-reach' : 'nothing';
         };
         const centreHit = classify(centre);
+        // A cube another ENTITY's opaque drawn cube hides from the eye cannot be aimed at: a child taps what it sees.
+        // 910004's Drawer 1 at 100 %: 4 of its 9 cubes are its body under Drawer 2, stacked on it, and a tap aimed
+        // through Drawer 2 picked Drawer 2 (combined run 2026-10-08). Such a sample is tallied `hidden:<label>`, not
+        // `other:`. Only the per-cube tallies: the centre's verdict stays the pick (a box in front of a part's middle
+        // is the IX-01 fault whether or not the box's own part is drawn there). Turned cubes are left out (their
+        // corner box is wider than the cube): a turned occluder is not credited.
+        const eye0 = p.headLocation();
+        const occluders = [...ctx.sim.engine.entities.values()]
+          .filter(e => e.valid && e !== part && !e.isPlayer && Math.hypot(e.location.x - part.location.x, e.location.y - part.location.y, e.location.z - part.location.z) < OCCLUDER_RANGE)
+          .flatMap(e => (entityDrawn(look(), e) ?? []).filter(d => !d.glass && !d.solid).map(d => ({ box: d.box, label: typeof e.dynamic.get(IX_KEYS.index) === 'number' ? pack.interactives?.items[Number(e.dynamic.get(IX_KEYS.index))]?.label ?? e.typeId : e.typeId })));
+        const hiddenBy = (q: Vec3): string | undefined => {
+          const d = { x: q.x - eye0.x, y: q.y - eye0.y, z: q.z - eye0.z }, len = Math.hypot(d.x, d.y, d.z) || 1;
+          const u = { x: d.x / len, y: d.y / len, z: d.z / len };
+          return occluders.find(o => rayBox(eye0, u, o.box, len - HIDDEN_EPS) !== undefined)?.label;
+        };
+        const sample = (d: { box: { x0: number; x1: number; y0: number; y1: number; z0: number; z1: number } }, mode: 'crosshair' | 'touch'): string => {
+          const q = { x: (d.box.x0 + d.box.x1) / 2, y: (d.box.y0 + d.box.y1) / 2, z: (d.box.z0 + d.box.z1) / 2 };
+          const hid = hiddenBy(q);
+          return hid ? `hidden:${hid}` : classify(q, mode);
+        };
         const tally = new Map<string, number>();
-        for (const d of drawn) { const c = classify({ x: (d.box.x0 + d.box.x1) / 2, y: (d.box.y0 + d.box.y1) / 2, z: (d.box.z0 + d.box.z1) / 2 }); tally.set(c, (tally.get(c) ?? 0) + 1); }
+        for (const d of drawn) { const c = sample(d, 'crosshair'); tally.set(c, (tally.get(c) ?? 0) + 1); }
         const touchTally = new Map<string, number>();
-        for (const d of drawn) { const c = classify({ x: (d.box.x0 + d.box.x1) / 2, y: (d.box.y0 + d.box.y1) / 2, z: (d.box.z0 + d.box.z1) / 2 }, 'touch'); touchTally.set(c, (touchTally.get(c) ?? 0) + 1); }
+        for (const d of drawn) { const c = sample(d, 'touch'); touchTally.set(c, (touchTally.get(c) ?? 0) + 1); }
         const row = { part: label, spot: rel(spot.feet, a), centre: centreHit, samples: drawn.length, tally: Object.fromEntries(tally), touchModeTally: Object.fromEntries(touchTally) };
         rows.push(row);
-        if (centreHit.startsWith('other:')) ctx.violate({ invariant: 'tap-occluded', message: `${label}: from where a child taps it (${JSON.stringify(row.spot)}, anchor-relative) a screen tap at its drawn centre picks ${centreHit.slice(6)} (IX-01: 910004 Door 4 opened Window 3)`, evidence: row });
+        if (/^(via-figure:)?other:/.test(centreHit)) ctx.violate({ invariant: 'tap-occluded', message: `${label}: from where a child taps it (${JSON.stringify(row.spot)}, anchor-relative) a screen tap at its drawn centre picks ${centreHit.replace(/^(via-figure:)?other:/, '')} (IX-01: 910004 Door 4 opened Window 3)`, evidence: row });
       }
       ctx.state['tapOcclusion'] = rows;
       for (const r of rows) ctx.note(`tap-occlusion ${JSON.stringify(r)}`);

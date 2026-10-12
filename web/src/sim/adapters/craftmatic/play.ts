@@ -642,12 +642,22 @@ export async function tapPart(ctx: StepContext, part: SimEntity, label: string, 
     const notWhere = pack && /step out to close it/.test(refused) ? inDoorway(ctx, pack, part) : undefined;
     const spot = attempt === 0 ? undefined : findApproach(ctx.sim.engine, ctx.player, part, undefined, tried, { inFront: true, ...(notWhere ? { notWhere } : {}) });
     if (attempt > 0) { if (!spot) break; teleport(ctx.sim.host, ctx.player, spot.feet); await ctx.run(1); }
-    await CORE_HANDLERS['tap']!({ kind: 'tap', target: { where: (e: SimEntity) => e === part, label } }, ctx);
+    // The pick is judged after the pack had its say (`expectHit: false`): a tap that lands on a FIGURE in front of the
+    // part is forwarded to the part by the runtime (interactives `use`), and one on a double door's other leaf moves
+    // both. A pick of anything else that leaves the part as it was is the wrong-pick failure, as before.
+    await CORE_HANDLERS['tap']!({ kind: 'tap', target: { where: (e: SimEntity) => e === part, label }, expectHit: false }, ctx);
     tried.push({ ...ctx.player.location });
-    const picked = (ctx.state['lastTap'] as { entity?: SimEntity; blockedBy?: string } | undefined);
+    const picked = (ctx.state['lastTap'] as { entity?: SimEntity; blockedBy?: string; distance?: number } | undefined);
+    const eye = ctx.player.headLocation();
     log.push(`${attempt === 0 ? 'here' : `spot ${attempt}`} ${JSON.stringify(pt(ctx.player.location))}: ${picked?.entity === part ? 'picked it' : picked?.entity ? `picked ${picked.entity.typeId}` : picked?.blockedBy ? `a block ${picked.blockedBy}` : 'picked nothing'}`);
     await ctx.run(10);
-    if (changed()) return true;
+    const moved = changed();
+    if (picked?.entity !== part) {
+      const what = picked?.entity ? picked.entity.typeId : picked?.blockedBy ? `the block ${picked.blockedBy}` : 'nothing';
+      if (moved && picked?.entity) ctx.note(`tap on ${label} picked ${what}; the pack passed it on to ${label} (${FIGURE_TYPE.test(picked.entity.typeId) ? 'a figure in front of it, forwarded' : 'a part that moves with it: the other leaf of a double door'})`);
+      else ctx.violate({ invariant: 'tap-target-reachable', message: `tap on ${label} picked ${what}`, evidence: { target: part.typeId, targetAt: part.location, eye, distance: picked?.distance } });
+    }
+    if (moved) return true;
   }
   ctx.note(`${label}: no tap changed it; ${log.join('; ') || 'no spot to tap from'}`);
   return false;

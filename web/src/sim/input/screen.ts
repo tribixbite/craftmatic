@@ -120,8 +120,9 @@ export interface ScreenPick extends TouchResult {
  * Pick along a screen point's ray (see the module header). The ray runs from the camera; whatever it meets first
  * - an entity's pick box or a block's selection box - is the candidate, and an entity counts only within the
  * touch reach of the player's EYE. The player's own mount is not pickable by its rider (as `touch.ts` `pick`).
+ * `skip`: entities the ray passes (what a pack's runtime passes a tap on: a figure in front of a moving part).
  */
-export function screenPick(engine: SimEngine, player: SimEntity, point: ScreenPoint, viewport: Viewport, cam?: ScriptCameraState): ScreenPick {
+export function screenPick(engine: SimEngine, player: SimEntity, point: ScreenPoint, viewport: Viewport, cam?: ScriptCameraState, skip?: (e: SimEntity) => boolean): ScreenPick {
   const camera = screenCamera(player, cam);
   // With Split Controls (a crosshair) a tap anywhere outside the HUD acts at the crosshair: the screen centre.
   const aimAt = viewport.touchMode === 'crosshair' ? { x: viewport.width / 2, y: viewport.height / 2 } : point;
@@ -130,7 +131,7 @@ export function screenPick(engine: SimEngine, player: SimEntity, point: ScreenPo
   // The ray may start behind the player (a chase camera): it is long enough to pass the player's reach sphere.
   const maxT = distance(origin, player.headLocation()) + reach;
   const world = engine.dimension(player.dimension);
-  const hits = raycastEntities(engine.loadedEntities(player.dimension), origin, dir, maxT, player).filter(h => h.entity !== player.ridingOn);
+  const hits = raycastEntities(engine.loadedEntities(player.dimension), origin, dir, maxT, player).filter(h => h.entity !== player.ridingOn && !skip?.(h.entity));
   const block = raycastBlocks(world, origin, dir, maxT, { includePassable: true });
   const first = hits[0];
   if (block && (!first || block.distance < first.distance)) {

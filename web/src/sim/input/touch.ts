@@ -38,38 +38,50 @@ export function lookAt(player: SimEntity, target: Vec3): void {
   player.rotation = { x: a.pitch, y: a.yaw };
 }
 
-/** How far inside a pick box's nearest point the aim is pulled (blocks): a ray on a face or an edge is a float coin toss. */
-const AIM_INSET = 0.1;
-
-/**
- * Where a child's finger lands on an entity: the centre of its nearest pick box
- * when the centre is within `reach` of the eye (every part's box, a figure's);
- * for a box too big for that - a rideable's hull box (quirk
- * `custom-hit-test-pick`: the 200 % Milano's is 60 wide and 17.7 tall, its
- * middle 7 blocks over a child's head) - the point of it nearest the eye, pulled
- * `AIM_INSET` in, and from an eye INSIDE it the box's middle at eye height.
- * Until 2026-10-11 the centre was the only aim, and no standing spot reached it.
- */
-export function aimPoint(player: SimEntity, target: SimEntity, reach = quirkValue('tap-is-hit', 'reachBlocks')): Vec3 {
+/** The centre of an entity's nearest pick box (where a child's finger lands on a part it stands in front of). */
+export function boxCentreAim(player: SimEntity, target: SimEntity): Vec3 {
   const h = player.headLocation();
   let best: Vec3 | undefined, bestD = Infinity;
   for (const b of pickBoxes(target)) {
     const c = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, z: (b.z0 + b.z1) / 2 };
-    let p = c;
-    if (Math.hypot(c.x - h.x, c.y - h.y, c.z - h.z) > reach) {
-      const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
-      const n = { x: clamp(h.x, b.x0, b.x1), y: clamp(h.y, b.y0, b.y1), z: clamp(h.z, b.z0, b.z1) };
-      const inside = n.x === h.x && n.y === h.y && n.z === h.z;
-      if (inside) p = { x: c.x, y: n.y, z: c.z };
-      else {
-        const toC = { x: c.x - n.x, y: c.y - n.y, z: c.z - n.z }, l = Math.hypot(toC.x, toC.y, toC.z);
-        p = l > AIM_INSET ? { x: n.x + toC.x / l * AIM_INSET, y: n.y + toC.y / l * AIM_INSET, z: n.z + toC.z / l * AIM_INSET } : c;
-      }
-    }
-    const d = Math.hypot(p.x - h.x, p.y - h.y, p.z - h.z);
-    if (d < bestD) { bestD = d; best = p; }
+    const d = Math.hypot(c.x - h.x, c.y - h.y, c.z - h.z);
+    if (d < bestD) { bestD = d; best = c; }
   }
   return best ?? target.location;
+}
+
+/** How far inside a pick box the near-point aim stays (blocks, at most a quarter of the box's extent): a finger lands ON the part, not on its edge. */
+const NEAR_AIM_INSET = 0.15;
+
+/**
+ * The point of an entity's pick boxes nearest the eye, kept `NEAR_AIM_INSET` inside the box: where a child taps a
+ * part too big to tap at its middle (a 400 % door is a 10-block box whose centre stands 5 blocks over the floor; the
+ * device picks ANY point of a box within reach, quirk `tap-is-hit`).
+ */
+export function nearPickPoint(player: SimEntity, target: SimEntity): Vec3 {
+  const h = player.headLocation();
+  let best: Vec3 | undefined, bestD = Infinity;
+  const clamp = (v: number, lo: number, hi: number): number => { const m = Math.min(NEAR_AIM_INSET, (hi - lo) / 4); return Math.max(lo + m, Math.min(hi - m, v)); };
+  for (const b of pickBoxes(target)) {
+    let c = { x: clamp(h.x, b.x0, b.x1), y: clamp(h.y, b.y0, b.y1), z: clamp(h.z, b.z0, b.z1) };
+    // An eye INSIDE the box (a child standing under a rideable's hull box, quirk `custom-hit-test-pick`) aims at the
+    // box's middle at eye height: the nearest point would be the eye itself, no direction at all.
+    if (h.x > b.x0 && h.x < b.x1 && h.y > b.y0 && h.y < b.y1 && h.z > b.z0 && h.z < b.z1) c = { x: (b.x0 + b.x1) / 2, y: h.y, z: (b.z0 + b.z1) / 2 };
+    const d = Math.hypot(c.x - h.x, c.y - h.y, c.z - h.z);
+    if (d < bestD) { bestD = d; best = c; }
+  }
+  return best ?? target.location;
+}
+
+/**
+ * Where a child's finger lands on an entity: the centre of its nearest pick box while a tap there can pick it
+ * (within `reach` of the eye; every tap before 2026-10-11 aimed there), else the point of its boxes nearest the eye
+ * (`nearPickPoint`). A part bigger than the reach - 41732's and 76417's doors and 60380's turntable at 400 %
+ * (child play 2026-10-08) - is tapped where it is near, as on the device, not at a middle out of reach.
+ */
+export function aimPoint(player: SimEntity, target: SimEntity, reach = quirkValue('tap-is-hit', 'reachBlocks')): Vec3 {
+  const c = boxCentreAim(player, target), h = player.headLocation();
+  return Math.hypot(c.x - h.x, c.y - h.y, c.z - h.z) <= reach ? c : nearPickPoint(player, target);
 }
 
 /** What the player's view ray picks within reach. */

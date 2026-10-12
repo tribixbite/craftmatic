@@ -815,6 +815,15 @@ seats' set-down order is physics spec §4.8.
   of the part (spots with nothing solid on the line of sight first). Before
   2026-09-30 it tried three floor heights under eye level and found no spot
   for parts lying on the floor (21 of the favourites' tap findings).
+  A part BIGGER than the reach (a 400 % door: a 10-block box whose centre
+  stands 5 over its floor; 60380's 3.7-block turntable) is aimed at where it
+  is near (`aimPoint`: the box centre while a tap there can pick, else the
+  box point nearest the eye, kept 0.15 inside), and when the centre search
+  finds no spot a denser one runs round the boxes' footprint over their
+  height (2026-10-11; before it, 41732 Door 2, 76417 Door 2 and Gate 1 and
+  60380 Turnable 1 had no spot at 400 %). A tap is judged after the pack
+  acted (`tapPart`): a pick of a figure the runtime passes on, or of a
+  double door's other leaf, is a note when the part moved.
 - **A player teleported inside a block** falls THROUGH it to the surface
   under its feet and is pushed sideways at 0.1 block/tick toward the nearest
   free side while it overlaps (quirk `teleport-into-floor`, measured by the
