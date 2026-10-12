@@ -761,11 +761,11 @@ case runs the 30m pack (`output/device-round-2026-10-08m/packs-6a8c7121`):
 |---|---|---|
 | `nimbus-steer-30m` (FIG-08) | forward after a swipe flies 13 degrees off the body, 94 off the look | OPEN: 14.1 off the body, 84 off the look (needed quirk `hover-stick-body-frame`: until then the sim flew along the look and steered) |
 | `milano-chase-400-30m` (VEH-06) | cuboids fill the 400 % chase view; 50/100/200 % framed (wingspan 410/410/540 of 900 px) | OPEN: the drawn camera 58 blocks from the root, past the hull's 54-block LOD switch: the coarse hull spans screen x -1.64..1.65 and covers 56 percent; 50/100/200 % span +-0.38/0.38/0.51 |
-| `mclaren-walls-30m` (SEAT-05) | set down at -3.04, 0, 0.48 from the root, beyond the west wall | OPEN: -3.04, 0, 0.48 |
+| `mclaren-walls-30m` (SEAT-05) | set down at -3.04, 0, 0.48 from the root, beyond the west wall | reproduced on the 30m pack (-3.04, 0, 0.48); FIXED 2026-10-11 (`vehicleEgress` `lineClear`: a set-down must be reached from the seat): 0.43, 0, 4.29, ahead of the car in the gap |
 | `top-east-fall-10261-30m` (COL-01) | +z along the top to pin + (79.5, 43.6, 27.7), then +x: falls 42+; at z 16.1 holds at x 83.70 | OPEN: ends the +z walk at (79.7, 43.63, 27.7), falls 43 from x 80.4; z 16.1 holds at 83.7 |
 | `shell-unseen-400-10261-30m` (COL-03) | from 40 west of the pin only figures and cars | OPEN: shell chunks drawn 0 of 6 (nearest root 87 blocks, cull 70), 5 of 12 other actors |
 | `milano-mount-reach-200-30m` | no Mount prompt at the nose; it appears ~3 blocks from the root | OPEN: not picked from beside the drawn nose (15.5 ahead); first picked 8 from the root (the sim's interact reach 5 to the 7 x 5 box; the phone's own reach is not measured) |
-| `xwing-air-park-30m` (SEAT-05) | the parked engines touch the child | KNOWN-UNREPRODUCED: set-down (-7.16 along the nose) and park match exactly, but the body clears the drawn tail (engine glow included) by 0.50 - the device did not measure the gap and the sim has no drawn-skin model |
+| `xwing-air-park-30m` (SEAT-05) | the parked engines touch the child | KNOWN-UNREPRODUCED: set-down (-7.16 along the nose) and park match exactly, but the body clears the drawn tail (engine glow included) by 0.50 - the device did not measure the gap and the sim has no drawn-skin model. Since 2026-10-11 the float set-down keeps `FLOAT_MARGIN` 1.5 (current pack: -8.16 along the nose, 1.50 clear) - a precaution, not a reproduction |
 
 `drawnBoxes(entry, at, yaw, scale, lod)` takes `'far'` for the LOD hull a
 camera past the switch sees (snapshot.ts `actorLodState` decides which).

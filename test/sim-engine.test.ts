@@ -515,13 +515,17 @@ describe('historical regression replay inputs', () => {
   });
 
   it('round 30m\'s open device defects are cases: open ones reproduce, the unreproduced one says what is missing', () => {
+    // Fixed since (SEAT-05, 2026-10-11: the set-down is reached from the seat, `vehicleEgress` `lineClear`).
+    const FIXED_30M = ['mclaren-walls-30m'];
     const ids = ['nimbus-steer-30m', 'milano-chase-400-30m', 'xwing-air-park-30m', 'mclaren-walls-30m', 'top-east-fall-10261-30m', 'shell-unseen-400-10261-30m', 'milano-mount-reach-200-30m'];
     for (const id of ids) {
       const c = REGRESSIONS.find(x => x.id === id);
       expect(c, id).toBeDefined();
       expect(c!.oldPack).toContain('device-round-2026-10-08m/packs-6a8c7121/');
-      // Either an open defect the simulator shows, or a known-unreproduced one with its missing model: never both.
-      expect(!!c!.open !== !!c!.knownUnreproduced, id).toBe(true);
+      // A fixed defect is neither (its `open` dropped once the current pack stopped reproducing it); every other is
+      // either an open defect the simulator shows, or a known-unreproduced one with its missing model: never both.
+      if (FIXED_30M.includes(id)) expect(!c!.open && !c!.knownUnreproduced, id).toBe(true);
+      else expect(!!c!.open !== !!c!.knownUnreproduced, id).toBe(true);
       if (c!.knownUnreproduced) expect(c!.limits, id).toMatch(/\S{20,}|.{40,}/);
     }
   });

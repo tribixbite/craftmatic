@@ -939,6 +939,18 @@ describe('getting off a scripted vehicle (SEAT-05: vehicleEgress)', () => {
       walkExit: q => free(q) && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => { const n = { x: q.x + dx!, y: q.y, z: q.z + dz! }; return Math.abs(top(n.x, n.z) - q.y) <= 9 / 16 && free(n); }),
       wet: q => !!o.wetAt?.(q.x, q.z) && q.y < (o.water ?? ground),
       escape: () => o.escape,
+      // The runtime's rule over this world: a body's width at knee height (0.6 over the higher end) every 1/8 block;
+      // a start inside an obstruction may leave it, a line that was clear may not enter one.
+      lineClear: (a, b) => {
+        const h = Math.max(a.y, b.y), n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.125));
+        let clear = false;
+        for (let i = 0; i <= n; i++) {
+          const blocked = corners({ x: a.x + (b.x - a.x) * i / n, z: a.z + (b.z - a.z) * i / n }).some(([cx, cz]) => top(cx, cz) > h + 0.6);
+          if (!blocked) clear = true;
+          else if (clear) return false;
+        }
+        return clear;
+      },
     };
   };
   /** The Milano parked at the origin facing +Z (yaw 0) at wand factor `k`, Bedrock having set the rider down a block off its seat. */
@@ -994,6 +1006,61 @@ describe('getting off a scripted vehicle (SEAT-05: vehicleEgress)', () => {
     expect(vehicleEgress(atSize(1, car), flat({ walled, wall: 80, escape: { x: 6, y: 64, z: 9 } }), VEHICLE_EGRESS)).toEqual({ at: { x: 6, y: 64, z: 9 }, how: 'escape' });
     // An escape that lands inside the footprint is refused: the hull is an entity no block probe sees.
     expect(vehicleEgress(atSize(1, car), flat({ walled, wall: 80, escape: { x: 0.5, y: 64, z: 0.5 } }), VEHICLE_EGRESS).how).toBe('none');
+  });
+  // 42172 McLaren as Saga 30m parked it (item 5, e06-strip): 4.48 wide in a 4-block gap between two stone walls
+  // (cells x -2 and x 3 about a root at x 0.5), seat a little behind the root. The nearest ring spot is beyond the west wall.
+  const mclaren = { pose: { x: 0.5, y: 64, z: 0.5, yaw: 0 }, halfLength: 3.49, halfWidth: 2.24, height: 1.79, seat: { x: 0.5, y: 64.3, z: -0.28 }, current: { x: -2.54, y: 64, z: 1.48 } };
+  const twoWalls = (x: number, z: number): boolean => (Math.floor(x) === -2 || Math.floor(x) === 3) && z >= -8 && z < 10;
+  it('never sets the rider down through a wall: the McLaren between two walls lands it ahead of or behind the car, in the gap (SEAT-05, Saga 30m)', () => {
+    const r = vehicleEgress(atSize(1, mclaren), flat({ walled: twoWalls, wall: 67 }), VEHICLE_EGRESS);
+    expect(r.how).toBe('beside');
+    // Between the walls' inner faces (x -1 .. 3), the body's half width inside them.
+    expect(r.at.x).toBeGreaterThanOrEqual(-1 + 0.3);
+    expect(r.at.x).toBeLessThanOrEqual(3 - 0.3);
+    // Off the footprint along the nose (the side spots are walled off).
+    expect(Math.abs(r.at.z - 0.5)).toBeCloseTo(3.49 + VEHICLE_EGRESS.MARGIN + 0.3, 6);
+    // Bedrock's own spot beyond the wall (the device's -3.04 from the root) is not kept either.
+    expect(r.at).not.toEqual(mclaren.current);
+  });
+  it('with no spot reachable from the seat, leaves the rider where Bedrock put it rather than beyond a wall', () => {
+    // Walls on all four sides hard against the footprint (x -0.7..1.7, z -1.5..2.5), open ground beyond: the inner
+    // ring is inside the walls and every walkable spot farther out is beyond one.
+    const boxed = (x: number, z: number): boolean => (Math.floor(x) === -2 || Math.floor(x) === 2) && z >= -3 && z < 4 || (Math.floor(z) === -3 || Math.floor(z) === 3) && x >= -2 && x < 3;
+    const car = { ...mclaren, halfLength: 2, halfWidth: 1.2, current: { x: 0.5, y: 64.3, z: -0.3 } };
+    expect(vehicleEgress(atSize(1, car), flat({ walled: boxed, wall: 67 }), VEHICLE_EGRESS).how).toBe('none');
+  });
+  it('afloat with a bank 1.11 over the surface a block or two off the hull: on the bank, dry, never swimming (vehicle course)', () => {
+    // Water surface at 63.89 (8/9 into block 63); the swimmer's waterline half a block under it; the bank's top at 65
+    // from z 3 on (the course's `bank` at yTop + 1 from ceil(z + half) + 1); the bed 5 under the keel.
+    const boat = { pose: { x: 0.5, y: 63.39, z: 0.5, yaw: -90 }, seat: { x: 0.5, y: 64.2, z: 0.5 }, current: { x: 0.5, y: 64.4, z: 0.5 }, halfLength: 3, halfWidth: 1.2, height: 2.5, waterline: 63.39 };
+    const shore = flat({ ground: 58, wetAt: (_x: number, z: number) => z < 3, water: 64, walled: (_x: number, z: number) => z >= 3, wall: 65 });
+    const r = vehicleEgress(atSize(1, boat), shore, VEHICLE_EGRESS);
+    expect(r.how).toBe('beside');
+    expect(r.at.y).toBe(65);
+    expect(r.at.z).toBeGreaterThanOrEqual(3);
+    // The bank's top 1.11 over the surface was out of reach of a keel-relative window: without SHORE_ABOVE, a swim.
+    expect(vehicleEgress(atSize(1, boat), shore, { ...VEHICLE_EGRESS, SHORE_ABOVE: 0 }).how).toBe('swim');
+  });
+  it('in the air: the float set-down keeps FLOAT_MARGIN clear of the footprint, where the empty ship comes down beside the rider (7140, Saga 30m)', () => {
+    const xwing = { pose: { x: 0.5, y: 84, z: 0.5, yaw: 0 }, halfLength: 6.36, halfWidth: 3, height: 2, seat: { x: 0.5, y: 85, z: -0.5 }, current: { x: 0.5, y: 85.2, z: -1.5 }, airborne: true };
+    const r = vehicleEgress(atSize(1, xwing), flat(), VEHICLE_EGRESS);
+    expect(r.how).toBe('float');
+    // Its body (0.3 half wide) at least FLOAT_MARGIN off the footprint: behind the tail here (the seat's side).
+    const along = Math.abs(r.at.z - 0.5), across = Math.abs(r.at.x - 0.5);
+    expect(Math.max(along - 6.36, across - 3) - 0.3).toBeGreaterThanOrEqual(VEHICLE_EGRESS.FLOAT_MARGIN - 1e-9);
+  });
+  it('the shipped runtime sets the McLaren\'s rider down between the walls it is parked in, never beyond one (scripts/vehicles.js on the simulator, SEAT-05)', () => {
+    const car: ScriptedVehicleType = { mode: 'car', noseReach: 3.49, halfWidth: 2.24, height: 1.79 };
+    const fills = [-2, 3].map(x => ({ id: 'minecraft:stone', from: [x, 64, -8] as [number, number, number], to: [x, 66, 9] as [number, number, number] }));
+    const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 }, yaw: 0, seat: [0, 0.3, -0.78], egress: true, fills });
+    host.run(4);
+    host.sneak();
+    host.run(40);
+    const p = host.player.location;
+    expect(host.player.ridingOn).toBeUndefined();
+    expect(p.x).toBeGreaterThanOrEqual(-1 + 0.3 - 1e-6);
+    expect(p.x).toBeLessThanOrEqual(3 - 0.3 + 1e-6);
+    expect(p.y).toBeCloseTo(64, 3);
   });
   it('the shipped runtime sets a sneaking rider down beside the 100/200/400 percent Milano on the ground, with no fall (scripts/vehicles.js on the simulator)', () => {
     for (const k of [1, 2, 4]) {

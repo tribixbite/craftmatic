@@ -1,10 +1,11 @@
 /**
  * Round 30m's OPEN device defects (Saga + Pixel, 2026-10-08, packs built from
  * 6a8c7121) as regression cases. Each replays the device's own situation on
- * the pack the phones ran and judges the finding the notes record; none of
- * them is fixed yet, so each case is `open` (regressions.ts `regressionVerdict`:
+ * the pack the phones ran and judges the finding the notes record. A case not
+ * fixed yet is `open` (regressions.ts `regressionVerdict`:
  * OPEN while the current pack still reproduces) or, where the simulator cannot
- * show the fault, KNOWN-UNREPRODUCED with the missing model in `limits`.
+ * show the fault, KNOWN-UNREPRODUCED with the missing model in `limits`; a
+ * fixed case drops `open` (`mclaren-walls-30m`, 2026-10-11).
  *
  * Evidence: `output/device-round-2026-10-08m/saga/notes.md`,
  * `.../pixel/notes.md`, `.../saga/ContentLog-30m-live.txt` (CMVT rows quoted
@@ -257,7 +258,10 @@ const xwingAirPark: RegressionCase = {
   // engines at point-blank (e07-strip's last frames: the eye 0.8 from the tail) and, side on, the skin's arms (~0.9
   // wide, not the 0.6 box) over the nozzles' glow (e07-side). Whether the device's "touching/overlapping" is contact
   // or that 0.5 block is not decided by the evidence, so this case does not claim a reproduction.
-  limits: 'the simulator reproduces the set-down and the park exactly but finds the parked hull 0.50 block clear of the child\'s body box; it has no model of the player\'s DRAWN skin (arms reach ~0.45 from the centre, the hitbox 0.3) or of a near clip plane, and the device did not measure the gap. Needed: a device measurement (e.g. walk the child toward the parked tail and read where the body stops, or `/tp` it 0.1 at a time) or a rule from the user for how much clearance "clear of the player" means',
+  // Since 2026-10-11 an air set-down floats `VEHICLE_EGRESS.FLOAT_MARGIN` 1.5 clear of the footprint (was `MARGIN`
+  // 0.5): the current pack sets the child down -8.16 along the nose and the parked tail clears its body box by 1.50,
+  // over a block even past the skin's ~0.45 arm reach - a precaution sized from the device's report, not a reproduction.
+  limits: 'the simulator reproduces the set-down and the park exactly but finds the parked hull 0.50 block clear of the child\'s body box on the 30m pack (1.50 since `FLOAT_MARGIN`, 2026-10-11); it has no model of the player\'s DRAWN skin (arms reach ~0.45 from the centre, the hitbox 0.3) or of a near clip plane, and the device did not measure the gap. Needed: a device measurement (e.g. walk the child toward the parked tail and read where the body stops, or `/tp` it 0.1 at a time) or a rule from the user for how much clearance "clear of the player" means',
   knownUnreproduced: true,
   scenario: pack => ({
     name: 'xwing-air-park-30m', allowLines: vehicleAllow, steps: [{ kind: 'expect', label: 'air dismount and park', check: async ctx => {
@@ -312,7 +316,10 @@ interface WallEgress { end: Vec3; inGap: boolean; side: 'gap' | 'west' | 'east';
 const mclarenWalls: RegressionCase = {
   id: 'mclaren-walls-30m', title: '42172 McLaren (30m) parked between two walls: getting off sets the player down on the FAR side of the west wall, through it (SEAT-05)',
   evidence: `${SAGA_30M} item 5 (\`e06-strip.jpg\`, 01:56:41): car at 7980.5,-60,7900.5 yaw 0 (CMVT), stone walls at x 7978 and x 7983, y -60..-58, z 7892..7909 (a 4-block gap); CMVT \`{"dismount":"beside","from":{"x":7980.5,"z":7899.72},"at":{"x":7977.46,"y":-60,"z":7900.98}}\` - the open-ground spot (01:54:26) exactly, beyond the wall`,
-  oldPack: `${PACKS_30M}/42172-mclaren-p1.mcaddon`, newStem: '42172-mclaren-p1', expectNew: 'pass', open: OPEN_30M,
+  oldPack: `${PACKS_30M}/42172-mclaren-p1.mcaddon`, newStem: '42172-mclaren-p1', expectNew: 'pass',
+  // Fixed 2026-10-11: every set-down is reached from under the seat in a straight line at body height through no
+  // solid (bedrock-vehicle.ts `vehicleEgress`, probe `lineClear`); the current pack sets the child down ahead of the
+  // car, in the gap (0.43, 0, 4.29 from the root).
   // The Saga's geometry relative to the car's root (60.5, 600.5): wall cells x 58 and 63, z 592..609, three high.
   scenario: pack => ({
     name: 'mclaren-walls-30m', allowLines: vehicleAllow, steps: [{ kind: 'expect', label: 'walls, board, sneak', check: async ctx => {
