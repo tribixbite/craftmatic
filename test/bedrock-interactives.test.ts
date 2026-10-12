@@ -345,6 +345,23 @@ describe('planInteractiveColliders', () => {
     // A post in the middle of the column leaves 6/16 either side: no player fits, the column stays solid.
     const mid = plan(5, 11);
     for (const x of [3, 4]) expect(mid.get(x, 1, 6)).toBe(colliderState(0, 16));
+    // A floor in that column up to a jump over the doorway's (10326 Door 3's WC floor, 12/16 over its sill) is kept.
+    const g2 = wallGrid();
+    const layers2: CellLayers = new Map();
+    for (const x of [3, 4]) {
+      for (let y = 1; y <= 3; y++) for (const z of [6, 7, 8, 9]) g2.set(x, y, z, colliderState(0, 16));
+      const cell = newCellLayers();
+      addLayerBox(cell, 0, 16, 0, 12, 0, 16); // the raised floor
+      addLayerBox(cell, 0, 2, 12, 16, 0, 16); // a post at the edge on it
+      layers2.set((x * g2.height + 1) * g2.length + 6, cell);
+      for (const y of [2, 3]) { const post = newCellLayers(); addLayerBox(post, 0, 2, 0, 16, 0, 16); layers2.set((x * g2.height + y) * g2.length + 6, post); }
+      for (let y = 1; y <= 3; y++) for (const z of [7, 8, 9]) { const full = newCellLayers(); addLayerBox(full, 0, 16, 0, 16, 0, 16); layers2.set((x * g2.height + y) * g2.length + z, full); }
+    }
+    planInteractiveColliders(g2, [leafAt(3.25, 1.5, 5.5)], frame, layers2);
+    for (const x of [3, 4]) {
+      expect(g2.get(x, 1, 6), `${x},1,6`).toBe(colliderState(0, 12));
+      expect(g2.get(x, 2, 6), `${x},2,6`).toBe('minecraft:air');
+    }
   });
 
   it('finds a passable size from the opening and says when none reaches the player\'s passage', () => {

@@ -875,6 +875,20 @@ function firstPassageColumn(cx: number, cz: number, gn: Vec3, dir: number, colum
 }
 
 /**
+ * The highest floor a player stands on in column (`x`, `z`) from the doorway's floor `door16` up to a jump over
+ * it (`ACCESS_JUMP16`), absolute sixteenths (`standingTop16`: a wall's rim is no floor); `door16` when none is
+ * higher.
+ */
+function columnFloorTop16(grid: BlockGrid, layers: CellLayers | undefined, x: number, z: number, door16: number): number {
+  let top = door16;
+  for (let y = Math.max(0, Math.floor(door16 / 16)); y < grid.height && y * 16 <= door16 + ACCESS_JUMP16; y++) {
+    const st = standingTop16(grid, layers, x, y, z);
+    if (st !== null && st > top && st <= door16 + ACCESS_JUMP16) top = st;
+  }
+  return top;
+}
+
+/**
  * Whether column (`x`, `z`)'s part GEOMETRY (`layers`, the per-sixteenth footprints clearance covers) leaves a
  * strip at least a player wide (`PLAYER_WIDTH16`) running the whole cell along the axis-aligned normal `gn`, in
  * the band `[lo16, hi16]` (absolute sixteenths): a player walks through it along the doorway's line. A collider
@@ -1098,7 +1112,13 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
           // reaches that column, as it reaches a standable one. Only that one column, only where the span rule
           // found nothing - every doorway the rule already serves is cut as before.
           const first = firstPassageColumn(cx, cz, gn, dir, columns);
-          if (first && geometryPassable(grid, layers, first[0], first[1], [door16 + PASSAGE_STEP16, door16 + PLAYER_HEIGHT16], gn)) openUp(first[0], first[1], door16);
+          // The column's own floor stays: opened as if the doorway's floor were a step under it, so a floor up to a
+          // jump over the doorway's (10326 Door 3's WC floor, 12/16 over its sunken sill) is kept, not cut away.
+          if (first) {
+            const floor16 = columnFloorTop16(grid, layers, first[0], first[1], door16);
+            const base16 = Math.max(door16, floor16 - PASSAGE_STEP16);
+            if (geometryPassable(grid, layers, first[0], first[1], [base16 + PASSAGE_STEP16, Math.max(door16, floor16) + PLAYER_HEIGHT16], gn)) openUp(first[0], first[1], base16);
+          }
           continue;
         }
         for (const [x, z] of cells) openUp(x, z, door16);
