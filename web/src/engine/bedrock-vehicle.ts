@@ -923,9 +923,23 @@ export const VEHICLE_DYNAMIC = { topSpeed: 'craftmatic:top_speed', hud: 'craftma
  *     `SLOW_FALL_TICKS` 600 (30 s covers a 90-block drop at ~3 blocks/s; the flyer's own float,
  *     `FLYER.DISMOUNT_SLOW_FALL_TICKS`);
  *   - `NATIVE_REACH` 2: blocks (times the vehicle's scale) from the seat beyond which the player was moved on
- *     purpose (a `/tp`, a hop's set-down) and is left alone, as `SEAT_EGRESS.NATIVE_REACH_BLOCKS`.
+ *     purpose (a `/tp`, a hop's set-down) and is left alone, as `SEAT_EGRESS.NATIVE_REACH_BLOCKS`;
+ *   - `RINGS` 3: rings of spots tried, each `SPACING` farther out than the last, the inner ring first: a boat's
+ *     bank or a kerb a block or two off the hull is reached, never preferred over a floor right beside it;
+ *   - `SHORE_ABOVE` 1.5: blocks over a boat's water surface a shore's floor may lie - Minecraft's water surface
+ *     sits 8/9 into its block, so the ground beside a pool is 1.11 over it (the GameTest arena's shore, the
+ *     vehicle course's bank) and a keel-relative `ABOVE_BASE` never reached it: every boat set its rider down
+ *     in the water with a bank beside it (vehicle course, 2026-10-11);
+ *   - `FLOAT_MARGIN` 1.5: blocks of clearance between the footprint and a body set down to FLOAT beside a vehicle
+ *     in the air: the empty ship then sinks to its own x/z beside a rider who cannot step aside mid-air, and at
+ *     `MARGIN` 0.5 the 7140 X-wing parked with its drawn engines "touching" the child (Saga 30m item 5,
+ *     `e07-strip.jpg`; the sim measured the body box 0.50 clear of the drawn tail, and the player's drawn arms
+ *     reach ~0.45 from its centre, past the 0.3 box). 1.5 leaves over a block of air between skin and hull.
+ * Every spot must be reached from the seat in a straight line at body height through no solid
+ * (`VehicleEgressProbe.lineClear`): the 42172 McLaren parked between two walls 4 blocks apart set its rider
+ * down on the far side of the west wall, the nearest ring spot (Saga 30m item 5, `e06-strip.jpg`).
  */
-export const VEHICLE_EGRESS = { MARGIN: 0.5, SPACING: 1, MAX_CANDIDATES: 64, ABOVE_BASE: 1, DROP: 3, AIRBORNE_BLOCKS: 3, SLOW_FALL_TICKS: 600, NATIVE_REACH: 2 } as const;
+export const VEHICLE_EGRESS = { MARGIN: 0.5, SPACING: 1, MAX_CANDIDATES: 64, ABOVE_BASE: 1, DROP: 3, AIRBORNE_BLOCKS: 3, SLOW_FALL_TICKS: 600, NATIVE_REACH: 2, RINGS: 3, SHORE_ABOVE: 1.5, FLOAT_MARGIN: 1.5 } as const;
 export type VehicleEgressParams = typeof VEHICLE_EGRESS;
 
 /** A world point, blocks. */
@@ -961,6 +975,12 @@ export interface VehicleEgressProbe {
   wet(q: EgressPoint): boolean;
   /** The collider body probe's last-resort way out from `from` (`ColliderBodyProbe.escape`), or undefined. */
   escape(from: EgressPoint): EgressPoint | undefined;
+  /**
+   * Whether a body passes in a straight line from `from` to `to` at the higher of their two heights through no
+   * solid (knee to head: a step under the knee is walked over, a wall is not). A start inside an obstruction may
+   * first leave it; once clear the line may not enter one again - a spot beyond a wall is never reached THROUGH it.
+   */
+  lineClear(from: EgressPoint, to: EgressPoint): boolean;
 }
 
 /**
@@ -992,42 +1012,60 @@ export function vehicleEgress(input: VehicleEgressInput, probe: VehicleEgressPro
     const dx = q.x - pose.x, dz = q.z - pose.z;
     return Math.abs(dx * fx + dz * fz) < input.halfLength + BODY_HALF && Math.abs(dx * rx + dz * rz) < input.halfWidth + BODY_HALF && q.y < pose.y + input.height;
   };
-  if (!inHull(current) && !input.airborne && !probe.wet(current) && probe.walkExit(current, P.DROP)) return { at: current, how: 'native' };
-  // The ring of spots round the footprint, in the vehicle's frame (a along the nose, b along its right), nearest the seat first.
-  const L = input.halfLength + P.MARGIN + BODY_HALF, W = input.halfWidth + P.MARGIN + BODY_HALF;
-  const ring: Array<{ x: number; z: number; d: number }> = [];
-  const add = (a: number, b: number): void => {
-    const x = pose.x + fx * a + rx * b, z = pose.z + fz * a + rz * b;
-    if (ring.some(q => Math.abs(q.x - x) < 1e-6 && Math.abs(q.z - z) < 1e-6)) return;
-    ring.push({ x, z, d: Math.hypot(x - seat.x, z - seat.z) });
+  // Where the rider starts out from: under the seat, at the vehicle's base (afloat: the swimmer's waterline). Every
+  // set-down must be reached from here in a straight line through no solid (`lineClear`): the nearest ring spot to
+  // a car parked between two walls lies beyond a wall (42172, Saga 30m item 5).
+  const from = { x: seat.x, y: input.waterline ?? pose.y, z: seat.z };
+  if (!inHull(current) && !input.airborne && !probe.wet(current) && probe.walkExit(current, P.DROP) && probe.lineClear(from, current)) return { at: current, how: 'native' };
+  /**
+   * A ring of spots round the footprint `margin` + half a body outside it, in the vehicle's frame (a along the nose,
+   * b along its right), nearest the seat first, at most `MAX_CANDIDATES`.
+   */
+  const ringAt = (margin: number): Array<{ x: number; z: number }> => {
+    const L = input.halfLength + margin + BODY_HALF, W = input.halfWidth + margin + BODY_HALF;
+    const ring: Array<{ x: number; z: number; d: number }> = [];
+    const add = (a: number, b: number): void => {
+      const x = pose.x + fx * a + rx * b, z = pose.z + fz * a + rz * b;
+      if (ring.some(q => Math.abs(q.x - x) < 1e-6 && Math.abs(q.z - z) < 1e-6)) return;
+      ring.push({ x, z, d: Math.hypot(x - seat.x, z - seat.z) });
+    };
+    const nA = Math.max(1, Math.ceil(2 * L / P.SPACING)), nB = Math.max(1, Math.ceil(2 * W / P.SPACING));
+    for (let i = 0; i <= nA; i++) { const a = -L + 2 * L * i / nA; add(a, W); add(a, -W); }
+    for (let i = 0; i <= nB; i++) { const b = -W + 2 * W * i / nB; add(L, b); add(-L, b); }
+    ring.sort((p, q) => p.d - q.d);
+    return ring.slice(0, Math.max(1, P.MAX_CANDIDATES));
   };
-  const nA = Math.max(1, Math.ceil(2 * L / P.SPACING)), nB = Math.max(1, Math.ceil(2 * W / P.SPACING));
-  for (let i = 0; i <= nA; i++) { const a = -L + 2 * L * i / nA; add(a, W); add(a, -W); }
-  for (let i = 0; i <= nB; i++) { const b = -W + 2 * W * i / nB; add(L, b); add(-L, b); }
-  ring.sort((p, q) => p.d - q.d);
-  const spots = ring.slice(0, Math.max(1, P.MAX_CANDIDATES));
-  const nearest = spots[0]!;
   if (input.airborne) {
-    // In the air: beside the hull at the seat's height (never inside it, never under it where it parks), floating down.
-    const q = { x: nearest.x, y: seat.y, z: nearest.z };
-    return { at: probe.free(q) ? q : current, how: 'float' };
+    // In the air: beside the hull at the seat's height (never inside it, never under it where it parks), floating
+    // down, `FLOAT_MARGIN` clear of the footprint: the empty ship sinks to its own x/z beside the falling rider.
+    for (const s of ringAt(P.FLOAT_MARGIN)) {
+      const q = { x: s.x, y: seat.y, z: s.z };
+      if (probe.free(q) && probe.lineClear({ x: seat.x, y: seat.y, z: seat.z }, q)) return { at: q, how: 'float' };
+    }
+    return { at: current, how: 'float' };
   }
-  const top = pose.y + P.ABOVE_BASE, depth = P.ABOVE_BASE + P.DROP;
+  const nearest = ringAt(P.MARGIN)[0]!;
+  // A floor lies at most `ABOVE_BASE` over the base - afloat, up to `SHORE_ABOVE` over the water's surface (the
+  // swimmer's waterline is half a block under it): a bank beside a pool stands 1.11 over its surface.
+  const top = Math.max(pose.y + P.ABOVE_BASE, input.waterline !== undefined ? input.waterline + 0.5 + P.SHORE_ABOVE : -Infinity);
+  const depth = top - (pose.y - P.DROP);
   const standAt = (s: { x: number; z: number }): EgressPoint | undefined => {
     const y = probe.floor(s.x, s.z, top, depth);
     if (y === null) return undefined;
     const q = { x: s.x, y, z: s.z };
     return probe.free(q) && !probe.wet(q) ? q : undefined;
   };
-  // 1. A walkable floor beside the hull, the spot nearest the seat first.
+  // 1. A walkable floor beside the hull reached from the seat, the inner ring first, the spot nearest the seat first.
   const stands: EgressPoint[] = [];
-  for (const s of spots) {
-    const q = standAt(s);
-    if (!q) continue;
-    if (probe.walkExit(q, 0)) return { at: q, how: 'beside' };
-    stands.push(q);
+  for (let ringNo = 0; ringNo < Math.max(1, P.RINGS); ringNo++) {
+    for (const s of ringAt(P.MARGIN + ringNo * P.SPACING)) {
+      const q = standAt(s);
+      if (!q) continue;
+      if (probe.walkExit(q, 0) && probe.lineClear(from, q)) return { at: q, how: 'beside' };
+      stands.push(q);
+    }
   }
-  // 2. Afloat with no shore beside it: in the water beside the hull, at its waterline.
+  // 2. Afloat with no shore within reach: in the water beside the hull, at its waterline.
   if (input.waterline !== undefined) {
     const q = { x: nearest.x, y: input.waterline, z: nearest.z };
     return { at: probe.free(q) ? q : current, how: 'swim' };
@@ -1035,8 +1073,10 @@ export function vehicleEgress(input: VehicleEgressInput, probe: VehicleEgressPro
   // 3. Walled in beside it (a car in a garage): the body probe's walk-connected flood, else the model's exterior.
   const out = probe.escape({ x: nearest.x, y: pose.y, z: nearest.z });
   if (out && !inHull(out) && !probe.wet(out)) return { at: out, how: 'escape' };
-  // 4. A floor beside it that the walk-exit probe could not confirm (it reads a plant as a block).
-  if (stands.length) return { at: stands[0]!, how: 'plain' };
+  // 4. A floor beside it that the walk-exit probe could not confirm (it reads a plant as a block), still never one
+  // beyond a wall.
+  const plain = stands.find(q => probe.lineClear(from, q));
+  if (plain) return { at: plain, how: 'plain' };
   return { at: current, how: 'none' };
 }
 
@@ -1288,6 +1328,22 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       escape: (from: { x: number; y: number; z: number }): { x: number; y: number; z: number } | undefined => {
         if (!body || !config.escape) return undefined;
         try { return body.escape(dim, from, config.escape)?.at; } catch { return undefined; }
+      },
+      // A straight line at body height, read through the runtime's solid spans (plants passed, as the drive does):
+      // three parallel lines across the body's width, at its knee (over a 9/16 step), chest and head, every 1/8 block.
+      lineClear: (from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }): boolean => {
+        const h = Math.max(from.y, to.y), dx = to.x - from.x, dz = to.z - from.z, len = Math.hypot(dx, dz);
+        const n = Math.max(1, Math.ceil(len / 0.125)), px = len > 0 ? -dz / len : 0, pz = len > 0 ? dx / len : 0;
+        let clear = false;
+        for (let i = 0; i <= n; i++) {
+          const x = from.x + dx * i / n, z = from.z + dz * i / n;
+          let blocked = false;
+          for (const o of [-0.29, 0, 0.29]) for (const up of [0.6, 1.2, 1.75]) if (!blocked && solidAt(dim, x + px * o, h + up, z + pz * o)) blocked = true;
+          // Still leaving an obstruction the start sat in, or a wall met after open ground.
+          if (!blocked) clear = true;
+          else if (clear) return false;
+        }
+        return clear;
       },
     };
     const res = egress({

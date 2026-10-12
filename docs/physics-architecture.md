@@ -715,13 +715,22 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   Bedrock's own spot when it is outside the footprint and has a walk exit;
   else the nearest spot to the seat on a ring `MARGIN` + half a body outside
   the footprint whose floor lies within `ABOVE_BASE` over and `DROP` under the
-  vehicle's base, with room and a walk exit, not in water; else (walled in)
+  vehicle's base, with room and a walk exit, not in water - then the same on
+  up to `RINGS` rings, each `SPACING` farther out; else (walled in)
   the probe's escape, refused inside the footprint; else such a floor whose
-  walk exit the probe could not confirm (it reads a plant as a block). A boat
-  afloat with no shore beside it puts the swimmer beside the hull at its
+  walk exit the probe could not confirm (it reads a plant as a block). Every
+  set-down (Bedrock's own included) must be reached from under the seat in a
+  straight line at body height through no solid (`lineClear`: the body's
+  width at knee, chest and head over the higher end, plants passed): the
+  42172 McLaren parked between two walls set its rider down beyond the west
+  wall, the nearest ring spot (Saga 30m item 5, 2026-10-11); with no reachable
+  spot the rider stays where Bedrock put it. A boat afloat takes a shore up to
+  `SHORE_ABOVE` over the water's surface (a pool's bank is 1.11 over it); with
+  no shore within reach it puts the swimmer beside the hull at its
   waterline; a vehicle with nothing within `AIRBORNE_BLOCKS` under it puts the
   rider beside the hull at the seat's height under slow falling
-  (`SLOW_FALL_TICKS`), never under the hull, where an empty ship parks. A
+  (`SLOW_FALL_TICKS`), `FLOAT_MARGIN` clear of the footprint, never under the
+  hull, where an empty ship parks. A
   player found farther than `NATIVE_REACH` (times the scale, plus the
   footprint's half extent) from the seat was moved on purpose and is left
   alone. Native mounts (rotorcraft, flyer) keep Bedrock's set-down; the
@@ -1251,6 +1260,9 @@ literal inside a function body (`§` marks the number).
 | `VEHICLE_EGRESS.AIRBORNE_BLOCKS` | `web/src/engine/bedrock-vehicle.ts` | 3 | blocks | No ground or water within this under the base is a vehicle in the air: its rider is put beside the hull at the seat's height and floats down. |
 | `VEHICLE_EGRESS.SLOW_FALL_TICKS` | `web/src/engine/bedrock-vehicle.ts` | 600 | ticks | The float off a vehicle in the air: 30 s covers a 90-block drop at ~3 blocks/s, the flyer's own `DISMOUNT_SLOW_FALL_TICKS`. |
 | `VEHICLE_EGRESS.NATIVE_REACH` | `web/src/engine/bedrock-vehicle.ts` | 2 | blocks (times the vehicle's scale, plus its half extent) | Farther from the seat the tick after a dismount is a deliberate move (a `/tp`), left alone, as `SEAT_EGRESS.NATIVE_REACH_BLOCKS`. |
+| `VEHICLE_EGRESS.RINGS` | `web/src/engine/bedrock-vehicle.ts` | 3 | rings | Rings of set-down spots, each `SPACING` farther out, the inner first: a bank or kerb a block or two off the hull is reached, never preferred over a floor right beside it. |
+| `VEHICLE_EGRESS.SHORE_ABOVE` | `web/src/engine/bedrock-vehicle.ts` | 1.5 | blocks | A boat afloat takes a shore floor up to this over the water's surface: the surface sits 8/9 into its block, so the ground beside a pool is 1.11 over it, out of a keel-relative `ABOVE_BASE` (every boat set its rider down in the water beside a bank, vehicle course 2026-10-11). |
+| `VEHICLE_EGRESS.FLOAT_MARGIN` | `web/src/engine/bedrock-vehicle.ts` | 1.5 | blocks | Clearance between the footprint and a body set down to float beside a vehicle in the air: the empty ship sinks to its own x/z beside a rider who cannot step aside; at `MARGIN` 0.5 the 7140 X-wing parked with its drawn engines on the child (Saga 30m item 5; skin arms ~0.45 from the centre vs the 0.3 box). |
 | `TIME_MACHINE.TOP_MARGIN` | `web/src/engine/playable-addon.ts` | 1.03 | × | The time machine's top speed is 3 % past its jump speed (88 mph: 40.5 blocks/s), so a full stick reaches it. |
 | `TIME_MACHINE.TELEPORT_BLOCKS` | `web/src/engine/playable-addon.ts` | 10 | blocks per 2 ticks | A longer move is a teleport, not speed: 100 blocks/s, past the 150 mph slider's 67. |
 | `RIDE.SLIDE_V0` | `web/src/engine/bedrock-rides.ts` | 2 | blocks/s | A slide rider leaves the top at a walk, so the start reads as a push-off. |
