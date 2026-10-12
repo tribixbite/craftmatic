@@ -12,10 +12,10 @@
 import type { Vec3 } from '../core/vec.js';
 import type { SimEngine } from '../core/engine.js';
 import type { SimEntity } from '../entity/entity.js';
-import { aimPoint, lookAt, pick } from '../input/touch.js';
+import { boxCentreAim, lookAt, nearPickPoint, pick } from '../input/touch.js';
 import { PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH } from '../physics/body.js';
 import { quirkValue } from '../quirks/registry.js';
-import { raycastBlocks } from '../input/ray.js';
+import { pickBoxes, raycastBlocks } from '../input/ray.js';
 
 /** A standing spot and how far its eye is from the target's pick point. */
 export interface ApproachSpot { feet: Vec3; distance: number; /** The point the child aims at from `feet` (the pick box nearest its eye). */ aim: Vec3 }
@@ -106,21 +106,53 @@ export function findApproach(engine: SimEngine, player: SimEntity, target: SimEn
  */
 export function approachSpots(engine: SimEngine, player: SimEntity, target: SimEntity, reach = quirkValue('tap-is-hit', 'reachBlocks') - 0.5, exclude: readonly Vec3[] = [], options: ApproachOptions = {}, limit = Infinity): ApproachSpot[] {
   const saved = { loc: { ...player.location }, rot: { ...player.rotation } };
-  const a = aimPoint(player, target);
+  const a = boxCentreAim(player, target);
+  const rings = [1.2, 1.8, 2.5, 3.2, 4].filter(r => r <= reach);
+  let found = searchSpots(engine, player, target, reach, exclude, options, limit, saved.loc, { centre: a, rings, top: a.y + APPROACH_LEVELS.above, bottom: a.y - PLAYER_EYE_HEIGHT - APPROACH_LEVELS.below, aim: boxCentreAim });
+  if (!found.length) {
+    // A part BIGGER than the reach (a 400 % door: a 10-block box whose middle stands 5 blocks over its floor; 60380's
+    // turntable, 3.7 blocks across): no spot is within reach of a box's centre, yet a tap picks it at any point of a
+    // box within reach (quirk `tap-is-hit`), as a child taps the near part of a big door. Searched only when the
+    // centre search found nothing, so every part it serves keeps its spots (child play 2026-10-08: 41732 Door 2,
+    // 76417 Door 2 and Gate 1, 60380 Turnable 1 had none at 400 %).
+    const boxes = pickBoxes(target);
+    if (boxes.length) {
+      const x0 = Math.min(...boxes.map(b => b.x0)), x1 = Math.max(...boxes.map(b => b.x1)), z0 = Math.min(...boxes.map(b => b.z0)), z1 = Math.max(...boxes.map(b => b.z1));
+      const y0 = Math.min(...boxes.map(b => b.y0)), y1 = Math.max(...boxes.map(b => b.y1)), half = Math.hypot(x1 - x0, z1 - z0) / 2;
+      found = searchSpots(engine, player, target, reach, exclude, options, limit, saved.loc, { centre: { x: (x0 + x1) / 2, y: (y0 + y1) / 2, z: (z0 + z1) / 2 }, rings: FALLBACK_RINGS.filter(r => r <= reach + 1e-9).map(r => r + half), angles: FALLBACK_ANGLES, top: y1 + APPROACH_LEVELS.above, bottom: y0 - PLAYER_EYE_HEIGHT - APPROACH_LEVELS.below, aim: nearPickPoint });
+    }
+  }
+  player.location = saved.loc; player.rotation = saved.rot;
+  return found;
+}
+
+/** One ring search of `approachSpots`: the rings round `centre`, every floor between `top` and `bottom`, the child aiming at `aim` from each. */
+interface SpotSearch { centre: Vec3; rings: readonly number[]; /** Points per ring (16 by default). */ angles?: number; top: number; bottom: number; aim: (player: SimEntity, target: SimEntity) => Vec3 }
+
+/**
+ * The big-part search's rings (blocks past the boxes' half-diagonal) and points per ring: denser than the centre
+ * search, as the floors a child reaches a big part from can be a narrow ledge (60380's turntable at 400 %: two
+ * standable spots within reach, 5.5 blocks from its middle).
+ */
+const FALLBACK_RINGS = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5];
+const FALLBACK_ANGLES = 48;
+
+/** The spots one `SpotSearch` finds (best first, up to `limit`), from which a tap at its aim picks `target`. Moves the player; the caller restores it. */
+function searchSpots(engine: SimEngine, player: SimEntity, target: SimEntity, reach: number, exclude: readonly Vec3[], options: ApproachOptions, limit: number, from: Vec3, search: SpotSearch): ApproachSpot[] {
   const candidates: Array<ApproachSpot & { fromPlayer: number; clear?: boolean }> = [];
-  for (const r of [1.2, 1.8, 2.5, 3.2, 4]) {
-    if (r > reach) break;
-    for (let k = 0; k < 16; k++) {
-      const ang = (k / 16) * Math.PI * 2;
-      const x = a.x + Math.cos(ang) * r, z = a.z + Math.sin(ang) * r;
-      for (const y of floorsIn(engine, player.dimension, x, z, a.y + APPROACH_LEVELS.above, a.y - PLAYER_EYE_HEIGHT - APPROACH_LEVELS.below)) {
+  for (const r of search.rings) {
+    const n = search.angles ?? 16;
+    for (let k = 0; k < n; k++) {
+      const ang = (k / n) * Math.PI * 2;
+      const x = search.centre.x + Math.cos(ang) * r, z = search.centre.z + Math.sin(ang) * r;
+      for (const y of floorsIn(engine, player.dimension, x, z, search.top, search.bottom)) {
         const feet = { x, y, z };
         if (!standsAt(engine, player.dimension, feet)) continue;
         player.location = feet;
-        const aim = aimPoint(player, target), eye = player.headLocation();
+        const aim = search.aim(player, target), eye = player.headLocation();
         const d = Math.hypot(eye.x - aim.x, eye.y - aim.y, eye.z - aim.z);
         if (d > reach) continue;
-        candidates.push({ feet, aim, distance: d, fromPlayer: Math.hypot(x - saved.loc.x, z - saved.loc.z), ...(options.inFront ? { clear: sightClear(engine, player.dimension, eye, aim) } : {}) });
+        candidates.push({ feet, aim, distance: d, fromPlayer: Math.hypot(x - from.x, z - from.z), ...(options.inFront ? { clear: sightClear(engine, player.dimension, eye, aim) } : {}) });
       }
     }
   }
@@ -135,7 +167,6 @@ export function approachSpots(engine: SimEngine, player: SimEntity, target: SimE
     lookAt(player, c.aim);
     if (pick(engine, player).entity === target) found.push({ feet: c.feet, aim: c.aim, distance: c.distance });
   }
-  player.location = saved.loc; player.rotation = saved.rot;
   return found;
 }
 

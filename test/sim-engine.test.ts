@@ -15,7 +15,7 @@ import { BlockTypes } from '../web/src/sim/world/block-types.js';
 import { rewriteModule } from '../web/src/sim/script-host/module-loader.js';
 import { Simulation } from '../web/src/sim/core/simulation.js';
 import { readAddon } from '../web/src/sim/pack/pack.js';
-import { lookAt, tap } from '../web/src/sim/input/touch.js';
+import { aimPoint, lookAt, tap } from '../web/src/sim/input/touch.js';
 import { runScenario } from '../web/src/sim/scenario/runner.js';
 import { allQuirks, quirk, quirkValue } from '../web/src/sim/quirks/registry.js';
 import { simHost, solidBelow } from './_sim-host.js';
@@ -273,6 +273,32 @@ describe('the script host', () => {
     const r = tap(sim.engine, p, target);
     expect(r.entity).toBeUndefined();
     expect(r.blockedBy).toMatch(/minecraft:stone/);
+  });
+
+  it('finds a spot for a part bigger than the reach and taps it where it is near (400 % doors and 60380 Turnable 1, child play 2026-10-08)', async () => {
+    // A tall door (a 400 % door is 10 blocks): three 1.4-wide, 14-tall tap boxes on the floor. Every box's centre stands 7 blocks over
+    // the floor, out of reach from anywhere a child stands; the device picks any point of a box within reach.
+    const door = entityJson('x:door', { 'minecraft:custom_hit_test': { hitboxes: [-1.4, 0, 1.4].map(dz => ({ width: 1.39, height: 14, pivot: [0, 7, dz] })) }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
+    // A 400 % turntable: one 3.7-wide, 0.8-tall box with its top 1.6 over the floor, centre 1.85 from its edge.
+    const table = entityJson('x:table', { 'minecraft:custom_hit_test': { hitboxes: [{ width: 3.72, height: 0.8, pivot: [0, 1.2, 0] }] }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
+    const sim = new Simulation();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'door.json': door, 'table.json': table }), 'mini'));
+    const p = sim.addPlayer('Child', { x: 0.5, y: FLAT_GROUND_Y, z: 0.5 });
+    const target = sim.engine.spawnEntity('x:door', 'overworld', { x: 12.5, y: FLAT_GROUND_Y, z: 0.5 });
+    await sim.run(2);
+    const spot = findApproach(sim.engine, p, target);
+    expect(spot).toBeDefined();
+    // It aims at the door where it is near (the eye's height), not at a middle 5 blocks up.
+    p.location = { ...spot!.feet };
+    expect(Math.abs(aimPoint(p, target).y - p.headLocation().y)).toBeLessThan(0.5);
+    expect(tap(sim.engine, p, target).entity).toBe(target);
+    // A child standing in front of a part it CAN tap at the middle still aims there (every tap before keeps its aim).
+    const plate = sim.engine.spawnEntity('x:table', 'overworld', { x: 30.5, y: FLAT_GROUND_Y, z: 0.5 });
+    await sim.run(2);
+    const near = findApproach(sim.engine, p, plate);
+    expect(near).toBeDefined();
+    p.location = { ...near!.feet };
+    expect(tap(sim.engine, p, plate).entity).toBe(plate);
   });
 
   it('finds a standing spot for a part lying on the floor the child stands on (31141 Turnable 1, 2026-09-30 triage)', async () => {
