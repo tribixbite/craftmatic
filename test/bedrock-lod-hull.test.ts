@@ -500,16 +500,21 @@ describe('the LOD hull inside a pack', () => {
     const controllers = JSON.parse(await textOf(shed.bytes, 'Craftmatic_lodshed_RP/render_controllers/lodshed_shell.render_controllers.json')).render_controllers as Record<string, { geometry: string }>;
     expect(Object.values(controllers).some(c => c.geometry === `Array.g[query.distance_from_camera > ${h.switchDistance}]`)).toBe(true);
 
-    // Forty courses: a taller model, a bigger box, a further cull. Its hull
-    // ships, and its switch still sits under its own cull.
+    // Forty courses: taller than one 13-block shell cell, so since 2026-10-11
+    // (COL-03, the lattice planned for 400 %) the shell ships as lattice
+    // chunks, each its own actor with its own box and cull. Every chunk's hull
+    // ships, and every switch still sits under its own chunk's cull.
     const tower = await shellPack('hull', undefined, 40);
     const towerDiag = JSON.parse(await textOf(tower.bytes, 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json')) as LodDiag;
-    const t = towerDiag.lod.entities['lodshed_shell']!;
     expect(towerDiag.lod.skipped).toEqual({});
     expect(towerDiag.lod.cuboids).toBeGreaterThan(0);
-    expect(t.renderCullBlocks).toBeGreaterThan(h.renderCullBlocks);
-    expect(t.switchDistance - (t.renderCullBlocks - LOD_CULL_MARGIN_BLOCKS)).toBeLessThanOrEqual(0.05);
-    expect(t.nearestCubeBlocks).toBeGreaterThanOrEqual(MIN_LOD_NEAREST_CUBE_BLOCKS);
+    const chunks = Object.entries(towerDiag.lod.entities).filter(([id]) => id.startsWith('lodshed_shell_c'));
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const [id, t] of chunks) {
+      expect(t.renderCullBlocks, id).toBeGreaterThanOrEqual(h.renderCullBlocks);
+      expect(t.switchDistance - (t.renderCullBlocks - LOD_CULL_MARGIN_BLOCKS), id).toBeLessThanOrEqual(0.05);
+      expect(t.nearestCubeBlocks, id).toBeGreaterThanOrEqual(MIN_LOD_NEAREST_CUBE_BLOCKS);
+    }
     expect(listZipEntries(ab(tower.bytes)).some(e => /_lod\.geo\.json$/.test(e))).toBe(true);
 
     // The hull is resident geometry: the same pack without it is cheaper by

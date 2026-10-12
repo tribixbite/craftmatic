@@ -42,7 +42,6 @@ const ROUND = 'C:/git/craftmatic/output';
 const PACKS_30M = `${ROUND}/device-round-2026-10-08m/packs-6a8c7121`;
 const SAGA_30M = '`output/device-round-2026-10-08m/saga/notes.md`';
 const PIXEL_30M = '`output/device-round-2026-10-08m/pixel/notes.md`';
-const OPEN_30M = 'round 30m, 2026-10-08';
 
 const allow = [...CRAFTMATIC_ALLOWED_LINES];
 /** The lines a driven vehicle's HUD prints (the course's own allowance). */

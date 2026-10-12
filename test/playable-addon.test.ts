@@ -971,9 +971,10 @@ describe('playable add-on — brick-compiled entities', () => {
     // Both chunks are placed from the ONE old root (where the whole-model actor stood) plus their offsets.
     const roots = placed.map(a => [a.x - a.offset[0], a.y - a.offset[1], a.z - a.offset[2]]);
     expect(roots[1]!.map((v, i) => Math.abs(v - roots[0]![i]!) < 1e-6)).toEqual([true, true, true]);
-    // The bricks stand 60 blocks apart (x = 11 and 71): their chunks sit three cells apart on the lattice, roots that far apart.
+    // The bricks stand 60 blocks apart (x = 11 and 71): their chunks sit that many lattice cells apart (five
+    // 13-block cells since 2026-10-11, COL-03), roots that far apart.
     const byX = [...diag.spatialShell.actors].sort((a, b) => a.cell[0] - b.cell[0]);
-    expect(byX[1]!.cell[0] - byX[0]!.cell[0]).toBe(3);
+    expect(byX[1]!.cell[0] - byX[0]!.cell[0]).toBe(Math.floor(71 / S) - Math.floor(11 / S));
     const xs = placed.map(actor => actor.x).sort((a, b) => a - b);
     expect(xs[1]! - xs[0]!).toBeCloseTo((byX[1]!.cell[0] - byX[0]!.cell[0]) * S, 4);
     for (const actor of placed) expect(actor.yaw).toBe(0);
