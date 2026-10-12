@@ -6,7 +6,7 @@ import { currentPipelineStamp, packDisplayName, packProvenance, packVersionAt, p
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
-import { buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsForSizeSteps, withColliderTreadsAsync, withSizeGroups, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
+import { buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, geometryHitBox, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsForSizeSteps, withColliderTreadsAsync, withSizeGroups, type HitTestBox, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
 import { FLYER, flyerScript, type FlyerRuntimeConfig } from './bedrock-flyer.js';
 import type { CanonMount } from './set-canon.js';
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
@@ -624,7 +624,7 @@ export function scriptedHopSource(type: ScriptedVehicleType): HopSource {
     return { halfLength: type.noseReach, halfWidth: type.halfWidth, height: type.height, vacate: type.mode === 'plane' ? 'hover' : 'stop' };
 }
 
-function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }, entitySize?: { width: number; height: number; length: number }, motion: VehicleMotion = kind === 'plane' ? 'rotor' : kind, passengerSeats?: Array<[number, number, number]>, seatPlan?: SeatPlan): unknown {
+function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }, entitySize?: { width: number; height: number; length: number }, motion: VehicleMotion = kind === 'plane' ? 'rotor' : kind, passengerSeats?: Array<[number, number, number]>, seatPlan?: SeatPlan, hitTest?: HitTestBox): unknown {
     const scripted = isScriptedVehicle(kind, motion);
     const layout = componentLayout(kind, grid, sceneScale, longitudinalAxis, facing);
     let seatX: number, seatY: number, seatZ: number;
@@ -722,9 +722,10 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
                 return seatList;
             })(),
         };
-    // The drawn hull's tap box at 100 %: a compiled model's extent (`sizeBlocks`, centred on the origin at
-    // the floor), or the grid-built fallback's layout. A square of the longest reach: see `hullHitBox`.
-    const hullHit = sizeHitBox(entitySize ?? { width: layout.width, height: layout.height, length: layout.length });
+    // The drawn hull's tap box at 100 %: the shipped geometry's own drawn cubes (`geometryHitBox`; `sizeBlocks`
+    // stops 0.5 block under 76286's drawn top), else a compiled model's extent (centred on the origin at the
+    // floor), else the grid-built fallback's layout. A square of the longest reach: see `hullHitBox`.
+    const hullHit = hitTest ?? sizeHitBox(entitySize ?? { width: layout.width, height: layout.height, length: layout.length });
     const common: Record<string, unknown> = {
         'minecraft:type_family': { family: ['craftmatic_vehicle', kind, ...(motion === 'hover' ? ['hover'] : motion === 'flyer' ? ['flyer'] : [])] },
         'minecraft:nameable': {}, 'minecraft:persistent': {},
@@ -3083,7 +3084,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (ldrawGeo) {
             warnings.push(...ldrawGeo.warnings);
             diagnostics[cid] = ldrawGeo.diagnostics;
-            const mainBehavior = behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, ldrawGeo.seatPlan);
+            const mainBehavior = behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, ldrawGeo.seatPlan, geometryHitBox(ldrawGeo.value));
             emitCompiledEntity(cid, ldrawGeo, mainBehavior, emitDriveAnimation(cid, motion, ldrawGeo, scripted), true);
             vehicleSeats.push(vehicleSeatReport(c.label, cid, c.kind, c.bricks!, i => c.bricks![i]!, ldrawGeo, mainBehavior, `${scripted ? 'scripted' : 'native'} ${motion}`));
             cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(scripted ? { scripted: true } : {}), ...cameraSeatFields(ldrawGeo.seatPlan) });
@@ -3118,7 +3119,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 if (ekind === 'figure') figureBodies[`${PACK_NAMESPACE}:${ecid}`] = figureCollisionBox(egeo.sizeBlocks, options.figureCollisionHeight).height;
                 const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks, options.figureCollisionHeight)
                     : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
-                    : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks, 'car', egeo.passengerSeats, egeo.seatPlan);
+                    : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks, 'car', egeo.passengerSeats, egeo.seatPlan, geometryHitBox(egeo.value));
                 emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? figureClientAnimations(egeo.figure.system) : ekind === 'car' ? emitDriveAnimation(ecid, 'car', egeo, true) : undefined, ekind !== 'figure');
                 // A second vehicle's seats, its placements named by the parent's own (the extra's are levelled copies).
                 if (ekind === 'car') vehicleSeats.push(vehicleSeatReport(elabel, ecid, 'car', extra.sourceIndices.map(i => c.bricks![i]!), i => c.bricks![extra.sourceIndices[i]!], egeo, behavior, 'scripted car', p => unlevelPoint(ldrawGeo!.levelPose, p)));
@@ -3183,7 +3184,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // player's eye is `SEATED_EYE_HEIGHT_BLOCKS` over it), player-sized at
         // 100 % and scaled with the mount's size steps like any vehicle seat.
         const seatTop: [number, number, number] = [0, Math.round(geo.sizeBlocks.height * 100) / 100, 0];
-        const flyerBehavior = behaviorEntity(flyerId, 'plane', new BlockGrid(1, 1, 1), undefined, undefined, 'auto', undefined, 1, seatTop, geo.collisionBox, geo.sizeBlocks, 'flyer', []);
+        const flyerBehavior = behaviorEntity(flyerId, 'plane', new BlockGrid(1, 1, 1), undefined, undefined, 'auto', undefined, 1, seatTop, geo.collisionBox, geo.sizeBlocks, 'flyer', [], undefined, geometryHitBox(geo.value));
         emitCompiledEntity(flyerId, geo, flyerBehavior, emitDriveAnimation(flyerId, 'flyer', geo, false), true);
         addEntityName(flyerType, `${label} ${mountLabel}`, true);
         const hud = bedrockInGameText(m.canon.hud ?? mountLabel.toUpperCase());

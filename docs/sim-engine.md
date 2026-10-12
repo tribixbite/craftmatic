@@ -829,6 +829,14 @@ seats' set-down order is physics spec §4.8.
   realised box (`SimEntity.collisionSize`). A pack built before 2026-10-08
   (size groups writing the box pre-scaled) shows f² x the 100 % box, as the
   phone did.
+- **An entity that declares `minecraft:custom_hit_test` is picked by those
+  boxes - for a hit and for the interact (the Mount prompt) - as declared:
+  square, world-aligned, never times `minecraft:scale`** (quirk
+  `custom-hit-test-pick`, from vanilla hoglin.json and the 1.21.60 changelog,
+  not a phone). Every rideable's size group declares its hull box at that
+  size (`withSizeGroups` `hitTest`); a pack built before 2026-10-11 has only
+  its collision box to pick, which is the 200 % Milano's missing Mount
+  prompt (regression `milano-mount-reach-200-30m`, VEH-17).
 - **Block collision boxes are read MIRRORED in x**, as the device reads them
   (quirk `block-collision-x-mirrored`, Pixel GameTest 2026-09-30): a pack
   built before the fix to `collisionBox` shows its x-banded clearance forms on
