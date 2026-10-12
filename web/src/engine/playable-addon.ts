@@ -6,7 +6,7 @@ import { currentPipelineStamp, packDisplayName, packProvenance, packVersionAt, p
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
-import { buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, geometryHitBox, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsForSizeSteps, withColliderTreadsAsync, withSizeGroups, type HitTestBox, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
+import { boardPointsOf, buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, geometryHitBox, hitTestAtSize, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsForSizeSteps, withColliderTreadsAsync, withSizeGroups, type HitTestBox, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
 import { FLYER, flyerScript, type FlyerRuntimeConfig } from './bedrock-flyer.js';
 import type { CanonMount } from './set-canon.js';
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
@@ -36,7 +36,7 @@ import { RIDE, ridesScript, type RideKind, type RideRuntimeConfig } from './bedr
 import { HOP, HOP_TAGS, hopKitConfig, hopRuntimeConfig, hopScript, type HopSource, type HopVacate } from './bedrock-ride-hop.js';
 import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, pressFlashOverlay, ballAnimation, ballProperties, buttonPressAnimation, consoleAssets, consoleHideAnimation, pressProperties, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
-import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, VEHICLE_DYNAMIC, VEHICLE_EGRESS, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
+import { BOARD, BOARD_OWNER_PROPERTY, BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, VEHICLE_DYNAMIC, VEHICLE_EGRESS, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
 import { ESCAPE_OPTIONS } from './collider-form.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { FREE_LOOK, NATIVE_HEADING_PROPERTY, NATIVE_STEER, cockpitCamera, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type FreeLookParams, type NativeSteerParams } from './vehicle-free-look.js';
@@ -604,12 +604,15 @@ export function isScriptedVehicle(kind: PlayableKind, motion: VehicleMotion): bo
  * the hull's bottom edge on both phones, round 2026-09-29a).
  * TODO(boats): 2 blocks for a 26-block ship is a judgement; see it on a device.
  */
-export function scriptedTypeOf(kind: PlayableKind, motion: VehicleMotion, size: { width: number; height: number; length: number }, keelBlocks = 0): ScriptedVehicleType {
+export function scriptedTypeOf(kind: PlayableKind, motion: VehicleMotion, size: { width: number; height: number; length: number }, keelBlocks = 0, geometry?: unknown): ScriptedVehicleType {
     const r2 = (v: number): number => Math.round(v * 100) / 100;
     const mode: ScriptedVehicleType['mode'] = motion === 'hover' ? 'hover' : kind === 'car' ? 'car' : motion === 'boat' ? 'boat' : 'plane';
+    const board = geometry ? boardPointsOf(geometry) : [];
     return {
         mode, noseReach: r2(size.length / 2), halfWidth: r2(size.width / 2), height: r2(size.height),
         ...(mode === 'boat' ? { draft: r2(keelBlocks + Math.min(2, Math.max(0.3, size.height * 0.12))) } : {}),
+        // Its drawn extremities, where board points stand while it is parked and empty (`BOARD`, VEH-17).
+        ...(board.length ? { board } : {}),
     };
 }
 
@@ -743,7 +746,10 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         // nose 15.5 blocks out (VEH-17, Pixel 30m). A hit-test box the size of the drawn hull is picked
         // for the interact too (Bedrock 1.21.60 changelog; quirk `custom-hit-test-pick`); every size
         // group re-declares it at that size (`withSizeGroups` `hitTest`: not scaled by `minecraft:scale`).
-        'minecraft:custom_hit_test': { hitboxes: [hullHit] },
+        // A SCRIPTED vehicle's box is clipped to a square 2 x `BOARD.HULL_HIT_HALF_MAX_BLOCKS` wide: the device
+        // refuses the interact beyond ~12 blocks of the root whatever box is picked (quirk `interact-root-reach`,
+        // Pixel 30n), and past that its far extremities are boarded through board points the box must not hide.
+        'minecraft:custom_hit_test': { hitboxes: scripted ? hitTestAtSize([hullHit], 1, BOARD.HULL_HIT_HALF_MAX_BLOCKS) : [hullHit] },
         'minecraft:rideable': rideableComponent,
         // Format 1.26.30 dropped `minecraft:pushable` from the schema (the whole
         // entity then fails to parse - measured on the Pixel's content log);
@@ -839,7 +845,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true, ...(scripted ? { properties: flightProperties() } : {}) }, ...aircraftGroups, components: common } },
         common['minecraft:collision_box'] as { width: number; height: number },
         rideableComponent,
-        { ...(seatPlan ? { seatAt: seatPositionAt } : {}), hitTest: [hullHit] },
+        { ...(seatPlan ? { seatAt: seatPositionAt } : {}), hitTest: [hullHit], ...(scripted ? { hitTestMaxHalf: BOARD.HULL_HIT_HALF_MAX_BLOCKS } : {}) },
     );
 }
 /**
@@ -1003,6 +1009,35 @@ export function rideSeatBehavior(id: string): unknown {
         'minecraft:rideable': rideable,
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
     } } }, { ...RIDE_SEAT_TAP_BOX }, rideable, { playerSized: true });
+}
+/**
+ * A scripted vehicle's BOARD POINT (bedrock-vehicle.ts `BOARD`, VEH-17): the invisible column scripts/vehicles.js
+ * keeps under each far drawn extremity of a parked, empty vehicle, so a player beside its nose or a wingtip - more
+ * than ~12 blocks from its root, where the device refuses the interact (quirk `interact-root-reach`) - can board it.
+ * One definition per pack. A RIDEABLE for the players only, so a hold on it is an interact the device sends (a
+ * non-rideable custom entity raised none in GameTest, quirk `gametest-simulated-player`) and shows the Mount
+ * prompt; the runtime cancels that interact and seats the player in the VEHICLE, as it does for a tap. No gravity,
+ * no collision, never pushed; its pick box is a `BOARD.COLUMN_WIDTH` x `COLUMN_HEIGHT` column standing on its
+ * origin at 100 %, re-declared at each size (`withSizeGroups` `hitTest`) so it grows with the vehicle it serves.
+ */
+export function boardPointBehavior(id: string): unknown {
+    const rideable = { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, 0, 0], lock_rider_rotation: 0 } };
+    const column: HitTestBox = { width: BOARD.COLUMN_WIDTH, height: BOARD.COLUMN_HEIGHT, pivot: [0, BOARD.COLUMN_HEIGHT / 2, 0] };
+    const box = { width: 0.25, height: 0.25 };
+    return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: false, is_summonable: true }, components: {
+        'minecraft:type_family': { family: ['craftmatic_board'] },
+        'minecraft:nameable': {}, 'minecraft:persistent': {},
+        'minecraft:health': { value: 20, max: 20 },
+        'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
+        'minecraft:fire_immune': {},
+        'minecraft:collision_box': { ...box },
+        'minecraft:custom_hit_test': { hitboxes: [column] },
+        'minecraft:physics': { has_gravity: false, has_collision: false },
+        'minecraft:pushable_by_block': {},
+        'minecraft:knockback_resistance': { value: 1 },
+        'minecraft:rideable': rideable,
+        'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
+    } } }, { ...box }, rideable, { hitTest: [column] });
 }
 /**
  * A flyer mount's companion seat (bedrock-flyer.ts, bedrock-rides.ts kind
@@ -3135,7 +3170,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (componentIsTimeMachine)
             timeMachineConfig = { typeId: fullTypeId, width: layout.width, height: layout.height, length: layout.length, topSpeedProperty: VEHICLE_DYNAMIC.topSpeed, hudProperty: VEHICLE_DYNAMIC.hud, topMargin: TIME_MACHINE.TOP_MARGIN, teleportBlocks: TIME_MACHINE.TELEPORT_BLOCKS };
         if (scripted)
-            scriptedTypes[fullTypeId] = scriptedTypeOf(c.kind, motion, ldrawGeo?.sizeBlocks ?? { width: layout.width, height: layout.height, length: layout.length }, ldrawGeo?.keelBlocks ?? 0);
+            scriptedTypes[fullTypeId] = scriptedTypeOf(c.kind, motion, ldrawGeo?.sizeBlocks ?? { width: layout.width, height: layout.height, length: layout.length }, ldrawGeo?.keelBlocks ?? 0, ldrawGeo?.value);
         else if (c.kind === 'car' || c.kind === 'plane' || c.kind === 'boat') {
             driverVehicles.push({ typeId: fullTypeId, kind: c.kind, label: c.label });
             nativeHopSources[fullTypeId] = hopSourceOf(ldrawGeo?.sizeBlocks ?? { width: layout.width, height: layout.height, length: layout.length }, 'native');
@@ -3184,7 +3219,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 if (ekind === 'car') vehicleSeats.push(vehicleSeatReport(elabel, ecid, 'car', extra.sourceIndices.map(i => c.bricks![i]!), i => c.bricks![extra.sourceIndices[i]!], egeo, behavior, 'scripted car', p => unlevelPoint(ldrawGeo!.levelPose, p)));
                 addEntityName(`${PACK_NAMESPACE}:${ecid}`, elabel, true);
                 if (ekind === 'car') {
-                    scriptedTypes[`${PACK_NAMESPACE}:${ecid}`] = scriptedTypeOf('car', 'car', egeo.sizeBlocks);
+                    scriptedTypes[`${PACK_NAMESPACE}:${ecid}`] = scriptedTypeOf('car', 'car', egeo.sizeBlocks, 0, egeo.value);
                     cameraVehicles.push({ ...emitCameraPresets(ecid, 'car', egeo.sizeBlocks), scripted: true, ...cameraSeatFields(egeo.seatPlan) });
                 }
                 // A rigged figure faces exactly where its torso pointed (not the nearest axis).
@@ -3814,6 +3849,23 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const hopSources: Record<string, HopSource> = { ...nativeHopSources, ...Object.fromEntries(Object.entries(scriptedTypes).map(([t, v]) => [t, scriptedHopSource(v)])) };
     const hasHop = Object.keys(hopSources).length > 0;
     if (hasHop) files.push({ name: `${bp}scripts/hop.js`, data: text(hopScript(hopRuntimeConfig(PACK_NAMESPACE, hopSources))) });
+    // Board points (bedrock-vehicle.ts `BOARD`, VEH-17): one invisible rideable definition for every scripted vehicle
+    // with drawn extremities; the runtime places them only where an extremity lies past the interact's root reach.
+    let boardConfig: ScriptedVehicleConfig['board'];
+    if (Object.values(scriptedTypes).some(t => t.board?.length)) {
+        const boardId = entityId(`${id}_board`, 'b');
+        boardConfig = { type: `${PACK_NAMESPACE}:${boardId}`, sizeEventPrefix: SIZE_EVENT_PREFIX, sizes: SIZE_STEPS, ownerProperty: BOARD_OWNER_PROPERTY, params: BOARD };
+        files.push(
+            { name: `${bp}entities/${boardId}.json`, data: json(boardPointBehavior(boardId)) },
+            { name: `${rp}entity/${boardId}.entity.json`, data: json(seatClient(boardId)) },
+        );
+        // The invisible seat's model and texture, unless a seat or a ride already wrote them.
+        if (!files.some(f => f.name === `${rp}models/entity/craftmatic_seat.geo.json`)) files.push(
+            { name: `${rp}models/entity/craftmatic_seat.geo.json`, data: geoJson(SEAT_GEOMETRY) },
+            { name: `${rp}textures/entity/craftmatic_seat.png`, data: transparentPng() },
+        );
+        addEntityName(boardConfig.type, `${label} Boarding point`, false);
+    }
     if (Object.keys(scriptedTypes).length) files.push({ name: `${bp}scripts/vehicles.js`, data: text(scriptedVehicleScript({
         types: scriptedTypes, flight: FLIGHT, boat: BOAT, car: CAR, hover: HOVER, footprint: FOOTPRINT, move: MOVE, headlights: HEADLIGHTS,
         props: FLIGHT_PROPS, dynamic: VEHICLE_DYNAMIC,
@@ -3822,6 +3874,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         inputEvent: FLIGHT_INPUT_EVENT, telemetryEvent: VEHICLE_TELEMETRY_EVENT,
         // A rider who gets off is set down on a walkable floor beside the hull (SEAT-05, `vehicleEgress`).
         egress: VEHICLE_EGRESS, escape: ESCAPE_OPTIONS,
+        ...(boardConfig ? { board: boardConfig } : {}),
     })) });
     if (interactiveConfig) files.push({ name: `${bp}scripts/interactives.js`, data: text(interactivesScript(interactiveConfig)) });
     if (ridesConfig) files.push({ name: `${bp}scripts/rides.js`, data: text(ridesScript(ridesConfig)) });

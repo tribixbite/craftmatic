@@ -2,6 +2,7 @@ import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, t
 import { WalkWorld, tickPlayer, type PlayerState } from './addon-walk.js';
 import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
 import { drawnCubeBox } from './bedrock-geometry-faces.js';
+import type { BoardPoint } from './bedrock-vehicle.js';
 
 declare const world: any;
 declare const system: any;
@@ -466,9 +467,41 @@ export function geometryHitBox(geometry: unknown): HitTestBox | undefined {
   return hullHitBox({ halfWidth: reach / 16, halfLength: reach / 16, height: (top - bottom) / 16 }, bottom / 16);
 }
 
-/** `hullHitBox` boxes as a size group whose `minecraft:scale` is `scale` ships them: at the realised (world) size, see `withSizeGroups`. */
-export function hitTestAtSize(boxes: readonly HitTestBox[], scale: number): HitTestBox[] {
-  return boxes.map(b => ({ width: round3(b.width * scale), height: round3(b.height * scale), pivot: [round3(b.pivot[0] * scale), round3(b.pivot[1] * scale), round3(b.pivot[2] * scale)] }));
+/**
+ * `hullHitBox` boxes as a size group whose `minecraft:scale` is `scale` ships them: at the realised (world) size,
+ * see `withSizeGroups`; with `maxHalf`, no wider than a square `2 x maxHalf` (a scripted vehicle's, `BOARD`).
+ */
+export function hitTestAtSize(boxes: readonly HitTestBox[], scale: number, maxHalf = Infinity): HitTestBox[] {
+  return boxes.map(b => ({ width: round3(Math.min(b.width * scale, 2 * maxHalf)), height: round3(b.height * scale), pivot: [round3(b.pivot[0] * scale), round3(b.pivot[1] * scale), round3(b.pivot[2] * scale)] }));
+}
+
+/**
+ * The drawn extremities of a shipped geometry (`.geo.json` value), in blocks at 100 % in the ENTITY frame at yaw 0
+ * (+z the nose, +x the side; the JSON frame is the entity frame mirrored in z, as `drawnBoxes` places it): for each
+ * horizontal direction, the point of the cube reaching farthest that way - on that face, at the cube's middle across
+ * and in height. Read through `drawnCubeBox` (an inflated cube counts its drawn box) and unrotated, as
+ * `geometryHitBox`. Two extremities closer than a block are one. Where a scripted vehicle's board points stand
+ * (bedrock-vehicle.ts `BOARD`, VEH-17).
+ */
+export function boardPointsOf(geometry: unknown): BoardPoint[] {
+  const meshes = (geometry as { 'minecraft:geometry'?: Array<{ bones?: Array<{ cubes?: Array<{ origin: readonly number[]; size: readonly number[]; inflate?: unknown }> }> }> } | undefined)?.['minecraft:geometry'] ?? [];
+  // Each direction: [dx, dz] in the entity frame.
+  const dirs: Array<[number, number]> = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+  const best: Array<{ reach: number; p: BoardPoint } | undefined> = dirs.map(() => undefined);
+  for (const mesh of meshes) for (const bone of mesh.bones ?? []) for (const cube of bone.cubes ?? []) {
+    const d = drawnCubeBox(cube);
+    // Entity frame: x as drawn, z mirrored; sixteenths to blocks.
+    const x0 = d.origin[0] / 16, x1 = (d.origin[0] + d.size[0]) / 16;
+    const z0 = -(d.origin[2] + d.size[2]) / 16, z1 = -d.origin[2] / 16;
+    const y = (d.origin[1] + d.size[1] / 2) / 16, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+    dirs.forEach(([dx, dz], i) => {
+      const reach = dx > 0 ? x1 : dx < 0 ? -x0 : dz > 0 ? z1 : -z0;
+      if (reach > (best[i]?.reach ?? 0)) best[i] = { reach, p: { x: round3(dx ? dx * reach : cx), y: round3(y), z: round3(dz ? dz * reach : cz), dx, dz } };
+    });
+  }
+  const out: BoardPoint[] = [];
+  for (const b of best) if (b && !out.some(o => Math.hypot(o.x - b.p.x, o.z - b.p.z) < 1)) out.push(b.p);
+  return out;
 }
 
 /**
@@ -500,6 +533,8 @@ export interface SizeGroupOptions {
    * test at the baby's own 1.0 x 0.85, half the adult's 2.0 x 1.75).
    */
   hitTest?: readonly HitTestBox[];
+  /** Half the widest `hitTest` square at any size, blocks (a scripted vehicle's: `BOARD.HULL_HIT_HALF_MAX_BLOCKS`; default unbounded). */
+  hitTestMaxHalf?: number;
 }
 
 /**
@@ -560,7 +595,7 @@ export function withSizeGroups(
       'minecraft:collision_box': { width: round3(collision.width), height: round3(collision.height) },
       ...(rideable ? { 'minecraft:rideable': rideableAtSize(rideable, scale, options.seatAt) } : {}),
       // Declared at the REALISED size: a hit-test box is not scaled by `minecraft:scale` (`SizeGroupOptions.hitTest`).
-      ...(options.hitTest?.length ? { 'minecraft:custom_hit_test': { hitboxes: hitTestAtSize(options.hitTest, scale) } } : {}),
+      ...(options.hitTest?.length ? { 'minecraft:custom_hit_test': { hitboxes: hitTestAtSize(options.hitTest, scale, options.hitTestMaxHalf) } } : {}),
     };
     events[name] = { remove: { component_groups: names.filter(n => n !== name) }, add: { component_groups: [name] } };
   }

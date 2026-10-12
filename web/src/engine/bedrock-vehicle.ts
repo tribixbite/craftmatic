@@ -1050,6 +1050,67 @@ export const VEHICLE_DYNAMIC = { topSpeed: 'craftmatic:top_speed', hud: 'craftma
  * down on the far side of the west wall, the nearest ring spot (Saga 30m item 5, `e06-strip.jpg`).
  */
 export const VEHICLE_EGRESS = { MARGIN: 0.5, SPACING: 1, MAX_CANDIDATES: 64, ABOVE_BASE: 1, DROP: 3, AIRBORNE_BLOCKS: 3, SLOW_FALL_TICKS: 600, NATIVE_REACH: 2, RINGS: 3, SHORE_ABOVE: 1.5, FLOAT_MARGIN: 1.5 } as const;
+
+/**
+ * BOARD POINTS: how a big scripted vehicle is boarded from beside its far extremities (VEH-17).
+ *
+ * The device refuses the interact (a hold, the Mount prompt) beyond ~12 blocks of the entity's ROOT, whatever
+ * hit box the press picks (quirk `interact-root-reach`, Pixel round 30n: the 200 % Milano mounted from 12 blocks
+ * of its root and never from its nose 16 out or its wingtips ~30 out, although its `minecraft:custom_hit_test`
+ * covered the whole hull). No box on the vehicle can lift that. So while a scripted vehicle stands PARKED and
+ * EMPTY, `scriptedVehicleRuntime` keeps one small invisible rideable - a board point, one entity definition per
+ * pack - under each drawn extremity (nose, tail, either side: `ScriptedVehicleType.board`) that lies farther than
+ * `MIN_REACH_BLOCKS` from the root at the vehicle's live size. A hold on a point is cancelled in the before-event
+ * and a tap on it is caught; either seats the player in the VEHICLE (`addRider`, as rides.js `board()`). The
+ * points go as soon as a rider is aboard or the vehicle moves, and come back where it parks.
+ *   - `MIN_REACH_BLOCKS` 8 = `HULL_HIT_HALF_MAX_BLOCKS`: the vehicle's own hit box is clipped to a square 16 wide
+ *     (its corners 11.3 from the root, inside the 12), so it never covers - and so never hides - a board point;
+ *     an extremity within 8 is covered by that box and boarded directly;
+ *   - `COLUMN_WIDTH` 2 / `COLUMN_HEIGHT` 3: a point's hit box at 100 %, blocks (the size groups scale it with the
+ *     vehicle: 8 x 12 at 400 %), its outer face at the drawn tip, its middle at the tip's height (never under the
+ *     vehicle's base): a child aiming at the drawn tip from beside it meets the column first;
+ *   - `CHECK_TICKS` 5: how often a parked vehicle's points are checked (moved, resized, gone, a player seated on
+ *     one natively), so the per-tick cost of a parked vehicle stays a map lookup;
+ *   - `SWEEP_TICKS` 200: how often every point in the world is checked against its owner - a point whose vehicle
+ *     is gone (retired by the wand, killed) or that survived a world reload (the runtime's map starts empty) is
+ *     removed, so points never pile up;
+ *   - `STILL_SPEED` 0.05 blocks/tick: a vehicle slower than this, with nobody aboard, is parked;
+ *   - `RETRIES` 2 / `RETRY_TICKS` 2: `addRider` refused (quirk `add-rider-spawn-tick`) is retried, then the
+ *     `ride` command is the last resort, as the placement's seat retries.
+ * # TODO(board-sides): only the four extremities are boarded; a player beside a 400 % hull's long side, farther
+ * than 12 from the root and from a tip, still finds nothing to hold. A rotorcraft (native) has no board points.
+ */
+export const BOARD = { MIN_REACH_BLOCKS: 8, HULL_HIT_HALF_MAX_BLOCKS: 8, COLUMN_WIDTH: 2, COLUMN_HEIGHT: 3, CHECK_TICKS: 5, SWEEP_TICKS: 200, STILL_SPEED: 0.05, RETRIES: 2, RETRY_TICKS: 2 } as const;
+export type BoardParams = typeof BOARD;
+/** The dynamic property a board point carries: its vehicle's entity id. */
+export const BOARD_OWNER_PROPERTY = 'craftmatic:board_of';
+
+/**
+ * One drawn extremity of a vehicle at 100 %, in its entity frame at yaw 0 (blocks; +z is the nose, +x the side
+ * Bedrock's yaw turns toward +z), with the horizontal axis it is extreme along (`dx`, `dz`: a unit vector).
+ */
+export interface BoardPoint { x: number; y: number; z: number; dx: number; dz: number }
+
+/** What the runtime needs to keep board points: the point's entity type, the size steps it is sized by, the constants. */
+export interface BoardRuntimeConfig { type: string; sizeEventPrefix: string; sizes: readonly number[]; ownerProperty: string; params: BoardParams }
+
+/**
+ * Where a vehicle's board points stand at a pose (pure; the runtime and the tests call it): for every extremity
+ * farther than `MIN_REACH_BLOCKS` from the root at scale `k`, the column's BASE centre in the world, its outer face
+ * at the drawn tip. `yawDeg` is Bedrock's (0 faces +z; +x turns toward +z: the colliders' and `drawnBoxes`' turn).
+ */
+export function boardPointPlaces(points: readonly BoardPoint[], pose: { x: number; y: number; z: number; yaw: number }, k: number, P: BoardParams): Array<{ x: number; y: number; z: number }> {
+  const out: Array<{ x: number; y: number; z: number }> = [];
+  const r = pose.yaw * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+  const w = P.COLUMN_WIDTH * k, h = P.COLUMN_HEIGHT * k;
+  for (const p of points) {
+    if (Math.abs(p.x * p.dx + p.z * p.dz) * k <= P.MIN_REACH_BLOCKS) continue;
+    // Pulled in along its own axis by half the column, so the column's outer face is the tip.
+    const ex = p.x * k - p.dx * w / 2, ez = p.z * k - p.dz * w / 2;
+    out.push({ x: pose.x + ex * c - ez * s, y: pose.y + Math.max(0, p.y * k - h / 2), z: pose.z + ex * s + ez * c });
+  }
+  return out;
+}
 export type VehicleEgressParams = typeof VEHICLE_EGRESS;
 
 /** A world point, blocks. */
@@ -1203,6 +1264,8 @@ export interface ScriptedVehicleType {
   draft?: number;
   /** Per-type overrides of the car (or hover) constants, e.g. the time machine's top speed. */
   car?: Partial<Record<keyof typeof CAR, number>>;
+  /** Its drawn extremities at 100 % (`boardPointsOf`), where board points stand while it is parked and empty (`BOARD`). */
+  board?: BoardPoint[];
 }
 
 /** What the scripted-vehicle runtime is told about the pack. */
@@ -1226,6 +1289,8 @@ export interface ScriptedVehicleConfig {
   egress?: VehicleEgressParams | undefined;
   /** The collider body probe's last-resort bounds (`ESCAPE_OPTIONS`), for a set-down walled in beside the hull. */
   escape?: EscapeOptions | undefined;
+  /** The pack's board point entity (`BOARD`); absent in an older pack or a hand-built test config: no board points. */
+  board?: BoardRuntimeConfig | undefined;
 }
 
 /**
@@ -1244,7 +1309,7 @@ export interface ScriptedVehicleConfig {
  * sixteenths, a bottom slab's lower half, a top slab's upper half, a full
  * block otherwise; plants, torches, snow layers and light blocks are passed.
  */
-export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: typeof flightStep, boat: typeof boatStep, car: typeof carStep, sweep: typeof sweepFootprint, night: typeof isNightTime, lightCell: typeof headlightCell, resolve: typeof resolveMove, egress?: typeof vehicleEgress, body?: ColliderBodyProbe): void {
+export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: typeof flightStep, boat: typeof boatStep, car: typeof carStep, sweep: typeof sweepFootprint, night: typeof isNightTime, lightCell: typeof headlightCell, resolve: typeof resolveMove, egress?: typeof vehicleEgress, body?: ColliderBodyProbe, places?: typeof boardPointPlaces): void {
   const F = config.flight, B = config.boat, C = config.car, H = config.hover, FP = config.footprint, MV = config.move, HL = config.headlights, DYN = config.dynamic;
   const COL = config.colliders;
   const typeIds = Object.keys(config.types);
@@ -1475,6 +1540,115 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     if (moved && res.how === 'float') { try { p.addEffect('slow_falling', E.SLOW_FALL_TICKS, { amplifier: 0, showParticles: false }); } catch { /* no effect */ } }
     if (telemetry) console.warn(`CMVT ${JSON.stringify({ dismount: res.how, type: rec.type, from: current, at: res.at, moved })}`);
   };
+  // ─── Board points (`BOARD`, VEH-17): invisible rideables under a parked, empty vehicle's far extremities ───
+  const BD = config.board && places ? config.board : undefined;
+  /** A vehicle's board points as last placed: the pose/size key they were placed for, and the point entities. */
+  interface Board { vehicle: any; key: string; points: any[] }
+  const boards = new Map<string, Board>();
+  const alive = (x: any): boolean => { try { return typeof x.isValid === 'function' ? !!x.isValid() : x.isValid !== false; } catch { return false; } };
+  const dropBoard = (vid: string): void => {
+    const b = boards.get(vid);
+    if (!b) return;
+    for (const p of b.points) { try { p.remove(); } catch { /* gone */ } }
+    boards.delete(vid);
+  };
+  /** The size step nearest a live scale (the point's own `craftmatic:size_<pct>` event sizes its column with the vehicle). */
+  const sizeStep = (k: number): number => {
+    let best = 100;
+    for (const s of BD?.sizes ?? []) if (Math.abs(s - k * 100) < Math.abs(best - k * 100)) best = s;
+    return best;
+  };
+  /** Seat `player` in `vehicle` (from a board point): `addRider`, retried a couple of ticks later, then the ride command. */
+  const seatIn = (player: any, vehicle: any): void => {
+    let tries = 0;
+    const attempt = (): void => {
+      if (!alive(player) || !alive(vehicle)) return;
+      let ride: any;
+      try { ride = vehicle.getComponent('minecraft:rideable'); } catch { return; }
+      if (!ride) return;
+      try { if ((ride.getRiders?.() ?? []).some((r: any) => r?.typeId === 'minecraft:player')) return; } catch { /* treat as free */ }
+      let ok = false;
+      try { ok = ride.addRider(player) === true; } catch { ok = false; }
+      if (ok) { dropBoard(vehicle.id); return; }
+      // Refused in a spawn tick (quirk `add-rider-spawn-tick`): again a couple of ticks later, then the command.
+      if (tries++ < BD!.params.RETRIES) { system.runTimeout(attempt, BD!.params.RETRY_TICKS); return; }
+      const l = vehicle.location;
+      try { player.runCommand(`ride @s start_riding @e[type=${vehicle.typeId},c=1,x=${l.x},y=${l.y},z=${l.z},r=1]`); } catch { /* left */ }
+    };
+    attempt();
+  };
+  /** A hold or a tap on a board point: off the point if the device seated them on it, into its vehicle. */
+  const boardFrom = (player: any, point: any): void => {
+    if (!BD || !player || player.typeId !== 'minecraft:player' || !point || point.typeId !== BD.type) return;
+    let owner: unknown;
+    try { owner = point.getDynamicProperty(BD.ownerProperty); } catch { owner = undefined; }
+    let vehicle: any;
+    try { vehicle = typeof owner === 'string' ? world.getEntity(owner) : undefined; } catch { vehicle = undefined; }
+    try { point.getComponent('minecraft:rideable')?.ejectRider?.(player); } catch { /* not on it */ }
+    if (!vehicle || !alive(vehicle)) { try { point.remove(); } catch { /* gone */ } return; }
+    seatIn(player, vehicle);
+  };
+  /**
+   * Keep vehicle `e`'s board points: none while it is `busy` (a rider aboard, moving); every `CHECK_TICKS` while it
+   * is parked and empty, placed for its pose and live size (re-placed when either changed, or one went missing),
+   * and a player the device seated on a point natively (the cancelled hold not cancelled) moved into the vehicle.
+   */
+  const tendBoard = (e: any, dim: any, kind: ScriptedVehicleType, busy: boolean, loc: any, yaw: number): void => {
+    if (!BD || !kind.board?.length) return;
+    if (busy) { dropBoard(e.id); return; }
+    if ((tick + (e.id.length % BD.params.CHECK_TICKS)) % BD.params.CHECK_TICKS !== 0) return;
+    let k = 1;
+    try { const s = Number(e.getComponent('minecraft:scale')?.value); if (Number.isFinite(s) && s > 0) k = s; } catch { /* unscaled */ }
+    const key = `${Math.round(loc.x * 4)},${Math.round(loc.y * 4)},${Math.round(loc.z * 4)},${Math.round(yaw)},${k}`;
+    const b = boards.get(e.id);
+    if (b && b.key === key && b.points.every(alive)) {
+      for (const p of b.points) {
+        let on: any[] = [];
+        try { on = p.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch { on = []; }
+        for (const r of on) if (r?.typeId === 'minecraft:player') boardFrom(r, p);
+      }
+      return;
+    }
+    dropBoard(e.id);
+    const at = places!(kind.board, { x: loc.x, y: loc.y, z: loc.z, yaw }, k, BD.params);
+    if (!at.length) { boards.set(e.id, { vehicle: e, key, points: [] }); return; }
+    const pct = sizeStep(k), points: any[] = [];
+    for (const q of at) {
+      let p: any;
+      try { p = dim.spawnEntity(BD.type, q); } catch { continue; }
+      try { p.setDynamicProperty(BD.ownerProperty, e.id); } catch { /* the sweep removes an ownerless point */ }
+      try { p.triggerEvent(`${BD.sizeEventPrefix}${pct}`); } catch { /* 100 % */ }
+      points.push(p);
+    }
+    boards.set(e.id, { vehicle: e, key, points });
+  };
+  /** Every board point in the loaded world that is not one this runtime keeps (its vehicle gone, or left by a reload): removed. */
+  const sweepBoards = (): void => {
+    if (!BD) return;
+    const kept = new Set<string>();
+    for (const [vid, b] of boards) {
+      if (!alive(b.vehicle)) { dropBoard(vid); continue; }
+      for (const p of b.points) { try { kept.add(p.id); } catch { /* gone */ } }
+    }
+    for (const dim of dims()) {
+      let list: any[] = [];
+      try { list = dim.getEntities({ type: BD.type }); } catch { continue; }
+      for (const p of list) { try { if (!kept.has(p.id)) p.remove(); } catch { /* gone */ } }
+    }
+  };
+  if (BD) {
+    // A HOLD on a point is the interact: cancelled before the native mount (before-event callbacks are restricted,
+    // so the seating waits a tick), as the wand cancels its own; a TAP is a hit (quirk `tap-is-hit`).
+    try {
+      world.beforeEvents.playerInteractWithEntity.subscribe((ev: any) => {
+        if (ev.target?.typeId !== BD.type) return;
+        ev.cancel = true;
+        const player = ev.player, point = ev.target;
+        system.run(() => boardFrom(player, point));
+      });
+    } catch { /* not in this API: the native mount on the point is moved into the vehicle by `tendBoard` */ }
+    try { world.afterEvents.entityHitEntity.subscribe((ev: any) => { if (ev.hitEntity?.typeId === BD.type) boardFrom(ev.damagingEntity, ev.hitEntity); }); } catch { /* not in this API */ }
+  }
   let tick = 0, busyMs = 0, busyTicks = 0;
   system.runInterval(() => {
     tick++;
@@ -1532,6 +1706,8 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
           seen.add(r.id);
           aboard.set(r.id, { player: r, vid: e.id, dim, seat: { x: at.x, y: at.y, z: at.z }, pose: { x: loc.x, y: loc.y, z: loc.z, yaw: rot.y }, k: liveK, type });
         }
+        // Board points under a parked, empty vehicle's far extremities; none while anyone rides or it moves (`BOARD`).
+        if (BD) tendBoard(e, dim, kind, riders.length > 0 || Math.abs(st.speed || 0) > BD.params.STILL_SPEED || Math.abs(st.vy || 0) > BD.params.STILL_SPEED, loc, rot.y);
         const input: { x: number; y: number; jump: boolean; rider: boolean; lookPitch?: number } = { x: 0, y: 0, jump: false, rider: !!driver };
         if (driver) {
           try { const v = driver.inputInfo?.getMovementVector?.(); input.x = v?.x ?? 0; input.y = v?.y ?? 0; } catch { /* no input */ }
@@ -1777,6 +1953,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       aboard.delete(pid);
       setDown(rec);
     }
+    if (BD && tick % BD.params.SWEEP_TICKS === 0) sweepBoards();
     busyMs += Date.now() - started; busyTicks++;
     if (busyTicks >= 20) { busyMs = busyMs / busyTicks; busyTicks = 1; }
   }, 1);
@@ -1786,5 +1963,5 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
 export function scriptedVehicleScript(config: ScriptedVehicleConfig): string {
   // The collider body probe the seats and rides use, over this pack's collider states: the set-down's floors, room and walk exits.
   const probe = `(${colliderBodyProbe.toString()})((${colliderFormKit.toString()})(), ${JSON.stringify(config.colliders?.loState ?? COLLIDER_STATES.lo)}, ${JSON.stringify(config.colliders?.hiState ?? COLLIDER_STATES.hi)})`;
-  return `import { world, system } from "@minecraft/server";\n(${scriptedVehicleRuntime.toString()})(${JSON.stringify(config)}, ${flightStep.toString()}, ${boatStep.toString()}, ${carStep.toString()}, ${sweepFootprint.toString()}, ${isNightTime.toString()}, ${headlightCell.toString()}, ${resolveMove.toString()}, ${vehicleEgress.toString()}, ${probe});\n`;
+  return `import { world, system } from "@minecraft/server";\n(${scriptedVehicleRuntime.toString()})(${JSON.stringify(config)}, ${flightStep.toString()}, ${boatStep.toString()}, ${carStep.toString()}, ${sweepFootprint.toString()}, ${isNightTime.toString()}, ${headlightCell.toString()}, ${resolveMove.toString()}, ${vehicleEgress.toString()}, ${probe}, ${boardPointPlaces.toString()});\n`;
 }
