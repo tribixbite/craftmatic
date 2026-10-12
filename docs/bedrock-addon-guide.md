@@ -4479,7 +4479,15 @@ the camprobe-measured lags (`tickLag` 1.5, `animLag` 3.5) are untouched -
 they were measured on a marker, not a seat. Guards:
 `test/bedrock-coaster.test.ts :: the camera eye sits on the seat Bedrock
 realises` and the 10303 corpus assets test; offline the coaster-camera
-scenario's worst seat lead.
+scenario's worst seat lead (`output/fix-seat-1011/{baseline,after}/`): on
+the Pixel client 10261 -0.7 -> 0.1, 76417 0.86 -> 0.14 (both pass), 42703
+0.15 -> 0.15 (its seats sit at z 0: the control), 10303 -0.84 -> -0.68 (its
+residual is at 12 blocks/s through the loop animations, not the seat). The
+Saga client keeps a speed-proportional lead on every coaster, 42703
+included (1.61 before and after), so that lead is the lag model's (entity
+lag 4, no ease) and not the seat frame - note the old reading measured the
+camera against a player eye 0.676 AHEAD of the drawn seat, so its Saga
+numbers were flattered by that much.
 
 ### Getting off a vehicle lands beside it (SEAT-05, 2026-10-08)
 
