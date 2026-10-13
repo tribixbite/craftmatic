@@ -99,6 +99,17 @@ The round-30m fixes on the phones:
    from the nose again within ~1 s; (c) retire with the wand, save + reload,
    place again: content log 0 errors, boarding still works. Also re-check one
    30n PASS per phone (Nimbus on the Saga, 10261 200 % top-east on the Pixel).
+   **Saga 30o DONE (`saga/notes.md`):** nose hold mounts at 1.4/3/5 off the
+   point (19 from root), not 8; wingtip points (28-30 from root) show the Mount
+   prompt but hold AND tap never seat; aft point 2/10. The on-screen Mount
+   button while standing in a wingtip point DOES seat (native mount on the
+   point -> `tendBoard` moves the player into the vehicle). So the points exist
+   and are picked; the hold/tap route (`playerInteractWithEntity` cancel,
+   `entityHitEntity`) does not seat - cause unmeasured (event not fired on a
+   touch hold? the nose success may be the hull box). Next: a telemetry line
+   per board event, and/or stop cancelling the interact and let the native
+   mount + `tendBoard` do it. Relocation after flying PASS; Nimbus 13 deg PASS.
+   Pixel 30o still running.
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
 3. Offline leftovers: `TODO(car-oblique-kerb)`, Milano chase ease jump,
