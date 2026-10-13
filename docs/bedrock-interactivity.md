@@ -1557,6 +1557,34 @@ static colliders in the pack (the f5 wall at 10,17,4, the full cell at
 diagonal walk that ended at the second pose STARTED inside the first; a walk
 from a legal spot does not reach either.
 
+**A figure inside 76417 Door 3's hinge line (Pixel round 30r, 2026-10-13).**
+With a figure `/tp`'d to 0.4 block inside Door 3's hinge line every close was
+refused "no floor to step onto"; on the doorway's outer half it closed. The
+regression `door3-figure-inside-76417-30r` reproduces it on the round's pack
+at the pose the device read back after the refusal (anchor-relative 11.70,
+17.00, 10.31; the tap reaches Door 2, whose pair plan holds the figure).
+Measured over the shipped colliders, three things met:
+
+- the figure's feet were 9/16 INSIDE the doorway's threshold collider (17.00
+  under its 17.5625 top), so the floor window measured from the feet stopped
+  at 17.5625 and missed the ledge's 17.625 rim just outside;
+- Door 3's leaf normal is (0.14, 0.99), 8 degrees off the grid, so the line
+  out drifted 0.42 block sideways over its 3 blocks into the jamb's column
+  (anchor x 12): every point on it past the doorway had the body in the wall,
+  and the first free row on that line (z 13.5) lay past the 3-block reach;
+- the inner side is a full wall at x 11-12 and a floor 1.1 blocks over the
+  figure's feet at x 10.
+
+`stepOutPlan` now measures the window from the floor the occupant stands on
+or IN (`level`: the highest top within a step over its feet), walks each side
+along the leaf's normal and then square to the doorway (`axis`), excludes
+every leaf's doorway of the door from the landings (`group`), and gives a
+FIGURE that still has no landing the nearest one on rings out to
+`FIGURE_REACH` (4 blocks, scaled): a figure is the model's NPC, and a door a
+child cannot close over one is worse than a figure set down past a jamb. A
+player is never moved off the two lines and is refused as before
+(`gate1-throwout-76417` unchanged: the same two set-downs as before).
+
 ### Taps through figures, big parts, and a frame's far half (2026-10-11)
 
 From the combined engine run on the round-30m packs

@@ -34,6 +34,7 @@ import { FLAT_GROUND_Y } from '../../world/voxel-world.js';
 import { PLAYER_EYE_HEIGHT } from '../../physics/body.js';
 import type { Box, Vec3 } from '../../core/vec.js';
 import { isShellEntityId } from '../../../engine/bedrock-building-shell.js';
+import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import { REACH_GUARD_DROP16 } from '../../../engine/bedrock-collider-scale.js';
 
 /** Where the device rounds' packs are kept. */
@@ -571,5 +572,81 @@ function milanoMountReachCase(pct: 200 | 400): RegressionCase {
 const milanoMountReach = milanoMountReachCase(200);
 const milanoMountReach400 = milanoMountReachCase(400);
 
-/** Round 30m's open defects. */
-export const ROUND_30M_REGRESSIONS: RegressionCase[] = [nimbusSteer, milanoChase400, xwingAirPark, mclarenWalls, topEastFall, shellUnseen400, milanoMountReach, milanoMountReach400];
+// ─── Round 30r (Pixel, 2026-10-13, packs-7fde0b5e): Door 3 will not close on a figure inside its hinge line ───
+
+/** Round 30r's packs (the Pixel ran them). */
+const PACKS_30R = `${ROUND}/device-round-2026-10-12r/packs-7fde0b5e`;
+
+/** One `ix01.sh` trial replayed: where the figure stood (anchor-relative), the close's outcome and where it ended. */
+interface FigureCloseTrial { pose: string; figure: string; at: Vec3; closed: boolean; refusal: string; end: Vec3 | null }
+
+/**
+ * IX-01 (Pixel 30r item 3): 76417 at 100 %, Door 3 (a double door with Door 2) opened from the ledge, a figure
+ * teleported into the doorway, the open leaf tapped. On the device a figure on the OUTER half (z 5211.0 / 5211.3,
+ * pin z 5200) was stepped out to the ledge and the door closed; at z 5210.6, 0.4 inside the hinge line, every close
+ * was refused "Step out of the door 2 to close it - there is no floor to step onto." (3 of 3).
+ */
+const door3FigureInside: RegressionCase = {
+  id: 'door3-figure-inside-76417-30r', title: '76417 Door 3 (30r): with a figure 0.4 block inside the hinge line the close is refused "no floor to step onto", though both sides have floor (IX-01)',
+  evidence: '`output/device-round-2026-10-12r/pixel/notes.md` item 3 (trials 3x-1..3x-5, `3x-2-closed.jpg`, `3x-4-strip.jpg`, `3x-56-strip.jpg`; tool `tools/ix01.sh`): pin 16200,-60,5200, the player at 16212.4,-42.9,5214.0 taps the open leaf; a figure `/tp` to 16211.85,-42.9,5211.0 closes, to 16211.85,-42.9,5210.6 refuses',
+  oldPack: `${PACKS_30R}/76417-gringotts-wizarding-bank-collectors-edition.mcaddon`, newStem: '76417-gringotts-wizarding-bank-collectors-edition', expectNew: 'pass',
+  scenario: () => ({
+    name: 'door3-figure-inside-76417-30r', allowLines: allow, invariants: ['nothing-below-ground', 'actionbar-not-stolen'],
+    steps: [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'expect', label: 'close Door 3 on a figure in the doorway', check: async (ctx: StepContext) => {
+      const a = placedOf(ctx).anchor, p = ctx.player;
+      const ents = (): SimEntity[] => [...ctx.sim.engine.entities.values()].filter(e => e.valid);
+      const part = ents().find(e => /_door_3$/.test(e.typeId)), other = ents().find(e => /_door_2$/.test(e.typeId));
+      if (!part || !other) return 'no Door 2 / Door 3 entity';
+      const isOpen = (): boolean => part.dynamic.get(IX_KEYS.open) === true;
+      // `ix01.sh`: the player `/tp` to 16212.4,-42.9,5214.0 facing 16211.8,-43.2,5211; the figure `/tp` to y -42.9.
+      const feet = { x: a.x + 12.4, y: a.y + 17.1, z: a.z + 14.0 }, facing = { x: a.x + 11.8, y: a.y + 16.8, z: a.z + 11 };
+      // The device's refusal named "door 2": its tap reached Door 2's leaf (the pair moves together). The tap acts on what
+      // the view picks from the device's pose when that is either leaf, else on Door 2 (the leaf the device's tap reached).
+      let hit = other;
+      const tapLeaf = async (): Promise<void> => {
+        teleport(ctx.sim.host, p, feet);
+        await ctx.run(1);
+        lookAt(p, facing);
+        const picked = pick(ctx.sim.engine, p).entity;
+        hit = picked === part || picked === other ? picked : other;
+        hit.dynamic.delete('craftmatic:ix_refused');
+        ctx.sim.engine.emit('entityHitEntity', { damagingEntity: p, hitEntity: hit });
+        await ctx.run(6);
+      };
+      const trials: FigureCloseTrial[] = [];
+      // The device's `/tp` poses (y -42.9 = 17.1), and where the refused figure STOOD after 3x-2 (16211.70,-43.00,5210.31:
+      // its feet 9/16 inside the threshold's collider): the simulator's figure walks within a tick of a `/tp`, so the
+      // refusal is replayed at the pose the device read back, and a deeper one beside it.
+      const poses: ReadonlyArray<readonly [string, string, number, number, number]> = [
+        ['outer 3x-1', 'fig5', 11.85, 17.1, 11.0], ['inside 3x-2', 'fig5', 11.85, 17.1, 10.6], ['inside 3x-2 read back', 'fig5', 11.7, 17.0, 10.31],
+        ['inside deeper', 'fig6', 11.85, 17.0, 10.0], ['inside 3x-6', 'fig6', 10.9, 17.1, 10.6],
+      ];
+      for (const [pose, fig, x, y, z] of poses) {
+        if (!isOpen()) await tapLeaf();
+        if (!isOpen()) { ctx.note(`Door 3 (${pose}): could not open it (refusal ${String(hit.dynamic.get('craftmatic:ix_refused') ?? '-')})`); continue; }
+        const figure = ents().find(e => new RegExp(`_${fig}$`).test(e.typeId));
+        if (!figure) { ctx.note(`Door 3 (${pose}): no ${fig}`); continue; }
+        const at = { x: a.x + x, y: a.y + y, z: a.z + z };
+        teleport(ctx.sim.host, figure, at);
+        await tapLeaf();
+        const trial: FigureCloseTrial = { pose, figure: fig, at: rel(at, a), closed: !isOpen(), refusal: String(hit.dynamic.get('craftmatic:ix_refused') ?? '-'), end: figure.valid ? rel(figure.location, a) : null };
+        trials.push(trial);
+        ctx.note(`Door 3 closed on ${fig} at ${JSON.stringify(trial.at)} (${pose}, the tap on ${hit === part ? 'Door 3' : 'Door 2'}): ${trial.closed ? 'CLOSED' : 'NOT closed'}; figure -> ${JSON.stringify(trial.end)}; refusal ${trial.refusal}`);
+      }
+      ctx.state['door3FigureTrials'] = trials;
+      return undefined;
+    } }],
+  }),
+  judge: r => {
+    const trials = (r.state['door3FigureTrials'] as FigureCloseTrial[] | undefined) ?? [];
+    const notes = r.notes.filter(n => /Door 3/.test(n)).join('; ') || 'no Door 3 note';
+    const inside = trials.filter(t => t.pose.startsWith('inside'));
+    if (!inside.length) return { reproduced: false, evidence: notes, untested: 'no inside-the-hinge trial ran with the door open' };
+    // The device fault: a figure in the doorway keeps the door open ("no floor to step onto"). Any trial left open
+    // reproduces it; so does a close that set the figure down more than a block under the doorway's floor (17.5625).
+    return { reproduced: trials.some(t => !t.closed || (t.end !== null && t.end.y < 16.5)), attribution: 'pack', evidence: notes };
+  },
+};
+
+/** Round 30m's open defects (and later rounds' cases kept beside them). */
+export const ROUND_30M_REGRESSIONS: RegressionCase[] = [nimbusSteer, milanoChase400, xwingAirPark, mclarenWalls, topEastFall, shellUnseen400, milanoMountReach, milanoMountReach400, door3FigureInside];

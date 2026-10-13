@@ -2300,10 +2300,14 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
   };
   /**
    * Where closing item `i` must step its occupants: every player or figure standing in the doorway's laid blocks
-   * (not on the leaf - `obstructed` refuses that) is stepped along the leaf's normal, the side it stands on first,
-   * then the other, to the first point out of the doorway's blocks where its body is FREE of colliders AND stands
-   * on a floor at most `STEP_OUT_DROP` under its feet (`landing`). `stranded` holds the occupants with no such
-   * point on either side within reach: the close is then refused (`toggle`), never resolved by a step into the air.
+   * (not on the leaf - `obstructed` refuses that) is stepped out of the doorway, the side it stands on first, then
+   * the other, to the first point out of the doorway's blocks (and out of the door's other leaves' doorways, `group`)
+   * where its body is FREE of colliders AND stands on a floor at most `STEP_OUT_DROP` under the floor it stands on
+   * (`landing`). Each side is walked along the leaf's normal and then along the doorway's own grid axis (`axis`).
+   * A FIGURE with no such point on either line is set down at the nearest such point within `FIGURE_REACH` (`nearest`)
+   * - it is the model's NPC, and a door a child cannot close over one is worse than a figure that hops a jamb. A
+   * PLAYER is never moved off the two lines. `stranded` holds the occupants left with no point: the close is then
+   * refused (`toggle`), never resolved by a step into the air.
    *
    * History: until 2026-09-30 it took the first point out of the doorway whatever stood there (at 150 % 76417's
    * Door 3 stepped a player 0.29 block into the wall beside it); until 2026-10-07 it took the first point its body
@@ -2312,8 +2316,15 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
    * side's first free point was 2.3 blocks out over the bank's 17-block drop - the player landed at
    * 7513.33,-60,7151.67, exactly that point (regression `gate1-throwout-76417`). And the player was only TOUCHING the
    * doorway's cells (float32 coordinates: 0.0002 of overlap): a body within `TOUCH` of a cell is beside it, not in it.
+   * Pixel round 30r (regression `door3-figure-inside-76417-30r`): a figure 0.4 block inside 76417 Door 3's hinge line
+   * (anchor-relative 11.70, 17.00, 10.31) refused every close "no floor to step onto" though the ledge outside is
+   * floor. Three things met there: the figure's feet were 9/16 INSIDE the threshold's collider (17.00 under a
+   * 17.5625 top), so the floor window stopped a sixteenth under the ledge's 17.625 rim; the leaf's normal is 8
+   * degrees off the grid, so the line drifted 0.42 block sideways into the jamb's column over its 3 blocks; and the
+   * inner side is wall and a step 1.1 blocks up. Now the window starts at the floor the occupant stands IN or on,
+   * each side is also walked square to the doorway, and the figure takes the nearest landing.
    */
-  const stepOutPlan = (e: any, i: number, pl: any): { moves: Array<{ o: any; q: any }>; stranded: any[] } => {
+  const stepOutPlan = (e: any, i: number, pl: any, group: number[] = [i]): { moves: Array<{ o: any; q: any }>; stranded: any[] } => {
     const out = { moves: [] as Array<{ o: any; q: any }>, stranded: [] as any[] };
     const it = config.items[i]!;
     if (!it.blocking.length || !it.leaf) return out;
@@ -2322,31 +2333,62 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     // The body's step (Bedrock's 9/16, the probe's STEP) and the deepest floor a step-out may set it down onto:
     // one block - a fall that hurts nobody and that the player walks back up with a jump; anything deeper is a ledge.
     const STEP = 9 / 16, STEP_OUT_DROP = 1;
-    const own = [...worldBlocks(it.blocking, config.dims, pl.f, pl.r, kit).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number); return { x: pl.anchor.x + x!, y: pl.anchor.y + y! + span[0] / 16, z: pl.anchor.z + z!, top: pl.anchor.y + y! + span[1] / 16 }; });
-    const inside = (l: any): boolean => own.some(bk => l.x + 0.3 > bk.x + TOUCH && l.x - 0.3 < bk.x + 1 - TOUCH && l.z + 0.3 > bk.z + TOUCH && l.z - 0.3 < bk.z + 1 - TOUCH && l.y + 1.8 > bk.y + TOUCH && l.y < bk.top - TOUCH);
+    // How far a figure's fallback looks for a landing (blocks at 100 %), and its rings' spacing: a doorway's jamb is
+    // at most a block thick, so 4 blocks reaches past one on every side; a quarter block keeps the body's 0.6 width
+    // from slipping between two rings.
+    const FIGURE_REACH = 4, RING = 0.25;
+    const cells = (k: number): Array<{ x: number; y: number; z: number; top: number }> => [...worldBlocks(config.items[k]!.blocking, config.dims, pl.f, pl.r, kit).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number); return { x: pl.anchor.x + x!, y: pl.anchor.y + y! + span[0] / 16, z: pl.anchor.z + z!, top: pl.anchor.y + y! + span[1] / 16 }; });
+    const inBlocks = (bks: Array<{ x: number; y: number; z: number; top: number }>, l: any): boolean => bks.some(bk => l.x + 0.3 > bk.x + TOUCH && l.x - 0.3 < bk.x + 1 - TOUCH && l.z + 0.3 > bk.z + TOUCH && l.z - 0.3 < bk.z + 1 - TOUCH && l.y + 1.8 > bk.y + TOUCH && l.y < bk.top - TOUCH);
+    const own = cells(i);
+    // Every leaf's doorway of this door: a landing in the other leaf's doorway is stepped into the door being closed.
+    const doorway = [...own, ...group.filter(k => k !== i && config.items[k]?.blocking.length).flatMap(cells)];
+    const inside = (l: any): boolean => inBlocks(own, l);
     const n = turnDir(pl, it.leaf.n), centre = toWorld(pl, [it.leaf.c[0]! + it.leaf.a[0]! / 2, it.leaf.c[1]!, it.leaf.c[2]! + it.leaf.a[2]! / 2]);
+    // The doorway's grid axis: the leaf's normal snapped to the nearer of x and z (its cells are whole blocks).
+    const axis = Math.abs(n.x) > Math.abs(n.z) ? { x: Math.sign(n.x), z: 0 } : { x: 0, z: Math.sign(n.z) || 1 };
+    const square = Math.abs(axis.x - n.x) + Math.abs(axis.z - n.z) > 1e-3;
     const reach = 3 * Math.max(1, pl.f);
-    /** `q` set down on its floor (a step over it to `STEP_OUT_DROP` under it) when the body is free there and clear of the doorway; else undefined. */
-    const landing = (q: any): any => {
-      const top = body.floorTop(e.dimension, q.x, q.z, q.y + STEP, STEP + STEP_OUT_DROP);
+    /** `q` set down on its floor (from a step over `level` to `STEP_OUT_DROP` under it) when the body is free there and clear of the doorway; else undefined. */
+    const landing = (q: any, level: number): any => {
+      const top = body.floorTop(e.dimension, q.x, q.z, level + STEP, STEP + STEP_OUT_DROP);
       if (top === undefined) return undefined;
       const at = { x: q.x, y: top, z: q.z };
-      return !inside(at) && body.bodyFree(e.dimension, at) ? at : undefined;
+      return !inBlocks(doorway, at) && body.bodyFree(e.dimension, at) ? at : undefined;
     };
     for (const o of occupants(e, centre, 4 * Math.max(1, pl.f))) {
       const l = o.location;
       if (!inside(l)) continue;
+      // The floor the occupant stands on, or IN: a figure's feet can sit inside a threshold's collider (Pixel 30r, 9/16
+      // under its top), and the window measured from the feet then misses a rim a sixteenth over the threshold.
+      const level = Math.max(l.y, body.floorTop(e.dimension, l.x, l.z, l.y + STEP, STEP) ?? l.y);
       const side = (l.x - centre.x) * n.x + (l.z - centre.z) * n.z >= 0 ? 1 : -1;
-      const along = (sd: number): any => {
+      const along = (dir: { x: number; z: number }, sd: number): any => {
         for (let d = 0.1; d <= reach; d += 0.1) {
-          const q = { x: l.x + n.x * sd * d, y: l.y, z: l.z + n.z * sd * d };
+          const q = { x: l.x + dir.x * sd * d, y: level, z: l.z + dir.z * sd * d };
           if (inside(q)) continue;
-          const at = landing(q);
+          const at = landing(q, level);
           if (at) return at;
         }
         return undefined;
       };
-      const q = along(side) ?? along(-side);
+      const lines = (sd: number): any => along(n, sd) ?? (square ? along(axis, sd) : undefined);
+      /** A figure's fallback: the nearest landing on rings about it out to `FIGURE_REACH` (scaled with the placement). */
+      const nearest = (): any => {
+        const far = FIGURE_REACH * Math.max(1, pl.f);
+        for (let r = RING; r <= far + 1e-9; r += RING) {
+          let best: any, bestD = Infinity;
+          for (let k = 0; k < 16; k++) {
+            const a = (k / 16) * Math.PI * 2, q = { x: l.x + Math.cos(a) * r, y: level, z: l.z + Math.sin(a) * r };
+            const at = landing(q, level);
+            // The ring's landing nearest the doorway's floor level (the same floor rather than a step up or down).
+            const dy = at ? Math.abs(at.y - level) : Infinity;
+            if (at && dy < bestD) { best = at; bestD = dy; }
+          }
+          if (best) return best;
+        }
+        return undefined;
+      };
+      const q = lines(side) ?? lines(-side) ?? (o.typeId !== 'minecraft:player' ? nearest() : undefined);
       if (q) out.moves.push({ o, q }); else out.stranded.push(o);
     }
     return out;
@@ -2377,7 +2419,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     if (!open && group.some(g => obstructed(g.e, g.i, pl))) { refuse(e, player, `Something is standing in the ${it.label.toLowerCase()} - step out to close it.`); return; }
     // Where the close steps its occupants, decided BEFORE anything moves: one with no floor to step onto on
     // either side (only a drop beyond the doorway) refuses the close instead (`stepOutPlan`).
-    const plans = open ? [] : group.map(g => stepOutPlan(g.e, g.i, pl));
+    const plans = open ? [] : group.map(g => stepOutPlan(g.e, g.i, pl, group.map(h => h.i)));
     if (plans.some(p => p.stranded.length)) { refuse(e, player, `Step out of the ${it.label.toLowerCase()} to close it - there is no floor to step onto.`); return; }
     const before = group.map(g => isOpen(g.e));
     for (const g of group) { try { g.e.setDynamicProperty(K.open, open); } catch { /* keep going */ } }
