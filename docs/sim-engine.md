@@ -764,7 +764,8 @@ case runs the 30m pack (`output/device-round-2026-10-08m/packs-6a8c7121`):
 | `mclaren-walls-30m` (SEAT-05) | set down at -3.04, 0, 0.48 from the root, beyond the west wall | reproduced on the 30m pack (-3.04, 0, 0.48); FIXED 2026-10-11 (`vehicleEgress` `lineClear`: a set-down must be reached from the seat): 0.43, 0, 4.29, ahead of the car in the gap |
 | `top-east-fall-10261-30m` (COL-01) | +z along the top to pin + (79.5, 43.6, 27.7), then +x: falls 42+; at z 16.1 holds at x 83.70 | OPEN: ends the +z walk at (79.7, 43.63, 27.7), falls 43 from x 80.4; z 16.1 holds at 83.7 |
 | `shell-unseen-400-10261-30m` (COL-03) | from 40 west of the pin only figures and cars | OPEN: shell chunks drawn 0 of 6 (nearest root 87 blocks, cull 70), 5 of 12 other actors |
-| `milano-mount-reach-200-30m` (VEH-17) | no Mount prompt at the nose; it appears ~3 blocks from the root | reproduced (not picked from beside the drawn nose 15.5 ahead; first picked 8 from the root - the sim's interact reach 5 to the 7 x 5 box; the phone's own reach is not measured); FIXED 2026-10-11 by the hit-test box over the drawn hull (quirk `custom-hit-test-pick`): the current pack is picked at the nose |
+| `milano-mount-reach-200-30m` (VEH-17) | no Mount prompt at the nose; it appears ~3 blocks from the root (30n, with the hull hit box: the hold mounts within 12 of the root only, never at the nose 16 out or a wingtip) | reproduced on the 30m pack (nothing picked beside the nose or a wingtip) AND on the 30n pack (the hull box is picked, the hold refused beyond the 12-block root reach, quirk `interact-root-reach`; from 12 out it boards, as on the Pixel); FIXED 2026-10-12 by board points (bedrock-vehicle.ts `BOARD`): hold and tap board from beside the nose and the wingtip |
+| `milano-mount-reach-400-30n` (VEH-17) | 400 %: the hold mounts from 6 and 12 blocks of the root, never from 16, 24, 32 | reproduced on the 30n pack (hold refused at the nose 31.6 and the wingtip 63 from the root); FIXED by the board points: hold and tap board at both |
 | `xwing-air-park-30m` (SEAT-05) | the parked engines touch the child | KNOWN-UNREPRODUCED: set-down (-7.16 along the nose) and park match exactly, but the body clears the drawn tail (engine glow included) by 0.50 - the device did not measure the gap and the sim has no drawn-skin model. Since 2026-10-11 the float set-down keeps `FLOAT_MARGIN` 1.5 (current pack: -8.16 along the nose, 1.50 clear) - a precaution, not a reproduction |
 
 `drawnBoxes(entry, at, yaw, scale, lod)` takes `'far'` for the LOD hull a
@@ -846,6 +847,12 @@ seats' set-down order is physics spec §4.8.
   size (`withSizeGroups` `hitTest`); a pack built before 2026-10-11 has only
   its collision box to pick, which is the 200 % Milano's missing Mount
   prompt (regression `milano-mount-reach-200-30m`, VEH-17).
+- **The interact is refused beyond 12 blocks of the target's ROOT** (quirk
+  `interact-root-reach`, Pixel 30n): `input/touch.ts` `interact` returns
+  `refused: 'root-reach'` and fires nothing when the player's feet are farther
+  from the entity's location, whatever box the hold picked. The tap is not
+  limited this way (its reach was measured on a 0.5 box). A pack boards a big
+  hull's far extremities through board points (bedrock-vehicle.ts `BOARD`).
 - **Block collision boxes are read MIRRORED in x**, as the device reads them
   (quirk `block-collision-x-mirrored`, Pixel GameTest 2026-09-30): a pack
   built before the fix to `collisionBox` shows its x-banded clearance forms on

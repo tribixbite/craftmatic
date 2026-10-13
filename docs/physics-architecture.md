@@ -1307,6 +1307,16 @@ literal inside a function body (`§` marks the number).
 | `VEHICLE_EGRESS.RINGS` | `web/src/engine/bedrock-vehicle.ts` | 3 | rings | Rings of set-down spots, each `SPACING` farther out, the inner first: a bank or kerb a block or two off the hull is reached, never preferred over a floor right beside it. |
 | `VEHICLE_EGRESS.SHORE_ABOVE` | `web/src/engine/bedrock-vehicle.ts` | 1.5 | blocks | A boat afloat takes a shore floor up to this over the water's surface: the surface sits 8/9 into its block, so the ground beside a pool is 1.11 over it, out of a keel-relative `ABOVE_BASE` (every boat set its rider down in the water beside a bank, vehicle course 2026-10-11). |
 | `VEHICLE_EGRESS.FLOAT_MARGIN` | `web/src/engine/bedrock-vehicle.ts` | 1.5 | blocks | Clearance between the footprint and a body set down to float beside a vehicle in the air: the empty ship sinks to its own x/z beside a rider who cannot step aside; at `MARGIN` 0.5 the 7140 X-wing parked with its drawn engines on the child (Saga 30m item 5; skin arms ~0.45 from the centre vs the 0.3 box). |
+| `BOARD.MIN_REACH_BLOCKS` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks | An extremity farther than this from the root (at the live size) gets a board point; nearer, the vehicle's own clipped hit box covers it. Under the device's ~12-block interact reach from the root (Pixel 30n). |
+| `BOARD.HULL_HIT_HALF_MAX_BLOCKS` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks | Half the widest hit box a scripted vehicle declares: its corners 11.3 from the root, inside the 12; it never hides a board point. |
+| `BOARD.COLUMN_WIDTH` | `web/src/engine/bedrock-vehicle.ts` | 2 | blocks at 100 % | A board column's footprint (scaled with the vehicle by its size groups: 8 at 400 %). |
+| `BOARD.COLUMN_HEIGHT` | `web/src/engine/bedrock-vehicle.ts` | 3 | blocks at 100 % | A board column's height over the vehicle's base (12 at 400 %). |
+| `BOARD.OUTSET_BLOCKS` | `web/src/engine/bedrock-vehicle.ts` | 0.5 | blocks | The column's outer face past the drawn tip: a child beside the tip looking up at it meets the face within ~2 blocks of the eye (a face AT the tip is met at the tip, ~12 up on the 200 % Milano's wings). |
+| `BOARD.CHECK_TICKS` | `web/src/engine/bedrock-vehicle.ts` | 5 | ticks | How often a parked vehicle's points are checked (moved, resized, gone, a player seated on one natively). |
+| `BOARD.SWEEP_TICKS` | `web/src/engine/bedrock-vehicle.ts` | 200 | ticks | How often every point is checked against its owner; ownerless ones are removed. |
+| `BOARD.STILL_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 0.05 | blocks/tick | Slower than this (and vertically too), nobody aboard: parked. |
+| `BOARD.RETRIES` | `web/src/engine/bedrock-vehicle.ts` | 2 | tries | `addRider` refused (quirk `add-rider-spawn-tick`) is retried, then the `ride` command. |
+| `BOARD.RETRY_TICKS` | `web/src/engine/bedrock-vehicle.ts` | 2 | ticks | Between those retries, as the placement's seat retries. |
 | `TIME_MACHINE.TOP_MARGIN` | `web/src/engine/playable-addon.ts` | 1.03 | × | The time machine's top speed is 3 % past its jump speed (88 mph: 40.5 blocks/s), so a full stick reaches it. |
 | `TIME_MACHINE.TELEPORT_BLOCKS` | `web/src/engine/playable-addon.ts` | 10 | blocks per 2 ticks | A longer move is a teleport, not speed: 100 blocks/s, past the 150 mph slider's 67. |
 | `RIDE.SLIDE_V0` | `web/src/engine/bedrock-rides.ts` | 2 | blocks/s | A slide rider leaves the top at a walk, so the start reads as a push-off. |
@@ -1555,6 +1565,11 @@ one of these files fails the check until its row is written.
 | `ScriptedVehicleConfig` | interface | The JSON the runtime reads. |
 | `VEHICLE_EGRESS` | const | Where a rider who gets off a scripted vehicle is set down (§4.6 "Getting off", §9); `config.egress`. |
 | `VehicleEgressParams` | type | `VEHICLE_EGRESS` as numbers. |
+| `BOARD` | const | Board points (VEH-17): while a scripted vehicle is parked and empty, an invisible rideable column under each drawn extremity past the interact's root reach (quirk `interact-root-reach`); a hold or tap on one seats the player in the vehicle; `config.board`. |
+| `BoardParams` | type | `BOARD` as numbers. |
+| `BOARD_OWNER_PROPERTY` | const | The dynamic property a board point carries: its vehicle's entity id (the sweep removes a point whose owner is gone). |
+| `BoardPoint`, `BoardRuntimeConfig` | interface | One drawn extremity at 100 % in the entity frame and the axis it is extreme along (`boardPointsOf`, bedrock-placement-pack.ts); the board entity type, its size steps and the constants. |
+| `boardPointPlaces` | function | SERIALISED. Where the columns stand at a pose and live scale: past `MIN_REACH_BLOCKS` only, on the vehicle's base, the outer face `OUTSET_BLOCKS` past the tip, turned with Bedrock's yaw. |
 | `VehicleEgressInput`, `VehicleEgressProbe` | interface | The vehicle's pose and footprint, the seat and Bedrock's set-down, airborne / waterline; the world probes (floor, room, walk exit, water, the collider probe's escape). |
 | `VehicleEgressHow` | type | `native` / `moved` / `beside` / `escape` / `plain` / `float` / `swim` / `none`. |
 | `vehicleEgress` | function | SERIALISED. The set-down: Bedrock's own spot when it is outside the hull and walkable, else a walkable floor on a ring beside the footprint at the vehicle's ground level (nearest the seat first), the collider probe's escape, a waterline swim, or a float beside a vehicle in the air (SEAT-05). |

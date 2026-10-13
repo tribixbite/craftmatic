@@ -4,9 +4,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import { vehicleWheelAssemblies, type VehicleWheelBone } from '../web/src/engine/ldraw-entity-compiler.js';
-import { BOAT, boatStep, CAR, carStep, type CarState, type CarTerrain, FLIGHT, FLIGHT_PROPS, flightStep, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, resolveMove, VEHICLE_DYNAMIC, VEHICLE_EGRESS, vehicleEgress, type VehicleEgressInput, type VehicleEgressProbe, headlightCell, isNightTime, scriptedVehicleScript, sweepFootprint, vehicleClientAnimation, vehicleMotionOf, type BoatState, type BoatWater, type FlightInput, type FlightState, type ScriptedVehicleConfig, type ScriptedVehicleType, flightProperties } from '../web/src/engine/bedrock-vehicle.js';
+import { BOARD, BOARD_OWNER_PROPERTY, boardPointPlaces, type BoardPoint, BOAT, boatStep, CAR, carStep, type CarState, type CarTerrain, FLIGHT, FLIGHT_PROPS, flightStep, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, resolveMove, VEHICLE_DYNAMIC, VEHICLE_EGRESS, vehicleEgress, type VehicleEgressInput, type VehicleEgressProbe, headlightCell, isNightTime, scriptedVehicleScript, sweepFootprint, vehicleClientAnimation, vehicleMotionOf, type BoatState, type BoatWater, type FlightInput, type FlightState, type ScriptedVehicleConfig, type ScriptedVehicleType, flightProperties } from '../web/src/engine/bedrock-vehicle.js';
 import { simHost, solidBelow } from './_sim-host.js';
 import { ESCAPE_OPTIONS } from '../web/src/engine/collider-form.js';
+import { boardPointsOf, hitTestAtSize } from '../web/src/engine/bedrock-placement-pack.js';
+import { boardPointBehavior } from '../web/src/engine/playable-addon.js';
+import { interact, lookAt, pick, tap } from '../web/src/sim/input/touch.js';
+import type { SimEntity } from '../web/src/sim/entity/entity.js';
 
 /** Fly `ticks` ticks over flat ground at y = 0 (nothing in the way), returning every state. */
 function fly(s: FlightState, input: (t: number, s: FlightState) => FlightInput, ticks: number, ground: number | null = 0): { states: FlightState[]; events: string[] } {
@@ -1204,5 +1208,104 @@ describe('getting off a scripted vehicle (SEAT-05: vehicleEgress)', () => {
     host.run(60);
     expect(top - 64).toBeGreaterThan(8);
     expect(host.player.location.y).toBeCloseTo(64, 3);
+  });
+});
+
+describe('board points at a parked vehicle\'s far extremities (VEH-17: the interact reaches ~12 blocks of the root, quirk interact-root-reach)', () => {
+  // A ship 28 long (nose 14 out) and 30 wide: the nose and wingtips lie past `MIN_REACH_BLOCKS`, the tail (3) does not.
+  const points: BoardPoint[] = [{ x: 0, z: 14, dx: 0, dz: 1 }, { x: 0, z: -3, dx: 0, dz: -1 }, { x: 15, z: -2, dx: 1, dz: 0 }, { x: -15, z: -2, dx: -1, dz: 0 }];
+  it('places a column only past the reach, on the vehicle\'s base, its outer face OUTSET past the tip, turned with the yaw', () => {
+    const at = boardPointPlaces(points, { x: 100, y: 64, z: 200, yaw: 0 }, 1, BOARD);
+    expect(at).toHaveLength(3);
+    // The nose's column: its middle half a column in from a face 0.5 past the tip (z 14).
+    const back = BOARD.COLUMN_WIDTH / 2 - BOARD.OUTSET_BLOCKS;
+    expect(at[0]).toEqual({ x: 100, y: 64, z: 200 + 14 - back });
+    expect(at[1]!.x).toBeCloseTo(100 + 15 - back, 9);
+    // Bedrock yaw 90 faces -x: the nose goes to -x, the +x wing to +z (the colliders' turn).
+    const turned = boardPointPlaces(points, { x: 0, y: 0, z: 0, yaw: 90 }, 1, BOARD);
+    expect(turned[0]!.x).toBeCloseTo(-(14 - back), 9);
+    expect(turned[0]!.z).toBeCloseTo(0, 9);
+    expect(turned[1]!.z).toBeCloseTo(15 - back, 9);
+    // At 300 % the tail (9 out) passes the reach too, and the columns follow the scaled tips.
+    const big = boardPointPlaces(points, { x: 0, y: 0, z: 0, yaw: 0 }, 3, BOARD);
+    expect(big).toHaveLength(4);
+    expect(big[0]!.z).toBeCloseTo(42 - (BOARD.COLUMN_WIDTH * 3 / 2 - BOARD.OUTSET_BLOCKS), 9);
+  });
+  it('reads the extremities of a shipped geometry in the entity frame (JSON z mirrored: a cube at JSON -z is the nose)', () => {
+    const geo = { 'minecraft:geometry': [{ bones: [{ cubes: [
+      { origin: [-8, 0, -160], size: [16, 16, 32] }, // the nose: JSON z -160..-128 = entity z 8..10
+      { origin: [-192, 16, -16], size: [384, 4, 32] }, // the wings: x -12..12, entity z -1..1
+    ] }] }] };
+    const pts = boardPointsOf(geo);
+    expect(pts).toContainEqual({ x: 0, z: 10, dx: 0, dz: 1 });
+    expect(pts).toContainEqual({ x: 12, z: 0, dx: 1, dz: 0 });
+    expect(pts).toContainEqual({ x: -12, z: 0, dx: -1, dz: 0 });
+    expect(pts.find(p => p.dz === -1)!.z).toBeCloseTo(-1, 9);
+  });
+  it('clips a scripted vehicle\'s hit box to the square board points never sit inside', () => {
+    expect(hitTestAtSize([{ width: 30, height: 8.8, pivot: [0, 4.4, 0] }], 2, BOARD.HULL_HIT_HALF_MAX_BLOCKS)[0]).toEqual({ width: 16, height: 17.6, pivot: [0, 8.8, 0] });
+    expect(hitTestAtSize([{ width: 3, height: 2, pivot: [0, 1, 0] }], 2, BOARD.HULL_HIT_HALF_MAX_BLOCKS)[0]!.width).toBe(6);
+  });
+
+  /** The runtime with one parked ship carrying `points`, the pack's board point entity, and a player standing off its nose. */
+  function boardHost() {
+    const typeId = 'craftmatic:t_vehicle', boardType = 'craftmatic:t_board';
+    const ship: ScriptedVehicleType = { mode: 'plane', noseReach: 14, halfWidth: 15, height: 3, board: points };
+    const board = { type: boardType, sizeEventPrefix: 'craftmatic:size_', sizes: [100], ownerProperty: BOARD_OWNER_PROPERTY, params: BOARD };
+    const h = simHost({
+      script: scriptedVehicleScript(hostConfig({ [typeId]: ship }, { board })),
+      entities: { [typeId]: vehicleType(), [boardType]: boardPointBehavior('t_board') as Record<string, unknown> },
+      terrain: solidBelow(64),
+    });
+    const vehicle = h.spawn(typeId, { x: 0.5, y: 64, z: 0.5 }, { yaw: 0 });
+    const player = h.addPlayer('Child', { x: 0.5, y: 64, z: 15.2 }, { yaw: 180 });
+    const pointsNow = (): SimEntity[] => h.engine.loadedEntities('overworld').filter(e => e.typeId === boardType);
+    const before = (p: SimEntity, t: SimEntity): boolean => h.host.before('playerInteractWithEntity', { player: h.api(p), target: h.api(t) });
+    return { h, vehicle, player, pointsNow, before };
+  }
+  it('stands board points round a parked, empty ship; a HOLD on one seats the child in the ship, refused on the ship itself from there', () => {
+    const { h, vehicle, player, pointsNow, before } = boardHost();
+    h.run(12);
+    expect(pointsNow()).toHaveLength(3);
+    expect(pointsNow().every(p => p.dynamic.get(BOARD_OWNER_PROPERTY) === vehicle.id)).toBe(true);
+    // From beside the nose (14.7 from the root): the ship itself refuses the interact (beyond the root reach) ...
+    expect(interact(h.engine, player, vehicle, before)).toMatchObject({ mounted: false, refused: 'root-reach' });
+    // ... the nose's column takes it: cancelled before the native mount, the child put in the SHIP a tick later.
+    lookAt(player, { x: 0.5, y: 65.6, z: 14.4 });
+    const picked = pick(h.engine, player).entity!;
+    expect(picked.typeId).toBe('craftmatic:t_board');
+    expect(interact(h.engine, player, picked, before)).toMatchObject({ mounted: false, cancelled: true });
+    h.run(3);
+    expect(player.ridingOn).toBe(vehicle);
+    // Aboard: the points go.
+    h.run(6);
+    expect(pointsNow()).toHaveLength(0);
+  });
+  it('a TAP on a point boards too; the points come back when the ship parks again and are swept when it is gone', () => {
+    const { h, vehicle, player, pointsNow } = boardHost();
+    h.run(12);
+    lookAt(player, { x: 0.5, y: 65.6, z: 14.4 });
+    tap(h.engine, player);
+    h.run(3);
+    expect(player.ridingOn).toBe(vehicle);
+    h.unseat(player);
+    h.run(12);
+    expect(pointsNow()).toHaveLength(3);
+    // The wand retires the ship: within a sweep its points are gone, never left standing.
+    h.remove(vehicle);
+    h.run(BOARD.SWEEP_TICKS + 1);
+    expect(pointsNow()).toHaveLength(0);
+  });
+  it('never doubles its points over a world reload (the new runtime starts with an empty map)', () => {
+    const { h, pointsNow } = boardHost();
+    h.run(12);
+    expect(pointsNow()).toHaveLength(3);
+    h.reload();
+    // The new runtime's first placement removes the ship's old points (no doubling until the sweep) ...
+    for (let t = 0; t < 12; t++) { h.run(1); expect(pointsNow().length).toBeLessThanOrEqual(3); }
+    expect(pointsNow()).toHaveLength(3);
+    // ... and the sweep keeps exactly the ones it placed.
+    h.run(BOARD.SWEEP_TICKS);
+    expect(pointsNow()).toHaveLength(3);
   });
 });
