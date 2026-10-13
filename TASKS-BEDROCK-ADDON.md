@@ -91,10 +91,14 @@ The round-30m fixes on the phones:
   `--prune-stale` fixed it. Always deploy dev mode with `--prune-stale`.
 
 **Next (priority order):**
-1. VEH-17 boarding: model the 12-block interact limit in the sim (quirk
-   `custom-hit-test-pick`, then the 30m case fails again on the 30n pack),
-   then add boarding points along big hulls (small hit targets at the nose /
-   wingtips that `addRider` on tap or hold, as rides' `board()`), round 30o.
+1. Round 30o (`output/device-round-2026-10-12o/`): VEH-17 board points
+   (merged `51162799`; offline both Milano cases OK). Device checklist, Milano
+   at 200 % and 400 %, empty hand: (a) a body's width off the nose and on the
+   ground under a wingtip: hold -> mounts? Mount prompt? then a single tap;
+   (b) fly away: nothing tappable left at the old spot; land, get off, board
+   from the nose again within ~1 s; (c) retire with the wand, save + reload,
+   place again: content log 0 errors, boarding still works. Also re-check one
+   30n PASS per phone (Nimbus on the Saga, 10261 200 % top-east on the Pixel).
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
 3. Offline leftovers: `TODO(car-oblique-kerb)`, Milano chase ease jump,
