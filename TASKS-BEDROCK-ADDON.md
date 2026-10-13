@@ -126,6 +126,9 @@ The round-30m fixes on the phones:
    packs with 30o's others; on BOTH phones: holds with Sneak OFF from nose and a
    wingtip, a hold 1-2 s after the dismount button; CMVT lines `off`, `seat`,
    `check seated:true`.
+   30q RUNNING on both phones (`e1af8e90`, packs `output/device-round-2026-10-12p/packs-e1af8e90/`,
+   evidence `output/device-round-2026-10-12q/{pixel,saga}/`). Favourites sweep `output/favsweep-2ecb8240/`
+   running (FIG-01 spawn change; compare figure spawn warnings with `output/favsweep-3664f4f3*`).
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
 3. Offline leftovers: `TODO(car-oblique-kerb)`, Milano chase ease jump,
