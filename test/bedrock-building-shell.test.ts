@@ -521,6 +521,21 @@ describe('splitStaticShell', () => {
     expect(result.chunks.every(chunk => shellChunkCell(chunk.id)!.join() === chunk.cell.join())).toBe(true);
   });
 
+  it('roots a cell UNDER the floor on the floor plane when its cubes stay in reach (10365 / 42670 roots were 6-9.6 under the ground)', async () => {
+    const S = STATIC_SHELL_CELL_BLOCKS;
+    // A plate a block under the floor plane (a hull's keel, a base's underside) and a far cube to force the split.
+    const keel = await compiledFixture([{ description: { identifier: 'geometry.craftmatic.keel_mesh_0' }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: [
+      { origin: [-8, -24, -8], size: [16, 16, 16] }, { origin: [3 * S * 16, 0, -8], size: [16, 16, 16] },
+    ] }] }], [{ color: 4 }]);
+    const result = splitStaticShell('keel', keel);
+    const under = result.chunks.find(chunk => chunk.cell[1] < 0)!;
+    expect(under.cell[1]).toBe(-1);
+    // On the floor plane, not the cell's centre half a cell down - and still in reach at the largest size.
+    expect(under.offsetBlocks[1]).toBeCloseTo(0, 9);
+    expect(under.radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toBeLessThanOrEqual(STATIC_SHELL_RADIUS_LIMIT_BLOCKS);
+    // A cell too deep for the lift keeps its centre (the tall fixture above: -37.5 blocks).
+  });
+
   it('plans the lattice for the LARGEST size step, every chunk within draw reach of its cubes at 400 % (COL-03, round 30m)', async () => {
     expect(STATIC_SHELL_CULL_MAX_SCALE).toBe(Math.max(...SIZE_STEPS) / 100);
     expect(STATIC_SHELL_CULL_MAX_SCALE).toBe(4);

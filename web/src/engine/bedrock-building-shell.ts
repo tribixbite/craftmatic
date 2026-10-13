@@ -225,9 +225,9 @@ const shifted = (v: readonly number[] | undefined, delta: Vec3): [number, number
  * anchored at the JSON origin (the model's floor centre, so the cells are
  * symmetric about it); the y lattice at the model's FLOOR plane (`floorY`,
  * `-originLiftBlocks` blocks under the origin the compiler lifts above the
- * roof), so no cell with cubes in it reaches under the floor - every real
- * shell's cubes stand on or above its floor - and every root (`cellRoot`)
- * stands over the ground.
+ * roof). Most shells stand on their floor; one reaching under it (a hull,
+ * a base) gets cells under the floor, whose roots `shellChunkRoot` lifts to
+ * the floor plane where reach allows.
  */
 export const shellCellOf = (center: Vec3, floorY: number): ShellCell => [
   Math.floor(center[0] / STATIC_SHELL_CELL_BLOCKS), Math.floor((center[1] - floorY) / STATIC_SHELL_CELL_BLOCKS), Math.floor(center[2] / STATIC_SHELL_CELL_BLOCKS),
@@ -244,12 +244,29 @@ export const shellCellOf = (center: Vec3, floorY: number): ShellCell => [
  * the lighting concern does not apply inside the model: the colliders dampen
  * no light (`light_dampening: 0`) and entity cubes are not blocks, so a root
  * inside the model is lit like the air around it; the y lattice starts at the
- * floor, so a root is never in the ground. A root inside a drawn cube is
+ * floor, and a cell under it is rooted on the floor plane (`shellChunkRoot`). A root inside a drawn cube is
  * reported, not avoided (`buriedRootCubes`).
  */
 export const shellCellRoot = (cell: ShellCell, floorY: number): Vec3 => [
   (cell[0] + 0.5) * STATIC_SHELL_CELL_BLOCKS, floorY + (cell[1] + 0.5) * STATIC_SHELL_CELL_BLOCKS, (cell[2] + 0.5) * STATIC_SHELL_CELL_BLOCKS,
 ];
+
+/**
+ * The root a chunk is actually given: its cell's centre (`shellCellRoot`),
+ * except a cell UNDER the floor plane, whose root is lifted to the floor
+ * plane when every cube of the chunk stays in draw reach from there at the
+ * largest size. Not every shell stands on its floor: 10365's hull and
+ * 42670's base reach under it, and the favourites sweep at 2ecb8240 put their
+ * under-floor chunks' roots 6-9.6 blocks under the ground (the simulator's
+ * `nothing-below-ground`), where Bedrock lights an entity by the solid block
+ * at its root. A cell too deep for the lift keeps its centre.
+ */
+export function shellChunkRoot(cell: ShellCell, floorY: number, cubes: readonly ShellCubeRecord[]): Vec3 {
+  const centre = shellCellRoot(cell, floorY);
+  if (cell[1] >= 0) return centre;
+  const lifted: Vec3 = [centre[0], floorY, centre[2]];
+  return shellRadius(cubes, lifted) * STATIC_SHELL_CULL_MAX_SCALE <= STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-9 ? lifted : centre;
+}
 
 /**
  * The farthest any cube of a cell can reach from the cell's root at wand
@@ -334,7 +351,7 @@ export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): S
   const warnings: string[] = [];
   const chunks = ordered.map(({ cell, records: partition }): StaticShellChunk => {
     const id = shellChunkId(shellId, cell);
-    const root = shellCellRoot(cell, floorY);
+    const root = shellChunkRoot(cell, floorY, partition);
     const delta: Vec3 = root.map(value => value * 16) as Vec3;
     const radiusBlocks = shellRadius(partition, root);
     const selected = new Set(partition.map(record => `${record.geometry}:${record.bone}:${record.cube}`));
