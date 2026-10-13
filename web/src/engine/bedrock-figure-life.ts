@@ -50,7 +50,8 @@
  * (test/bedrock-figure-life.test.ts, scripts/_figure_roam_census.ts).
  */
 
-import { COLLIDER_STATES, ESCAPE_OPTIONS, colliderBodyProbe, colliderFormKit, type ColliderBodyProbe, type EscapeOptions } from './collider-form.js';
+import { COLLIDER_KIT, COLLIDER_STATES, ESCAPE_OPTIONS, colliderBodyProbe, colliderFormKit, type Box16, type ColliderBodyProbe, type EscapeOptions } from './collider-form.js';
+import type { SourceCell } from './bedrock-collider-scale.js';
 
 /**
  * The scenery-seat watcher's bounds (`safeSeatDismounts` in the runtime; docs/physics-architecture.md §9):
@@ -382,19 +383,33 @@ export const ROOM_PROBE_CELLS = 64;
  *  4. Nothing at all: kept where it is (the runtime's wedge and refuge logic).
  *
  * `allowed(x, z)` bounds the columns (the placement footprint). No collider
- * is added: a figure never stands on anything the player cannot. Pure.
+ * is added: a figure never stands on anything the player cannot.
+ *
+ * `opts.carried` (the figure's own footprint, `cellSpanLookup` with a
+ * footprint) decides whether a surface of its OWN column really lies under
+ * its feet. `spanAt` reads a cell whole, as the placement lift and the
+ * runtime planner do, and a clearance form pulled back to a quarter of the
+ * cell is not under a figure standing in the other three: 76417's figure 9
+ * stood 1.25 blocks up beside a turned crate whose form fills x 12/16..16/16
+ * of its column, was kept "on" it, fell to the ground at placement and stood
+ * there for good (its home floor 1.25 up, just past the 1.2 band, so the
+ * floor it fell to was outside its area and the planner had no cell; FIG-01).
+ * A surface the footprint does not carry is never kept or grounded on in the
+ * own column; the figure is moved instead. Pure.
  */
 export function resolveFigureSpawn(
   spanAt: SpanLookup, at: { x: number; y: number; z: number }, body: number,
   allowed: (x: number, z: number) => boolean,
-  opts: { maxUp: number; maxDown: number; minRoom: number; radius?: number; maxDrop?: number },
+  opts: { maxUp: number; maxDown: number; minRoom: number; radius?: number; maxDrop?: number; carried?: SpanLookup },
 ): FigureSpawn {
   const radius = opts.radius ?? 2, maxDrop = opts.maxDrop ?? 3;
   const cx = Math.floor(at.x), cz = Math.floor(at.z);
+  /** Whether feet at `f` in the own column stand on something under the figure's own footprint. */
+  const carried = (f: number): boolean => !opts.carried || standFeetAt(opts.carried, cx, cz, f, body, 1e-6, 1e-6) !== null;
   const own = standFeetAt(spanAt, cx, cz, at.y, body, opts.maxUp, 0.25);
   const roomOf = (x: number, z: number, feet: number): number => exploreWalkable(spanAt, { x, z, feet }, body, opts.maxUp, opts.maxDown,
     (ax, az) => allowed(ax, az), ROOM_PROBE_CELLS, standFeetAt).length;
-  if (own !== null) return { x: at.x, y: own, z: at.z, kind: 'kept', drop: at.y - own, shift: 0, room: roomOf(cx, cz, own) };
+  if (own !== null && carried(own)) return { x: at.x, y: own, z: at.z, kind: 'kept', drop: at.y - own, shift: 0, room: roomOf(cx, cz, own) };
   let best: FigureSpawn | null = null, bestCost = Infinity, bestRoomy = false;
   for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) {
     const x = cx + dx, z = cz + dz;
@@ -402,6 +417,7 @@ export function resolveFigureSpawn(
     const f = standFeetAt(spanAt, x, z, at.y, body, opts.maxUp, maxDrop);
     if (f === null) continue;
     const self = !dx && !dz;
+    if (self && !carried(f)) continue;
     const px = self ? at.x : x + 0.5, pz = self ? at.z : z + 0.5;
     const shift = Math.hypot(px - at.x, pz - at.z);
     const cost = shift + 1.5 * Math.max(0, at.y - f) + 3 * Math.max(0, f - at.y) - (self ? 1e-6 : 0);
@@ -413,8 +429,43 @@ export function resolveFigureSpawn(
   }
   if (best) return best;
   const below = standFeetAt(spanAt, cx, cz, at.y, body, 0, at.y + 1);
-  if (below !== null) return { x: at.x, y: below, z: at.z, kind: 'grounded', drop: at.y - below, shift: 0, room: roomOf(cx, cz, below) };
+  if (below !== null && carried(below)) return { x: at.x, y: below, z: at.z, kind: 'grounded', drop: at.y - below, shift: 0, room: roomOf(cx, cz, below) };
   return { x: at.x, y: at.y, z: at.z, kind: 'kept', drop: 0, shift: 0, room: 0 };
+}
+
+/**
+ * Host only, at export: collision spans over a pack's collider cells.
+ *
+ * Without `footprint` a cell is read WHOLE, by its form's full vertical
+ * extent (`COLLIDER_KIT.formBoxes`): what the placement runtime's spawn lift
+ * (bedrock-placement-pack.ts, the `_fig` branch) and the figure planner
+ * (`blockSpan`: a floor + wall form runs to the block top, a wall + ceiling
+ * form from its bottom) read, so a spawn decided over it is one the device
+ * keeps. Reading a form's `lo`/`hi` states as its span (the export did until
+ * 2026-10-12) put a floor + wall form's top at its floor band, where the
+ * placement lift then raised the figure onto the wall.
+ *
+ * With `footprint` (world blocks, a figure's box) only the form's boxes that
+ * lie under that box count, and a cell none of whose boxes does is no span:
+ * whether the cell really carries (or blocks) a body standing exactly there.
+ *
+ * Rows below 0 are the ground under the pin plane. Pure.
+ */
+export function cellSpanLookup(cellAt: (x: number, y: number, z: number) => SourceCell | undefined,
+  footprint?: { x0: number; x1: number; z0: number; z1: number }): SpanLookup {
+  return (x, y, z) => {
+    const c = cellAt(x, y, z);
+    if (!c) return y < 0 ? [y, y + 1] : null;
+    if (!(c.hi > c.lo)) return null;
+    let boxes: Box16[] = COLLIDER_KIT.formBoxes(c.v ?? 0, c.lo, c.hi);
+    if (footprint) {
+      const eps = 1e-9;
+      boxes = boxes.filter(b => x + b[1] / 16 > footprint.x0 + eps && x + b[0] / 16 < footprint.x1 - eps
+        && z + b[5] / 16 > footprint.z0 + eps && z + b[4] / 16 < footprint.z1 - eps);
+      if (!boxes.length) return null;
+    }
+    return [y + Math.min(...boxes.map(b => b[2])) / 16, y + Math.max(...boxes.map(b => b[3])) / 16];
+  };
 }
 
 /** Two standing figures closer than this (blocks, horizontally) share a body: one is moved. A figure's box is 0.6 wide. */

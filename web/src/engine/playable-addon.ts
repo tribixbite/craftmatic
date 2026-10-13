@@ -40,7 +40,7 @@ import { BOARD, BOARD_OWNER_PROPERTY, BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLI
 import { ESCAPE_OPTIONS } from './collider-form.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { FREE_LOOK, NATIVE_HEADING_PROPERTY, NATIVE_STEER, cockpitCamera, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type FreeLookParams, type NativeSteerParams } from './vehicle-free-look.js';
-import { figureLifeScript, FIGURE_TUNING, resolveFigureSpawn, separateFigureSpawns, type FigureSpawn, type SpanLookup } from './bedrock-figure-life.js';
+import { cellSpanLookup, figureLifeScript, FIGURE_TUNING, resolveFigureSpawn, separateFigureSpawns, type FigureSpawn, type SpanLookup } from './bedrock-figure-life.js';
 import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, accessAvoidCells, captureDoorwayNeighbours, type InteractiveColliderPlan, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
 declare const world: any;
 declare const system: any;
@@ -3338,15 +3338,14 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // (the box-art line-up beside the model) is set down on the surface below,
     // one standing inside a collider column on the roomiest free column
     // nearby, instead of falling at placement or being lifted onto a roof.
-    const figureSpanAt: SpanLookup | undefined = placementColliders ? (() => {
-        const pc = placementColliders;
-        const cells = new Map(colliderSourceCells(pc).map(c => [`${c.x},${c.y},${c.z}`, c]));
-        return (x: number, y: number, z: number): number[] | null => {
-            const c = cells.get(`${x},${y},${z}`);
-            if (c) return c.hi > c.lo ? [y + c.lo / 16, y + c.hi / 16] : null;
-            return y < 0 ? [y, y + 1] : null; // the ground under the pin plane
-        };
+    // A cell is read whole, by its form's vertical extent, as the placement's
+    // spawn lift reads it; `figureCellAt` also answers, per figure, what lies
+    // under that figure's own footprint (`cellSpanLookup`, FIG-01).
+    const figureCellAt = placementColliders ? (() => {
+        const cells = new Map(colliderSourceCells(placementColliders).map(c => [`${c.x},${c.y},${c.z}`, c]));
+        return (x: number, y: number, z: number) => cells.get(`${x},${y},${z}`);
     })() : undefined;
+    const figureSpanAt: SpanLookup | undefined = figureCellAt ? cellSpanLookup(figureCellAt) : undefined;
     const spawnFixes: Array<{ label: string; spawn: FigureSpawn }> = [];
     for (const [k, fig] of (options.figures ?? []).entries()) {
         const rawFig = `${id}_fig${k + 1}`;
@@ -3381,11 +3380,13 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             figureKindCounts['figure'] = (figureKindCounts['figure'] ?? 0) + 1;
             continue;
         }
-        if (figureSpanAt && placementColliders && fig.seatIndex === undefined) {
+        if (figureSpanAt && figureCellAt && placementColliders && fig.seatIndex === undefined) {
             const { width, length } = placementColliders;
+            const half = figureCollisionBox(fgeo.sizeBlocks, options.figureCollisionHeight).width / 2;
+            const carried = cellSpanLookup(figureCellAt, { x0: at.x - half, x1: at.x + half, z0: at.z - half, z1: at.z + half });
             const spawn = resolveFigureSpawn(figureSpanAt, at, figureBodies[`${PACK_NAMESPACE}:${fcid}`]!,
                 (x, z) => x >= 0 && z >= 0 && x < width && z < length,
-                { maxUp: FIGURE_TUNING.maxUp, maxDown: FIGURE_TUNING.maxDown, minRoom: FIGURE_TUNING.minRoamCells });
+                { maxUp: FIGURE_TUNING.maxUp, maxDown: FIGURE_TUNING.maxDown, minRoom: FIGURE_TUNING.minRoamCells, carried });
             if (spawn.kind !== 'kept') spawnFixes.push({ label: flabel, spawn });
             at = { x: spawn.x, y: spawn.y, z: spawn.z };
         }

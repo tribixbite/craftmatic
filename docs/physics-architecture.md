@@ -386,7 +386,13 @@ to the roomiest standable column within 2 cells when it stood inside a
 collider column (cost = distance + 1.5 x drop + 3 x rise, at least
 `minRoamCells` of room preferred). No collider is added for it. The placement
 runtime's own lift (`spawnLift` mirrors it) then has nothing to do; before
-this it raised such figures 1.2-2.6 blocks onto the roof above them.
+this it raised such figures 1.2-2.6 blocks onto the roof above them. The grid
+is read as the lift reads it (`cellSpanLookup`: a clearance form by its whole
+vertical extent), and a surface of the figure's OWN column counts only where
+a form box lies under its footprint: 76417's figure 9 stood 1.25 up beside a
+crate whose form fills a quarter of its column, was kept "on" it, fell at
+placement onto ground outside its 1.2 band and never moved (FIG-01,
+2026-10-12); it is now moved to the ground beside it.
 `web/src/sim/adapters/craftmatic/figure-life.ts` runs the SERIALISED
 runtime on the headless simulator over the pack's collider cells (the kit's
 real block definitions), figures as mobs under `minecraft:physics` moved by
@@ -1782,6 +1788,7 @@ one of these files fails the check until its row is written.
 | `figureLifeScript` | function | Serialises it and the planner into `BP/scripts/figures.js`. |
 | `standFeetAt`, `exploreWalkable`, `startCell`, `refugeCell`, `pathTo`, `blockSpan` | function | SERIALISED planner over real collider spans. |
 | `resolveFigureSpawn`, `spawnLift` | function | Host only, at export: where a figure spawns (on the surface below a line-up figure, beside a collider column it stood in), and the placement runtime's spawn lift it replaces. |
+| `cellSpanLookup` | function | Host only, at export: the spans of a pack's collider cells read whole by each form's vertical extent (as the placement lift and `blockSpan` read them), or only the form boxes under a figure's footprint (`resolveFigureSpawn`'s `carried`: does its own column really carry it; FIG-01, 76417 figure 9). |
 | `ROOM_PROBE_CELLS` | const | Cells explored to rate a spawn spot's room (64). |
 | `separateFigureSpawns` | function | Host only, at export: a standing figure a source recorded within `FIGURE_MIN_SEPARATION` of another is moved to the nearest standable column clear of every figure (76435's figures 1 and 8). |
 | `FIGURE_MIN_SEPARATION` | const | 0.6 blocks: a figure's box width; closer than this two standing figures share a body. |
