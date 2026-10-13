@@ -814,6 +814,62 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(h2.lastBar()).toMatch(/Step out of the door 1 to close it - there is no floor/);
   });
 
+  /** A runtime host whose world knows a figure type (`craftmatic_figure` family), and the door opened. */
+  const figureHost = () => {
+    const fig = 'craftmatic:t_fig';
+    const cfg = doubleDoorConfig();
+    const h = runtimeHost(cfg, { types: { [fig]: { format_version: '1.21.0', 'minecraft:entity': { description: { identifier: fig, is_spawnable: false, is_summonable: true }, components: {
+      'minecraft:type_family': { family: ['craftmatic_figure'] }, 'minecraft:collision_box': { width: 0.6, height: 1.8 }, 'minecraft:physics': { has_gravity: false },
+    } } } } });
+    const a = h.spawn(0, anchor);
+    h.sync();
+    h.tap(a);
+    const [k0] = keysOf(cfg, 0);
+    const [x, y, z] = k0!.split(',').map(Number) as [number, number, number];
+    return { fig, cfg, h, a, x, y, z };
+  };
+
+  it('steps a figure whose feet sit INSIDE the threshold onto a rim a sixteenth over it (76417 Door 3, Pixel round 30r)', () => {
+    const { fig, h, a, x, y, z } = figureHost();
+    // The doorway's floor (top y) under the figure only; the -z side is a drop, the +z side a rim 1/16 over the
+    // doorway's floor. The figure's feet are 9/16 under the floor's top (the device read 17.00 under a 17.5625
+    // threshold): measured from its feet the window stopped at y and missed the rim.
+    for (const dx of [-1, 0, 1]) h.setCollider(x + dx, y - 1, z, 0, 16);
+    for (const dx of [-1, 0, 1]) for (const dz of [1, 2, 3]) h.setCollider(x + dx, y, z + dz, 0, 1);
+    const figure = h.host.engine.spawnEntity(fig, 'overworld', { x: x + 0.5, y: y - 9 / 16, z: z + 0.12 });
+    h.tap(a);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(false);
+    expect(figure.location.z - 0.3).toBeGreaterThanOrEqual(z + 1 - 1 / 64);
+    expect(figure.location.y).toBeCloseTo(y + 1 / 16, 6);
+  });
+
+  it('sets a FIGURE down at the nearest floor when both lines out of the doorway are walled; a player there is refused (Pixel round 30r)', () => {
+    const { fig, cfg, h, a, x, y, z } = figureHost();
+    // Floor all round; a wall two blocks tall in the doorway's own column on both sides, so neither line out of the
+    // doorway (along the leaf's normal, which is the grid axis here) reaches a free floor within its 3 blocks.
+    layFloor(h, x, y, z, [-4, -3, -2, -1, 0, 1, 2, 3, 4]);
+    for (const dz of [-4, -3, -2, -1, 1, 2, 3, 4]) for (const dy of [0, 1]) h.setCollider(x, y + dy, z + dz, 0, 16);
+    const figure = h.host.engine.spawnEntity(fig, 'overworld', { x: x + 0.5, y, z: z + 0.12 });
+    h.tap(a);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(false);
+    const l = figure.location;
+    // Out of both leaves' doorways, on the floor (no drop), and not inside the walls.
+    const doorways = [...keysOf(cfg, 0), ...keysOf(cfg, 1)].map(k => k.split(',').map(Number) as [number, number, number]);
+    expect(doorways.some(([bx, by, bz]) => l.x + 0.3 > bx && l.x - 0.3 < bx + 1 && l.z + 0.3 > bz && l.z - 0.3 < bz + 1 && l.y + 1.8 > by && l.y < by + 1)).toBe(false);
+    expect(l.y).toBe(y);
+    expect(l.x - 0.3 >= x + 1 || l.x + 0.3 <= x || Math.abs(l.z - (z + 0.5)) < 0.5 + 1e-9).toBe(true);
+    expect(Math.hypot(l.x - (x + 0.5), l.z - (z + 0.12))).toBeLessThan(2);
+    // A PLAYER at the same spot is never moved off the two lines: the close is refused.
+    const p = figureHost();
+    layFloor(p.h, p.x, p.y, p.z, [-4, -3, -2, -1, 0, 1, 2, 3, 4]);
+    for (const dz of [-4, -3, -2, -1, 1, 2, 3, 4]) for (const dy of [0, 1]) p.h.setCollider(p.x, p.y + dy, p.z + dz, 0, 16);
+    p.h.player.location = { x: p.x + 0.5, y: p.y, z: p.z + 0.12 };
+    p.h.tap(p.a);
+    expect(p.a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
+    expect(p.h.teleports.length).toBe(0);
+    expect(p.h.lastBar()).toMatch(/there is no floor to step onto/);
+  });
+
   it('closes past a player only TOUCHING the doorway\'s block without moving them (float32 contact, 76417 Gate 1 at 7153.30)', () => {
     const cfg = doubleDoorConfig();
     const h = runtimeHost(cfg);
