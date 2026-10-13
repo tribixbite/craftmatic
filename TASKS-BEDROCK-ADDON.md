@@ -91,44 +91,16 @@ The round-30m fixes on the phones:
   `--prune-stale` fixed it. Always deploy dev mode with `--prune-stale`.
 
 **Next (priority order):**
-1. Round 30o (`output/device-round-2026-10-12o/`): VEH-17 board points
-   (merged `51162799`; offline both Milano cases OK). Device checklist, Milano
-   at 200 % and 400 %, empty hand: (a) a body's width off the nose and on the
-   ground under a wingtip: hold -> mounts? Mount prompt? then a single tap;
-   (b) fly away: nothing tappable left at the old spot; land, get off, board
-   from the nose again within ~1 s; (c) retire with the wand, save + reload,
-   place again: content log 0 errors, boarding still works. Also re-check one
-   30n PASS per phone (Nimbus on the Saga, 10261 200 % top-east on the Pixel).
-   **Saga 30o DONE (`saga/notes.md`):** nose hold mounts at 1.4/3/5 off the
-   point (19 from root), not 8; wingtip points (28-30 from root) show the Mount
-   prompt but hold AND tap never seat; aft point 2/10. The on-screen Mount
-   button while standing in a wingtip point DOES seat (native mount on the
-   point -> `tendBoard` moves the player into the vehicle). So the points exist
-   and are picked; the hold/tap route (`playerInteractWithEntity` cancel,
-   `entityHitEntity`) does not seat - cause unmeasured (event not fired on a
-   touch hold? the nose success may be the hull box). Next: a telemetry line
-   per board event, and/or stop cancelling the interact and let the native
-   mount + `tendBoard` do it. Relocation after flying PASS; Nimbus 13 deg PASS.
-   **Pixel 30o DONE (`pixel/notes.md`):** hold AND tap mount from the nose and
-   the east wingtip at 200 % and 400 % (400 % nose: level aim 1-2 off only;
-   tilted-up aim fails though the prompt shows); old spot empty after flying;
-   reload: no duplicates but 2 of 4 points listed (a failed spawn is now
-   placed again); 10261 top-s-east PASS. So the cancelled hold works on
-   the Pixel and not on the Saga. 1-2 s re-board unmeasured on both (the
-   camera after a dismount points away; aim first).
-   **Round 30p (`output/device-round-2026-10-12p/`):** Saga 16/16 hold+tap
-   from every point; Pixel taps PASS, reload 4/4 PASS, but a hold the device
-   mounts natively on the point (Pixel: Sneak OFF, 0/13; Saga: quick re-board
-   2 of 3) logs `seat ok:true` and leaves the player on foot - quirk
-   `add-rider-eject-tick`. **Round 30q** fixes it (off the point, seat
-   `RETRY_TICKS` later, check `minecraft:riding`, retry): build
-   `output/device-round-2026-10-12p/build.sh` at the 30q commit, deploy the two
-   packs with 30o's others; on BOTH phones: holds with Sneak OFF from nose and a
-   wingtip, a hold 1-2 s after the dismount button; CMVT lines `off`, `seat`,
-   `check seated:true`.
-   30q RUNNING on both phones (`e1af8e90`, packs `output/device-round-2026-10-12p/packs-e1af8e90/`,
-   evidence `output/device-round-2026-10-12q/{pixel,saga}/`). Favourites sweep `output/favsweep-2ecb8240/`
-   running (FIG-01 spawn change; compare figure spawn warnings with `output/favsweep-3664f4f3*`).
+1. VEH-17 boarding DONE-DEVICE (round 30q, `e1af8e90`, both phones: holds,
+   taps, quick re-boards all seat; evidence `output/device-round-2026-10-12q/`).
+   Left: `TODO(board-sides)` (long sides of a 400 % hull), rotorcraft have no
+   points. The next device round carries the offline fixes made since 30q:
+   COL-03 under-floor roots (`b7d9cb63`: 10365 / 42670), FIG-01 figure spawn
+   over a partial form (`cd9ccaef`: 76417 figure 9) and the IX-01 figure-in-
+   doorway close (76417 Door 3). Build all 21 sets from the committed tree
+   (copy `output/device-round-2026-10-12o/build.sh` into a new round dir) and
+   place 10365 (hull chunks drawn, not dark), 76417 (figure 9 walks, Door 3
+   closes with a figure in it) and 42670.
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
 3. Offline leftovers: `TODO(car-oblique-kerb)`, Milano chase ease jump,
