@@ -105,6 +105,13 @@ The round-30m fixes on the phones:
    `packs-7fde0b5e/` + `creator-7fde0b5e/`; regressions 34/0 failed, sim 132/0):
    Pixel 924: 10365 hull 100/200 %, 42670 base, 76417 fig 9 + Door 3; Saga 925:
    10365 100/400 %, 76417, Milano sanity. Evidence `pixel/`, `saga/` there.
+   Pixel 30r DONE: 76417 fig 9 walks (FIG-01 PASS); Door 3 closes with a figure
+   in the doorway's outer half, refused 3/3 with it 0.4 inside ("no floor to step
+   onto") - fixed offline `b51eff3f` (merge `b0bb07c8`: step-out from the
+   threshold's floor, along the grid axis too, figure fallback within 4 blocks;
+   `sim:door3-figure-inside-76417-30r`), not on device yet. 10365 in the round is
+   one entity (no shell chunks): COL-03's lift unexercised; 42670 not in the set.
+   Saga 30r running.
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
 3. Offline leftovers: `TODO(car-oblique-kerb)`, Milano chase ease jump,
