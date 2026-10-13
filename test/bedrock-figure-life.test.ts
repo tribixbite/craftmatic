@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import type { SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
 import { host } from './_placement-host.js';
 import { simHost, solidBelow } from './_sim-host.js';
-import { blockSpan, exploreWalkable, FIGURE_SEATING_GRACE_MS, FIGURE_SEATING_PROPERTY, FIGURE_TUNING, figureLifeScript, pathTo, resolveFigureSpawn, separateFigureSpawns, spawnLift, standFeetAt, type FigureLifeConfig, type SpanLookup } from '../web/src/engine/bedrock-figure-life.js';
+import { blockSpan, cellSpanLookup, exploreWalkable, FIGURE_SEATING_GRACE_MS, FIGURE_SEATING_PROPERTY, FIGURE_TUNING, figureLifeScript, pathTo, resolveFigureSpawn, separateFigureSpawns, spawnLift, standFeetAt, type FigureLifeConfig, type SpanLookup } from '../web/src/engine/bedrock-figure-life.js';
 import { simulateFigureLife, type SimSample, type SimWorld } from '../web/src/sim/adapters/craftmatic/figure-life.js';
 import { seatBehavior } from '../web/src/engine/playable-addon.js';
 import { RIDE } from '../web/src/engine/bedrock-rides.js';
@@ -776,5 +776,79 @@ describe('figures recorded on one spot (separateFigureSpawns, at export)', () =>
     const span = spansOf(room(), 0);
     const figs = [{ x: 3.5, y: 3 / 16, z: 3.5, body: 1.8 }, { x: 4.2, y: 3 / 16, z: 3.5, body: 1.8 }, { x: 3.5, y: 4, z: 3.5, body: 1.8 }];
     expect(separateFigureSpawns(span, figs, inside(9, 7), opts).moved).toEqual([]);
+  });
+});
+
+/**
+ * FIG-01, 76417 figure 9 (the round-30 combined sim, 2026-10-08: "never moves"). The
+ * source stands it 1.25 blocks over the ground beside a turned crate; the crate's
+ * clearance forms fill only x 12/16..16/16 of the figure's column (13, 18) and x
+ * 0..8/16 of the next, so nothing lies under the figure's 0.6-wide feet. Read whole,
+ * the column "carried" it at 1.25: the export kept it there, it fell to the ground
+ * at placement, and with its home floor 1.25 up (past the 1.2 band) the ground it
+ * fell to was outside its area: the planner found no cell and it stood still for
+ * the whole watch (GameTest `figures_gringotts_76417` offline: pathLength 0,
+ * clipping 61/61). The cells are the pack's own around it (round 30o build,
+ * x 10..17, z 15..19, rows 0-3).
+ */
+describe('76417 figure 9: a spawn over a form that does not reach its feet (FIG-01)', () => {
+  const c = (x: number, y: number, z: number, lo: number, hi: number, v?: number): SourceCell => ({ x, y, z, lo, hi, ...(v ? { v } : {}) });
+  const cells: SourceCell[] = [
+    c(13, 0, 18, 4, 16, 6), c(14, 0, 18, 4, 16, 2),
+    c(10, 1, 15, 0, 16), c(11, 1, 15, 0, 12), c(15, 1, 15, 2, 16, 4), c(16, 1, 15, 2, 16, 3), c(17, 1, 15, 13, 16, 8),
+    c(10, 1, 16, 0, 16), c(11, 1, 16, 0, 16, 2), c(15, 1, 16, 0, 6), c(16, 1, 16, 0, 6),
+    c(10, 1, 17, 0, 12, 22), c(11, 1, 17, 0, 15),
+    c(13, 1, 18, 0, 4, 6), c(14, 1, 18, 0, 5, 2),
+    c(12, 1, 19, 9, 14, 5), c(13, 1, 19, 8, 14),
+    c(10, 2, 15, 0, 5, 17), c(15, 2, 15, 0, 16, 6), c(16, 2, 15, 0, 4, 15), c(17, 2, 15, 0, 3),
+    c(10, 2, 16, 0, 5, 17), c(11, 2, 16, 0, 2, 1), c(10, 2, 17, 0, 2, 8),
+    c(11, 2, 19, 2, 16, 5), c(12, 2, 19, 2, 16, 2),
+    c(10, 3, 15, 0, 16, 2), c(15, 3, 15, 0, 16, 6), c(16, 3, 15, 12, 16, 29), c(17, 3, 15, 13, 16, 4),
+    c(10, 3, 16, 0, 16, 2), c(17, 3, 16, 5, 16), c(17, 3, 17, 11, 16, 5),
+    c(11, 3, 19, 0, 2, 5), c(12, 3, 19, 0, 2, 1),
+  ];
+  const grid = new Map(cells.map(k => [`${k.x},${k.y},${k.z}`, k]));
+  const cellAt = (x: number, y: number, z: number): SourceCell | undefined => grid.get(`${x},${y},${z}`);
+  const whole = cellSpanLookup(cellAt);
+  const source = { x: 13.288778500493871, y: 1.25, z: 18.76724418554086 };
+  const body = 1.7, half = 0.3;
+  const carried = cellSpanLookup(cellAt, { x0: source.x - half, x1: source.x + half, z0: source.z - half, z1: source.z + half });
+  const inside = (x: number, z: number): boolean => x >= 0 && z >= 0 && x < 27 && z < 27;
+  const opts = { maxUp: FIGURE_TUNING.maxUp, maxDown: FIGURE_TUNING.maxDown, minRoom: FIGURE_TUNING.minRoamCells };
+
+  it('reads a form by its boxes: whole by its extent, under a footprint only where it reaches', () => {
+    // v6 is a wall x 12..16 sixteenths: the column's top is 1.25 read whole, and nothing under x 12.99..13.59.
+    expect(whole(13, 1, 18)).toEqual([1, 1.25]);
+    expect(carried(13, 1, 18)).toBeNull();
+    expect(carried(13, 0, 18)).toBeNull();
+    // The ground under the pin plane carries every footprint.
+    expect(carried(13, -1, 18)).toEqual([-1, 0]);
+    expect(whole(0, 0, 0)).toBeNull();
+    // A floor + wall form (kind 1, v = 1 + 14 + shape - 1) reads to the block top whole, as the placement lift and `blockSpan` read it.
+    expect(cellSpanLookup(() => ({ x: 0, y: 0, z: 0, lo: 0, hi: 3, v: 1 + 14 + 5 }))(0, 0, 0)).toEqual([0, 1]);
+  });
+
+  it('moves the figure off a surface its own footprint does not carry, onto ground the placement lift keeps', () => {
+    // Read whole (the export until 2026-10-12) the column carries it where it stands.
+    expect(resolveFigureSpawn(whole, source, body, inside, opts).kind).toBe('kept');
+    const s = resolveFigureSpawn(whole, source, body, inside, { ...opts, carried });
+    expect(s.kind).toBe('moved');
+    expect(s.y).toBe(0);
+    expect(s.room).toBeGreaterThanOrEqual(FIGURE_TUNING.minRoamCells);
+    // The device's spawn lift leaves it there (at the source spot it lifts it back onto the 1.25 "top").
+    expect(spawnLift(whole, s.x, s.z, s.y, 1.8, 3)).toBe(s.y);
+    expect(spawnLift(whole, source.x, source.z, 0, 1.8, 3)).toBe(1.25);
+  });
+
+  it('walks the figure from the spot the export now picks; from the source spot it never moved', () => {
+    const config = { figureTypes: ['craftmatic:g_fig9'], seatTypes: [], bodyHeights: { 'craftmatic:g_fig9': body }, bodyHeight: 1.8, tuning: FIGURE_TUNING };
+    const run = (at: { x: number; y: number; z: number }): number => {
+      const w: SimWorld = { cells, area: [0, 0, 27, 27], ground: 0, figures: [{ typeId: 'craftmatic:g_fig9', at }] };
+      const [t] = simulateFigureLife(w, config, 1200, 9);
+      return t!.reduce((sum, p, i) => i ? sum + Math.hypot(p.x - t![i - 1]!.x, p.z - t![i - 1]!.z) : 0, 0);
+    };
+    expect(run(source)).toBeLessThan(0.5);
+    const s = resolveFigureSpawn(whole, source, body, inside, { ...opts, carried });
+    expect(run({ x: s.x, y: s.y, z: s.z })).toBeGreaterThan(4);
   });
 });
