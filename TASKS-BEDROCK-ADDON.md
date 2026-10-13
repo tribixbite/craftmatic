@@ -111,7 +111,17 @@ The round-30m fixes on the phones:
    threshold's floor, along the grid axis too, figure fallback within 4 blocks;
    `sim:door3-figure-inside-76417-30r`), not on device yet. 10365 in the round is
    one entity (no shell chunks): COL-03's lift unexercised; 42670 not in the set.
-   Saga 30r running.
+   Saga 30r running (resumed 10-13 19:42 after a ~19 h gap).
+   **USER REPORT 2026-10-13, Saga world 925 (verified: all 23 packs bound are
+   30r `7fde0b5e`, no older pack overrides)**: no vehicle mountable incl.
+   coaster cars (VEH-17 + COAST-02 now REGRESSED pending re-test - the round
+   agent was driving the same world then; it was asked to list its state
+   changes and re-test Milano + a coaster car with the content log); 10788
+   slide in the top-left wall + mic stand under the floor (IX-03 REGRESSED);
+   loose/misplaced pieces in 10797/60380/42639/10788 (VIEW-02; the offline 30r
+   renders show the same, all DbixConvV3); sets floating (new WAND-07, OPEN).
+   A source-diagnosis agent is tracing each loose piece to source / parser /
+   export. User shots: `C:/Users/wills/Downloads/*-{slide,floating,tree,lolipop}*.png`.
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
 3. Offline leftovers: `TODO(car-oblique-kerb)`, Milano chase ease jump,
