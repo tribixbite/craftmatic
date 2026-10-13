@@ -1270,11 +1270,12 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     expect(pointsNow().every(p => p.dynamic.get(BOARD_OWNER_PROPERTY) === vehicle.id)).toBe(true);
     // From beside the nose (14.7 from the root): the ship itself refuses the interact (beyond the root reach) ...
     expect(interact(h.engine, player, vehicle, before)).toMatchObject({ mounted: false, refused: 'root-reach' });
-    // ... the nose's column takes it: cancelled before the native mount, the child put in the SHIP a tick later.
+    // ... the nose's column takes it: NOT cancelled - the device seats the child on the point (the route the Saga's
+    // Mount button proved, round 30o), and the runtime moves them into the SHIP a tick later.
     lookAt(player, { x: 0.5, y: 65.6, z: 14.4 });
     const picked = pick(h.engine, player).entity!;
     expect(picked.typeId).toBe('craftmatic:t_board');
-    expect(interact(h.engine, player, picked, before)).toMatchObject({ mounted: false, cancelled: true });
+    expect(interact(h.engine, player, picked, before)).toMatchObject({ mounted: true, cancelled: false });
     h.run(3);
     expect(player.ridingOn).toBe(vehicle);
     // Aboard: the points go.

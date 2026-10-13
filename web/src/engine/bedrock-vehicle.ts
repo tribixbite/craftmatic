@@ -1060,8 +1060,12 @@ export const VEHICLE_EGRESS = { MARGIN: 0.5, SPACING: 1, MAX_CANDIDATES: 64, ABO
  * covered the whole hull). No box on the vehicle can lift that. So while a scripted vehicle stands PARKED and
  * EMPTY, `scriptedVehicleRuntime` keeps one small invisible rideable - a board point, one entity definition per
  * pack - under each drawn extremity (nose, tail, either side: `ScriptedVehicleType.board`) that lies farther than
- * `MIN_REACH_BLOCKS` from the root at the vehicle's live size. A hold on a point is cancelled in the before-event
- * and a tap on it is caught; either seats the player in the VEHICLE (`addRider`, as rides.js `board()`). The
+ * `MIN_REACH_BLOCKS` from the root at the vehicle's live size. A hold on a point is NOT cancelled: the device seats
+ * the player on the point and the runtime moves them into the VEHICLE a tick later (`addRider`, as rides.js `board()`);
+ * a tap on it is caught and does the same. (Cancelling the hold, round 30o's build, boarded from the nose but never
+ * from a wingtip on the Saga, while the on-screen Mount button - a native mount on the point - seated every time:
+ * the native route is the one measured to work. With `/scriptevent craftmatic:vehicle_telemetry on` each board
+ * event is a `CMVT {"board":...}` content-log line and a chat line, so a device round sees which route fired.) The
  * points go as soon as a rider is aboard or the vehicle moves, and come back where it parks.
  *   - `MIN_REACH_BLOCKS` 8 = `HULL_HIT_HALF_MAX_BLOCKS`: the vehicle's own hit box is clipped to a square 16 wide
  *     (its corners 11.3 from the root, inside the 12), so it never covers - and so never hides - a board point;
@@ -1573,6 +1577,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       try { if ((ride.getRiders?.() ?? []).some((r: any) => r?.typeId === 'minecraft:player')) return; } catch { /* treat as free */ }
       let ok = false;
       try { ok = ride.addRider(player) === true; } catch { ok = false; }
+      boardLog('seat', player, vehicle, { ok, tries });
       if (ok) { dropBoard(vehicle.id); return; }
       // Refused in a spawn tick (quirk `add-rider-spawn-tick`): again a couple of ticks later, then the command.
       if (tries++ < BD!.params.RETRIES) { system.runTimeout(attempt, BD!.params.RETRY_TICKS); return; }
@@ -1580,6 +1585,15 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       try { player.runCommand(`ride @s start_riding @e[type=${vehicle.typeId},c=1,x=${l.x},y=${l.y},z=${l.z},r=1]`); } catch { /* left */ }
     };
     attempt();
+  };
+  /** With telemetry on: one `CMVT {"board":...}` content-log line per board event, echoed to the player's chat (a phone's content log may not cover the session). */
+  const boardLog = (how: string, player: any, point: any, extra?: Record<string, unknown>): void => {
+    if (!telemetry) return;
+    let d = -1;
+    try { const a = player.location, b = point.location; d = Math.round(Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) * 10) / 10; } catch { /* gone */ }
+    const line = `CMVT ${JSON.stringify({ board: how, point: point?.id ?? null, dist: d, ...extra })}`;
+    console.warn(line);
+    try { player.sendMessage?.(line); } catch { /* not a player */ }
   };
   /** A hold or a tap on a board point: off the point if the device seated them on it, into its vehicle. */
   const boardFrom = (player: any, point: any): void => {
@@ -1595,7 +1609,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
   /**
    * Keep vehicle `e`'s board points: none while it is `busy` (a rider aboard, moving); every `CHECK_TICKS` while it
    * is parked and empty, placed for its pose and live size (re-placed when either changed, or one went missing),
-   * and a player the device seated on a point natively (the cancelled hold not cancelled) moved into the vehicle.
+   * and a player the device seated on a point natively (a hold, or the Mount button) moved into the vehicle.
    */
   const tendBoard = (e: any, dim: any, kind: ScriptedVehicleType, busy: boolean, loc: any, yaw: number): void => {
     if (!BD || !kind.board?.length) return;
@@ -1609,7 +1623,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       for (const p of b.points) {
         let on: any[] = [];
         try { on = p.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch { on = []; }
-        for (const r of on) if (r?.typeId === 'minecraft:player') boardFrom(r, p);
+        for (const r of on) if (r?.typeId === 'minecraft:player') { boardLog('native', r, p); boardFrom(r, p); }
       }
       return;
     }
@@ -1649,17 +1663,17 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     }
   };
   if (BD) {
-    // A HOLD on a point is the interact: cancelled before the native mount (before-event callbacks are restricted,
-    // so the seating waits a tick), as the wand cancels its own; a TAP is a hit (quirk `tap-is-hit`).
+    // A HOLD on a point is the interact: left to mount the player on the point natively (the route the Mount button
+    // proved on the Saga, 30o), then moved into the vehicle a tick later (before-event callbacks are restricted);
+    // `tendBoard` catches a native mount this misses. A TAP is a hit (quirk `tap-is-hit`).
     try {
       world.beforeEvents.playerInteractWithEntity.subscribe((ev: any) => {
         if (ev.target?.typeId !== BD.type) return;
-        ev.cancel = true;
         const player = ev.player, point = ev.target;
-        system.run(() => boardFrom(player, point));
+        system.run(() => { boardLog('hold', player, point); boardFrom(player, point); });
       });
     } catch { /* not in this API: the native mount on the point is moved into the vehicle by `tendBoard` */ }
-    try { world.afterEvents.entityHitEntity.subscribe((ev: any) => { if (ev.hitEntity?.typeId === BD.type) boardFrom(ev.damagingEntity, ev.hitEntity); }); } catch { /* not in this API */ }
+    try { world.afterEvents.entityHitEntity.subscribe((ev: any) => { if (ev.hitEntity?.typeId === BD.type) { boardLog('tap', ev.damagingEntity, ev.hitEntity); boardFrom(ev.damagingEntity, ev.hitEntity); } }); } catch { /* not in this API */ }
   }
   let tick = 0, busyMs = 0, busyTicks = 0;
   system.runInterval(() => {

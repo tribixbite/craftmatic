@@ -1016,7 +1016,7 @@ export function rideSeatBehavior(id: string): unknown {
  * than ~12 blocks from its root, where the device refuses the interact (quirk `interact-root-reach`) - can board it.
  * One definition per pack. A RIDEABLE for the players only, so a hold on it is an interact the device sends (a
  * non-rideable custom entity raised none in GameTest, quirk `gametest-simulated-player`) and shows the Mount
- * prompt; the runtime cancels that interact and seats the player in the VEHICLE, as it does for a tap. No gravity,
+ * prompt; the device seats the player on the point and the runtime moves them into the VEHICLE, as it does for a tap. No gravity,
  * no collision, never pushed; its pick box is a `BOARD.COLUMN_WIDTH` x `COLUMN_HEIGHT` column standing on its
  * origin at 100 %, re-declared at each size (`withSizeGroups` `hitTest`) so it grows with the vehicle it serves.
  */
