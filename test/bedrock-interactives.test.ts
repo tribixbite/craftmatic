@@ -743,6 +743,25 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(h.blocks.get(k0!)?.typeId).toBe('minecraft:stone');
   });
 
+  it('closes on a FIGURE standing in the leaf and steps it out; only a player refuses the close (76417 Door 3, sweep 2ecb8240)', () => {
+    const fig = 'craftmatic:t_fig';
+    const cfg = doubleDoorConfig();
+    const h = runtimeHost(cfg, { types: { [fig]: { format_version: '1.21.0', 'minecraft:entity': { description: { identifier: fig, is_spawnable: false, is_summonable: true }, components: {
+      'minecraft:type_family': { family: ['craftmatic_figure'] }, 'minecraft:collision_box': { width: 0.6, height: 1.8 }, 'minecraft:physics': { has_gravity: false },
+    } } } } });
+    const a = h.spawn(0, anchor);
+    h.sync();
+    h.tap(a);
+    const [k0] = keysOf(cfg, 0);
+    const [x, y, z] = k0!.split(',').map(Number) as [number, number, number];
+    layFloor(h, x, y, z);
+    // A figure on the leaf's mid-plane (where a player is refused): the door closes and the figure is moved off it.
+    const figure = h.host.engine.spawnEntity(fig, 'overworld', { x: x + 0.5, y, z: 205.5 });
+    h.tap(a);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(false);
+    expect(Math.abs(figure.location.z - 205.5)).toBeGreaterThan(0.3);
+  });
+
   it('steps a player out of a closing doorway only onto a spot its body fits, never into the wall beside it (76417 Door 3 at 150 %, simulator 2026-09-30)', () => {
     const cfg = doubleDoorConfig();
     const h = runtimeHost(cfg);

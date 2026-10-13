@@ -645,6 +645,7 @@ export async function tapPart(ctx: StepContext, part: SimEntity, label: string, 
     // The pick is judged after the pack had its say (`expectHit: false`): a tap that lands on a FIGURE in front of the
     // part is forwarded to the part by the runtime (interactives `use`), and one on a double door's other leaf moves
     // both. A pick of anything else that leaves the part as it was is the wrong-pick failure, as before.
+    const refusedBefore = String(part.dynamic.get('craftmatic:ix_refused') ?? '');
     await CORE_HANDLERS['tap']!({ kind: 'tap', target: { where: (e: SimEntity) => e === part, label }, expectHit: false }, ctx);
     tried.push({ ...ctx.player.location });
     const picked = (ctx.state['lastTap'] as { entity?: SimEntity; blockedBy?: string; distance?: number } | undefined);
@@ -654,7 +655,12 @@ export async function tapPart(ctx: StepContext, part: SimEntity, label: string, 
     const moved = changed();
     if (picked?.entity !== part) {
       const what = picked?.entity ? picked.entity.typeId : picked?.blockedBy ? `the block ${picked.blockedBy}` : 'nothing';
+      // A NEW refusal on the part (its "<tick> <text>" changed) means the forwarded tap reached it and the part said why
+      // it did not move (the child standing on the leaf): the pick was right, the refusal is the next attempt's to solve.
+      // (2ecb8240 sweep: 76417's figure 6 resting on Door 3 with the child's eye inside its box, distance 0.)
+      const reached = String(part.dynamic.get('craftmatic:ix_refused') ?? '') !== refusedBefore;
       if (moved && picked?.entity) ctx.note(`tap on ${label} picked ${what}; the pack passed it on to ${label} (${FIGURE_TYPE.test(picked.entity.typeId) ? 'a figure in front of it, forwarded' : 'a part that moves with it: the other leaf of a double door'})`);
+      else if (reached && picked?.entity) ctx.note(`tap on ${label} picked ${what}; passed on to ${label}, which refused: ${String(part.dynamic.get('craftmatic:ix_refused'))}`);
       else ctx.violate({ invariant: 'tap-target-reachable', message: `tap on ${label} picked ${what}`, evidence: { target: part.typeId, targetAt: part.location, eye, distance: picked?.distance } });
     }
     if (moved) return true;

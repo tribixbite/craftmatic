@@ -2286,6 +2286,10 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     const half = lf.t * pl.f / 2 + 0.02;
     const mid = { x: c.x + A.x / 2 + U.x / 2, y: c.y + A.y / 2 + U.y / 2, z: c.z + A.z / 2 + U.z / 2 };
     for (const o of occupants(e, mid, Math.hypot(A.x, A.y, A.z) + Math.hypot(U.x, U.y, U.z) + 2)) {
+      // Only a PLAYER on the leaf refuses the close; a figure (or a mob) idling in the doorway is stepped out of it with
+      // everyone else (`stepOutPlan`). The 2ecb8240 favourites sweep: with 76417's figure 9 walking again, figure 6
+      // came to rest on Door 3's leaf and no tap from any spot could close the door ("something is standing in it").
+      if (o.typeId !== 'minecraft:player') continue;
       const l = o.location, w = 0.3 + half;
       for (let s = 0; s < nA; s++) for (let t = 0; t < nU; t++) {
         const px = c.x + A.x * s / (nA - 1) + U.x * t / (nU - 1), py = c.y + A.y * s / (nA - 1) + U.y * t / (nU - 1), pz = c.z + A.z * s / (nA - 1) + U.z * t / (nU - 1);
