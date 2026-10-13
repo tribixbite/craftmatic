@@ -1297,6 +1297,19 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     h.run(BOARD.SWEEP_TICKS + 1);
     expect(pointsNow()).toHaveLength(0);
   });
+  it('places again a point whose spawn failed (its chunk not loaded yet after a reload: Pixel 30o listed 2 of 4)', () => {
+    const { h, pointsNow } = boardHost();
+    const spawn = h.engine.spawnEntity.bind(h.engine);
+    let refuse = 2;
+    h.engine.spawnEntity = ((type: string, ...rest: unknown[]) => {
+      if (type === 'craftmatic:t_board' && refuse > 0) { refuse--; throw new Error('chunk not loaded'); }
+      return (spawn as (...a: unknown[]) => SimEntity)(type, ...rest);
+    }) as typeof h.engine.spawnEntity;
+    h.run(12);
+    expect(refuse).toBe(0);
+    h.run(BOARD.CHECK_TICKS * 2);
+    expect(pointsNow()).toHaveLength(3);
+  });
   it('never doubles its points over a world reload (the new runtime starts with an empty map)', () => {
     const { h, pointsNow } = boardHost();
     h.run(12);

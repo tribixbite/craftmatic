@@ -109,7 +109,13 @@ The round-30m fixes on the phones:
    touch hold? the nose success may be the hull box). Next: a telemetry line
    per board event, and/or stop cancelling the interact and let the native
    mount + `tendBoard` do it. Relocation after flying PASS; Nimbus 13 deg PASS.
-   Pixel 30o still running.
+   **Pixel 30o DONE (`pixel/notes.md`):** hold AND tap mount from the nose and
+   the east wingtip at 200 % and 400 % (400 % nose: level aim 1-2 off only;
+   tilted-up aim fails though the prompt shows); old spot empty after flying;
+   reload: no duplicates but 2 of 4 points listed (a failed spawn is now
+   placed again); 10261 top-s-east PASS. So the cancelled hold works on
+   the Pixel and not on the Saga. 1-2 s re-board unmeasured on both (the
+   camera after a dismount points away; aim first).
    **Round 30p (`6b84da89`, `output/device-round-2026-10-12p/`):** the hold is
    no longer cancelled (native mount on the point, moved into the vehicle) and
    `/scriptevent craftmatic:vehicle_telemetry on` prints `CMVT {"board":...}`

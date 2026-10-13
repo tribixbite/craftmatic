@@ -1551,7 +1551,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
   // ─── Board points (`BOARD`, VEH-17): invisible rideables under a parked, empty vehicle's far extremities ───
   const BD = config.board && places ? config.board : undefined;
   /** A vehicle's board points as last placed: the pose/size key they were placed for, and the point entities. */
-  interface Board { vehicle: any; key: string; points: any[] }
+  interface Board { vehicle: any; key: string; points: any[]; want: number }
   const boards = new Map<string, Board>();
   const alive = (x: any): boolean => { try { return typeof x.isValid === 'function' ? !!x.isValid() : x.isValid !== false; } catch { return false; } };
   const dropBoard = (vid: string): void => {
@@ -1619,7 +1619,9 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     try { const s = Number(e.getComponent('minecraft:scale')?.value); if (Number.isFinite(s) && s > 0) k = s; } catch { /* unscaled */ }
     const key = `${Math.round(loc.x * 4)},${Math.round(loc.y * 4)},${Math.round(loc.z * 4)},${Math.round(yaw)},${k}`;
     const b = boards.get(e.id);
-    if (b && b.key === key && b.points.every(alive)) {
+    // A point whose spawn failed (its chunk not yet loaded after a world reload: the Pixel listed 2 of 4 in round 30o)
+    // is placed again at the next check, with the rest, until every one stands.
+    if (b && b.key === key && b.points.length === b.want && b.points.every(alive)) {
       for (const p of b.points) {
         let on: any[] = [];
         try { on = p.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch { on = []; }
@@ -1637,7 +1639,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       for (const p of old) { try { if (p.getDynamicProperty(BD.ownerProperty) === e.id) p.remove(); } catch { /* gone */ } }
     }
     const at = places!(kind.board, { x: loc.x, y: loc.y, z: loc.z, yaw }, k, BD.params);
-    if (!at.length) { boards.set(e.id, { vehicle: e, key, points: [] }); return; }
+    if (!at.length) { boards.set(e.id, { vehicle: e, key, points: [], want: 0 }); return; }
     const pct = sizeStep(k), points: any[] = [];
     for (const q of at) {
       let p: any;
@@ -1646,7 +1648,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       try { p.triggerEvent(`${BD.sizeEventPrefix}${pct}`); } catch { /* 100 % */ }
       points.push(p);
     }
-    boards.set(e.id, { vehicle: e, key, points });
+    boards.set(e.id, { vehicle: e, key, points, want: at.length });
   };
   /** Every board point in the loaded world that is not one this runtime keeps (its vehicle gone, or left by a reload): removed. */
   const sweepBoards = (): void => {
