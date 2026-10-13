@@ -1614,6 +1614,14 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       return;
     }
     dropBoard(e.id);
+    if (!b) {
+      // First placement by THIS runtime: points of this vehicle left by an earlier one (a world reopened) go first,
+      // so a reload never doubles them until the sweep.
+      const reach = kind.board.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.z)), 0) * k + BD.params.COLUMN_WIDTH * k + 2;
+      let old: any[] = [];
+      try { old = dim.getEntities({ type: BD.type, location: { x: loc.x, y: loc.y, z: loc.z }, maxDistance: reach }); } catch { old = []; }
+      for (const p of old) { try { if (p.getDynamicProperty(BD.ownerProperty) === e.id) p.remove(); } catch { /* gone */ } }
+    }
     const at = places!(kind.board, { x: loc.x, y: loc.y, z: loc.z, yaw }, k, BD.params);
     if (!at.length) { boards.set(e.id, { vehicle: e, key, points: [] }); return; }
     const pct = sizeStep(k), points: any[] = [];

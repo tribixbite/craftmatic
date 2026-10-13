@@ -584,6 +584,12 @@ describe('historical regression replay inputs', () => {
     expect(fixed!.open).toBeUndefined();
     expect(fixed!.knownUnreproduced).toBeUndefined();
     expect(fixed!.expectNew).toBe('pass');
+    // Round 30n (VEH-17 at 400 %, the 12-block root reach, quirk `interact-root-reach`): first seen on the 30n pack,
+    // fixed by the board points.
+    const at400 = REGRESSIONS.find(x => x.id === 'milano-mount-reach-400-30n');
+    expect(at400?.oldPack).toContain('device-round-2026-10-12n/packs-53e3caf3/');
+    expect(at400?.expectNew).toBe('pass');
+    expect(at400?.open).toBeUndefined();
   });
 });
 
