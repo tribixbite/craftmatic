@@ -110,6 +110,12 @@ The round-30m fixes on the phones:
    per board event, and/or stop cancelling the interact and let the native
    mount + `tendBoard` do it. Relocation after flying PASS; Nimbus 13 deg PASS.
    Pixel 30o still running.
+   **Round 30p (`6b84da89`, `output/device-round-2026-10-12p/`):** the hold is
+   no longer cancelled (native mount on the point, moved into the vehicle) and
+   `/scriptevent craftmatic:vehicle_telemetry on` prints `CMVT {"board":...}`
+   chat lines per board event. Only the Milano and X-wing are rebuilt
+   (`packs-6b84da89/`); deploy them with 30o's other packs. Saga 30p running:
+   every point x hold/tap at 1.4 and 3 out, quick re-board, the CMVT routes.
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
 3. Offline leftovers: `TODO(car-oblique-kerb)`, Milano chase ease jump,
