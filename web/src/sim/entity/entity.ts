@@ -63,6 +63,10 @@ export class SimEntity {
   ridingOn: SimEntity | undefined;
   /** The tick the entity was spawned or last teleported between dimensions. */
   readonly spawnTick: number;
+  /** The tick a script last ejected this entity from a mount (quirk `add-rider-eject-tick`). */
+  ejectedTick?: number;
+  /** The tick the device last mounted this player by an interact (a hold; quirk `add-rider-eject-tick`). */
+  interactMountTick?: number;
   /** Highest point of the current fall and whether slow falling touched it (the fall invariant). */
   fall: { startY: number; slowFell: boolean } | undefined;
 

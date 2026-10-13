@@ -125,6 +125,7 @@ export function interact(engine: SimEngine, player: SimEntity, target: SimEntity
   let mounted = false;
   const r = target.rideable();
   if (r && (!r.familyTypes.length || r.familyTypes.includes('player')) && !player.ridingOn) mounted = target.addRider(player, engine.tick).ok;
+  if (mounted) player.interactMountTick = engine.tick;
   engine.emit('playerInteractWithEntity', { player, target });
   return { mounted, cancelled: false };
 }

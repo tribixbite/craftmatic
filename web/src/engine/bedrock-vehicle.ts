@@ -1566,11 +1566,32 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     for (const s of BD?.sizes ?? []) if (Math.abs(s - k * 100) < Math.abs(best - k * 100)) best = s;
     return best;
   };
-  /** Seat `player` in `vehicle` (from a board point): `addRider`, retried a couple of ticks later, then the ride command. */
+  /** What `player` rides now, if anything. */
+  const ridingOn = (player: any): any => { try { return player.getComponent('minecraft:riding')?.entityRidingOn; } catch { return undefined; } };
+  /**
+   * Seat `player` in `vehicle` (from a board point). A player the device mounted on the point is taken off it FIRST and
+   * added to the vehicle `RETRY_TICKS` later: ejected and added in one tick, the Pixel (round 30p, Sneak off: 13 of 13
+   * holds) reported `addRider` true and left the player standing under the hull. Every `addRider` is CHECKED
+   * `RETRY_TICKS` later by what the player rides (a `true` is not a seat), retried, then the ride command.
+   */
   const seatIn = (player: any, vehicle: any): void => {
     let tries = 0;
+    const retry = (): boolean => {
+      if (tries++ >= BD!.params.RETRIES) return false;
+      system.runTimeout(attempt, BD!.params.RETRY_TICKS);
+      return true;
+    };
     const attempt = (): void => {
       if (!alive(player) || !alive(vehicle)) return;
+      const on = ridingOn(player);
+      if (on?.id === vehicle.id) { dropBoard(vehicle.id); return; }
+      if (on) {
+        // Off the point (or whatever else) first; the vehicle takes the player a couple of ticks later.
+        try { on.getComponent('minecraft:rideable')?.ejectRider?.(player); } catch { /* already off */ }
+        boardLog('off', player, on);
+        system.runTimeout(attempt, BD!.params.RETRY_TICKS);
+        return;
+      }
       let ride: any;
       try { ride = vehicle.getComponent('minecraft:rideable'); } catch { return; }
       if (!ride) return;
@@ -1578,11 +1599,24 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       let ok = false;
       try { ok = ride.addRider(player) === true; } catch { ok = false; }
       boardLog('seat', player, vehicle, { ok, tries });
-      if (ok) { dropBoard(vehicle.id); return; }
+      if (ok) {
+        // Confirmed only by what the player then rides (a `true` was not a seat on the Pixel, 30p).
+        system.runTimeout(() => {
+          if (!alive(player) || !alive(vehicle)) return;
+          const seated = ridingOn(player)?.id === vehicle.id;
+          boardLog('check', player, vehicle, { seated, tries });
+          if (seated) { dropBoard(vehicle.id); return; }
+          if (!retry()) command();
+        }, BD!.params.RETRY_TICKS);
+        return;
+      }
       // Refused in a spawn tick (quirk `add-rider-spawn-tick`): again a couple of ticks later, then the command.
-      if (tries++ < BD!.params.RETRIES) { system.runTimeout(attempt, BD!.params.RETRY_TICKS); return; }
+      if (!retry()) command();
+    };
+    const command = (): void => {
       const l = vehicle.location;
       try { player.runCommand(`ride @s start_riding @e[type=${vehicle.typeId},c=1,x=${l.x},y=${l.y},z=${l.z},r=1]`); } catch { /* left */ }
+      boardLog('command', player, vehicle);
     };
     attempt();
   };
@@ -1602,8 +1636,12 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     try { owner = point.getDynamicProperty(BD.ownerProperty); } catch { owner = undefined; }
     let vehicle: any;
     try { vehicle = typeof owner === 'string' ? world.getEntity(owner) : undefined; } catch { vehicle = undefined; }
-    try { point.getComponent('minecraft:rideable')?.ejectRider?.(player); } catch { /* not on it */ }
-    if (!vehicle || !alive(vehicle)) { try { point.remove(); } catch { /* gone */ } return; }
+    if (!vehicle || !alive(vehicle)) {
+      try { point.getComponent('minecraft:rideable')?.ejectRider?.(player); } catch { /* not on it */ }
+      try { point.remove(); } catch { /* gone */ }
+      return;
+    }
+    // `seatIn` takes the player off the point first, a tick apart from the seating.
     seatIn(player, vehicle);
   };
   /**

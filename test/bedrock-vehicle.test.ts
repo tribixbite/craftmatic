@@ -1263,7 +1263,7 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     const before = (p: SimEntity, t: SimEntity): boolean => h.host.before('playerInteractWithEntity', { player: h.api(p), target: h.api(t) });
     return { h, vehicle, player, pointsNow, before };
   }
-  it('stands board points round a parked, empty ship; a HOLD on one seats the child in the ship, refused on the ship itself from there', () => {
+  it('stands board points round a parked, empty ship; a HOLD on one seats the child in the ship off the point a tick apart, refused on the ship itself from there', () => {
     const { h, vehicle, player, pointsNow, before } = boardHost();
     h.run(12);
     expect(pointsNow()).toHaveLength(3);
@@ -1276,7 +1276,9 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     const picked = pick(h.engine, player).entity!;
     expect(picked.typeId).toBe('craftmatic:t_board');
     expect(interact(h.engine, player, picked, before)).toMatchObject({ mounted: true, cancelled: false });
-    h.run(3);
+    // Off the point first, into the ship RETRY_TICKS later: ejected and added in one tick, the Pixel (30p) and the
+    // simulator (quirk `add-rider-eject-tick`) report `addRider` true and leave the child on foot.
+    h.run(1 + BOARD.RETRY_TICKS * 2 + 1);
     expect(player.ridingOn).toBe(vehicle);
     // Aboard: the points go.
     h.run(6);

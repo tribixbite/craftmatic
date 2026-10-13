@@ -116,15 +116,16 @@ The round-30m fixes on the phones:
    placed again); 10261 top-s-east PASS. So the cancelled hold works on
    the Pixel and not on the Saga. 1-2 s re-board unmeasured on both (the
    camera after a dismount points away; aim first).
-   **Round 30p (`6b84da89`, `output/device-round-2026-10-12p/`):** the hold is
-   no longer cancelled (native mount on the point, moved into the vehicle) and
-   `/scriptevent craftmatic:vehicle_telemetry on` prints `CMVT {"board":...}`
-   chat lines per board event. Only the Milano and X-wing are rebuilt
-   (`packs-6b84da89/`); deploy them with 30o's other packs. Saga 30p running:
-   every point x hold/tap at 1.4 and 3 out, quick re-board, the CMVT routes.
-   Pixel 30p running on `packs-922f926e/` (adds the failed-spawn re-place):
-   nose/wingtip hold+tap with CMVT lines, the reload 4-of-4 count, re-board
-   within 2-3 s. The Saga's 30p packs are `packs-6b84da89/` (no re-place).
+   **Round 30p (`output/device-round-2026-10-12p/`):** Saga 16/16 hold+tap
+   from every point; Pixel taps PASS, reload 4/4 PASS, but a hold the device
+   mounts natively on the point (Pixel: Sneak OFF, 0/13; Saga: quick re-board
+   2 of 3) logs `seat ok:true` and leaves the player on foot - quirk
+   `add-rider-eject-tick`. **Round 30q** fixes it (off the point, seat
+   `RETRY_TICKS` later, check `minecraft:riding`, retry): build
+   `output/device-round-2026-10-12p/build.sh` at the 30q commit, deploy the two
+   packs with 30o's others; on BOTH phones: holds with Sneak OFF from nose and a
+   wingtip, a hold 1-2 s after the dismount button; CMVT lines `off`, `seat`,
+   `check seated:true`.
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
 3. Offline leftovers: `TODO(car-oblique-kerb)`, Milano chase ease jump,

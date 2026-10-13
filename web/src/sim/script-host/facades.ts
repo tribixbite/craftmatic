@@ -16,6 +16,9 @@ import type { SimEntity } from '../entity/entity.js';
 import type { ControlState } from '../input/controls.js';
 import { raycastBlocks, raycastEntities } from '../input/ray.js';
 import { quirkValue } from '../quirks/registry.js';
+
+/** How soon after a native interact mount an eject-and-add in one tick fails (quirk `add-rider-eject-tick` `ticks`). */
+const EJECT_AFTER_INTERACT_TICKS = quirkValue('add-rider-eject-tick', 'ticks');
 import { setDownRider } from '../physics/systems.js';
 import type { BlockStates } from '../world/block-types.js';
 import type { Permutation, VoxelWorld } from '../world/voxel-world.js';
@@ -348,12 +351,14 @@ function componentFacade(host: FacadeHost, sim: SimEntity, name: string): unknow
       addRider: (rider: unknown) => {
         const r = host.simOf(rider);
         if (!r) throw new TypeError('addRider: not an entity');
+        // Added in the tick a script ejected it elsewhere: `true`, and no seat (quirk `add-rider-eject-tick`, Pixel 30p).
+        if (r.ejectedTick === engine.tick && !r.ridingOn && r.interactMountTick !== undefined && engine.tick - r.interactMountTick <= EJECT_AFTER_INTERACT_TICKS) { timeline.add('event', `addRider unseated (eject tick): ${r.typeId} on ${sim.typeId}`, withSource(timeline)); return true; }
         const out = sim.addRider(r, engine.tick);
         if (!out.ok) timeline.add('event', `addRider refused (${out.why}): ${r.typeId} on ${sim.typeId}`, withSource(timeline));
         return out.ok;
       },
       // An ejected PLAYER is set down where the device sets it (quirk `dismount-free-spot`); a mob's spot is not measured.
-      ejectRider: (rider: unknown) => { const r = host.simOf(rider); if (r && sim.removeRider(r)) { if (r.isPlayer) setDownRider(r, sim, engine.dimension(sim.dimension)); engine.emit('dismounted', { rider: r, mount: sim, cause: 'script' }); } },
+      ejectRider: (rider: unknown) => { const r = host.simOf(rider); if (r && sim.removeRider(r)) { r.ejectedTick = engine.tick; if (r.isPlayer) setDownRider(r, sim, engine.dimension(sim.dimension)); engine.emit('dismounted', { rider: r, mount: sim, cause: 'script' }); } },
       ejectRiders: () => { for (const r of sim.riderList()) { sim.removeRider(r); if (r.isPlayer) setDownRider(r, sim, engine.dimension(sim.dimension)); engine.emit('dismounted', { rider: r, mount: sim, cause: 'script' }); } },
       getRiders: () => sim.riderList().map(r => host.entity(r)),
       getFamilyTypes: () => [...(sim.rideable()?.familyTypes ?? [])],
