@@ -95,7 +95,7 @@ The round-30m fixes on the phones:
    `custom-hit-test-pick`, then the 30m case fails again on the 30n pack),
    then add boarding points along big hulls (small hit targets at the nose /
    wingtips that `addRider` on tap or hold, as rides' `board()`), round 30o.
-2. COAST-06: measure the eye against the drawn seat (marker on the seat,
+2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
 3. Offline leftovers: `TODO(car-oblique-kerb)`, Milano chase ease jump,
    76417 figure 9 never moves, `TODO(nimbus-chase-residual)`,
