@@ -101,6 +101,10 @@ The round-30m fixes on the phones:
    (copy `output/device-round-2026-10-12o/build.sh` into a new round dir) and
    place 10365 (hull chunks drawn, not dark), 76417 (figure 9 walks, Door 3
    closes with a figure in it) and 42670.
+   **Round 30r BUILT and RUNNING** (`output/device-round-2026-10-12r/`, packs
+   `packs-7fde0b5e/` + `creator-7fde0b5e/`; regressions 34/0 failed, sim 132/0):
+   Pixel 924: 10365 hull 100/200 %, 42670 base, 76417 fig 9 + Door 3; Saga 925:
+   10365 100/400 %, 76417, Milano sanity. Evidence `pixel/`, `saga/` there.
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
 3. Offline leftovers: `TODO(car-oblique-kerb)`, Milano chase ease jump,
