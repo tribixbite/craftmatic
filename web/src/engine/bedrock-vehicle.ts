@@ -1714,6 +1714,29 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       });
     } catch { /* not in this API: the native mount on the point is moved into the vehicle by `tendBoard` */ }
     try { world.afterEvents.entityHitEntity.subscribe((ev: any) => { if (ev.hitEntity?.typeId === BD.type) { boardLog('tap', ev.damagingEntity, ev.hitEntity); boardFrom(ev.damagingEntity, ev.hitEntity); } }); } catch { /* not in this API */ }
+    /**
+     * The HULL boards too (VEH-17, Saga 30t). A tap on the vehicle itself is a hit, which nothing answered: only its
+     * board points did, and a child taps the ship it sees. A hold under the 100 % Milano ~7 blocks from its root showed
+     * the Mount prompt in Survival and seated nobody (tap, hold and the Mount button alike; Creative seated). So a hit
+     * on a scripted vehicle seats a player who rides nothing, and a hold is checked `RETRY_TICKS` later and seated by
+     * script when the native mount has not taken. `seatIn` refuses a vehicle a player already rides.
+     * TODO(hull-reach): whether the device raises either event for the refused Survival hold is unmeasured.
+     */
+    const boardHull = (how: string, player: any, vehicle: any): void => {
+      if (!player || player.typeId !== 'minecraft:player' || !vehicle || !config.types[String(vehicle.typeId)]) return;
+      if (ridingOn(player)) return;
+      boardLog(how, player, vehicle);
+      seatIn(player, vehicle);
+    };
+    try { world.afterEvents.entityHitEntity.subscribe((ev: any) => boardHull('hull-tap', ev.damagingEntity, ev.hitEntity)); } catch { /* not in this API */ }
+    try {
+      world.beforeEvents.playerInteractWithEntity.subscribe((ev: any) => {
+        const player = ev.player, vehicle = ev.target;
+        if (!vehicle || !config.types[String(vehicle.typeId)]) return;
+        // The native mount, when the device allows it, has taken by then; `boardHull` leaves a seated player alone.
+        system.runTimeout(() => { if (alive(player) && alive(vehicle)) boardHull('hull-hold', player, vehicle); }, BD.params.RETRY_TICKS);
+      });
+    } catch { /* not in this API */ }
   }
   let tick = 0, busyMs = 0, busyTicks = 0;
   system.runInterval(() => {

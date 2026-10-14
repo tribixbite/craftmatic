@@ -1299,6 +1299,24 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     h.run(BOARD.SWEEP_TICKS + 1);
     expect(pointsNow()).toHaveLength(0);
   });
+  it('a TAP on the HULL itself boards a child who rides nothing; never a second player into a driven ship (Saga 30t)', () => {
+    const { h, vehicle, pointsNow } = boardHost();
+    h.run(12);
+    expect(pointsNow()).toHaveLength(3);
+    // Beside the hull, inside the root reach, looking at the ship (not a point).
+    const child = h.addPlayer('Near', { x: 4.5, y: 64, z: 0.5 }, { yaw: 90 });
+    lookAt(child, { x: 0.5, y: 65, z: 0.5 });
+    expect(pick(h.engine, child).entity).toBe(vehicle);
+    tap(h.engine, child);
+    h.run(1 + BOARD.RETRY_TICKS * 2 + 1);
+    expect(child.ridingOn).toBe(vehicle);
+    // A second child's tap on the now-driven ship seats nobody.
+    const other = h.addPlayer('Other', { x: -3.5, y: 64, z: 0.5 }, { yaw: -90 });
+    lookAt(other, { x: 0.5, y: 65, z: 0.5 });
+    tap(h.engine, other);
+    h.run(1 + BOARD.RETRY_TICKS * 4 + 1);
+    expect(other.ridingOn).toBeFalsy();
+  });
   it('places again a point whose spawn failed (its chunk not loaded yet after a reload: Pixel 30o listed 2 of 4)', () => {
     const { h, pointsNow } = boardHost();
     const spawn = h.engine.spawnEntity.bind(h.engine);

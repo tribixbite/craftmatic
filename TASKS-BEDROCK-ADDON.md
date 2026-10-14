@@ -172,9 +172,22 @@ The round-30m fixes on the phones:
    every `/tp` (29-watch, 48-now) and a tap boards without it (35); the
    dismount sets the player down wherever the car stopped (17508,-57,5416).
    Unproved - re-check standing still at the platform after a dismount.
-   SAGA 30t agent still running (inventory+restore the dead 30r agent's state,
-   mount in Survival + Creative, slide, pieces, floating) ->
-   `output/device-round-2026-10-14t/saga/`.
+   SAGA 30t DONE (`output/device-round-2026-10-14t/saga/notes.md`,
+   `mount-trials.txt`): the user's "nothing mountable" did NOT reproduce -
+   Milano board points 24/24, 10261 car tap/hold/Ride button in Creative and
+   Survival, trains return (16.7/80.4/144.4 s), 10788 slide + mic stand right,
+   pieces right, five sets grounded by eye. Two real gaps: a TAP on a
+   vehicle's HULL boarded nothing (only board points answered hits), and a
+   Survival hold under the Milano ~7 blocks from its root showed the Mount
+   prompt and seated nobody. FIXED OFFLINE (`boardHull` in
+   bedrock-vehicle.ts: a hull hit seats a player who rides nothing; a hull
+   hold unseated `RETRY_TICKS` later is seated by script) - NEXT: build round
+   30u from the committed tree and check on the Saga: hull tap in Survival +
+   Creative at 1-7 blocks, and the under-hull Survival hold (`TODO(hull-reach)`:
+   unknown whether the device raises either event there). Also open: 10797's
+   blue cluster + brown oval on the grass N of its wall (e06, unchecked vs
+   source); the Saga agent left `/data/local/tmp/craftmatic-deploy-20261014-*`
+   and the 30r pack backups on the device; the 10261 "Marked seat 1" is gone.
    User shots: `C:/Users/wills/Downloads/*-{slide,floating,tree,lolipop}*.png`.
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
