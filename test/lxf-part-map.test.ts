@@ -247,6 +247,52 @@ describe('case 3: coverage against the REAL shipped table', () => {
     expect(leg!.z).toBeCloseTo(-1.2 * 25, 3);
   });
 
+  describe("Studio's lxfv56 row is preferred over a measured row that misplaces the part (gen-ldd-part-map.py LXFV56_OVER_MEASURED)", () => {
+    const measured = (): LxfMeasuredTable => applyMeasuredBound(validateTable(
+      JSON.parse(readFileSync(join(process.cwd(), 'web/public/ldd-measured-align.json'), 'utf-8')),
+      MEASURED_ALIGN_URL, validateMeasuredAlign,
+    ) as LxfMeasuredTable);
+
+    it('a 3262 balloon top sits on its 15395 dome with the dome\'s own rotation (10797 lollipop tops)', () => {
+      // 10797 Gabby's Party Room: a balloon is a 15395 inverted dome with a
+      // 3262 dome-top brick on its stud. The measured row (3 votes) tilted the
+      // top 14 degrees and set it 17 LDU beside and 9 LDU above the dome.
+      const tilt = '0.99717986314005,-0.075048787784951,0,0.075048787784951,0.99717986314005,0,0,0,1';
+      const { bricks, diagnostics } = buildLxfPlacements([
+        { designID: '15395', materialId: 322, boneCount: 1, transformation: `${tilt},15.429473189297,6.6199646205138,-6.49` },
+        { designID: '3262', materialId: 322, boneCount: 1, transformation: `${tilt},15.078632474162,7.2881792475894,-6.09000000596` },
+      ], table, measured());
+      const [dome, top] = bricks;
+      expect(diagnostics.measuredPlacements).toBe(0);
+      expect(top!.part).toBe('3262.dat');
+      top!.rot!.forEach((v, k) => expect(v).toBeCloseTo(dome!.rot![k]!, 6));
+      // On the dome's axis: the offset from the dome's origin runs along the
+      // shared (slightly tilted) vertical, so it has no horizontal part in
+      // the dome's own frame.
+      const d = [top!.x - dome!.x, top!.y - dome!.y, top!.z - dome!.z];
+      const r = dome!.rot!;
+      const local = [0, 1, 2].map(c => r[c]! * d[0]! + r[3 + c]! * d[1]! + r[6 + c]! * d[2]!);
+      expect(Math.hypot(local[0]!, local[2]!)).toBeLessThan(1);
+      expect(local[1]).toBeLessThan(0);                   // above it (LDraw y is down)
+    });
+
+    it('the 83496 billboard tile is pinned to its 3700 brick, not 116 LDU off it (60380)', () => {
+      // 60380 Downtown, DBIX refIDs 1621/1622: the billboard's 4 x 8 tile and
+      // the Technic brick it is pinned to share one bone rotation. The measured
+      // row (4 votes) turned the tile over and put it 116 LDU from the brick.
+      const rot = '-0.5,0,0.86602540378444,-0.86602540378444,0,-0.5,0,-1,0';
+      const { bricks } = buildLxfPlacements([
+        { designID: '3700', materialId: 194, boneCount: 1, transformation: `${rot},-15.297705244469,15.440000122992,9.543589794337` },
+        { designID: '83496', materialId: 1, boneCount: 1, transformation: `${rot},-14.097705244469,15.440000122992,7.4651288252546` },
+      ], table, measured());
+      const [brick, tile] = bricks;
+      expect(tile!.part).toBe('83496.dat');
+      tile!.rot!.forEach((v, k) => expect(v).toBeCloseTo(brick!.rot![k]!, 6));
+      // Within the tile's own half-width (2 studs) of the brick it hangs on.
+      expect(Math.hypot(tile!.x - brick!.x, tile!.y - brick!.y, tile!.z - brick!.z)).toBeLessThan(40);
+    });
+  });
+
   it('reports mapped vs unmapped placements for a PARTIALLY covered model', () => {
     const covered = Object.keys(table.entries)[0]!;
     // A 12-float column-major bone at the origin, identity rotation.

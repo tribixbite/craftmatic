@@ -165,6 +165,36 @@ STUDIO_ROW_CORRECTIONS: dict[str, list] = {
     '23769': ['23769.dat', 0.0, -2.16, 0.0, 0.0, 1.0, 0.0, 0.0],
 }
 
+# Design ids whose MEASURED row is refused in favour of Studio's
+# `ldraw_lxfv56.xml` row (the fill otherwise leaves an id the measured table
+# names on that table). Each was A/B'd over every DBIX LXFML that places it,
+# scoring each placement by its contacts (another placement's box within
+# 4 LDU) under the measured row vs Studio's row (2026-10-13):
+#
+#   3262   Brick Round 2 x 2 Dome Top (a balloon's top half). Measured row:
+#          3 votes, a 14-degree tilt no frame change between two models of
+#          one mould can have. 10797's balloons sat 9 LDU over and 17 LDU
+#          beside their 15395 domes, tilted (Saga 30r "lollipop tops off");
+#          Studio's row seats each on its dome with the dome's own rotation.
+#          254 files, 572 placements: isolated 99 -> 46, contacts
+#          3,042 -> 3,467 (316 placements gain, 164 lose). The worst loss,
+#          71778, is a loose piece the measured row lifted off the ground
+#          into a neighbour; Studio's stands it on the ground plane.
+#   83496  Tile Modified 4 x 8 Inverted (60380's billboard face). Measured
+#          row: 4 votes, a half turn that puts the tile 116 LDU from the
+#          3700 brick it is pinned to and touching nothing (the Saga 30r
+#          "billboard floats left of the model"). 13 files, 21 placements:
+#          isolated 5 -> 0, contacts 160 -> 368 (18 gain, 3 lose).
+#
+# The rows are Studio's own `ldraw_lxfv56.xml` rows, verbatim; 3262 takes the
+# row naming `3262.dat` (the exact mould, and what the A/B measured) rather
+# than the file's first untyped row, which names the older `30367c.dat` at
+# the same alignment.
+LXFV56_OVER_MEASURED: dict[str, list] = {
+    '3262': ['3262.dat', -0.4, -0.96, 0.4, 0.0, 1.0, 0.0, 0.0],
+    '83496': ['83496.dat', -2.8, 0.0, 1.2, 0.0, 1.0, 0.0, 0.0],
+}
+
 
 def r(v: float) -> float:
     """Round to 6 sig-ish places, collapse -0.0 → 0, drop trailing noise."""
@@ -330,6 +360,12 @@ def main():
         # resurrected by a correction meant for its row.
         if lego in part_map:
             part_map[lego] = list(row)
+    for lego, row in LXFV56_OVER_MEASURED.items():
+        # Studio's row in place of the measured one (the parser reads Studio's
+        # table first, so naming the id here is what refuses the measured row).
+        if lego not in part_map:
+            part_map[lego] = list(row)
+    print(f'Studio lxfv56 rows preferred over the measured table: {sorted(LXFV56_OVER_MEASURED)}')
     print(f'Studio rows corrected by measurement: {sorted(k for k in STUDIO_ROW_CORRECTIONS if k in part_map)}')
     overridden = override_identity_rows(part_map)
     print(f'identity Studio rows overridden by the measured table: {len(overridden)} {sorted(overridden)}')
