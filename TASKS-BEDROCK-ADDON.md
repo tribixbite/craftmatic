@@ -120,8 +120,15 @@ The round-30m fixes on the phones:
    slide in the top-left wall + mic stand under the floor (IX-03 REGRESSED);
    loose/misplaced pieces in 10797/60380/42639/10788 (VIEW-02; the offline 30r
    renders show the same, all DbixConvV3); sets floating (new WAND-07, OPEN).
-   A source-diagnosis agent is tracing each loose piece to source / parser /
-   export. User shots: `C:/Users/wills/Downloads/*-{slide,floating,tree,lolipop}*.png`.
+   DIAGNOSED: every loose piece is clego's DBIX->LDraw conversion (Studio row
+   applied FORWARD: 27976 slide, 10314, 40244, 30562, 93888; bad learned rows in
+   `dbix_part_align.json`: 65473 tree, 92338 chains, 3262 balloons, 83496
+   billboard, 32250 arches; no right row: 23769 mic leg, 11650 truck chassis).
+   Below-ground strays likely set 42639's floor (WAND-07, unmeasured).
+   craftmatic's own LXF reader got rows for 23769/3262/83496 (`d0f26634`).
+   clego repair + A/B + regenerate + publish is with an agent (scratch
+   `clego-repair-1013`); then rebuild the four packs and re-test.
+   User shots: `C:/Users/wills/Downloads/*-{slide,floating,tree,lolipop}*.png`.
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
 3. Offline leftovers: `TODO(car-oblique-kerb)`, Milano chase ease jump,
