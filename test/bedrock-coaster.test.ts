@@ -2357,6 +2357,29 @@ describe('the rider camera follows the track', () => {
     expect(script).not.toContain('CAMTRACE');
   });
 
+  it('boards a player who TAPS a car with a free seat (a touch tap is a hit; COAST-02 tap to mount)', () => {
+    // Pixel round 30s: 0 of 3 taps on 10261's parked car boarded while holds did - the runtime had no hit handler.
+    const config = coasterRuntimeConfig('craftmatic:tap_check', [loopCourse()]);
+    const body = coasterScript(config).replace(/^import [^\n]*\n/, '');
+    const hits: ((ev: unknown) => void)[] = [];
+    const world = { afterEvents: { entityHitEntity: { subscribe: (fn: (ev: unknown) => void) => hits.push(fn) } }, getDimension: () => ({ getEntities: () => [] }) };
+    const system = { runInterval: () => 0, afterEvents: { scriptEventReceive: { subscribe: () => undefined } } };
+    new Function('world', 'system', body)(world, system);
+    expect(hits).toHaveLength(1);
+    const seated: unknown[] = [];
+    const car = (typeId: string) => ({ typeId, getComponent: (c: string) => c === 'minecraft:rideable' ? { seatCount: 1, getRiders: () => seated, addRider: (p: unknown) => { seated.push(p); return true; } } : undefined });
+    const player = (ridingOn?: unknown) => ({ typeId: 'minecraft:player', getComponent: (c: string) => c === 'minecraft:riding' && ridingOn ? { entityRidingOn: ridingOn } : undefined });
+    // Not a car of this coaster, or a player already aboard something: nothing happens.
+    hits[0]!({ damagingEntity: player(), hitEntity: car('minecraft:boat') });
+    hits[0]!({ damagingEntity: player({}), hitEntity: car('craftmatic:tap_check') });
+    expect(seated).toHaveLength(0);
+    // A free car takes the tapping player; a full one takes nobody else.
+    const child = player();
+    hits[0]!({ damagingEntity: child, hitEntity: car('craftmatic:tap_check') });
+    hits[0]!({ damagingEntity: player(), hitEntity: car('craftmatic:tap_check') });
+    expect(seated).toEqual([child]);
+  });
+
   it('loop mode (the default) sends each inversion as ONE rolling animation, planned with the ride\'s own arithmetic', () => {
     const ANIM_LAG = COASTER_RIDER_VIEW.animLag;
     // Measured against a marker on the Pixel (2026-09-29): an animation rides the DRAWN

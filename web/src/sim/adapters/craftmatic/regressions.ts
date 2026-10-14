@@ -377,6 +377,34 @@ export const REGRESSIONS: RegressionCase[] = [
     scenario: () => ({ name: 'retake-no-seat-10261', steps: [...place, { kind: 'figuresLive', ticks: 3000 }], allowLines: allow }),
     judge: r => { const v = violated(r, 'no-unexpected-line', /FIGURE_RETAKE_NO_SEAT/); return { reproduced: !!v, evidence: v ?? 'no FIGURE_RETAKE_NO_SEAT line' }; },
   },
+  // ─── Round 30s (Pixel, 2026-10-14, packs-4f093bde): a tap on a coaster car boards nothing ───
+  {
+    id: 'coaster-car-tap-10261-30s', title: '10261 (30s): a TAP on a parked coaster car boards nothing - only a held press or the Ride button mounts (COAST-02 "tap to mount")',
+    evidence: 'Pixel round 30s (`output/device-round-2026-10-14s/pixel/`, shots 37-*, 42-*, 47-*): a tap at screen centre on the car standing in the station boarded 0 of 3; a hold boarded 2 of 2 (44-*, 48-*) and the Ride button 1 of 1 (38-*); the coaster runtime had no `entityHitEntity` handler, while a tap on touch is a HIT (quirk `tap-is-hit`)',
+    oldPack: `${ROUND}/device-round-2026-10-14s/packs-4f093bde/10261-roller-coaster.mcaddon`, newStem: '10261-roller-coaster', expectNew: 'pass',
+    scenario: () => ({
+      name: 'coaster-car-tap-10261-30s', allowLines: allow, steps: [...place,
+        { kind: 'expect', label: 'tap-boards-car', check: async ctx => {
+          const p = ctx.player;
+          // Every ride car carries the coaster family and a seat; the lift platform and counterweight have no seat.
+          const cars = [...ctx.sim.engine.entities.values()].filter(e => e.valid && !e.isPlayer && e.families().includes('craftmatic_coaster') && e.rideable());
+          if (!cars.length) return 'no coaster car';
+          const car = cars.find(e => !e.riderList().some(r => r.isPlayer)) ?? cars[0]!;
+          // The hit is handed to the car as the device's tap delivers it; the player stays where the placement left
+          // it (a pose beside the car stands inside the station's colliders).
+          lookAt(p, car.location);
+          ctx.sim.engine.emit('entityHitEntity', { damagingEntity: p, hitEntity: car });
+          await ctx.run(4);
+          ctx.note(`coaster tap: ${car.typeId} ${p.ridingOn === car ? 'boarded' : `not boarded (riding ${p.ridingOn?.typeId ?? 'nothing'})`}`);
+          return undefined;
+        } },
+      ],
+    }),
+    judge: r => {
+      const note = r.notes.find(n => /coaster tap:/.test(n));
+      return { reproduced: !note || !/ boarded$/.test(note), evidence: note ?? 'no tap note' };
+    },
+  },
   // ─── Round 30j (Saga, 2026-10-07, packs-f200ddc7): the X-wing's collision responses ───
   {
     id: 'xwing-slides-along-hill-30j', title: '7140 X-wing flown into a 2-high hill 19 degrees off square slides sideways along it and never lifts over (VEH-08)',

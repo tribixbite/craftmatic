@@ -3205,6 +3205,24 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     for (const [id, viewer] of [...viewers]) if (ticks - viewer.seen > 1) releaseViewer(id);
   };
   system.runInterval(tick, 1);
+  // A tap boards a car (COAST-02 "tap to mount"). On a touch screen a tap is a
+  // HIT (`entityHitEntity`); only a press held ~0.5 s is the interact that mounts
+  // a vanilla rideable, so until 2026-10-14 a child tapping a parked car boarded
+  // nothing - 0 of 3 taps on 10261's car while 2 of 2 holds and the Ride button
+  // mounted (Pixel, round 30s). The same handler as a ride seat's
+  // (bedrock-rides.ts `board`). A car with a free seat takes the player wherever
+  // it is, as a held interact does; the train's own state machine already
+  // handles a rider who boards on the platform or mid-ride.
+  const boardByTap = (player: any, car: any): void => {
+    if (!player || player.typeId !== 'minecraft:player' || !car || types[car.typeId]?.role !== 'car') return;
+    try { if (player.getComponent('minecraft:riding')?.entityRidingOn) return; } catch { /* not riding */ }
+    let rideable: any;
+    try { rideable = car.getComponent('minecraft:rideable'); } catch { return; }
+    if (!rideable) return;
+    try { if ((rideable.getRiders?.() ?? []).length >= (rideable.seatCount ?? 1)) return; } catch { /* treat as free */ }
+    try { rideable.addRider?.(player); } catch { /* a refusal leaves the player where they stand */ }
+  };
+  try { world.afterEvents?.entityHitEntity?.subscribe?.((ev: any) => boardByTap(ev.damagingEntity, ev.hitEntity)); } catch { /* not in this API */ }
 }
 
 /** Emit the same runtime exercised by the host tests. The player model stays

@@ -134,10 +134,22 @@ The round-30m fixes on the phones:
    (`output/dbix-rows-1013/ab-forward/`); 42670 dolls sunk 36/20 LDU; 42639's
    white stair bits float left (pre-existing).
    Round 30s BUILT (`output/device-round-2026-10-14s/packs-4f093bde`, 23/23 exit 0,
-   sim 132/0, regressions 35/0 failed, no NaN warning); Pixel 924 round with an
-   agent (evidence `output/device-round-2026-10-14s/pixel/`). NEXT: deploy the Saga `--exclusive --prune-stale` once the
-   Saga 30r agent is done with world 925; re-test mounting (Milano, coaster
-   car), 10788 slide, the four sets' pieces, floating.
+   sim 132/0, regressions 35/0 failed, no NaN warning). PIXEL 30s DONE (world
+   924, readback 23/23 bound, 0 content-log errors; evidence
+   `output/device-round-2026-10-14s/pixel/`): Milano mounts by tap + hold
+   (Survival reach is shorter: same spot fails, 1-2 blocks closer mounts);
+   10261 car hold 2/2 + Ride button mount, TAP 0/3 -> FIXED OFFLINE 10-14
+   (coaster `entityHitEntity` boards a car with a free seat; guards
+   `boards a player who TAPS a car`, `sim:coaster-car-tap-10261-30s`); twice
+   no train stood in the station within 150 s after a dismount (unexplained,
+   open). 10788 slide in its gap + mic stand on the floor, 10797, 60380 pieces
+   and 42639 all PASS; Door 3 with a figure closes 2/2. WAND-07: 4 sets on the
+   grass, 60380 FLOATS 0.6-1.0 (a stray cleaver 98369, learned clego row agree
+   0.271, at LDraw y +16 under the base plates sets the grid floor) - A/B +
+   publish + a survey of all 23 for lone strays under the base is with the
+   clego agent. NEXT: Saga 30s (`--exclusive --prune-stale`, world 925) once
+   the Saga 30r agent reports (asked 10-14 00:30 to wrap up; silent since
+   10-13 20:05); then a round with the tap fix + 60380.
    User shots: `C:/Users/wills/Downloads/*-{slide,floating,tree,lolipop}*.png`.
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
