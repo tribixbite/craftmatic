@@ -162,11 +162,16 @@ The round-30m fixes on the phones:
    placement, identity row) and its 0.23-0.8 block gap is set by figures / the
    display line at y 0 - open, unmeasured which. ROUND 30t BUILT
    (`output/device-round-2026-10-14t/packs-1f556fa3`, 23/23, sim 132/0,
-   regressions 36/0 incl. `coaster-car-tap-10261-30s` OK) and with two agents:
-   Saga 925 (inventory+restore the dead 30r agent's state first, then mount in
-   Survival + Creative, slide, pieces, floating) and Pixel 924 (coaster tap,
-   train return after dismount, 60380/42703 grounding). Evidence
-   `output/device-round-2026-10-14t/{saga,pixel}/`.
+   regressions 36/0 incl. `coaster-car-tap-10261-30s` OK). PIXEL 30t DONE
+   (`output/device-round-2026-10-14t/pixel/notes.md`): coaster TAP boards 6/6
+   (Creative 3, Survival 3); 60380 and 42703 on the grass; 42703 coaster ran;
+   Milano Survival tap+hold from ~1.5 blocks; content log 0 errors. NEW OPEN:
+   after a dismount the trains keep running and stand in the station, but the
+   "Ride the coaster" button did not reappear in 300 s (cause unknown; the 30s
+   "no train" was this) - look at how the runtime re-offers the button.
+   SAGA 30t agent still running (inventory+restore the dead 30r agent's state,
+   mount in Survival + Creative, slide, pieces, floating) ->
+   `output/device-round-2026-10-14t/saga/`.
    User shots: `C:/Users/wills/Downloads/*-{slide,floating,tree,lolipop}*.png`.
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
