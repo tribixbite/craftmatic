@@ -167,8 +167,11 @@ The round-30m fixes on the phones:
    (Creative 3, Survival 3); 60380 and 42703 on the grass; 42703 coaster ran;
    Milano Survival tap+hold from ~1.5 blocks; content log 0 errors. NEW OPEN:
    after a dismount the trains keep running and stand in the station, but the
-   "Ride the coaster" button did not reappear in 300 s (cause unknown; the 30s
-   "no train" was this) - look at how the runtime re-offers the button.
+   "Ride the coaster" button did not reappear in 300 s (the 30s "no train" was
+   this). Probably aim/position, not the runtime: the button came back after
+   every `/tp` (29-watch, 48-now) and a tap boards without it (35); the
+   dismount sets the player down wherever the car stopped (17508,-57,5416).
+   Unproved - re-check standing still at the platform after a dismount.
    SAGA 30t agent still running (inventory+restore the dead 30r agent's state,
    mount in Survival + Creative, slide, pieces, floating) ->
    `output/device-round-2026-10-14t/saga/`.
