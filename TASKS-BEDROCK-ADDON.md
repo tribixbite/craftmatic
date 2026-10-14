@@ -144,10 +144,13 @@ The round-30m fixes on the phones:
    no train stood in the station within 150 s after a dismount (unexplained,
    open). 10788 slide in its gap + mic stand on the floor, 10797, 60380 pieces
    and 42639 all PASS; Door 3 with a figure closes 2/2. WAND-07: 4 sets on the
-   grass, 60380 FLOATS 0.6-1.0 (a stray cleaver 98369, learned clego row agree
-   0.271, at LDraw y +16 under the base plates sets the grid floor) - A/B +
-   publish + a survey of all 23 for lone strays under the base is with the
-   clego agent. NEXT: Saga 30s (`--exclusive --prune-stale`, world 925) once
+   grass, 60380 FLOATS 0.6-1.0 (a stray cleaver 98369 under the base plates set
+   the grid floor) -> row DROPPED + 33 files published (clego `016aef14`/
+   `c78bfb75` unpushed, craftmatic `f48c03a7`; `output/dbix-rows-1014-98369/`).
+   Survey of all 23 (`.../survey/survey.json`): 42703 3.0 blocks up (two 49577
+   seaweed, learned row n 3), 76417 0.77 (95345 pitchfork, n 3), 10326 0.42
+   (29602pb01, IOModel2V2), 10797 0.30 (4040/35692/bl_65700, no learned row),
+   10303 0.26 (80679pb01); 13 sets 0. 49577 + 95345 A/B with the clego agent. NEXT: Saga 30s (`--exclusive --prune-stale`, world 925) once
    the Saga 30r agent reports (asked 10-14 00:30 to wrap up; silent since
    10-13 20:05); then a round with the tap fix + 60380.
    User shots: `C:/Users/wills/Downloads/*-{slide,floating,tree,lolipop}*.png`.
