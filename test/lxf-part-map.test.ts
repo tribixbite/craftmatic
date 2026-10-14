@@ -26,7 +26,7 @@ import { join } from 'node:path';
 import {
   loadPartMap, loadMeasuredAlign, resetPartMapCache, validatePartMap,
   validatePartAlign, validateMeasuredAlign, validateTable,
-  buildLxfPlacements, describeLxfDiagnostics,
+  buildLxfPlacements, describeLxfDiagnostics, applyMeasuredBound,
   PART_MAP_URL, MEASURED_ALIGN_URL,
   type PartAlign, type MeasuredAlign, type LxfAlignmentTable,
   type LxfMeasuredTable, type LxfPartRecord,
@@ -221,6 +221,76 @@ describe('case 3: coverage against the REAL shipped table', () => {
     expect(real['21229']).toEqual(['21229.dat', ...(real['30056'] as unknown[]).slice(1)]);
     // 37352 (Brick 1 x 2 curved top) takes the 1 x 2 brick's correction (488 measured votes).
     expect((real['37352'] as unknown[]).slice(1)).toEqual((real['3004'] as unknown[]).slice(1));
+  });
+
+  it('a Studio row measured wrong is corrected: the 23769 skeleton leg stands on its foot (10788 microphone stand)', () => {
+    // 10788 Gabby's Dollhouse, DBIX LXFML refIDs 467/468: the long skeleton leg
+    // is the music room's microphone stand. Its bone sits on the floor's top
+    // (LDD y 0.64 = -16 LDU) and the 90393 microphone's at LDD y 2.789. LDraw's
+    // origin is the leg's top CLIP (the foot is 54 LDU below it); LDD's is the
+    // FOOT. With Studio's identity row the leg hung 54 LDU through the floor
+    // (Saga 30r, 2026-10-13). gen-ldd-part-map.py STUDIO_ROW_CORRECTIONS.
+    const measured = applyMeasuredBound(validateTable(
+      JSON.parse(readFileSync(join(process.cwd(), 'web/public/ldd-measured-align.json'), 'utf-8')),
+      MEASURED_ALIGN_URL, validateMeasuredAlign,
+    ) as LxfMeasuredTable);
+    const { bricks } = buildLxfPlacements([
+      { designID: '23769', materialId: 26, boneCount: 1, transformation: '1,0,0,0,1,0,0,0,1,24.400000000128,0.6400000000001,1.2' },
+      { designID: '90393', materialId: 124, boneCount: 1, transformation: '0,0,1,1,0,0,0,1,0,24.079999947728,2.7892173670002,1.2' },
+    ], table, measured);
+    const [leg, mic] = bricks;
+    expect(leg!.part).toBe('23769.dat');
+    const floorTop = -0.64 * 25;
+    expect(leg!.y).toBeCloseTo(floorTop - 54, 3);         // clip 54 LDU above the floor: the foot is ON it
+    expect(Math.abs(leg!.y - mic!.y)).toBeLessThan(1);    // and the clip holds the microphone
+    expect(leg!.x).toBeCloseTo(24.4 * 25, 3);             // no sideways move: a pure re-origin along the leg
+    expect(leg!.z).toBeCloseTo(-1.2 * 25, 3);
+  });
+
+  describe("Studio's lxfv56 row is preferred over a measured row that misplaces the part (gen-ldd-part-map.py LXFV56_OVER_MEASURED)", () => {
+    const measured = (): LxfMeasuredTable => applyMeasuredBound(validateTable(
+      JSON.parse(readFileSync(join(process.cwd(), 'web/public/ldd-measured-align.json'), 'utf-8')),
+      MEASURED_ALIGN_URL, validateMeasuredAlign,
+    ) as LxfMeasuredTable);
+
+    it('a 3262 balloon top sits on its 15395 dome with the dome\'s own rotation (10797 lollipop tops)', () => {
+      // 10797 Gabby's Party Room: a balloon is a 15395 inverted dome with a
+      // 3262 dome-top brick on its stud. The measured row (3 votes) tilted the
+      // top 14 degrees and set it 17 LDU beside and 9 LDU above the dome.
+      const tilt = '0.99717986314005,-0.075048787784951,0,0.075048787784951,0.99717986314005,0,0,0,1';
+      const { bricks, diagnostics } = buildLxfPlacements([
+        { designID: '15395', materialId: 322, boneCount: 1, transformation: `${tilt},15.429473189297,6.6199646205138,-6.49` },
+        { designID: '3262', materialId: 322, boneCount: 1, transformation: `${tilt},15.078632474162,7.2881792475894,-6.09000000596` },
+      ], table, measured());
+      const [dome, top] = bricks;
+      expect(diagnostics.measuredPlacements).toBe(0);
+      expect(top!.part).toBe('3262.dat');
+      top!.rot!.forEach((v, k) => expect(v).toBeCloseTo(dome!.rot![k]!, 6));
+      // On the dome's axis: the offset from the dome's origin runs along the
+      // shared (slightly tilted) vertical, so it has no horizontal part in
+      // the dome's own frame.
+      const d = [top!.x - dome!.x, top!.y - dome!.y, top!.z - dome!.z];
+      const r = dome!.rot!;
+      const local = [0, 1, 2].map(c => r[c]! * d[0]! + r[3 + c]! * d[1]! + r[6 + c]! * d[2]!);
+      expect(Math.hypot(local[0]!, local[2]!)).toBeLessThan(1);
+      expect(local[1]).toBeLessThan(0);                   // above it (LDraw y is down)
+    });
+
+    it('the 83496 billboard tile is pinned to its 3700 brick, not 116 LDU off it (60380)', () => {
+      // 60380 Downtown, DBIX refIDs 1621/1622: the billboard's 4 x 8 tile and
+      // the Technic brick it is pinned to share one bone rotation. The measured
+      // row (4 votes) turned the tile over and put it 116 LDU from the brick.
+      const rot = '-0.5,0,0.86602540378444,-0.86602540378444,0,-0.5,0,-1,0';
+      const { bricks } = buildLxfPlacements([
+        { designID: '3700', materialId: 194, boneCount: 1, transformation: `${rot},-15.297705244469,15.440000122992,9.543589794337` },
+        { designID: '83496', materialId: 1, boneCount: 1, transformation: `${rot},-14.097705244469,15.440000122992,7.4651288252546` },
+      ], table, measured());
+      const [brick, tile] = bricks;
+      expect(tile!.part).toBe('83496.dat');
+      tile!.rot!.forEach((v, k) => expect(v).toBeCloseTo(brick!.rot![k]!, 6));
+      // Within the tile's own half-width (2 studs) of the brick it hangs on.
+      expect(Math.hypot(tile!.x - brick!.x, tile!.y - brick!.y, tile!.z - brick!.z)).toBeLessThan(40);
+    });
   });
 
   it('reports mapped vs unmapped placements for a PARTIALLY covered model', () => {
