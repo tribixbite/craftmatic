@@ -133,8 +133,9 @@ The round-30m fixes on the phones:
    mixed per design (92280: 271 better/60 worse) - need a frozen-baseline rerun
    (`output/dbix-rows-1013/ab-forward/`); 42670 dolls sunk 36/20 LDU; 42639's
    white stair bits float left (pre-existing).
-   NEXT: round 30s `output/device-round-2026-10-14s/build.sh` (all 23, built
-   from `4f093bde`), deploy both phones `--exclusive --prune-stale` once the
+   Round 30s BUILT (`output/device-round-2026-10-14s/packs-4f093bde`, 23/23 exit 0,
+   sim 132/0, regressions 35/0 failed, no NaN warning); Pixel 924 round with an
+   agent (evidence `output/device-round-2026-10-14s/pixel/`). NEXT: deploy the Saga `--exclusive --prune-stale` once the
    Saga 30r agent is done with world 925; re-test mounting (Milano, coaster
    car), 10788 slide, the four sets' pieces, floating.
    User shots: `C:/Users/wills/Downloads/*-{slide,floating,tree,lolipop}*.png`.
