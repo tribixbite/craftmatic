@@ -189,7 +189,9 @@ The round-30m fixes on the phones:
    seated rider's tap on another vehicle's board point moved them across.
    FIXED OFFLINE: `BOARD` 4/4 (box 8 wide, points from 4 out), the swap guard
    in `boardFrom`; quirk `interact-root-reach` `survivalRootReachBlocks` 6.
-   NEXT: round 30v on the Saga, all in SURVIVAL: Milano hull prompt only
+   ROUND 30v BUILT (`output/device-round-2026-10-14v/packs-dbe20600`, 23/23,
+   sim 138/0, regressions 36/0) and on the Saga via an agent, all in SURVIVAL
+   (evidence `output/device-round-2026-10-14v/saga/`): Milano hull prompt only
    where it seats (walk round the hull, prompt vs seat), board points incl.
    new ones 4-8 out, the swap, a small car. Then `TODO(board-sides)`: a big
    hull's long sides between points are out of Survival reach. Also open: 10797's
