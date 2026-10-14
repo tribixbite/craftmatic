@@ -181,9 +181,15 @@ The round-30m fixes on the phones:
    6/6; 10261 tap 3/3; a tap from a McLaren seat never moves the rider.
    Driving into a Milano point boards it (the VEH-12 hop) and a 1 s hold on
    the Milano from the McLaren switches natively - both kept as intended.
-   NEXT: `TODO(board-sides)` - the Milano's wings (8-15 from the root, 0/6)
-   and a big hull's long sides between points are out of Survival reach;
-   Pixel not re-run on dbe20600. Also open: 10797's blue cluster + brown
+   Wings fixed offline `74169727`: side board columns along each wing / long
+   nose or tail, one column width (at most 4) apart, under the drawn chord
+   (`BoardPoint.along`); VEH-17 back to DONE-OFFLINE. ROUND 30w BUILT
+   (`output/device-round-2026-10-14w/packs-74169727`, 23/23, sim 138/0,
+   regressions 36/0; Milano ships 4 profiles, ~16 points at 100 %) and on
+   the Saga via an agent (evidence `output/device-round-2026-10-14w/saga/`):
+   Survival wing sweep x 5-13 under and beside each chord, regression spot
+   checks, 200 %. Open question it answers: does the device pick a column
+   whose box the eye is inside? Pixel not re-run since dbe20600. Also open: 10797's blue cluster + brown
    oval on the grass N of its wall (Saga 30t e06, unchecked vs source);
    device leftovers `/data/local/tmp/craftmatic-deploy-*` (Saga) and the
    30r pack backups.
