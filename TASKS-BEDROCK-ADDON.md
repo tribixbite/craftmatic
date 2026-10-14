@@ -171,25 +171,24 @@ The round-30m fixes on the phones:
    every `/tp` (29-watch, 48-now) and a tap boards without it (35); the
    dismount sets the player down wherever the car stopped (17508,-57,5416).
    Unproved - re-check standing still at the platform after a dismount.
-   SAGA 30t/30u/30v (VEH-17 now DONE-DEVICE): the user's "nothing
-   mountable" was Survival reach - the device refuses a tap AND a hold past
-   ~6 blocks from a vehicle's root with no script event while a 16-wide hit
-   box still showed the prompt. Fixed `11daf705` (hull tap seats) +
-   `dbe20600` (`BOARD` 4/4: box 8 wide, points from 4 out; tap-swap guard).
-   SAGA 30v (`output/device-round-2026-10-14v/saga/notes.md`, Survival):
-   prompt-but-no-seat 0 of 47 trials round the Milano; points 8/8; McLaren
-   6/6; 10261 tap 3/3; a tap from a McLaren seat never moves the rider.
-   Driving into a Milano point boards it (the VEH-12 hop) and a 1 s hold on
-   the Milano from the McLaren switches natively - both kept as intended.
-   Wings fixed offline `74169727`: side board columns along each wing / long
-   nose or tail, one column width (at most 4) apart, under the drawn chord
-   (`BoardPoint.along`); VEH-17 back to DONE-OFFLINE. ROUND 30w BUILT
-   (`output/device-round-2026-10-14w/packs-74169727`, 23/23, sim 138/0,
-   regressions 36/0; Milano ships 4 profiles, ~16 points at 100 %) and on
-   the Saga via an agent (evidence `output/device-round-2026-10-14w/saga/`):
-   Survival wing sweep x 5-13 under and beside each chord, regression spot
-   checks, 200 %. Open question it answers: does the device pick a column
-   whose box the eye is inside? Pixel not re-run since dbe20600. Also open: 10797's blue cluster + brown
+   VEH-17 (DONE-OFFLINE): the user's "nothing mountable" was Survival
+   reach. Survival taps AND holds reach ~3 blocks from the eye to the hit BOX
+   (Saga 30w: a 2-wide column seated from 2.75 of its face, refused from 3.0;
+   30v's 8-wide hull the same) with no script event and the prompt still
+   showing. Saga 30v: prompt-but-no-seat 0/47 round the Milano; a tap from a
+   McLaren seat never moves the rider; driving into a point (VEH-12 hop) and
+   a 1 s hold from another seat (native switch, hull 30v and column 30w) are
+   kept as intended. SAGA 30w (`output/device-round-2026-10-14w/saga/notes.md`,
+   packs-74169727, columns under the chord MIDDLE): under a wing 20/20 (eye
+   inside the column picks it), 1.5 off the leading edge 0/16 (nearest face
+   3.5+). Fix (this commit): wing / long-hull columns stand under BOTH drawn
+   edges, faces 0.5 past them, more between while faces are > 5 apart
+   (`BOARD.BOX_REACH_BLOCKS` 2.5, `BoardPoint.along` = `[lo, hi]`). NEXT:
+   build round 30x from it, sim + regressions, Saga Survival sweep 1.5 and
+   2.5 off each wing's leading AND trailing edge at x 5-13, under it, 200 %,
+   plus the 30w regression spot checks; record point counts (100 % ~28?).
+   Open: why 30u's eye inside a 16-wide box was refused (ray-exit distance?).
+   Pixel not re-run since dbe20600. Also open: 10797's blue cluster + brown
    oval on the grass N of its wall (Saga 30t e06, unchecked vs source);
    device leftovers `/data/local/tmp/craftmatic-deploy-*` (Saga) and the
    30r pack backups.

@@ -483,9 +483,9 @@ export function hitTestAtSize(boxes: readonly HitTestBox[], scale: number, maxHa
  * (bedrock-vehicle.ts `BOARD`, VEH-17).
  *
  * Each point also carries `along`: what is drawn between the root and the tip along its axis, sampled every
- * `BOARD.ALONG_STEP_BLOCKS` from the root - the middle ACROSS the axis of every cube covering that distance, or null
- * where nothing is drawn - so the runtime can stand columns under a wing's or a long hull's side between the root
- * and the tip (`boardPointPlaces`, `TODO(board-sides)` lifted 2026-10-14).
+ * `BOARD.ALONG_STEP_BLOCKS` from the root - the span ACROSS the axis, `[lo, hi]`, of every cube covering that
+ * distance, or null where nothing is drawn - so the runtime can stand columns under both edges of a wing or a long
+ * hull between the root and the tip (`boardPointPlaces`).
  */
 export function boardPointsOf(geometry: unknown): BoardPoint[] {
   const meshes = (geometry as { 'minecraft:geometry'?: Array<{ bones?: Array<{ cubes?: Array<{ origin: readonly number[]; size: readonly number[]; inflate?: unknown }> }> }> } | undefined)?.['minecraft:geometry'] ?? [];
@@ -509,7 +509,7 @@ export function boardPointsOf(geometry: unknown): BoardPoint[] {
   const out: BoardPoint[] = [];
   for (const b of best) {
     if (!b || out.some(o => Math.hypot(o.x - b.p.x, o.z - b.p.z) < 1)) continue;
-    const { dx, dz } = b.p, along: Array<number | null> = [];
+    const { dx, dz } = b.p, along: Array<readonly [number, number] | null> = [];
     for (let s = 0; s <= b.reach + 1e-9; s += BOARD.ALONG_STEP_BLOCKS) {
       // The cubes covering distance s along this direction (on its own side of the root), and their span across.
       let lo = Infinity, hi = -Infinity;
@@ -520,7 +520,7 @@ export function boardPointsOf(geometry: unknown): BoardPoint[] {
         const c0 = dx ? q.z0 : q.x0, c1 = dx ? q.z1 : q.x1;
         lo = Math.min(lo, c0); hi = Math.max(hi, c1);
       }
-      along.push(lo <= hi ? round3((lo + hi) / 2) : null);
+      along.push(lo <= hi ? [round3(lo), round3(hi)] : null);
     }
     out.push({ ...b.p, along });
   }

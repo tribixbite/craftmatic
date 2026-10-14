@@ -747,8 +747,8 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         // for the interact too (Bedrock 1.21.60 changelog; quirk `custom-hit-test-pick`); every size
         // group re-declares it at that size (`withSizeGroups` `hitTest`: not scaled by `minecraft:scale`).
         // A SCRIPTED vehicle's box is clipped to a square 2 x `BOARD.HULL_HIT_HALF_MAX_BLOCKS` wide: the device
-        // refuses the interact beyond ~12 blocks of the root in Creative and ~6 in Survival whatever box is picked
-        // (quirk `interact-root-reach`, Pixel 30n, Saga 30u), and past that its far extremities are boarded through
+        // refuses the interact beyond ~12 blocks of the root in Creative, and in Survival a tap or hold reaches ~3 from
+        // the eye to the box (quirks `interact-root-reach`, `tap-is-hit`; Pixel 30n, Saga 30u/30w); past that its far extremities are boarded through
         // board points the box must not hide.
         'minecraft:custom_hit_test': { hitboxes: scripted ? hitTestAtSize([hullHit], 1, BOARD.HULL_HIT_HALF_MAX_BLOCKS) : [hullHit] },
         'minecraft:rideable': rideableComponent,
@@ -1013,9 +1013,9 @@ export function rideSeatBehavior(id: string): unknown {
 }
 /**
  * A scripted vehicle's BOARD POINT (bedrock-vehicle.ts `BOARD`, VEH-17): the invisible column scripts/vehicles.js
- * keeps under each far drawn extremity of a parked, empty vehicle and along its wings and long sides, so a player
- * beside its nose, a wing or a wingtip - more than ~6 blocks from its root in Survival (~12 in Creative), where the
- * device refuses the interact (quirk `interact-root-reach`) - can board it.
+ * keeps under each far drawn extremity of a parked, empty vehicle and under both edges of its wings and long sides,
+ * so a player beside its nose, a wing or a wingtip - out of Survival's ~3-block reach to the hull's box (Creative's
+ * ~12 from its root), where the device refuses the interact (quirks `tap-is-hit`, `interact-root-reach`) - can board it.
  * One definition per pack. A RIDEABLE for the players only, so a hold on it is an interact the device sends (a
  * non-rideable custom entity raised none in GameTest, quirk `gametest-simulated-player`) and shows the Mount
  * prompt; the device seats the player on the point and the runtime moves them into the VEHICLE, as it does for a tap. No gravity,
