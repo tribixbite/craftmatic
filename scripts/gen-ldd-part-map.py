@@ -141,6 +141,30 @@ BL_UPSTREAM_ROWS: dict[str, list] = {
     '80566': ['80566.dat', 9.2, -3.2, -0.4, 0.0, 1.0, 0.0, 0.0],
 }
 
+# Studio rows MEASURED WRONG, replaced outright (both Studio tables carry the
+# same row, so neither the lxfv56 fill nor the identity override can reach
+# them). Each entry carries its own physical evidence.
+#
+#   23769  Minifig Skeleton Leg Long. Studio: identity in ldraw.xml AND
+#          ldraw_lxfv56.xml. The LDraw origin is the clip at the TOP of the
+#          leg (`clip13.dat` at 0,0,0; mesh y -4 .. 54, foot at +54); LDD's
+#          origin is the FOOT. 10788 Gabby's Dollhouse uses the leg as the
+#          music room's microphone stand: the bone puts the origin on the
+#          floor's top (LDD y 0.64 = -16 LDU) and the 90393 microphone at LDD
+#          y 2.789 (-70 LDU). At identity the leg hung 54 LDU through the
+#          floor and its foot was the model's lowest point (y 38 against a
+#          base at 0; the Saga 30r "microphone stand below the floor",
+#          2026-10-13). With the foot as LDD's origin (54 LDU = 2.16 LDD
+#          units, applied inverse like every Studio row) the leg stands on the
+#          floor top (y -74 .. -16) and its clip lands on the microphone at
+#          -70. Over every DBIX LXFML placing it (12 sets, 20 legs) the
+#          isolated legs go 1 -> 0 (41422), and a Minecraft skeleton of 21341
+#          stops being that model's lowest point (2 LDU under its base plate,
+#          whose bottom at -8 LDU is the model's bottom again).
+STUDIO_ROW_CORRECTIONS: dict[str, list] = {
+    '23769': ['23769.dat', 0.0, -2.16, 0.0, 0.0, 1.0, 0.0, 0.0],
+}
+
 
 def r(v: float) -> float:
     """Round to 6 sig-ish places, collapse -0.0 → 0, drop trailing noise."""
@@ -301,6 +325,12 @@ def main():
             part_map[lego] = list(row)
             curated += 1
     print(f'curated rows added: {curated}')
+    for lego, row in STUDIO_ROW_CORRECTIONS.items():
+        # Replaces the Studio row in place; an id Studio stopped naming is not
+        # resurrected by a correction meant for its row.
+        if lego in part_map:
+            part_map[lego] = list(row)
+    print(f'Studio rows corrected by measurement: {sorted(k for k in STUDIO_ROW_CORRECTIONS if k in part_map)}')
     overridden = override_identity_rows(part_map)
     print(f'identity Studio rows overridden by the measured table: {len(overridden)} {sorted(overridden)}')
     print(f'ldraw.xml: {from_ldraw_xml} rows; ldraw_lxfv56.xml filled {filled} more '

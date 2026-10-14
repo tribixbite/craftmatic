@@ -26,7 +26,7 @@ import { join } from 'node:path';
 import {
   loadPartMap, loadMeasuredAlign, resetPartMapCache, validatePartMap,
   validatePartAlign, validateMeasuredAlign, validateTable,
-  buildLxfPlacements, describeLxfDiagnostics,
+  buildLxfPlacements, describeLxfDiagnostics, applyMeasuredBound,
   PART_MAP_URL, MEASURED_ALIGN_URL,
   type PartAlign, type MeasuredAlign, type LxfAlignmentTable,
   type LxfMeasuredTable, type LxfPartRecord,
@@ -221,6 +221,30 @@ describe('case 3: coverage against the REAL shipped table', () => {
     expect(real['21229']).toEqual(['21229.dat', ...(real['30056'] as unknown[]).slice(1)]);
     // 37352 (Brick 1 x 2 curved top) takes the 1 x 2 brick's correction (488 measured votes).
     expect((real['37352'] as unknown[]).slice(1)).toEqual((real['3004'] as unknown[]).slice(1));
+  });
+
+  it('a Studio row measured wrong is corrected: the 23769 skeleton leg stands on its foot (10788 microphone stand)', () => {
+    // 10788 Gabby's Dollhouse, DBIX LXFML refIDs 467/468: the long skeleton leg
+    // is the music room's microphone stand. Its bone sits on the floor's top
+    // (LDD y 0.64 = -16 LDU) and the 90393 microphone's at LDD y 2.789. LDraw's
+    // origin is the leg's top CLIP (the foot is 54 LDU below it); LDD's is the
+    // FOOT. With Studio's identity row the leg hung 54 LDU through the floor
+    // (Saga 30r, 2026-10-13). gen-ldd-part-map.py STUDIO_ROW_CORRECTIONS.
+    const measured = applyMeasuredBound(validateTable(
+      JSON.parse(readFileSync(join(process.cwd(), 'web/public/ldd-measured-align.json'), 'utf-8')),
+      MEASURED_ALIGN_URL, validateMeasuredAlign,
+    ) as LxfMeasuredTable);
+    const { bricks } = buildLxfPlacements([
+      { designID: '23769', materialId: 26, boneCount: 1, transformation: '1,0,0,0,1,0,0,0,1,24.400000000128,0.6400000000001,1.2' },
+      { designID: '90393', materialId: 124, boneCount: 1, transformation: '0,0,1,1,0,0,0,1,0,24.079999947728,2.7892173670002,1.2' },
+    ], table, measured);
+    const [leg, mic] = bricks;
+    expect(leg!.part).toBe('23769.dat');
+    const floorTop = -0.64 * 25;
+    expect(leg!.y).toBeCloseTo(floorTop - 54, 3);         // clip 54 LDU above the floor: the foot is ON it
+    expect(Math.abs(leg!.y - mic!.y)).toBeLessThan(1);    // and the clip holds the microphone
+    expect(leg!.x).toBeCloseTo(24.4 * 25, 3);             // no sideways move: a pure re-origin along the leg
+    expect(leg!.z).toBeCloseTo(-1.2 * 25, 3);
   });
 
   it('reports mapped vs unmapped placements for a PARTIALLY covered model', () => {
