@@ -385,7 +385,12 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   and the collision box are) - vanilla hoglin.json pre-divides its baby's
   collision box and writes its hit test at the baby's own size - and the
   interact picks through it (1.21.60 changelog). Quirk `custom-hit-test-pick`
-  lists what is still unmeasured on a phone.
+  lists what is still unmeasured on a phone. **The device refuses a tap AND a
+  hold farther than ~6 blocks from the entity's ROOT in Survival** (~12 for the
+  hold in Creative) while still SHOWING the Mount prompt over a bigger box, and
+  no script event fires (Saga 30u): a scripted vehicle's box is clipped to 8
+  wide and its far ends are boarded through board points (`BOARD`). Test
+  boarding in Survival; a Creative-only round hides this.
 - **Scripted vehicles (cars, hover craft, boats, ships) have FREE LOOK and
   never stop dead** (2026-09-30): their seats are `lock_rider_rotation` 181
   (a native rotorcraft/flyer keeps 0: it flies where its rider looks), the

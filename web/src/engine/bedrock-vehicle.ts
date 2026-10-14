@@ -1067,9 +1067,12 @@ export const VEHICLE_EGRESS = { MARGIN: 0.5, SPACING: 1, MAX_CANDIDATES: 64, ABO
  * the native route is the one measured to work. With `/scriptevent craftmatic:vehicle_telemetry on` each board
  * event is a `CMVT {"board":...}` content-log line and a chat line, so a device round sees which route fired.) The
  * points go as soon as a rider is aboard or the vehicle moves, and come back where it parks.
- *   - `MIN_REACH_BLOCKS` 8 = `HULL_HIT_HALF_MAX_BLOCKS`: the vehicle's own hit box is clipped to a square 16 wide
- *     (its corners 11.3 from the root, inside the 12), so it never covers - and so never hides - a board point;
- *     an extremity within 8 is covered by that box and boarded directly;
+ *   - `MIN_REACH_BLOCKS` 4 = `HULL_HIT_HALF_MAX_BLOCKS`: the vehicle's own hit box is clipped to a square 8 wide
+ *     (its corners 5.7 from the root), so it never covers - and so never hides - a board point; an extremity within
+ *     4 is covered by that box and boarded directly. In SURVIVAL the reach from the root is ~6, not Creative's 12
+ *     (Saga round 30u: a hull tap seated at 6.0 blocks from the 100 % Milano's root, never at 6.5; a hold there showed
+ *     the Mount prompt over the 16-wide box and raised no event at all), so the box was cut from 16 to 8: a prompt
+ *     the device then refuses is worse than no prompt;
  *   - `COLUMN_WIDTH` 2 / `COLUMN_HEIGHT` 3: a point's hit box at 100 %, blocks (the size groups scale it with the
  *     vehicle: 8 x 12 at 400 %), standing on the vehicle's BASE under the tip - a child stands on the ground there,
  *     and the Milano's wingtips are ~12 blocks up at 200 %;
@@ -1088,7 +1091,7 @@ export const VEHICLE_EGRESS = { MARGIN: 0.5, SPACING: 1, MAX_CANDIDATES: 64, ABO
  * # TODO(board-sides): only the four extremities are boarded; a player beside a 400 % hull's long side, farther
  * than 12 from the root and from a tip, still finds nothing to hold. A rotorcraft (native) has no board points.
  */
-export const BOARD = { MIN_REACH_BLOCKS: 8, HULL_HIT_HALF_MAX_BLOCKS: 8, COLUMN_WIDTH: 2, COLUMN_HEIGHT: 3, OUTSET_BLOCKS: 0.5, CHECK_TICKS: 5, SWEEP_TICKS: 200, STILL_SPEED: 0.05, RETRIES: 2, RETRY_TICKS: 2 } as const;
+export const BOARD = { MIN_REACH_BLOCKS: 4, HULL_HIT_HALF_MAX_BLOCKS: 4, COLUMN_WIDTH: 2, COLUMN_HEIGHT: 3, OUTSET_BLOCKS: 0.5, CHECK_TICKS: 5, SWEEP_TICKS: 200, STILL_SPEED: 0.05, RETRIES: 2, RETRY_TICKS: 2 } as const;
 export type BoardParams = typeof BOARD;
 /** The dynamic property a board point carries: its vehicle's entity id. */
 export const BOARD_OWNER_PROPERTY = 'craftmatic:board_of';
@@ -1632,6 +1635,10 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
   /** A hold or a tap on a board point: off the point if the device seated them on it, into its vehicle. */
   const boardFrom = (player: any, point: any): void => {
     if (!BD || !player || player.typeId !== 'minecraft:player' || !point || point.typeId !== BD.type) return;
+    // A rider of anything but a board point is never pulled out by a tap on another vehicle's point (Saga 30u: seated in
+    // the McLaren, a tap toward the Milano hit its point and moved the player across, 2 of 2).
+    const on = ridingOn(player);
+    if (on && on.typeId !== BD.type) return;
     let owner: unknown;
     try { owner = point.getDynamicProperty(BD.ownerProperty); } catch { owner = undefined; }
     let vehicle: any;

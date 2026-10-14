@@ -181,12 +181,18 @@ The round-30m fixes on the phones:
    Survival hold under the Milano ~7 blocks from its root showed the Mount
    prompt and seated nobody. FIXED OFFLINE (`boardHull` in
    bedrock-vehicle.ts: a hull hit seats a player who rides nothing; a hull
-   hold unseated `RETRY_TICKS` later is seated by script). ROUND 30u BUILT
-   (`output/device-round-2026-10-14u/packs-11daf705`, 23/23, sim 138/0,
-   regressions 36/0) and on the Saga via an agent: hull tap in Survival +
-   Creative at 1-7 blocks, the under-hull Survival hold with CMVT telemetry
-   (`TODO(hull-reach)`: does the device raise either event there?) ->
-   `output/device-round-2026-10-14u/saga/`. Also open: 10797's
+   hold unseated `RETRY_TICKS` later is seated by script). SAGA 30u
+   (`output/device-round-2026-10-14u/saga/notes.md`, `mount-trials.txt`): hull
+   tap works within ~6 blocks of the root; in SURVIVAL the device refuses a
+   tap AND a hold past ~6 from the root with NO script event while the
+   16-wide box still shows the prompt (0 `hull-hold` lines all session), and a
+   seated rider's tap on another vehicle's board point moved them across.
+   FIXED OFFLINE: `BOARD` 4/4 (box 8 wide, points from 4 out), the swap guard
+   in `boardFrom`; quirk `interact-root-reach` `survivalRootReachBlocks` 6.
+   NEXT: round 30v on the Saga, all in SURVIVAL: Milano hull prompt only
+   where it seats (walk round the hull, prompt vs seat), board points incl.
+   new ones 4-8 out, the swap, a small car. Then `TODO(board-sides)`: a big
+   hull's long sides between points are out of Survival reach. Also open: 10797's
    blue cluster + brown oval on the grass N of its wall (e06, unchecked vs
    source); the Saga agent left `/data/local/tmp/craftmatic-deploy-20261014-*`
    and the 30r pack backups on the device; the 10261 "Marked seat 1" is gone.

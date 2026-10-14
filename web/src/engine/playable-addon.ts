@@ -747,8 +747,9 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         // for the interact too (Bedrock 1.21.60 changelog; quirk `custom-hit-test-pick`); every size
         // group re-declares it at that size (`withSizeGroups` `hitTest`: not scaled by `minecraft:scale`).
         // A SCRIPTED vehicle's box is clipped to a square 2 x `BOARD.HULL_HIT_HALF_MAX_BLOCKS` wide: the device
-        // refuses the interact beyond ~12 blocks of the root whatever box is picked (quirk `interact-root-reach`,
-        // Pixel 30n), and past that its far extremities are boarded through board points the box must not hide.
+        // refuses the interact beyond ~12 blocks of the root in Creative and ~6 in Survival whatever box is picked
+        // (quirk `interact-root-reach`, Pixel 30n, Saga 30u), and past that its far extremities are boarded through
+        // board points the box must not hide.
         'minecraft:custom_hit_test': { hitboxes: scripted ? hitTestAtSize([hullHit], 1, BOARD.HULL_HIT_HALF_MAX_BLOCKS) : [hullHit] },
         'minecraft:rideable': rideableComponent,
         // Format 1.26.30 dropped `minecraft:pushable` from the schema (the whole

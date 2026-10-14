@@ -10,6 +10,7 @@ import { ESCAPE_OPTIONS } from '../web/src/engine/collider-form.js';
 import { boardPointsOf, hitTestAtSize } from '../web/src/engine/bedrock-placement-pack.js';
 import { boardPointBehavior } from '../web/src/engine/playable-addon.js';
 import { interact, lookAt, pick, tap } from '../web/src/sim/input/touch.js';
+import { quirkValue } from '../web/src/sim/quirks/registry.js';
 import type { SimEntity } from '../web/src/sim/entity/entity.js';
 
 /** Fly `ticks` ticks over flat ground at y = 0 (nothing in the way), returning every state. */
@@ -1243,7 +1244,7 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     expect(pts.find(p => p.dz === -1)!.z).toBeCloseTo(-1, 9);
   });
   it('clips a scripted vehicle\'s hit box to the square board points never sit inside', () => {
-    expect(hitTestAtSize([{ width: 30, height: 8.8, pivot: [0, 4.4, 0] }], 2, BOARD.HULL_HIT_HALF_MAX_BLOCKS)[0]).toEqual({ width: 16, height: 17.6, pivot: [0, 8.8, 0] });
+    expect(hitTestAtSize([{ width: 30, height: 8.8, pivot: [0, 4.4, 0] }], 2, BOARD.HULL_HIT_HALF_MAX_BLOCKS)[0]).toEqual({ width: 8, height: 17.6, pivot: [0, 8.8, 0] });
     expect(hitTestAtSize([{ width: 3, height: 2, pivot: [0, 1, 0] }], 2, BOARD.HULL_HIT_HALF_MAX_BLOCKS)[0]!.width).toBe(6);
   });
 
@@ -1298,6 +1299,28 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     h.remove(vehicle);
     h.run(BOARD.SWEEP_TICKS + 1);
     expect(pointsNow()).toHaveLength(0);
+  });
+  it('keeps the hull\'s Mount prompt inside the SURVIVAL root reach (Saga 30u: a prompt over a 16-wide box, refused past ~6)', () => {
+    const survival = quirkValue('interact-root-reach', 'survivalRootReachBlocks');
+    // A child beside the clipped box's corner stands ~0.3 out from it, still within the Survival reach of the root.
+    expect(Math.SQRT2 * BOARD.HULL_HIT_HALF_MAX_BLOCKS + 0.3).toBeLessThanOrEqual(survival);
+    // Every extremity the box does not cover gets a board point.
+    expect(BOARD.MIN_REACH_BLOCKS).toBeLessThanOrEqual(BOARD.HULL_HIT_HALF_MAX_BLOCKS);
+  });
+  it('a seated rider\'s tap on ANOTHER vehicle\'s board point never pulls them across (Saga 30u, 2 of 2)', () => {
+    const { h, vehicle, player, pointsNow } = boardHost();
+    h.run(12);
+    expect(pointsNow()).toHaveLength(3);
+    // The child rides a second ship, then taps the first ship's nose point.
+    const other = h.spawn('craftmatic:t_vehicle', { x: 0.5, y: 64, z: 40.5 }, { yaw: 0 });
+    h.run(1);
+    h.seat(player, other);
+    expect(player.ridingOn).toBe(other);
+    const nose = pointsNow().find(p => p.location.z > 10)!;
+    h.engine.emit('entityHitEntity', { damagingEntity: player, hitEntity: nose });
+    h.run(1 + BOARD.RETRY_TICKS * 4 + 1);
+    expect(player.ridingOn).toBe(other);
+    expect(vehicle.riderList()).not.toContain(player);
   });
   it('a TAP on the HULL itself boards a child who rides nothing; never a second player into a driven ship (Saga 30t)', () => {
     const { h, vehicle, pointsNow } = boardHost();

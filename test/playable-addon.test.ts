@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { BOARD } from '../web/src/engine/bedrock-vehicle.js';
 import { inflateSync } from 'node:zlib';
 import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon, measureCoasterTrain, rideableExitHintLines, flySoundEvents, VANILLA_INTERACTIVE_NORMAL_BLOCK_SOUNDS, ROTOR_FLYING_SPEED, COASTER_SAME_CAR_ARC, DRIVER_SPEED_WINDOW_TICKS } from '../web/src/engine/playable-addon.js';
@@ -208,7 +209,8 @@ describe('playable Bedrock add-on',()=>{
     expect(hit[0].pivot).toEqual([0, Math.round(hit[0].height / 2 * 1000) / 1000, 0]);
     const groups = entity['minecraft:entity'].component_groups;
     expect(groups['craftmatic:size_100']['minecraft:custom_hit_test'].hitboxes).toEqual(hit);
-    expect(groups['craftmatic:size_200']['minecraft:custom_hit_test'].hitboxes[0].width).toBeCloseTo(hit[0].width * 2, 3);
+    // ... no wider than the Survival-reach square (`BOARD.HULL_HIT_HALF_MAX_BLOCKS`, Saga 30u).
+    expect(groups['craftmatic:size_200']['minecraft:custom_hit_test'].hitboxes[0].width).toBeCloseTo(Math.min(hit[0].width * 2, 2 * BOARD.HULL_HIT_HALF_MAX_BLOCKS), 3);
     expect(groups['craftmatic:size_200']['minecraft:custom_hit_test'].hitboxes[0].pivot[1]).toBeCloseTo(hit[0].pivot[1] * 2, 3);
     expect(components['minecraft:variable_max_auto_step']).toBeUndefined();
     // scripts/vehicles.js drives it (carStep, the swept footprint, headlights); the rotorcraft-only driver script is not shipped.
