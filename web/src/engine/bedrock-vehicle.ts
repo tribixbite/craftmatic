@@ -1727,7 +1727,10 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
      * the Mount prompt in Survival and seated nobody (tap, hold and the Mount button alike; Creative seated). So a hit
      * on a scripted vehicle seats a player who rides nothing, and a hold is checked `RETRY_TICKS` later and seated by
      * script when the native mount has not taken. `seatIn` refuses a vehicle a player already rides.
-     * TODO(hull-reach): whether the device raises either event for the refused Survival hold is unmeasured.
+     * A hold the device refuses (Survival, past ~6 blocks from the root) raises NO script event (Saga 30u/30v: no
+     * `hull-hold` line in either session), so the hold path is only a fallback; reach is kept by the hit box's size
+     * (`BOARD.HULL_HIT_HALF_MAX_BLOCKS`) and the board points. A rider of another vehicle is left alone: a deliberate
+     * HOLD switches them natively and driving into this vehicle is the hop (VEH-12), both kept (Saga 30v).
      */
     const boardHull = (how: string, player: any, vehicle: any): void => {
       if (!player || player.typeId !== 'minecraft:player' || !vehicle || !config.types[String(vehicle.typeId)]) return;

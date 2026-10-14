@@ -172,32 +172,22 @@ The round-30m fixes on the phones:
    every `/tp` (29-watch, 48-now) and a tap boards without it (35); the
    dismount sets the player down wherever the car stopped (17508,-57,5416).
    Unproved - re-check standing still at the platform after a dismount.
-   SAGA 30t DONE (`output/device-round-2026-10-14t/saga/notes.md`,
-   `mount-trials.txt`): the user's "nothing mountable" did NOT reproduce -
-   Milano board points 24/24, 10261 car tap/hold/Ride button in Creative and
-   Survival, trains return (16.7/80.4/144.4 s), 10788 slide + mic stand right,
-   pieces right, five sets grounded by eye. Two real gaps: a TAP on a
-   vehicle's HULL boarded nothing (only board points answered hits), and a
-   Survival hold under the Milano ~7 blocks from its root showed the Mount
-   prompt and seated nobody. FIXED OFFLINE (`boardHull` in
-   bedrock-vehicle.ts: a hull hit seats a player who rides nothing; a hull
-   hold unseated `RETRY_TICKS` later is seated by script). SAGA 30u
-   (`output/device-round-2026-10-14u/saga/notes.md`, `mount-trials.txt`): hull
-   tap works within ~6 blocks of the root; in SURVIVAL the device refuses a
-   tap AND a hold past ~6 from the root with NO script event while the
-   16-wide box still shows the prompt (0 `hull-hold` lines all session), and a
-   seated rider's tap on another vehicle's board point moved them across.
-   FIXED OFFLINE: `BOARD` 4/4 (box 8 wide, points from 4 out), the swap guard
-   in `boardFrom`; quirk `interact-root-reach` `survivalRootReachBlocks` 6.
-   ROUND 30v BUILT (`output/device-round-2026-10-14v/packs-dbe20600`, 23/23,
-   sim 138/0, regressions 36/0) and on the Saga via an agent, all in SURVIVAL
-   (evidence `output/device-round-2026-10-14v/saga/`): Milano hull prompt only
-   where it seats (walk round the hull, prompt vs seat), board points incl.
-   new ones 4-8 out, the swap, a small car. Then `TODO(board-sides)`: a big
-   hull's long sides between points are out of Survival reach. Also open: 10797's
-   blue cluster + brown oval on the grass N of its wall (e06, unchecked vs
-   source); the Saga agent left `/data/local/tmp/craftmatic-deploy-20261014-*`
-   and the 30r pack backups on the device; the 10261 "Marked seat 1" is gone.
+   SAGA 30t/30u/30v (VEH-17 now DONE-DEVICE): the user's "nothing
+   mountable" was Survival reach - the device refuses a tap AND a hold past
+   ~6 blocks from a vehicle's root with no script event while a 16-wide hit
+   box still showed the prompt. Fixed `11daf705` (hull tap seats) +
+   `dbe20600` (`BOARD` 4/4: box 8 wide, points from 4 out; tap-swap guard).
+   SAGA 30v (`output/device-round-2026-10-14v/saga/notes.md`, Survival):
+   prompt-but-no-seat 0 of 47 trials round the Milano; points 8/8; McLaren
+   6/6; 10261 tap 3/3; a tap from a McLaren seat never moves the rider.
+   Driving into a Milano point boards it (the VEH-12 hop) and a 1 s hold on
+   the Milano from the McLaren switches natively - both kept as intended.
+   NEXT: `TODO(board-sides)` - the Milano's wings (8-15 from the root, 0/6)
+   and a big hull's long sides between points are out of Survival reach;
+   Pixel not re-run on dbe20600. Also open: 10797's blue cluster + brown
+   oval on the grass N of its wall (Saga 30t e06, unchecked vs source);
+   device leftovers `/data/local/tmp/craftmatic-deploy-*` (Saga) and the
+   30r pack backups.
    User shots: `C:/Users/wills/Downloads/*-{slide,floating,tree,lolipop}*.png`.
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
