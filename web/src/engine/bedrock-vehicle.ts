@@ -1088,10 +1088,18 @@ export const VEHICLE_EGRESS = { MARGIN: 0.5, SPACING: 1, MAX_CANDIDATES: 64, ABO
  *   - `STILL_SPEED` 0.05 blocks/tick: a vehicle slower than this, with nobody aboard, is parked;
  *   - `RETRIES` 2 / `RETRY_TICKS` 2: `addRider` refused (quirk `add-rider-spawn-tick`) is retried, then the
  *     `ride` command is the last resort, as the placement's seat retries.
- * # TODO(board-sides): only the four extremities are boarded; a player beside a 400 % hull's long side, farther
- * than 12 from the root and from a tip, still finds nothing to hold. A rotorcraft (native) has no board points.
+ *   - `SIDE_SPACING_MAX_BLOCKS` 4: between the hull box and a tip, more columns stand along the axis (a wing, a long
+ *     nose or tail) under the middle of what is drawn there (`BoardPoint.along`), one column width apart and never
+ *     more than 4: a child anywhere beside that stretch is then at most 2 along it from a column's root, leaving
+ *     sqrt(6^2 - 2^2) = 5.7 across inside Survival's ~6 root reach (Saga 30v: under the 100 % Milano's wings, 8-15
+ *     from its root, nothing answered, 0 of 6). Contiguous columns at 100 % (2 wide) also put one under the line of
+ *     sight of a child looking up at the wing from its edge;
+ *   - `ALONG_STEP_BLOCKS` 0.5: the profile's sampling step at 100 % (`boardPointsOf`).
+ * A child standing INSIDE a column (under a wing, on its axis) is picked only if the device picks a box the eye is
+ * in (the simulator does: `rayBox` from inside is 0); unmeasured (quirk `interact-root-reach`'s gap names the same
+ * doubt). A rotorcraft (native) has no board points.
  */
-export const BOARD = { MIN_REACH_BLOCKS: 4, HULL_HIT_HALF_MAX_BLOCKS: 4, COLUMN_WIDTH: 2, COLUMN_HEIGHT: 3, OUTSET_BLOCKS: 0.5, CHECK_TICKS: 5, SWEEP_TICKS: 200, STILL_SPEED: 0.05, RETRIES: 2, RETRY_TICKS: 2 } as const;
+export const BOARD = { MIN_REACH_BLOCKS: 4, HULL_HIT_HALF_MAX_BLOCKS: 4, COLUMN_WIDTH: 2, COLUMN_HEIGHT: 3, OUTSET_BLOCKS: 0.5, SIDE_SPACING_MAX_BLOCKS: 4, ALONG_STEP_BLOCKS: 0.5, CHECK_TICKS: 5, SWEEP_TICKS: 200, STILL_SPEED: 0.05, RETRIES: 2, RETRY_TICKS: 2 } as const;
 export type BoardParams = typeof BOARD;
 /** The dynamic property a board point carries: its vehicle's entity id. */
 export const BOARD_OWNER_PROPERTY = 'craftmatic:board_of';
@@ -1099,8 +1107,10 @@ export const BOARD_OWNER_PROPERTY = 'craftmatic:board_of';
 /**
  * One drawn extremity of a vehicle at 100 %, in its entity frame at yaw 0 (blocks; +z is the nose, +x the side
  * Bedrock's yaw turns toward +z), with the horizontal axis it is extreme along (`dx`, `dz`: a unit vector).
+ * `along[i]`: the middle across the axis of what is drawn at `i x ALONG_STEP_BLOCKS` out from the root, null where
+ * nothing is (`boardPointsOf`); without it only the tip is boarded.
  */
-export interface BoardPoint { x: number; z: number; dx: number; dz: number }
+export interface BoardPoint { x: number; z: number; dx: number; dz: number; along?: Array<number | null> }
 
 /** What the runtime needs to keep board points: the point's entity type, the size steps it is sized by, the constants. */
 export interface BoardRuntimeConfig { type: string; sizeEventPrefix: string; sizes: readonly number[]; ownerProperty: string; params: BoardParams }
@@ -1108,17 +1118,29 @@ export interface BoardRuntimeConfig { type: string; sizeEventPrefix: string; siz
 /**
  * Where a vehicle's board points stand at a pose (pure; the runtime and the tests call it): for every extremity
  * farther than `MIN_REACH_BLOCKS` from the root at scale `k`, the column's BASE centre in the world: on the vehicle's
- * base, its outer face `OUTSET_BLOCKS` past the drawn tip. `yawDeg` is Bedrock's (0 faces +z; +x turns toward +z: the colliders' and `drawnBoxes`' turn).
+ * base, its outer face `OUTSET_BLOCKS` past the drawn tip; then, with the point's `along` profile, a column every
+ * `min(COLUMN_WIDTH x k, SIDE_SPACING_MAX_BLOCKS)` back toward the root while its middle is still past
+ * `MIN_REACH_BLOCKS`, each under the middle of what is drawn there (none where nothing is). `yawDeg` is Bedrock's
+ * (0 faces +z; +x turns toward +z: the colliders' and `drawnBoxes`' turn).
  */
 export function boardPointPlaces(points: readonly BoardPoint[], pose: { x: number; y: number; z: number; yaw: number }, k: number, P: BoardParams): Array<{ x: number; y: number; z: number }> {
   const out: Array<{ x: number; y: number; z: number }> = [];
   const r = pose.yaw * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+  const put = (ex: number, ez: number): void => { out.push({ x: pose.x + ex * c - ez * s, y: pose.y, z: pose.z + ex * s + ez * c }); };
   // Along its own axis, the column's middle is half its width in from its outer face, which stands past the tip.
   const back = P.COLUMN_WIDTH * k / 2 - P.OUTSET_BLOCKS;
+  const spacing = Math.min(P.COLUMN_WIDTH * k, P.SIDE_SPACING_MAX_BLOCKS);
   for (const p of points) {
-    if (Math.abs(p.x * p.dx + p.z * p.dz) * k <= P.MIN_REACH_BLOCKS) continue;
-    const ex = p.x * k - p.dx * back, ez = p.z * k - p.dz * back;
-    out.push({ x: pose.x + ex * c - ez * s, y: pose.y, z: pose.z + ex * s + ez * c });
+    const tip = Math.abs(p.x * p.dx + p.z * p.dz) * k;
+    if (tip <= P.MIN_REACH_BLOCKS) continue;
+    put(p.x * k - p.dx * back, p.z * k - p.dz * back);
+    if (!p.along?.length) continue;
+    // The sides: back from the tip column toward the root, under the drawn middle across at each distance.
+    for (let m = tip - back - spacing; m > P.MIN_REACH_BLOCKS; m -= spacing) {
+      const across = p.along[Math.min(p.along.length - 1, Math.round(m / k / P.ALONG_STEP_BLOCKS))];
+      if (across === null || across === undefined) continue;
+      if (p.dx) put(p.dx * m, across * k); else put(across * k, p.dz * m);
+    }
   }
   return out;
 }
@@ -1678,7 +1700,10 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     if (!b) {
       // First placement by THIS runtime: points of this vehicle left by an earlier one (a world reopened) go first,
       // so a reload never doubles them until the sweep.
-      const reach = kind.board.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.z)), 0) * k + BD.params.COLUMN_WIDTH * k + 2;
+      // As far as any column can stand: a tip, or a side column under what is drawn across from the axis.
+      const step = BD.params.ALONG_STEP_BLOCKS;
+      const far = (p: BoardPoint): number => (p.along ?? []).reduce((m: number, a, i) => (a === null ? m : Math.max(m, Math.hypot(i * step, a))), Math.hypot(p.x, p.z));
+      const reach = kind.board.reduce((m, p) => Math.max(m, far(p)), 0) * k + BD.params.COLUMN_WIDTH * k + 2;
       let old: any[] = [];
       try { old = dim.getEntities({ type: BD.type, location: { x: loc.x, y: loc.y, z: loc.z }, maxDistance: reach }); } catch { old = []; }
       for (const p of old) { try { if (p.getDynamicProperty(BD.ownerProperty) === e.id) p.remove(); } catch { /* gone */ } }

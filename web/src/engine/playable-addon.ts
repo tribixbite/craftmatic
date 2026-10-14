@@ -1013,8 +1013,9 @@ export function rideSeatBehavior(id: string): unknown {
 }
 /**
  * A scripted vehicle's BOARD POINT (bedrock-vehicle.ts `BOARD`, VEH-17): the invisible column scripts/vehicles.js
- * keeps under each far drawn extremity of a parked, empty vehicle, so a player beside its nose or a wingtip - more
- * than ~12 blocks from its root, where the device refuses the interact (quirk `interact-root-reach`) - can board it.
+ * keeps under each far drawn extremity of a parked, empty vehicle and along its wings and long sides, so a player
+ * beside its nose, a wing or a wingtip - more than ~6 blocks from its root in Survival (~12 in Creative), where the
+ * device refuses the interact (quirk `interact-root-reach`) - can board it.
  * One definition per pack. A RIDEABLE for the players only, so a hold on it is an interact the device sends (a
  * non-rideable custom entity raised none in GameTest, quirk `gametest-simulated-player`) and shows the Mount
  * prompt; the device seats the player on the point and the runtime moves them into the VEHICLE, as it does for a tap. No gravity,

@@ -93,8 +93,7 @@ The round-30m fixes on the phones:
 **Next (priority order):**
 1. VEH-17 boarding DONE-DEVICE (round 30q, `e1af8e90`, both phones: holds,
    taps, quick re-boards all seat; evidence `output/device-round-2026-10-12q/`).
-   Left: `TODO(board-sides)` (long sides of a 400 % hull), rotorcraft have no
-   points. The next device round carries the offline fixes made since 30q:
+   Rotorcraft have no points. The next device round carries the offline fixes made since 30q:
    COL-03 under-floor roots (`b7d9cb63`: 10365 / 42670), FIG-01 figure spawn
    over a partial form (`cd9ccaef`: 76417 figure 9) and the IX-01 figure-in-
    doorway close (76417 Door 3). Build all 21 sets from the committed tree

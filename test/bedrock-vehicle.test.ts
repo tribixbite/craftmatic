@@ -1238,9 +1238,9 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
       { origin: [-192, 16, -16], size: [384, 4, 32] }, // the wings: x -12..12, entity z -1..1
     ] }] }] };
     const pts = boardPointsOf(geo);
-    expect(pts).toContainEqual({ x: 0, z: 10, dx: 0, dz: 1 });
-    expect(pts).toContainEqual({ x: 12, z: 0, dx: 1, dz: 0 });
-    expect(pts).toContainEqual({ x: -12, z: 0, dx: -1, dz: 0 });
+    expect(pts).toContainEqual(expect.objectContaining({ x: 0, z: 10, dx: 0, dz: 1 }));
+    expect(pts).toContainEqual(expect.objectContaining({ x: 12, z: 0, dx: 1, dz: 0 }));
+    expect(pts).toContainEqual(expect.objectContaining({ x: -12, z: 0, dx: -1, dz: 0 }));
     expect(pts.find(p => p.dz === -1)!.z).toBeCloseTo(-1, 9);
   });
   it('clips a scripted vehicle\'s hit box to the square board points never sit inside', () => {
@@ -1248,10 +1248,51 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     expect(hitTestAtSize([{ width: 3, height: 2, pivot: [0, 1, 0] }], 2, BOARD.HULL_HIT_HALF_MAX_BLOCKS)[0]!.width).toBe(6);
   });
 
-  /** The runtime with one parked ship carrying `points`, the pack's board point entity, and a player standing off its nose. */
-  function boardHost() {
+  it('stands side columns along a wing between the hull box and the tip, under what is drawn, one column apart (VEH-17 board-sides, Saga 30v)', () => {
+    // The +x wing drawn from 3 out to its tip at 15, its chord centred at z -2; nothing drawn 0-3 (null).
+    const along = Array.from({ length: 31 }, (_, i) => (i * BOARD.ALONG_STEP_BLOCKS >= 3 ? -2 : null));
+    const wing: BoardPoint = { x: 15, z: -2, dx: 1, dz: 0, along };
+    const back = BOARD.COLUMN_WIDTH / 2 - BOARD.OUTSET_BLOCKS;
+    const at = boardPointPlaces([wing], { x: 0, y: 64, z: 0, yaw: 0 }, 1, BOARD);
+    // The tip column, then one every column width (2) back while its middle is past the hull box (4).
+    expect(at.map(q => q.x)).toEqual([15 - back, 12.5, 10.5, 8.5, 6.5, 4.5]);
+    expect(at.every(q => q.z === -2 && q.y === 64)).toBe(true);
+    // Every spot beside the drawn wing past the box is within Survival's root reach of some column.
+    const survival = quirkValue('interact-root-reach', 'survivalRootReachBlocks');
+    for (let x = BOARD.HULL_HIT_HALF_MAX_BLOCKS; x <= 15; x += 0.25) expect(Math.min(...at.map(q => Math.hypot(q.x - x, 3)))).toBeLessThanOrEqual(survival);
+    // At 300 % the columns are 6 wide and stand 4 apart (`SIDE_SPACING_MAX_BLOCKS`), across times the scale.
+    const big = boardPointPlaces([wing], { x: 0, y: 0, z: 0, yaw: 0 }, 3, BOARD);
+    const xs = big.map(q => q.x);
+    for (let i = 2; i < xs.length; i++) expect(xs[i - 1]! - xs[i]!).toBeCloseTo(BOARD.SIDE_SPACING_MAX_BLOCKS, 9);
+    expect(Math.min(...xs)).toBeGreaterThan(BOARD.MIN_REACH_BLOCKS);
+    expect(big.every(q => q.z === -6)).toBe(true);
+    // Turned: yaw 90 takes the +x wing to +z.
+    const turned = boardPointPlaces([wing], { x: 0, y: 0, z: 0, yaw: 90 }, 1, BOARD);
+    expect(turned[1]!.z).toBeCloseTo(12.5, 9);
+    expect(turned[1]!.x).toBeCloseTo(2, 9);
+    // Nothing drawn there, no column.
+    const gap = boardPointPlaces([{ ...wing, along: along.map((a, i) => (i >= 16 && i <= 22 ? null : a)) }], { x: 0, y: 0, z: 0, yaw: 0 }, 1, BOARD);
+    expect(gap.map(q => q.x)).toEqual([15 - back, 12.5, 6.5, 4.5]);
+  });
+  it('profiles what is drawn along each axis of a shipped geometry (the middle across, null where nothing is)', () => {
+    const geo = { 'minecraft:geometry': [{ bones: [{ cubes: [
+      { origin: [-16, 0, -32], size: [32, 16, 64] }, // the body: x -1..1, entity z -2..2
+      { origin: [48, 16, 16], size: [144, 4, 48] }, // the right wing: x 3..12, entity z -4..-1
+    ] }] }] };
+    const wing = boardPointsOf(geo).find(p => p.dx === 1)!;
+    expect(wing.x).toBe(12);
+    const at = (s: number): number | null | undefined => wing.along![Math.round(s / BOARD.ALONG_STEP_BLOCKS)];
+    // Over the body (z -2..2): its middle; the gap 1-3: nothing; the wing: its chord's middle.
+    expect(at(0.5)).toBe(0);
+    expect(at(2)).toBeNull();
+    expect(at(8)).toBe(-2.5);
+    expect(wing.along).toHaveLength(Math.round(12 / BOARD.ALONG_STEP_BLOCKS) + 1);
+  });
+
+  /** The runtime with one parked ship carrying `pts`, the pack's board point entity, and a player standing off its nose. */
+  function boardHost(pts: readonly BoardPoint[] = points) {
     const typeId = 'craftmatic:t_vehicle', boardType = 'craftmatic:t_board';
-    const ship: ScriptedVehicleType = { mode: 'plane', noseReach: 14, halfWidth: 15, height: 3, board: points };
+    const ship: ScriptedVehicleType = { mode: 'plane', noseReach: 14, halfWidth: 15, height: 3, board: [...pts] };
     const board = { type: boardType, sizeEventPrefix: 'craftmatic:size_', sizes: [100], ownerProperty: BOARD_OWNER_PROPERTY, params: BOARD };
     const h = simHost({
       script: scriptedVehicleScript(hostConfig({ [typeId]: ship }, { board })),
@@ -1339,6 +1380,24 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     tap(h.engine, other);
     h.run(1 + BOARD.RETRY_TICKS * 4 + 1);
     expect(other.ridingOn).toBeFalsy();
+  });
+  it('a child beside a WING, out of the root\'s Survival reach, taps the wing and boards (Saga 30v: 0 of 6 under the wings)', () => {
+    const along = Array.from({ length: 31 }, (_, i) => (i * BOARD.ALONG_STEP_BLOCKS >= 3 ? -2 : null));
+    const withSides = points.map(p => (p.dx === 1 ? { ...p, along } : p));
+    for (const [pts, boards] of [[points, false], [withSides, true]] as const) {
+      const { h, vehicle } = boardHost(pts);
+      h.run(12);
+      // Off the wing's chord edge 9 out from the root: farther than ~6 from it, looking up at the wing.
+      const child = h.addPlayer('Wing', { x: 9.5, y: 64, z: -5 }, { yaw: 0 });
+      expect(Math.hypot(child.location.x - vehicle.location.x, child.location.z - vehicle.location.z)).toBeGreaterThan(quirkValue('interact-root-reach', 'survivalRootReachBlocks'));
+      lookAt(child, { x: 9.5, y: 66, z: -1.5 });
+      const picked = pick(h.engine, child).entity;
+      tap(h.engine, child);
+      h.run(1 + BOARD.RETRY_TICKS * 2 + 1);
+      // Only the tips: nothing there to pick. With the side columns: the column under the wing, seated in the ship.
+      expect(picked?.typeId === 'craftmatic:t_board').toBe(boards);
+      expect(child.ridingOn === vehicle).toBe(boards);
+    }
   });
   it('places again a point whose spawn failed (its chunk not loaded yet after a reload: Pixel 30o listed 2 of 4)', () => {
     const { h, pointsNow } = boardHost();

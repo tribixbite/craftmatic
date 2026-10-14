@@ -2,7 +2,7 @@ import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, t
 import { WalkWorld, tickPlayer, type PlayerState } from './addon-walk.js';
 import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
 import { drawnCubeBox } from './bedrock-geometry-faces.js';
-import type { BoardPoint } from './bedrock-vehicle.js';
+import { BOARD, type BoardPoint } from './bedrock-vehicle.js';
 
 declare const world: any;
 declare const system: any;
@@ -481,17 +481,25 @@ export function hitTestAtSize(boxes: readonly HitTestBox[], scale: number, maxHa
  * horizontal direction, the point of the cube reaching farthest that way - on that face, at the cube's middle across. Read through `drawnCubeBox` (an inflated cube counts its drawn box) and unrotated, as
  * `geometryHitBox`. Two extremities closer than a block are one. Where a scripted vehicle's board points stand
  * (bedrock-vehicle.ts `BOARD`, VEH-17).
+ *
+ * Each point also carries `along`: what is drawn between the root and the tip along its axis, sampled every
+ * `BOARD.ALONG_STEP_BLOCKS` from the root - the middle ACROSS the axis of every cube covering that distance, or null
+ * where nothing is drawn - so the runtime can stand columns under a wing's or a long hull's side between the root
+ * and the tip (`boardPointPlaces`, `TODO(board-sides)` lifted 2026-10-14).
  */
 export function boardPointsOf(geometry: unknown): BoardPoint[] {
   const meshes = (geometry as { 'minecraft:geometry'?: Array<{ bones?: Array<{ cubes?: Array<{ origin: readonly number[]; size: readonly number[]; inflate?: unknown }> }> }> } | undefined)?.['minecraft:geometry'] ?? [];
   // Each direction: [dx, dz] in the entity frame.
   const dirs: Array<[number, number]> = [[0, 1], [0, -1], [1, 0], [-1, 0]];
   const best: Array<{ reach: number; p: BoardPoint } | undefined> = dirs.map(() => undefined);
+  // Every cube in the entity frame (blocks), kept for the `along` profiles.
+  const boxes: Array<{ x0: number; x1: number; z0: number; z1: number }> = [];
   for (const mesh of meshes) for (const bone of mesh.bones ?? []) for (const cube of bone.cubes ?? []) {
     const d = drawnCubeBox(cube);
     // Entity frame: x as drawn, z mirrored; sixteenths to blocks.
     const x0 = d.origin[0] / 16, x1 = (d.origin[0] + d.size[0]) / 16;
     const z0 = -(d.origin[2] + d.size[2]) / 16, z1 = -d.origin[2] / 16;
+    boxes.push({ x0, x1, z0, z1 });
     const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
     dirs.forEach(([dx, dz], i) => {
       const reach = dx > 0 ? x1 : dx < 0 ? -x0 : dz > 0 ? z1 : -z0;
@@ -499,9 +507,26 @@ export function boardPointsOf(geometry: unknown): BoardPoint[] {
     });
   }
   const out: BoardPoint[] = [];
-  for (const b of best) if (b && !out.some(o => Math.hypot(o.x - b.p.x, o.z - b.p.z) < 1)) out.push(b.p);
+  for (const b of best) {
+    if (!b || out.some(o => Math.hypot(o.x - b.p.x, o.z - b.p.z) < 1)) continue;
+    const { dx, dz } = b.p, along: Array<number | null> = [];
+    for (let s = 0; s <= b.reach + 1e-9; s += BOARD.ALONG_STEP_BLOCKS) {
+      // The cubes covering distance s along this direction (on its own side of the root), and their span across.
+      let lo = Infinity, hi = -Infinity;
+      for (const q of boxes) {
+        const a0 = dx > 0 ? q.x0 : dx < 0 ? -q.x1 : dz > 0 ? q.z0 : -q.z1;
+        const a1 = dx > 0 ? q.x1 : dx < 0 ? -q.x0 : dz > 0 ? q.z1 : -q.z0;
+        if (s < a0 || s > a1) continue;
+        const c0 = dx ? q.z0 : q.x0, c1 = dx ? q.z1 : q.x1;
+        lo = Math.min(lo, c0); hi = Math.max(hi, c1);
+      }
+      along.push(lo <= hi ? round3((lo + hi) / 2) : null);
+    }
+    out.push({ ...b.p, along });
+  }
   return out;
 }
+
 
 /**
  * How an entity follows the wand's size steps.
