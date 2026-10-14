@@ -150,9 +150,13 @@ The round-30m fixes on the phones:
    Survey of all 23 (`.../survey/survey.json`): 42703 3.0 blocks up (two 49577
    seaweed, learned row n 3), 76417 0.77 (95345 pitchfork, n 3), 10326 0.42
    (29602pb01, IOModel2V2), 10797 0.30 (4040/35692/bl_65700, no learned row),
-   10303 0.26 (80679pb01); 13 sets 0. 49577 + 95345 A/B with the clego agent. NEXT: Saga 30s (`--exclusive --prune-stale`, world 925) once
-   the Saga 30r agent reports (asked 10-14 00:30 to wrap up; silent since
-   10-13 20:05); then a round with the tap fix + 60380.
+   10303 0.26 (80679pb01); 13 sets 0. 49577 + 95345 A/B with the clego agent. The Saga 30r agent DIED at 10-13
+   20:05 mid mount test (last shots `output/device-round-2026-10-12r/saga/shots/c07-c10`,
+   a long-press on a 10261 car with the Mount prompt shown); its world-925
+   changes are UNKNOWN - the next Saga agent inventories and restores them
+   first (gamemode, tags, effects, sneak, placed sets, camera). NEXT: round 30t
+   = 30s + the tap fix + 60380/42703/76417 sources, built once the clego agent
+   finishes; deploy both phones.
    User shots: `C:/Users/wills/Downloads/*-{slide,floating,tree,lolipop}*.png`.
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
