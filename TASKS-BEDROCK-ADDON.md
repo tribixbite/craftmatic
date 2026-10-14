@@ -187,8 +187,9 @@ The round-30m fixes on the phones:
    along the axis, duplicates within `MERGE_BLOCKS` 0.5 skipped (Milano 32 /
    53 / 65 / 87 columns at 100-400 %; the 4-cap stood 172 at 400 %; count
    with `bun output/device-round-2026-10-14x/tools/milano_points.ts <pack>`).
-   NEXT: round 30y from that commit (30x, built from 6a8765d5 before the
-   merge, is superseded), sim + regressions, Saga Survival sweep 1.5 and 2.5
+   ROUND 30y BUILT from 9d08e06f (`output/device-round-2026-10-14y/`, 23/23,
+   sim 138/0, regressions 36/0; 30x is superseded) and ON THE SAGA via an
+   agent (evidence -> `output/device-round-2026-10-14y/saga/`): sweep 1.5 and 2.5
    off each wing's leading AND trailing edge at x 5-13, under it, 200 %, a
    400 % placement (87 columns: content log, frame rate, no crash), plus the
    30w regression spot checks.
