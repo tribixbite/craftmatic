@@ -154,9 +154,19 @@ The round-30m fixes on the phones:
    20:05 mid mount test (last shots `output/device-round-2026-10-12r/saga/shots/c07-c10`,
    a long-press on a 10261 car with the Mount prompt shown); its world-925
    changes are UNKNOWN - the next Saga agent inventories and restores them
-   first (gamemode, tags, effects, sneak, placed sets, camera). NEXT: round 30t
-   = 30s + the tap fix + 60380/42703/76417 sources, built once the clego agent
-   finishes; deploy both phones.
+   first (gamemode, tags, effects, sneak, placed sets, camera). 42703's 49577 seaweed row DROPPED + 17 files
+   published (clego `2489d989`/`a19e9040` unpushed, craftmatic `1f556fa3`;
+   `output/dbix-rows-1014-49577/`): 42703 and 60380 now at y ~0 offline,
+   coaster output unchanged. 95345 pitchfork row KEPT (rejected: forks poke
+   through floors elsewhere); 76417 is `lxfml-direct` (craftmatic's own LXF
+   placement, identity row) and its 0.23-0.8 block gap is set by figures / the
+   display line at y 0 - open, unmeasured which. ROUND 30t BUILT
+   (`output/device-round-2026-10-14t/packs-1f556fa3`, 23/23, sim 132/0,
+   regressions 36/0 incl. `coaster-car-tap-10261-30s` OK) and with two agents:
+   Saga 925 (inventory+restore the dead 30r agent's state first, then mount in
+   Survival + Creative, slide, pieces, floating) and Pixel 924 (coaster tap,
+   train return after dismount, 60380/42703 grounding). Evidence
+   `output/device-round-2026-10-14t/{saga,pixel}/`.
    User shots: `C:/Users/wills/Downloads/*-{slide,floating,tree,lolipop}*.png`.
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
