@@ -120,14 +120,23 @@ The round-30m fixes on the phones:
    slide in the top-left wall + mic stand under the floor (IX-03 REGRESSED);
    loose/misplaced pieces in 10797/60380/42639/10788 (VIEW-02; the offline 30r
    renders show the same, all DbixConvV3); sets floating (new WAND-07, OPEN).
-   DIAGNOSED: every loose piece is clego's DBIX->LDraw conversion (Studio row
-   applied FORWARD: 27976 slide, 10314, 40244, 30562, 93888; bad learned rows in
-   `dbix_part_align.json`: 65473 tree, 92338 chains, 3262 balloons, 83496
-   billboard, 32250 arches; no right row: 23769 mic leg, 11650 truck chassis).
-   Below-ground strays likely set 42639's floor (WAND-07, unmeasured).
-   craftmatic's own LXF reader got rows for 23769/3262/83496 (`d0f26634`).
-   clego repair + A/B + regenerate + publish is with an agent (scratch
-   `clego-repair-1013`); then rebuild the four packs and re-test.
+   Cause: clego's DBIX->LDraw rows (forward Studio rows 27976/10314/40244/
+   30562/93888/28324, bad learned 65473/92338/3262/83496/32250, missing 23769/
+   11650). REPAIRED OFFLINE 10-14: clego `4a681a39` + `87963051` (guard
+   `tests/test_dbix_row_repair.py`; clego NOT pushed - master also carries
+   another agent's `3cfc590d`, the user's call), 554 sources published to R2 +
+   index (`4f093bde`, prod verified 545/545 by sha). Renders
+   `output/dbix-rows-1013/renders/` show slide in its gap, mic stand on the
+   floor, balloons on domes, truck chassis, billboard on post, tree assembled,
+   42639 arches/bar placed; `_drawn_floor --world` puts 42639 at y 0.00 (WAND-07
+   offline). Held: 120 files (no-improvement/unsure), 22 forward rows tested
+   mixed per design (92280: 271 better/60 worse) - need a frozen-baseline rerun
+   (`output/dbix-rows-1013/ab-forward/`); 42670 dolls sunk 36/20 LDU; 42639's
+   white stair bits float left (pre-existing).
+   NEXT: round 30s `output/device-round-2026-10-14s/build.sh` (all 23, built
+   from `4f093bde`), deploy both phones `--exclusive --prune-stale` once the
+   Saga 30r agent is done with world 925; re-test mounting (Milano, coaster
+   car), 10788 slide, the four sets' pieces, floating.
    User shots: `C:/Users/wills/Downloads/*-{slide,floating,tree,lolipop}*.png`.
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
