@@ -1088,8 +1088,13 @@ export const VEHICLE_EGRESS = { MARGIN: 0.5, SPACING: 1, MAX_CANDIDATES: 64, ABO
  *   - `STILL_SPEED` 0.05 blocks/tick: a vehicle slower than this, with nobody aboard, is parked;
  *   - `RETRIES` 2 / `RETRY_TICKS` 2: `addRider` refused (quirk `add-rider-spawn-tick`) is retried, then the
  *     `ride` command is the last resort, as the placement's seat retries.
- *   - `SIDE_SPACING_MAX_BLOCKS` 4: between the hull box and a tip, more columns stand along the axis (a wing, a long
- *     nose or tail), one column width apart and never more than 4, so along it they touch or overlap;
+ *   - between the hull box and a tip, more columns stand along the axis (a wing, a long nose or tail), one column
+ *     width apart, so along it they touch (a cap of 4, planned for a root reach, stood 172 columns round a 400 %
+ *     Milano, 87 now);
+ *   - `MERGE_BLOCKS` 0.5: a column whose middle is within this of one already placed is skipped (the tail's profile
+ *     spans the wings behind the root, so its columns meet theirs); a face moves at most this far, inside the margin
+ *     between `BOX_REACH_BLOCKS` and the measured ~3 (skipping every column whose middle is inside another's box
+ *     stood 60 at 400 % but could move a face half a column, 4 blocks there);
  *   - ACROSS the axis those columns stand under the drawn EDGES, not the middle (`BoardPoint.along` holds the drawn
  *     span): each outer face `OUTSET_BLOCKS` past its edge, more between them while two faces are farther apart than
  *     twice `BOX_REACH_BLOCKS`. In Survival a tap or hold reaches ~3 blocks from the eye to the BOX (Saga 30w: from
@@ -1101,7 +1106,7 @@ export const VEHICLE_EGRESS = { MARGIN: 0.5, SPACING: 1, MAX_CANDIDATES: 64, ABO
  * A child standing INSIDE a column (under a wing) is picked: Saga 30w, 20/20 from an eye inside the 100 % column,
  * 3/3 at 200 %. A rotorcraft (native) has no board points.
  */
-export const BOARD = { MIN_REACH_BLOCKS: 4, HULL_HIT_HALF_MAX_BLOCKS: 4, COLUMN_WIDTH: 2, COLUMN_HEIGHT: 3, OUTSET_BLOCKS: 0.5, SIDE_SPACING_MAX_BLOCKS: 4, BOX_REACH_BLOCKS: 2.5, ALONG_STEP_BLOCKS: 0.5, CHECK_TICKS: 5, SWEEP_TICKS: 200, STILL_SPEED: 0.05, RETRIES: 2, RETRY_TICKS: 2 } as const;
+export const BOARD = { MIN_REACH_BLOCKS: 4, HULL_HIT_HALF_MAX_BLOCKS: 4, COLUMN_WIDTH: 2, COLUMN_HEIGHT: 3, OUTSET_BLOCKS: 0.5, BOX_REACH_BLOCKS: 2.5, MERGE_BLOCKS: 0.5, ALONG_STEP_BLOCKS: 0.5, CHECK_TICKS: 5, SWEEP_TICKS: 200, STILL_SPEED: 0.05, RETRIES: 2, RETRY_TICKS: 2 } as const;
 export type BoardParams = typeof BOARD;
 /** The dynamic property a board point carries: its vehicle's entity id. */
 export const BOARD_OWNER_PROPERTY = 'craftmatic:board_of';
@@ -1121,38 +1126,42 @@ export interface BoardRuntimeConfig { type: string; sizeEventPrefix: string; siz
  * Where a vehicle's board points stand at a pose (pure; the runtime and the tests call it): for every extremity
  * farther than `MIN_REACH_BLOCKS` from the root at scale `k`, the column's BASE centre in the world: on the vehicle's
  * base, its outer face `OUTSET_BLOCKS` past the drawn tip; then, with the point's `along` profile, a column every
- * `min(COLUMN_WIDTH x k, SIDE_SPACING_MAX_BLOCKS)` back toward the root while its middle is still past
+ * `COLUMN_WIDTH x k` back toward the root while its middle is still past
  * `MIN_REACH_BLOCKS`, columns under both edges of what is drawn there and between them (`acrossCentres`; none where
  * nothing is). `yawDeg` is Bedrock's
  * (0 faces +z; +x turns toward +z: the colliders' and `drawnBoxes`' turn).
  */
 export function boardPointPlaces(points: readonly BoardPoint[], pose: { x: number; y: number; z: number; yaw: number }, k: number, P: BoardParams): Array<{ x: number; y: number; z: number }> {
-  const out: Array<{ x: number; y: number; z: number }> = [];
-  const r = pose.yaw * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
-  const put = (ex: number, ez: number): void => { out.push({ x: pose.x + ex * c - ez * s, y: pose.y, z: pose.z + ex * s + ez * c }); };
+  // Columns in the entity frame first (deduplicated there), turned into the world at the end.
+  const cols: Array<{ x: number; z: number }> = [];
+  const half = P.COLUMN_WIDTH * k / 2;
+  // A column within `MERGE_BLOCKS` of one already placed is skipped (the tail's profile spans the wings behind the root).
+  const put = (ex: number, ez: number): void => { if (!cols.some(q => Math.abs(q.x - ex) < P.MERGE_BLOCKS && Math.abs(q.z - ez) < P.MERGE_BLOCKS)) cols.push({ x: ex, z: ez }); };
   // Along its own axis, the column's middle is half its width in from its outer face, which stands past the tip.
-  const back = P.COLUMN_WIDTH * k / 2 - P.OUTSET_BLOCKS;
-  const spacing = Math.min(P.COLUMN_WIDTH * k, P.SIDE_SPACING_MAX_BLOCKS);
-  for (const p of points) {
-    const tip = Math.abs(p.x * p.dx + p.z * p.dz) * k;
-    if (tip <= P.MIN_REACH_BLOCKS) continue;
-    put(p.x * k - p.dx * back, p.z * k - p.dz * back);
+  const back = half - P.OUTSET_BLOCKS;
+  const far = points.filter(p => Math.abs(p.x * p.dx + p.z * p.dz) * k > P.MIN_REACH_BLOCKS);
+  // Every tip first, so no side column displaces one.
+  for (const p of far) put(p.x * k - p.dx * back, p.z * k - p.dz * back);
+  for (const p of far) {
     if (!p.along?.length) continue;
-    // The sides: back from the tip column toward the root, under what is drawn across at each distance.
-    for (let m = tip - back - spacing; m > P.MIN_REACH_BLOCKS; m -= spacing) {
+    const tip = Math.abs(p.x * p.dx + p.z * p.dz) * k;
+    // The sides: back from the tip column toward the root, one column width apart (touching), under what is drawn
+    // across at each distance.
+    for (let m = tip - back - 2 * half; m > P.MIN_REACH_BLOCKS; m -= 2 * half) {
       const span = p.along[Math.min(p.along.length - 1, Math.round(m / k / P.ALONG_STEP_BLOCKS))];
       if (!span) continue;
       // Under each drawn edge, its outer face OUTSET past it, and between them while two faces are farther apart
       // than a child reaches from either (`BOX_REACH_BLOCKS`): beside the wing a face is within reach, under it too.
       const lo = span[0] * k + back, hi = span[1] * k - back;
-      const n = hi <= lo ? 1 : 1 + Math.ceil((hi - lo) / (P.COLUMN_WIDTH * k + 2 * P.BOX_REACH_BLOCKS));
+      const n = hi <= lo ? 1 : 1 + Math.ceil((hi - lo) / (2 * half + 2 * P.BOX_REACH_BLOCKS));
       for (let i = 0; i < n; i++) {
         const across = n === 1 ? (span[0] + span[1]) * k / 2 : lo + (hi - lo) * i / (n - 1);
         if (p.dx) put(p.dx * m, across); else put(across, p.dz * m);
       }
     }
   }
-  return out;
+  const r = pose.yaw * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+  return cols.map(q => ({ x: pose.x + q.x * c - q.z * s, y: pose.y, z: pose.z + q.x * s + q.z * c }));
 }
 export type VehicleEgressParams = typeof VEHICLE_EGRESS;
 

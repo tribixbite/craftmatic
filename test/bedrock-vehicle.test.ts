@@ -1279,14 +1279,25 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     // A chord narrower than a column: one column, under its middle.
     const thin = boardPointPlaces([{ ...wing, along: along.map(a => (a ? [-2, -1.5] as const : null)) }], { x: 0, y: 0, z: 0, yaw: 0 }, 1, BOARD);
     expect(thin.filter(q => q.x === 8.5).map(q => q.z)).toEqual([-1.75]);
-    // At 300 % the columns are 6 wide and stand 4 apart (`SIDE_SPACING_MAX_BLOCKS`), across times the scale.
+    // At 300 % the columns are 6 wide and stand 6 apart (touching), across times the scale.
     const big = boardPointPlaces([wing], { x: 0, y: 0, z: 0, yaw: 0 }, 3, BOARD);
     // The outset is not scaled: the face stands half a block past the edge at every size.
     const back3 = BOARD.COLUMN_WIDTH * 3 / 2 - BOARD.OUTSET_BLOCKS;
     const xs = [...new Set(big.slice(1).map(q => q.x))];
-    for (let i = 1; i < xs.length; i++) expect(xs[i - 1]! - xs[i]!).toBeCloseTo(BOARD.SIDE_SPACING_MAX_BLOCKS, 9);
+    for (let i = 1; i < xs.length; i++) expect(xs[i - 1]! - xs[i]!).toBeCloseTo(BOARD.COLUMN_WIDTH * 3, 9);
     expect(Math.min(...xs)).toBeGreaterThan(BOARD.MIN_REACH_BLOCKS);
     expect([...new Set(big.slice(1).map(q => q.z))].sort((a, b) => a - b)).toEqual([-12 + back3, -3 - back3]);
+    // At 400 % too, with a tail profile spanning the wing (its columns meet the wing's): every spot 2 off either
+    // edge is within reach of a box, and no two columns stand within MERGE_BLOCKS of each other.
+    const tail: BoardPoint = { x: 0, z: -15, dx: 0, dz: -1, along: Array.from({ length: 31 }, (_, i) => (i * BOARD.ALONG_STEP_BLOCKS >= 1 ? [-1, 15] as const : null)) };
+    const four = boardPointPlaces([wing, tail], { x: 0, y: 0, z: 0, yaw: 0 }, 4, BOARD);
+    const toBox4 = (q: { x: number; z: number }, x: number, z: number): number => Math.hypot(Math.max(0, Math.abs(x - q.x) - 4), Math.max(0, Math.abs(z - q.z) - 4));
+    for (let x = BOARD.HULL_HIT_HALF_MAX_BLOCKS + 4; x <= 60; x += 0.5) for (const z of [chord[0] * 4 - 2, chord[1] * 4 + 2]) {
+      expect(Math.min(...four.map(q => toBox4(q, x, z)))).toBeLessThanOrEqual(BOARD.BOX_REACH_BLOCKS);
+    }
+    for (let i = 0; i < four.length; i++) for (let j = i + 1; j < four.length; j++) {
+      expect(Math.max(Math.abs(four[i]!.x - four[j]!.x), Math.abs(four[i]!.z - four[j]!.z))).toBeGreaterThanOrEqual(BOARD.MERGE_BLOCKS);
+    }
     // Turned: yaw 90 takes the +x wing to +z.
     const turned = boardPointPlaces([wing], { x: 0, y: 0, z: 0, yaw: 90 }, 1, BOARD);
     expect(turned[1]!.z).toBeCloseTo(12.5, 9);

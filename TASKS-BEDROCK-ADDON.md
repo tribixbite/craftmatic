@@ -183,10 +183,15 @@ The round-30m fixes on the phones:
    inside the column picks it), 1.5 off the leading edge 0/16 (nearest face
    3.5+). Fix (this commit): wing / long-hull columns stand under BOTH drawn
    edges, faces 0.5 past them, more between while faces are > 5 apart
-   (`BOARD.BOX_REACH_BLOCKS` 2.5, `BoardPoint.along` = `[lo, hi]`). NEXT:
-   build round 30x from it, sim + regressions, Saga Survival sweep 1.5 and
-   2.5 off each wing's leading AND trailing edge at x 5-13, under it, 200 %,
-   plus the 30w regression spot checks; record point counts (100 % ~28?).
+   (`BOARD.BOX_REACH_BLOCKS` 2.5, `BoardPoint.along` = `[lo, hi]`), touching
+   along the axis, duplicates within `MERGE_BLOCKS` 0.5 skipped (Milano 32 /
+   53 / 65 / 87 columns at 100-400 %; the 4-cap stood 172 at 400 %; count
+   with `bun output/device-round-2026-10-14x/tools/milano_points.ts <pack>`).
+   NEXT: round 30y from that commit (30x, built from 6a8765d5 before the
+   merge, is superseded), sim + regressions, Saga Survival sweep 1.5 and 2.5
+   off each wing's leading AND trailing edge at x 5-13, under it, 200 %, a
+   400 % placement (87 columns: content log, frame rate, no crash), plus the
+   30w regression spot checks.
    Open: why 30u's eye inside a 16-wide box was refused (ray-exit distance?).
    Pixel not re-run since dbe20600. Also open: 10797's blue cluster + brown
    oval on the grass N of its wall (Saga 30t e06, unchecked vs source);
