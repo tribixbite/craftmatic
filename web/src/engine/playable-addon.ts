@@ -1020,13 +1020,15 @@ export function rideSeatBehavior(id: string): unknown {
  * non-rideable custom entity raised none in GameTest, quirk `gametest-simulated-player`) and shows the Mount
  * prompt; the device seats the player on the point and the runtime moves them into the VEHICLE, as it does for a tap. No gravity,
  * no collision, never pushed; its pick box is a `BOARD.COLUMN_WIDTH` x `COLUMN_HEIGHT` column standing on its
- * origin at 100 %, re-declared at each size (`withSizeGroups` `hitTest`) so it grows with the vehicle it serves.
+ * origin at `pct` percent, declared in the BASE components of a type of its own per size step - never re-declared
+ * by a size event: Saga 30y (2026-10-14) refused the 200 % columns sized by `craftmatic:size_200` wherever only the
+ * 100 % column would have missed (quirk `hit-test-size-event`). It has no `minecraft:scale`: nothing of it is drawn.
  */
-export function boardPointBehavior(id: string): unknown {
+export function boardPointBehavior(id: string, pct = 100): unknown {
     const rideable = { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, 0, 0], lock_rider_rotation: 0 } };
-    const column: HitTestBox = { width: BOARD.COLUMN_WIDTH, height: BOARD.COLUMN_HEIGHT, pivot: [0, BOARD.COLUMN_HEIGHT / 2, 0] };
+    const [column] = hitTestAtSize([{ width: BOARD.COLUMN_WIDTH, height: BOARD.COLUMN_HEIGHT, pivot: [0, BOARD.COLUMN_HEIGHT / 2, 0] }], pct / 100);
     const box = { width: 0.25, height: 0.25 };
-    return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: false, is_summonable: true }, components: {
+    return { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: false, is_summonable: true }, components: {
         'minecraft:type_family': { family: ['craftmatic_board'] },
         'minecraft:nameable': {}, 'minecraft:persistent': {},
         'minecraft:health': { value: 20, max: 20 },
@@ -1039,7 +1041,7 @@ export function boardPointBehavior(id: string): unknown {
         'minecraft:knockback_resistance': { value: 1 },
         'minecraft:rideable': rideable,
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
-    } } }, { ...box }, rideable, { hitTest: [column] });
+    } } };
 }
 /**
  * A flyer mount's companion seat (bedrock-flyer.ts, bedrock-rides.ts kind
@@ -3856,10 +3858,11 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // with drawn extremities; the runtime places them only where an extremity lies past the interact's root reach.
     let boardConfig: ScriptedVehicleConfig['board'];
     if (Object.values(scriptedTypes).some(t => t.board?.length)) {
-        const boardId = entityId(`${id}_board`, 'b');
-        boardConfig = { type: `${PACK_NAMESPACE}:${boardId}`, sizeEventPrefix: SIZE_EVENT_PREFIX, sizes: SIZE_STEPS, ownerProperty: BOARD_OWNER_PROPERTY, params: BOARD };
-        files.push(
-            { name: `${bp}entities/${boardId}.json`, data: json(boardPointBehavior(boardId)) },
+        // One point type per size step, its column declared at that size (`boardPointBehavior`).
+        const boardIds = Object.fromEntries(SIZE_STEPS.map(pct => [String(pct), entityId(`${id}_board_${pct}`, 'b')]));
+        boardConfig = { types: Object.fromEntries(Object.entries(boardIds).map(([pct, b]) => [pct, `${PACK_NAMESPACE}:${b}`])), ownerProperty: BOARD_OWNER_PROPERTY, params: BOARD };
+        for (const [pct, boardId] of Object.entries(boardIds)) files.push(
+            { name: `${bp}entities/${boardId}.json`, data: json(boardPointBehavior(boardId, Number(pct))) },
             { name: `${rp}entity/${boardId}.entity.json`, data: json(seatClient(boardId)) },
         );
         // The invisible seat's model and texture, unless a seat or a ride already wrote them.
@@ -3867,7 +3870,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             { name: `${rp}models/entity/craftmatic_seat.geo.json`, data: geoJson(SEAT_GEOMETRY) },
             { name: `${rp}textures/entity/craftmatic_seat.png`, data: transparentPng() },
         );
-        addEntityName(boardConfig.type, `${label} Boarding point`, false);
+        for (const type of Object.values(boardConfig.types)) addEntityName(type, `${label} Boarding point`, false);
     }
     if (Object.keys(scriptedTypes).length) files.push({ name: `${bp}scripts/vehicles.js`, data: text(scriptedVehicleScript({
         types: scriptedTypes, flight: FLIGHT, boat: BOAT, car: CAR, hover: HOVER, footprint: FOOTPRINT, move: MOVE, headlights: HEADLIGHTS,

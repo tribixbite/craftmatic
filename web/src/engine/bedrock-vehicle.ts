@@ -1090,7 +1090,7 @@ export const VEHICLE_EGRESS = { MARGIN: 0.5, SPACING: 1, MAX_CANDIDATES: 64, ABO
  *     `ride` command is the last resort, as the placement's seat retries.
  *   - between the hull box and a tip, more columns stand along the axis (a wing, a long nose or tail), one column
  *     width apart, so along it they touch (a cap of 4, planned for a root reach, stood 172 columns round a 400 %
- *     Milano, 87 now);
+ *     Milano; 39 / 67 / 72 / 99 at 100-400 % now);
  *   - `MERGE_BLOCKS` 0.5: a column whose middle is within this of one already placed is skipped (the tail's profile
  *     spans the wings behind the root, so its columns meet theirs); a face moves at most this far, inside the margin
  *     between `BOX_REACH_BLOCKS` and the measured ~3 (skipping every column whose middle is inside another's box
@@ -1101,10 +1101,14 @@ export const VEHICLE_EGRESS = { MARGIN: 0.5, SPACING: 1, MAX_CANDIDATES: 64, ABO
  *     a 2-wide column seated at 2-3.75 from its centre, 8/8, refused at 4 and 5, 0/4; 30v's 8-wide hull: seated 2.5
  *     from its face, refused at 3.0; quirk `tap-is-hit` Survival 3). Round 30w's columns under the chord's MIDDLE
  *     seated a child under the wing 20/20 and one standing 1.5 off its leading edge 0/16 (the nearest face 3.5-4 away);
+ *     the edge columns of round 30y seated 40/40 from 1.5 off either edge and 36/40 from 2.5. A column takes the
+ *     WIDEST span drawn under its own width along the axis: from one sample at its centre the x 11 column of the
+ *     Milano stood 1.69 behind the drawn edge (30y's two misses at 2.5 off);
  *   - `BOX_REACH_BLOCKS` 2.5: the Survival reach to a column's box planned for, under the measured 2.75-3.0;
  *   - `ALONG_STEP_BLOCKS` 0.5: the profile's sampling step at 100 % (`boardPointsOf`).
- * A child standing INSIDE a column (under a wing) is picked: Saga 30w, 20/20 from an eye inside the 100 % column,
- * 3/3 at 200 %. A rotorcraft (native) has no board points.
+ * A child standing INSIDE a column (under a wing) is picked: Saga 30w, 20/20 from an eye inside the 100 % column.
+ * Each size step is its own point TYPE (`BoardRuntimeConfig.types`): 30y's 200 % columns, sized by a size event,
+ * were picked by their 100 % box (quirk `hit-test-size-event`). A rotorcraft (native) has no board points.
  */
 export const BOARD = { MIN_REACH_BLOCKS: 4, HULL_HIT_HALF_MAX_BLOCKS: 4, COLUMN_WIDTH: 2, COLUMN_HEIGHT: 3, OUTSET_BLOCKS: 0.5, BOX_REACH_BLOCKS: 2.5, MERGE_BLOCKS: 0.5, ALONG_STEP_BLOCKS: 0.5, CHECK_TICKS: 5, SWEEP_TICKS: 200, STILL_SPEED: 0.05, RETRIES: 2, RETRY_TICKS: 2 } as const;
 export type BoardParams = typeof BOARD;
@@ -1119,8 +1123,13 @@ export const BOARD_OWNER_PROPERTY = 'craftmatic:board_of';
  */
 export interface BoardPoint { x: number; z: number; dx: number; dz: number; along?: Array<readonly [number, number] | null> }
 
-/** What the runtime needs to keep board points: the point's entity type, the size steps it is sized by, the constants. */
-export interface BoardRuntimeConfig { type: string; sizeEventPrefix: string; sizes: readonly number[]; ownerProperty: string; params: BoardParams }
+/**
+ * What the runtime needs to keep board points: the point's entity type for each size step (percent -> type id), the
+ * owner property, the constants. One TYPE per size, its column declared at that size in its base components, never a
+ * size event: Saga 30y (2026-10-14) refused taps on 200 % columns sized by `craftmatic:size_200` exactly where only the
+ * 100 % column would have been missed (10 of 11), while the 400 % group was never refused (quirk `hit-test-size-event`).
+ */
+export interface BoardRuntimeConfig { types: Readonly<Record<string, string>>; ownerProperty: string; params: BoardParams }
 
 /**
  * Where a vehicle's board points stand at a pose (pure; the runtime and the tests call it): for every extremity
@@ -1148,7 +1157,16 @@ export function boardPointPlaces(points: readonly BoardPoint[], pose: { x: numbe
     // The sides: back from the tip column toward the root, one column width apart (touching), under what is drawn
     // across at each distance.
     for (let m = tip - back - 2 * half; m > P.MIN_REACH_BLOCKS; m -= 2 * half) {
-      const span = p.along[Math.min(p.along.length - 1, Math.round(m / k / P.ALONG_STEP_BLOCKS))];
+      // The widest span drawn anywhere under the column's own width along the axis (every sample it covers), so a
+      // jagged outline never leaves a column behind an edge half a column along (Saga 30y: the x 10.5 sample stood
+      // the x 11 column 1.69 inside the drawn edge, 0 of 4 from 2.5 off it).
+      let span: [number, number] | null = null;
+      const i0 = Math.max(0, Math.ceil((m - half) / k / P.ALONG_STEP_BLOCKS - 1e-9));
+      const i1 = Math.min(p.along.length - 1, Math.floor((m + half) / k / P.ALONG_STEP_BLOCKS + 1e-9));
+      for (let i = i0; i <= i1; i++) {
+        const a = p.along[i];
+        if (a) span = span ? [Math.min(span[0], a[0]), Math.max(span[1], a[1])] : [a[0], a[1]];
+      }
       if (!span) continue;
       // Under each drawn edge, its outer face OUTSET past it, and between them while two faces are farther apart
       // than a child reaches from either (`BOX_REACH_BLOCKS`): beside the wing a face is within reach, under it too.
@@ -1604,10 +1622,16 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     for (const p of b.points) { try { p.remove(); } catch { /* gone */ } }
     boards.delete(vid);
   };
-  /** The size step nearest a live scale (the point's own `craftmatic:size_<pct>` event sizes its column with the vehicle). */
-  const sizeStep = (k: number): number => {
-    let best = 100;
-    for (const s of BD?.sizes ?? []) if (Math.abs(s - k * 100) < Math.abs(best - k * 100)) best = s;
+  /** Every board point type of this pack, one per size step (`BoardRuntimeConfig.types`). */
+  const boardTypes: string[] = BD ? Object.values(BD.types) : [];
+  const isBoard = (typeId: unknown): boolean => typeof typeId === 'string' && boardTypes.includes(typeId);
+  /** The point type whose column is declared nearest a live scale (its size is its TYPE, never a size event). */
+  const boardTypeAt = (k: number): string | undefined => {
+    let best: string | undefined, gap = Infinity;
+    for (const [pct, type] of Object.entries(BD?.types ?? {})) {
+      const d = Math.abs(Number(pct) - k * 100);
+      if (d < gap) { gap = d; best = type; }
+    }
     return best;
   };
   /** What `player` rides now, if anything. */
@@ -1675,11 +1699,11 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
   };
   /** A hold or a tap on a board point: off the point if the device seated them on it, into its vehicle. */
   const boardFrom = (player: any, point: any): void => {
-    if (!BD || !player || player.typeId !== 'minecraft:player' || !point || point.typeId !== BD.type) return;
+    if (!BD || !player || player.typeId !== 'minecraft:player' || !point || !isBoard(point.typeId)) return;
     // A rider of anything but a board point is never pulled out by a tap on another vehicle's point (Saga 30u: seated in
     // the McLaren, a tap toward the Milano hit its point and moved the player across, 2 of 2).
     const on = ridingOn(player);
-    if (on && on.typeId !== BD.type) return;
+    if (on && !isBoard(on.typeId)) return;
     let owner: unknown;
     try { owner = point.getDynamicProperty(BD.ownerProperty); } catch { owner = undefined; }
     let vehicle: any;
@@ -1723,18 +1747,18 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       const step = BD.params.ALONG_STEP_BLOCKS;
       const far = (p: BoardPoint): number => (p.along ?? []).reduce((m: number, a, i) => (a === null ? m : Math.max(m, Math.hypot(i * step, Math.max(Math.abs(a[0]), Math.abs(a[1]))))), Math.hypot(p.x, p.z));
       const reach = kind.board.reduce((m, p) => Math.max(m, far(p)), 0) * k + BD.params.COLUMN_WIDTH * k + 2;
-      let old: any[] = [];
-      try { old = dim.getEntities({ type: BD.type, location: { x: loc.x, y: loc.y, z: loc.z }, maxDistance: reach }); } catch { old = []; }
+      const old: any[] = [];
+      for (const type of boardTypes) { try { old.push(...dim.getEntities({ type, location: { x: loc.x, y: loc.y, z: loc.z }, maxDistance: reach })); } catch { /* not loaded */ } }
       for (const p of old) { try { if (p.getDynamicProperty(BD.ownerProperty) === e.id) p.remove(); } catch { /* gone */ } }
     }
     const at = places!(kind.board, { x: loc.x, y: loc.y, z: loc.z, yaw }, k, BD.params);
     if (!at.length) { boards.set(e.id, { vehicle: e, key, points: [], want: 0 }); return; }
-    const pct = sizeStep(k), points: any[] = [];
+    const type = boardTypeAt(k), points: any[] = [];
+    if (!type) { boards.set(e.id, { vehicle: e, key, points: [], want: 0 }); return; }
     for (const q of at) {
       let p: any;
-      try { p = dim.spawnEntity(BD.type, q); } catch { continue; }
+      try { p = dim.spawnEntity(type, q); } catch { continue; }
       try { p.setDynamicProperty(BD.ownerProperty, e.id); } catch { /* the sweep removes an ownerless point */ }
-      try { p.triggerEvent(`${BD.sizeEventPrefix}${pct}`); } catch { /* 100 % */ }
       points.push(p);
     }
     boards.set(e.id, { vehicle: e, key, points, want: at.length });
@@ -1748,8 +1772,8 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       for (const p of b.points) { try { kept.add(p.id); } catch { /* gone */ } }
     }
     for (const dim of dims()) {
-      let list: any[] = [];
-      try { list = dim.getEntities({ type: BD.type }); } catch { continue; }
+      const list: any[] = [];
+      for (const type of boardTypes) { try { list.push(...dim.getEntities({ type })); } catch { /* not loaded */ } }
       for (const p of list) { try { if (!kept.has(p.id)) p.remove(); } catch { /* gone */ } }
     }
   };
@@ -1759,12 +1783,12 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     // `tendBoard` catches a native mount this misses. A TAP is a hit (quirk `tap-is-hit`).
     try {
       world.beforeEvents.playerInteractWithEntity.subscribe((ev: any) => {
-        if (ev.target?.typeId !== BD.type) return;
+        if (!isBoard(ev.target?.typeId)) return;
         const player = ev.player, point = ev.target;
         system.run(() => { boardLog('hold', player, point); boardFrom(player, point); });
       });
     } catch { /* not in this API: the native mount on the point is moved into the vehicle by `tendBoard` */ }
-    try { world.afterEvents.entityHitEntity.subscribe((ev: any) => { if (ev.hitEntity?.typeId === BD.type) { boardLog('tap', ev.damagingEntity, ev.hitEntity); boardFrom(ev.damagingEntity, ev.hitEntity); } }); } catch { /* not in this API */ }
+    try { world.afterEvents.entityHitEntity.subscribe((ev: any) => { if (isBoard(ev.hitEntity?.typeId)) { boardLog('tap', ev.damagingEntity, ev.hitEntity); boardFrom(ev.damagingEntity, ev.hitEntity); } }); } catch { /* not in this API */ }
     /**
      * The HULL boards too (VEH-17, Saga 30t). A tap on the vehicle itself is a hit, which nothing answered: only its
      * board points did, and a child taps the ship it sees. A hold under the 100 % Milano ~7 blocks from its root showed

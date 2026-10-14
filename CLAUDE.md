@@ -391,7 +391,11 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   the device refuses, and no script event fires (Saga 30u: an eye inside a
   16-wide box 6.5 from the root was refused too). A scripted vehicle's box is
   clipped to 8 wide and its far ends and wings are boarded through board
-  columns under their drawn EDGES (`BOARD`). Test boarding in Survival; a
+  columns under their drawn EDGES (`BOARD`). A hit box re-declared by a SIZE
+  EVENT was not picked (Saga 30y: 200 % board columns picked as their 100 %
+  box, quirk `hit-test-size-event`), so board points are one TYPE per size
+  step; the hull's and the interactives' grouped boxes share the doubt.
+  Test boarding in Survival; a
   Creative-only round hides this.
 - **Scripted vehicles (cars, hover craft, boats, ships) have FREE LOOK and
   never stop dead** (2026-09-30): their seats are `lock_rider_rotation` 181

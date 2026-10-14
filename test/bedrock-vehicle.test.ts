@@ -1302,9 +1302,13 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     const turned = boardPointPlaces([wing], { x: 0, y: 0, z: 0, yaw: 90 }, 1, BOARD);
     expect(turned[1]!.z).toBeCloseTo(12.5, 9);
     expect(turned[1]!.x).toBeCloseTo(-chord[0] - back, 9);
-    // Nothing drawn there, no column.
-    const gap = boardPointPlaces([{ ...wing, along: along.map((a, i) => (i >= 16 && i <= 22 ? null : a)) }], { x: 0, y: 0, z: 0, yaw: 0 }, 1, BOARD);
+    // Nothing drawn under a column's whole width (x 7.5-11.5), no column.
+    const gap = boardPointPlaces([{ ...wing, along: along.map((a, i) => (i >= 15 && i <= 23 ? null : a)) }], { x: 0, y: 0, z: 0, yaw: 0 }, 1, BOARD);
     expect([...new Set(gap.slice(1).map(q => q.x))]).toEqual([12.5, 6.5, 4.5]);
+    // A jagged outline: narrow at the column's own centre (x 10.5), wide half a column along (x 11). The column stands
+    // under the WIDEST span its width covers (Saga 30y: one sample at the centre left it 1.69 behind the x 11 edge).
+    const jag = boardPointPlaces([{ ...wing, along: along.map((a, i) => (i === 21 ? [-1.5, -1] as const : i === 22 ? [-6, 2] as const : a)) }], { x: 0, y: 0, z: 0, yaw: 0 }, 1, BOARD);
+    expect(jag.filter(q => q.x === 10.5).map(q => q.z).sort((a, b) => a - b)).toEqual([-6 + back, 2 - back]);
   });
   it('profiles what is drawn along each axis of a shipped geometry (the span across, null where nothing is)', () => {
     const geo = { 'minecraft:geometry': [{ bones: [{ cubes: [
@@ -1321,19 +1325,24 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     expect(wing.along).toHaveLength(Math.round(12 / BOARD.ALONG_STEP_BLOCKS) + 1);
   });
 
-  /** The runtime with one parked ship carrying `pts`, the pack's board point entity, and a player standing off its nose. */
-  function boardHost(pts: readonly BoardPoint[] = points) {
+  /** The runtime with one parked ship carrying `pts` (at `scale`), the pack's board point types, and a player standing off its nose. */
+  function boardHost(pts: readonly BoardPoint[] = points, scale?: number) {
     const typeId = 'craftmatic:t_vehicle', boardType = 'craftmatic:t_board';
     const ship: ScriptedVehicleType = { mode: 'plane', noseReach: 14, halfWidth: 15, height: 3, board: [...pts] };
-    const board = { type: boardType, sizeEventPrefix: 'craftmatic:size_', sizes: [100], ownerProperty: BOARD_OWNER_PROPERTY, params: BOARD };
+    // One point type per size step, as the pack ships them (`boardPointBehavior`).
+    const board = { types: { '100': boardType, '200': `${boardType}_200` }, ownerProperty: BOARD_OWNER_PROPERTY, params: BOARD };
     const h = simHost({
       script: scriptedVehicleScript(hostConfig({ [typeId]: ship }, { board })),
-      entities: { [typeId]: vehicleType(), [boardType]: boardPointBehavior('t_board') as Record<string, unknown> },
+      entities: {
+        [typeId]: vehicleType(undefined, scale),
+        [boardType]: boardPointBehavior('t_board') as Record<string, unknown>,
+        [`${boardType}_200`]: boardPointBehavior('t_board_200', 200) as Record<string, unknown>,
+      },
       terrain: solidBelow(64),
     });
     const vehicle = h.spawn(typeId, { x: 0.5, y: 64, z: 0.5 }, { yaw: 0 });
     const player = h.addPlayer('Child', { x: 0.5, y: 64, z: 15.2 }, { yaw: 180 });
-    const pointsNow = (): SimEntity[] => h.engine.loadedEntities('overworld').filter(e => e.typeId === boardType);
+    const pointsNow = (): SimEntity[] => h.engine.loadedEntities('overworld').filter(e => e.typeId.startsWith(boardType));
     const before = (p: SimEntity, t: SimEntity): boolean => h.host.before('playerInteractWithEntity', { player: h.api(p), target: h.api(t) });
     return { h, vehicle, player, pointsNow, before };
   }
@@ -1433,6 +1442,29 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
       expect(picked?.typeId === 'craftmatic:t_board').toBe(boards);
       expect(child.ridingOn === vehicle).toBe(boards);
     }
+  });
+  it('stands a 200 % ship\'s points as the 200 % TYPE, its column 4 x 6 in its BASE components with no size event (Saga 30y)', () => {
+    // 30y: columns sized by `craftmatic:size_200` were refused wherever only the 100 % column (2 x 3) would have been
+    // missed, 10 of 11 (quirk `hit-test-size-event`). Each size is now a type of its own; nothing re-declares its box.
+    const def = boardPointBehavior('t_board_200', 200) as { 'minecraft:entity': { components: Record<string, unknown>; component_groups?: unknown; events?: unknown } };
+    expect(def['minecraft:entity'].component_groups).toBeUndefined();
+    expect(def['minecraft:entity'].events).toBeUndefined();
+    expect(def['minecraft:entity'].components['minecraft:scale']).toBeUndefined();
+    expect(def['minecraft:entity'].components['minecraft:custom_hit_test']).toEqual({ hitboxes: [{ width: BOARD.COLUMN_WIDTH * 2, height: BOARD.COLUMN_HEIGHT * 2, pivot: [0, BOARD.COLUMN_HEIGHT, 0] }] });
+    const { h, vehicle, pointsNow } = boardHost(points, 2);
+    h.run(12);
+    expect(pointsNow().length).toBeGreaterThan(0);
+    expect(pointsNow().every(q => q.typeId === 'craftmatic:t_board_200')).toBe(true);
+    // 30y's refused diagnostic: 1.0 outside a 200 % column's face, aiming at the face's mid-height (a 2 x 3 column is
+    // missed over its top), in Survival.
+    const q = pointsNow()[0]!, out = Math.sign(q.location.x - vehicle.location.x) || 1;
+    const child = h.addPlayer('Wing', { x: q.location.x + out * (BOARD.COLUMN_WIDTH + 1), y: q.location.y, z: q.location.z }, { yaw: 0 });
+    lookAt(child, { x: q.location.x + out * BOARD.COLUMN_WIDTH, y: q.location.y + BOARD.COLUMN_HEIGHT, z: q.location.z });
+    const picked = pick(h.engine, child, quirkValue('tap-is-hit', 'serverReachSurvivalBlocks')).entity;
+    expect(picked).toBe(q);
+    h.engine.emit('entityHitEntity', { damagingEntity: child, hitEntity: picked });
+    h.run(1 + BOARD.RETRY_TICKS * 2 + 1);
+    expect(child.ridingOn).toBe(vehicle);
   });
   it('places again a point whose spawn failed (its chunk not loaded yet after a reload: Pixel 30o listed 2 of 4)', () => {
     const { h, pointsNow } = boardHost();
