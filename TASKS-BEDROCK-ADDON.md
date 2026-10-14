@@ -181,10 +181,12 @@ The round-30m fixes on the phones:
    Survival hold under the Milano ~7 blocks from its root showed the Mount
    prompt and seated nobody. FIXED OFFLINE (`boardHull` in
    bedrock-vehicle.ts: a hull hit seats a player who rides nothing; a hull
-   hold unseated `RETRY_TICKS` later is seated by script) - NEXT: build round
-   30u from the committed tree and check on the Saga: hull tap in Survival +
-   Creative at 1-7 blocks, and the under-hull Survival hold (`TODO(hull-reach)`:
-   unknown whether the device raises either event there). Also open: 10797's
+   hold unseated `RETRY_TICKS` later is seated by script). ROUND 30u BUILT
+   (`output/device-round-2026-10-14u/packs-11daf705`, 23/23, sim 138/0,
+   regressions 36/0) and on the Saga via an agent: hull tap in Survival +
+   Creative at 1-7 blocks, the under-hull Survival hold with CMVT telemetry
+   (`TODO(hull-reach)`: does the device raise either event there?) ->
+   `output/device-round-2026-10-14u/saga/`. Also open: 10797's
    blue cluster + brown oval on the grass N of its wall (e06, unchecked vs
    source); the Saga agent left `/data/local/tmp/craftmatic-deploy-20261014-*`
    and the 30r pack backups on the device; the 10261 "Marked seat 1" is gone.
