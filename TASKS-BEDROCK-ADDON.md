@@ -187,9 +187,12 @@ The round-30m fixes on the phones:
    `hit-test-size-event`) and each column under the widest span drawn under
    its own width (Milano 39/67/72/99 columns at 100-400 %; count with
    `bun output/device-round-2026-10-14x/tools/milano_points.ts <pack>`).
-   NEXT: round 30z from this commit; Saga Survival: 200 % from 1.5 and 2.5
-   off both edges (x 14-22), eye inside a 200 % column, 100 % x 11 S at 2.5,
-   a 100 % spot check, 400 % one tap. Re-placing a set does NOT remove its
+   ROUND 30z BUILT from 3d4b9c9b (`output/device-round-2026-10-14z/`, 23/23,
+   sim 138/0, regressions 36/0; the 200 % board type ships 4 x 6, no groups)
+   and ON THE SAGA via an agent (evidence -> `output/device-round-2026-10-14z/saga/`):
+   200 % from 1.5 and 2.5 off both edges (x 14-22) and 30y's refused spots and
+   diagnostics, 100 % x 11 S at 2.5 + spot checks, 400 % two taps, the
+   McLaren-seat tap regression. DONE-DEVICE if 200 % now picks the 4 x 6 box. Re-placing a set does NOT remove its
    earlier placement (30w's reading was an unloaded area): undo with the wand.
    Open: why 30u's eye inside a 16-wide box was refused; the hull's and the
    interactives' size-grouped hit boxes are under the same doubt at 200 %.
