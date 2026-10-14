@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '@craft/schem/types.js';
-import { DOOR_MAX_OFF_GRID_DEG, FIGURE_UPRIGHT_MAX_TILT_DEG, applySceneDoors, discoverSceneActors, doorBlockForColor, isDoorLeafDescription, measureSceneAccess, recommendAccessScale, recommendDoorExportScale, runtimeDoorCandidates, sceneFloorPoint, actorGroundLdu, settleLooseAccessories, sceneGridPoint, tiltDegOf, yawForFacing } from '../web/src/engine/bedrock-scene-actors.js';
+import { DOOR_MAX_OFF_GRID_DEG, FIGURE_UPRIGHT_MAX_TILT_DEG, applySceneDoors, discoverSceneActors, doorBlockForColor, isDoorLeafDescription, measureSceneAccess, recommendAccessScale, recommendDoorExportScale, runtimeDoorCandidates, sceneFloorPoint, actorGroundLdu, groundLiftWarning, settleLooseAccessories, sceneGridPoint, tiltDegOf, yawForFacing } from '../web/src/engine/bedrock-scene-actors.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
@@ -405,6 +405,14 @@ describe('sceneFloorPoint', () => {
     const plate = { x: 0, y: -8 / LDU_PER_BLOCK, z: 0, scale: 1, cellXZ: LDU_PER_BLOCK, cellY: LDU_PER_BLOCK };
     expect(actorGroundLdu(plate, 0)).toBe(0);
     expect(actorGroundLdu(frame, NaN)).toBeNaN();
+  });
+
+  it('warns of a ground lift only when there is an underside to lift (no "NaN cells" for a whole-model vehicle)', () => {
+    const grid = { x: 0, y: -1.18, z: 0, scale: 1, cellXZ: LDU_PER_BLOCK, cellY: LDU_PER_BLOCK };
+    expect(groundLiftWarning(grid, 0, actorGroundLdu(grid, 0))).toContain('1.18 cells over the lowest placement');
+    // 7140 / 76286 / 42172 / 60221 / 10365 have no shell bricks: no underside, nothing lifted, no warning.
+    expect(groundLiftWarning(grid, NaN, actorGroundLdu(grid, NaN))).toBeUndefined();
+    expect(groundLiftWarning(frame, 0, actorGroundLdu(frame, 0))).toBeUndefined();
   });
 
   it('discoverSceneActors reports the underside of the non-figure placements', async () => {

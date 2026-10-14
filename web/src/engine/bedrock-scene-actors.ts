@@ -1004,6 +1004,17 @@ export function actorGroundLdu(frame: SceneGridFrame, groundLdu: number): number
 }
 
 /**
+ * The export warning for an `actorGroundLdu` that moved the underside, or undefined when it did not. A scene with
+ * no shell bricks (a whole-model vehicle: 7140, 76286, 42172, 60221, 10365) has no underside (`groundLdu` NaN);
+ * there is nothing to lift then, and `NaN !== NaN` used to print "NaN cells over the lowest placement".
+ */
+export function groundLiftWarning(frame: SceneGridFrame, sceneGroundLdu: number, groundLdu: number): string | undefined {
+  if (!Number.isFinite(sceneGroundLdu) || !Number.isFinite(groundLdu) || groundLdu === sceneGroundLdu) return undefined;
+  const cells = Math.round((groundLdu - sceneGroundLdu) / frame.cellY * 100) / 100;
+  return `Ground: the model's underside is ${cells} cells over the lowest placement (figures stand below it); figures, seats and rides are measured from the grid's bottom, where the shell is laid.`;
+}
+
+/**
  * Bedrock yaw (degrees; 0 faces +Z, forward = (−sin, cos)) for a horizontal
  * LDraw direction (x, z). World Z is LDraw −Z (`sceneGridPoint`), so the
  * world direction is (x, −z): a figure facing LDraw −Z (the front) faces

@@ -349,7 +349,7 @@ export async function runSchemPipeline(
     const { buildPlayableAddon, measureCoasterTrain } = await import('./playable-addon.js');
     const { bedrockExportNotes } = await import('./bedrock-export-notes.js');
     const { discoverPlayableComponents, isWholeVehicleLabel, knownScreenAnchors, withPlayableBounds } = await import('./playable-components.js');
-    const { DOOR_MAX_OFF_GRID_DEG, discoverSceneActors, settleLooseAccessories, applySceneDoors, measureSceneAccess, recommendAccessScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, yawForFacing, actorGroundLdu } = await import('./bedrock-scene-actors.js');
+    const { DOOR_MAX_OFF_GRID_DEG, discoverSceneActors, settleLooseAccessories, applySceneDoors, measureSceneAccess, recommendAccessScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, yawForFacing, actorGroundLdu, groundLiftWarning } = await import('./bedrock-scene-actors.js');
     const { isFigurePart, isTorso, repairFigureTorsos, describeTorsoRepairs } = await import('./ldraw-entity-compiler.js');
     const { ACCESS_DOOR_MAX_OFF_GRID_DEG, accessMarginFor } = await import('./bedrock-interactives.js');
     const { createPartGeometryProvider } = await import('./ldraw-part-geometry.js');
@@ -550,7 +550,8 @@ export async function runSchemPipeline(
           /** An LDraw point in grid coordinates, its height up from the model's underside (`sceneFloorPoint`). */
           // Heights of what stands or sits on the model, from the underside the shell is laid on (`actorGroundLdu`).
           const groundLdu = actorGroundLdu(frame, scene.groundLdu);
-          if (groundLdu !== scene.groundLdu) warnings.push(`Ground: the model's underside is ${Math.round((groundLdu - scene.groundLdu) / frame.cellY * 100) / 100} cells over the lowest placement (figures stand below it); figures, seats and rides are measured from the grid's bottom, where the shell is laid.`);
+          const groundWarning = groundLiftWarning(frame, scene.groundLdu, groundLdu);
+          if (groundWarning) warnings.push(groundWarning);
           const grid3 = (p: readonly number[]): [number, number, number] => { const q = sceneFloorPoint(frame, groundLdu, [p[0]!, p[1]!, p[2]!]); return [q[0], q[1], q[2]]; };
           // A canon MOUNT (set-canon.ts, bedrock-flyer.ts): the small sub-build a
           // figure stands on that the player can summon a copy of and fly, and
