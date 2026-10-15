@@ -91,136 +91,46 @@ The round-30m fixes on the phones:
   `--prune-stale` fixed it. Always deploy dev mode with `--prune-stale`.
 
 **Next (priority order):**
-1. VEH-17 boarding DONE-DEVICE (round 30q, `e1af8e90`, both phones: holds,
-   taps, quick re-boards all seat; evidence `output/device-round-2026-10-12q/`).
-   Rotorcraft have no points. The next device round carries the offline fixes made since 30q:
-   COL-03 under-floor roots (`b7d9cb63`: 10365 / 42670), FIG-01 figure spawn
-   over a partial form (`cd9ccaef`: 76417 figure 9) and the IX-01 figure-in-
-   doorway close (76417 Door 3). Build all 21 sets from the committed tree
-   (copy `output/device-round-2026-10-12o/build.sh` into a new round dir) and
-   place 10365 (hull chunks drawn, not dark), 76417 (figure 9 walks, Door 3
-   closes with a figure in it) and 42670.
-   **Round 30r BUILT and RUNNING** (`output/device-round-2026-10-12r/`, packs
-   `packs-7fde0b5e/` + `creator-7fde0b5e/`; regressions 34/0 failed, sim 132/0):
-   Pixel 924: 10365 hull 100/200 %, 42670 base, 76417 fig 9 + Door 3; Saga 925:
-   10365 100/400 %, 76417, Milano sanity. Evidence `pixel/`, `saga/` there.
-   Pixel 30r DONE: 76417 fig 9 walks (FIG-01 PASS); Door 3 closes with a figure
-   in the doorway's outer half, refused 3/3 with it 0.4 inside ("no floor to step
-   onto") - fixed offline `b51eff3f` (merge `b0bb07c8`: step-out from the
-   threshold's floor, along the grid axis too, figure fallback within 4 blocks;
-   `sim:door3-figure-inside-76417-30r`), not on device yet. 10365 in the round is
-   one entity (no shell chunks): COL-03's lift unexercised; 42670 not in the set.
-   Saga 30r running (resumed 10-13 19:42 after a ~19 h gap).
-   **USER REPORT 2026-10-13, Saga world 925 (verified: all 23 packs bound are
-   30r `7fde0b5e`, no older pack overrides)**: no vehicle mountable incl.
-   coaster cars (VEH-17 + COAST-02 now REGRESSED pending re-test - the round
-   agent was driving the same world then; it was asked to list its state
-   changes and re-test Milano + a coaster car with the content log); 10788
-   slide in the top-left wall + mic stand under the floor (IX-03 REGRESSED);
-   loose/misplaced pieces in 10797/60380/42639/10788 (VIEW-02; the offline 30r
-   renders show the same, all DbixConvV3); sets floating (new WAND-07, OPEN).
-   Cause: clego's DBIX->LDraw rows (forward Studio rows 27976/10314/40244/
-   30562/93888/28324, bad learned 65473/92338/3262/83496/32250, missing 23769/
-   11650). REPAIRED OFFLINE 10-14: clego `4a681a39` + `87963051` (guard
-   `tests/test_dbix_row_repair.py`; clego NOT pushed - master also carries
-   another agent's `3cfc590d`, the user's call), 554 sources published to R2 +
-   index (`4f093bde`, prod verified 545/545 by sha). Renders
-   `output/dbix-rows-1013/renders/` show slide in its gap, mic stand on the
-   floor, balloons on domes, truck chassis, billboard on post, tree assembled,
-   42639 arches/bar placed; `_drawn_floor --world` puts 42639 at y 0.00 (WAND-07
-   offline). Held: 120 files (no-improvement/unsure), 22 forward rows tested
-   mixed per design (92280: 271 better/60 worse) - need a frozen-baseline rerun
-   (`output/dbix-rows-1013/ab-forward/`); 42670 dolls sunk 36/20 LDU; 42639's
-   white stair bits float left (pre-existing).
-   Round 30s BUILT (`output/device-round-2026-10-14s/packs-4f093bde`, 23/23 exit 0,
-   sim 132/0, regressions 35/0 failed, no NaN warning). PIXEL 30s DONE (world
-   924, readback 23/23 bound, 0 content-log errors; evidence
-   `output/device-round-2026-10-14s/pixel/`): Milano mounts by tap + hold
-   (Survival reach is shorter: same spot fails, 1-2 blocks closer mounts);
-   10261 car hold 2/2 + Ride button mount, TAP 0/3 -> FIXED OFFLINE 10-14
-   (coaster `entityHitEntity` boards a car with a free seat; guards
-   `boards a player who TAPS a car`, `sim:coaster-car-tap-10261-30s`); twice
-   no train stood in the station within 150 s after a dismount (unexplained,
-   open). 10788 slide in its gap + mic stand on the floor, 10797, 60380 pieces
-   and 42639 all PASS; Door 3 with a figure closes 2/2. WAND-07: 4 sets on the
-   grass, 60380 FLOATS 0.6-1.0 (a stray cleaver 98369 under the base plates set
-   the grid floor) -> row DROPPED + 33 files published (clego `016aef14`/
-   `c78bfb75` unpushed, craftmatic `f48c03a7`; `output/dbix-rows-1014-98369/`).
-   Survey of all 23 (`.../survey/survey.json`): 42703 3.0 blocks up (two 49577
-   seaweed, learned row n 3), 76417 0.77 (95345 pitchfork, n 3), 10326 0.42
-   (29602pb01, IOModel2V2), 10797 0.30 (4040/35692/bl_65700, no learned row),
-   10303 0.26 (80679pb01); 13 sets 0. 49577 + 95345 A/B with the clego agent. The Saga 30r agent DIED at 10-13
-   20:05 mid mount test (last shots `output/device-round-2026-10-12r/saga/shots/c07-c10`,
-   a long-press on a 10261 car with the Mount prompt shown); its world-925
-   changes are UNKNOWN - the next Saga agent inventories and restores them
-   first (gamemode, tags, effects, sneak, placed sets, camera). 42703's 49577 seaweed row DROPPED + 17 files
-   published (clego `2489d989`/`a19e9040` unpushed, craftmatic `1f556fa3`;
-   `output/dbix-rows-1014-49577/`): 42703 and 60380 now at y ~0 offline,
-   coaster output unchanged. 95345 pitchfork row KEPT (rejected: forks poke
-   through floors elsewhere); 76417 is `lxfml-direct` (craftmatic's own LXF
-   placement, identity row) and its 0.23-0.8 block gap is set by figures / the
-   display line at y 0 - open, unmeasured which. ROUND 30t BUILT
-   (`output/device-round-2026-10-14t/packs-1f556fa3`, 23/23, sim 132/0,
-   regressions 36/0 incl. `coaster-car-tap-10261-30s` OK). PIXEL 30t DONE
-   (`output/device-round-2026-10-14t/pixel/notes.md`): coaster TAP boards 6/6
-   (Creative 3, Survival 3); 60380 and 42703 on the grass; 42703 coaster ran;
-   Milano Survival tap+hold from ~1.5 blocks; content log 0 errors. NEW OPEN:
-   after a dismount the trains keep running and stand in the station, but the
-   "Ride the coaster" button did not reappear in 300 s (the 30s "no train" was
-   this). Probably aim/position, not the runtime: the button came back after
-   every `/tp` (29-watch, 48-now) and a tap boards without it (35); the
-   dismount sets the player down wherever the car stopped (17508,-57,5416).
-   Unproved - re-check standing still at the platform after a dismount.
-   VEH-17 (DONE-DEVICE, Saga 30z): the user's "nothing mountable" was
-   Survival reach (~3 blocks eye-to-hit-BOX, Saga 30w). Board columns are one
-   entity TYPE per size step (`<pack>_board_<pct>`, box in base components; a
-   size event's box was not picked - quirk `hit-test-size-event`) under the
-   widest drawn span. 30z (`output/device-round-2026-10-14z/saga/notes.md`,
-   packs-3d4b9c9b): 200 % 48/48 from 1.5/2.5 off both wing edges, 100 %
-   30y's x 11 S misses 8/8, 400 % 2/2, McLaren-seat tap stays 2/2. Count a
-   pack's columns with `bun output/device-round-2026-10-14x/tools/milano_points.ts <pack>`.
-   Open: the hull's and the interactives' size-grouped hit boxes at 200 %
-   (same doubt; a door/hatch tap at 200 % in Survival is the check); why 30u's
-   eye inside a 16-wide box was refused; sizes 25-75/150/300 % untested.
-   Re-placing a set does NOT remove its earlier placement: undo with the wand.
-   VEH-18 / SCALE-06 (DONE-OFFLINE, `270b1a99`, the user 2026-10-14): below
-   100 % a player need not fit what a same-scale minifig would not; a vehicle
-   placed below 100 % is ridden ON TOP, drawn (`seatAtForPlan`: the hips 0.3
-   under the lowest surface with room for the unscaled seated body - a cabin
-   too small rides on its roof, a roomy one or an open deck on its own seat;
-   camera config `onTop.roofs`), read from the pack's DRAWN geometry
-   (`geometryEntityBoxes`). Rounds 30za/30zb failed the sim's seat audit
-   (10365/60221/60380/10303 seats; the compiler's part boxes are not the
-   drawn vehicle - diagnosis tools in `output/device-round-2026-10-14zb/tools/`);
-   Round 30zc (3a338631) put 10365's helmsman on its masthead at 25/75 %
-   (a sail over the helm): the climb is now capped at `ROOF_MAX_LIFT` 3
-   over the pan, else the rider stays on its seat. ROUND 30zd BUILT from
-   224001b3 (`output/device-round-2026-10-14zd/`, 23/23, sim 132/0,
-   regressions 36/0, seat-scale 0 off, 194 rows ON TOP). RESULTS (both
-   phones, `output/device-round-2026-10-14zd/{saga,pixel}/notes.md`): riding
-   on top PASSES (VEH-18 DONE-DEVICE: 42172 at 50 % both, 25 % Saga, 76286
-   at 50 % Saga; 100 % unchanged); Pixel VEH-17 24/24 at 100/200 %; Saga
-   910004 door at 200 % opened on its upper half and outer quarters 12/12
-   (the `ixh_` group box IS picked); Pixel 10261 Ride button came back every
-   ~30 s (30t not reproduced; it shows only with the crosshair ON a car);
-   content logs 0 errors. NEW DEFECT, FIXED OFFLINE `c9768dbf`: a FRESH
-   sized McLaren took 0/34 taps + holds until moved (`tp ~ ~0.01 ~` fixes,
-   `tp ~ ~ ~` does not) -> `settleSized` lifts a sized rideable 0.01 and sets
-   it back; quirk `size-event-pick-needs-move`; regression
-   `fresh-car-tap-50-30zd` reproduces on packs-224001b3. ROUND 30ze BUILT
-   from c9768dbf (`output/device-round-2026-10-15ze/`, 23/23, sim 132/0,
-   regressions 37/0 with fresh-car-tap passing, seat-scale 0 off) and ON
-   BOTH PHONES via agents (briefs in the session scratchpad; evidence ->
-   `.../saga/notes.md`, `.../pixel/notes.md`): a FRESH McLaren at 25/50 %
-   (+200 % Saga) tapped before any ride, Survival; Saga also the Milano 50 %
-   descent and the 25 % chase camera. PIXEL DONE: fix holds, the FIRST tap
-   on 3/3 fresh cars (50, 25, 50 %) seated (30zd 0/13), 11/11 trials, fresh
-   100 % seats + hidden, content log 0 errors (`.../pixel/notes.md`); Saga pending. Small leftovers from 30zd: at 25 % the chase camera sits low
-   and close; the Milano at 50 % did not descend on Back + Jump (Saga). Also open: 10797's blue cluster + brown
-   oval on the grass N of its wall (Saga 30t e06, unchecked vs source);
-   device leftovers `/data/local/tmp/craftmatic-deploy-*` (Saga) and the
-   30r pack backups.
-   User shots: `C:/Users/wills/Downloads/*-{slide,floating,tree,lolipop}*.png`.
+1. Vehicles at size (state 2026-10-15, last round 30ze `output/device-round-2026-10-15ze/`,
+   packs-c9768dbf, both phones, content logs 0 errors):
+   - VEH-17 boarding DONE-DEVICE: board columns (one TYPE per size,
+     `<pack>_board_<pct>`), Survival reach ~3 eye-to-hit-BOX, and a sized
+     rideable nudged 0.01 after its size event (`settleSized`, quirk
+     `size-event-pick-needs-move`: a fresh 50 % car took 0/34 presses in
+     30zd, the first tap seated 7/7 in 30ze). A door's `ixh_` group box IS
+     picked at 200 % (Saga 30zd 12/12). Open: a hold as the FIRST press on a
+     fresh car; fresh 75/150/300/400 %; why 30u's eye inside a 16-wide box
+     was refused. Count a pack's columns with
+     `bun output/device-round-2026-10-14x/tools/milano_points.ts <pack>`.
+   - VEH-18 / SCALE-06 ride-on-top DONE-DEVICE (30zd: McLaren 50/25 %,
+     Milano 50 %, rider drawn on the roof, hotbar 9 from the head; 100 %
+     unchanged). OPEN, NEXT: at 25 % the chase camera frames only grass while
+     driving (Saga 30ze `saga/shots/b25-drive-strip.jpg`; parked it looks
+     steeply down at the rider's back). Judge offline before a phone.
+   - Device-tool lesson (Saga 30ze): the old two-finger `stickjump.sh` never
+     delivers Jump (telemetry `jump:false`); use
+     `output/device-round-2026-10-15ze/saga/tools/jumpstick.sh` (Jump first,
+     then the stick). The Milano at 50 % DOES descend on Back + Jump.
+   - 10261 "Ride the coaster" shows only with the crosshair ON a car; after a
+     dismount it came back every ~30 s (Pixel 30zd) - 30t not reproduced.
+   - Re-placing a set does NOT remove its earlier placement: undo with the wand.
+   - Source rows (user report 2026-10-13, repaired 10-14, clego pushed):
+     120 files held (no-improvement/unsure) and 22 forward rows that tested
+     mixed (92280: 271 better / 60 worse) need a frozen-baseline rerun
+     (`output/dbix-rows-1013/ab-forward/`); 42670 dolls sunk 36/20 LDU;
+     42639's white stair bits float left (pre-existing); 76417's 0.23-0.8
+     block gap over the grass is set by figures or the display line at y 0
+     (unmeasured which); 95345 pitchfork row kept (forks poke through floors).
+   - Also open: 10797's blue cluster + brown oval on the grass N of its wall
+     (Saga 30t e06, unchecked vs source); device leftovers
+     `/data/local/tmp/craftmatic-deploy-*` (Saga, two folders) and the 30r
+     pack backups. User shots:
+     `C:/Users/wills/Downloads/*-{slide,floating,tree,lolipop}*.png`.
+   - Round recipe: copy `output/device-round-2026-10-15ze/build.sh` into a
+     new round dir (sed the dir name + line 2), commit first, ~23 min; then
+     `bun scripts/sim.ts <packs>`, `--scenario=regressions --new=<packs>`,
+     `bun scripts/_seat_scale_check.ts <packs> --all`; briefs as in 30ze
+     (adb through subagents, Survival, fresh placements).
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
 3. Offline leftovers: `TODO(car-oblique-kerb)`, Milano chase ease jump,
