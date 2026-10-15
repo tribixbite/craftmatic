@@ -27,8 +27,9 @@
  *   - `seatOnTop`: below 100 % a vehicle's rider may instead ride ON TOP
  *     (VEH-18, the user 2026-10-14; cockpit-seat.ts `seatAtForPlan`): x and z
  *     still the 100 % seat scaled once, the hips (`ROOF_SEAT_BELOW_SURFACE`
- *     over the seat) on the highest drawn surface under the body. A seat
- *     moved there on purpose; anywhere else below 100 % is still a drift.
+ *     over the seat) on a drawn top under the body with nothing drawn in the
+ *     seated body's air over it (`ROOF_BODY_CLEAR`). A seat moved there on
+ *     purpose; anywhere else below 100 % is still a drift.
  *
  * Why the drawn hull and not the collision box: a vehicle's box is its hit
  * target (a coaster car's covers the tub, a shell's is a cull needle); only
@@ -46,7 +47,7 @@ import type { Box, Vec3 } from '../../core/vec.js';
 import { EntityDefinitions, type Components, type EntityDefinition } from '../../entity/definitions.js';
 import { packFiles, type Pack } from '../../pack/pack.js';
 import { quirkValue } from '../../quirks/registry.js';
-import { ROOF_SEAT_BELOW_SURFACE, ridesOnTopAt } from '../../../engine/cockpit-seat.js';
+import { ROOF_BODY_CLEAR, ROOF_SEAT_BELOW_SURFACE, ridesOnTopAt } from '../../../engine/cockpit-seat.js';
 import type { AddonAppearance } from './appearance.js';
 import { drawnBoxes, drawnTopOver, type DrawnBox } from './drawn.js';
 
@@ -142,13 +143,19 @@ export function seatScaleDrift(seat: Vec3, seat100: Vec3, scale: number, toleran
 
 /**
  * Whether a realised seat at `scale` rides ON TOP of its vehicle (VEH-18): below
- * 100 % only, x and z on the 100 % seat scaled once, the hips on the highest
- * drawn surface under the body (within `SEAT_ON_DRAWN.drift`).
+ * 100 % only, x and z on the 100 % seat scaled once, the hips on a drawn top
+ * under the body (within `SEAT_ON_DRAWN.drift`) and nothing drawn in the seated
+ * body's air over them (`ROOF_BODY_CLEAR`; a cube's AABB, so a turned cube
+ * beside the body can refuse a seat that is in fact clear).
  */
-export function seatOnTop(seat: Vec3, place: SeatPlace, drift: SeatDrift, scale: number, tolerance = SEAT_ON_DRAWN): boolean {
-  if (!ridesOnTopAt(scale) || !place.ok || place.topUnder === undefined) return false;
+export function seatOnTop(seat: Vec3, place: SeatPlace, drift: SeatDrift, scale: number, drawn: readonly DrawnBox[], tolerance = SEAT_ON_DRAWN): boolean {
+  if (!ridesOnTopAt(scale) || !place.ok) return false;
   if (Math.abs(drift.dx) > tolerance.drift || Math.abs(drift.dz) > tolerance.drift) return false;
-  return Math.abs(seat.y + ROOF_SEAT_BELOW_SURFACE - place.topUnder) <= tolerance.drift;
+  const fp = tolerance.footprint, hips = seat.y + ROOF_SEAT_BELOW_SURFACE;
+  const under = drawn.filter(({ box: b }) => b.x1 > seat.x - fp && b.x0 < seat.x + fp && b.z1 > seat.z - fp && b.z0 < seat.z + fp);
+  const sits = hips <= tolerance.drift || under.some(d => { const t = drawnTopOver(d, seat.x - fp, seat.x + fp, seat.z - fp, seat.z + fp); return t !== undefined && Math.abs(t - hips) <= tolerance.drift; });
+  const clear = !under.some(({ box: b }) => b.y1 > hips + 0.05 && b.y0 < hips + ROOF_BODY_CLEAR - 0.05);
+  return sits && clear;
 }
 
 /** One seat of one rideable at one wand step, as the device realises it. */
@@ -231,7 +238,7 @@ export function seatScaleAudit(behavior: Pack, appearance: AddonAppearance): Sea
         const seat = { x, y, z }, eye = { x, y: y + eyeAbove, z };
         const place = seatOnDrawn(seat, drawn);
         const drift = seatScaleDrift(seat, base[seatIndex] ?? base[0] ?? { x: 0, y: 0, z: 0 }, scale);
-        const onTop = seatOnTop(seat, place, drift, scale);
+        const onTop = seatOnTop(seat, place, drift, scale, drawn);
         rows.push({ typeId: def.identifier, pct, scale, seatIndex, declared, seat, eye, place, drift, onTop, ok: pct === 100 ? place.ok : drift.ok || onTop });
       });
     }

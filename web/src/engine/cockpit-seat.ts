@@ -735,58 +735,96 @@ export const ridesOnTopAt = (f: number): boolean => f < RIDE_ON_TOP_BELOW - 1e-6
 /**
  * The seat position under the surface a rider sits on (blocks): the same
  * 0.3 the invisible chair seat uses (playable-addon.ts `seatBehavior`), so
- * the hips rest on the roof and the eye stands 0.82 over it.
+ * the hips rest on the surface and the eye stands 0.82 over it.
  */
 export const ROOF_SEAT_BELOW_SURFACE = 0.3;
 
 /**
- * The model's top over its footprint (entity frame, blocks at 100 %), on a
- * square grid of `cell` blocks: each cell the highest box top over it, glass
- * included (a rider may sit on a canopy). Read by `roofTopAt`.
+ * The seated body over the surface it sits on (blocks, the player's own
+ * size): the eye 0.82 over it and the head's top 0.22 over the eye
+ * (`SEATED_RIDER_PROBES`). A surface is sat on only with this much open
+ * air over it.
  */
-export interface RoofMap { x0: number; z0: number; cell: number; nx: number; nz: number; tops: number[] }
+export const ROOF_BODY_CLEAR = Math.round((RIDER_EYE_ABOVE_SEAT - ROOF_SEAT_BELOW_SURFACE + 0.22) * 1000) / 1000;
+
+/** Half the seated body's footprint (blocks, the player's own size: 0.6 wide, `SEATED_RIDER_PROBES` torso depth). */
+export const ROOF_BODY_HALF = 0.3;
 
 /** Grid pitch of a `RoofMap`, blocks. */
 export const ROOF_CELL = 0.25;
 
-/** Half the seated body's footprint the roof is read under (0.6-wide player, `SEATED_RIDER_PROBES` torso depth). */
-export const ROOF_BODY_HALF = 0.3;
+/**
+ * The model's solid spans over its footprint (entity frame, blocks at
+ * 100 %), on a square grid of `cell` blocks: each cell's merged vertical
+ * spans `[y0, y1, y0, y1, ...]` ascending, glass included (a rider may sit
+ * on a canopy, and not inside one). Read by `surfaceOnTop`.
+ */
+export interface RoofMap { x0: number; z0: number; cell: number; nx: number; nz: number; spans: number[][] }
 
-/** Rasterise the model's box tops into a `RoofMap` (each box marks the cells it overlaps). */
+/** Merge vertical spans (pairs) into sorted disjoint ones. */
+function mergeSpans(pairs: Array<[number, number]>): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (const [a, b] of [...pairs].sort((p, q) => p[0] - q[0])) {
+    const last = out[out.length - 1];
+    if (last && a <= last[1] + 1e-6) last[1] = Math.max(last[1], b);
+    else out.push([a, b]);
+  }
+  return out;
+}
+
+/** Rasterise the model's boxes into a `RoofMap` (each box marks the cells it overlaps). */
 export function roofMap(boxes: readonly BoxBlocks[], cell = ROOF_CELL): RoofMap | undefined {
   if (!boxes.length) return undefined;
   const x0 = Math.min(...boxes.map(b => b.min[0])), z0 = Math.min(...boxes.map(b => b.min[2]));
   const x1 = Math.max(...boxes.map(b => b.max[0])), z1 = Math.max(...boxes.map(b => b.max[2]));
   const nx = Math.max(1, Math.ceil((x1 - x0) / cell)), nz = Math.max(1, Math.ceil((z1 - z0) / cell));
-  const tops = new Array<number>(nx * nz).fill(-Infinity);
+  const cells: Array<Array<[number, number]>> = Array.from({ length: nx * nz }, () => []);
   for (const b of boxes) {
     const i0 = Math.max(0, Math.floor((b.min[0] - x0) / cell)), i1 = Math.min(nx - 1, Math.ceil((b.max[0] - x0) / cell) - 1);
     const k0 = Math.max(0, Math.floor((b.min[2] - z0) / cell)), k1 = Math.min(nz - 1, Math.ceil((b.max[2] - z0) / cell) - 1);
-    for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) if (b.max[1] > tops[i * nz + k]!) tops[i * nz + k] = b.max[1];
+    for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) cells[i * nz + k]!.push([b.min[1], b.max[1]]);
   }
   const r3 = (v: number): number => Math.round(v * 1000) / 1000;
-  return { x0: r3(x0), z0: r3(z0), cell, nx, nz, tops: tops.map(t => Number.isFinite(t) ? r3(t) : -1) };
+  return { x0: r3(x0), z0: r3(z0), cell, nx, nz, spans: cells.map(c => mergeSpans(c).flatMap(([a, b]) => [r3(a), r3(b)])) };
 }
 
 /**
- * The highest top under a seated body at (x, z) (entity frame, blocks at
- * 100 %): what a rider on top sits on. Only the body's own footprint
- * (`ROOF_BODY_HALF`), so a mast or a tail fin beside the seat does not lift
- * the rider (10300's 600-LDU pole put a whole-model rider 2.6 blocks over its
- * roof, 2026-09-25). null: nothing of the model under the body.
+ * The surface a rider on top sits on at wand factor `f`, over a seat at
+ * (x, z) whose pan is `from` (entity frame, blocks at 100 %): the LOWEST
+ * surface at or above the pan with room for the seated body over it
+ * (`ROOF_BODY_CLEAR`), read under the body's own footprint
+ * (`ROOF_BODY_HALF`). The player does not scale, so in the model's frame
+ * the body is 1/f as big. A closed cabin's roof is the first such surface;
+ * an open deck is the pan itself, so a ship's helmsman stays on its deck
+ * and is never lifted onto a mast or a sail over the helm (10365 at 50 %
+ * read its rigging's top, 2026-10-14; 10300's pole put a whole-model rider
+ * 2.6 blocks over its roof, 2026-09-25). null: nothing of the model under
+ * the body.
  */
-export function roofTopAt(map: RoofMap, x: number, z: number): number | null {
-  const i0 = Math.max(0, Math.floor((x - ROOF_BODY_HALF - map.x0) / map.cell)), i1 = Math.min(map.nx - 1, Math.floor((x + ROOF_BODY_HALF - map.x0) / map.cell));
-  const k0 = Math.max(0, Math.floor((z - ROOF_BODY_HALF - map.z0) / map.cell)), k1 = Math.min(map.nz - 1, Math.floor((z + ROOF_BODY_HALF - map.z0) / map.cell));
-  let top = -1;
-  for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) top = Math.max(top, map.tops[i * map.nz + k]!);
-  return top >= 0 ? top : null;
+export function surfaceOnTop(map: RoofMap, x: number, z: number, from: number, f: number): number | null {
+  const half = ROOF_BODY_HALF / f, clear = ROOF_BODY_CLEAR / f;
+  const i0 = Math.max(0, Math.floor((x - half - map.x0) / map.cell)), i1 = Math.min(map.nx - 1, Math.floor((x + half - map.x0) / map.cell));
+  const k0 = Math.max(0, Math.floor((z - half - map.z0) / map.cell)), k1 = Math.min(map.nz - 1, Math.floor((z + half - map.z0) / map.cell));
+  if (i0 > i1 || k0 > k1) return null;
+  const pairs: Array<[number, number]> = [];
+  for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) {
+    const s = map.spans[i * map.nz + k]!;
+    for (let j = 0; j + 1 < s.length; j += 2) pairs.push([s[j]!, s[j + 1]!]);
+  }
+  if (!pairs.length) return null;
+  const spans = mergeSpans(pairs);
+  /** Whether the body sits on `y` with nothing of the model in the air over it (a hair of overlap allowed). */
+  const room = (y: number): boolean => !spans.some(([a, b]) => b > y + 0.02 && a < y + clear - 0.02);
+  // The pan itself, if the model holds it up (a span reaching it) or it is the floor.
+  if (room(from) && (from <= 0.02 || spans.some(([a, b]) => a <= from + 0.02 && b >= from - 0.02))) return from;
+  for (const [, top] of spans) if (top >= from - 0.02 && room(top)) return top;
+  return spans[spans.length - 1]![1];
 }
 
 /**
  * A seat's WORLD offset at wand factor `f` for a planned vehicle: on top of
  * the model below 100 % (`ridesOnTopAt`; the body's x/z scaled with the
- * model, its hips on the scaled roof under it), else the driver's eye
+ * model, its hips on the scaled `surfaceOnTop`), else the driver's eye
  * (`seatPositionAt`). `position` is a rideable seat (+Z the nose,
  * `renderSeatToEntity`), as `rideableAtSize` passes it; the roof map is in
  * the render frame, read through the same half-turn. A seat with nothing
@@ -797,17 +835,8 @@ export function seatAtForPlan(plan: Pick<SeatPlan, 'roof'>): (position: Vec3, f:
     if (!ridesOnTopAt(f)) return seatPositionAt(position, f);
     const r3 = (v: number): number => Math.round(v * 1000) / 1000;
     const render = renderSeatToEntity(position);
-    const top = plan.roof ? roofTopAt(plan.roof, render[0], render[2]) : null;
+    const top = plan.roof ? surfaceOnTop(plan.roof, render[0], render[2], position[1] + ROOF_SEAT_BELOW_SURFACE, f) : null;
     const y = top === null ? position[1] * f : top * f - ROOF_SEAT_BELOW_SURFACE;
     return [r3(position[0] * f), r3(y), r3(position[2] * f)];
   };
-}
-
-/**
- * The rider's eye over the vehicle's floor at wand factor `f` when it rides
- * on top (blocks, world): the roof under the driver's seat, scaled, plus the
- * seated eye over the surface. The chase camera clears the head from it.
- */
-export function onTopEyeY(roofAtSeat: number, f: number): number {
-  return roofAtSeat * f - ROOF_SEAT_BELOW_SURFACE + RIDER_EYE_ABOVE_SEAT;
 }

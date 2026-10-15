@@ -96,17 +96,20 @@ describe('seatOnTop: below 100 % a vehicle is ridden on top (VEH-18)', () => {
     for (const f of [0.25, 0.5, 0.75]) {
       const seat = { x: 0, y: 1.2 * f - 0.3, z: 0.5 * f };
       const place = seatOnDrawn(seat, car(f));
-      expect(seatOnTop(seat, place, seatScaleDrift(seat, seat100, f), f), `on top at ${f}`).toBe(true);
+      expect(seatOnTop(seat, place, seatScaleDrift(seat, seat100, f), f, car(f)), `on top at ${f}`).toBe(true);
     }
     const seat = { x: 0, y: 1.2 * 1.5 - 0.3, z: 0.75 };
-    expect(seatOnTop(seat, seatOnDrawn(seat, car(1.5)), seatScaleDrift(seat, seat100, 1.5), 1.5)).toBe(false);
+    expect(seatOnTop(seat, seatOnDrawn(seat, car(1.5)), seatScaleDrift(seat, seat100, 1.5), 1.5, car(1.5))).toBe(false);
   });
   it('rejects a seat floating over the roof or moved along the car below 100 %', () => {
     const f = 0.5;
     const high = { x: 0, y: 1.2 * f - 0.3 + 0.5, z: 0.5 * f };
-    expect(seatOnTop(high, seatOnDrawn(high, car(f)), seatScaleDrift(high, seat100, f), f)).toBe(false);
+    expect(seatOnTop(high, seatOnDrawn(high, car(f)), seatScaleDrift(high, seat100, f), f, car(f))).toBe(false);
     const moved = { x: 0, y: 1.2 * f - 0.3, z: 0.5 * f + 0.6 };
-    expect(seatOnTop(moved, seatOnDrawn(moved, car(f)), seatScaleDrift(moved, seat100, f), f)).toBe(false);
+    expect(seatOnTop(moved, seatOnDrawn(moved, car(f)), seatScaleDrift(moved, seat100, f), f, car(f))).toBe(false);
+    // On the deck with a sail hanging into the seated body's air: not a seat on top.
+    const deck = { x: 0, y: 1.2 * f - 0.3, z: 0.5 * f }, sail = [...car(f), box(-0.2, 1.2 * f + 0.4, 0, 0.2, 1.2 * f + 2, 0.5)];
+    expect(seatOnTop(deck, seatOnDrawn(deck, sail), seatScaleDrift(deck, seat100, f), f, sail)).toBe(false);
   });
 });
 

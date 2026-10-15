@@ -12,7 +12,7 @@ import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile } from '../web/src/engine/zip-utils.js';
 import { simHost } from './_sim-host.js';
-import { AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
+import { ROOF_BODY_CLEAR, roofMap, surfaceOnTop, AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const box = (min: Vec3, max: Vec3): BoxBlocks => ({ min, max });
@@ -188,23 +188,28 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
 
   // VEH-18 (the user, 2026-10-14): below 100 % a minifig of the model's size would not fit the cabin either,
   // so the player rides ON TOP, drawn - not hidden in a cabin a quarter its size with the seat under the ground.
-  it('below 100 % seats the rider ON TOP of the car, hips on the scaled roof over the seat (VEH-18)', async () => {
+  it('below 100 % seats the rider where the unscaled body has room: on the roof of a cabin too small for it (VEH-18)', async () => {
     const { entity, camera } = await build(1);
     const groups = entity.component_groups;
     const at = (pct: number): number[] => { const s = groups[`craftmatic:size_${pct}`]['minecraft:rideable'].seats; return (Array.isArray(s) ? s[0] : s).position; };
-    // The roof plate's top: 136 LDU over the floor plate's origin, which stands 28 over the wheels' bottom.
-    const roofTop = (28 + 136) / 53.333;
-    for (const pct of [25, 50, 75]) {
-      const f = pct / 100;
-      // Realised = declared x scale (quirk `seat-scales-with-entity`): the hips 0.3 under the scaled roof's top.
-      expect(at(pct)[1] * f).toBeCloseTo(roofTop * f - 0.3, 1);
-      expect(at(pct)[1] * f + RIDER_EYE_ABOVE_SEAT).toBeGreaterThan(roofTop * f);
+    // The roof plate's top: 136 LDU over the floor plate's origin, which stands 28 over the wheels' bottom;
+    // the seat mould's top 16 over it.
+    const roofTop = (28 + 136) / 53.333, panTop = (28 + 16) / 53.333;
+    // Realised = declared x scale (quirk `seat-scales-with-entity`). At 25 % the unscaled seated body
+    // (ROOF_BODY_CLEAR) has no room under the cabin's roof: the hips 0.3 under the scaled roof's top.
+    expect(at(25)[1] * 0.25).toBeCloseTo(roofTop * 0.25 - 0.3, 1);
+    expect(at(25)[1] * 0.25 + RIDER_EYE_ABOVE_SEAT).toBeGreaterThan(roofTop * 0.25);
+    // At 50 and 75 % this tall cabin still holds it (2.1 blocks inside at 100 %): on its own seat, drawn.
+    for (const f of [0.5, 0.75]) {
+      expect(at(f * 100)[1] * f).toBeCloseTo(panTop * f - 0.3, 1);
+      expect((roofTop - 0.15 - panTop) * f).toBeGreaterThan(ROOF_BODY_CLEAR);
     }
     // From 100 % the seat is the driver's again: the eye on the scaled driver's eye, under the roof.
     expect(at(100)[1] + RIDER_EYE_ABOVE_SEAT).toBeLessThan(roofTop);
-    const onTop = JSON.parse(/"onTop":(\{[^}]*\})/.exec(camera)?.[1] ?? 'null') as { below: number; roof: number; eyeOverRoof: number };
+    const onTop = JSON.parse(/"onTop":(\{"below":[^}]*\}[^}]*\})/.exec(camera)?.[1] ?? 'null') as { below: number; roofs: Record<string, number>; eyeOverRoof: number };
     expect(onTop.below).toBe(1);
-    expect(onTop.roof).toBeCloseTo(roofTop, 1);
+    expect(onTop.roofs['25']).toBeCloseTo(roofTop, 1);
+    for (const pct of ['50', '75']) expect(onTop.roofs[pct]).toBeCloseTo(panTop, 1);
     expect(onTop.eyeOverRoof).toBeCloseTo(RIDER_EYE_ABOVE_SEAT - 0.3, 3);
   });
 
@@ -226,6 +231,29 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
     h.api(car).triggerEvent('craftmatic:size_100');
     h.run(1);
     expect(effects).toEqual(['+invisibility']);
+  });
+});
+
+describe('surfaceOnTop: what a rider on top sits on below 100 % (VEH-18)', () => {
+  it('sits on a closed cabin roof, not inside it', () => {
+    const map = roofMap(cabin(0.7, 1.6))!;
+    // The pan 0.3 over a seat at 0.1: the cabin's roof (top 1.8) is the first surface with air over it.
+    for (const f of [0.25, 0.5, 0.75]) expect(surfaceOnTop(map, 0, 0.5, 0.4, f)).toBeCloseTo(1.8, 3);
+  });
+  it('keeps a helmsman on an open deck, never on the mast beside the helm', () => {
+    // A deck 0..1 and a mast 0.25 wide rising to 9, 1.5 blocks ahead of the helm.
+    const map = roofMap([box([-2, 0, -4], [2, 1, 4]), box([-0.125, 1, -1.625], [0.125, 9, -1.375])])!;
+    for (const f of [0.25, 0.5, 0.75]) expect(surfaceOnTop(map, 0, 0, 1, f)).toBeCloseTo(1, 3);
+  });
+  it('reads the body footprint and air at the PLAYER size: a small model needs more of its own', () => {
+    // A mast 0.9 blocks beside the seat: outside the body at 50 % (0.6 of model), inside it at 25 % (1.2).
+    const map = roofMap([box([-2, 0, -4], [2, 1, 4]), box([0.85, 1, -0.1], [1, 5, 0.1])])!;
+    expect(surfaceOnTop(map, 0, 0, 1, 0.5)).toBeCloseTo(1, 3);
+    expect(surfaceOnTop(map, 0, 0, 1, 0.25)).toBeCloseTo(5, 3);
+    // A lintel ROOF_BODY_CLEAR / f over the pan leaves room at 50 % but not at 25 %.
+    const lintel = roofMap([box([-2, 0, -4], [2, 1, 4]), box([-2, 1 + ROOF_BODY_CLEAR / 0.5 + 0.1, -4], [2, 1 + ROOF_BODY_CLEAR / 0.5 + 0.3, 4])])!;
+    expect(surfaceOnTop(lintel, 0, 0, 1, 0.5)).toBeCloseTo(1, 3);
+    expect(surfaceOnTop(lintel, 0, 0, 1, 0.25)).toBeCloseTo(1 + ROOF_BODY_CLEAR / 0.5 + 0.3, 3);
   });
 });
 
