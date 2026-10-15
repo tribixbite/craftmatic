@@ -1,7 +1,8 @@
 import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type GridDims, type LaneWalk, type QuarterTurn, type ReachTarget, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
 import { WalkWorld, tickPlayer, type PlayerState } from './addon-walk.js';
 import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
-import { drawnCubeBox } from './bedrock-geometry-faces.js';
+import { IDENTITY, boneTransforms, cubeCorners, drawnCubeBox } from './bedrock-geometry-faces.js';
+import type { BoxBlocks } from './cockpit-seat.js';
 import { BOARD, type BoardPoint } from './bedrock-vehicle.js';
 
 declare const world: any;
@@ -465,6 +466,33 @@ export function geometryHitBox(geometry: unknown): HitTestBox | undefined {
   }
   if (!cubes) return undefined;
   return hullHitBox({ halfWidth: reach / 16, halfLength: reach / 16, height: (top - bottom) / 16 }, bottom / 16);
+}
+
+/**
+ * Every cube a shipped geometry (`.geo.json` value) DRAWS, as an axis-aligned box in blocks at 100 % in the
+ * ENTITY frame at yaw 0 - the rideable seat's frame: +z the nose, the JSON z mirrored, as `drawnBoxes`
+ * (sim/adapters/craftmatic/drawn.ts) places it. Bone and cube rotations are applied (`boneTransforms`,
+ * `cubeCorners`); a turned cube is its corners' bounds. Read through `drawnCubeBox` (an inflated cube counts
+ * its drawn box). What a rider below 100 % sits on is read from these (VEH-18, cockpit-seat.ts `roofMap`):
+ * the compiler's part boxes are not the drawn vehicle (60221's passenger seat read a surface 0.76 over
+ * anything drawn there, round 30zb).
+ */
+export function geometryEntityBoxes(geometry: unknown): BoxBlocks[] {
+  type Cube = { origin: readonly number[]; size: readonly number[]; inflate?: unknown; rotation?: [number, number, number]; pivot?: [number, number, number] };
+  type Bone = { name: string; pivot?: [number, number, number]; rotation?: [number, number, number]; parent?: string; cubes?: Cube[] };
+  const meshes = (geometry as { 'minecraft:geometry'?: Array<{ bones?: Bone[] }> } | undefined)?.['minecraft:geometry'] ?? [];
+  const out: BoxBlocks[] = [];
+  for (const mesh of meshes) {
+    const bones = mesh.bones ?? [];
+    const transforms = boneTransforms(bones.map(b => ({ name: b.name, pivot: b.pivot ?? [0, 0, 0], ...(b.rotation ? { rotation: b.rotation } : {}), ...(b.parent ? { parent: b.parent } : {}) })));
+    for (const bone of bones) for (const cube of bone.cubes ?? []) {
+      const d = drawnCubeBox(cube);
+      const corners = cubeCorners({ bone: bone.name, origin: d.origin, size: d.size, ...(cube.rotation && cube.pivot ? { rotation: cube.rotation, pivot: cube.pivot } : {}) }, transforms.get(bone.name) ?? IDENTITY);
+      const xs = corners.map(p => p[0] / 16), ys = corners.map(p => p[1] / 16), zs = corners.map(p => (p[2] === 0 ? 0 : -p[2] / 16));
+      out.push({ min: [Math.min(...xs), Math.min(...ys), Math.min(...zs)], max: [Math.max(...xs), Math.max(...ys), Math.max(...zs)] });
+    }
+  }
+  return out;
 }
 
 /**

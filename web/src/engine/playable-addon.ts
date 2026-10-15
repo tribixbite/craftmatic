@@ -6,7 +6,7 @@ import { currentPipelineStamp, packDisplayName, packProvenance, packVersionAt, p
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
-import { boardPointsOf, buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, geometryHitBox, hitTestAtSize, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsForSizeSteps, withColliderTreadsAsync, withSizeGroups, type HitTestBox, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
+import { boardPointsOf, buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, geometryEntityBoxes, geometryHitBox, hitTestAtSize, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsForSizeSteps, withColliderTreadsAsync, withSizeGroups, type HitTestBox, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
 import { FLYER, flyerScript, type FlyerRuntimeConfig } from './bedrock-flyer.js';
 import type { CanonMount } from './set-canon.js';
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
@@ -14,7 +14,7 @@ import { CONCRETE_COLORS, encodePngRgba, generateStudBlockPng, generateEntityLeg
 import type { ParsedBrick } from './ldraw-parser.js';
 import { compileLdrawEntityGeometry, ldrawToRenderRotation, unlevelPoint, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
 import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
-import { renderSeatToEntity, riderVisibleSizes, surfaceOnTop, RIDE_ON_TOP_BELOW, ROOF_SEAT_BELOW_SURFACE, RIDER_EYE_ABOVE_SEAT, seatAtForPlan, type SeatPlan } from './cockpit-seat.js';
+import { renderSeatToEntity, riderVisibleSizes, roofMap, surfaceOnTop, RIDE_ON_TOP_BELOW, ROOF_SEAT_BELOW_SURFACE, RIDER_EYE_ABOVE_SEAT, seatAtOnTop, type RoofMap, type SeatPlan } from './cockpit-seat.js';
 import type { VehicleSeatReport } from './seat-census.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendation, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { MINIDOLL_CLIENT_ANIMATIONS, MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CLIENT_ANIMATIONS, figureClientAnimations } from './minifig-rig.js';
@@ -627,7 +627,7 @@ export function scriptedHopSource(type: ScriptedVehicleType): HopSource {
     return { halfLength: type.noseReach, halfWidth: type.halfWidth, height: type.height, vacate: type.mode === 'plane' ? 'hover' : 'stop' };
 }
 
-function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }, entitySize?: { width: number; height: number; length: number }, motion: VehicleMotion = kind === 'plane' ? 'rotor' : kind, passengerSeats?: Array<[number, number, number]>, seatPlan?: SeatPlan, hitTest?: HitTestBox): unknown {
+function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }, entitySize?: { width: number; height: number; length: number }, motion: VehicleMotion = kind === 'plane' ? 'rotor' : kind, passengerSeats?: Array<[number, number, number]>, seatPlan?: SeatPlan, hitTest?: HitTestBox, roof?: RoofMap): unknown {
     const scripted = isScriptedVehicle(kind, motion);
     const layout = componentLayout(kind, grid, sceneScale, longitudinalAxis, facing);
     let seatX: number, seatY: number, seatZ: number;
@@ -840,14 +840,14 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     } : {};
     // In-game size steps (bedrock-placement-pack.ts): scale, collision box and the seats together.
     // At each wand size from 100 % the rider's eye stays on the scaled driver's eye (cockpit-seat.ts
-    // `seatPositionAt`, a WORLD offset); below 100 % the rider sits ON TOP of the model (`seatAtForPlan`,
+    // `seatPositionAt`, a WORLD offset); below 100 % the rider sits ON TOP of the model (`seatAtOnTop` over `roof`,
     // VEH-18). The group declares it divided by its scale, because Bedrock scales a seat position with
     // `minecraft:scale` (SEAT-01, Saga 30k).
     return withSizeGroups(
         { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true, ...(scripted ? { properties: flightProperties() } : {}) }, ...aircraftGroups, components: common } },
         common['minecraft:collision_box'] as { width: number; height: number },
         rideableComponent,
-        { ...(seatPlan ? { seatAt: seatAtForPlan(seatPlan) } : {}), hitTest: [hullHit], ...(scripted ? { hitTestMaxHalf: BOARD.HULL_HIT_HALF_MAX_BLOCKS } : {}) },
+        { ...(seatPlan ? { seatAt: seatAtOnTop(roof) } : {}), hitTest: [hullHit], ...(scripted ? { hitTestMaxHalf: BOARD.HULL_HIT_HALF_MAX_BLOCKS } : {}) },
     );
 }
 /**
@@ -2030,7 +2030,7 @@ export interface VehicleCameraConfig {
     eye?: [number, number, number];
     /**
      * Below `below` (a wand factor) the rider rides ON TOP of the vehicle, drawn (VEH-18,
-     * cockpit-seat.ts `seatAtForPlan`): `roofs` maps each wand step below it (percent) to the
+     * cockpit-seat.ts `seatAtOnTop`): `roofs` maps each wand step below it (percent) to the
      * surface the driver sits on at 100 % frame (`surfaceOnTop`, which depends on the size: the
      * unscaled body needs more of a small model's air) and `eyeOverRoof` is the seated eye over
      * it, so the eye at factor f is roof x f + eyeOverRoof. The cockpit view stands at the
@@ -2055,13 +2055,14 @@ export function chaseMaxRootBlocks(lodSwitchDistance?: number): number {
 }
 
 /** The camera fields a compiled vehicle's seat plan gives its `VehicleCameraConfig`: when the body is drawn, the eye height the chase camera clears, the cockpit view's eye. */
-export function cameraSeatFields(plan: SeatPlan | undefined): Pick<VehicleCameraConfig, 'riderVisibleSizes' | 'eyeY' | 'eye' | 'onTop'> {
-    // The driver's surface at each step below 100 % (the seat in this module's render frame, its pan 0.3 over it).
+export function cameraSeatFields(plan: SeatPlan | undefined, roof?: RoofMap): Pick<VehicleCameraConfig, 'riderVisibleSizes' | 'eyeY' | 'eye' | 'onTop'> {
+    // The driver's surface at each step below 100 % (`roof` and the seat in the ENTITY frame, its pan 0.3 over the seat).
     const roofs: Record<string, number> = {};
+    const seat = plan ? renderSeatToEntity(plan.seat) : undefined;
     for (const pct of SIZE_STEPS) {
         const f = pct / 100;
-        if (!plan?.roof || f >= RIDE_ON_TOP_BELOW - 1e-6) continue;
-        const top = surfaceOnTop(plan.roof, plan.seat[0], plan.seat[2], plan.seat[1] + ROOF_SEAT_BELOW_SURFACE, f);
+        if (!roof || !seat || f >= RIDE_ON_TOP_BELOW - 1e-6) continue;
+        const top = surfaceOnTop(roof, seat[0], seat[2], seat[1] + ROOF_SEAT_BELOW_SURFACE, f);
         if (top !== null) roofs[String(pct)] = top;
     }
     return {
@@ -3212,10 +3213,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (ldrawGeo) {
             warnings.push(...ldrawGeo.warnings);
             diagnostics[cid] = ldrawGeo.diagnostics;
-            const mainBehavior = behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, ldrawGeo.seatPlan, geometryHitBox(ldrawGeo.value));
+            // What a rider below 100 % sits on, read from the geometry the pack ships (VEH-18).
+            const mainRoof = ldrawGeo.seatPlan ? roofMap(geometryEntityBoxes(ldrawGeo.value)) : undefined;
+            const mainBehavior = behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, ldrawGeo.seatPlan, geometryHitBox(ldrawGeo.value), mainRoof);
             emitCompiledEntity(cid, ldrawGeo, mainBehavior, emitDriveAnimation(cid, motion, ldrawGeo, scripted), true);
             vehicleSeats.push(vehicleSeatReport(c.label, cid, c.kind, c.bricks!, i => c.bricks![i]!, ldrawGeo, mainBehavior, `${scripted ? 'scripted' : 'native'} ${motion}`));
-            cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(scripted ? { scripted: true } : {}), ...cameraSeatFields(ldrawGeo.seatPlan) });
+            cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(scripted ? { scripted: true } : {}), ...cameraSeatFields(ldrawGeo.seatPlan, mainRoof) });
 
             // Secondary objects the compiler found beside the vehicle (see
             // EntityExtra): figures wander as minifig NPCs, a wheeled second
@@ -3245,16 +3248,17 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 diagnostics[ecid] = egeo.diagnostics;
                 warnings.push(...egeo.warnings.filter(w => !/front\/rear direction/.test(w)));
                 if (ekind === 'figure') figureBodies[`${PACK_NAMESPACE}:${ecid}`] = figureCollisionBox(egeo.sizeBlocks, options.figureCollisionHeight).height;
+                const extraRoof = ekind === 'car' && egeo.seatPlan ? roofMap(geometryEntityBoxes(egeo.value)) : undefined;
                 const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks, options.figureCollisionHeight)
                     : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
-                    : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks, 'car', egeo.passengerSeats, egeo.seatPlan, geometryHitBox(egeo.value));
+                    : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks, 'car', egeo.passengerSeats, egeo.seatPlan, geometryHitBox(egeo.value), extraRoof);
                 emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? figureClientAnimations(egeo.figure.system) : ekind === 'car' ? emitDriveAnimation(ecid, 'car', egeo, true) : undefined, ekind !== 'figure');
                 // A second vehicle's seats, its placements named by the parent's own (the extra's are levelled copies).
                 if (ekind === 'car') vehicleSeats.push(vehicleSeatReport(elabel, ecid, 'car', extra.sourceIndices.map(i => c.bricks![i]!), i => c.bricks![extra.sourceIndices[i]!], egeo, behavior, 'scripted car', p => unlevelPoint(ldrawGeo!.levelPose, p)));
                 addEntityName(`${PACK_NAMESPACE}:${ecid}`, elabel, true);
                 if (ekind === 'car') {
                     scriptedTypes[`${PACK_NAMESPACE}:${ecid}`] = scriptedTypeOf('car', 'car', egeo.sizeBlocks, 0, egeo.value);
-                    cameraVehicles.push({ ...emitCameraPresets(ecid, 'car', egeo.sizeBlocks), scripted: true, ...cameraSeatFields(egeo.seatPlan) });
+                    cameraVehicles.push({ ...emitCameraPresets(ecid, 'car', egeo.sizeBlocks), scripted: true, ...cameraSeatFields(egeo.seatPlan, extraRoof) });
                 }
                 // A rigged figure faces exactly where its torso pointed (not the nearest axis).
                 const place = extraPlacement(ldrawGeo, extra, egeo.facing, layout.actorYaw, egeo.figure?.facingLdu, lduPerBlock);

@@ -20,7 +20,7 @@
  * INVISIBLE while riding (vehicle-camera.js); at a size where it fits
  * (`riderVisibleSizes`), the rider is drawn in the seat. Below 100 % (where a
  * minifig of the model's size would not fit either) the rider rides ON TOP,
- * drawn, over the roof under the driver's seat (`seatAtForPlan`, VEH-18).
+ * drawn, over the roof under the driver's seat (`seatAtOnTop`, VEH-18).
  *
  * Everything here is in the ENTITY frame the rideable seats use: blocks, Y up
  * from the model's floor, the nose toward −Z, before the JSON X mirror.
@@ -171,8 +171,6 @@ export interface SeatPlan {
    * inside to a cockpit that does (`AHEAD_CABIN`).
    */
   ahead?: { before: number; after: number; moved: Vec3 | null; sides?: { before: SideView; after: SideView }; fallback?: boolean; cabin?: boolean };
-  /** The model's top over its footprint, for a rider on top below 100 % (`seatAtForPlan`, VEH-18). */
-  roof?: RoofMap;
 }
 
 /**
@@ -637,8 +635,7 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
       if (e) take(e, measure(seatOf(e)).map(s => ({ ...s, fits: false })), true);
     }
   }
-  const roof = roofMap(boxes);
-  return { eye: best.eye, seat: best.seat, fitScale: fitOf(best.steps), steps: best.steps, moved: best.moved, search, eyeMoved, ...(view ? { view } : {}), ahead, ...(roof ? { roof } : {}) };
+  return { eye: best.eye, seat: best.seat, fitScale: fitOf(best.steps), steps: best.steps, moved: best.moved, search, eyeMoved, ...(view ? { view } : {}), ahead };
 }
 
 /**
@@ -754,10 +751,12 @@ export const ROOF_BODY_HALF = 0.3;
 export const ROOF_CELL = 0.25;
 
 /**
- * The model's solid spans over its footprint (entity frame, blocks at
- * 100 %), on a square grid of `cell` blocks: each cell's merged vertical
- * spans `[y0, y1, y0, y1, ...]` ascending, glass included (a rider may sit
- * on a canopy, and not inside one). Read by `surfaceOnTop`.
+ * The model's solid spans over its footprint (blocks at 100 %, in the frame
+ * of the boxes it is built from - the vehicle's ENTITY frame, from its
+ * shipped geometry: bedrock-placement-pack.ts `geometryEntityBoxes`), on a
+ * square grid of `cell` blocks: each cell's merged vertical spans
+ * `[y0, y1, y0, y1, ...]` ascending, glass included (a rider may sit on a
+ * canopy, and not inside one). Read by `surfaceOnTop`.
  */
 export interface RoofMap { x0: number; z0: number; cell: number; nx: number; nz: number; spans: number[][] }
 
@@ -825,17 +824,15 @@ export function surfaceOnTop(map: RoofMap, x: number, z: number, from: number, f
  * A seat's WORLD offset at wand factor `f` for a planned vehicle: on top of
  * the model below 100 % (`ridesOnTopAt`; the body's x/z scaled with the
  * model, its hips on the scaled `surfaceOnTop`), else the driver's eye
- * (`seatPositionAt`). `position` is a rideable seat (+Z the nose,
- * `renderSeatToEntity`), as `rideableAtSize` passes it; the roof map is in
- * the render frame, read through the same half-turn. A seat with nothing
- * under it keeps its own height, scaled.
+ * (`seatPositionAt`). `position` is a rideable seat (+Z the nose), as
+ * `rideableAtSize` passes it, and `roof` is in that same entity frame. A
+ * seat with nothing under it keeps its own height, scaled.
  */
-export function seatAtForPlan(plan: Pick<SeatPlan, 'roof'>): (position: Vec3, f: number) => Vec3 {
+export function seatAtOnTop(roof: RoofMap | undefined): (position: Vec3, f: number) => Vec3 {
   return (position, f) => {
     if (!ridesOnTopAt(f)) return seatPositionAt(position, f);
     const r3 = (v: number): number => Math.round(v * 1000) / 1000;
-    const render = renderSeatToEntity(position);
-    const top = plan.roof ? surfaceOnTop(plan.roof, render[0], render[2], position[1] + ROOF_SEAT_BELOW_SURFACE, f) : null;
+    const top = roof ? surfaceOnTop(roof, position[0], position[2], position[1] + ROOF_SEAT_BELOW_SURFACE, f) : null;
     const y = top === null ? position[1] * f : top * f - ROOF_SEAT_BELOW_SURFACE;
     return [r3(position[0] * f), r3(y), r3(position[2] * f)];
   };

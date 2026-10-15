@@ -188,9 +188,12 @@ The round-30m fixes on the phones:
    placed below 100 % is ridden ON TOP, drawn (`seatAtForPlan`: the hips 0.3
    under the lowest surface with room for the unscaled seated body - a cabin
    too small rides on its roof, a roomy one or an open deck on its own seat;
-   camera config `onTop.roofs`). Round 30za (270b1a99) failed the sim on
-   10365's seats (fixed `6b91e950`); ROUND 30zb building from 6b91e950
-   (`output/device-round-2026-10-14zb/`). Device plan: Saga - 42172
+   camera config `onTop.roofs`), read from the pack's DRAWN geometry
+   (`geometryEntityBoxes`). Rounds 30za/30zb failed the sim's seat audit
+   (10365/60221/60380/10303 seats; the compiler's part boxes are not the
+   drawn vehicle - diagnosis tools in `output/device-round-2026-10-14zb/tools/`);
+   ROUND 30zc builds from the fix (`output/device-round-2026-10-14zc/`; phone
+   briefs drafted in the session scratchpad, rewrite from this plan). Device plan: Saga - 42172
    and 76286 at 50 % in Survival (rider drawn on the roof, chase camera over the
    head, hotbar-9 view from the head, dismount beside the hull), a door tap at
    200 % in Survival (the interactives' size-grouped box); Pixel - first run

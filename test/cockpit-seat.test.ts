@@ -257,6 +257,25 @@ describe('surfaceOnTop: what a rider on top sits on below 100 % (VEH-18)', () =>
   });
 });
 
+describe('geometryEntityBoxes: what a shipped geometry draws, in the seat frame (VEH-18)', () => {
+  it('mirrors the JSON z, reads an inflated cube as drawn and turns a bone', async () => {
+    const { geometryEntityBoxes } = await import('../web/src/engine/bedrock-placement-pack.js');
+    const geo = { 'minecraft:geometry': [{ bones: [
+      { name: 'body', pivot: [0, 0, 0], cubes: [{ origin: [0, 0, 0], size: [16, 16, 32] }, { origin: [-1, 15, -1], size: [10, 3, 10], inflate: -1 }] },
+      { name: 'arm', pivot: [0, 0, 0], rotation: [0, 90, 0], cubes: [{ origin: [0, 0, 0], size: [16, 16, 32] }] },
+    ] }] };
+    const [a, b, c] = geometryEntityBoxes(geo);
+    // JSON z 0..32 is the entity's z -2..0 (+z the nose, the world draws the JSON z mirrored).
+    expect(a).toEqual({ min: [0, 0, -2], max: [1, 1, 0] });
+    // inflate -1: the drawn box is 8 x 1 x 8 units at (0, 16, 0).
+    expect(b!.min.map(v => Math.round(v * 16))).toEqual([0, 16, -8]);
+    expect(b!.max.map(v => Math.round(v * 16))).toEqual([8, 17, 0]);
+    // The bone turned 90 degrees about y: the 2-long cube runs along x now.
+    expect(c!.max[0] - c!.min[0]).toBeCloseTo(2, 6);
+    expect(c!.max[2] - c!.min[2]).toBeCloseTo(1, 6);
+  });
+});
+
 describe('glass is a shell', () => {
   it('does not count a canopy\'s translucent cuboids against the rider (76286\'s pilot)', () => {
     // A canopy filling the space around the head and chest, as a curved canopy mould's cuboids do.
