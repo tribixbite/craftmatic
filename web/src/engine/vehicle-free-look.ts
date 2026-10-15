@@ -126,6 +126,17 @@ export const FREE_LOOK = {
    */
   CHASE_BOOM_MAX_BLOCKS: 48,
   /**
+   * Shortest chase boom while the rider rides ON TOP below 100 % (VEH-18),
+   * blocks, and the camera then faces the rider's eye, not the shrunk car's
+   * pivot: the picture's subject is a FULL-SIZE player on a toy car. The
+   * 100 % boom times the size put the 25 % McLaren's camera 2.4 blocks back
+   * (4.0 from the drawn root after the head clearance lifted it), pitched
+   * 32 degrees down at the rider's back, and at 43 mph the car the client
+   * draws ~3.5 ticks late fell out of the picture - grass only (Saga 30ze
+   * `b25-drive-strip.jpg`; sim `mclaren-chase-25-30ze`).
+   */
+  ON_TOP_CHASE_BOOM_BLOCKS: 6,
+  /**
    * The chase camera stands at least this far INSIDE its vehicle's LOD switch
    * (or, with no hull, the actor draw ceiling), blocks, at every size: the
    * switch is a camera-to-ROOT distance (quirk `lod-switch-camera-root`), and

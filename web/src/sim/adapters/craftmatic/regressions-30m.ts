@@ -251,6 +251,87 @@ const milanoChase400: RegressionCase = {
   },
 };
 
+// ─── 2b. Round 30ze (Saga, 2026-10-15): the 25 % chase camera frames grass (VEH-18) ───
+
+/** Where a world point falls in the drawn camera's picture: screen x and y in [-1, 1] when in frame, or undefined behind the eye. */
+function screenPoint(camera: { eye: Vec3; dir: Vec3; up: Vec3 }, p: Vec3, fovDeg: number, aspect: number): { x: number; y: number } | undefined {
+  const f = camera.dir, u = camera.up;
+  const rgt = { x: f.y * u.z - f.z * u.y, y: f.z * u.x - f.x * u.z, z: f.x * u.y - f.y * u.x };
+  const v = { x: p.x - camera.eye.x, y: p.y - camera.eye.y, z: p.z - camera.eye.z };
+  const depth = v.x * f.x + v.y * f.y + v.z * f.z;
+  if (depth < 0.05) return undefined;
+  const t = Math.tan(fovDeg * Math.PI / 360);
+  return { x: (v.x * rgt.x + v.y * rgt.y + v.z * rgt.z) / depth / t / aspect, y: (v.x * u.x + v.y * u.y + v.z * u.z) / depth / t };
+}
+const inFrame = (s: { x: number; y: number } | undefined): boolean => !!s && Math.abs(s.x) < 1 && Math.abs(s.y) < 1;
+
+/** What `mclaren-chase-25-30ze` read per size and phase: where the drawn car's and rider's centres fall in the picture. */
+interface FramingRow { pct: number; phase: 'rest' | 'driving'; mph: number; car?: { x: number; y: number }; rider?: { x: number; y: number }; pitch: number; boom: number }
+
+const SAGA_30ZE = '`output/device-round-2026-10-15ze/saga/notes.md`';
+const mclarenChase25: RegressionCase = {
+  id: 'mclaren-chase-25-30ze', title: '42172 McLaren at 25 % (30ze): the chase camera sits low and close over the rider on top and, while driving, frames only grass - neither the car nor the rider in view (VEH-18)',
+  evidence: `${SAGA_30ZE} B2 (\`b25-seated.jpg\`: parked, pitched steeply down at the rider's back, the car a sliver; \`b25-drive-strip.jpg\` 13:01:55-59, 14 -> 43 mph: frames 3-5 grass only), the same in 30zd (\`output/device-round-2026-10-14zd/saga/shots/a25-drive-stripA.jpg\`); 50 % framed the rider on the roof while driving (30zd \`a50-drive-strip\`), 100 % the car`,
+  oldPack: `${ROUND}/device-round-2026-10-15ze/packs-c9768dbf/42172-mclaren-p1.mcaddon`, newStem: '42172-mclaren-p1', expectNew: 'pass',
+  // The car summoned on the flat world at each size, the child seated, the camera left to settle; then the stick held
+  // forward 3 s (the Saga's 43 mph). The drawn car's centre and the drawn rider's body centre through the Saga
+  // client's drawn camera (entities drawn `entityLagTicks` behind the server, the script camera eased).
+  scenario: pack => ({
+    name: 'mclaren-chase-25-30ze', allowLines: vehicleAllow, steps: [{ kind: 'expect', label: 'chase framing per size', check: async ctx => {
+      const f = vehicleOf(pack, 'car');
+      const client = ClientView.of(ctx.sim.engine) ?? attachClient(ctx.sim, ctx.player, 'saga');
+      const appearance = appearanceOf(pack);
+      const rows: FramingRow[] = [];
+      const aspect = CHASE_SHOT.width / CHASE_SHOT.height;
+      for (const [i, pct] of [25, 50, 100].entries()) {
+        const v = await boardAt(ctx, f.typeId, { x: 600.5 + i * 400, z: -500.5 }, 0, pct);
+        await ctx.run(60);
+        for (const phase of ['rest', 'driving'] as const) {
+          // A scripted car moves by teleport (no velocity): its speed is the last tick's travel.
+          let speed = 0;
+          if (phase === 'driving') {
+            for (let t = 0; t < 60; t++) {
+              const before = { ...v.location };
+              ctx.sim.controls.set(ctx.player.id, { forward: 1, strafe: 0, jump: false });
+              await ctx.run(1);
+              speed = Math.hypot(v.location.x - before.x, v.location.z - before.z);
+            }
+          }
+          const shot = clientSnapshot(ctx.sim.engine, appearance, ctx.player, client, CHASE_SHOT);
+          const cam = shot.camera, dp = client.drawnPose(v), rp = client.drawnPose(ctx.player);
+          const boxes = hullBoxes(pack, v, { x: dp.x, y: dp.y, z: dp.z, yaw: dp.yaw, scale: dp.scale });
+          const c = boxes.length ? { x: (Math.min(...boxes.map(b => b.box.x0)) + Math.max(...boxes.map(b => b.box.x1))) / 2, y: (Math.min(...boxes.map(b => b.box.y0)) + Math.max(...boxes.map(b => b.box.y1))) / 2, z: (Math.min(...boxes.map(b => b.box.z0)) + Math.max(...boxes.map(b => b.box.z1))) / 2 } : { x: dp.x, y: dp.y, z: dp.z };
+          const car = screenPoint(cam, c, CHASE_FOV_DEG, aspect), rider = screenPoint(cam, { x: rp.x, y: rp.y + 0.9, z: rp.z }, CHASE_FOV_DEG, aspect);
+          const row: FramingRow = { pct, phase, mph: Math.round(speed * 20 * 2.237), ...(car ? { car: { x: r2(car.x), y: r2(car.y) } } : {}), ...(rider ? { rider: { x: r2(rider.x), y: r2(rider.y) } } : {}), pitch: r2(Math.asin(Math.max(-1, Math.min(1, -cam.dir.y))) * 180 / Math.PI), boom: r2(Math.hypot(cam.eye.x - dp.x, cam.eye.y - dp.y, cam.eye.z - dp.z)) };
+          rows.push(row);
+          ctx.note(`McLaren chase at ${pct} % ${phase} (${row.mph} mph, client ${client.profile.name}, ${cam.mode} camera ${row.boom} blocks from the drawn root, pitched ${row.pitch} degrees down): the car's centre ${inFrame(car) ? `in frame at ${row.car!.x}, ${row.car!.y}` : 'OUT of frame'}, the rider ${inFrame(rider) ? `in frame at ${row.rider!.x}, ${row.rider!.y}` : 'OUT of frame'}`);
+        }
+        ctx.sim.controls.set(ctx.player.id, { forward: 0, strafe: 0, jump: false });
+        v.removeRider(ctx.player);
+        ctx.sim.engine.removeEntity(v);
+        await ctx.run(4);
+      }
+      ctx.state['mclarenChase'] = rows;
+      return undefined;
+    } }],
+  }),
+  judge: r => {
+    const rows = (r.state['mclarenChase'] as FramingRow[] | undefined) ?? [];
+    const notes = r.notes.filter(n => /McLaren chase at/.test(n)).join('; ') || 'no chase note';
+    // The device's finding: at 25 % while driving neither the car nor the rider is in the picture.
+    const lost = (x: FramingRow): boolean => !inFrame(x.car) && !inFrame(x.rider);
+    const drive25 = rows.find(x => x.pct === 25 && x.phase === 'driving');
+    if (!drive25) return { reproduced: false, evidence: notes, untested: 'no 25 % drive was framed' };
+    // The Saga framed 50 % and 100 % at rest and 100 % driving: a reading that loses them does not separate what the
+    // tester saw. 50 % DRIVING is not a control: the Saga kept the rider at the bottom of the picture at 42 mph
+    // (30zd \`a50-drive-strip\` frame 3) where this client model, ~3.5 ticks of draw lag on the 4.4-block boom, puts
+    // it just below the frame - the model is pessimistic there by a fraction of a block (unmeasured which part).
+    const controls = rows.filter(x => x.pct > 25 && !(x.pct === 50 && x.phase === 'driving') && lost(x));
+    if (controls.length) return { reproduced: false, evidence: notes, untested: `the reading also loses ${controls.map(x => `${x.pct} % ${x.phase}`).join(', ')}, which the Saga saw framed` };
+    return { reproduced: lost(drive25) || rows.some(x => x.pct === 25 && (!inFrame(x.car) || !inFrame(x.rider))), evidence: notes };
+  },
+};
+
 // ─── 3. X-wing: the empty ship parks on the rider after an air dismount (SEAT-05) ───
 
 /** What `xwing-air-park-30m` measured (world blocks; `setDown` in the ship's frame: a along the nose, b to its right). */
@@ -649,4 +730,4 @@ const door3FigureInside: RegressionCase = {
 };
 
 /** Round 30m's open defects (and later rounds' cases kept beside them). */
-export const ROUND_30M_REGRESSIONS: RegressionCase[] = [nimbusSteer, milanoChase400, xwingAirPark, mclarenWalls, topEastFall, shellUnseen400, milanoMountReach, milanoMountReach400, door3FigureInside];
+export const ROUND_30M_REGRESSIONS: RegressionCase[] = [nimbusSteer, milanoChase400, mclarenChase25, xwingAirPark, mclarenWalls, topEastFall, shellUnseen400, milanoMountReach, milanoMountReach400, door3FigureInside];

@@ -10,7 +10,8 @@
  * Swapped: `scripts/figures.js` (`figureLifeScript`), `scripts/rides.js`
  * (`ridesScript`), `scripts/vehicles.js` (`scriptedVehicleScript`),
  * `scripts/interactives.js` (`interactivesScript`, since 2026-10-07: the
- * doors' step-out fix measured on round 30k's packs). Every
+ * doors' step-out fix measured on round 30k's packs), `scripts/vehicle-camera.js`
+ * (`vehicleCameraScript`, since 2026-10-15: the 25 % chase framing). Every
  * other script runs as shipped. A pack whose CONFIG predates a field the
  * tree's runtime reads gets that runtime's own default for it - the swap is a
  * code change, never a data migration.
@@ -22,6 +23,8 @@ import { figureLifeScript, type FigureLifeConfig } from '../../../engine/bedrock
 import { ridesScript, type RideRuntimeConfig } from '../../../engine/bedrock-rides.js';
 import { interactivesScript, type InteractiveRuntimeConfig } from '../../../engine/bedrock-interactives.js';
 import { BOAT, CAR, FLIGHT, FOOTPRINT, HEADLIGHTS, HOVER, MOVE, scriptedVehicleScript, type ScriptedVehicleConfig } from '../../../engine/bedrock-vehicle.js';
+import { vehicleCameraScript, type VehicleCameraRuntimeConfig } from '../../../engine/playable-addon.js';
+import { FREE_LOOK } from '../../../engine/vehicle-free-look.js';
 
 /** One swappable script: where its CONFIG sits in the shipped text and the tree's builder. */
 interface Swap { path: string; read: (text: string) => unknown; build: (config: never) => string }
@@ -44,6 +47,8 @@ const SWAPS: readonly Swap[] = [
   { path: 'scripts/figures.js', read: t => extractJsonAfter(t, 'const CONFIG'), build: (c: FigureLifeConfig) => figureLifeScript(c) },
   { path: 'scripts/rides.js', read: t => extractJsonAfter(t, 'const CONFIG'), build: (c: RideRuntimeConfig) => ridesScript(c) },
   { path: 'scripts/interactives.js', read: t => extractJsonAfter(t, 'const CONFIG'), build: (c: InteractiveRuntimeConfig) => interactivesScript(c) },
+  // vehicle-camera.js passes its CONFIG inline too: `(function ...)({"vehicles": ...}, ...)`; its free-look constants topped up.
+  { path: 'scripts/vehicle-camera.js', read: t => { const at = t.indexOf('({"vehicles":'); return at < 0 ? undefined : extractJsonAfter(t.slice(at), '('); }, build: (c: VehicleCameraRuntimeConfig) => vehicleCameraScript({ ...c, freeLook: { ...FREE_LOOK, ...c.freeLook } }) },
   // vehicles.js passes its CONFIG inline as the runtime's first argument: `(function ...)({"types": ...}, ...)`.
   { path: 'scripts/vehicles.js', read: t => { const at = t.indexOf('({"types":'); return at < 0 ? undefined : extractJsonAfter(t.slice(at), '('); }, build: (c: ScriptedVehicleConfig) => scriptedVehicleScript(vehicleConfigWithTreeDefaults(c)) },
 ];

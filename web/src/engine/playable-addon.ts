@@ -2233,7 +2233,12 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
     // The boom and its heights grow with the vehicle's size (`minecraft:scale`), the boom capped under the actor
     // draw ceiling: at the 100 % boom for every size the Milano was a toy at 50 % and the camera stood on its hull
     // at 400 % (Saga 30l item 2). The seat's own `third_person_camera_radius` is not this camera's.
-    const radius0 = Math.min(cfg.radius * size, config.freeLook.CHASE_BOOM_MAX_BLOCKS), height0 = cfg.height * size, pivotY = cfg.pivotY * size;
+    // Below 100 % a rider on top (VEH-18) is a full-size player on a toy car: the boom is at least
+    // `ON_TOP_CHASE_BOOM_BLOCKS` and the camera faces the rider's eye, not the shrunk car's pivot.
+    const roofNow = cfg.scripted && onTopAt(cfg, size) ? cfg.onTop.roofs[String(Math.round(size * 100))] : undefined;
+    const onTopEye = typeof roofNow === 'number' ? roofNow * size + cfg.onTop.eyeOverRoof : undefined;
+    const radius0 = Math.max(Math.min(cfg.radius * size, config.freeLook.CHASE_BOOM_MAX_BLOCKS), onTopEye !== undefined ? config.freeLook.ON_TOP_CHASE_BOOM_BLOCKS : 0);
+    const height0 = cfg.height * size, pivotY = onTopEye ?? cfg.pivotY * size;
     /** The camera and the point it faces for the boom and its height shortened by `k`. */
     const boom = (k: number): { location: { x: number; y: number; z: number }; facingLocation: { x: number; y: number; z: number } } => {
       const radius = radius0 * k, height = height0 * k;
@@ -2247,8 +2252,7 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
         // Over the rider's head: the boom's midpoint (the vehicle) must pass HEAD_CLEAR over a drawn
         // rider's head top (the eye stays on the scaled driver's eye, so it is eyeY x size; on top of
         // the model below 100 %, the roof's eye, VEH-18).
-        const roofNow = onTopAt(cfg, size) ? cfg.onTop.roofs[String(Math.round(size * 100))] : undefined;
-        const eyeOver = typeof roofNow === 'number' ? roofNow * size + cfg.onTop.eyeOverRoof : typeof cfg.eyeY === 'number' ? cfg.eyeY * size : null;
+        const eyeOver = onTopEye ?? (typeof cfg.eyeY === 'number' ? cfg.eyeY * size : null);
         if (eyeOver !== null && drawn) {
           const headTop = v.y + eyeOver + HEAD_ABOVE_EYE + HEAD_CLEAR;
           location.y = Math.max(location.y, 2 * headTop - facingLocation.y);
