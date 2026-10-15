@@ -113,7 +113,10 @@ The round-30m fixes on the phones:
      it). ROUND 30zf BUILT from 0241b1ae
      (`output/device-round-2026-10-15zf/`, 23/23, sim 132/0, regressions
      38/0, seat-scale 0 off; briefs there) and ON BOTH PHONES via agents
-     (evidence -> `.../saga/notes.md`, `.../pixel/notes.md`): McLaren chase at 25 % and 50 % parked and
+     (evidence -> `.../saga/notes.md`, `.../pixel/notes.md`). PIXEL PASS: 25 %
+     12/12 and 50 % 18/18 driving frames with car AND rider in the picture,
+     camera about level, 100 % unchanged, 0 errors; one 25 % dismount logged
+     "native" (set down 1.0 from the root, uninvestigated). Saga pending. Plan: McLaren chase at 25 % and 50 % parked and
      driving at full speed (car and rider in the picture), 100 % unchanged.
    - Device-tool lesson (Saga 30ze): the old two-finger `stickjump.sh` never
      delivers Jump (telemetry `jump:false`); use
