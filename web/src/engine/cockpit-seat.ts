@@ -18,7 +18,9 @@
  * every wand size, so the first-person view is the driver's. Where the body
  * does not fit at the size the vehicle was placed, the rider is made
  * INVISIBLE while riding (vehicle-camera.js); at a size where it fits
- * (`riderVisibleSizes`), the rider is drawn in the seat.
+ * (`riderVisibleSizes`), the rider is drawn in the seat. Below 100 % (where a
+ * minifig of the model's size would not fit either) the rider rides ON TOP,
+ * drawn, over the roof under the driver's seat (`seatAtForPlan`, VEH-18).
  *
  * Everything here is in the ENTITY frame the rideable seats use: blocks, Y up
  * from the model's floor, the nose toward −Z, before the JSON X mirror.
@@ -169,6 +171,8 @@ export interface SeatPlan {
    * inside to a cockpit that does (`AHEAD_CABIN`).
    */
   ahead?: { before: number; after: number; moved: Vec3 | null; sides?: { before: SideView; after: SideView }; fallback?: boolean; cabin?: boolean };
+  /** The model's top over its footprint, for a rider on top below 100 % (`seatAtForPlan`, VEH-18). */
+  roof?: RoofMap;
 }
 
 /**
@@ -633,7 +637,8 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
       if (e) take(e, measure(seatOf(e)).map(s => ({ ...s, fits: false })), true);
     }
   }
-  return { eye: best.eye, seat: best.seat, fitScale: fitOf(best.steps), steps: best.steps, moved: best.moved, search, eyeMoved, ...(view ? { view } : {}), ahead };
+  const roof = roofMap(boxes);
+  return { eye: best.eye, seat: best.seat, fitScale: fitOf(best.steps), steps: best.steps, moved: best.moved, search, eyeMoved, ...(view ? { view } : {}), ahead, ...(roof ? { roof } : {}) };
 }
 
 /**
@@ -662,9 +667,9 @@ export function eyeOverlap(boxes: readonly BoxBlocks[], eye: Vec3): number {
 }
 
 /**
- * Whether the rider's body is drawn at wand factor `f`: only at a measured
- * step where it fits. Below 100 % (the 25-75 % steps) it is never drawn: the
- * model is smaller than the one it was measured at.
+ * Whether the rider's body is drawn IN THE SEAT at wand factor `f`: only at a
+ * measured step where it fits. Below 100 % (the 25-75 % steps) it never is:
+ * the rider rides on top there instead (`ridesOnTopAt`, VEH-18).
  */
 export function riderVisibleAt(plan: Pick<SeatPlan, 'steps'>, f: number): boolean {
   return plan.steps.some(s => s.fits && Math.abs(s.f - f) < 1e-6);
@@ -709,4 +714,100 @@ export function renderSeatToEntity(p: Vec3): Vec3 {
 export function seatPositionAt(position: Vec3, f: number): Vec3 {
   const r3 = (v: number): number => Math.round(v * 1000) / 1000;
   return [r3(position[0] * f), r3((position[1] + RIDER_EYE_ABOVE_SEAT) * f - RIDER_EYE_ABOVE_SEAT), r3(position[2] * f)];
+}
+
+/**
+ * Below 100 % a rider sits ON TOP of the vehicle, drawn, not in its cabin
+ * (VEH-18, the user, 2026-10-14: "at less than 100% scale (where a minifig of
+ * the same scale wouldn't fit either) it's ok for a player to not fit inside a
+ * cockpit ... for scaled-down cars where a minifig would not fit inside, the
+ * player can ride on top"). A wand size under 1 shrinks the cabin below a
+ * minifig's, so no seat inside it can hold the unscaled player; until then the
+ * rider was hidden there with its eye on the shrunk driver's eye (and the
+ * 25 % seat sat under the ground). At and above 100 % nothing changes: the
+ * driver's seat, drawn where the body fits (SEAT-01).
+ */
+export const RIDE_ON_TOP_BELOW = 1;
+
+/** Whether a rider of a planned seat rides on top at wand factor `f`. */
+export const ridesOnTopAt = (f: number): boolean => f < RIDE_ON_TOP_BELOW - 1e-6;
+
+/**
+ * The seat position under the surface a rider sits on (blocks): the same
+ * 0.3 the invisible chair seat uses (playable-addon.ts `seatBehavior`), so
+ * the hips rest on the roof and the eye stands 0.82 over it.
+ */
+export const ROOF_SEAT_BELOW_SURFACE = 0.3;
+
+/**
+ * The model's top over its footprint (entity frame, blocks at 100 %), on a
+ * square grid of `cell` blocks: each cell the highest box top over it, glass
+ * included (a rider may sit on a canopy). Read by `roofTopAt`.
+ */
+export interface RoofMap { x0: number; z0: number; cell: number; nx: number; nz: number; tops: number[] }
+
+/** Grid pitch of a `RoofMap`, blocks. */
+export const ROOF_CELL = 0.25;
+
+/** Half the seated body's footprint the roof is read under (0.6-wide player, `SEATED_RIDER_PROBES` torso depth). */
+export const ROOF_BODY_HALF = 0.3;
+
+/** Rasterise the model's box tops into a `RoofMap` (each box marks the cells it overlaps). */
+export function roofMap(boxes: readonly BoxBlocks[], cell = ROOF_CELL): RoofMap | undefined {
+  if (!boxes.length) return undefined;
+  const x0 = Math.min(...boxes.map(b => b.min[0])), z0 = Math.min(...boxes.map(b => b.min[2]));
+  const x1 = Math.max(...boxes.map(b => b.max[0])), z1 = Math.max(...boxes.map(b => b.max[2]));
+  const nx = Math.max(1, Math.ceil((x1 - x0) / cell)), nz = Math.max(1, Math.ceil((z1 - z0) / cell));
+  const tops = new Array<number>(nx * nz).fill(-Infinity);
+  for (const b of boxes) {
+    const i0 = Math.max(0, Math.floor((b.min[0] - x0) / cell)), i1 = Math.min(nx - 1, Math.ceil((b.max[0] - x0) / cell) - 1);
+    const k0 = Math.max(0, Math.floor((b.min[2] - z0) / cell)), k1 = Math.min(nz - 1, Math.ceil((b.max[2] - z0) / cell) - 1);
+    for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) if (b.max[1] > tops[i * nz + k]!) tops[i * nz + k] = b.max[1];
+  }
+  const r3 = (v: number): number => Math.round(v * 1000) / 1000;
+  return { x0: r3(x0), z0: r3(z0), cell, nx, nz, tops: tops.map(t => Number.isFinite(t) ? r3(t) : -1) };
+}
+
+/**
+ * The highest top under a seated body at (x, z) (entity frame, blocks at
+ * 100 %): what a rider on top sits on. Only the body's own footprint
+ * (`ROOF_BODY_HALF`), so a mast or a tail fin beside the seat does not lift
+ * the rider (10300's 600-LDU pole put a whole-model rider 2.6 blocks over its
+ * roof, 2026-09-25). null: nothing of the model under the body.
+ */
+export function roofTopAt(map: RoofMap, x: number, z: number): number | null {
+  const i0 = Math.max(0, Math.floor((x - ROOF_BODY_HALF - map.x0) / map.cell)), i1 = Math.min(map.nx - 1, Math.floor((x + ROOF_BODY_HALF - map.x0) / map.cell));
+  const k0 = Math.max(0, Math.floor((z - ROOF_BODY_HALF - map.z0) / map.cell)), k1 = Math.min(map.nz - 1, Math.floor((z + ROOF_BODY_HALF - map.z0) / map.cell));
+  let top = -1;
+  for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) top = Math.max(top, map.tops[i * map.nz + k]!);
+  return top >= 0 ? top : null;
+}
+
+/**
+ * A seat's WORLD offset at wand factor `f` for a planned vehicle: on top of
+ * the model below 100 % (`ridesOnTopAt`; the body's x/z scaled with the
+ * model, its hips on the scaled roof under it), else the driver's eye
+ * (`seatPositionAt`). `position` is a rideable seat (+Z the nose,
+ * `renderSeatToEntity`), as `rideableAtSize` passes it; the roof map is in
+ * the render frame, read through the same half-turn. A seat with nothing
+ * under it keeps its own height, scaled.
+ */
+export function seatAtForPlan(plan: Pick<SeatPlan, 'roof'>): (position: Vec3, f: number) => Vec3 {
+  return (position, f) => {
+    if (!ridesOnTopAt(f)) return seatPositionAt(position, f);
+    const r3 = (v: number): number => Math.round(v * 1000) / 1000;
+    const render = renderSeatToEntity(position);
+    const top = plan.roof ? roofTopAt(plan.roof, render[0], render[2]) : null;
+    const y = top === null ? position[1] * f : top * f - ROOF_SEAT_BELOW_SURFACE;
+    return [r3(position[0] * f), r3(y), r3(position[2] * f)];
+  };
+}
+
+/**
+ * The rider's eye over the vehicle's floor at wand factor `f` when it rides
+ * on top (blocks, world): the roof under the driver's seat, scaled, plus the
+ * seated eye over the surface. The chase camera clears the head from it.
+ */
+export function onTopEyeY(roofAtSeat: number, f: number): number {
+  return roofAtSeat * f - ROOF_SEAT_BELOW_SURFACE + RIDER_EYE_ABOVE_SEAT;
 }

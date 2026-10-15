@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { SIZE_STEPS, withSizeGroups } from '../web/src/engine/bedrock-placement-pack.js';
 import { RIDER_EYE_ABOVE_SEAT, seatPositionAt } from '../web/src/engine/cockpit-seat.js';
 import { buildAddonAppearance } from '../web/src/sim/adapters/craftmatic/appearance.js';
-import { SEAT_ON_DRAWN, collisionScaleAudit, describeBoxRow, describeSeatRow, seatOnDrawn, seatScaleAudit, seatScaleDrift } from '../web/src/sim/adapters/craftmatic/seat-scale.js';
+import { SEAT_ON_DRAWN, collisionScaleAudit, describeBoxRow, describeSeatRow, seatOnDrawn, seatOnTop, seatScaleAudit, seatScaleDrift } from '../web/src/sim/adapters/craftmatic/seat-scale.js';
 import type { DrawnBox } from '../web/src/sim/adapters/craftmatic/drawn.js';
 import { fixturePack } from '../web/src/sim/pack/fixture.js';
 
@@ -87,6 +87,28 @@ function vehiclePack(declare: (pct: number) => [number, number, number], box: (f
   ]);
   return { behavior, appearance: buildAddonAppearance(sources) };
 }
+
+describe('seatOnTop: below 100 % a vehicle is ridden on top (VEH-18)', () => {
+  // A car 2 wide, 1.2 tall at 100 %, its seat in the cabin at (0, 0.2, 0.5).
+  const seat100 = { x: 0, y: 0.2, z: 0.5 };
+  const car = (f: number): DrawnBox[] => [box(-1 * f, 0, -2 * f, 1 * f, 1.2 * f, 2 * f)];
+  it('accepts the hips on the scaled roof under the seat below 100 %, and never at or above 100 %', () => {
+    for (const f of [0.25, 0.5, 0.75]) {
+      const seat = { x: 0, y: 1.2 * f - 0.3, z: 0.5 * f };
+      const place = seatOnDrawn(seat, car(f));
+      expect(seatOnTop(seat, place, seatScaleDrift(seat, seat100, f), f), `on top at ${f}`).toBe(true);
+    }
+    const seat = { x: 0, y: 1.2 * 1.5 - 0.3, z: 0.75 };
+    expect(seatOnTop(seat, seatOnDrawn(seat, car(1.5)), seatScaleDrift(seat, seat100, 1.5), 1.5)).toBe(false);
+  });
+  it('rejects a seat floating over the roof or moved along the car below 100 %', () => {
+    const f = 0.5;
+    const high = { x: 0, y: 1.2 * f - 0.3 + 0.5, z: 0.5 * f };
+    expect(seatOnTop(high, seatOnDrawn(high, car(f)), seatScaleDrift(high, seat100, f), f)).toBe(false);
+    const moved = { x: 0, y: 1.2 * f - 0.3, z: 0.5 * f + 0.6 };
+    expect(seatOnTop(moved, seatOnDrawn(moved, car(f)), seatScaleDrift(moved, seat100, f), f)).toBe(false);
+  });
+});
 
 describe('seatScaleAudit: every rideable at every wand size', () => {
   // The driver's eye at 100 %: 1.8 up (under the 2-block cabin's roof), 1 block aft of the middle.

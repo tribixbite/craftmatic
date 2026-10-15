@@ -185,6 +185,48 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
     h.run(1);
     expect(effects).toEqual(['+invisibility', '-invisibility', '+invisibility', '-invisibility']);
   });
+
+  // VEH-18 (the user, 2026-10-14): below 100 % a minifig of the model's size would not fit the cabin either,
+  // so the player rides ON TOP, drawn - not hidden in a cabin a quarter its size with the seat under the ground.
+  it('below 100 % seats the rider ON TOP of the car, hips on the scaled roof over the seat (VEH-18)', async () => {
+    const { entity, camera } = await build(1);
+    const groups = entity.component_groups;
+    const at = (pct: number): number[] => { const s = groups[`craftmatic:size_${pct}`]['minecraft:rideable'].seats; return (Array.isArray(s) ? s[0] : s).position; };
+    // The roof plate's top: 136 LDU over the floor plate's origin, which stands 28 over the wheels' bottom.
+    const roofTop = (28 + 136) / 53.333;
+    for (const pct of [25, 50, 75]) {
+      const f = pct / 100;
+      // Realised = declared x scale (quirk `seat-scales-with-entity`): the hips 0.3 under the scaled roof's top.
+      expect(at(pct)[1] * f).toBeCloseTo(roofTop * f - 0.3, 1);
+      expect(at(pct)[1] * f + RIDER_EYE_ABOVE_SEAT).toBeGreaterThan(roofTop * f);
+    }
+    // From 100 % the seat is the driver's again: the eye on the scaled driver's eye, under the roof.
+    expect(at(100)[1] + RIDER_EYE_ABOVE_SEAT).toBeLessThan(roofTop);
+    const onTop = JSON.parse(/"onTop":(\{[^}]*\})/.exec(camera)?.[1] ?? 'null') as { below: number; roof: number; eyeOverRoof: number };
+    expect(onTop.below).toBe(1);
+    expect(onTop.roof).toBeCloseTo(roofTop, 1);
+    expect(onTop.eyeOverRoof).toBeCloseTo(RIDER_EYE_ABOVE_SEAT - 0.3, 3);
+  });
+
+  it('draws a rider on top below 100 % even where the cabin never fits them (vehicle-camera.js, VEH-18)', async () => {
+    const { camera, entityText } = await build(0.25);
+    const h = simHost({ script: camera, files: { 'entities/cabin_car.json': entityText } });
+    const car = h.spawn('craftmatic:cabin_car', { x: 0, y: 0, z: 0 });
+    const rider = h.addPlayer('Driver', { x: 0, y: 0, z: 0 });
+    const effects: string[] = [];
+    const player = h.api(rider), addEffect = player.addEffect, removeEffect = player.removeEffect;
+    player.addEffect = (name: string, ...rest: unknown[]) => { effects.push(`+${name}`); return addEffect(name, ...rest); };
+    player.removeEffect = (name: string) => { effects.push(`-${name}`); return removeEffect(name); };
+    h.api(car).triggerEvent('craftmatic:size_50');
+    h.seat(rider, car);
+    h.run(2);
+    // On top at 50 %: drawn, never hidden.
+    expect(effects).toEqual([]);
+    // Back to 100 %: in the quarter-scale cabin, where the body does not fit, hidden again.
+    h.api(car).triggerEvent('craftmatic:size_100');
+    h.run(1);
+    expect(effects).toEqual(['+invisibility']);
+  });
 });
 
 describe('glass is a shell', () => {

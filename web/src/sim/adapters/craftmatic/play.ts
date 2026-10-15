@@ -37,7 +37,7 @@ import type { AddonAppearance } from './appearance.js';
 import type { VoxelWorld } from '../../world/voxel-world.js';
 import { driverViewWorld, drawnReaches, drawnTopOver, entityDrawn, type DrawnBox } from './drawn.js';
 import { modelToWorld, type CraftmaticPack, type Placed } from './pack-facts.js';
-import { collisionScaleAudit, describeBoxRow, describeDrift, describePlace, describeSeatRow, seatOnDrawn, seatScaleAudit, seatScaleDrift, seats100 } from './seat-scale.js';
+import { collisionScaleAudit, describeBoxRow, describeDrift, describePlace, describeSeatRow, seatOnDrawn, seatOnTop, seatScaleAudit, seatScaleDrift, seats100 } from './seat-scale.js';
 import { PLACED_KEY } from './wand.js';
 import { treadBlocksFor } from '../../../engine/bedrock-placement-pack.js';
 import { relayRounding, type QuarterTurn } from '../../../engine/bedrock-collider-scale.js';
@@ -232,7 +232,9 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
         const seat100 = base[index] ?? base[0];
         const rel = { x: seat.x - v.location.x, y: seat.y - v.location.y, z: seat.z - v.location.z };
         const drift = seat100 ? seatScaleDrift(rel, rotateYaw(seat100, v.rotation.y), scale) : undefined;
-        const ok = Math.abs(scale - 1) < 1e-9 ? place.ok : (drift?.ok ?? place.ok);
+        // Below 100 % a vehicle's rider may ride on top of it instead (VEH-18, `seatOnTop`).
+        const onTop = drift ? seatOnTop(seat, place, drift, scale) : false;
+        const ok = Math.abs(scale - 1) < 1e-9 ? place.ok : (drift?.ok || onTop || (!drift && place.ok));
         const text = `${type} at scale ${r3(scale)}: the rider's seat ${JSON.stringify(pt(seat))} is ${describePlace(place)}${drift ? `; ${describeDrift(drift)}` : ''}`;
         if (!ok) ctx.violate({ invariant: 'seat-on-vehicle', message: text, evidence: { seat: pt(seat), eye: pt(eye), scale: r3(scale), hull: place.hull, verdict: place.verdict, ...(drift ? { drift: { dx: r3(drift.dx), dy: r3(drift.dy), dz: r3(drift.dz) } } : {}) } });
         else ctx.note(text);

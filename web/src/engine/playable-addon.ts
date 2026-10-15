@@ -14,7 +14,7 @@ import { CONCRETE_COLORS, encodePngRgba, generateStudBlockPng, generateEntityLeg
 import type { ParsedBrick } from './ldraw-parser.js';
 import { compileLdrawEntityGeometry, ldrawToRenderRotation, unlevelPoint, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
 import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
-import { renderSeatToEntity, riderVisibleSizes, seatPositionAt, type SeatPlan } from './cockpit-seat.js';
+import { renderSeatToEntity, riderVisibleSizes, roofTopAt, RIDE_ON_TOP_BELOW, ROOF_SEAT_BELOW_SURFACE, RIDER_EYE_ABOVE_SEAT, seatAtForPlan, type SeatPlan } from './cockpit-seat.js';
 import type { VehicleSeatReport } from './seat-census.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendation, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { MINIDOLL_CLIENT_ANIMATIONS, MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CLIENT_ANIMATIONS, figureClientAnimations } from './minifig-rig.js';
@@ -839,14 +839,15 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         },
     } : {};
     // In-game size steps (bedrock-placement-pack.ts): scale, collision box and the seats together.
-    // At each wand size the rider's eye stays on the scaled driver's eye (cockpit-seat.ts
-    // `seatPositionAt`, a WORLD offset); the group declares it divided by its scale, because
-    // Bedrock scales a seat position with `minecraft:scale` (SEAT-01, Saga 30k).
+    // At each wand size from 100 % the rider's eye stays on the scaled driver's eye (cockpit-seat.ts
+    // `seatPositionAt`, a WORLD offset); below 100 % the rider sits ON TOP of the model (`seatAtForPlan`,
+    // VEH-18). The group declares it divided by its scale, because Bedrock scales a seat position with
+    // `minecraft:scale` (SEAT-01, Saga 30k).
     return withSizeGroups(
         { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true, ...(scripted ? { properties: flightProperties() } : {}) }, ...aircraftGroups, components: common } },
         common['minecraft:collision_box'] as { width: number; height: number },
         rideableComponent,
-        { ...(seatPlan ? { seatAt: seatPositionAt } : {}), hitTest: [hullHit], ...(scripted ? { hitTestMaxHalf: BOARD.HULL_HIT_HALF_MAX_BLOCKS } : {}) },
+        { ...(seatPlan ? { seatAt: seatAtForPlan(seatPlan) } : {}), hitTest: [hullHit], ...(scripted ? { hitTestMaxHalf: BOARD.HULL_HIT_HALF_MAX_BLOCKS } : {}) },
     );
 }
 /**
@@ -2028,6 +2029,13 @@ export interface VehicleCameraConfig {
      */
     eye?: [number, number, number];
     /**
+     * Below `below` (a wand factor) the rider rides ON TOP of the vehicle, drawn (VEH-18,
+     * cockpit-seat.ts `seatAtForPlan`): `roof` is the model's top under the driver's seat at
+     * 100 % and `eyeOverRoof` the seated eye over it, so the eye at factor f is roof x f +
+     * eyeOverRoof. The cockpit view stands at the rider's own head there.
+     */
+    onTop?: { below: number; roof: number; eyeOverRoof: number };
+    /**
      * The farthest the chase camera may stand from the vehicle's ROOT, blocks, at every wand size
      * (`chaseMaxRootBlocks`): under the LOD switch where a hull ships, else under the actor's draw
      * ceiling. Absent: no limit but the boom's own cap.
@@ -2045,8 +2053,13 @@ export function chaseMaxRootBlocks(lodSwitchDistance?: number): number {
 }
 
 /** The camera fields a compiled vehicle's seat plan gives its `VehicleCameraConfig`: when the body is drawn, the eye height the chase camera clears, the cockpit view's eye. */
-export function cameraSeatFields(plan: SeatPlan | undefined): Pick<VehicleCameraConfig, 'riderVisibleSizes' | 'eyeY' | 'eye'> {
-    return { riderVisibleSizes: riderVisibleSizes(plan), ...(plan ? { eyeY: plan.eye[1], eye: renderSeatToEntity(plan.eye) } : {}) };
+export function cameraSeatFields(plan: SeatPlan | undefined): Pick<VehicleCameraConfig, 'riderVisibleSizes' | 'eyeY' | 'eye' | 'onTop'> {
+    const roof = plan?.roof ? roofTopAt(plan.roof, plan.seat[0], plan.seat[2]) : null;
+    return {
+        riderVisibleSizes: riderVisibleSizes(plan),
+        ...(plan ? { eyeY: plan.eye[1], eye: renderSeatToEntity(plan.eye) } : {}),
+        ...(roof !== null ? { onTop: { below: RIDE_ON_TOP_BELOW, roof, eyeOverRoof: Math.round((RIDER_EYE_ABOVE_SEAT - ROOF_SEAT_BELOW_SURFACE) * 1000) / 1000 } } : {}),
+    };
 }
 
 /** What the camera runtime is told: its vehicles, the scripted vehicles' pitch property, the hop's claim, and the free look's numbers and outputs. */
@@ -2182,6 +2195,8 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
   };
   /** A seated player's head top over its eye, and the clearance the chase camera's line of sight keeps over it, blocks. */
   const HEAD_ABOVE_EYE = 0.22, HEAD_CLEAR = 0.25;
+  /** Whether the rider rides ON TOP of the vehicle at this size (VEH-18: below 100 %, drawn on the roof). */
+  const onTopAt = (cfg: any, size: number): boolean => !!cfg.onTop && size < cfg.onTop.below - 1e-6;
   const chase = (player: any, vehicle: any, cfg: any, size: number, drawn: boolean, offset: { yaw: number; pitch: number }): boolean => {
     let yaw = 0, pitch = 0;
     try { const r = player.getRotation(); yaw = r.y; pitch = r.x; } catch {}
@@ -2220,9 +2235,11 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
         const location = { x: v.x - fx * cp * radius, y: v.y + pivotY + height * 0.5 - sp * radius, z: v.z - fz * cp * radius };
         const facingLocation = { x: v.x + fx * cp * radius, y: v.y + pivotY + sp * radius, z: v.z + fz * cp * radius };
         // Over the rider's head: the boom's midpoint (the vehicle) must pass HEAD_CLEAR over a drawn
-        // rider's head top (the eye stays on the scaled driver's eye, so it is eyeY x size).
-        if (typeof cfg.eyeY === 'number' && drawn) {
-          const headTop = v.y + cfg.eyeY * size + HEAD_ABOVE_EYE + HEAD_CLEAR;
+        // rider's head top (the eye stays on the scaled driver's eye, so it is eyeY x size; on top of
+        // the model below 100 %, the roof's eye, VEH-18).
+        const eyeOver = onTopAt(cfg, size) ? cfg.onTop.roof * size + cfg.onTop.eyeOverRoof : typeof cfg.eyeY === 'number' ? cfg.eyeY * size : null;
+        if (eyeOver !== null && drawn) {
+          const headTop = v.y + eyeOver + HEAD_ABOVE_EYE + HEAD_CLEAR;
           location.y = Math.max(location.y, 2 * headTop - facingLocation.y);
         }
         // A view dragged upward swings the boom low: keep the camera over the vehicle's base.
@@ -2357,18 +2374,21 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
         scheme(player, RIDER_SCHEME);
       }
       // A body that does not fit the driver's seat at this size is hidden; the eye stays the driver's. A scripted
-      // vehicle's cockpit view hides it too: its camera stands at the eye, inside the rider's own head.
+      // vehicle's cockpit view hides it too: its camera stands at the eye, inside the rider's own head. Below
+      // 100 % the rider sits ON TOP and is drawn (VEH-18), its cockpit view from its own head.
       const size = sizeOf(vehicle);
-      const unfit = Array.isArray(cfg.riderVisibleSizes) && !cfg.riderVisibleSizes.some((v: number) => Math.abs(v - size) < 0.01);
+      const onTop = onTopAt(cfg, size);
+      const unfit = !onTop && Array.isArray(cfg.riderVisibleSizes) && !cfg.riderVisibleSizes.some((v: number) => Math.abs(v - size) < 0.01);
       if (unfit || (cockpit && cfg.scripted)) hide(player, id);
       else if (hidden.has(id)) show(player, id);
       // Hotbar slot 9 is the COCKPIT view: the rider sees from the seat. Sneak is Dismount and Jump is the
       // vehicle's, so a hotbar slot is the one free touch input. A native mount's is the rider's own first person.
       const now = tracked.get(id);
       if (cockpit) {
-        const cam = cfg.scripted ? cockpitView(fl.poses, config.freeLook.COCKPIT_TICK_LAG, Array.isArray(cfg.eye) ? cfg.eye : [0, 0, 0], size, offset, config.freeLook.COCKPIT_PITCH_MAX) : null;
-        // Without a measured eye, the camera stands at the rider's own head (the seat the game put it in).
-        if (cam && !Array.isArray(cfg.eye)) { try { cam.location = player.getHeadLocation(); } catch {} }
+        const ownHead = onTop || !Array.isArray(cfg.eye);
+        const cam = cfg.scripted ? cockpitView(fl.poses, config.freeLook.COCKPIT_TICK_LAG, ownHead ? [0, 0, 0] : cfg.eye, size, offset, config.freeLook.COCKPIT_PITCH_MAX) : null;
+        // Without a measured eye, or on top of the model, the camera stands at the rider's own head (the seat the game put it in).
+        if (cam && ownHead) { try { cam.location = player.getHeadLocation(); } catch {} }
         let placed = false;
         if (cam) { try { player.camera.setCamera('minecraft:free', { location: cam.location, rotation: cam.rotation, easeOptions: { easeTime: config.freeLook.COCKPIT_EASE_SECONDS, easeType: 'Linear' } }); placed = true; } catch {} }
         if (!placed && now && now.chase) { try { player.camera.clear(); } catch {} }
@@ -3939,7 +3959,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     ].join('\n');
     // The README's flying-cloud paragraph, in the helicopter paragraph's voice, only for a pack that has a mount.
     const flyerReadme = flyerMounts.length ? ` Flying ${flyerMounts.map(m => m.label).join(' and ')}: tap the figure riding it (or the cloud under them) and a cloud of your own puffs into being beside you, with you on it. Push the joystick to fly where you look; Jump climbs straight up; pull the joystick BACK while holding Jump, or look down while holding Jump, to descend. It hovers in place when you let go. Dismount (sneak) leaves you where you are - in the air you float gently down - and the cloud waits there for you; an empty cloud fades away after a minute, and only a few can be about at once. The figure keeps its own cloud and flies a lap round the set on it.` : '';
-    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar: the first time, the preview follows wherever you look (no menu). Use the wand again, or switch away and back, for the menu - Place is at the top - to pin a position, rotate, resize or place; "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars, hover craft and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive, brake and reverse; stopped, LEFT and RIGHT turn the car on the spot; press Jump for a short boost; the Dismount (sneak) button gets you out. A car does not get stuck: it slides along a wall it brushes, steps round a tree it clips and scrambles up a kerb or out of a pit up to two blocks high; a higher wall stops it - back up or turn. A hover craft floats over land and water alike. At night a light runs ahead of the nose. Planes and spaceships fly like a spaceship: push the joystick forward to fly forward and back to fly straight BACKWARDS, LEFT and RIGHT to turn (even standing still); Jump goes straight UP; hold Jump with the joystick pulled back - or drag the view to look down and then press Jump - to go straight DOWN; let go of everything and it stops and hovers in the air. Fly it into a hill or a wall and it lifts itself over. Get out in the air and it floats gently down to the ground and waits there. Every car, boat and ship: drag the screen to look around; let go and, while you are moving, the view swings back behind you after a second. Helicopters: push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump, or look down while holding Jump, to descend. Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you (drag to look around; hotbar slot 9 is the view from the seat); it clears when you dismount.${hasHop ? ' Drive or fly into something you can sit in - a chair, a roller-coaster car (even a moving one), a slide, another vehicle - with a free seat, and you hop straight onto it (onto the front-most free car of a coaster train); the one you left waits where you left it (a plane hovers in the air until you come back).' : ''}${ridesConfig?.rides.some(r => r.kind === 'slide') ? ' A slide whose foot has a car (or a coaster car, or a chair) with a free seat parked at it drops you straight into that seat.' : ''}${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''}${flyerReadme} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when a minifig would fit it at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by entities standing on invisible blocks that follow the LEGO floors and walls - a large building by several, each drawing its own ${STATIC_SHELL_CELL_BLOCKS}-block cell so no part of it is culled while you stand near it; undo removes all of them with the blocks. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar: the first time, the preview follows wherever you look (no menu). Use the wand again, or switch away and back, for the menu - Place is at the top - to pin a position, rotate, resize or place; "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars, hover craft and boats: interact to ride (placed smaller than 100% you ride on top of it, where a minifig would not fit inside either). Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive, brake and reverse; stopped, LEFT and RIGHT turn the car on the spot; press Jump for a short boost; the Dismount (sneak) button gets you out. A car does not get stuck: it slides along a wall it brushes, steps round a tree it clips and scrambles up a kerb or out of a pit up to two blocks high; a higher wall stops it - back up or turn. A hover craft floats over land and water alike. At night a light runs ahead of the nose. Planes and spaceships fly like a spaceship: push the joystick forward to fly forward and back to fly straight BACKWARDS, LEFT and RIGHT to turn (even standing still); Jump goes straight UP; hold Jump with the joystick pulled back - or drag the view to look down and then press Jump - to go straight DOWN; let go of everything and it stops and hovers in the air. Fly it into a hill or a wall and it lifts itself over. Get out in the air and it floats gently down to the ground and waits there. Every car, boat and ship: drag the screen to look around; let go and, while you are moving, the view swings back behind you after a second. Helicopters: push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump, or look down while holding Jump, to descend. Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you (drag to look around; hotbar slot 9 is the view from the seat); it clears when you dismount.${hasHop ? ' Drive or fly into something you can sit in - a chair, a roller-coaster car (even a moving one), a slide, another vehicle - with a free seat, and you hop straight onto it (onto the front-most free car of a coaster train); the one you left waits where you left it (a plane hovers in the air until you come back).' : ''}${ridesConfig?.rides.some(r => r.kind === 'slide') ? ' A slide whose foot has a car (or a coaster car, or a chair) with a free seat parked at it drops you straight into that seat.' : ''}${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''}${flyerReadme} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when a minifig would fit it at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by entities standing on invisible blocks that follow the LEGO floors and walls - a large building by several, each drawing its own ${STATIC_SHELL_CELL_BLOCKS}-block cell so no part of it is culled while you stand near it; undo removes all of them with the blocks. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     // Derive the capability from the completed resource pack. Coaster cars,
     // lift platforms and other generated actors are not necessarily present in
     // the initial component list, but their emitted texture sets still require

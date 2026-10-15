@@ -24,6 +24,11 @@
  *     again, drifts by (f - 1) x the whole offset - 76286's by 10.3 blocks
  *     at 200 % - and fails here at every size but 100 %, whatever the hull
  *     looks like. This is the verdict above and below 100 %.
+ *   - `seatOnTop`: below 100 % a vehicle's rider may instead ride ON TOP
+ *     (VEH-18, the user 2026-10-14; cockpit-seat.ts `seatAtForPlan`): x and z
+ *     still the 100 % seat scaled once, the hips (`ROOF_SEAT_BELOW_SURFACE`
+ *     over the seat) on the highest drawn surface under the body. A seat
+ *     moved there on purpose; anywhere else below 100 % is still a drift.
  *
  * Why the drawn hull and not the collision box: a vehicle's box is its hit
  * target (a coaster car's covers the tub, a shell's is a cull needle); only
@@ -41,6 +46,7 @@ import type { Box, Vec3 } from '../../core/vec.js';
 import { EntityDefinitions, type Components, type EntityDefinition } from '../../entity/definitions.js';
 import { packFiles, type Pack } from '../../pack/pack.js';
 import { quirkValue } from '../../quirks/registry.js';
+import { ROOF_SEAT_BELOW_SURFACE, ridesOnTopAt } from '../../../engine/cockpit-seat.js';
 import type { AddonAppearance } from './appearance.js';
 import { drawnBoxes, drawnTopOver, type DrawnBox } from './drawn.js';
 
@@ -134,6 +140,17 @@ export function seatScaleDrift(seat: Vec3, seat100: Vec3, scale: number, toleran
   return { ok: Math.abs(dx) <= tol && Math.abs(dy) <= tol && Math.abs(dz) <= tol, dx, dy, dz, yBand };
 }
 
+/**
+ * Whether a realised seat at `scale` rides ON TOP of its vehicle (VEH-18): below
+ * 100 % only, x and z on the 100 % seat scaled once, the hips on the highest
+ * drawn surface under the body (within `SEAT_ON_DRAWN.drift`).
+ */
+export function seatOnTop(seat: Vec3, place: SeatPlace, drift: SeatDrift, scale: number, tolerance = SEAT_ON_DRAWN): boolean {
+  if (!ridesOnTopAt(scale) || !place.ok || place.topUnder === undefined) return false;
+  if (Math.abs(drift.dx) > tolerance.drift || Math.abs(drift.dz) > tolerance.drift) return false;
+  return Math.abs(seat.y + ROOF_SEAT_BELOW_SURFACE - place.topUnder) <= tolerance.drift;
+}
+
 /** One seat of one rideable at one wand step, as the device realises it. */
 export interface SeatScaleRow {
   typeId: string;
@@ -151,6 +168,8 @@ export interface SeatScaleRow {
   place: SeatPlace;
   /** Against the 100 % seat scaled once (the verdict at every other size). */
   drift: SeatDrift;
+  /** Below 100 %: the rider rides on top of the vehicle (`seatOnTop`), the verdict there in place of the drift. */
+  onTop: boolean;
   ok: boolean;
 }
 
@@ -212,7 +231,8 @@ export function seatScaleAudit(behavior: Pack, appearance: AddonAppearance): Sea
         const seat = { x, y, z }, eye = { x, y: y + eyeAbove, z };
         const place = seatOnDrawn(seat, drawn);
         const drift = seatScaleDrift(seat, base[seatIndex] ?? base[0] ?? { x: 0, y: 0, z: 0 }, scale);
-        rows.push({ typeId: def.identifier, pct, scale, seatIndex, declared, seat, eye, place, drift, ok: pct === 100 ? place.ok : drift.ok });
+        const onTop = seatOnTop(seat, place, drift, scale);
+        rows.push({ typeId: def.identifier, pct, scale, seatIndex, declared, seat, eye, place, drift, onTop, ok: pct === 100 ? place.ok : drift.ok || onTop });
       });
     }
   }
@@ -311,6 +331,6 @@ export function describeDrift(d: SeatDrift): string {
 
 /** One row as a sentence: where the seat is and, when off the vehicle or drifting, by how much. */
 export function describeSeatRow(r: SeatScaleRow): string {
-  const judged = r.pct === 100 ? describePlace(r.place) : `${describeDrift(r.drift)}; ${describePlace(r.place)}`;
+  const judged = r.pct === 100 ? describePlace(r.place) : r.onTop ? `ON TOP (below 100 percent, VEH-18); ${describePlace(r.place)}` : `${describeDrift(r.drift)}; ${describePlace(r.place)}`;
   return `${r.typeId} at ${r.pct} %, seat ${r.seatIndex}: declared ${vec(r.declared)} x scale ${r.scale} = ${vec(r.seat)}, eye ${vec(r.eye)}: ${judged}`;
 }

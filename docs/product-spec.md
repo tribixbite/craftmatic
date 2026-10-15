@@ -101,6 +101,9 @@ boat in a set, and the vehicle should feel fast and fun.
 - **In the seat.** The player sits IN the cockpit or seat, never on top of the
   vehicle, outside it, or sideways. This was reported 8 times, the most of any
   in-game defect (`SEAT-01`). The driver's eye must see out (`VEH-07`).
+- **On top below 100 %.** Placed smaller than 100 %, where a minifigure of the
+  same scale would not fit inside either, a vehicle is ridden ON TOP, the
+  player drawn on its roof (`VEH-18`, 2026-10-14).
 - **Every seat.** Any seat a minifigure could use can be used by the player:
   cockpits, chairs, beds and benches (`SEAT-03`, `SEAT-04`).
 - **Getting off.** Leaving a seat puts the player on walkable floor: never
@@ -134,6 +137,10 @@ boat in a set, and the vehicle should feel fast and fun.
   architecture sets often need 150 to 400 %. The player can override the
   suggestion in the wand (`SCALE-02`). Scaling must never break up and down
   movement (`SCALE-05`).
+- **What scaling is for.** Mainly to make scaled-down sets (Notre-Dame,
+  Hogwarts grounds, Neuschwanstein) large enough for the player to explore and
+  use their doors. Below 100 % the player need not fit a cockpit, door or room
+  that a minifigure of the same scale would not fit either (`SCALE-06`).
 - **Minifig creator wand.** A separate wand builds a custom minifigure in game
   (`WAND-06`).
 

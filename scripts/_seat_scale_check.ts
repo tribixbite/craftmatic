@@ -71,7 +71,7 @@ if (md) {
   const lines = ['| pack | rideable | size | scale | seat (declared) | seat (device) | eye | place at this scale | vs the 100 % seat scaled once | verdict |', '|---|---|---|---|---|---|---|---|---|---|'];
   const v = (p: { x: number; y: number; z: number }): string => `${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}`;
   const place = (r: SeatScaleRow): string => `${r.place.verdict}${r.place.over !== undefined ? ` (${r.place.over.toFixed(2)} over the drawn top)` : ''}`;
-  const drift = (r: SeatScaleRow): string => (r.pct === 100 ? '-' : r.drift.ok ? 'same' : `drifts x ${r.drift.dx.toFixed(2)} y ${r.drift.dy.toFixed(2)} z ${r.drift.dz.toFixed(2)}`);
+  const drift = (r: SeatScaleRow): string => (r.pct === 100 ? '-' : r.drift.ok ? 'same' : r.onTop ? 'on top (VEH-18)' : `drifts x ${r.drift.dx.toFixed(2)} y ${r.drift.dy.toFixed(2)} z ${r.drift.dz.toFixed(2)}`);
   for (const p of report) for (const r of p.rows) lines.push(`| ${p.pack} | ${r.typeId.replace(/^craftmatic:/, '')} | ${r.pct} % | ${r.scale} | ${v(r.declared)} | ${v(r.seat)} | ${v(r.eye)} | ${place(r)} | ${drift(r)} | ${r.ok ? 'ok' : '**OFF**'} |`);
   for (const p of report) if (p.error) lines.push(`| ${p.pack} | - | - | - | - | - | - | - | - | ERROR ${p.error} |`);
   writeFileSync(md, lines.join('\n') + '\n');
