@@ -194,8 +194,10 @@ The round-30m fixes on the phones:
    drawn vehicle - diagnosis tools in `output/device-round-2026-10-14zb/tools/`);
    Round 30zc (3a338631) put 10365's helmsman on its masthead at 25/75 %
    (a sail over the helm): the climb is now capped at `ROOF_MAX_LIFT` 3
-   over the pan, else the rider stays on its seat. ROUND 30zd builds from
-   that fix (`output/device-round-2026-10-14zd/`). Device plan: Saga - 42172
+   over the pan, else the rider stays on its seat. ROUND 30zd BUILT from
+   224001b3 (`output/device-round-2026-10-14zd/`, 23/23, sim 132/0,
+   regressions 36/0, seat-scale 0 off, 194 rows ON TOP) and ON BOTH PHONES via
+   agents (evidence -> `.../saga/notes.md`, `.../pixel/notes.md`). Device plan: Saga - 42172
    and 76286 at 50 % in Survival (rider drawn on the roof, chase camera over the
    head, hotbar-9 view from the head, dismount beside the hull), a door tap at
    200 % in Survival (the interactives' size-grouped box); Pixel - first run
