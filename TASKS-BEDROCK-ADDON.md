@@ -110,9 +110,10 @@ The round-30m fixes on the phones:
      `mclaren-chase-25-30ze` reproduces on packs-c9768dbf, passes with
      `--runtime=tree`, which now swaps vehicle-camera.js). The sim's client
      lag is pessimistic at short booms (it lost 50 % driving, the Saga framed
-     it). ROUND 30zf BUILDING from 0241b1ae
-     (`output/device-round-2026-10-15zf/`); then sim + regressions + seat
-     check, and on both phones: McLaren chase at 25 % and 50 % parked and
+     it). ROUND 30zf BUILT from 0241b1ae
+     (`output/device-round-2026-10-15zf/`, 23/23, sim 132/0, regressions
+     38/0, seat-scale 0 off; briefs there) and ON BOTH PHONES via agents
+     (evidence -> `.../saga/notes.md`, `.../pixel/notes.md`): McLaren chase at 25 % and 50 % parked and
      driving at full speed (car and rider in the picture), 100 % unchanged.
    - Device-tool lesson (Saga 30ze): the old two-finger `stickjump.sh` never
      delivers Jump (telemetry `jump:false`); use
