@@ -104,9 +104,16 @@ The round-30m fixes on the phones:
      `bun output/device-round-2026-10-14x/tools/milano_points.ts <pack>`.
    - VEH-18 / SCALE-06 ride-on-top DONE-DEVICE (30zd: McLaren 50/25 %,
      Milano 50 %, rider drawn on the roof, hotbar 9 from the head; 100 %
-     unchanged). OPEN, NEXT: at 25 % the chase camera frames only grass while
-     driving (Saga 30ze `saga/shots/b25-drive-strip.jpg`; parked it looks
-     steeply down at the rider's back). Judge offline before a phone.
+     unchanged). The 25 % chase camera framed only grass while driving (Saga
+     30ze `saga/shots/b25-drive-strip.jpg`): FIXED OFFLINE `0241b1ae` (boom at
+     least `ON_TOP_CHASE_BOOM_BLOCKS` 6, facing the rider's eye; regression
+     `mclaren-chase-25-30ze` reproduces on packs-c9768dbf, passes with
+     `--runtime=tree`, which now swaps vehicle-camera.js). The sim's client
+     lag is pessimistic at short booms (it lost 50 % driving, the Saga framed
+     it). ROUND 30zf BUILDING from 0241b1ae
+     (`output/device-round-2026-10-15zf/`); then sim + regressions + seat
+     check, and on both phones: McLaren chase at 25 % and 50 % parked and
+     driving at full speed (car and rider in the picture), 100 % unchanged.
    - Device-tool lesson (Saga 30ze): the old two-finger `stickjump.sh` never
      delivers Jump (telemetry `jump:false`); use
      `output/device-round-2026-10-15ze/saga/tools/jumpstick.sh` (Jump first,
