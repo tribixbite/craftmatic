@@ -398,6 +398,17 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   4 x 6); the hull's and the interactives' grouped boxes share the doubt.
   Test boarding in Survival; a
   Creative-only round hides this.
+- **Below 100 % a vehicle is ridden ON TOP, and what it sits on is read
+  from the geometry the pack SHIPS** (VEH-18 / SCALE-06, the user
+  2026-10-14: below 100 % a player need not fit what a same-scale minifig
+  would not). `seatAtOnTop` puts the hips 0.3 under the LOWEST surface at or
+  over the seat's pan with room for the UNSCALED seated body (1/f of the
+  model's air and footprint), lifted at most `ROOF_MAX_LIFT` 3; else the
+  seat itself. The compiler's seat-plan part boxes are NOT the drawn vehicle
+  (60221's passenger read a surface 0.76 over anything drawn), and an
+  uncapped climb sat 10365's helmsman on its masthead: read
+  `geometryEntityBoxes` (entity frame, JSON z mirrored) and judge with
+  `bun scripts/_seat_scale_check.ts <packs> --all` (`ON TOP` rows).
 - **Scripted vehicles (cars, hover craft, boats, ships) have FREE LOOK and
   never stop dead** (2026-09-30): their seats are `lock_rider_rotation` 181
   (a native rotorcraft/flyer keeps 0: it flies where its rider looks), the
