@@ -139,15 +139,14 @@ The round-30m fixes on the phones:
      200/300 % (road reached, per-tick walker stops short of the courtyard);
      21061 0 entrances (doors drawn), 8.44 at 200 % but 2.88 at 300 %
      (363 no-run, 57 headroom); 76419 3 entrances, 6.88. EVERY brick-shell
-     pack is now 2 blocks wider (border margin). Round 30zh BUILT
-     (`packs-863361f7`, 26/26; seat check ok) but sim found 4 new failures
-     vs 30zf (door3-tap/door3-sneak-10326, top-east-fall-10261-30m: cases
-     ignore the margin; 10303 play-100-0 fell 21.66). An agent is narrowing
-     the margin to sides with a riser over the 400 % jump and making the
-     cases read `accessMargin`; then commit, rebuild as 30zi. Old plan:
-     `output/device-round-2026-10-15zh/build.sh` (22 round sets + the three)
-     -> sim + `--scenario=regressions` (pins may shift by the margin) +
-     `_seat_scale_check --all`, then a device recheck of the three.
+     margin narrowed in 885bdaad to sides where the fine walk stood on a border
+     step 0.3125-1.25 up (13 of 25 sets get one, per side; diagnostics warn
+     "Border margin"); sim cases read spots from the MODEL corner; a coaster
+     rider leaving a car in the air gets slow falling (SEAT-05, offline).
+     ROUND 30zi ON BOTH PHONES (`output/device-round-2026-10-15zi/packs-885bdaad`,
+     sim 150/150, regressions 38/0 failed, seats ok; briefs beside it):
+     Pixel 21063 hill/road/lawn/courtyard + 10303 air dismount; Saga 21061
+     plate N/W + wand text, 76419 entrances/climb/north edge. Then record.
      NEXT (the general fix, Saga diag `output/scale06-1015/diag-saga/`): the
      colliders are the 100 % 1-block grid scaled up, so anything sub-player
      at 100 % stays sealed at every size (76419's colonnade 0.6 wide at 100 %
