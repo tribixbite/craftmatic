@@ -139,7 +139,12 @@ The round-30m fixes on the phones:
      200/300 % (road reached, per-tick walker stops short of the courtyard);
      21061 0 entrances (doors drawn), 8.44 at 200 % but 2.88 at 300 %
      (363 no-run, 57 headroom); 76419 3 entrances, 6.88. EVERY brick-shell
-     pack is now 2 blocks wider (border margin). ROUND 30zh BUILDING:
+     pack is now 2 blocks wider (border margin). Round 30zh BUILT
+     (`packs-863361f7`, 26/26; seat check ok) but sim found 4 new failures
+     vs 30zf (door3-tap/door3-sneak-10326, top-east-fall-10261-30m: cases
+     ignore the margin; 10303 play-100-0 fell 21.66). An agent is narrowing
+     the margin to sides with a riser over the 400 % jump and making the
+     cases read `accessMargin`; then commit, rebuild as 30zi. Old plan:
      `output/device-round-2026-10-15zh/build.sh` (22 round sets + the three)
      -> sim + `--scenario=regressions` (pins may shift by the margin) +
      `_seat_scale_check --all`, then a device recheck of the three.
