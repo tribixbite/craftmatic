@@ -207,12 +207,13 @@ The round-30m fixes on the phones:
    sized McLaren took 0/34 taps + holds until moved (`tp ~ ~0.01 ~` fixes,
    `tp ~ ~ ~` does not) -> `settleSized` lifts a sized rideable 0.01 and sets
    it back; quirk `size-event-pick-needs-move`; regression
-   `fresh-car-tap-50-30zd` reproduces on packs-224001b3. ROUND 30ze building
-   from c9768dbf (`output/device-round-2026-10-15ze/build.sh`, log there);
-   then: `bun scripts/sim.ts <packs>`, `--scenario=regressions --new=<packs>`
-   (fresh-car case must pass), `_seat_scale_check.ts <packs> --all`; device:
-   fresh McLaren at 25/50 % and 200 % tapped on BOTH phones before any ride
-   (Survival). Small leftovers from 30zd: at 25 % the chase camera sits low
+   `fresh-car-tap-50-30zd` reproduces on packs-224001b3. ROUND 30ze BUILT
+   from c9768dbf (`output/device-round-2026-10-15ze/`, 23/23, sim 132/0,
+   regressions 37/0 with fresh-car-tap passing, seat-scale 0 off) and ON
+   BOTH PHONES via agents (briefs in the session scratchpad; evidence ->
+   `.../saga/notes.md`, `.../pixel/notes.md`): a FRESH McLaren at 25/50 %
+   (+200 % Saga) tapped before any ride, Survival; Saga also the Milano 50 %
+   descent and the 25 % chase camera. Small leftovers from 30zd: at 25 % the chase camera sits low
    and close; the Milano at 50 % did not descend on Back + Jump (Saga). Also open: 10797's blue cluster + brown
    oval on the grass N of its wall (Saga 30t e06, unchecked vs source);
    device leftovers `/data/local/tmp/craftmatic-deploy-*` (Saga) and the
