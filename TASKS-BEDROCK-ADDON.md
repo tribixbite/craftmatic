@@ -117,8 +117,14 @@ The round-30m fixes on the phones:
      packs `output/scale06-1015/packs-d9d3380f/`): 21063 and 21061 at 200 %
      and 300 % - 0/12 openings walked in, 21063's hill unclimbable from the
      ground on all sides (road foot 5 blocks up), 21061's plate riser stops
-     the player on N/W at 300 %; interiors reached only by /tp. Saga (76419)
-     still running. Causes (diag `output/scale06-1015/diag-21063/`, the
+     the player on N/W at 300 %; interiors reached only by /tp. Saga 30zg
+     (`saga/notes.md`): 76419 0/5 openings at 200 % (classroom ceiling under
+     the head, boathouse door ~1 wide, north edge full colliders, chamber 2
+     up), rock stairs reach 5 of 22 blocks; 300 % walks under the viaduct
+     only, at 20-25 fps; 21061 0/3 doors at 200 %. Saga-reported invisible
+     walls (76419 x 9999 z 9381; 21061 south plaza x 10300 z 9389) and LOD
+     gaps (76419 west wing undrawn at 30 blocks at 300 %) under offline
+     diagnosis (`output/scale06-1015/diag-saga/`). Causes (diag `output/scale06-1015/diag-21063/`, the
      agent's report in this session): (A) the 1-block collider grid reads a
      one-stud rock staircase as a cliff, so `planRunCore`'s 100 % rule skips
      every rise onto the hill; (B) a model flush with the grid border has no
