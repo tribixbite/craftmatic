@@ -196,13 +196,20 @@ The round-30m fixes on the phones:
    (a sail over the helm): the climb is now capped at `ROOF_MAX_LIFT` 3
    over the pan, else the rider stays on its seat. ROUND 30zd BUILT from
    224001b3 (`output/device-round-2026-10-14zd/`, 23/23, sim 132/0,
-   regressions 36/0, seat-scale 0 off, 194 rows ON TOP) and ON BOTH PHONES via
-   agents (evidence -> `.../saga/notes.md`, `.../pixel/notes.md`). Device plan: Saga - 42172
-   and 76286 at 50 % in Survival (rider drawn on the roof, chase camera over the
-   head, hotbar-9 view from the head, dismount beside the hull), a door tap at
-   200 % in Survival (the interactives' size-grouped box); Pixel - first run
-   since dbe20600: VEH-17 boarding at 100/200 % in Survival, VEH-18 at 50 %.
-   Pixel not re-run since dbe20600. Also open: 10797's blue cluster + brown
+   regressions 36/0, seat-scale 0 off, 194 rows ON TOP). RESULTS (Pixel done,
+   `output/device-round-2026-10-14zd/pixel/notes.md`; Saga agent still running,
+   `.../saga/notes.md`): riding on top PASSES on both phones at 50 % (rider
+   drawn on the roof, hotbar 9 from the head, drive + turn, dismount ~1.9 off
+   the root); 100 % unchanged; Pixel VEH-17 24/24 seated at 100/200 %; Pixel
+   10261 Ride button came back every ~30 s after a dismount (30t not
+   reproduced; it shows only with the crosshair ON a car). NEW DEFECT (both
+   phones): a FRESHLY PLACED 50 % McLaren takes no tap/hold at all (Pixel 0/13,
+   Saga 0/14, no script event) until it has been ridden once (`/ride`), then
+   it is picked through its BASE box. 100 % fresh cars seat. Hypothesis: the
+   ridden car's per-tick teleport refreshes the client's pick; the Saga agent
+   was asked to test `/execute as <car> at @s run tp @s ~ ~ ~` on a fresh car.
+   If confirmed, placement teleports a sized actor to itself after its size
+   event (`bedrock-placement-pack.ts` ~1931). Also open: 10797's blue cluster + brown
    oval on the grass N of its wall (Saga 30t e06, unchecked vs source);
    device leftovers `/data/local/tmp/craftmatic-deploy-*` (Saga) and the
    30r pack backups.
