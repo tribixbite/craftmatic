@@ -112,6 +112,12 @@ The round-30m fixes on the phones:
      hotbar. A Pixel 25 % dismount logged "native" (1.0 from the root): by
      design - `vehicleEgress` keeps the game's own set-down when it is
      already outside the (0.9-long) hull on walkable ground.
+   - SCALE-06 (the user 2026-10-14: scaling is for microscale sets): IN
+     PROGRESS - 21061 / 76419 / 21063 building from their index first picks
+     (`IO/*.io`) in `output/scale06-1015/` (build.sh, build.log). Then
+     offline: the suggested size (`access` in placement.js / the wand's Size
+     button), `bun scripts/_ix_passability.ts` and `bun scripts/sim.ts
+     <pack> --size=<pct>` at that size; then a phone walks in and uses a door.
    - Device-tool lesson (Saga 30ze): the old two-finger `stickjump.sh` never
      delivers Jump (telemetry `jump:false`); use
      `output/device-round-2026-10-15ze/saga/tools/jumpstick.sh` (Jump first,
