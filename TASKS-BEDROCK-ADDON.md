@@ -183,6 +183,18 @@ The round-30m fixes on the phones:
    (same doubt; a door/hatch tap at 200 % in Survival is the check); why 30u's
    eye inside a 16-wide box was refused; sizes 25-75/150/300 % untested.
    Re-placing a set does NOT remove its earlier placement: undo with the wand.
+   VEH-18 / SCALE-06 (DONE-OFFLINE, `270b1a99`, the user 2026-10-14): below
+   100 % a player need not fit what a same-scale minifig would not; a vehicle
+   placed below 100 % is ridden ON TOP, drawn (`seatAtForPlan`: the hips 0.3
+   under the lowest surface with room for the unscaled seated body - a cabin
+   too small rides on its roof, a roomy one or an open deck on its own seat;
+   camera config `onTop.roofs`). Round 30za (270b1a99) failed the sim on
+   10365's seats (fixed `6b91e950`); ROUND 30zb building from 6b91e950
+   (`output/device-round-2026-10-14zb/`). Device plan: Saga - 42172
+   and 76286 at 50 % in Survival (rider drawn on the roof, chase camera over the
+   head, hotbar-9 view from the head, dismount beside the hull), a door tap at
+   200 % in Survival (the interactives' size-grouped box); Pixel - first run
+   since dbe20600: VEH-17 boarding at 100/200 % in Survival, VEH-18 at 50 %.
    Pixel not re-run since dbe20600. Also open: 10797's blue cluster + brown
    oval on the grass N of its wall (Saga 30t e06, unchecked vs source);
    device leftovers `/data/local/tmp/craftmatic-deploy-*` (Saga) and the
