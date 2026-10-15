@@ -351,8 +351,10 @@ Craftmatic steps (`adapters/craftmatic`): `place` / `undo` (the wand, read
 like a child reads it; Undo checks the placement's box block for block and
 every entity the placement tagged), `tapInteractives`, `doorwayLines`,
 `tapPartFrom` (a device round's tap replayed: `{ label, feet, at }` in blocks
-from the placement's anchor, the device's pinned corner; a tap that does not
-move the part is a `tap-in-plain-view` violation carrying the refusal
+from the MODEL's corner, `Placed.corner` - the device's pinned corner on a pack
+without a margin, the anchor moved in past `craftmatic-diagnostics.json`
+`accessMargin` on one with, so both are judged at the same model point; every
+regression case's device spot reads it; a tap that does not move the part is a `tap-in-plain-view` violation carrying the refusal
 record), `rideSlide`, `rideLift`, `driveVehicle` (which also checks the
 mounted driver's seat - the declared seat times the vehicle's scale, quirk
 `seat-scales-with-entity` - is in or on the drawn vehicle: `seat-on-vehicle`),

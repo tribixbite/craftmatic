@@ -934,14 +934,23 @@ nothing before this). The diagnostics carry `accessMargin` with `used`.
 is laid only on floor INSIDE the collider grid, so a model flush with the
 grid's edge had nowhere to climb onto it from: 21061 Notre-Dame's base plate
 (0.5 blocks at 100 %, 1.5 at 300 %) was a wall on its north and west sides at
-300 % (Pixel round 30zg). Every brick-shell export now widens the grid one
-block on each side whose outermost voxel column or row holds anything; the
-same mechanism and frame shift as the access margin, side by side the larger
-of the two. It is NOT undone by the "no access stair used it" rerun (that
-rerun drops only the door stair's share, `doorStairMargin` in
-schem-pipeline.ts, so it cannot recurse). A voxel on the border is also
-geometry within half a block of the edge, which the collider grid clipped at
-its low sides before.
+300 % (Pixel round 30zg). A side is widened one block only where it NEEDS it:
+the export's fine reach walk (`measureSceneAccess` `keepReachAt`, the pack's
+own 100 %) stood on a surface in that side's outermost collider column or row
+whose rise over the grid's floor is over the jump at the largest size step and
+within it at 100 % (`borderRiseWindow`: 0.3125 < rise <= 1.25 blocks with the
+400 % step). Under the window the edge is a step at every size (a baseplate);
+over it no size let a player up from the ground there. The same mechanism and
+frame shift as the access margin, side by side the larger of the two. It is
+NOT undone by the "no access stair used it" rerun (that rerun drops only the
+door stair's share, `doorStairMargin` in schem-pipeline.ts, so it cannot
+recurse). The first cut (863361f7) widened EVERY side the model's voxels
+touched: every brick-shell pack moved a block off its pinned corner, the
+simulator's device-replay cases read their spots a block off the model (round
+30zh: 10326 Door 3, 10261's lift top), and a stair could take the margin a
+rerun used to drop. The simulator reads a pack's margin from
+`craftmatic-diagnostics.json` and replays a device round's spots from the
+MODEL's corner (`Placed.corner`, sim pack-facts.ts).
 
 **The fine walk in the tread rule** (SCALE-06, 2026-10-15). The 100 % rule
 reads the 1-block collider grid, which keeps only a column's highest top: 21063

@@ -30,7 +30,7 @@ import { craftmaticHandlers, figureMode } from '../web/src/sim/adapters/craftmat
 import { FLOOR_LEVEL_TOLERANCE, floorLevelInRecordedCell, judgeSide, onRunout } from '../web/src/sim/adapters/craftmatic/play.js';
 import { relayRounding } from '../web/src/engine/bedrock-collider-scale.js';
 import { findApproach } from '../web/src/sim/scenario/approach.js';
-import { readCraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.js';
+import { NO_MARGIN, modelCorner, readCraftmaticPack, type PlacementFacts } from '../web/src/sim/adapters/craftmatic/pack-facts.js';
 import { swapTreeRuntimes } from '../web/src/sim/adapters/craftmatic/runtime-swap.js';
 import { extractJsonAfter } from '../web/src/sim/pack/script-config.js';
 import { ESCAPE_OPTIONS } from '../web/src/engine/collider-form.js';
@@ -666,6 +666,18 @@ describe('craftmatic adapter judgements (simulator triage 2026-09-30)', () => {
     expect(onRunout({ x: 0.2, y: 5, z: 0 }, r)).toBe(true);
     expect(onRunout({ x: -0.2, y: 5.3, z: 0 }, r)).toBe(false);
     expect(onRunout({ x: 0.2, y: 5.4, z: 0 }, r)).toBe(false);
+  });
+  it('a device spot is read from the MODEL\'s corner: the anchor past the pack\'s margin at every turn and size, the anchor itself without one (round 30zh)', () => {
+    // A 10 x 8 grid widened 1 at low x, 2 at high x, 3 at low z, 0 at high z: the model is 7 x 5.
+    const facts = { width: 10, length: 8, margin: { x0: 1, x1: 2, z0: 3, z1: 0 } } as PlacementFacts;
+    const placed = (rotation: 0 | 90 | 180 | 270, sizePct = 100) => ({ anchor: { x: 100, y: -60, z: 200 }, rotation, sizePct, from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: 0, z: 0 } });
+    expect(modelCorner(facts, placed(0))).toEqual({ x: 101, y: -60, z: 203 });
+    expect(modelCorner(facts, placed(0, 200))).toEqual({ x: 102, y: -60, z: 206 });
+    // Turned: the side that lands lowest in world x / z is the one whose margin counts (90: x' = L - z, z' = x).
+    expect(modelCorner(facts, placed(90))).toEqual({ x: 100, y: -60, z: 201 });
+    expect(modelCorner(facts, placed(180))).toEqual({ x: 102, y: -60, z: 200 });
+    expect(modelCorner(facts, placed(270))).toEqual({ x: 103, y: -60, z: 202 });
+    expect(modelCorner({ ...facts, margin: NO_MARGIN }, placed(90, 150))).toEqual({ x: 100, y: -60, z: 200 });
   });
   it('reads a figure\'s life mode from the placement\'s record: only a source-seated one retakes', () => {
     const e = { dynamic: new Map<string, unknown>([['craftmatic:fig', JSON.stringify({ mode: 'seated' })]]) } as unknown as SimEntity;

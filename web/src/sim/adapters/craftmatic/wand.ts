@@ -16,7 +16,7 @@ import { plainText } from '../../script-host/text.js';
 import { lookAt } from '../../input/touch.js';
 import { teleport } from '../../script-host/facades.js';
 import { FLAT_GROUND_Y } from '../../world/voxel-world.js';
-import type { CraftmaticPack, Placed } from './pack-facts.js';
+import { modelCorner, type CraftmaticPack, type Placed } from './pack-facts.js';
 import type { PlacementRotation } from '../../../engine/bedrock-placement-pack.js';
 
 /** The adapter's scenario state key for the placement. */
@@ -154,7 +154,8 @@ export function wandHandlers(pack: CraftmaticPack): Record<string, StepHandler> 
       if (/stopped/.test(line)) ctx.violate({ invariant: 'placement-completes', message: line });
       const sum = confirmed ? confirmSummary(confirmed) : {};
       if (!sum.origin || !sum.dims) throw new Error('place: the confirm form named no origin');
-      const placed: Placed = { anchor: sum.origin, rotation, sizePct: size, from: sum.origin, to: { x: sum.origin.x + sum.dims.w - 1, y: sum.origin.y + sum.dims.h - 1, z: sum.origin.z + sum.dims.l - 1 } };
+      const at = { anchor: sum.origin, rotation, sizePct: size, from: sum.origin, to: { x: sum.origin.x + sum.dims.w - 1, y: sum.origin.y + sum.dims.h - 1, z: sum.origin.z + sum.dims.l - 1 } };
+      const placed: Placed = { ...at, corner: modelCorner(pack.placement, at) };
       ctx.state[PLACED_KEY] = placed;
       ctx.note(`placed at ${sum.origin.x},${sum.origin.y},${sum.origin.z} ${size} % turn ${rotation}: ${line}`);
     },

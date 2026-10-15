@@ -239,10 +239,12 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   a door hung over the ground near the edge gets room for an access stair, the
   grid and the voxelizer's origin move together before anything is placed, and
   the model sits the margin further in from the pinned corner. Since SCALE-06
-  (2026-10-15) every brick-shell export also gets one empty block on each side
-  the model reaches (`borderMarginFor`), so a tread can climb onto a model flush
-  with the edge; the "no stair used it" rerun drops only the stair's share. Read
-  `dims` / `accessMargin` from the pack, never assume the grid is the model's bounds.
+  (2026-10-15) a side also gets one empty block where the fine reach walk stood
+  on a border surface 0.3125-1.25 blocks up at 100 % (`borderMarginFor`: a step
+  that 400 % turns into a wall), so a tread can climb onto a model flush with the
+  edge; the "no stair used it" rerun drops only the stair's share. Read `dims` /
+  `accessMargin` from the pack, never assume the grid is the model's bounds; the
+  simulator replays device spots from the model's corner (`Placed.corner`).
 - **Build packs one at a time and read `substitutedParts` / `unresolvedParts`.**
   Parallel CLI exports drew the 429 above and shipped parts as aliases or
   AABBs without failing. Without `ldraw_ref/`, point the CLI at a running dev

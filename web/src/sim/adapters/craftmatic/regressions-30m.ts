@@ -463,7 +463,7 @@ const topEastFall: RegressionCase = {
   scenario: () => ({
     name: 'top-east-fall-10261-30m', allowLines: allow, steps: [{ kind: 'place', size: 200, rotation: 0 }, { kind: 'wait', ticks: 40 },
       { kind: 'expect', label: 'walks on the lift top', check: async ctx => {
-        const a = placedOf(ctx).anchor;
+        const a = placedOf(ctx).corner;
         const walks: Array<{ label: string; from: Vec3; to: Vec3; ticks: number }> = [
           { label: 'top south (+z to 27.7)', from: { x: 79.7, y: 43.5, z: 5.34 }, to: { x: 79.7, y: 43.5, z: 27.7 }, ticks: 600 },
           { label: 'top south-east (+x at z 27.7)', from: { x: 79.5, y: 43.63, z: 27.7 }, to: { x: 100, y: 43.63, z: 27.7 }, ticks: 400 },
@@ -507,7 +507,7 @@ const shellUnseen400: RegressionCase = {
   scenario: pack => ({
     name: 'shell-unseen-400-10261-30m', allowLines: allow, steps: [{ kind: 'place', size: 400, rotation: 0 }, { kind: 'wait', ticks: 40 },
       { kind: 'expect', label: 'look from 40 west', check: async ctx => {
-        const placed = placedOf(ctx), a = placed.anchor;
+        const placed = placedOf(ctx), a = placed.corner;
         const centre = { x: (placed.from.x + placed.to.x + 1) / 2, y: (placed.from.y + placed.to.y) / 2, z: (placed.from.z + placed.to.z + 1) / 2 };
         const client = ClientView.of(ctx.sim.engine) ?? attachClient(ctx.sim, ctx.player, 'pixel');
         const appearance = appearanceOf(pack);
@@ -674,7 +674,7 @@ const door3FigureInside: RegressionCase = {
   scenario: () => ({
     name: 'door3-figure-inside-76417-30r', allowLines: allow, invariants: ['nothing-below-ground', 'actionbar-not-stolen'],
     steps: [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'expect', label: 'close Door 3 on a figure in the doorway', check: async (ctx: StepContext) => {
-      const a = placedOf(ctx).anchor, p = ctx.player;
+      const a = placedOf(ctx).corner, p = ctx.player;
       const ents = (): SimEntity[] => [...ctx.sim.engine.entities.values()].filter(e => e.valid);
       const part = ents().find(e => /_door_3$/.test(e.typeId)), other = ents().find(e => /_door_2$/.test(e.typeId));
       if (!part || !other) return 'no Door 2 / Door 3 entity';

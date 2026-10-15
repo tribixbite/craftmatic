@@ -45,7 +45,7 @@ import { floatActorProperty } from './bedrock-json.js';
 import { SIZE_EVENT_PREFIX, SIZE_STEPS } from './bedrock-placement-pack.js';
 import { LDU_PER_BLOCK, PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
 import { relayRounding } from './bedrock-collider-scale.js';
-import { DOORWAY_PASS_HEIGHT_LDU, DOORWAY_PASS_WIDTH_LDU, PASSAGE_WIDTH_BLOCKS, PLAYER_WIDTH_BLOCKS } from './addon-scale.js';
+import { DOORWAY_PASS_HEIGHT_LDU, DOORWAY_PASS_WIDTH_LDU, JUMP_HEIGHT_BLOCKS, PASSAGE_WIDTH_BLOCKS, PLAYER_WIDTH_BLOCKS } from './addon-scale.js';
 import { COLLIDER_BLOCK_ID, colliderState } from './bedrock-building-shell.js';
 import { COLLIDER_KIT, colliderBodyProbe, colliderFormKit, type ColliderFormKit } from './collider-form.js';
 import { EMPTY_LAYER, LANDING_REACH, LANDING_RISE, LeakFlood, layerBoxes, parseFormState, type CellLayers } from './collider-clearance.js';
@@ -1666,22 +1666,61 @@ export function accessMarginFor(doors: ReadonlyArray<{ min: Vec3; max: Vec3; nor
 }
 
 /**
- * One empty cell past every horizontal side the model reaches (SCALE-06, 2026-10-15): the cells of the grid
- * that hold anything (`solid(x, y, z)`, the voxel grid) on its outermost column or row of that side. A tread
- * run (bedrock-collider-scale.ts) is laid only on floor INSIDE the collider grid, so a model flush with the
- * grid's edge has no floor there to climb onto it from: Notre-Dame's (21061) base plate is a 0.5-block riser at
- * 100 % and 1.5 at 300 %, flush with the grid on its north and west sides, and the Pixel could not step onto it
- * there at 300 % (round 30zg). A voxel on the border also means geometry within half a block of the edge (the
- * voxel grid is half a block off the collider grid, CLAUDE.md), which the collider grid clips at its low sides.
- * Merged with `accessMarginFor` side by side (the larger wins: a stair's margin is empty too).
+ * The rise window (blocks over the grid's floor at 100 %) of a border surface that needs the border margin
+ * (`borderMarginFor`): over the jump at the LARGEST size step - so some step turns it into a wall - and at most
+ * a jump at 100 %, so a player steps onto it from the ground at the set's own size. Below the window (a
+ * baseplate's 0.2-block edge) it stays a step at every size; above it (a 2-block wall) no size ever let a player
+ * up from the ground there, and a tread would invent a climb.
  */
-export function borderMarginFor(dims: { width: number; height: number; length: number }, solid: (x: number, y: number, z: number) => boolean): { x0: number; x1: number; z0: number; z1: number } {
-  const { width: W, height: H, length: L } = dims;
-  const sideX = (x: number): boolean => { for (let y = 0; y < H; y++) for (let z = 0; z < L; z++) if (solid(x, y, z)) return true; return false; };
-  const sideZ = (z: number): boolean => { for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (solid(x, y, z)) return true; return false; };
-  if (W < 1 || L < 1) return { x0: 0, x1: 0, z0: 0, z1: 0 };
-  return { x0: sideX(0) ? 1 : 0, x1: sideX(W - 1) ? 1 : 0, z0: sideZ(0) ? 1 : 0, z1: sideZ(L - 1) ? 1 : 0 };
+export function borderRiseWindow(sizes: readonly number[] = SIZE_STEPS): { over: number; upTo: number } {
+  return { over: JUMP_HEIGHT_BLOCKS / (Math.max(100, ...sizes) / 100), upTo: JUMP_HEIGHT_BLOCKS };
 }
+
+/**
+ * One empty cell past every horizontal side where a player NEEDS one to climb onto the model at some size step
+ * (SCALE-06, 2026-10-15; narrowed the same day after round 30zh). A tread run (bedrock-collider-scale.ts) is laid
+ * only on floor INSIDE the collider grid, so a model flush with the grid's edge has no floor there to climb onto
+ * it from: Notre-Dame's (21061) base plate is a 0.5-block riser at 100 % and 1.5 at 300 %, flush with the grid on
+ * its north and west sides, and the Pixel could not step onto it there at 300 % (round 30zg).
+ *
+ * A side gets the margin only when the export's fine reach walk (`measureSceneAccess` `keepReachAt`, at the
+ * pack's own 100 %: `floorsLdu`, LDraw x, y, z triples) STOOD on a surface in that side's outermost collider
+ * column or row whose rise over the grid's floor is in `borderRiseWindow`: a surface the player reached at 100 %
+ * and some size step turns into a wall. Every brick-shell pack got the margin on every side it touched at first
+ * (863361f7), which moved every model a block off its pinned corner and changed what the device's own rounds
+ * had measured (10261, 10303, 10326, round 30zh) for edges no size makes unclimbable (a baseplate's).
+ *
+ * `toGrid` is the export's LDraw-to-grid map before the margin (`sceneGridPoint` over the voxel frame), the one
+ * the colliders are laid in: a column is `floor(x)`, a height `y` blocks over the grid's floor - the ground the
+ * player walks up from outside. A floor more than a block outside the grid (the walk's padding ring) is not the
+ * model's. Merged with `accessMarginFor` side by side (the larger wins: a stair's margin is empty too).
+ */
+export function borderMarginFor(dims: { width: number; length: number }, floorsLdu: ArrayLike<number> | undefined, toGrid: (p: [number, number, number]) => readonly number[], sizes: readonly number[] = SIZE_STEPS, evidence?: BorderMarginEvidence): { x0: number; x1: number; z0: number; z1: number } {
+  const m = { x0: 0, x1: 0, z0: 0, z1: 0 };
+  const { width: W, length: L } = dims;
+  if (!floorsLdu || W < 1 || L < 1) return m;
+  const { over, upTo } = borderRiseWindow(sizes);
+  /** Mark a side, keeping the lowest surface that asked for it as the evidence. */
+  const mark = (side: keyof typeof m, x: number, z: number, rise: number): void => {
+    m[side] = 1;
+    const was = evidence?.[side];
+    if (evidence && (!was || rise < was.rise)) evidence[side] = { x, z, rise };
+  };
+  for (let k = 0; k + 2 < floorsLdu.length; k += 3) {
+    const g = toGrid([floorsLdu[k]!, floorsLdu[k + 1]!, floorsLdu[k + 2]!]);
+    const rise = g[1]!, x = Math.floor(g[0]!), z = Math.floor(g[2]!);
+    if (!(rise > over && rise <= upTo)) continue;
+    if (x < -1 || x > W || z < -1 || z > L) continue;
+    if (x <= 0) mark('x0', x, z, rise);
+    if (x >= W - 1) mark('x1', x, z, rise);
+    if (z <= 0) mark('z0', x, z, rise);
+    if (z >= L - 1) mark('z1', x, z, rise);
+  }
+  return m;
+}
+
+/** Per side, the lowest border surface that asked for `borderMarginFor`'s margin: its grid column and rise (blocks at 100 %). */
+export type BorderMarginEvidence = Partial<Record<'x0' | 'x1' | 'z0' | 'z1', { x: number; z: number; rise: number }>>;
 
 /**
  * The grid cells ("x,y,z") an access stair may not take (`planThresholdStairs`

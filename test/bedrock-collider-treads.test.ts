@@ -388,7 +388,22 @@ describe('SCALE-06: the fine reach walk and the border margin', () => {
     expect([...cols.entries()]).toEqual([[0 * 3 + 0, [24]], [3 * 3 + 2, [16]]]);
   });
 
-  it('a model flush with the grid\'s edge gets a one-block border margin there, and a tread run climbs onto it over the border', async () => {
+  /**
+   * The fine walk's floors over a plate `top16` sixteenths high on x 0..`w`-1, z 0..`l`-1 and the open ground round
+   * it, out to the walk's padding ring a block past the grid: grid points at cell centres (x, rise in blocks, z),
+   * read through an identity map (the export maps LDraw with `sceneGridPoint`).
+   */
+  const plateFloors = (dims: { width: number; length: number }, w: number, l: number, top16: number): number[] => {
+    const out: number[] = [];
+    for (let x = -2; x < dims.width + 2; x++) for (let z = -2; z < dims.length + 2; z++) {
+      const on = x >= 0 && x < w && z >= 0 && z < l;
+      out.push(x + 0.5, on ? top16 / 16 : 0, z + 0.5);
+    }
+    return out;
+  };
+  const asGrid = (p: [number, number, number]): number[] => p;
+
+  it('a model flush with the grid\'s edge gets a one-block border margin where its border step turns into a wall at a larger size, and a tread run climbs onto it over the border', async () => {
     const { borderMarginFor } = await import('../web/src/engine/bedrock-interactives.js');
     const { padGridXZ } = await import('../web/src/engine/schem-pipeline.js');
     // A plate 0.5 blocks high (a step at 100 %, 1.5 at 300 %) flush with the grid's low x and low z sides, the grid
@@ -396,8 +411,10 @@ describe('SCALE-06: the fine reach walk and the border margin', () => {
     const dims = { width: 10, height: 2, length: 8 };
     const g = new BlockGrid(dims.width, dims.height, dims.length);
     for (let x = 0; x < 8; x++) for (let z = 0; z < 6; z++) g.set(x, 0, z, colliderState(0, 8));
-    const margin = borderMarginFor(dims, (x, y, z) => g.get(x, y, z) !== 'minecraft:air');
+    const margin = borderMarginFor(dims, plateFloors(dims, 8, 6, 8), asGrid);
     expect(margin).toEqual({ x0: 1, x1: 0, z0: 1, z1: 0 });
+    // A border surface the fine walk never stood on asks for nothing (no floors: no margin).
+    expect(borderMarginFor(dims, undefined, asGrid)).toEqual({ x0: 0, x1: 0, z0: 0, z1: 0 });
     const lane = (grid: BlockGrid): number => {
       const d = { width: grid.width, height: grid.height, length: grid.length };
       const cells = colliderSourceCells({ ...d, runs: encodeColliderRuns(grid, COLLIDER_BLOCK_ID).runs });
@@ -411,6 +428,30 @@ describe('SCALE-06: the fine reach walk and the border margin', () => {
     expect(lane(g)).toBe(0);
     // With the margin: a run from the margin's ground onto the plate.
     expect(lane(padGridXZ(g, margin))).toBe(24);
+  });
+
+  it('a thin baseplate edge (a step under the jump at 400 %) and a wall over the jump at 100 % get NO border margin (round 30zh)', async () => {
+    const { borderMarginFor, borderRiseWindow } = await import('../web/src/engine/bedrock-interactives.js');
+    const dims = { width: 10, length: 8 };
+    // The window: over the jump at the largest step (1.25 / 4 = 0.3125), within it at 100 %.
+    expect(borderRiseWindow()).toEqual({ over: 0.3125, upTo: 1.25 });
+    // A baseplate flush with every side: 3/16 (a plate's 8 LDU at 100 %) is 0.75 at 400 %, a step at every size.
+    expect(borderMarginFor(dims, plateFloors(dims, 10, 8, 3), asGrid)).toEqual({ x0: 0, x1: 0, z0: 0, z1: 0 });
+    // Exactly at the window's floor (5/16 = 0.3125, 1.25 at 400 %) still a step.
+    expect(borderMarginFor(dims, plateFloors(dims, 10, 8, 5), asGrid)).toEqual({ x0: 0, x1: 0, z0: 0, z1: 0 });
+    // A 2-block top the walk stood on (reached by a stair elsewhere): no size let a player up from the ground there.
+    expect(borderMarginFor(dims, plateFloors(dims, 10, 8, 32), asGrid)).toEqual({ x0: 0, x1: 0, z0: 0, z1: 0 });
+    // A 0.5-block plate a block in from every side: there is ground inside the grid to lay a run on.
+    const inset: number[] = [];
+    for (let x = 0; x < 10; x++) for (let z = 0; z < 8; z++) inset.push(x + 0.5, x >= 1 && x <= 8 && z >= 1 && z <= 6 ? 0.5 : 0, z + 0.5);
+    expect(borderMarginFor(dims, inset, asGrid)).toEqual({ x0: 0, x1: 0, z0: 0, z1: 0 });
+    // The same plate reaching the high-x side only gets that side.
+    const east: number[] = [];
+    for (let x = 0; x < 10; x++) for (let z = 0; z < 8; z++) east.push(x + 0.5, x >= 1 && z >= 1 && z <= 6 ? 0.5 : 0, z + 0.5);
+    const why: Record<string, unknown> = {};
+    expect(borderMarginFor(dims, east, asGrid, undefined, why)).toEqual({ x0: 0, x1: 1, z0: 0, z1: 0 });
+    // The export's warning names the surface that asked: the first column of the plate on the high-x side.
+    expect(why).toEqual({ x1: { x: 9, z: 1, rise: 0.5 } });
   });
 });
 

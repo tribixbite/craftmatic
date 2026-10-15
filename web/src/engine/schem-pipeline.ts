@@ -34,6 +34,7 @@ import { BlockGrid } from '@craft/schem/types.js';
 import type { BlockEntity } from '@craft/types/index.js';
 import type { PackProvenance, PipelineStamp, SourceProvenance } from './pipeline-version.js';
 import type { AccessScaleRecommendation } from './bedrock-scene-actors.js';
+import type { BorderMarginEvidence } from './bedrock-interactives.js';
 import { LDU_PER_BLOCK } from './lego-scale.js';
 import type { SeatCensus, SeatCensusContext } from './seat-census.js';
 
@@ -475,9 +476,10 @@ export async function runSchemPipeline(
           // gets room past that edge for an invisible stair down to the ground. The grid and its
           // origin are widened together BEFORE anything is placed on the frame, so every actor,
           // seat, ride, door and collider lands exactly where it did, a margin further in.
-          // The BORDER margin (`borderMarginFor`, SCALE-06): one empty cell past every side the model reaches, so a
-          // tread run can climb onto a model flush with the grid's edge (Notre-Dame's plate at 300 %, round 30zg).
-          // Side by side, the larger of the two margins is laid: a stair's margin is empty past the model too.
+          // The BORDER margin (`borderMarginFor`, SCALE-06): one empty cell past a side where the fine reach walk
+          // stood on a border surface some size step turns into a wall (a rise over the jump at 400 %, within it at
+          // 100 %), so a tread run can climb onto a model flush with the grid's edge there (Notre-Dame's plate at
+          // 300 %, round 30zg). Side by side, the larger of the two margins is laid: a stair's margin is empty too.
           if (entityDoors) {
             const origin = sourceOrigin;
             const voxels = grid;
@@ -488,7 +490,8 @@ export async function runSchemPipeline(
               const a = sceneGridPoint(origin, d.minLdu), b = sceneGridPoint(origin, d.maxLdu);
               return { min: [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.min(a[2], b[2])] as [number, number, number], max: [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.max(a[2], b[2])] as [number, number, number], normal: d.alongAxis === 'x' ? 'z' as const : 'x' as const };
             }), dims, solidAt) : none;
-            const border = borderMarginFor(dims, solidAt);
+            const borderWhy: BorderMarginEvidence = {};
+            const border = borderMarginFor(dims, accessReachLdu, p => sceneGridPoint(origin, p), undefined, borderWhy);
             const margin = { x0: Math.max(doorMargin.x0, border.x0), x1: Math.max(doorMargin.x1, border.x1), z0: Math.max(doorMargin.z0, border.z0), z1: Math.max(doorMargin.z1, border.z1) };
             if (margin.x0 || margin.x1 || margin.z0 || margin.z1) {
               grid = padGridXZ(grid, margin);
@@ -498,7 +501,13 @@ export async function runSchemPipeline(
                 doorStairMargin = doorMargin;
                 warnings.push(`Access margin: the grid is widened ${margin.x0}/${margin.x1} blocks at its low/high x and ${margin.z0}/${margin.z1} at its low/high z so an invisible stair can run from a door hung over the ground past the model's edge.`);
               }
-              if (border.x0 || border.x1 || border.z0 || border.z1) warnings.push(`Border margin: the model reaches the grid's edge at ${[border.x0 ? 'low x' : '', border.x1 ? 'high x' : '', border.z0 ? 'low z' : '', border.z1 ? 'high z' : ''].filter(Boolean).join(', ')}, so the grid is widened a block there and an invisible step can climb onto it from the ground at any size.`);
+              if (border.x0 || border.x1 || border.z0 || border.z1) {
+                const sides = (['x0', 'x1', 'z0', 'z1'] as const).filter(s => border[s]).map(s => {
+                  const e = borderWhy[s];
+                  return `${{ x0: 'low x', x1: 'high x', z0: 'low z', z1: 'high z' }[s]}${e ? ` (a surface ${Math.round(e.rise * 100) / 100} blocks up at column ${e.x},${e.z})` : ''}`;
+                });
+                warnings.push(`Border margin: the model reaches the grid's edge at ${sides.join(', ')}, where it stands a step over the ground that a larger size turns into a wall, so the grid is widened a block there and an invisible step can climb onto it from the ground at any size.`);
+              }
             }
           }
           const frame = sourceOrigin;
@@ -767,7 +776,7 @@ export async function runSchemPipeline(
     // `doorStairMargin` is then unset, so this cannot recurse.
     if (doorStairMargin && pack.accessMarginUsed === false) {
       const again = await runSchemPipeline({ ...input, accessMargin: false }, onProgress);
-      again.mcpack?.warnings?.push(`Access margin: the grid was widened ${doorStairMargin.x0}/${doorStairMargin.x1} blocks at its low/high x and ${doorStairMargin.z0}/${doorStairMargin.z1} at its low/high z for a door hung over the ground, but no access stair used it; exported without it (a one-block border margin stays where the model reaches the grid's edge).`);
+      again.mcpack?.warnings?.push(`Access margin: the grid was widened ${doorStairMargin.x0}/${doorStairMargin.x1} blocks at its low/high x and ${doorStairMargin.z0}/${doorStairMargin.z1} at its low/high z for a door hung over the ground, but no access stair used it; exported without it (a one-block border margin stays where a border step needs one).`);
       return again;
     }
     // The seat census: every place the source sits a figure, and what the pack made of it.

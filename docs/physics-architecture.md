@@ -478,6 +478,13 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   yet on a device: the slower cruise, the hint on a remount of the same cloud
   (the driver now forgets its rider when the seat is empty), the seat retry
   at placement (`bedrock-placement-pack.ts`, `SEAT_RETRIES`).
+  The coaster runtime applies the same rule with the same two numbers
+  (`CoasterRuntimeConfig.dismountFloat`, built from `FLYER` in
+  `coasterRuntimeConfig`; SEAT-05, 2026-10-15): a player no car has reported
+  for two ticks, on no other mount, with nothing solid within the drop under
+  their feet, gets slow falling - "sneak to dismount" is offered at a loop's
+  apex, and a sneak there dropped the simulator's rider 21.66 blocks off
+  10303's loop (round 30zh). Not yet on a device.
 - **Ship — SCRIPTED, spaceship controls** (`flightStep`, 2026-09-30), every
   scripted aircraft: a fixed wing, the X-wing (7140), the Milano (76286), any
   ship or spacecraft (`vehicleMotionOf`: a `plane` kind that is not a

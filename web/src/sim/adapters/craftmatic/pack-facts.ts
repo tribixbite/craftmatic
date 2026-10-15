@@ -26,6 +26,31 @@ export interface PlacementFacts {
   resizable: boolean;
   /** The shipped collider grid (run-length cells and tread plans), when there is one. */
   colliders: PlacementColliders | null;
+  /**
+   * How far (blocks at 100 %) the export widened the grid past the MODEL on each side (`craftmatic-diagnostics.json`
+   * `accessMargin`: a door's access stair, `accessMarginFor`, or the border margin, `borderMarginFor`); zeros when it
+   * was not. The model's own corner is this far in from the grid's (`Placed.corner`).
+   */
+  margin: GridMargin;
+}
+
+/** A grid's widening past the model, blocks per horizontal side. */
+export interface GridMargin { x0: number; x1: number; z0: number; z1: number }
+/** No widening. */
+export const NO_MARGIN: GridMargin = Object.freeze({ x0: 0, x1: 0, z0: 0, z1: 0 });
+
+/** The margin the export reports in the behaviour pack's `craftmatic-diagnostics.json` (`accessMargin`), or none. */
+function marginOf(pack: Pack): GridMargin {
+  const text = packText(pack, 'craftmatic-diagnostics.json');
+  if (!text) return NO_MARGIN;
+  try {
+    const m = (JSON.parse(text) as { accessMargin?: Partial<GridMargin> }).accessMargin;
+    if (!m) return NO_MARGIN;
+    const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+    return { x0: n(m.x0), x1: n(m.x1), z0: n(m.z0), z1: n(m.z1) };
+  } catch {
+    return NO_MARGIN;
+  }
 }
 
 /** A ride as rides.js knows it. */
@@ -78,6 +103,7 @@ export function readCraftmaticPack(addon: Addon): CraftmaticPack | undefined {
         sizes: (placement['sizes'] as number[] | undefined) ?? [100],
         resizable: !!placement['colliders'] || !((placement['tiles'] as unknown[] | undefined)?.length),
         colliders: (placement['colliders'] as PlacementColliders | undefined) ?? null,
+        margin: marginOf(pack),
       },
       interactives: ix && Array.isArray(ix.items) ? ix : null,
       rides: rides?.seatType ? { seatType: rides.seatType, rides: (rides.rides ?? []).map((r, index) => ({ index, kind: String(r.kind ?? '?'), ...(r.carType ? { carType: r.carType } : {}) })) } : null,
@@ -92,7 +118,15 @@ export function readCraftmaticPack(addon: Addon): CraftmaticPack | undefined {
 
 /** A placement as the wand made it: where, how turned, how big. */
 export interface Placed {
+  /** The grid's pinned corner (world): where every pack-frame point (colliders, treads, doorway cells) is laid from. */
   anchor: Vec3;
+  /**
+   * The MODEL's corner in the world: the anchor moved in past the export's margin (`PlacementFacts.margin`, the
+   * low world x and z sides at the placed turn and size; `modelCorner`). A device round's spots are given from the
+   * pinned corner of a pack WITHOUT a margin, i.e. from the model's corner: read them from here, so a pack with a
+   * margin and one without are judged at the same model point. Equal to `anchor` when the pack has none.
+   */
+  corner: Vec3;
   rotation: PlacementRotation;
   sizePct: number;
   /** The world box it covers (inclusive blocks). */
@@ -104,6 +138,18 @@ export function modelToWorld(facts: PlacementFacts, placed: Placed, v: Vec3): Ve
   const q = rotatePlacementPoint(v, facts.width, facts.length, placed.rotation);
   const f = placed.sizePct / 100;
   return { x: placed.anchor.x + q.x * f, y: placed.anchor.y + q.y * f, z: placed.anchor.z + q.z * f };
+}
+
+/**
+ * The model's corner in the world for a placement at `anchor` (`Placed.corner`): the lowest world x and z of the
+ * model's own box (the grid less its margin) turned and sized like the placement; y is the anchor's.
+ */
+export function modelCorner(facts: PlacementFacts, placed: Omit<Placed, 'corner'>): Vec3 {
+  const m = facts.margin;
+  const at = { ...placed, corner: placed.anchor };
+  const a = modelToWorld(facts, at, { x: m.x0, y: 0, z: m.z0 });
+  const b = modelToWorld(facts, at, { x: facts.width - m.x1, y: 0, z: facts.length - m.z1 });
+  return { x: Math.min(a.x, b.x), y: placed.anchor.y, z: Math.min(a.z, b.z) };
 }
 
 /** A model-frame direction turned like the placement (no translation). */

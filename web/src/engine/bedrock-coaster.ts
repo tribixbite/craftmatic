@@ -136,6 +136,7 @@ import type { CoasterTrackExtraction } from './coaster-track.js';
 import { sceneGridPoint, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { FLIGHT_INPUT_EVENT } from './bedrock-vehicle.js';
 import { HOP_TAGS } from './bedrock-ride-hop.js';
+import { FLYER } from './bedrock-flyer.js';
 
 declare const world: any;
 declare const system: any;
@@ -375,6 +376,14 @@ export interface CoasterRuntimeConfig {
    * the front-most car with a free seat. Absent: no tags (an older hand-built config).
    */
   hopTags?: { train: string; rank: string };
+  /**
+   * A rider who leaves a car with no ground under them - "sneak to dismount" is offered at every phase, a loop's
+   * apex included - floats down: slow falling for `ticks` unless a solid block lies within `dropBlocks` under
+   * their feet. The flyer's own rule and numbers (bedrock-flyer.ts `FLYER.DISMOUNT_DROP_BLOCKS`,
+   * `FLYER.DISMOUNT_SLOW_FALL_TICKS`; SEAT-05): a sneak off 10303's train 23 blocks up its loop dropped the player
+   * 21.66 blocks (simulator, round 30zh). Absent: no float (an older hand-built config).
+   */
+  dismountFloat?: { dropBlocks: number; ticks: number };
 }
 
 /**
@@ -1476,6 +1485,7 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
     };
   });
   return { typeId, routes: runtimeRoutes, types, physics: COASTER_PHYSICS, camera: { ...COASTER_RIDER_VIEW }, hopTags: { train: HOP_TAGS.train, rank: HOP_TAGS.rank },
+    dismountFloat: { dropBlocks: FLYER.DISMOUNT_DROP_BLOCKS, ticks: FLYER.DISMOUNT_SLOW_FALL_TICKS },
     ...(runtimeRoutes.some(route => route.physics?.DRIVER) ? { inputEvent: FLIGHT_INPUT_EVENT } : {}) };
 }
 
@@ -2240,6 +2250,32 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   };
   /** Ticks after boarding during which the look reference follows the head (see `aimRider`). */
   const SETTLE_TICKS = 10;
+  /**
+   * Every player a car reported this tick or lately (id -> the player and the tick last seen): one no car has
+   * reported for two ticks has left (the Script API has no dismount event; the camera's `viewers` read it so too).
+   */
+  const onboard = new Map<string, { player: any; seen: number }>();
+  /**
+   * A player who left a car: unless they are on another mount (a hop) or a solid block lies within
+   * `dismountFloat.dropBlocks` under their feet, slow falling for `dismountFloat.ticks` - a sneak at a loop's apex
+   * is a fall of twenty blocks. An unloaded block counts as no ground: the effect is harmless on the ground.
+   */
+  const floatDown = (player: any): void => {
+    const float = config.dismountFloat;
+    if (!float) return;
+    try { if (typeof player.isValid === 'function' ? !player.isValid() : player.isValid === false) return; } catch { return; }
+    try { if (player.getComponent('minecraft:riding')?.entityRidingOn) return; } catch { /* not riding */ }
+    let dim: any, loc: any;
+    try { dim = player.dimension; loc = player.location; } catch { return; }
+    const x = Math.floor(loc.x), z = Math.floor(loc.z), feet = Math.floor(loc.y);
+    for (let dy = 0; dy <= float.dropBlocks; dy++) {
+      try {
+        const b = dim.getBlock({ x, y: feet - dy, z });
+        if (b && !b.isAir && !b.isLiquid) return;
+      } catch { /* unloaded: no ground known */ }
+    }
+    try { player.addEffect('slow_falling', float.ticks, { amplifier: 0, showParticles: false }); } catch { /* no effect */ }
+  };
   const releaseViewer = (id: string) => {
     const viewer = viewers.get(id);
     viewers.delete(id);
@@ -2573,6 +2609,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         for (const rider of riders) {
           const viewer = viewers.get(rider?.id);
           if (viewer) viewer.seen = ticks;
+          if (rider?.typeId === 'minecraft:player') onboard.set(rider.id, { player: rider, seen: ticks });
           try { headings.set(rider.id, { head: rider.getRotation(), car: carYawNow }); } catch {}
         }
         stage = 'read route placement';
@@ -3203,6 +3240,12 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     // flash exactly so. One extra tick of the ride's camera after a real
     // dismount is 0.05 s.
     for (const [id, viewer] of [...viewers]) if (ticks - viewer.seen > 1) releaseViewer(id);
+    // The same two-tick reading for a player who left a car: in the air they float down (`config.dismountFloat`).
+    for (const [id, aboard] of [...onboard]) {
+      if (ticks - aboard.seen <= 1) continue;
+      onboard.delete(id);
+      floatDown(aboard.player);
+    }
   };
   system.runInterval(tick, 1);
   // A tap boards a car (COAST-02 "tap to mount"). On a touch screen a tap is a

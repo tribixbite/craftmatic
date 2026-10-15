@@ -330,7 +330,7 @@ export const REGRESSIONS: RegressionCase[] = [
       name: 'door3-sneak-10326', allowLines: allow, steps: [...place,
         { kind: 'tapPartFrom', label: 'Door 3', feet: { x: 5.0, y: 0.875, z: 2.3 }, at: { x: 6.58, y: 1.46, z: 2.36 } },
         { kind: 'expect', label: 'sneak-walk', check: async ctx => {
-          const a = placedOf(ctx).anchor;
+          const a = placedOf(ctx).corner;
           ctx.sim.controls.set(ctx.player.id, { sneak: true });
           await CORE_HANDLERS['walkLine']!({ kind: 'walkLine', label: 'Door 3 sneaking +x', from: { x: a.x + 5.0, y: a.y + 0.885, z: a.z + 2.3 }, to: { x: a.x + 7.4, y: a.y + 0.885, z: a.z + 2.3 }, arriveWithin: 0.3, maxTicks: 160 }, ctx);
           ctx.sim.controls.set(ctx.player.id, { sneak: false });
@@ -509,7 +509,7 @@ export const REGRESSIONS: RegressionCase[] = [
       name: 'gate1-throwout-76417', allowLines: allow, invariants: ['no-unprotected-fall', 'nothing-below-ground', 'actionbar-not-stolen'], steps: [...place,
         { kind: 'tapPartFrom', label: 'Gate 1', feet: { x: 10.5, y: 17.5, z: 4.5 }, at: { x: 10.84, y: 18.4, z: 2.17 } },
         { kind: 'expect', label: 'tap-close-in-doorway', check: async ctx => {
-          const a = placedOf(ctx).anchor, p = ctx.player;
+          const a = placedOf(ctx).corner, p = ctx.player;
           const part = [...ctx.sim.engine.entities.values()].find(e => e.valid && /_gate_1$/.test(e.typeId));
           if (!part) return 'no Gate 1 entity';
           const rel = (v: Vec3): Vec3 => ({ x: r3(v.x - a.x), y: r3(v.y - a.y), z: r3(v.z - a.z) });
@@ -575,7 +575,7 @@ export const REGRESSIONS: RegressionCase[] = [
     scenario: () => ({
       name: 'lift-top-fall-10261', allowLines: allow, steps: [{ kind: 'place', size: 200, rotation: 0 }, { kind: 'wait', ticks: 40 },
         { kind: 'expect', label: 'auto-jump walk over the lift top', check: async ctx => {
-          const a = placedOf(ctx).anchor;
+          const a = placedOf(ctx).corner;
           const rows: LiftWalk[] = [];
           for (const lane of [4.6, 5.0]) {
             await CORE_HANDLERS['walkLine']!({ kind: 'walkLine', label: `lift lane z+${lane.toFixed(1)}`, autoJump: true, maxFall: LIFT_SAFE_FALL, maxTicks: 1200, from: { x: a.x + 15.6, y: a.y + 5, z: a.z + lane }, to: { x: a.x + 100, y: a.y + 5, z: a.z + lane } }, ctx);

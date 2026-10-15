@@ -412,11 +412,11 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
     },
 
     /**
-     * A device round's tap, replayed: stand at `feet`, look at `at` (both blocks from the placement's
-     * anchor, the device's pinned corner, as the round's notes give them), tap what the view picks, and
-     * require the part labelled `label` to change: `{ label, feet, at, recordedCell? }`. A tap that picks
-     * something else or that the runtime refuses is a `tap-in-plain-view` violation carrying the refusal
-     * record (`craftmatic:ix_refused`: the eyes, the part and the collider cell that cut the line).
+     * A device round's tap, replayed: stand at `feet`, look at `at` (both blocks from the MODEL's corner,
+     * `Placed.corner` - the device's pinned corner on a pack without a margin, as the round's notes give
+     * them), tap what the view picks, and require the part labelled `label` to change:
+     * `{ label, feet, at, recordedCell? }`. A tap that picks something else or that the runtime refuses is a
+     * `tap-in-plain-view` violation carrying the refusal record (`craftmatic:ix_refused`: the eyes, the part and the collider cell that cut the line).
      *
      * `recordedCell`: the device HUD gave only the block cell, so the pose is every FLOOR-LEVEL legal standing
      * spot in that cell (`floorLevelInRecordedCell`: feet within `FLOOR_LEVEL_TOLERANCE` of the recorded height -
@@ -432,7 +432,7 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       const index = pack.interactives?.items.findIndex(it => it.label === label) ?? -1;
       const part = findEntity(ctx.sim, ctx.player, { where: e => e.dynamic.get(IX_KEYS.index) === index });
       if (!part) throw new Error(`tapPartFrom: no ${label}`);
-      const a = placed.anchor;
+      const a = placed.corner;
       const recorded = { x: a.x + feet.x, y: a.y + feet.y, z: a.z + feet.z };
       const rel = (v: Vec3): Vec3 => pt({ x: v.x - a.x, y: v.y - a.y, z: v.z - a.z });
       const legalExact = standsAt(ctx.sim.engine, ctx.player.dimension, recorded);
@@ -464,14 +464,14 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
     },
 
     /**
-     * A device round's standing spot, replayed: `{ label, feet }` (blocks from the placement's anchor, the
-     * device's pinned corner). The player is put there and settles; standing within a step of the spot while
-     * the model draws nothing within a jump under its feet is standing on an INVISIBLE FLOOR over the model's
-     * drop - a child walks on and off its edge (76417's Gate 1, Saga round 2026-09-30i): `invisible-floor`.
+     * A device round's standing spot, replayed: `{ label, feet }` (blocks from the MODEL's corner,
+     * `Placed.corner`: the device's pinned corner on a pack without a margin). The player is put there and
+     * settles; standing within a step of the spot while the model draws nothing within a jump under its feet
+     * is standing on an INVISIBLE FLOOR over the model's drop - a child walks on and off its edge (76417's Gate 1, Saga round 2026-09-30i): `invisible-floor`.
      * A spot inside a collider (a guard over the drop) is noted, not stood on.
      */
     async standOver(step: AnyStep, ctx: StepContext) {
-      const placed = placedOf(ctx), feet = step['feet'] as Vec3, label = String(step['label'] ?? 'the spot'), a = placed.anchor;
+      const placed = placedOf(ctx), feet = step['feet'] as Vec3, label = String(step['label'] ?? 'the spot'), a = placed.corner;
       const k = Math.max(1, placed.sizePct / 100), statics = staticDrawn(ctx, appearance, pack);
       const p = ctx.player, w = ctx.sim.engine.dimension(p.dimension);
       const q = { x: a.x + feet.x, y: a.y + feet.y, z: a.z + feet.z };
@@ -553,6 +553,11 @@ export function floorLevelInRecordedCell(spots: readonly ApproachSpot[], recorde
 function overhangTargets(ctx: StepContext, v: SimEntity): Vec3[] {
   const placed = placedOf(ctx), w = ctx.sim.engine.dimension(v.dimension), base = v.location.y;
   const out: Vec3[] = [], seen = new Set<string>();
+  // One target per 2 x 2 columns, the pairs counted from the MODEL's corner (`Placed.corner`), not the world's
+  // parity: a pack whose grid carries a margin puts the model a block further in, and pairs counted in the world
+  // then picked the other column of each pair - a different course (10303's car drove into its coaster train and
+  // hopped aboard, round 30zh). Zero shift where the pack has no margin, so those courses are unchanged.
+  const dx = Math.floor(placed.corner.x - placed.anchor.x), dz = Math.floor(placed.corner.z - placed.anchor.z);
   for (let x = placed.from.x; x <= placed.to.x; x++) for (let z = placed.from.z; z <= placed.to.z; z++) {
     const floor = w.supportBelow(x + 0.5, base + 1, z + 0.5, 4);
     if (!Number.isFinite(floor) || Math.abs(floor - base) > 1) continue;
@@ -562,7 +567,7 @@ function overhangTargets(ctx: StepContext, v: SimEntity): Vec3[] {
     }
     const clear = under - floor;
     if (clear < 1 || clear > 3) continue;
-    const key = `${x >> 1},${z >> 1}`;
+    const key = `${(x - dx) >> 1},${(z - dz) >> 1}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push({ x: x + 0.5, y: floor, z: z + 0.5 });

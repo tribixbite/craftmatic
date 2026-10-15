@@ -8,6 +8,7 @@ import {
 import type { CoasterRiderViewConfig, CoasterRoute, CoasterRouteCar, CoasterRuntimeConfig } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterCar } from '../web/src/engine/coaster-assemblies.js';
 import { detectCoasterAssemblies } from '../web/src/engine/coaster-assemblies.js';
+import { FLYER } from '../web/src/engine/bedrock-flyer.js';
 import { extractCoasterTrackRoutes } from '../web/src/engine/coaster-track.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
 import { parseLDrawDocument } from '../web/src/engine/ldraw-parser.js';
@@ -2656,6 +2657,26 @@ describe('the rider camera follows the track', () => {
     expect(player.removeEffect).toHaveBeenCalledWith('invisibility');
     h.run(5);
     expect(player.camera.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it('floats a player who leaves a car in the air down, and leaves one who gets off on the ground alone (SEAT-05, round 30zh)', () => {
+    // On the ground: a stone floor a block under the station's track, boarded there and off again at once.
+    const low = rideHost(towerRoute());
+    low.sim.fill({ x: COASTER_ORIGIN.x - 4, y: COASTER_ORIGIN.y - 1, z: COASTER_ORIGIN.z - 4 }, { x: COASTER_ORIGIN.x + STATION_RUN + 4, y: COASTER_ORIGIN.y - 1, z: COASTER_ORIGIN.z + 4 }, 'minecraft:stone');
+    const walker = cameraRider(low.entity).player;
+    low.run(1); low.seat(walker); low.run(3);
+    expect(walker.location.y - COASTER_ORIGIN.y, 'the rider sits within the drop of the floor').toBeLessThan(FLYER.DISMOUNT_DROP_BLOCKS + 1);
+    low.dismount(); low.run(4);
+    expect(walker.addEffect).not.toHaveBeenCalledWith('slow_falling', expect.anything(), expect.anything());
+    // The same station with no floor: the test world's ground is 64 blocks under the track (10303's loop apex was 23).
+    const h = rideHost(towerRoute());
+    const { player } = cameraRider(h.entity);
+    h.run(1); h.seat(player); h.run(3);
+    h.dismount(); h.run(1);
+    // Read on the same two unseen ticks as the camera's hand-back.
+    expect(player.addEffect).not.toHaveBeenCalledWith('slow_falling', expect.anything(), expect.anything());
+    h.run(1);
+    expect(player.addEffect).toHaveBeenCalledWith('slow_falling', FLYER.DISMOUNT_SLOW_FALL_TICKS, { amplifier: 0, showParticles: false });
   });
 
   it('keeps the camera through a paused tick (an unloaded chunk) instead of dropping it', () => {
