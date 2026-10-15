@@ -104,20 +104,13 @@ The round-30m fixes on the phones:
      `bun output/device-round-2026-10-14x/tools/milano_points.ts <pack>`.
    - VEH-18 / SCALE-06 ride-on-top DONE-DEVICE (30zd: McLaren 50/25 %,
      Milano 50 %, rider drawn on the roof, hotbar 9 from the head; 100 %
-     unchanged). The 25 % chase camera framed only grass while driving (Saga
-     30ze `saga/shots/b25-drive-strip.jpg`): FIXED OFFLINE `0241b1ae` (boom at
-     least `ON_TOP_CHASE_BOOM_BLOCKS` 6, facing the rider's eye; regression
-     `mclaren-chase-25-30ze` reproduces on packs-c9768dbf, passes with
-     `--runtime=tree`, which now swaps vehicle-camera.js). The sim's client
-     lag is pessimistic at short booms (it lost 50 % driving, the Saga framed
-     it). ROUND 30zf BUILT from 0241b1ae
-     (`output/device-round-2026-10-15zf/`, 23/23, sim 132/0, regressions
-     38/0, seat-scale 0 off; briefs there) and ON BOTH PHONES via agents
-     (evidence -> `.../saga/notes.md`, `.../pixel/notes.md`). PIXEL PASS: 25 %
-     12/12 and 50 % 18/18 driving frames with car AND rider in the picture,
-     camera about level, 100 % unchanged, 0 errors; one 25 % dismount logged
-     "native" (set down 1.0 from the root, uninvestigated). Saga pending. Plan: McLaren chase at 25 % and 50 % parked and
-     driving at full speed (car and rider in the picture), 100 % unchanged.
+     unchanged). Chase camera below 100 % DONE-DEVICE (30zf, both phones:
+     car and rider framed at 25/50 % parked and at 43 mph; boom >=
+     `ON_TOP_CHASE_BOOM_BLOCKS` 6 facing the rider's eye; sim
+     `mclaren-chase-25-30ze`; the sim's client lag is pessimistic at short
+     booms). Cosmetic, open: at speed the car sits low, its rear behind the
+     hotbar. Uninvestigated: one Pixel 25 % dismount logged "native" (set
+     down 1.0 from the root, `output/device-round-2026-10-15zf/pixel/notes.md`).
    - Device-tool lesson (Saga 30ze): the old two-finger `stickjump.sh` never
      delivers Jump (telemetry `jump:false`); use
      `output/device-round-2026-10-15ze/saga/tools/jumpstick.sh` (Jump first,
@@ -137,7 +130,7 @@ The round-30m fixes on the phones:
      `/data/local/tmp/craftmatic-deploy-*` (Saga, two folders) and the 30r
      pack backups. User shots:
      `C:/Users/wills/Downloads/*-{slide,floating,tree,lolipop}*.png`.
-   - Round recipe: copy `output/device-round-2026-10-15ze/build.sh` into a
+   - Round recipe: copy `output/device-round-2026-10-15zf/build.sh` into a
      new round dir (sed the dir name + line 2), commit first, ~23 min; then
      `bun scripts/sim.ts <packs>`, `--scenario=regressions --new=<packs>`,
      `bun scripts/_seat_scale_check.ts <packs> --all`; briefs as in 30ze
