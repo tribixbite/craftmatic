@@ -213,7 +213,9 @@ The round-30m fixes on the phones:
    BOTH PHONES via agents (briefs in the session scratchpad; evidence ->
    `.../saga/notes.md`, `.../pixel/notes.md`): a FRESH McLaren at 25/50 %
    (+200 % Saga) tapped before any ride, Survival; Saga also the Milano 50 %
-   descent and the 25 % chase camera. Small leftovers from 30zd: at 25 % the chase camera sits low
+   descent and the 25 % chase camera. PIXEL DONE: fix holds, the FIRST tap
+   on 3/3 fresh cars (50, 25, 50 %) seated (30zd 0/13), 11/11 trials, fresh
+   100 % seats + hidden, content log 0 errors (`.../pixel/notes.md`); Saga pending. Small leftovers from 30zd: at 25 % the chase camera sits low
    and close; the Milano at 50 % did not descend on Back + Jump (Saga). Also open: 10797's blue cluster + brown
    oval on the grass N of its wall (Saga 30t e06, unchecked vs source);
    device leftovers `/data/local/tmp/craftmatic-deploy-*` (Saga) and the
