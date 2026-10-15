@@ -47,7 +47,7 @@ import type { Box, Vec3 } from '../../core/vec.js';
 import { EntityDefinitions, type Components, type EntityDefinition } from '../../entity/definitions.js';
 import { packFiles, type Pack } from '../../pack/pack.js';
 import { quirkValue } from '../../quirks/registry.js';
-import { ROOF_BODY_CLEAR, ROOF_CELL, ROOF_SEAT_BELOW_SURFACE, ridesOnTopAt } from '../../../engine/cockpit-seat.js';
+import { ROOF_BODY_CLEAR, ROOF_CELL, ROOF_MAX_LIFT, ROOF_SEAT_BELOW_SURFACE, ridesOnTopAt } from '../../../engine/cockpit-seat.js';
 import type { AddonAppearance } from './appearance.js';
 import { drawnBoxes, drawnTopOver, type DrawnBox } from './drawn.js';
 
@@ -144,7 +144,8 @@ export function seatScaleDrift(seat: Vec3, seat100: Vec3, scale: number, toleran
 /**
  * Whether a realised seat at `scale` rides ON TOP of its vehicle (VEH-18): below
  * 100 % only, x and z on the 100 % seat scaled once, the hips on a drawn top
- * under the body (within `SEAT_ON_DRAWN.drift`) and nothing drawn reaching more
+ * under the body (within `SEAT_ON_DRAWN.drift`), lifted no more than
+ * `ROOF_MAX_LIFT` (scaled) over the seat scaled once, and nothing drawn reaching more
  * than that over them into the seated body's air (`ROOF_BODY_CLEAR`). The pack
  * reads a turned cube by its corners' bounds (bedrock-placement-pack.ts
  * `geometryEntityBoxes`), so a top is its bounds' top or its drawn top
@@ -154,6 +155,8 @@ export function seatScaleDrift(seat: Vec3, seat100: Vec3, scale: number, toleran
 export function seatOnTop(seat: Vec3, place: SeatPlace, drift: SeatDrift, scale: number, drawn: readonly DrawnBox[], tolerance = SEAT_ON_DRAWN): boolean {
   if (!ridesOnTopAt(scale) || !place.ok) return false;
   if (Math.abs(drift.dx) > tolerance.drift || Math.abs(drift.dz) > tolerance.drift) return false;
+  // Lifted no further than `ROOF_MAX_LIFT` (scaled) over the seat scaled once: never onto a ship's masthead.
+  if (seat.y - drift.yBand[1] > ROOF_MAX_LIFT * scale + tolerance.drift) return false;
   const fp = tolerance.footprint + ROOF_CELL * scale, hips = seat.y + ROOF_SEAT_BELOW_SURFACE, tol = tolerance.drift;
   const under = drawn.filter(({ box: b }) => b.x1 > seat.x - fp && b.x0 < seat.x + fp && b.z1 > seat.z - fp && b.z0 < seat.z + fp);
   const sits = hips <= tol || under.some(d => {

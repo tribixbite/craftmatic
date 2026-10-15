@@ -107,6 +107,9 @@ describe('seatOnTop: below 100 % a vehicle is ridden on top (VEH-18)', () => {
     expect(seatOnTop(high, seatOnDrawn(high, car(f)), seatScaleDrift(high, seat100, f), f, car(f))).toBe(false);
     const moved = { x: 0, y: 1.2 * f - 0.3, z: 0.5 * f + 0.6 };
     expect(seatOnTop(moved, seatOnDrawn(moved, car(f)), seatScaleDrift(moved, seat100, f), f, car(f))).toBe(false);
+    // On a masthead 10 blocks (scaled) over the seat: past ROOF_MAX_LIFT, never a seat on top.
+    const mast = [...car(f), box(-0.1, 0, 0.15, 0.1, 10 * f, 0.35)], top = { x: 0, y: 10 * f - 0.3, z: 0.5 * f };
+    expect(seatOnTop(top, seatOnDrawn(top, mast), seatScaleDrift(top, seat100, f), f, mast)).toBe(false);
     // On the deck with a sail hanging into the seated body's air: not a seat on top.
     const deck = { x: 0, y: 1.2 * f - 0.3, z: 0.5 * f }, sail = [...car(f), box(-0.2, 1.2 * f + 0.4, 0, 0.2, 1.2 * f + 2, 0.5)];
     expect(seatOnTop(deck, seatOnDrawn(deck, sail), seatScaleDrift(deck, seat100, f), f, sail)).toBe(false);

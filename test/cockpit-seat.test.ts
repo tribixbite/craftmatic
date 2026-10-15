@@ -12,7 +12,7 @@ import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile } from '../web/src/engine/zip-utils.js';
 import { simHost } from './_sim-host.js';
-import { ROOF_BODY_CLEAR, roofMap, surfaceOnTop, AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
+import { ROOF_BODY_CLEAR, ROOF_MAX_LIFT, roofMap, surfaceOnTop, AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const box = (min: Vec3, max: Vec3): BoxBlocks => ({ min, max });
@@ -245,11 +245,20 @@ describe('surfaceOnTop: what a rider on top sits on below 100 % (VEH-18)', () =>
     const map = roofMap([box([-2, 0, -4], [2, 1, 4]), box([-0.125, 1, -1.625], [0.125, 9, -1.375])])!;
     for (const f of [0.25, 0.5, 0.75]) expect(surfaceOnTop(map, 0, 0, 1, f)).toBeCloseTo(1, 3);
   });
+  it('stays on the deck under a sail rather than climbing the rigging (10365, round 30zc)', () => {
+    // A deck 0..1, a sail over the helm from 2.5 to 7, a masthead at 12: no room on the deck at 25 %
+    // (the body needs ROOF_BODY_CLEAR / 0.25 = 4.16 of the model's air), none within ROOF_MAX_LIFT over it.
+    const map = roofMap([box([-2, 0, -4], [2, 1, 4]), box([-1, 2.5, -1], [1, 7, 1]), box([-0.1, 7, -0.1], [0.1, 12, 0.1])])!;
+    expect(surfaceOnTop(map, 0, 0, 1, 0.25)).toBeCloseTo(1, 3);
+    expect(surfaceOnTop(map, 0, 0, 1, 0.75)).toBeCloseTo(1, 3);
+  });
   it('reads the body footprint and air at the PLAYER size: a small model needs more of its own', () => {
     // A mast 0.9 blocks beside the seat: outside the body at 50 % (0.6 of model), inside it at 25 % (1.2).
     const map = roofMap([box([-2, 0, -4], [2, 1, 4]), box([0.85, 1, -0.1], [1, 5, 0.1])])!;
     expect(surfaceOnTop(map, 0, 0, 1, 0.5)).toBeCloseTo(1, 3);
-    expect(surfaceOnTop(map, 0, 0, 1, 0.25)).toBeCloseTo(5, 3);
+    // At 25 % the mast blocks the deck, and its top (4 over the deck) is past ROOF_MAX_LIFT: the deck it is.
+    expect(4).toBeGreaterThan(ROOF_MAX_LIFT);
+    expect(surfaceOnTop(map, 0, 0, 1, 0.25)).toBeCloseTo(1, 3);
     // A lintel ROOF_BODY_CLEAR / f over the pan leaves room at 50 % but not at 25 %.
     const lintel = roofMap([box([-2, 0, -4], [2, 1, 4]), box([-2, 1 + ROOF_BODY_CLEAR / 0.5 + 0.1, -4], [2, 1 + ROOF_BODY_CLEAR / 0.5 + 0.3, 4])])!;
     expect(surfaceOnTop(lintel, 0, 0, 1, 0.5)).toBeCloseTo(1, 3);

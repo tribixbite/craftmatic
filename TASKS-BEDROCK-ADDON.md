@@ -192,8 +192,10 @@ The round-30m fixes on the phones:
    (`geometryEntityBoxes`). Rounds 30za/30zb failed the sim's seat audit
    (10365/60221/60380/10303 seats; the compiler's part boxes are not the
    drawn vehicle - diagnosis tools in `output/device-round-2026-10-14zb/tools/`);
-   ROUND 30zc builds from the fix (`output/device-round-2026-10-14zc/`; phone
-   briefs drafted in the session scratchpad, rewrite from this plan). Device plan: Saga - 42172
+   Round 30zc (3a338631) put 10365's helmsman on its masthead at 25/75 %
+   (a sail over the helm): the climb is now capped at `ROOF_MAX_LIFT` 3
+   over the pan, else the rider stays on its seat. ROUND 30zd builds from
+   that fix (`output/device-round-2026-10-14zd/`). Device plan: Saga - 42172
    and 76286 at 50 % in Survival (rider drawn on the roof, chase camera over the
    head, hotbar-9 view from the head, dismount beside the hull), a door tap at
    200 % in Survival (the interactives' size-grouped box); Pixel - first run

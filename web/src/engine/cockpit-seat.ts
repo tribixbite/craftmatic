@@ -744,6 +744,17 @@ export const ROOF_SEAT_BELOW_SURFACE = 0.3;
  */
 export const ROOF_BODY_CLEAR = Math.round((RIDER_EYE_ABOVE_SEAT - ROOF_SEAT_BELOW_SURFACE + 0.22) * 1000) / 1000;
 
+/**
+ * How far over the seat's pan (blocks at 100 %) a rider on top may be lifted
+ * to a surface with room: a minifig-scale cabin's roof stands ~2-2.5 over its
+ * seat (76286's canopy 2.0, the test cabin 2.1). Past it the climb reaches a
+ * ship's rigging: 10365's helm, under a sail, went to its masthead at 25 and
+ * 75 % (round 30zc, 13 blocks over the deck). With no room within the lift the
+ * rider stays on its own seat, drawn - "it's ok for a player to not fit"
+ * below 100 % (the user, 2026-10-14).
+ */
+export const ROOF_MAX_LIFT = 3;
+
 /** Half the seated body's footprint (blocks, the player's own size: 0.6 wide, `SEATED_RIDER_PROBES` torso depth). */
 export const ROOF_BODY_HALF = 0.3;
 
@@ -792,13 +803,14 @@ export function roofMap(boxes: readonly BoxBlocks[], cell = ROOF_CELL): RoofMap 
  * (x, z) whose pan is `from` (entity frame, blocks at 100 %): the LOWEST
  * surface at or above the pan with room for the seated body over it
  * (`ROOF_BODY_CLEAR`), read under the body's own footprint
- * (`ROOF_BODY_HALF`). The player does not scale, so in the model's frame
+ * (`ROOF_BODY_HALF`), no higher than `ROOF_MAX_LIFT` over the pan; with
+ * none, the pan itself. The player does not scale, so in the model's frame
  * the body is 1/f as big. A closed cabin's roof is the first such surface;
  * an open deck is the pan itself, so a ship's helmsman stays on its deck
- * and is never lifted onto a mast or a sail over the helm (10365 at 50 %
- * read its rigging's top, 2026-10-14; 10300's pole put a whole-model rider
- * 2.6 blocks over its roof, 2026-09-25). null: nothing of the model under
- * the body.
+ * and is never lifted onto a mast or a sail over the helm (10365 read its
+ * rigging's top, 2026-10-14; 10300's pole put a whole-model rider 2.6
+ * blocks over its roof, 2026-09-25). null: nothing of the model under the
+ * body.
  */
 export function surfaceOnTop(map: RoofMap, x: number, z: number, from: number, f: number): number | null {
   const half = ROOF_BODY_HALF / f, clear = ROOF_BODY_CLEAR / f;
@@ -816,8 +828,8 @@ export function surfaceOnTop(map: RoofMap, x: number, z: number, from: number, f
   const room = (y: number): boolean => !spans.some(([a, b]) => b > y + 0.02 && a < y + clear - 0.02);
   // The pan itself, if the model holds it up (a span reaching it) or it is the floor.
   if (room(from) && (from <= 0.02 || spans.some(([a, b]) => a <= from + 0.02 && b >= from - 0.02))) return from;
-  for (const [, top] of spans) if (top >= from - 0.02 && room(top)) return top;
-  return spans[spans.length - 1]![1];
+  for (const [, top] of spans) if (top >= from - 0.02 && top <= from + ROOF_MAX_LIFT && room(top)) return top;
+  return from;
 }
 
 /**
