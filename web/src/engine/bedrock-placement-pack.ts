@@ -913,6 +913,28 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     return pending.length ? Math.min(...pending) : undefined;
   };
   const sizeEvent = (pct: number) => `${config.sizeEventPrefix || 'craftmatic:size_'}${pct}`;
+  /**
+   * After a size event, a freshly spawned actor takes no tap or hold at all
+   * until it has really MOVED (quirk `size-event-pick-needs-move`, Saga and
+   * Pixel round 30zd: a 50 % McLaren refused 0/34 presses; `tp ~ ~0.01 ~`
+   * made it pickable, `tp ~ ~ ~` did not). So it is lifted SIZE_PICK_NUDGE
+   * and set back, each a tick apart, ending exactly where it was spawned.
+   * Only a RIDEABLE is nudged (what a child boards: a vehicle, a seat, a
+   * coaster car): a teleported rider leaves its seat (quirk `tp-dismounts`),
+   * so a figure seated by the later pass is never moved, and a door's own
+   * runtime moves it on its first sync.
+   */
+  const SIZE_PICK_NUDGE = 0.01; // blocks: the lift measured to work (Saga 30zd)
+  const settleSized = (entity: any): void => {
+    try { if (!entity.getComponent('minecraft:rideable')) return; } catch { return; }
+    system.runTimeout(() => {
+      try {
+        const at = entity.location, rotation = entity.getRotation();
+        entity.teleport({ x: at.x, y: at.y + SIZE_PICK_NUDGE, z: at.z }, { rotation, keepVelocity: false });
+        system.runTimeout(() => { try { entity.teleport(at, { rotation, keepVelocity: false }); } catch { /* gone */ } }, 1);
+      } catch { /* gone or unloaded */ }
+    }, 1);
+  };
   // The measured walk-through size (bedrock-scene-actors.ts). A RECOMMENDATION:
   // the wand names the step and quotes the whole reason; it never resizes by itself.
   const access = config.access || null;
@@ -1928,7 +1950,7 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
               if (actor.rideExits) entity.setDynamicProperty('craftmatic:ride_exits', toWorld(actor.rideExits));
             } catch {}
           }
-          if (st.size !== 100) { try { entity.triggerEvent(sizeEvent(st.size)); } catch (e: any) { tell(p, `§e${actor.label} could not take size ${percent(st.size)} (${e && e.message ? e.message : e}); it stands at 100 percent.`); } }
+          if (st.size !== 100) { try { entity.triggerEvent(sizeEvent(st.size)); settleSized(entity); } catch (e: any) { tell(p, `§e${actor.label} could not take size ${percent(st.size)} (${e && e.message ? e.message : e}); it stands at 100 percent.`); } }
           progress(done0 + j + 1, `${actor.label} placed`);
         } catch (e: any) {
           failedActors.push(actor.label);
@@ -1955,7 +1977,7 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
           const entity = dim.spawnEntity(config.manualSeatTypeId, q);
           entity.nameTag = `Marked seat ${k + 1}`;
           entity.setRotation({ x: 0, y: (seat.yaw || 0) + st.rotation });
-          if (st.size !== 100) entity.triggerEvent(sizeEvent(st.size));
+          if (st.size !== 100) { entity.triggerEvent(sizeEvent(st.size)); settleSized(entity); }
           entities.push(entity.id);
           try { entity.addTag?.(tag); } catch {}
           st.manualSeatIds.push(entity.id);

@@ -265,7 +265,10 @@ export function teleport(host: FacadeHost, sim: SimEntity, loc: Vec3, opts?: Rec
     host.engine.emit('dismounted', { rider: sim, mount, cause: 'teleport' });
   }
   if (opts?.['dimension']) sim.dimension = host.engine.dimension(String((opts['dimension'] as { id: string }).id)).id;
+  // A real move ends a size event's stale pick; a teleport to its own spot does not (quirk `size-event-pick-needs-move`).
+  sim.pickable();
   sim.location = copy(loc);
+  sim.pickable();
   if (opts?.['rotation']) { const r = opts['rotation'] as { x?: number; y?: number }; sim.rotation = { x: r.x ?? sim.rotation.x, y: r.y ?? sim.rotation.y }; }
   if (opts?.['facingLocation']) {
     const t = opts['facingLocation'] as Vec3, h = sim.headLocation();

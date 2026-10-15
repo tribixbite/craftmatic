@@ -395,9 +395,13 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   EVENT was not picked (Saga 30y: 200 % board columns picked as their 100 %
   box, quirk `hit-test-size-event`), so board points are one TYPE per size
   step (Saga 30z: 48/48 at 200 %, every result fitting the base-declared
-  4 x 6); the hull's and the interactives' grouped boxes share the doubt.
-  Test boarding in Survival; a
-  Creative-only round hides this.
+  4 x 6); a door's `ixh_` group box WAS picked at 200 % (Saga 30zd).
+  **A sized RIDEABLE takes no tap or hold at all until it has really
+  MOVED** (round 30zd, both phones: a fresh 50 % McLaren 0/34, then 17/17
+  after one ride or `tp ~ ~0.01 ~`; `tp ~ ~ ~` does nothing): placement
+  lifts it 0.01 and sets it back (`settleSized`, quirk
+  `size-event-pick-needs-move`). Test boarding on a FRESH placement, in
+  Survival; a Creative-only or ridden-first round hides both.
 - **Below 100 % a vehicle is ridden ON TOP, and what it sits on is read
   from the geometry the pack SHIPS** (VEH-18 / SCALE-06, the user
   2026-10-14: below 100 % a player need not fit what a same-scale minifig

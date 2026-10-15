@@ -101,7 +101,8 @@ export function raycastEntities(candidates: readonly SimEntity[], origin: Vec3, 
   const d = { x: dir.x / len, y: dir.y / len, z: dir.z / len };
   const out: EntityHit[] = [];
   for (const e of candidates) {
-    if (e === exclude || !e.valid) continue;
+    // A sized rideable that has not moved since its size event is not picked (quirk `size-event-pick-needs-move`).
+    if (e === exclude || !e.valid || !e.pickable()) continue;
     let best: number | undefined;
     for (const b of pickBoxes(e)) { const t = rayBox(origin, d, b, maxDistance); if (t !== undefined && (best === undefined || t < best)) best = t; }
     if (best !== undefined) out.push({ entity: e, distance: best });

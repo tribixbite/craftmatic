@@ -24,7 +24,7 @@ import { PLAYER_WIDTH_BLOCKS } from '../web/src/engine/addon-scale.js';
 import { PLAYER_HEIGHT_BLOCKS } from '../web/src/engine/lego-scale.js';
 import { STEP16 } from '../web/src/engine/bedrock-collider-scale.js';
 import { FLAT_GROUND_Y } from '../web/src/sim/world/voxel-world.js';
-import { pickBoxes } from '../web/src/sim/input/ray.js';
+import { pickBoxes, raycastEntities } from '../web/src/sim/input/ray.js';
 import { REGRESSIONS, regressionVerdict } from '../web/src/sim/adapters/craftmatic/regressions.js';
 import { craftmaticHandlers, figureMode } from '../web/src/sim/adapters/craftmatic/child-play.js';
 import { FLOOR_LEVEL_TOLERANCE, floorLevelInRecordedCell, judgeSide, onRunout } from '../web/src/sim/adapters/craftmatic/play.js';
@@ -112,6 +112,23 @@ describe('entities load as the game loads them', () => {
     e.triggerEvent('drop');
     expect(e.rideable()).toBeUndefined();
     expect(quirk('group-removal-strips-base').simulated).toBe('modelled');
+  });
+  it('a rideable given a size event is not picked until it has really moved; a teleport to its own spot does not count (quirk size-event-pick-needs-move, round 30zd)', () => {
+    const d = new EntityDefinitions();
+    const ride = { 'minecraft:rideable': { seat_count: 1, family_types: ['player'] }, 'minecraft:custom_hit_test': { hitboxes: [{ width: 4, height: 2, pivot: [0, 1, 0] }] } };
+    const def = d.load('c.json', entityJson('x:car', ride, { groups: { 'craftmatic:size_50': { 'minecraft:scale': { value: 0.5 } } }, events: { 'craftmatic:size_50': { add: { component_groups: ['craftmatic:size_50'] } } } }))!;
+    const car = new SimEntity('x:car', 'minecraft:overworld', { x: 0, y: 0, z: 0 }, 0, def);
+    const picked = (): boolean => raycastEntities([car], { x: -3, y: 1, z: 0 }, { x: 1, y: 0, z: 0 }, 6).length === 1;
+    expect(picked()).toBe(true);
+    car.triggerEvent('craftmatic:size_50');
+    expect(picked()).toBe(false);
+    car.location = { x: 0, y: 0, z: 0 };
+    expect(picked()).toBe(false);
+    car.location = { x: 0, y: 0.01, z: 0 };
+    expect(picked()).toBe(true);
+    car.location = { x: 0, y: 0, z: 0 };
+    expect(picked()).toBe(true);
+    expect(quirk('size-event-pick-needs-move').simulated).toBe('partial');
   });
   it('addRider refuses in the spawn tick, then seats; the seat\'s +Z is the nose and the eye is 1.12 over it', () => {
     const d = new EntityDefinitions();

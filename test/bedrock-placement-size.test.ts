@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  SIZE_STEPS, buildPlacementPackAssets, colliderPairIndex, colliderPairOf, collisionWorldBox, decodeColliderRuns, encodeColliderRuns, geometryHitBox, hitTestAtSize, hullHitBox, seatWorldOffset, sizeHitBox, withSizeGroups,
+  SIZE_EVENT_PREFIX, SIZE_STEPS, buildPlacementPackAssets, colliderPairIndex, colliderPairOf, collisionWorldBox, decodeColliderRuns, encodeColliderRuns, geometryHitBox, hitTestAtSize, hullHitBox, seatWorldOffset, sizeHitBox, withSizeGroups,
 } from '../web/src/engine/bedrock-placement-pack.js';
 import { RIDER_EYE_ABOVE_SEAT, seatPositionAt } from '../web/src/engine/cockpit-seat.js';
 import { BlockGrid } from '@craft/schem/types.js';
@@ -395,6 +395,35 @@ describe('wand runtime: size, aim and turning', () => {
     expect(ghost.entity.teleport).toHaveBeenLastCalledWith({ x: 0, y: 64, z: -0.5 }, { rotation: { x: 0, y: 0 } });
     expect(h.actionBars.at(-1)).toMatch(/^PINNED PREVIEW/);
     expect(h.actionBars.at(-1)).toContain('150 percent');
+  });
+
+  it('lifts a sized RIDEABLE 0.01 and sets it back after its size event, and never moves a figure (quirk size-event-pick-needs-move, round 30zd)', async () => {
+    // A fresh 50 % McLaren took no tap or hold on either phone until it had really moved (`tp ~ ~0.01 ~`); `tp ~ ~ ~` did not.
+    const sized = (identifier: string, rideable: boolean): string => {
+      const groups: Record<string, unknown> = {}, events: Record<string, unknown> = {};
+      for (const pct of SIZE_STEPS) {
+        groups[`${SIZE_EVENT_PREFIX}${pct}`] = { 'minecraft:scale': { value: pct / 100 } };
+        events[`${SIZE_EVENT_PREFIX}${pct}`] = { add: { component_groups: [`${SIZE_EVENT_PREFIX}${pct}`] } };
+      }
+      const components = rideable ? { 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: { position: [0, 0.5, 0] } } } : {};
+      return JSON.stringify({ format_version: '1.26.30', 'minecraft:entity': { description: { identifier, is_spawnable: true, is_summonable: true }, components, component_groups: groups, events } });
+    };
+    const h = host({ stem: 'nudged', label: 'Nudged', width: 4, height: 2, length: 2, tiles: [],
+      actors: [{ typeId: 'craftmatic:car', label: 'Car', x: 2, y: 0, z: 1, yaw: 0 }, { typeId: 'craftmatic:fig', label: 'Figure', x: 1, y: 0, z: 1, yaw: 0 }],
+      settleTicks: 1, finalHoldTicks: 1 },
+    { definitions: { 'craftmatic:car': sized('craftmatic:car', true), 'craftmatic:fig': sized('craftmatic:fig', false) } });
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    for (let i = 0; i < 6; i++) await h.open({ action: 'Size' }, { canceled: true });   // 100 → 150 → 200 → 300 → 400 → 25 → 50
+    await h.open({ action: 'Place' }, { selection: 0 });
+    await h.flush(2000);
+    const car = h.spawned.find(s => s.typeId === 'craftmatic:car')!, fig = h.spawned.find(s => s.typeId === 'craftmatic:fig')!;
+    expect(car.entity.events).toEqual(['craftmatic:size_50']);
+    const at = car.at;
+    expect(car.entity.teleport.mock.calls.map((c: any[]) => c[0])).toEqual([{ x: at.x, y: at.y + 0.01, z: at.z }, at]);
+    expect((car as any).sim.location).toEqual(at);
+    expect((car as any).sim.pickable()).toBe(true);
+    expect(fig.entity.events).toEqual(['craftmatic:size_50']);
+    expect(fig.entity.teleport).not.toHaveBeenCalled();
   });
 
   it('an entity-only pack turns in 15° steps both ways and places the actor on the turned footprint', async () => {

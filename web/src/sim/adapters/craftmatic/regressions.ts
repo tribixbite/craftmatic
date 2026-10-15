@@ -17,7 +17,7 @@ import { scriptedVehicleTypes, type CourseRow } from './vehicle-course.js';
 import { WORLD_REGRESSIONS } from './regressions-world.js';
 import { ROUND_30M_REGRESSIONS } from './regressions-30m.js';
 import { teleport } from '../../script-host/facades.js';
-import { lookAt } from '../../input/touch.js';
+import { lookAt, tap } from '../../input/touch.js';
 import { PIXEL_VIEWPORT, tapScreen } from '../../input/screen.js';
 import { swipeMount } from './input-probe.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
@@ -403,6 +403,32 @@ export const REGRESSIONS: RegressionCase[] = [
     judge: r => {
       const note = r.notes.find(n => /coaster tap:/.test(n));
       return { reproduced: !note || !/ boarded$/.test(note), evidence: note ?? 'no tap note' };
+    },
+  },
+  // ─── Round 30zd (Saga + Pixel, 2026-10-15, packs-224001b3): a fresh sub-100 % car takes no tap ───
+  {
+    id: 'fresh-car-tap-50-30zd', title: '42172 McLaren placed at 50 %: no tap or hold boards it (no pick, no event) until it has been ridden once - a sized rideable is not picked until it has moved (VEH-18)',
+    evidence: 'Saga `output/device-round-2026-10-14zd/saga/notes.md` (0 of 20 presses on three fresh 50 / 25 % cars, 17 of 17 after one `/ride` or `tp ~ ~0.01 ~`, `tp ~ ~ ~` 0 of 2); Pixel `.../pixel/notes.md` B (0 of 13 on two fresh 50 % cars, seated from the same spot after a ride); quirk `size-event-pick-needs-move`; fix `settleSized` (bedrock-placement-pack.ts)',
+    oldPack: `${ROUND}/device-round-2026-10-14zd/packs-224001b3/42172-mclaren-p1.mcaddon`, newStem: '42172-mclaren-p1', expectNew: 'pass',
+    scenario: () => ({
+      name: 'fresh-car-tap-50-30zd', allowLines: vehicleAllow, steps: [{ kind: 'place', size: 50, rotation: 0 }, { kind: 'wait', ticks: 40 },
+        { kind: 'expect', label: 'fresh-car-tap', check: async ctx => {
+          const p = ctx.player;
+          const car = [...ctx.sim.engine.entities.values()].find(e => e.valid && !e.isPlayer && e.rideable() && e.scale() < 1);
+          if (!car) return 'no sized car';
+          // The device's standpoint: on the ground 2 blocks beside the car, the finger on its drawn body.
+          teleport(ctx.sim.host, p, { x: car.location.x, y: car.location.y, z: car.location.z - 2 });
+          await ctx.run(2);
+          const r = tap(ctx.sim.engine, p, car);
+          await ctx.run(4);
+          ctx.note(`fresh car tap: ${r.entity === car ? 'picked' : `not picked (${r.blockedBy ?? r.entity?.typeId ?? 'nothing'})`}, ${p.ridingOn === car ? 'boarded' : 'not boarded'}`);
+          return undefined;
+        } },
+      ],
+    }),
+    judge: r => {
+      const note = r.notes.find(n => /fresh car tap:/.test(n));
+      return { reproduced: !note || !/, boarded$/.test(note), evidence: note ?? 'no tap note' };
     },
   },
   // ─── Round 30j (Saga, 2026-10-07, packs-f200ddc7): the X-wing's collision responses ───

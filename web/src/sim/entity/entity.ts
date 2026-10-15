@@ -67,6 +67,11 @@ export class SimEntity {
   ejectedTick?: number;
   /** The tick the device last mounted this player by an interact (a hold; quirk `add-rider-eject-tick`). */
   interactMountTick?: number;
+  /**
+   * Where a size event left a RIDEABLE: no tap or hold picks it until its location differs from this
+   * (quirk `size-event-pick-needs-move`, round 30zd). Undefined once it has moved.
+   */
+  pickStaleAt: Vec3 | undefined;
   /** Highest point of the current fall and whether slow falling touched it (the fall invariant). */
   fall: { startY: number; slowFell: boolean } | undefined;
 
@@ -109,6 +114,17 @@ export class SimEntity {
     return { x0: p.x - h, y0: p.y, z0: p.z - h, x1: p.x + h, y1: p.y + height, z1: p.z + h };
   }
 
+  /** Whether a tap or hold can pick it: false while a size event's stale pick holds (quirk `size-event-pick-needs-move`). */
+  pickable(): boolean {
+    const at = this.pickStaleAt;
+    if (!at) return true;
+    if (Math.abs(at.x - this.location.x) + Math.abs(at.y - this.location.y) + Math.abs(at.z - this.location.z) > 1e-6) {
+      this.pickStaleAt = undefined;
+      return true;
+    }
+    return false;
+  }
+
   /** `minecraft:physics`: whether gravity pulls it and whether it collides with blocks (Bedrock's defaults: both true). */
   physics(): { gravity: boolean; collision: boolean } {
     const p = this.components['minecraft:physics'] as { has_gravity?: boolean; has_collision?: boolean } | undefined;
@@ -130,6 +146,9 @@ export class SimEntity {
     if (!ev) return { known: false, unmodelled: [] };
     for (const g of ev.remove) this.removeGroup(g);
     for (const g of ev.add) this.addGroup(g);
+    if (ev.add.some(g => this.def?.groups[g]?.['minecraft:scale'] !== undefined) && this.components['minecraft:rideable'] !== undefined) {
+      this.pickStaleAt = { ...this.location };
+    }
     return { known: true, unmodelled: ev.unmodelled };
   }
 
