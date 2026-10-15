@@ -132,12 +132,27 @@ The round-30m fixes on the phones:
      interior arcades as doorways (21061's 57/196 are the nave's column
      arches; its outside doors are DRAWN leaves on solid walls). Measured:
      A+B give 21063 a walked route to road and lawn at 200/300 % (reach 8.13
-     at 100 %; 1,356 / 2,590 tread+guard blocks). An implementation agent is
-     doing A+B+C with guards (not committed when this was written). NEXT:
-     review, commit, rebuild the three packs (`output/scale06-1015/build.sh`
-     pattern, new folder), sim + regressions, device recheck. Open design
-     question after that: a microscale interior whose doors are only drawn
-     (21061's nave, 21063's Palas) - no walk-in route exists at any size.
+     at 100 %; 1,356 / 2,590 tread+guard blocks). A+B+C COMMITTED 863361f7
+     (guards: test/bedrock-collider-treads.test.ts "SCALE-06: the fine reach
+     walk and the border margin"; test/bedrock-scene-actors.test.ts "interior
+     arcade ... 0 entrances"). Offline after: 21063 highest 1.69 -> 8.13 at
+     200/300 % (road reached, per-tick walker stops short of the courtyard);
+     21061 0 entrances (doors drawn), 8.44 at 200 % but 2.88 at 300 %
+     (363 no-run, 57 headroom); 76419 3 entrances, 6.88. EVERY brick-shell
+     pack is now 2 blocks wider (border margin). ROUND 30zh BUILDING:
+     `output/device-round-2026-10-15zh/build.sh` (22 round sets + the three)
+     -> sim + `--scenario=regressions` (pins may shift by the margin) +
+     `_seat_scale_check --all`, then a device recheck of the three.
+     NEXT (the general fix, Saga diag `output/scale06-1015/diag-saga/`): the
+     colliders are the 100 % 1-block grid scaled up, so anything sub-player
+     at 100 % stays sealed at every size (76419's colonnade 0.6 wide at 100 %
+     is 1.25-1.5 gaps at 200 % yet full collider; a thin wall band fills its
+     whole cell and becomes a full invisible column over open air; a cell
+     holding a lip and a room floor takes the floor's height). Lay colliders
+     PER SIZE from the drawn part boxes at the player's resolution (cost:
+     more collider data per size step). Also 21061 run 4 climbs a 0.6x0.5
+     tree part (a tread to a sub-player target). Open design question: an
+     interior whose doors are only drawn (21061 nave, 21063 Palas).
    - Device-tool lesson (Saga 30ze): the old two-finger `stickjump.sh` never
      delivers Jump (telemetry `jump:false`); use
      `output/device-round-2026-10-15ze/saga/tools/jumpstick.sh` (Jump first,
