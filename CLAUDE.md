@@ -238,8 +238,11 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
 - **A grid may be widened past the model** (`accessMarginFor`, `padGridXZ`):
   a door hung over the ground near the edge gets room for an access stair, the
   grid and the voxelizer's origin move together before anything is placed, and
-  the model sits the margin further in from the pinned corner. Read `dims` /
-  `accessMargin` from the pack, never assume the grid is the model's bounds.
+  the model sits the margin further in from the pinned corner. Since SCALE-06
+  (2026-10-15) every brick-shell export also gets one empty block on each side
+  the model reaches (`borderMarginFor`), so a tread can climb onto a model flush
+  with the edge; the "no stair used it" rerun drops only the stair's share. Read
+  `dims` / `accessMargin` from the pack, never assume the grid is the model's bounds.
 - **Build packs one at a time and read `substitutedParts` / `unresolvedParts`.**
   Parallel CLI exports drew the 429 above and shipped parts as aliases or
   AABBs without failing. Without `ldraw_ref/`, point the CLI at a running dev

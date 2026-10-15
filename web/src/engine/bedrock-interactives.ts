@@ -1666,6 +1666,24 @@ export function accessMarginFor(doors: ReadonlyArray<{ min: Vec3; max: Vec3; nor
 }
 
 /**
+ * One empty cell past every horizontal side the model reaches (SCALE-06, 2026-10-15): the cells of the grid
+ * that hold anything (`solid(x, y, z)`, the voxel grid) on its outermost column or row of that side. A tread
+ * run (bedrock-collider-scale.ts) is laid only on floor INSIDE the collider grid, so a model flush with the
+ * grid's edge has no floor there to climb onto it from: Notre-Dame's (21061) base plate is a 0.5-block riser at
+ * 100 % and 1.5 at 300 %, flush with the grid on its north and west sides, and the Pixel could not step onto it
+ * there at 300 % (round 30zg). A voxel on the border also means geometry within half a block of the edge (the
+ * voxel grid is half a block off the collider grid, CLAUDE.md), which the collider grid clips at its low sides.
+ * Merged with `accessMarginFor` side by side (the larger wins: a stair's margin is empty too).
+ */
+export function borderMarginFor(dims: { width: number; height: number; length: number }, solid: (x: number, y: number, z: number) => boolean): { x0: number; x1: number; z0: number; z1: number } {
+  const { width: W, height: H, length: L } = dims;
+  const sideX = (x: number): boolean => { for (let y = 0; y < H; y++) for (let z = 0; z < L; z++) if (solid(x, y, z)) return true; return false; };
+  const sideZ = (z: number): boolean => { for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (solid(x, y, z)) return true; return false; };
+  if (W < 1 || L < 1) return { x0: 0, x1: 0, z0: 0, z1: 0 };
+  return { x0: sideX(0) ? 1 : 0, x1: sideX(W - 1) ? 1 : 0, z0: sideZ(0) ? 1 : 0, z1: sideZ(L - 1) ? 1 : 0 };
+}
+
+/**
  * The grid cells ("x,y,z") an access stair may not take (`planThresholdStairs`
  * `avoid`): what the pack puts in the open air around the model. Points (a
  * figure's feet, a seat, a mount's top) keep a 3 x 3 x 3 box of cells round

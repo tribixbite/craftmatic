@@ -34,6 +34,7 @@ import { BlockGrid } from '@craft/schem/types.js';
 import type { BlockEntity } from '@craft/types/index.js';
 import type { PackProvenance, PipelineStamp, SourceProvenance } from './pipeline-version.js';
 import type { AccessScaleRecommendation } from './bedrock-scene-actors.js';
+import { LDU_PER_BLOCK } from './lego-scale.js';
 import type { SeatCensus, SeatCensusContext } from './seat-census.js';
 
 /**
@@ -351,7 +352,7 @@ export async function runSchemPipeline(
     const { discoverPlayableComponents, isWholeVehicleLabel, knownScreenAnchors, withPlayableBounds } = await import('./playable-components.js');
     const { DOOR_MAX_OFF_GRID_DEG, discoverSceneActors, settleLooseAccessories, applySceneDoors, measureSceneAccess, recommendAccessScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, yawForFacing, actorGroundLdu, groundLiftWarning } = await import('./bedrock-scene-actors.js');
     const { isFigurePart, isTorso, repairFigureTorsos, describeTorsoRepairs } = await import('./ldraw-entity-compiler.js');
-    const { ACCESS_DOOR_MAX_OFF_GRID_DEG, accessMarginFor } = await import('./bedrock-interactives.js');
+    const { ACCESS_DOOR_MAX_OFF_GRID_DEG, accessMarginFor, borderMarginFor } = await import('./bedrock-interactives.js');
     const { createPartGeometryProvider } = await import('./ldraw-part-geometry.js');
     const label = input.packLabel ?? input.packStem ?? 'Imported build';
     const components = [];
@@ -368,6 +369,13 @@ export async function runSchemPipeline(
     let interactionNote: string | undefined;
     /** How far the grid was widened past the model for access stairs (`accessMarginFor`); undefined when it was not. */
     let accessMargin: { x0: number; x1: number; z0: number; z1: number } | undefined;
+    /**
+     * Of `accessMargin`, the part only a door's access stair asked for (wider than the border margin on some
+     * side): the part exported again without when no stair used it. The border margin (`borderMarginFor`) stays.
+     */
+    let doorStairMargin: { x0: number; x1: number; z0: number; z1: number } | undefined;
+    /** The access walk's floors at the pack's own 100 % (`measureSceneAccess` `keepReachAt`), for the tread planner (SCALE-06). */
+    let accessReachLdu: Float64Array | undefined;
     /** The measured walk-through size (see `measureSceneAccess` below); undefined when no scene was discovered. */
     let access: AccessScaleRecommendation | undefined;
     /** The title's only vehicle is a train on its own railway track (it runs on the coaster engine instead). */
@@ -452,7 +460,12 @@ export async function runSchemPipeline(
         // never in the main-thread settings popover. It is a recommendation
         // and nothing more: the export's size is `input.modelScale`, untouched.
         onProgress('measuring the walk-through size');
-        access = recommendAccessScale(measureSceneAccess(source.bricks.filter(b => !movable.has(b)), scene.meshes, { exclude: scene.figureBricks }));
+        // The walk at the pack's own 100 % is kept: the tread planner admits a rise the 1-block collider grid reads
+        // as a cliff where this fine walk climbed it (a hill of one-stud steps, 21063; SCALE-06).
+        const packScale = sourceOrigin ? LDU_PER_BLOCK * sourceOrigin.scale / sourceOrigin.cellXZ : undefined;
+        const accessMeasurement = measureSceneAccess(source.bricks.filter(b => !movable.has(b)), scene.meshes, { exclude: scene.figureBricks, ...(packScale !== undefined && entityDoors ? { keepReachAt: packScale } : {}) });
+        access = recommendAccessScale(accessMeasurement);
+        accessReachLdu = accessMeasurement.reachedFloorsLdu;
         warnings.push(`Walk-through size: ${access.reason}`);
         if (!sourceOrigin && (scene.figures.length || scene.seats.length || scene.doors.length)) {
           warnings.push('Figures, seats and doors were found but the source geometry did not resolve, so they stay as blocks.');
@@ -462,19 +475,30 @@ export async function runSchemPipeline(
           // gets room past that edge for an invisible stair down to the ground. The grid and its
           // origin are widened together BEFORE anything is placed on the frame, so every actor,
           // seat, ride, door and collider lands exactly where it did, a margin further in.
-          if (entityDoors && scene.doors.length && input.accessMargin !== false) {
+          // The BORDER margin (`borderMarginFor`, SCALE-06): one empty cell past every side the model reaches, so a
+          // tread run can climb onto a model flush with the grid's edge (Notre-Dame's plate at 300 %, round 30zg).
+          // Side by side, the larger of the two margins is laid: a stair's margin is empty past the model too.
+          if (entityDoors) {
             const origin = sourceOrigin;
-            const doorBoxes = scene.doors.filter(d => (d.offGridDeg ?? 0) <= ACCESS_DOOR_MAX_OFF_GRID_DEG).map(d => {
+            const voxels = grid;
+            const dims = { width: grid.width, height: grid.height, length: grid.length };
+            const solidAt = (x: number, y: number, z: number): boolean => voxels.get(x, y, z) !== 'minecraft:air';
+            const none = { x0: 0, x1: 0, z0: 0, z1: 0 };
+            const doorMargin = scene.doors.length && input.accessMargin !== false ? accessMarginFor(scene.doors.filter(d => (d.offGridDeg ?? 0) <= ACCESS_DOOR_MAX_OFF_GRID_DEG).map(d => {
               const a = sceneGridPoint(origin, d.minLdu), b = sceneGridPoint(origin, d.maxLdu);
               return { min: [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.min(a[2], b[2])] as [number, number, number], max: [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.max(a[2], b[2])] as [number, number, number], normal: d.alongAxis === 'x' ? 'z' as const : 'x' as const };
-            });
-            const voxels = grid;
-            const margin = accessMarginFor(doorBoxes, { width: grid.width, height: grid.height, length: grid.length }, (x, y, z) => voxels.get(x, y, z) !== 'minecraft:air');
+            }), dims, solidAt) : none;
+            const border = borderMarginFor(dims, solidAt);
+            const margin = { x0: Math.max(doorMargin.x0, border.x0), x1: Math.max(doorMargin.x1, border.x1), z0: Math.max(doorMargin.z0, border.z0), z1: Math.max(doorMargin.z1, border.z1) };
             if (margin.x0 || margin.x1 || margin.z0 || margin.z1) {
               grid = padGridXZ(grid, margin);
               sourceOrigin = { ...origin, x: origin.x - margin.x0 / origin.scale, z: origin.z - margin.z0 / origin.scale };
               accessMargin = margin;
-              warnings.push(`Access margin: the grid is widened ${margin.x0}/${margin.x1} blocks at its low/high x and ${margin.z0}/${margin.z1} at its low/high z so an invisible stair can run from a door hung over the ground past the model's edge.`);
+              if (doorMargin.x0 > border.x0 || doorMargin.x1 > border.x1 || doorMargin.z0 > border.z0 || doorMargin.z1 > border.z1) {
+                doorStairMargin = doorMargin;
+                warnings.push(`Access margin: the grid is widened ${margin.x0}/${margin.x1} blocks at its low/high x and ${margin.z0}/${margin.z1} at its low/high z so an invisible stair can run from a door hung over the ground past the model's edge.`);
+              }
+              if (border.x0 || border.x1 || border.z0 || border.z1) warnings.push(`Border margin: the model reaches the grid's edge at ${[border.x0 ? 'low x' : '', border.x1 ? 'high x' : '', border.z0 ? 'low z' : '', border.z1 ? 'high z' : ''].filter(Boolean).join(', ')}, so the grid is widened a block there and an invisible step can climb onto it from the ground at any size.`);
             }
           }
           const frame = sourceOrigin;
@@ -735,13 +759,15 @@ export async function runSchemPipeline(
         screens.push({ id: anchor.id, label: anchor.label, x, y, z });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: railOnly ? 'static' : input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(rides ? { rides } : {}), ...(mounts ? { mounts } : {}), ...(mountsMissing.length ? { mountsMissing } : {}), ...(interactives && shell ? { interactives } : {}), ...(interactivityReport ? { interactivityReport } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(accessMargin ? { accessMargin } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: railOnly ? 'static' : input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(rides ? { rides } : {}), ...(mounts ? { mounts } : {}), ...(mountsMissing.length ? { mountsMissing } : {}), ...(interactives && shell ? { interactives } : {}), ...(interactivityReport ? { interactivityReport } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(accessMargin ? { accessMargin } : {}), ...(accessReachLdu ? { accessReachLdu } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
     // A margin no stair used is only a bigger footprint: export again without it (the pipeline is
     // deterministic, so the rerun is this export minus the margin; it costs one more build, and only
     // for a set whose raised door turned out to be reached already or refused its stair).
-    if (accessMargin && pack.accessMarginUsed === false) {
+    // Only the door stair's share is undone: the border margin (`borderMarginFor`) stays on the rerun, where
+    // `doorStairMargin` is then unset, so this cannot recurse.
+    if (doorStairMargin && pack.accessMarginUsed === false) {
       const again = await runSchemPipeline({ ...input, accessMargin: false }, onProgress);
-      again.mcpack?.warnings?.push(`Access margin: the grid was widened ${accessMargin.x0}/${accessMargin.x1} blocks at its low/high x and ${accessMargin.z0}/${accessMargin.z1} at its low/high z for a door hung over the ground, but no access stair used it; exported without it.`);
+      again.mcpack?.warnings?.push(`Access margin: the grid was widened ${doorStairMargin.x0}/${doorStairMargin.x1} blocks at its low/high x and ${doorStairMargin.z0}/${doorStairMargin.z1} at its low/high z for a door hung over the ground, but no access stair used it; exported without it (a one-block border margin stays where the model reaches the grid's edge).`);
       return again;
     }
     // The seat census: every place the source sits a figure, and what the pack made of it.

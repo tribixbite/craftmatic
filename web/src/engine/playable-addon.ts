@@ -17,6 +17,7 @@ import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
 import { renderSeatToEntity, riderVisibleSizes, roofMap, surfaceOnTop, RIDE_ON_TOP_BELOW, ROOF_SEAT_BELOW_SURFACE, RIDER_EYE_ABOVE_SEAT, seatAtOnTop, type RoofMap, type SeatPlan } from './cockpit-seat.js';
 import type { VehicleSeatReport } from './seat-census.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendation, type SceneGridFrame } from './bedrock-scene-actors.js';
+import { fineReachColumns, type FineReachColumns } from './bedrock-collider-scale.js';
 import { MINIDOLL_CLIENT_ANIMATIONS, MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CLIENT_ANIMATIONS, figureClientAnimations } from './minifig-rig.js';
 import { minifigFromSpec } from './minifig-rig.js';
 import { creatorFigureBehavior, minifigWandScript } from './bedrock-minifig-wand.js';
@@ -230,6 +231,12 @@ export interface PlayableAddonOptions {
      * past its edge (`accessMarginFor`); reported in the diagnostics.
      */
     accessMargin?: { x0: number; x1: number; z0: number; z1: number };
+    /**
+     * The walk-through measurement's reached floors at the pack's own 100 % (`SceneAccessMeasurement.reachedFloorsLdu`,
+     * LDraw x, y, z triples in the shell's source frame): the tread planner admits a rise the 1-block collider grid
+     * reads over the jump where this fine walk stood on its top (bedrock-collider-scale.ts `fineReachColumns`, SCALE-06).
+     */
+    accessReachLdu?: Float64Array;
     /** Existing invisible seat type exposed to the brick-wand manual chair placer. */
     manualSeatTypeId?: string;
     /** Small semantic LDraw doors that the placement wand may offer as interactive vanilla doors. */
@@ -2561,6 +2568,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     let plan = planStructureTiles(scenery, id, options.maxTile ?? BEDROCK_MAX_TILE);
     /** The collider grid, run-length coded, so the wand can re-lay it at another size (bedrock-placement-pack.ts). */
     let placementColliders: PlacementColliders | undefined;
+    /** `options.accessReachLdu` in the shipped collider grid's source columns, for the tread planner (`fineReachColumns`). */
+    let fineReach: FineReachColumns | undefined;
     /** The moving parts' runtime (`scripts/interactives.js`) and their diagnostics; set with the shell. */
     let interactiveConfig: InteractiveRuntimeConfig | undefined;
     let interactiveReport: unknown[] | undefined;
@@ -3084,6 +3093,11 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             plan = planStructureTiles(structureGrid, id, options.maxTile ?? BEDROCK_MAX_TILE);
             const runs = encodeColliderRuns(structureGrid, COLLIDER_BLOCK_ID);
             placementColliders = { width: structureGrid.width, height: structureGrid.height, length: structureGrid.length, block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE, runs: runs.runs, keptCells: runs.keptCells };
+            // The fine walk's floors through the SAME map the colliders were laid with (`buildColliderGrid`: `sceneGridPoint` over the shell's frame).
+            if (options.accessReachLdu?.length) {
+                const shellFrame = options.shell.frame;
+                fineReach = fineReachColumns(options.accessReachLdu, p => sceneGridPoint(shellFrame, p), placementColliders);
+            }
             if (interactiveConfig) {
                 // Walk every doorway at 100 % over the blocks this pack ships, so
                 // the wand's door count is the walk's, not the leaf measurement's
@@ -3860,7 +3874,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     addEntityName(ghost.typeId, `${label} Preview`, false);
     // Plan the treads in yielding steps: 16 size x turn plans run for minutes on a large set.
     const doorCells = interactiveConfig ? interactiveConfig.items.flatMap(item => item.blocking) : undefined;
-    const plannedTreads = placementColliders ? await withColliderTreadsAsync(placementColliders, [], doorCells ?? []) : undefined;
+    const plannedTreads = placementColliders ? await withColliderTreadsAsync(placementColliders, [], doorCells ?? [], fineReach) : undefined;
     const placement = buildPlacementPackAssets({ stem: id, label, width: grid.width, height: grid.height, length: grid.length,
         tiles: plan.map(tile => ({ identifier: `${PACK_NAMESPACE}:${tile.name}`, dx: tile.x, dy: tile.y, dz: tile.z, width: tile.width, height: tile.height, length: tile.length, nonAir: tile.nonAir })), actors, previewPoints,
         ...(shellMigrations.length ? { shellMigrations } : {}),

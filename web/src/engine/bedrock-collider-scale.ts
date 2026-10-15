@@ -31,6 +31,15 @@
  *     the move a player makes at the scale the set was built for. A rise the
  *     100 % walk could not make is not restored: a sheer wall, a roof, a
  *     decorative ledge higher than a jump stays what it is.
+ *     THE FINE WALK (SCALE-06, 2026-10-15). The 1-block grid keeps only a
+ *     column's highest top, so a hill built of one-stud rock steps (21063
+ *     Neuschwanstein) reads as a cliff over the jump in the 100 % grid while
+ *     a minifig-scale player climbs it one stud at a time. When the export's
+ *     own fine reach walk (`measureSceneAccess`, 5 x 4 LDU cells, at the
+ *     pack's 100 %) reached the target column's top within half a block
+ *     (`FINE_REACH_TOLERANCE16`), the rise is admitted too (`FineReachColumns`,
+ *     `fineReachColumns`). A rise nothing at 100 % climbs, at the grid's
+ *     resolution or the fine walk's, is still refused.
  * The run is laid back from `Q`'s boundary over floor the walk has reached -
  * `P`'s own level, then no higher: a stair's lower step, a landing, the
  * ground before a plinth - so a tread always stands on a surface the player
@@ -167,6 +176,43 @@ export function sourceCellOf(i: number, j: number, dims: GridDims, r: QuarterTur
 export function scaledDims(dims: GridDims, f: number, r: QuarterTurn): GridDims {
   const w = r % 180 ? dims.length : dims.width, l = r % 180 ? dims.width : dims.length;
   return { width: Math.max(1, Math.ceil(w * f)), height: Math.max(1, Math.ceil(dims.height * f)), length: Math.max(1, Math.ceil(l * f)) };
+}
+
+/**
+ * Where the export's FINE reach walk (`measureSceneAccess` in bedrock-scene-actors.ts, at the pack's own 100 %)
+ * stood, per SOURCE collider column: key `x * dims.length + z` (the unturned grid the pack ships), value the
+ * reached floor tops in sixteenths of a source block over the grid's floor - the same unit as a source cell's
+ * top `y * 16 + hi` (`ColumnBlock.src16`). Built by `fineReachColumns`.
+ */
+export type FineReachColumns = ReadonlyMap<number, readonly number[]>;
+
+/**
+ * How close (sixteenths of a source block) a fine-walk floor must be to a target column's top for the fine walk
+ * to count as having climbed it: half a block. A collider's top is its geometry's rounded OUTWARD to a sixteenth
+ * and the fine walk stands on a 4 LDU (0.075-block) cell, so the two readings of one surface differ by a
+ * sixteenth or two; half a block keeps a lower step of the same column (a different surface) out.
+ */
+export const FINE_REACH_TOLERANCE16 = 8;
+
+/**
+ * The fine walk's reached floors (`SceneAccessMeasurement.reachedFloorsLdu`: LDraw x, y, z triples, the y the
+ * floor's surface) in the collider grid's columns. `toGrid` is the export's OWN LDraw-to-grid map - the one
+ * `buildColliderGrid` lays the colliders with (`sceneGridPoint` over the shell's frame) - so a floor lands in the
+ * column, and at the height, its part's collider has; nothing is fitted by hand. Floors outside the grid are dropped.
+ */
+export function fineReachColumns(pointsLdu: ArrayLike<number>, toGrid: (p: [number, number, number]) => readonly number[], dims: GridDims): Map<number, number[]> {
+  const out = new Map<number, number[]>();
+  for (let k = 0; k + 2 < pointsLdu.length; k += 3) {
+    const g = toGrid([pointsLdu[k]!, pointsLdu[k + 1]!, pointsLdu[k + 2]!]);
+    const x = Math.floor(g[0]!), z = Math.floor(g[2]!), t = Math.round(g[1]! * 16);
+    if (x < 0 || z < 0 || x >= dims.width || z >= dims.length || t < 0) continue;
+    const key = x * dims.length + z;
+    let tops = out.get(key);
+    if (!tops) out.set(key, tops = []);
+    if (!tops.includes(t)) tops.push(t);
+  }
+  for (const tops of out.values()) tops.sort((a, b) => a - b);
+  return out;
 }
 
 /** The player's standing height in sixteenths: the space that must be clear above a surface. */
@@ -551,6 +597,8 @@ export interface TreadRun {
   columns: Array<{ x: number; z: number; floor16: number; top16: number }>;
   /** Laid by the lane pass (an auto-jump climb of a straight lane, proved by the walk), not the reach rule. */
   lane?: true;
+  /** Admitted by the FINE walk (`FineReachColumns`): `rise100` is over the jump in the 1-block grid, and the fine walk stood on the target's top. */
+  fine?: true;
 }
 
 /**
@@ -691,10 +739,21 @@ export const LANE_ROUNDS = 32;
 
 /**
  * Plan the treads for one size step and quarter turn. Pure: the same cells
- * give the same plan. See the module header for the rule.
+ * give the same plan. See the module header for the rule. `fine`: the export's
+ * fine reach walk per source column (`fineReachColumns`); without it the 100 %
+ * rule reads the 1-block grid alone, as it always did.
  */
-export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], lane?: TreadLaneCheck): TreadPlan {
+export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], lane?: TreadLaneCheck, fine?: FineReachColumns): TreadPlan {
   const f = sizePct / 100;
+  /**
+   * The fine walk stood on the top `src16` of the source column under world column `q` (this size and turn):
+   * the rise onto it is one the model's own scale climbs, however the 1-block grid reads the column.
+   */
+  const fineClimbed = (q: { x: number; z: number }, src16: number): boolean => {
+    if (!fine?.size) return false;
+    const s = sourceCellOf(Math.floor((q.x + 0.5) / f), Math.floor((q.z + 0.5) / f), dims, rotation);
+    return (fine.get(s.x * dims.length + s.z) ?? []).some(t => Math.abs(t - src16) <= FINE_REACH_TOLERANCE16);
+  };
   const unrestored: Record<UnrestoredReason, number> = { 'no-run': 0, headroom: 0, verify: 0 };
   const refused: TreadPlan['refused'] = [];
   const refusedTargets: Surface[] = [];
@@ -794,7 +853,9 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     const pSrc = p.t > 0 ? g.blockWithTop(p.x, p.z, p.t)?.src16 : 0;
     if (pSrc === undefined) return 'no-rule';
     const rise100 = (qb.src16 - pSrc) / 16;
-    if (rise100 > JUMP_HEIGHT_BLOCKS + 1e-9) return 'no-rule';
+    // Over the jump in the 1-block grid: restored only where the fine walk climbed onto that top at 100 %.
+    const byFine = rise100 > JUMP_HEIGHT_BLOCKS + 1e-9;
+    if (byFine && !fineClimbed(q, qb.src16)) return 'no-rule';
     const rise16 = q.t - p.t;
     const dx = p.x - q.x, dz = p.z - q.z;
     // The straight run of REACHABLE floor back from p, away from q: each column's highest reached surface no
@@ -862,7 +923,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       columns.push({ x, z, floor16, top16: top });
       treadSurfaces.push({ x, z, t: top });
     }
-    return { writes, columns, treadSurfaces, to: q, landing, run: { from: p, to: q, rise100, rise: rise16 / 16, treads: n, hop16, columns: columns.map(c => ({ ...c })) } };
+    return { writes, columns, treadSurfaces, to: q, landing, run: { from: p, to: q, rise100, rise: rise16 / 16, treads: n, hop16, columns: columns.map(c => ({ ...c })), ...(byFine ? { fine: true as const } : {}) } };
   };
   const apply = (e: RunEdit): void => {
     for (const w of e.writes) grid.write(w.x, w.z, w.block);

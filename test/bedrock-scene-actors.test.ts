@@ -33,6 +33,7 @@ const LIBRARY: Record<string, string> = {
   // Access measurement stand-ins: a 1×1 brick, a 4×12 plate, and a frame with a REAL hole (two jambs and a lintel).
   '3005': ['0 Brick  1 x  1', ...box6(-10, 10, -24, 0, -10, 10)].join('\n'),
   '3029': ['0 Plate  4 x 12', ...box6(-120, 120, -8, 0, -40, 40)].join('\n'),
+  '3958': ['0 Plate  6 x  6', ...box6(-60, 60, -8, 0, -60, 60)].join('\n'),
   '60599': ['0 Door  1 x  4 x  6 Frame', ...box6(-40, -30, -144, 0, -10, 10), ...box6(30, 40, -144, 0, -10, 10), ...box6(-40, 40, -144, -120, -10, 10)].join('\n'),
 };
 const provider = () => createPartGeometryProvider({ fetchPartText: async id => LIBRARY[id.replace(/^.*\//, '').replace(/\.dat$/i, '')] ?? null });
@@ -598,6 +599,62 @@ describe('measureSceneAccess / recommendAccessScale', () => {
     expect(m.topFloorLdu).toBe(192);
     expect(m.reach.every(r => r.highestReachedLdu === 0)).toBe(true);
     expect(recommendAccessScale(m).climb).toMatchObject({ fraction: 0, bestFraction: 0, climbableAtScale: true });
+  });
+
+  /**
+   * A closed box building (SCALE-06): 1×1-brick walls eight bricks high round x, z in −110…110, a roof of four
+   * 6×6 plates on them (covering −120…120), and an interior wall across its middle (z = 0) with a 40 × 144 LDU arch - the nave arcade
+   * of Notre-Dame in miniature. `frontDoor` cuts the same arch into the front wall (z = −110).
+   */
+  const boxBuilding = (frontDoor: boolean): ParsedBrick[] => {
+    const span = [-110, -90, -70, -50, -30, -10, 10, 30, 50, 70, 90, 110];
+    const sides = [-90, -70, -50, -30, -10, 10, 30, 50, 70, 90];
+    const out: ParsedBrick[] = [
+      ...wall(8, frontDoor ? [-10, 10] : [], frontDoor ? 6 : 0, -110, span),
+      ...wall(8, [], 0, 110, span),
+      ...wall(8, [-10, 10], 6, 0, sides),
+    ];
+    for (let r = 0; r < 8; r++) for (const z of sides) out.push(brick('3005.dat', -110, -24 * r, z), brick('3005.dat', 110, -24 * r, z));
+    for (const x of [-60, 60]) for (const z of [-60, 60]) out.push(brick('3958.dat', x, -192, z));
+    return out;
+  };
+
+  it('an interior arcade in a closed building is no entrance: 0 entrances, and the reason says the doors are drawn, not cut', async () => {
+    const bricks = boxBuilding(false);
+    const m = measureSceneAccess(bricks, await meshesOf(bricks));
+    expect(m.openings).toHaveLength(1);
+    expect(m.openings[0]).toMatchObject({ source: 'aperture', widthLdu: 40, heightLdu: 144, connects: 'interior' });
+    expect(m.enclosedFloorCells).toBeGreaterThan(1000);
+    const rec = recommendAccessScale(m);
+    expect(rec.openings).toEqual({ entrances: 0, interior: 1, outside: 0, blind: 0, enclosed: true });
+    expect(rec.reason).toMatch(/^No entrance at any size: the model has a closed interior, but none of its 1 opening leads in from outside \(1 between its own rooms, 0 open to the outside on both sides\) - its doors are drawn, not cut\. Its openings are 0\.8×2\.7 blocks at 100 %; 150 % makes them/);
+  });
+
+  it('the same building with its front doorway cut counts that doorway as its one entrance and recommends on it', async () => {
+    const bricks = boxBuilding(true);
+    const m = measureSceneAccess(bricks, await meshesOf(bricks));
+    expect(m.openings.map(o => o.connects).sort()).toEqual(['entrance', 'interior']);
+    const front = m.openings.find(o => o.connects === 'entrance')!;
+    expect(front.centreLdu[2]).toBeCloseTo(-110, 6); // the front wall's arch, not the arcade at z = 0
+    const rec = recommendAccessScale(m);
+    expect(rec.openings).toMatchObject({ entrances: 1, interior: 1, enclosed: true });
+    expect(rec.doorway).toMatchObject({ count: 1, passable: 1 });
+    expect(rec.reason).toMatch(/^Entrances are 0\.8×2\.7 blocks at 100 %; 150 % makes them 1\.1×4\.\d \(a player needs 1×2; 1\/1 clear it\)/);
+  });
+
+  it('keeps the reach walk\'s floors at the asked scale as LDraw points (the tread planner\'s fine walk)', async () => {
+    const bricks = [...wall(8, [-30, -10, 10], 6), ...stairs()];
+    const meshes = await meshesOf(bricks);
+    expect(measureSceneAccess(bricks, meshes).reachedFloorsLdu).toBeUndefined();
+    const m = measureSceneAccess(bricks, meshes, { keepReachAt: 1 });
+    const floors = m.reachedFloorsLdu!;
+    expect(floors.length).toBe(m.reach[0]!.reachedSurfaces * 3);
+    // The stairs' top step (4 bricks on the ground at y 0: its surface at LDraw y = -96) is among them, on its column.
+    let top = Infinity;
+    for (let k = 0; k < floors.length; k += 3) if (floors[k + 2]! > 90 && floors[k + 2]! < 110) top = Math.min(top, floors[k + 1]!);
+    expect(top).toBe(-96);
+    // A scale that is not a step is walked once more at its own (a display model exported at 0.5x).
+    expect(measureSceneAccess(bricks, meshes, { keepReachAt: 0.5 }).reachedFloorsLdu!.length).toBeGreaterThan(0);
   });
 
   it('a forced coarser cell measures the same doorway to within a cell', async () => {

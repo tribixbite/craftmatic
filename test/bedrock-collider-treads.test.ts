@@ -29,7 +29,7 @@ import {
   type PlacementColliders,
 } from '../web/src/engine/bedrock-placement-pack.js';
 import {
-  AUTO_JUMP16, GENTLE_HOP16, JUMP16, QUARTER_TURNS, ScaledColliderGrid, planColliderTreads, walkScaledColliders,
+  AUTO_JUMP16, GENTLE_HOP16, JUMP16, QUARTER_TURNS, ScaledColliderGrid, fineReachColumns, planColliderTreads, walkScaledColliders,
   type GridDims, type QuarterTurn, type SourceCell, type TreadBlock, type TreadPlan,
 } from '../web/src/engine/bedrock-collider-scale.js';
 import { COLLIDER_BLOCK_ID, COLLIDER_HI_STATE, COLLIDER_LO_STATE, colliderState } from '../web/src/engine/bedrock-building-shell.js';
@@ -176,6 +176,21 @@ describe('the scaled grid is the runtime re-lay', () => {
   }
 });
 
+/** Walk a straight lane over the grid with the plan laid - from the ring, each step to the highest surface it can move to - and return the highest top it stood on. */
+function laneTop(cells: SourceCell[], dims: GridDims, plan: TreadPlan, from: { x: number; z: number }, d: { x: number; z: number }, steps: number): number {
+  const grid = new ScaledColliderGrid(cells, dims, plan.sizePct / 100, plan.rotation);
+  for (const b of plan.blocks) grid.write(b.x, b.z, { row: b.y, lo: b.lo, hi: b.hi, src16: 0 });
+  let s = { x: from.x, z: from.z, t: 0 }, best = 0;
+  for (let k = 0; k < steps; k++) {
+    const nx = s.x + d.x, nz = s.z + d.z;
+    const next = grid.surfaces(nx, nz).filter(t => grid.canMove(s.x, s.z, s.t, nx, nz, t));
+    if (!next.length) break;
+    s = { x: nx, z: nz, t: Math.max(...next) };
+    best = Math.max(best, s.t);
+  }
+  return best;
+}
+
 describe('the rule: treads only where the 100 % grid allows the move, and only once scaling broke it', () => {
   const house = stairHouse();
   const cells = colliderSourceCells({ ...house.dims, runs: house.runs });
@@ -288,21 +303,6 @@ describe('the rule: treads only where the 100 % grid allows the move, and only o
     for (const [x, t] of [[13, 3], [12, 6], [11, 9], [10, 12]] as const) for (const z of [4, 5]) solidTo(g, x, z, t);
     return { dims, runs: encodeColliderRuns(g, COLLIDER_BLOCK_ID).runs, top16: 12 };
   }
-  /** Walk a straight lane over the grid with the plan laid - from the ring, each step to the highest surface it can move to - and return the highest top it stood on. */
-  function laneTop(cells: SourceCell[], dims: GridDims, plan: TreadPlan, from: { x: number; z: number }, d: { x: number; z: number }, steps: number): number {
-    const grid = new ScaledColliderGrid(cells, dims, plan.sizePct / 100, plan.rotation);
-    for (const b of plan.blocks) grid.write(b.x, b.z, { row: b.y, lo: b.lo, hi: b.hi, src16: 0 });
-    let s = { x: from.x, z: from.z, t: 0 }, best = 0;
-    for (let k = 0; k < steps; k++) {
-      const nx = s.x + d.x, nz = s.z + d.z;
-      const next = grid.surfaces(nx, nz).filter(t => grid.canMove(s.x, s.z, s.t, nx, nz, t));
-      if (!next.length) break;
-      s = { x: nx, z: nz, t: Math.max(...next) };
-      best = Math.max(best, s.t);
-    }
-    return best;
-  }
-
   it('a base reached round a ramp still gets a way up from the ground on every side (10261, Pixel 30j)', () => {
     const p = rampedBase();
     const pc = colliderSourceCells({ ...p.dims, runs: p.runs });
@@ -316,6 +316,101 @@ describe('the rule: treads only where the 100 % grid allows the move, and only o
     expect(laneTop(pc, p.dims, plan, { x: 13, z: -1 }, { x: 0, z: 1 }, 20), 'north').toBe(top);
     expect(laneTop(pc, p.dims, plan, { x: 13, z: 20 }, { x: 0, z: -1 }, 20), 'south').toBe(top);
     assertNeverBlocks(pc, p.dims, plan, false);
+  });
+});
+
+/**
+ * SCALE-06 (round 30zg): the microscale sets the wand's sizes exist for. 21063 Neuschwanstein's hill is one-stud
+ * rock steps the 1-block grid keeps only the highest of, so every rise onto it reads over the jump at 100 % and
+ * the rule skipped them, while the export's fine reach walk climbs the hill a stud at a time. And a model flush
+ * with the grid's edge (21061 Notre-Dame's plate on its north and west) left no floor inside the grid to lay a
+ * run on.
+ */
+describe('SCALE-06: the fine reach walk and the border margin', () => {
+  /** A rock: 1.5 blocks (24/16) over the ground at x 4..6, z 3..6 - over the jump in the 1-block grid at 100 %. */
+  function studHill(): { dims: GridDims; cells: SourceCell[]; top16: number } {
+    const dims = { width: 10, height: 3, length: 10 };
+    const g = new BlockGrid(dims.width, dims.height, dims.length);
+    for (let x = 4; x <= 6; x++) for (let z = 3; z <= 6; z++) solidTo(g, x, z, 24);
+    return { dims, cells: colliderSourceCells({ ...dims, runs: encodeColliderRuns(g, COLLIDER_BLOCK_ID).runs }), top16: 24 };
+  }
+  /** The fine walk's floors per source column: `top16` on every column of the rock (and the ground round it). */
+  const fineOn = (dims: GridDims, top16: number, columns: Array<[number, number]>): Map<number, number[]> =>
+    new Map(columns.map(([x, z]) => [x * dims.length + z, [0, top16]]));
+  const rockColumns: Array<[number, number]> = [];
+  for (let x = 4; x <= 6; x++) for (let z = 3; z <= 6; z++) rockColumns.push([x, z]);
+
+  it('a stud-stepped rise the 1-block grid reads as a cliff gets treads when the fine walk climbed it, and none without', () => {
+    const h = studHill();
+    const fine = fineOn(h.dims, h.top16, rockColumns);
+    for (const pct of [200, 300]) for (const r of QUARTER_TURNS) {
+      const top = Math.ceil(h.top16 * pct / 100);
+      const bare = planColliderTreads(h.cells, h.dims, pct, r);
+      expect(treadsOnly(bare), `${pct} % / ${r}°: no fine data, the 1-block rule alone`).toEqual([]);
+      expect(bare.after.highest16).toBe(0);
+      const plan = planColliderTreads(h.cells, h.dims, pct, r, [], [], undefined, fine);
+      expect(plan.verified).toBe(true);
+      expect(plan.after.highest16, `${pct} % / ${r}°: the rock's top is reached with the fine walk's treads`).toBe(top);
+      expect(plan.runs.length).toBeGreaterThan(0);
+      for (const run of plan.runs) {
+        expect(run.fine, 'every run here was admitted by the fine walk').toBe(true);
+        expect(run.rise100).toBeGreaterThan(1.25);
+        expect(run.hop16).toBeLessThanOrEqual(JUMP16);
+      }
+      assertNeverBlocks(h.cells, h.dims, plan);
+    }
+  });
+
+  it('the fine walk admits only the top it stood on: a floor more than half a block off it admits nothing', () => {
+    const h = studHill();
+    for (const off of [9, -9]) {
+      const plan = planColliderTreads(h.cells, h.dims, 200, 0, [], [], undefined, fineOn(h.dims, h.top16 + off, rockColumns));
+      expect(treadsOnly(plan), `fine floor ${off}/16 off the top`).toEqual([]);
+    }
+    // Within half a block (a collider top rounded outward against a 4 LDU fine cell) it counts.
+    expect(planColliderTreads(h.cells, h.dims, 200, 0, [], [], undefined, fineOn(h.dims, h.top16 - 2, rockColumns)).after.highest16).toBe(48);
+  });
+
+  it('a plinth the fine walk never stood on stays a plinth, fine data or not', () => {
+    const p = plinth();
+    const pc = colliderSourceCells({ ...p.dims, runs: p.runs });
+    // The fine walk reached the ground round it only.
+    const fine = new Map<number, number[]>();
+    for (let x = 0; x < p.dims.width; x++) for (let z = 0; z < p.dims.length; z++) fine.set(x * p.dims.length + z, [0]);
+    for (const pct of [200, 300]) expect(treadsOnly(planColliderTreads(pc, p.dims, pct, 0, [], [], undefined, fine)), `${pct} %`).toEqual([]);
+  });
+
+  it('fineReachColumns puts each fine floor in the column and at the height the map gives, and drops what is outside the grid', () => {
+    const dims = { width: 4, height: 2, length: 3 };
+    // A map that is a plain scale (2 LDU a block) and a z mirror, as `sceneGridPoint` turns LDraw.
+    const toGrid = (p: [number, number, number]): number[] => [p[0] / 2, -p[1] / 2, -p[2] / 2];
+    const cols = fineReachColumns([1, -3, -1, /* (0.5, 1.5, 0.5) */ 1.2, -3, -1.2, /* same column, same top */ 7, -2, -5, /* (3.5, 1, 2.5) */ 9, 0, -1 /* x 4.5: outside */], toGrid, dims);
+    expect([...cols.entries()]).toEqual([[0 * 3 + 0, [24]], [3 * 3 + 2, [16]]]);
+  });
+
+  it('a model flush with the grid\'s edge gets a one-block border margin there, and a tread run climbs onto it over the border', async () => {
+    const { borderMarginFor } = await import('../web/src/engine/bedrock-interactives.js');
+    const { padGridXZ } = await import('../web/src/engine/schem-pipeline.js');
+    // A plate 0.5 blocks high (a step at 100 %, 1.5 at 300 %) flush with the grid's low x and low z sides, the grid
+    // reaching two blocks of open ground past it on the high sides (Notre-Dame's plate, round 30zg).
+    const dims = { width: 10, height: 2, length: 8 };
+    const g = new BlockGrid(dims.width, dims.height, dims.length);
+    for (let x = 0; x < 8; x++) for (let z = 0; z < 6; z++) g.set(x, 0, z, colliderState(0, 8));
+    const margin = borderMarginFor(dims, (x, y, z) => g.get(x, y, z) !== 'minecraft:air');
+    expect(margin).toEqual({ x0: 1, x1: 0, z0: 1, z1: 0 });
+    const lane = (grid: BlockGrid): number => {
+      const d = { width: grid.width, height: grid.height, length: grid.length };
+      const cells = colliderSourceCells({ ...d, runs: encodeColliderRuns(grid, COLLIDER_BLOCK_ID).runs });
+      const plan = planColliderTreads(cells, d, 300, 0);
+      expect(plan.verified).toBe(true);
+      // Straight in from the ring on the low-x side, through the plate's middle (z 3 of the plate at 300 %).
+      const z = Math.floor((3 + margin.z0 * (grid === g ? 0 : 1)) * 3);
+      return laneTop(cells, d, plan, { x: -1, z }, { x: 1, z: 0 }, 12);
+    };
+    // Flush: no floor inside the grid before the riser, so the low-x side stays a 1.5-block wall at 300 %.
+    expect(lane(g)).toBe(0);
+    // With the margin: a run from the margin's ground onto the plate.
+    expect(lane(padGridXZ(g, margin))).toBe(24);
   });
 });
 

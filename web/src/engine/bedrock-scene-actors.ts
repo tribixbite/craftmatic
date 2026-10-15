@@ -1344,6 +1344,14 @@ const MIN_APERTURE_WIDTH_LDU = 16;
  */
 const MAX_APERTURE_ASPECT = 2.5;
 
+/**
+ * Where an opening leads (`measureSceneAccess`'s outside flood): `entrance` - the outside on one side, a closed
+ * interior on the other; `interior` - between two of the model's own enclosed spaces (a nave arcade);
+ * `outside` - the outside on both sides at its own level (a gap between two pillars); `blind` - on one side nothing
+ * a player stands in: solid (a leaf drawn on a wall) or a pocket smaller than a room (a niche behind an arch).
+ */
+export type OpeningConnection = 'entrance' | 'interior' | 'outside' | 'blind';
+
 export interface SceneOpening {
   /** How it was found: a door-shaped semantic leaf's own extent, a leaf wider than tall (a hatch), or an aperture in the occupancy grid. */
   source: 'door-leaf' | 'hatch-leaf' | 'aperture';
@@ -1356,6 +1364,8 @@ export interface SceneOpening {
   centreLdu: Vec3;
   /** Smallest multiplier of the minifig scale at which a 1×2-block passage clears it. */
   requiredScale: number;
+  /** Where it leads: only an `entrance` lets a player walk INTO the model from outside. */
+  connects: OpeningConnection;
 }
 
 export interface SceneAccessMeasurement {
@@ -1369,6 +1379,11 @@ export interface SceneAccessMeasurement {
   headroomLdu: number | null;
   /** Floor cells behind that median. */
   interiorFloorCells: number;
+  /**
+   * Of those, the floor cells the outside never reaches with every opening closed: the model's ENCLOSED interior
+   * (rooms under a roof). Positive with no `entrance` opening means an interior no player can walk into.
+   */
+  enclosedFloorCells: number;
   /**
    * The highest floor surface a player could stand on anywhere in the model
    * (at least a brick of headroom), LDU above the model's ground; null when
@@ -1385,6 +1400,12 @@ export interface SceneAccessMeasurement {
    * `highestReachedLdu` then falls to the ground floor.
    */
   reach: SceneReach[];
+  /**
+   * With `SceneAccessOptions.keepReachAt`: every floor the walk at that scale reached, as LDraw x, y, z triples
+   * (the cell's centre and the floor's surface). The tread planner reads it (bedrock-collider-scale.ts
+   * `fineReachColumns`): a hill of one-stud steps the 1-block collider grid reads as a cliff is climbed here.
+   */
+  reachedFloorsLdu?: Float64Array;
 }
 
 export interface SceneReach {
@@ -1401,6 +1422,50 @@ export interface SceneAccessOptions {
   /** Force the cells, LDU (default `ACCESS_CELL_LDU`, coarsened to fit `maxCells`). */
   cell?: { xz: number; y: number };
   maxCells?: number;
+  /** Keep the reach walk's floors at this scale (the pack's own 100 %): `SceneAccessMeasurement.reachedFloorsLdu`. */
+  keepReachAt?: number;
+}
+
+/** `floodOutside`'s marks per access-grid cell: open air not (yet) reached, the outside, an opening's closed passage. */
+const AIR_UNREACHED = 0, AIR_OUTSIDE = 1, AIR_CLOSED = 2;
+
+/**
+ * The air the grid's outside reaches AT ITS OWN LEVEL, marked `AIR_OUTSIDE` in `marks` (where the caller marked
+ * the closed passages `AIR_CLOSED`; one byte a cell for both): per row, a breadth-first flood, four-connected in
+ * x and z, from every open cell on the grid's four sides, through cells neither `solid` nor closed. Level by
+ * level and never through the sky: a cloister or a courtyard walled round is not the outside however open its
+ * roof, and air reached only by climbing over a wall is not walked to (Notre-Dame's east end, 21061: a 3-D flood
+ * entered its nave through an opening the ground never reaches). A ring buffer that grows on demand holds the
+ * frontier, so a 48-million-cell grid does not need a queue of its whole size.
+ */
+function floodOutside(solid: Uint8Array, marks: Uint8Array, sx: number, sy: number, sz: number): void {
+  const idx = (x: number, y: number, z: number): number => (y * sz + z) * sx + x;
+  let ring = new Int32Array(1 << 16), head = 0, size = 0;
+  const push = (i: number): void => {
+    if (marks[i] !== AIR_UNREACHED || solid[i]) return;
+    marks[i] = AIR_OUTSIDE;
+    if (size === ring.length) {
+      // Unroll the ring into a buffer twice the size, oldest first.
+      const next = new Int32Array(ring.length * 2);
+      for (let k = 0; k < size; k++) next[k] = ring[(head + k) % ring.length]!;
+      ring = next; head = 0;
+    }
+    ring[(head + size) % ring.length] = i;
+    size++;
+  };
+  for (let y = 0; y < sy; y++) {
+    for (let x = 0; x < sx; x++) { push(idx(x, y, 0)); push(idx(x, y, sz - 1)); }
+    for (let z = 1; z < sz - 1; z++) { push(idx(0, y, z)); push(idx(sx - 1, y, z)); }
+  }
+  while (size > 0) {
+    const i = ring[head]!;
+    head = (head + 1) % ring.length; size--;
+    const x = i % sx, z = ((i - x) / sx) % sz;
+    if (x > 0) push(i - 1);
+    if (x < sx - 1) push(i + 1);
+    if (z > 0) push(i - sx);
+    if (z < sz - 1) push(i + sx);
+  }
 }
 
 /**
@@ -1427,7 +1492,7 @@ export function measureSceneAccess(bricks: readonly ParsedBrick[], meshes: Reado
     else boxes.push(box);
   }
   const all = [...boxes, ...rasterised.map(r => worldBounds(r.brick, r.mesh)), ...leaves];
-  if (!all.length) return { cell: { ...(options.cell ?? ACCESS_CELL_LDU) }, grid: { x: 0, y: 0, z: 0, solid: 0 }, openings: [], headroomLdu: null, interiorFloorCells: 0, topFloorLdu: null, reach: [] };
+  if (!all.length) return { cell: { ...(options.cell ?? ACCESS_CELL_LDU) }, grid: { x: 0, y: 0, z: 0, solid: 0 }, openings: [], headroomLdu: null, interiorFloorCells: 0, enclosedFloorCells: 0, topFloorLdu: null, reach: [] };
   const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
   for (const b of all) for (let i = 0; i < 3; i++) { if (b.min[i]! < min[i]!) min[i] = b.min[i]!; if (b.max[i]! > max[i]!) max[i] = b.max[i]!; }
 
@@ -1534,8 +1599,13 @@ export function measureSceneAccess(bricks: readonly ParsedBrick[], meshes: Reado
 
   // ── Apertures: floor-level air runs across a wall, walled both sides, with a lintel, open beyond both faces.
   interface Run { y: number; d: number; w0: number; w1: number; h: number }
-  interface Aperture { y: number; w0: number; w1: number; d0: number; d1: number; throat: Run; minH: number }
-  const openings: SceneOpening[] = [];
+  interface Aperture { y: number; w0: number; w1: number; d0: number; d1: number; throat: Run; minH: number; maxH: number }
+  /** Each counted aperture's passage, for the entrance flood below (`connects`): its axis and the cells it spans. */
+  interface Passage { axis: 'x' | 'z'; y: number; d0: number; d1: number; w0: number; w1: number; wc: number; h: number; maxH: number }
+  const openings: Array<Omit<SceneOpening, 'connects'>> = [];
+  const passages: Passage[] = [];
+  /** Per entry of `openings`, its passage (an aperture's index in `passages`). */
+  const passageOf: number[] = [];
   for (const axis of ['x', 'z'] as const) {
     const depthN = axis === 'x' ? sx : sz, widthN = axis === 'x' ? sz : sx;
     const at = (d: number, y: number, w: number): boolean => axis === 'x' ? isSolid(d, y, w) : isSolid(w, y, d);
@@ -1587,15 +1657,18 @@ export function measureSceneAccess(bricks: readonly ParsedBrick[], meshes: Reado
         home.d1 = r.d;
         home.w0 = Math.min(home.w0, r.w0); home.w1 = Math.max(home.w1, r.w1);
         home.minH = Math.min(home.minH, r.h);
+        home.maxH = Math.max(home.maxH, r.h);
         const throatWidth = home.throat.w1 - home.throat.w0 + 1;
         if (width < throatWidth || (width === throatWidth && r.h < home.throat.h)) home.throat = r;
-      } else apertures.push({ y: r.y, w0: r.w0, w1: r.w1, d0: r.d, d1: r.d, throat: r, minH: r.h });
+      } else apertures.push({ y: r.y, w0: r.w0, w1: r.w1, d0: r.d, d1: r.d, throat: r, minH: r.h, maxH: r.h });
     }
     for (const a of apertures) {
       const widthLdu = (a.throat.w1 - a.throat.w0 + 1) * cellXZ, heightLdu = a.minH * cellY;
       if (widthLdu > MAX_APERTURE_ASPECT * heightLdu) continue;
       const dc = (a.d0 + a.d1 + 1) / 2 * cellXZ, wc = (a.throat.w0 + a.throat.w1 + 1) / 2 * cellXZ;
       const centreLdu: Vec3 = axis === 'x' ? [ox + dc, bottom - a.y * cellY, oz + wc] : [ox + wc, bottom - a.y * cellY, oz + dc];
+      passageOf.push(passages.length);
+      passages.push({ axis, y: a.y, d0: a.d0, d1: a.d1, w0: a.w0, w1: a.w1, wc: (a.throat.w0 + a.throat.w1) >> 1, h: a.minH, maxH: a.maxH });
       openings.push({ source: 'aperture', axis, widthLdu, heightLdu, centreLdu, requiredScale: passageRequiredScale(widthLdu, heightLdu) });
     }
   }
@@ -1603,27 +1676,106 @@ export function measureSceneAccess(bricks: readonly ParsedBrick[], meshes: Reado
   // through their frame. A leaf wider than it is tall (1×3×1 cupboard doors,
   // the Titanic's 44 hull hatches) is a hatch, not a doorway: it counts as an
   // opening like any aperture, never as door evidence.
-  const leafOpenings: SceneOpening[] = leaves.map(l => {
+  const leafOpenings: Array<Omit<SceneOpening, 'connects'>> = leaves.map(l => {
     const widthLdu = l.alongAxis === 'x' ? l.max[0] - l.min[0] : l.max[2] - l.min[2];
     const heightLdu = l.max[1] - l.min[1];
     const centreLdu: Vec3 = [(l.min[0] + l.max[0]) / 2, l.max[1], (l.min[2] + l.max[2]) / 2];
     return { source: heightLdu >= widthLdu ? 'door-leaf' : 'hatch-leaf', axis: l.alongAxis === 'x' ? 'z' : 'x', widthLdu, heightLdu, centreLdu, requiredScale: passageRequiredScale(widthLdu, heightLdu) };
   });
-  const inLeaf = (o: SceneOpening): boolean => leaves.some(l =>
+  const inLeaf = (o: Omit<SceneOpening, 'connects'>): boolean => leaves.some(l =>
     o.centreLdu[0] >= l.min[0] - cellXZ && o.centreLdu[0] <= l.max[0] + cellXZ &&
     o.centreLdu[1] >= l.min[1] - cellY && o.centreLdu[1] <= l.max[1] + cellY &&
     o.centreLdu[2] >= l.min[2] - cellXZ && o.centreLdu[2] <= l.max[2] + cellXZ);
-  const merged = [...leafOpenings, ...openings.filter(o => !inLeaf(o))].sort((p, q) => p.requiredScale - q.requiredScale);
+
+  // ── Entrances (SCALE-06, 2026-10-15): which side of each opening is the OUTSIDE. Every counted opening's
+  // passage (an aperture's throat, a leaf's own box) is closed, and the air the grid's sides reach through the
+  // rest, level by level (`floodOutside`), is the outside. An opening with the outside on one side and, on the
+  // other, a space the flood never reached that a player could stand in (a ROOM: `roomBeyond`) leads IN: an
+  // entrance. Notre-Dame (21061) has 196 floor-level openings and the easiest are its nave arcade, between the
+  // model's own rooms; every outside door is a leaf drawn on a solid wall, and the recommendation read "57/196
+  // clear it" for a model a player cannot enter at any size (Pixel round 30zg).
+  const marks = new Uint8Array(solid.length);
+  const closeBox = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): void => {
+    for (let y = Math.max(0, y0); y <= Math.min(sy - 1, y1); y++) for (let z = Math.max(0, z0); z <= Math.min(sz - 1, z1); z++) for (let x = Math.max(0, x0); x <= Math.min(sx - 1, x1); x++) marks[idx(x, y, z)] = AIR_CLOSED;
+  };
+  for (const p of passages) {
+    if (p.axis === 'x') closeBox(p.d0, p.d1, p.y, p.y + p.maxH - 1, p.w0, p.w1);
+    else closeBox(p.w0, p.w1, p.y, p.y + p.maxH - 1, p.d0, p.d1);
+  }
+  for (const l of leaves) closeBox(gx(l.min[0]), gx(l.max[0]), gy(l.max[1]), gy(l.min[1]), gz(l.min[2]), gz(l.max[2]));
+  floodOutside(solid, marks, sx, sy, sz);
+  /** Open air the outside never reached at its level and no opening's passage: an enclosed space's. */
+  const enclosedAir = (i: number): boolean => !solid[i] && marks[i] === AIR_UNREACHED;
+  /**
+   * Whether the enclosed air at cell `i` is a ROOM for an opening `n` cells wide: its own level holds at least
+   * (2n)² cells of it (a flood within the row, stopped there) - the space `opensBeyond` asks a doorway to open
+   * into, both ways. Notre-Dame's west-front galleries open onto 64-cell pockets behind an 80 LDU arch: the
+   * flood never reaches them, and nobody stands in them.
+   */
+  const roomBeyond = (i0: number, n: number): boolean => {
+    const need = 4 * n * n, seen = new Set<number>([i0]), queue = [i0];
+    for (let h = 0; h < queue.length && seen.size < need; h++) {
+      const i = queue[h]!, x = i % sx, z = ((i - x) / sx) % sz;
+      for (const j of [x > 0 ? i - 1 : -1, x < sx - 1 ? i + 1 : -1, z > 0 ? i - sx : -1, z < sz - 1 ? i + sx : -1]) {
+        if (j < 0 || seen.has(j) || !enclosedAir(j)) continue;
+        seen.add(j); queue.push(j);
+      }
+    }
+    return seen.size >= need;
+  };
+  /**
+   * What lies along `axis` past an opening `n` cells wide, from cell `from` (depth) in direction `dir`, at the rows
+   * `y`..`y + h - 1` of the width cell `w`: the first open cell (not solid, not another opening's passage) within a
+   * wall's depth - the outside, a room (`roomBeyond`), or `none` (solid all the way, a leaf drawn on a wall; or a
+   * pocket no player stands in). Past the grid is outside.
+   */
+  const sideOf = (axis: 'x' | 'z', from: number, dir: 1 | -1, y: number, h: number, w: number, n: number): 'out' | 'in' | 'none' => {
+    const depthN = axis === 'x' ? sx : sz;
+    for (let k = 0; k <= wallDepthCells; k++) {
+      const d = from + dir * k;
+      if (d < 0 || d >= depthN) return 'out';
+      for (let r = y; r < Math.min(sy, y + Math.max(1, h)); r++) {
+        const [x, z] = axis === 'x' ? [d, w] : [w, d];
+        const i = idx(x, r, z);
+        if (solid[i] || marks[i] === AIR_CLOSED) continue;
+        return marks[i] === AIR_OUTSIDE ? 'out' : roomBeyond(i, n) ? 'in' : 'none';
+      }
+    }
+    return 'none';
+  };
+  const connection = (a: 'out' | 'in' | 'none', b: 'out' | 'in' | 'none'): OpeningConnection =>
+    (a === 'out' && b === 'in') || (a === 'in' && b === 'out') ? 'entrance'
+      : a === 'in' && b === 'in' ? 'interior'
+        : a === 'out' && b === 'out' ? 'outside' : 'blind';
+  const apertureOpenings: SceneOpening[] = openings.map((o, k) => {
+    const p = passages[passageOf[k]!]!;
+    const n = p.w1 - p.w0 + 1;
+    return { ...o, connects: connection(sideOf(p.axis, p.d0 - 1, -1, p.y, p.h, p.wc, n), sideOf(p.axis, p.d1 + 1, 1, p.y, p.h, p.wc, n)) };
+  });
+  const leafConnected: SceneOpening[] = leafOpenings.map((o, k) => {
+    const l = leaves[k]!;
+    // The leaf's travel axis (`o.axis`): its box spans a0..a1 cells along it; probed at the floor row over the
+    // leaf's foot, through the middle of its width.
+    const along = o.axis === 'x' ? 0 : 2;
+    const a0 = (o.axis === 'x' ? gx : gz)(l.min[along]!), a1 = (o.axis === 'x' ? gx : gz)(l.max[along]!);
+    const w = o.axis === 'x' ? gz((l.min[2] + l.max[2]) / 2) : gx((l.min[0] + l.max[0]) / 2);
+    const row = Math.max(1, gy(l.max[1])), h = Math.max(1, Math.round((l.max[1] - l.min[1]) / cellY));
+    const n = Math.max(1, Math.round(o.widthLdu / cellXZ));
+    return { ...o, connects: connection(sideOf(o.axis, a0 - 1, -1, row, h, w, n), sideOf(o.axis, a1 + 1, 1, row, h, w, n)) };
+  });
+  const merged = [...leafConnected, ...apertureOpenings.filter(o => !inLeaf(o))].sort((p, q) => p.requiredScale - q.requiredScale);
 
   // ── Headroom: the median floor-to-ceiling over interior floor cells (finite, at least a brick).
   const hist = new Map<number, number>();
-  let floorCells = 0;
+  let floorCells = 0, enclosedFloorCells = 0;
   for (let y = 1; y < sy; y++) for (let z = 0; z < sz; z++) for (let x = 0; x < sx; x++) {
     if (isSolid(x, y, z) || !isSolid(x, y - 1, z)) continue;
     const h = headroom(x, y, z);
     if (!Number.isFinite(h) || h < minHeightCells) continue;
     hist.set(h, (hist.get(h) ?? 0) + 1);
     floorCells++;
+    // A floor the outside flood never reached, and not an opening's own passage: a room's.
+    if (enclosedAir(idx(x, y, z))) enclosedFloorCells++;
   }
   let headroomLdu: number | null = null;
   if (floorCells) {
@@ -1644,7 +1796,11 @@ export function measureSceneAccess(bricks: readonly ParsedBrick[], meshes: Reado
   const reach: SceneReach[] = [];
   const visited = new Uint8Array(Math.ceil(solid.length / 8));
   const airAt = (x: number, y: number, z: number): boolean => y >= sy || !isSolid(x, y, z);
-  for (const scale of ACCESS_SCALE_STEPS) {
+  /**
+   * The walk at one step; with `keep`, every reached floor too, as LDraw points (cell centre, the floor's
+   * surface): `SceneAccessMeasurement.reachedFloorsLdu`, which the tread planner reads (SCALE-06).
+   */
+  const walkAt = (scale: number, keep: boolean): { reached: SceneReach; floors?: Float64Array } => {
     const blockLdu = LDU_PER_BLOCK / scale;
     const needCells = Math.ceil(PLAYER_HEIGHT_BLOCKS * blockLdu / cellY - 1e-9);
     const wideCells = Math.ceil(PASSAGE_WIDTH_BLOCKS * blockLdu / cellXZ - 1e-9);
@@ -1686,9 +1842,26 @@ export function measureSceneAccess(bricks: readonly ParsedBrick[], meshes: Reado
         for (let ny = top; ny >= 1; ny--) if (standable(nx, ny, nz)) push(nx, ny, nz);
       }
     }
-    reach.push({ scale, reachedSurfaces: queue.length, highestReachedLdu: highest * cellY });
+    const reached: SceneReach = { scale, reachedSurfaces: queue.length, highestReachedLdu: highest * cellY };
+    if (!keep) return { reached };
+    const floors = new Float64Array(queue.length * 3);
+    queue.forEach((k, n) => {
+      const x = k % sx, rest = (k - x) / sx, z = rest % sz, y = (rest - z) / sz;
+      floors[3 * n] = centreX(x); floors[3 * n + 1] = bottom - y * cellY; floors[3 * n + 2] = centreZ(z);
+    });
+    return { reached, floors };
+  };
+  const keepAt = options.keepReachAt;
+  const keeps = (scale: number): boolean => keepAt !== undefined && Math.abs(scale - keepAt) < 1e-3;
+  let reachedFloorsLdu: Float64Array | undefined;
+  for (const scale of ACCESS_SCALE_STEPS) {
+    const w = walkAt(scale, keeps(scale));
+    reach.push(w.reached);
+    if (w.floors) reachedFloorsLdu = w.floors;
   }
-  return { cell, grid: { x: sx, y: sy, z: sz, solid: solidCount }, openings: merged, headroomLdu, interiorFloorCells: floorCells, topFloorLdu, reach };
+  // A pack exported at a size that is not a step (a display model at 0.5x) is walked once more at its own.
+  if (keepAt !== undefined && !reachedFloorsLdu) reachedFloorsLdu = walkAt(keepAt, true).floors;
+  return { cell, grid: { x: sx, y: sy, z: sz, solid: solidCount }, openings: merged, headroomLdu, interiorFloorCells: floorCells, enclosedFloorCells, topFloorLdu, reach, ...(reachedFloorsLdu ? { reachedFloorsLdu } : {}) };
 }
 
 /**
@@ -1721,9 +1894,22 @@ export interface AccessScaleRecommendation {
    * the step that keeps the floors, instead of choosing silently.
    */
   climb?: { fraction: number; bestFraction: number; bestStep: number; climbableAtScale: boolean };
+  /**
+   * Where the model's openings lead (`SceneOpening.connects`), and whether it has an enclosed interior: the
+   * recommendation is measured on the ENTRANCES when there are any. `enclosed` with no entrance is a model a
+   * player cannot walk into at any size (its doors are drawn, not cut). Always set by `recommendAccessScale`;
+   * absent from a pack's diagnostics written before 2026-10-15.
+   */
+  openings?: { entrances: number; interior: number; outside: number; blind: number; enclosed: boolean };
   /** One sentence for the UI, with the measured numbers. */
   reason: string;
 }
+
+/**
+ * Enclosed floor cells (`SceneAccessMeasurement.enclosedFloorCells`) below this are a sealed cavity between
+ * parts, not a room: a stud's square at the default 5 LDU cell (16 cells).
+ */
+const MIN_ENCLOSED_FLOOR_CELLS = 16;
 
 const blocks1 = (ldu: number, scale = 1): string => (Math.round(ldu * scale / LDU_PER_BLOCK * 10) / 10).toFixed(1);
 /** A step must lose at least this much of the model's height against another step before the reason calls it a tension. */
@@ -1732,10 +1918,24 @@ const pctOf = (scale: number): string => `${Math.round(scale * 100)} %`;
 
 /** The smallest supported size at which a player can walk through the measured model, as data with its reason. */
 export function recommendAccessScale(m: SceneAccessMeasurement): AccessScaleRecommendation {
-  const leaves = m.openings.filter(o => o.source === 'door-leaf');
-  const pool = leaves.length ? leaves : m.openings;
+  const count = (c: OpeningConnection): number => m.openings.filter(o => o.connects === c).length;
+  const enclosed = m.enclosedFloorCells >= Math.max(1, Math.round(MIN_ENCLOSED_FLOOR_CELLS * (ACCESS_CELL_LDU.xz / m.cell.xz) ** 2));
+  const openingKinds = { entrances: count('entrance'), interior: count('interior'), outside: count('outside'), blind: count('blind'), enclosed };
+  // The doorways a player walks INTO the model through, when it has any: the entrances (door leaves first, as
+  // ever); otherwise every opening, as before - and the reason then says that none of them leads in.
+  const entrances = m.openings.filter(o => o.connects === 'entrance');
+  const source = entrances.length ? entrances : m.openings;
+  const leaves = source.filter(o => o.source === 'door-leaf');
+  const pool = leaves.length ? leaves : source;
   const basis: AccessScaleRecommendation['basis'] = leaves.length ? 'door-leaves' : pool.length ? 'apertures' : 'none';
   const need = `a player needs ${PASSAGE_WIDTH_BLOCKS}×${PASSAGE_HEIGHT_BLOCKS}`;
+  /**
+   * An enclosed interior and not one opening leading into it from outside: said first and plainly, with the
+   * counts, so a size chosen for the openings inside is not read as a way in (Notre-Dame, round 30zg).
+   */
+  const noEntrance = enclosed && !entrances.length
+    ? `No entrance at any size: the model has a closed interior, but none of its ${m.openings.length} opening${m.openings.length === 1 ? '' : 's'} leads in from outside (${openingKinds.interior} between its own rooms, ${openingKinds.outside} open to the outside on both sides${openingKinds.blind ? `, ${openingKinds.blind} onto a solid wall or a niche no player stands in` : ''}) - its doors are drawn, not cut. `
+    : '';
   const headroom = m.headroomLdu !== null ? (() => {
     const requiredScale = PASSAGE_HEIGHT_BLOCKS * LDU_PER_BLOCK / m.headroomLdu!;
     const scale = accessStepFor(requiredScale);
@@ -1753,28 +1953,28 @@ export function recommendAccessScale(m: SceneAccessMeasurement): AccessScaleReco
     const reason = headroom
       ? `No doorway found; interior floors are ${blocks1(m.headroomLdu!)} blocks under the ceiling at 100 %${headroom.scale ? ` (${pctOf(headroom.scale)} gives standing room)` : ''}, but nothing leads into them.`
       : 'No doorway or interior floor found: a solid model with nothing to walk through at any size.';
-    return { basis, ...(headroom ? { headroom } : {}), reason };
+    return { basis, ...(headroom ? { headroom } : {}), openings: openingKinds, reason };
   }
   // `pool` is sorted by ascending required scale: the percentile picks the representative doorway.
   const pick = pool[Math.min(pool.length - 1, Math.floor((pool.length - 1) * (leaves.length ? LEAF_PERCENTILE : APERTURE_PERCENTILE)))]!;
   const doorStep = accessStepFor(pick.requiredScale);
-  const kind = leaves.length ? 'Door leaves' : 'Wall openings';
+  const kind = entrances.length ? (leaves.length ? 'Entrance door leaves' : 'Entrances') : noEntrance ? (leaves.length ? 'Its door leaves' : 'Its openings') : leaves.length ? 'Door leaves' : 'Wall openings';
   const size = (o: SceneOpening, s = 1): string => `${blocks1(o.widthLdu, s)}×${blocks1(o.heightLdu, s)}`;
   if (doorStep === undefined) {
     const easiest = pool[0]!;
     const top = ACCESS_SCALE_STEPS[ACCESS_SCALE_STEPS.length - 1]!;
     return {
-      basis, doorway: { widthBlocks: Number(blocks1(pick.widthLdu)), heightBlocks: Number(blocks1(pick.heightLdu)), requiredScale: pick.requiredScale, count: pool.length, passable: 0 }, ...(headroom ? { headroom } : {}),
-      reason: `No size step makes the model walkable: its largest doorway is ${size(easiest)} blocks at 100 % and ${size(easiest, top)} at ${pctOf(top)} (${need}).`,
+      basis, doorway: { widthBlocks: Number(blocks1(pick.widthLdu)), heightBlocks: Number(blocks1(pick.heightLdu)), requiredScale: pick.requiredScale, count: pool.length, passable: 0 }, ...(headroom ? { headroom } : {}), openings: openingKinds,
+      reason: `${noEntrance}No size step makes the model walkable: its largest ${entrances.length ? 'entrance' : 'doorway'} is ${size(easiest)} blocks at 100 % and ${size(easiest, top)} at ${pctOf(top)} (${need}).`,
     };
   }
   // Floors must clear standing headroom too, when a step can give it; a model
   // whose rooms stay low at every step still gets its doorway step, said plainly.
   const scale = headroom?.scale !== undefined ? Math.max(doorStep, headroom.scale) : doorStep;
   const passable = pool.filter(o => o.requiredScale <= scale + 1e-9).length;
-  let reason = scale === 1
+  let reason = noEntrance + (scale === 1
     ? `${kind} are ${size(pick)} blocks at 100 %: a player walks through as exported (${passable}/${pool.length} clear the ${PASSAGE_WIDTH_BLOCKS}×${PASSAGE_HEIGHT_BLOCKS} passage)`
-    : `${kind} are ${size(pick)} blocks at 100 %; ${pctOf(scale)} makes them ${size(pick, scale)} (${need}; ${passable}/${pool.length} clear it)`;
+    : `${kind} are ${size(pick)} blocks at 100 %; ${pctOf(scale)} makes them ${size(pick, scale)} (${need}; ${passable}/${pool.length} clear it)`);
   if (headroom) {
     if (headroom.scale !== undefined && headroom.scale > doorStep) reason += `; floors are ${blocks1(m.headroomLdu!)} blocks under the ceiling at 100 %, so ${pctOf(scale)} is what gives standing room (${blocks1(m.headroomLdu!, scale)})`;
     else if (headroom.scale === undefined) reason += `; floors are only ${blocks1(m.headroomLdu!)} blocks under the ceiling at 100 % and ${blocks1(m.headroomLdu!, scale)} at ${pctOf(scale)} - stooping room, not standing`;
@@ -1796,6 +1996,7 @@ export function recommendAccessScale(m: SceneAccessMeasurement): AccessScaleReco
     doorway: { widthBlocks: Number(blocks1(pick.widthLdu)), heightBlocks: Number(blocks1(pick.heightLdu)), requiredScale: pick.requiredScale, count: pool.length, passable },
     ...(headroom ? { headroom } : {}),
     ...(climb ? { climb } : {}),
+    openings: openingKinds,
     reason: `${reason}.`,
   };
 }

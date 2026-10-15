@@ -930,6 +930,39 @@ raised door turned out to be reached already keeps its own footprint (the
 favourites sweep widened 10326 from the index's source, 43267 and 910032 for
 nothing before this). The diagnostics carry `accessMargin` with `used`.
 
+**The border margin** (SCALE-06, 2026-10-15, `borderMarginFor`). A tread run
+is laid only on floor INSIDE the collider grid, so a model flush with the
+grid's edge had nowhere to climb onto it from: 21061 Notre-Dame's base plate
+(0.5 blocks at 100 %, 1.5 at 300 %) was a wall on its north and west sides at
+300 % (Pixel round 30zg). Every brick-shell export now widens the grid one
+block on each side whose outermost voxel column or row holds anything; the
+same mechanism and frame shift as the access margin, side by side the larger
+of the two. It is NOT undone by the "no access stair used it" rerun (that
+rerun drops only the door stair's share, `doorStairMargin` in
+schem-pipeline.ts, so it cannot recurse). A voxel on the border is also
+geometry within half a block of the edge, which the collider grid clipped at
+its low sides before.
+
+**The fine walk in the tread rule** (SCALE-06, 2026-10-15). The 100 % rule
+reads the 1-block collider grid, which keeps only a column's highest top: 21063
+Neuschwanstein's hill of one-stud rock steps read as risers over the jump, so
+the rule restored none and the hill was a cliff at 200-300 %. The export keeps
+the walk-through measurement's reach walk at the pack's own 100 %
+(`measureSceneAccess` `keepReachAt`, 5 x 4 LDU cells), maps its floors through
+the colliders' own `sceneGridPoint` frame (`fineReachColumns`), and the
+planner admits a rise over the jump onto a column top that walk stood on
+within half a block (`FINE_REACH_TOLERANCE16`); such runs carry `fine: true`
+in `craftmatic-treads.json`. Measured in memory on 21063 (index first pick):
+highest reached 1.25 -> 8.13 blocks (at 100 %) at 200 %, 0.31 -> 8.13 at 300 %.
+
+**Entrances** (SCALE-06, 2026-10-15). The walk-through recommendation counts
+an opening as an ENTRANCE only when one side is the outside (flooded from the
+grid's sides level by level, every counted opening's passage closed) and the
+other a room a player stands in (`roomBeyond`: at least (2n)² cells of its
+level for an opening n cells wide). It recommends on the entrances when there
+are any; with an enclosed interior and none, the reason opens "No entrance at
+any size ... its doors are drawn, not cut". 21061: 0 of 196 openings.
+
 **Scaled treads at doorway thresholds.** A threshold is ONE surface for both
 of a doorway's sides, and the scaled-grid tread planner restores only what the
 unassisted walk reaches by no route: when 31141's Door 2 got a stair up its
