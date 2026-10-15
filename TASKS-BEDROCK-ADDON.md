@@ -112,17 +112,26 @@ The round-30m fixes on the phones:
      hotbar. A Pixel 25 % dismount logged "native" (1.0 from the root): by
      design - `vehicleEgress` keeps the game's own set-down when it is
      already outside the (0.9-long) hull on walkable ground.
-   - SCALE-06 (the user 2026-10-14: scaling is for microscale sets): 21061 /
-     76419 / 21063 BUILT from their index first picks (`IO/*.io`,
-     `output/scale06-1015/packs-d9d3380f/`, no unresolved parts). Export
-     recommends 200 % for all three; at 200 % openings a player fits 57/196,
-     16/61, 11/44 and the player reaches 8 % / 38 % / 54 % of the height
-     (part-height rises over the 1.25 jump). No hinged doors. Sim place at
-     200-400 % passes (child play runs at 100 % only - `--sizes` sizes the
-     placements). ROUND 30zg ON BOTH PHONES via agents (Saga 76419, Pixel
-     21063 + 21061; 30zf packs + these three; briefs in
-     `output/device-round-2026-10-15zg/`): place at the recommended size, walk
-     in through openings in Survival, explore, compare 300 %.
+   - SCALE-06 (the user 2026-10-14: scaling is for microscale sets) FAILS ON
+     DEVICE (round 30zg Pixel, `output/device-round-2026-10-15zg/pixel/notes.md`,
+     packs `output/scale06-1015/packs-d9d3380f/`): 21063 and 21061 at 200 %
+     and 300 % - 0/12 openings walked in, 21063's hill unclimbable from the
+     ground on all sides (road foot 5 blocks up), 21061's plate riser stops
+     the player on N/W at 300 %; interiors reached only by /tp. Saga (76419)
+     still running. Causes (diag `output/scale06-1015/diag-21063/`, the
+     agent's report in this session): (A) the 1-block collider grid reads a
+     one-stud rock staircase as a cliff, so `planRunCore`'s 100 % rule skips
+     every rise onto the hill; (B) a model flush with the grid border has no
+     floor to lay a run on (`no-run`); (C) `recommendAccessScale` counts
+     interior arcades as doorways (21061's 57/196 are the nave's column
+     arches; its outside doors are DRAWN leaves on solid walls). Measured:
+     A+B give 21063 a walked route to road and lawn at 200/300 % (reach 8.13
+     at 100 %; 1,356 / 2,590 tread+guard blocks). An implementation agent is
+     doing A+B+C with guards (not committed when this was written). NEXT:
+     review, commit, rebuild the three packs (`output/scale06-1015/build.sh`
+     pattern, new folder), sim + regressions, device recheck. Open design
+     question after that: a microscale interior whose doors are only drawn
+     (21061's nave, 21063's Palas) - no walk-in route exists at any size.
    - Device-tool lesson (Saga 30ze): the old two-finger `stickjump.sh` never
      delivers Jump (telemetry `jump:false`); use
      `output/device-round-2026-10-15ze/saga/tools/jumpstick.sh` (Jump first,
