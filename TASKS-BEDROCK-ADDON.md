@@ -109,8 +109,9 @@ The round-30m fixes on the phones:
      `ON_TOP_CHASE_BOOM_BLOCKS` 6 facing the rider's eye; sim
      `mclaren-chase-25-30ze`; the sim's client lag is pessimistic at short
      booms). Cosmetic, open: at speed the car sits low, its rear behind the
-     hotbar. Uninvestigated: one Pixel 25 % dismount logged "native" (set
-     down 1.0 from the root, `output/device-round-2026-10-15zf/pixel/notes.md`).
+     hotbar. A Pixel 25 % dismount logged "native" (1.0 from the root): by
+     design - `vehicleEgress` keeps the game's own set-down when it is
+     already outside the (0.9-long) hull on walkable ground.
    - Device-tool lesson (Saga 30ze): the old two-finger `stickjump.sh` never
      delivers Jump (telemetry `jump:false`); use
      `output/device-round-2026-10-15ze/saga/tools/jumpstick.sh` (Jump first,
