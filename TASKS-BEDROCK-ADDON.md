@@ -171,31 +171,18 @@ The round-30m fixes on the phones:
    every `/tp` (29-watch, 48-now) and a tap boards without it (35); the
    dismount sets the player down wherever the car stopped (17508,-57,5416).
    Unproved - re-check standing still at the platform after a dismount.
-   VEH-17 (DONE-OFFLINE): the user's "nothing mountable" was Survival
-   reach: a tap or hold reaches ~3 blocks from the eye to the hit BOX (Saga
-   30w), with no script event and the prompt still showing. A tap from a
-   McLaren seat never moves the rider; driving into a point (VEH-12 hop) and a
-   1 s hold from another seat (native switch) are kept as intended.
-   SAGA 30y (`output/device-round-2026-10-14y/saga/notes.md`, packs-9d08e06f,
-   edge columns): 100 % from 1.5 off either wing edge 40/40, from 2.5 off
-   36/40 (misses: x 11 S, a column 1.69 behind the jagged edge); points
-   32/53/87 at 100/200/400 % as planned; 400 % stable, ~1.1 ms/tick; 200 %
-   columns refused 4 of 6 from 1.5 off and 0/2 with the eye inside them - 10
-   of 11 fit the 100 % box: the size_200 group's hit test was not picked.
-   Fix (this commit): one board point TYPE per size step (`<pack>_board_<pct>`,
-   column in its base components, no size event; quirk
-   `hit-test-size-event`) and each column under the widest span drawn under
-   its own width (Milano 39/67/72/99 columns at 100-400 %; count with
-   `bun output/device-round-2026-10-14x/tools/milano_points.ts <pack>`).
-   ROUND 30z BUILT from 3d4b9c9b (`output/device-round-2026-10-14z/`, 23/23,
-   sim 138/0, regressions 36/0; the 200 % board type ships 4 x 6, no groups)
-   and ON THE SAGA via an agent (evidence -> `output/device-round-2026-10-14z/saga/`):
-   200 % from 1.5 and 2.5 off both edges (x 14-22) and 30y's refused spots and
-   diagnostics, 100 % x 11 S at 2.5 + spot checks, 400 % two taps, the
-   McLaren-seat tap regression. DONE-DEVICE if 200 % now picks the 4 x 6 box. Re-placing a set does NOT remove its
-   earlier placement (30w's reading was an unloaded area): undo with the wand.
-   Open: why 30u's eye inside a 16-wide box was refused; the hull's and the
-   interactives' size-grouped hit boxes are under the same doubt at 200 %.
+   VEH-17 (DONE-DEVICE, Saga 30z): the user's "nothing mountable" was
+   Survival reach (~3 blocks eye-to-hit-BOX, Saga 30w). Board columns are one
+   entity TYPE per size step (`<pack>_board_<pct>`, box in base components; a
+   size event's box was not picked - quirk `hit-test-size-event`) under the
+   widest drawn span. 30z (`output/device-round-2026-10-14z/saga/notes.md`,
+   packs-3d4b9c9b): 200 % 48/48 from 1.5/2.5 off both wing edges, 100 %
+   30y's x 11 S misses 8/8, 400 % 2/2, McLaren-seat tap stays 2/2. Count a
+   pack's columns with `bun output/device-round-2026-10-14x/tools/milano_points.ts <pack>`.
+   Open: the hull's and the interactives' size-grouped hit boxes at 200 %
+   (same doubt; a door/hatch tap at 200 % in Survival is the check); why 30u's
+   eye inside a 16-wide box was refused; sizes 25-75/150/300 % untested.
+   Re-placing a set does NOT remove its earlier placement: undo with the wand.
    Pixel not re-run since dbe20600. Also open: 10797's blue cluster + brown
    oval on the grass N of its wall (Saga 30t e06, unchecked vs source);
    device leftovers `/data/local/tmp/craftmatic-deploy-*` (Saga) and the

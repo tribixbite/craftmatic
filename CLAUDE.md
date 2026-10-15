@@ -394,7 +394,8 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   columns under their drawn EDGES (`BOARD`). A hit box re-declared by a SIZE
   EVENT was not picked (Saga 30y: 200 % board columns picked as their 100 %
   box, quirk `hit-test-size-event`), so board points are one TYPE per size
-  step; the hull's and the interactives' grouped boxes share the doubt.
+  step (Saga 30z: 48/48 at 200 %, every result fitting the base-declared
+  4 x 6); the hull's and the interactives' grouped boxes share the doubt.
   Test boarding in Survival; a
   Creative-only round hides this.
 - **Scripted vehicles (cars, hover craft, boats, ships) have FREE LOOK and
