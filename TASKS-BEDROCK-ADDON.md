@@ -196,20 +196,24 @@ The round-30m fixes on the phones:
    (a sail over the helm): the climb is now capped at `ROOF_MAX_LIFT` 3
    over the pan, else the rider stays on its seat. ROUND 30zd BUILT from
    224001b3 (`output/device-round-2026-10-14zd/`, 23/23, sim 132/0,
-   regressions 36/0, seat-scale 0 off, 194 rows ON TOP). RESULTS (Pixel done,
-   `output/device-round-2026-10-14zd/pixel/notes.md`; Saga agent still running,
-   `.../saga/notes.md`): riding on top PASSES on both phones at 50 % (rider
-   drawn on the roof, hotbar 9 from the head, drive + turn, dismount ~1.9 off
-   the root); 100 % unchanged; Pixel VEH-17 24/24 seated at 100/200 %; Pixel
-   10261 Ride button came back every ~30 s after a dismount (30t not
-   reproduced; it shows only with the crosshair ON a car). NEW DEFECT (both
-   phones): a FRESHLY PLACED 50 % McLaren takes no tap/hold at all (Pixel 0/13,
-   Saga 0/14, no script event) until it has been ridden once (`/ride`), then
-   it is picked through its BASE box. 100 % fresh cars seat. Hypothesis: the
-   ridden car's per-tick teleport refreshes the client's pick; the Saga agent
-   was asked to test `/execute as <car> at @s run tp @s ~ ~ ~` on a fresh car.
-   If confirmed, placement teleports a sized actor to itself after its size
-   event (`bedrock-placement-pack.ts` ~1931). Also open: 10797's blue cluster + brown
+   regressions 36/0, seat-scale 0 off, 194 rows ON TOP). RESULTS (both
+   phones, `output/device-round-2026-10-14zd/{saga,pixel}/notes.md`): riding
+   on top PASSES (VEH-18 DONE-DEVICE: 42172 at 50 % both, 25 % Saga, 76286
+   at 50 % Saga; 100 % unchanged); Pixel VEH-17 24/24 at 100/200 %; Saga
+   910004 door at 200 % opened on its upper half and outer quarters 12/12
+   (the `ixh_` group box IS picked); Pixel 10261 Ride button came back every
+   ~30 s (30t not reproduced; it shows only with the crosshair ON a car);
+   content logs 0 errors. NEW DEFECT, FIXED OFFLINE `c9768dbf`: a FRESH
+   sized McLaren took 0/34 taps + holds until moved (`tp ~ ~0.01 ~` fixes,
+   `tp ~ ~ ~` does not) -> `settleSized` lifts a sized rideable 0.01 and sets
+   it back; quirk `size-event-pick-needs-move`; regression
+   `fresh-car-tap-50-30zd` reproduces on packs-224001b3. ROUND 30ze building
+   from c9768dbf (`output/device-round-2026-10-15ze/build.sh`, log there);
+   then: `bun scripts/sim.ts <packs>`, `--scenario=regressions --new=<packs>`
+   (fresh-car case must pass), `_seat_scale_check.ts <packs> --all`; device:
+   fresh McLaren at 25/50 % and 200 % tapped on BOTH phones before any ride
+   (Survival). Small leftovers from 30zd: at 25 % the chase camera sits low
+   and close; the Milano at 50 % did not descend on Back + Jump (Saga). Also open: 10797's blue cluster + brown
    oval on the grass N of its wall (Saga 30t e06, unchecked vs source);
    device leftovers `/data/local/tmp/craftmatic-deploy-*` (Saga) and the
    30r pack backups.
