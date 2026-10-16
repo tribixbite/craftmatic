@@ -1189,11 +1189,40 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     const fg = new ScaledColliderGrid(lane.cells, dims, f, rotation);
     for (const e of edits) for (const w of e.writes) fg.write(w.x, w.z, { ...w.block });
     const reach = walkScaledColliders(fg, undefined, SAFE_DROP16);
-    /** The walk over the forms with every run laid but `skip`, climbing only what auto-jump climbs (`AutoJumpGrid`). */
+    /**
+     * The forms with EVERY run laid, climbing only what auto-jump climbs (`AutoJumpGrid`), and the walk over them:
+     * the same for every run judged until one is reverted,
+     * so built once per revert (it was rebuilt per run, twice - here and in `gateway` - and was most of the pass's
+     * cost: 76417 at 300 % under the per-size carve, ~140 runs judged, 39 of a 57 s plan).
+     */
+    interface AllLaid { grid: AutoJumpGrid; reach: ReachResult; under: Map<RunEdit, Array<{ x: number; z: number; row: number; block: ColumnBlock | undefined }>> }
+    let allLaid: AllLaid | undefined;
+    const withEveryRun = (): AllLaid => {
+      if (!allLaid) {
+        // Laid run by run, keeping what each run's writes covered, so `formReach(e)` can lift one run off and back.
+        const grid = new AutoJumpGrid(lane.cells, dims, f, rotation);
+        const under = new Map<RunEdit, Array<{ x: number; z: number; row: number; block: ColumnBlock | undefined }>>();
+        for (const e of edits) {
+          under.set(e, e.writes.map(w => ({ x: w.x, z: w.z, row: w.block.row, block: grid.blockAt(w.x, w.z, w.block.row) })));
+          for (const w of e.writes) grid.write(w.x, w.z, { ...w.block });
+        }
+        allLaid = { grid, reach: walkScaledColliders(grid), under };
+      }
+      return allLaid;
+    };
+    /**
+     * The walk over the forms with every run laid but `skip`: the shared grid with that run's writes lifted off
+     * (what they covered put back) and laid again after. Exact because a run a later one writes over is never
+     * judged (it is that run's floor), so nothing laid after `skip` sits in its cells.
+     */
     const formReach = (skip?: RunEdit): ReachResult => {
-      const g = new AutoJumpGrid(lane.cells, dims, f, rotation);
-      for (const e of edits) if (e !== skip) for (const w of e.writes) g.write(w.x, w.z, { ...w.block });
-      return walkScaledColliders(g);
+      const all = withEveryRun();
+      if (!skip) return all.reach;
+      const g = all.grid, under = all.under.get(skip)!;
+      for (let i = under.length - 1; i >= 0; i--) { const u = under[i]!; if (u.block) g.write(u.x, u.z, { ...u.block }); else g.erase(u.x, u.z, u.row); }
+      const r = walkScaledColliders(g);
+      for (const w of skip.writes) g.write(w.x, w.z, { ...w.block });
+      return r;
     };
     const blocksOf = (skip?: RunEdit): TreadBlock[] => {
       const out = new Map<string, TreadBlock>();
@@ -1205,8 +1234,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
      * laid (climbing auto-jump's 1.2, `AutoJumpGrid`), those first reached over one of the run's treads.
      */
     const gateway = (e: RunEdit): number => {
-      const g = new AutoJumpGrid(lane.cells, dims, f, rotation);
-      for (const o of edits) for (const w of o.writes) g.write(w.x, w.z, { ...w.block });
+      const g = withEveryRun().grid;
       const own = new Set(e.treadSurfaces.map(q => g.key(q.x, q.z, q.t)));
       const via = new Map<number, boolean>();
       const queue: Surface[] = [];
@@ -1246,12 +1274,8 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       const withRun = blocksOf(), withoutRun = blocksOf(e);
       const worse = probes.some(pr => lane.walk(withRun, pr.from, pr.dir, LANE_CROSS) < lane.walk(withoutRun, pr.from, pr.dir, LANE_CROSS) - LANE_SLACK);
       if (!worse) continue;
-      // Kept when it is the GATEWAY to enough of the model: 21063's east-flank run at 200 % is the first way to 115
-      // surfaces (the road and the lawn the Pixel walked to in round 30zi); removed, the climb there stopped 3.7
-      // blocks up instead of 8.1, though a grid walk found other ways round. 76419's boathouse run is the first way
-      // to 8, a hut roof, and goes.
-      if (gateway(e) >= Math.max(CROSS_GATEWAY_MIN, CROSS_GATEWAY_PER_TREAD * e.columns.length)) continue;
-      // Kept when the walk over the FORMS loses any surface without it (bar its own tread tops): a climb is worth
+      // Kept when the walk over the FORMS loses any surface without it (bar its own tread tops; judged before the
+      // gateway, which costs a walk of its own and only matters for a run that loses nothing): a climb is worth
       // its sides. Judged on the full-cell grid, a wall's rim read as a floor offered a way round that the shipped
       // forms do not, and 21061's 150 % reach fell 8.46 -> 4.25 blocks. The walk climbs only auto-jump's 1.2, as a
       // child on touch does: with the jump's 1.25 it found a way up 21063's east flank at 200 % without the run
@@ -1262,12 +1286,18 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       let lost = false;
       for (const k of reachWith.visited) if (!own.has(k) && !reachWithout.visited.has(k)) { lost = true; break; }
       if (lost) continue;
+      // Kept when it is the GATEWAY to enough of the model: 21063's east-flank run at 200 % is the first way to 115
+      // surfaces (the road and the lawn the Pixel walked to in round 30zi); removed, the climb there stopped 3.7
+      // blocks up instead of 8.1, though a grid walk found other ways round. 76419's boathouse run is the first way
+      // to 8, a hut roof, and goes.
+      if (gateway(e) >= Math.max(CROSS_GATEWAY_MIN, CROSS_GATEWAY_PER_TREAD * e.columns.length)) continue;
       // Never block on the full-cell grid too; what the other runs climb to is judged on the forms above (the
       // lane runs were proved there, and the full-cell reading can strand one the forms still reach).
       revert(e); edits.splice(i, 1);
       if (!neverBlocks(walkScaledColliders(grid), true)) { edits.splice(i, 0, e); apply(e); continue; }
       refuse(e.run.from, e.run.to, 'verify');
       reverted = true;
+      allLaid = undefined;
     }
     // The second guard pass reads the lane pass's form grid: lay it again without the reverted runs.
     if (reverted && formGrid) {
