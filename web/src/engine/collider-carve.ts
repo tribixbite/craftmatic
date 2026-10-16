@@ -44,8 +44,15 @@ import { ScaledColliderGrid, colliderPairIndex, colliderPairOf, scaledDims, type
 /** A drawn box in model blocks at 100 % from the pin corner, unturned: [x0, x1, y0, y1, z0, z1]. */
 export type ModelBox = readonly [number, number, number, number, number, number];
 
-/** The sizes a carve is planned for (whole factors; see the module header). */
-export const CARVE_SIZES: readonly number[] = [200, 300, 400];
+/**
+ * The sizes a carve is planned for (whole factors; see the module header). Not 200 %: there the carve reshapes
+ * the whole tread plan, and every device-proven route of the microscale sets was lost with it (2026-10-16,
+ * packs `output/scale06-1016/carve2/`: 76419's boathouse slip walled again by one fine run after another as the
+ * cross pass reverted each, 21063's east-flank lawn route 8.13 -> 1.88 blocks), for a fan walk no better than
+ * the uncarved plan's. At 300 % it is the gain the carve exists for (lanes over 5 blocks: 76419 15 -> 24,
+ * 21063 11 -> 17, 21061 11 -> 30).
+ */
+export const CARVE_SIZES: readonly number[] = [300, 400];
 
 /** Whether a size gets a carve. */
 export const carvesAt = (sizePct: number): boolean => CARVE_SIZES.includes(sizePct);
