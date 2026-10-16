@@ -964,6 +964,22 @@ within half a block (`FINE_REACH_TOLERANCE16`); such runs carry `fine: true`
 in `craftmatic-treads.json`. Measured in memory on 21063 (index first pick):
 highest reached 1.25 -> 8.13 blocks (at 100 %) at 200 %, 0.31 -> 8.13 at 300 %.
 
+**The cross pass** (SCALE-06, Saga round 30zi, `crossPass`). A fine run sits
+where the per-tick player may already walk (the forms and drawn studs climb
+where the grid reads a wall), and a run is a one-column staircase whose sides
+are as tall as its treads: 76419's fine runs along its south plate row at
+200 % walled the boathouse slip three blocks high, and the Saga stopped against
+one where 30zg had walked up the shore. After the lane pass, a fine run is
+reverted when its side shortens a straight walk from the GROUND into a column
+it writes (`crossLaneProbes`, the lane pass's probes, over the forms with every
+other tread laid), unless the form-grid walk loses any surface without it, a
+later run writes over it, or the unassisted walk is blocked. Ground walks only:
+judged from every reached floor it also took 76419's 300 % hill runs (the shore
+climb 7.25 -> 4.44); run before the lane pass it took the runs 21061's lane
+climb starts from (150 %: 8.46 -> 4.46). Guard: test/bedrock-collider-treads
+"a fine run along a plate row". The jump-rule runs are not judged
+(TODO cross-pass-main).
+
 **Entrances** (SCALE-06, 2026-10-15). The walk-through recommendation counts
 an opening as an ENTRANCE only when one side is the outside (flooded from the
 grid's sides level by level, every counted opening's passage closed) and the

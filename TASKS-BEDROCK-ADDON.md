@@ -112,51 +112,42 @@ The round-30m fixes on the phones:
      hotbar. A Pixel 25 % dismount logged "native" (1.0 from the root): by
      design - `vehicleEgress` keeps the game's own set-down when it is
      already outside the (0.9-long) hull on walkable ground.
-   - SCALE-06 (the user 2026-10-14: scaling is for microscale sets) FAILS ON
-     DEVICE (round 30zg Pixel, `output/device-round-2026-10-15zg/pixel/notes.md`,
-     packs `output/scale06-1015/packs-d9d3380f/`): 21063 and 21061 at 200 %
-     and 300 % - 0/12 openings walked in, 21063's hill unclimbable from the
-     ground on all sides (road foot 5 blocks up), 21061's plate riser stops
-     the player on N/W at 300 %; interiors reached only by /tp. Saga 30zg
-     (`saga/notes.md`): 76419 0/5 openings at 200 % (classroom ceiling under
-     the head, boathouse door ~1 wide, north edge full colliders, chamber 2
-     up), rock stairs reach 5 of 22 blocks; 300 % walks under the viaduct
-     only, at 20-25 fps; 21061 0/3 doors at 200 %. Saga-reported invisible
-     walls (76419 x 9999 z 9381; 21061 south plaza x 10300 z 9389) and LOD
-     gaps (76419 west wing undrawn at 30 blocks at 300 %) under offline
-     diagnosis (`output/scale06-1015/diag-saga/`). Causes (diag `output/scale06-1015/diag-21063/`, the
-     agent's report in this session): (A) the 1-block collider grid reads a
-     one-stud rock staircase as a cliff, so `planRunCore`'s 100 % rule skips
-     every rise onto the hill; (B) a model flush with the grid border has no
-     floor to lay a run on (`no-run`); (C) `recommendAccessScale` counts
-     interior arcades as doorways (21061's 57/196 are the nave's column
-     arches; its outside doors are DRAWN leaves on solid walls). Measured:
-     A+B give 21063 a walked route to road and lawn at 200/300 % (reach 8.13
-     at 100 %; 1,356 / 2,590 tread+guard blocks). A+B+C COMMITTED 863361f7
-     (guards: test/bedrock-collider-treads.test.ts "SCALE-06: the fine reach
-     walk and the border margin"; test/bedrock-scene-actors.test.ts "interior
-     arcade ... 0 entrances"). Offline after: 21063 highest 1.69 -> 8.13 at
-     200/300 % (road reached, per-tick walker stops short of the courtyard);
-     21061 0 entrances (doors drawn), 8.44 at 200 % but 2.88 at 300 %
-     (363 no-run, 57 headroom); 76419 3 entrances, 6.88. EVERY brick-shell
-     margin narrowed in 885bdaad to sides where the fine walk stood on a border
-     step 0.3125-1.25 up (13 of 25 sets get one, per side; diagnostics warn
-     "Border margin"); sim cases read spots from the MODEL corner; a coaster
-     rider leaving a car in the air gets slow falling (SEAT-05, offline).
-     ROUND 30zi ON BOTH PHONES (`output/device-round-2026-10-15zi/packs-885bdaad`,
-     sim 150/150, regressions 38/0 failed, seats ok; briefs beside it):
-     Pixel 21063 hill/road/lawn/courtyard + 10303 air dismount; Saga 21061
-     plate N/W + wand text, 76419 entrances/climb/north edge. Then record.
-     NEXT (the general fix, Saga diag `output/scale06-1015/diag-saga/`): the
-     colliders are the 100 % 1-block grid scaled up, so anything sub-player
-     at 100 % stays sealed at every size (76419's colonnade 0.6 wide at 100 %
-     is 1.25-1.5 gaps at 200 % yet full collider; a thin wall band fills its
-     whole cell and becomes a full invisible column over open air; a cell
-     holding a lip and a room floor takes the floor's height). Lay colliders
-     PER SIZE from the drawn part boxes at the player's resolution (cost:
-     more collider data per size step). Also 21061 run 4 climbs a 0.6x0.5
-     tree part (a tread to a sub-player target). Open design question: an
-     interior whose doors are only drawn (21061 nave, 21063 Palas).
+   - SCALE-06 (the user 2026-10-14: scaling is for microscale sets; REQUIREMENTS
+     row has the evidence). Round 30zi on both phones (packs 885bdaad,
+     `output/device-round-2026-10-15zi/{pixel,saga}/notes.md`): 21063 at 200 %
+     ground -> east plate strip -> east flank -> road -> lawn ON FOOT (Pixel,
+     ~12 legs, trees on the road block twice); 300 % only 10.3 up, road 0/9;
+     courtyard 0/14 both sizes (drawn doors). 21061: wand text "No entrance at
+     any size", 300 % plate 6/6 sides stepped up, 200 % south plaza 2/2.
+     76419: 300 % north edge 2/2, shore climb 5.6 (200 %) / 10 (300 %) blocks,
+     200 % entrances 0/4 (the wand's "1/3 clear it" one not found), 300 %
+     15 fps under the viaduct (30zg 25; memory near full), west half drawn as
+     hull at 22-35 blocks. REGRESSION found: 76419's boathouse slip at 200 %
+     walled 3 blocks high by the SIDE of a fine tread run along the south plate
+     row (fine runs, 863361f7). FIXED offline (`git log --grep="cross pass"`): the CROSS PASS
+     (`crossPass`, after the lane pass) reverts a fine run whose side shortens a
+     straight walk in from the ground, unless the form-grid walk loses a surface
+     without it; guard test/bedrock-collider-treads.test.ts "a fine run along a
+     plate row". Offline: `bun scripts/_walk_line.ts <76419 pack> --x=7.5,8.5,9.5
+     --from=35.5 --to=18 --size=200` reaches the shore (885bdaad pack: stops at
+     28.3); grid reach unchanged on 76419/21063/21061 (scratch
+     `reach_shipped.ts`, packs `output/scale06-1015/boathouse/pack-cross8/`).
+     NEXT: round 30zj (commit, rebuild, sim, regressions, seats; device recheck
+     76419 boathouse at 200 %, 21063 300 % road). Then the general fix: the
+     colliders are the 100 % grid scaled up, so a gap sub-player at 100 % stays
+     sealed at every size (76419's colonnade; thin wall bands become full
+     columns; a cell with a lip and a room floor takes the floor) - lay
+     colliders PER SIZE from the drawn part boxes (Saga diag
+     `output/scale06-1015/diag-saga/`). Also: 21061 run 4 climbs a 0.6x0.5
+     tree part; the jump-rule runs are not cross-judged (TODO cross-pass-main);
+     design question: interiors whose doors are only drawn (21061 nave, 21063
+     Palas). SEAT-05: coaster air dismount floats on the Pixel (lift top, loop:
+     no damage); one float applied to a player standing on 10303's run-out.
+   - Phones, 30zi: the Pixel runs Minecraft 26.52 and world 924 now asks "Load
+     experimental world?" (choose Load anyway; cause unchecked). The Saga's
+     Play list shows the Pixel's LAN world 924 FIRST while a Pixel round runs:
+     open 925 by its own tile, never "the first tile" (the Saga agent's
+     flushlog.sh joined the Pixel's world for ~50 s, 20:41).
    - Device-tool lesson (Saga 30ze): the old two-finger `stickjump.sh` never
      delivers Jump (telemetry `jump:false`); use
      `output/device-round-2026-10-15ze/saga/tools/jumpstick.sh` (Jump first,
