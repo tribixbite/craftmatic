@@ -142,6 +142,12 @@ describe('collider carve (SCALE-06)', () => {
     expect(planSizeCarve(cells, dims, 100, 0, jambs).size).toBe(0);
   });
 
+  it('ships a carve at 300 and 400 % but not at 200 %, where it lost every device route of the microscale sets (2026-10-16)', () => {
+    expect(carvesAt(200)).toBe(false);
+    expect(carvesAt(300)).toBe(true);
+    expect(carvesAt(400)).toBe(true);
+  });
+
   it('turns a model box the way the wand turns a cell', () => {
     const d = { width: 4, height: 1, length: 6 };
     for (const r of QUARTER_TURNS) for (let x = 0; x < d.width; x++) for (let z = 0; z < d.length; z++) {
