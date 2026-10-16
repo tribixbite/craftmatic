@@ -126,13 +126,26 @@ describe('collider carve (SCALE-06)', () => {
   });
 
   it('leaves a cell invisible on purpose (an access stair, a filled sill: nothing drawn there) exactly as laid', () => {
-    const stair: SourceCell[] = [{ x: 1, y: 0, z: 1, lo: 0, hi: 8 }, ...cells];
-    const carve = planSizeCarve(stair, dims, 200, 0, jambs, new Set(['1,0,1']));
-    for (let x = 2; x <= 3; x++) for (let z = 2; z <= 3; z++) expect(carve.has(`${x},0,${z}`), `stair ${x},${z}`).toBe(false);
+    // A tread a row up (on the bottom row it would be a ground plate, which no carve touches).
+    const stair: SourceCell[] = [{ x: 1, y: 1, z: 1, lo: 0, hi: 8 }, ...cells];
+    const carve = planSizeCarve(stair, dims, 200, 0, jambs, new Set(['1,1,1']));
+    for (let x = 2; x <= 3; x++) for (let z = 2; z <= 3; z++) expect(carve.has(`${x},2,${z}`), `stair ${x},${z}`).toBe(false);
     // Unprotected, the same stair would be carved away (it holds no drawn geometry).
-    expect(planSizeCarve(stair, dims, 200, 0, jambs).get('2,0,2')).toBeNull();
+    expect(planSizeCarve(stair, dims, 200, 0, jambs).get('2,2,2')).toBeNull();
     // The doorway cell is still carved.
     expect(carve.has('4,0,4')).toBe(true);
+  });
+
+  it('leaves a ground plate as laid, drawn or not: nothing falls under it, and trimming it re-planned the treads across 21063\'s east plate strip (300 %)', () => {
+    // A plate cell (5/16 high) whose drawn plate covers only its first third: at 300 % the laid plate spans three
+    // columns, the outer two over nothing drawn.
+    const plate: SourceCell[] = [{ x: 0, y: 0, z: 0, lo: 0, hi: 5 }];
+    const drawn: ModelBox[] = [[0, 1 / 3, 0, 5 / 16, 0, 1]];
+    const carve = planSizeCarve(plate, { width: 1, height: 1, length: 1 }, 300, 0, drawn);
+    expect(carve.size).toBe(0);
+    // Lifted one 100 % row, the same plate is carved to its drawn third.
+    const raised = planSizeCarve([{ x: 0, y: 1, z: 0, lo: 0, hi: 5 }], { width: 1, height: 2, length: 1 }, 300, 0, [[0, 1 / 3, 1, 1 + 5 / 16, 0, 1]]);
+    expect(raised.get('2,3,0')).toBeNull();
   });
 
   it('carves whole sizes only: nothing at 150 % (a re-laid wall can sit half a block off its geometry) or below 100 %', () => {

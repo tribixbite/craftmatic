@@ -54,8 +54,11 @@ export type ModelBox = readonly [number, number, number, number, number, number]
  */
 export const CARVE_SIZES: readonly number[] = [300, 400];
 
-/** Whether a size gets a carve. */
+/** Whether a size gets a carve in a pack (`CARVE_SIZES`). */
 export const carvesAt = (sizePct: number): boolean => CARVE_SIZES.includes(sizePct);
+
+/** Whether a carve CAN be planned at a size: a whole factor of 2 or more (see the module header). */
+export const carvableAt = (sizePct: number): boolean => sizePct >= 200 && sizePct % 100 === 0;
 
 /**
  * A model box turned with the wand (`rotatedCell`'s map, for continuous coordinates): a point at (px, pz)
@@ -73,14 +76,14 @@ const volume = (boxes: ReadonlyArray<readonly number[]>): number => boxes.reduce
 
 /**
  * The carve for one size and turn: world block key `x,y,z` (from the pin, at this size and turn) -> its new
- * form, or null for air. Empty below the carve sizes. `boxes` are the drawn boxes in model blocks at 100 %.
+ * form, or null for air. Empty where no carve can be planned (`carvableAt`); which sizes ship one is `carvesAt`. `boxes` are the drawn boxes in model blocks at 100 %.
  * `protect`: source cells (`x,y,z`, the unturned grid) that are invisible ON PURPOSE - an access stair, a
  * threshold tread, a filled sill, a drop guard: what the planners laid past the drawn geometry. Nothing is drawn
  * there, so a carve would delete them; every block such a cell lays is left as it is.
  */
 export function planSizeCarve(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, boxes: readonly ModelBox[], protect?: ReadonlySet<string>): Map<string, ColliderForm | null> {
   const out = new Map<string, ColliderForm | null>();
-  if (!carvesAt(sizePct) || !cells.length) return out;
+  if (!carvableAt(sizePct) || !cells.length) return out;
   const f = sizePct / 100;
   const laid = scaledDims(dims, f, rotation);
   // The laid pieces per world block, exactly as the runtime gathers them (`placeColliders`).
@@ -122,6 +125,12 @@ export function planSizeCarve(cells: readonly SourceCell[], dims: GridDims, size
     const own = COLLIDER_KIT.formBoxes(form.v, form.lo, form.hi);
     const [wx, wy, wz] = key.split(',').map(Number) as [number, number, number];
     const surface = standsOn(wx, wy, wz);
+    // A GROUND PLATE stays as laid: a standing surface on the bottom row (at most a block up, an auto-jump). Nothing
+    // can fall under it, so a carve gains no passage there, and trimming it re-planned the treads around it:
+    // 21063's east plate strip at 300 % lost its outer column (a full 100 % cell over the plate's drawn edge),
+    // the planner laid fine runs up across the strip from the ground beside it, and the flank the Pixel climbed
+    // 10.3 blocks (round 30zi) was walled off at z 40.
+    if (surface && wy === 0) continue;
     const cut: Box16[] = [];
     for (const t of byColumn.get(colKey(wx, wz)) ?? []) {
       // The drawn box in this block's sixteenths, rounded outward.
