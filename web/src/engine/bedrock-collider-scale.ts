@@ -1010,12 +1010,17 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
   /**
    * Every surface the unassisted walk reached still is, save a floor a tread now covers. `laneToo`: a lane run's
    * tread covers a floor as well (the lane pass keeps its floors apart from `treadFloor`; after it, the cross pass).
+   * `prior`: judge only what a change TAKES - a surface reached before the change and not after. The cross pass
+   * passes the walk as the grid stood before its revert: a lane run's treads can also cover a second surface in
+   * a column (a ledge over its floor), which neither exemption names, so the absolute check was already false
+   * when the cross pass started and every revert was refused (76419 at 200 % under the per-size carve: the
+   * boathouse run stood, every turn).
    */
-  const neverBlocks = (after: ReachResult, laneToo = false): boolean => {
+  const neverBlocks = (after: ReachResult, laneToo = false, prior?: ReachResult): boolean => {
     const laneFloors = new Set<string>();
     if (laneToo) for (const e of edits) if (e.run.lane) for (const c of e.columns) laneFloors.add(`${c.x},${c.z},${c.floor16}`);
     for (const k of before.visited) {
-      if (after.visited.has(k)) continue;
+      if (after.visited.has(k) || (prior && !prior.visited.has(k))) continue;
       const { x, z, t } = grid.unkey(k);
       if (treadFloor.get(colKey(x, z)) !== t && !laneFloors.has(`${x},${z},${t}`)) return false;
     }
@@ -1205,7 +1210,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
    * that run (`LANE_CROSS`, `LANE_SLACK`), over the shipped forms with every other tread laid. A run that shortens
    * one is reverted, newest first, unless it is the gateway to enough of the model (`CROSS_GATEWAY_PER_TREAD`),
    * the walk over the forms (climbing auto-jump's 1.2) then loses any surface (a climb is worth its sides), a
-   * later run writes over it (it is that run's floor), or the unassisted walk is blocked. It runs after
+   * later run writes over it (it is that run's floor), or its removal takes a surface the unassisted walk reached. It runs after
    * the lane pass because a lane run can climb on from a fine run's top (21061 at 150 %: 8.46 -> 4.46 blocks when
    * it ran before). A reverted run is counted `verify`. Without `lane` (the grid-only callers) it checks nothing.
    * TODO(cross-pass-main): the jump-rule runs are not judged (76419 has one along the same row at x 16-19, a
@@ -1291,8 +1296,9 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       if (lost) continue;
       // Never block on the full-cell grid too; what the other runs climb to is judged on the forms above (the
       // lane runs were proved there, and the full-cell reading can strand one the forms still reach).
+      const prior = walkScaledColliders(grid);
       revert(e); edits.splice(i, 1);
-      if (!neverBlocks(walkScaledColliders(grid), true)) { edits.splice(i, 0, e); apply(e); continue; }
+      if (!neverBlocks(walkScaledColliders(grid), true, prior)) { edits.splice(i, 0, e); apply(e); continue; }
       refuse(e.run.from, e.run.to, 'verify');
       reverted = true;
     }
