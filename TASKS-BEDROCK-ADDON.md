@@ -132,13 +132,36 @@ The round-30m fixes on the phones:
      --from=35.5 --to=18 --size=200` reaches the shore (885bdaad pack: stops at
      28.3); grid reach unchanged on 76419/21063/21061 (scratch
      `reach_shipped.ts`, packs `output/scale06-1015/boathouse/pack-cross8/`).
-     NEXT: round 30zj (commit, rebuild, sim, regressions, seats; device recheck
-     76419 boathouse at 200 %, 21063 300 % road). Then the general fix: the
-     colliders are the 100 % grid scaled up, so a gap sub-player at 100 % stays
-     sealed at every size (76419's colonnade; thin wall bands become full
-     columns; a cell with a lip and a room floor takes the floor) - lay
-     colliders PER SIZE from the drawn part boxes (Saga diag
-     `output/scale06-1015/diag-saga/`). Also: 21061 run 4 climbs a 0.6x0.5
+     The first cross pass (d70923aa, round 30zj packs `output/device-round-2026-10-15zj/`
+     - SUPERSEDED, never deployed) also took 21063's east-flank run at 200 % (the
+     30zi lawn route stopped 3.7 blocks up instead of 8.1); the GATEWAY rule keeps
+     a run that is the first way to >= 3 surfaces per tread (flank 115, kept;
+     boathouse 8, reverted). Offline check of any change here, all three must hold:
+     `bun scripts/_walk_line.ts <76419> --x=7.5,8.5,9.5 --from=35.5 --to=18 --size=200`
+     (x 8.5/9.5 REACHED 17.9), `<21063> --x=20.9,20.5,20.3 --from=30.45 --to=13
+     --y=0.62 --size=200` (20.5/20.3 reach 13.3, highest 8.13), `<76419> --x=31.5
+     --from=60 --to=20 --size=300` (highest 7.25). ROUND 30zk PASSED on both phones (2026-10-16:
+     Saga boathouse 4/4, no regressions; Pixel lawn route 1/2 on foot, 300 % unchanged;
+     `output/device-round-2026-10-15zk/{saga,pixel}/notes.md`, recorded in REQUIREMENTS).
+     Then the
+     general fix, PER-SIZE CARVE, built and PARKED on branch `scale06-carve`
+     (worktree `.worktrees/carve`; `web/src/engine/collider-carve.ts`,
+     test/collider-carve.test.ts; prototype and fan walk
+     `output/scale06-1015/carve1/tools/{carve_probe,fan_walk}.ts <pack> <pct>`):
+     at each whole size >= 200 % every laid block is cut to the drawn part boxes
+     inside it (never adds; cells the planners laid past the geometry - stairs,
+     sills, guards - kept; a standing surface keeps its footprint; the highest
+     cut band under an uncovered block is capped - the shaft rule), planned
+     under the treads and applied by the runtime. Fan walk (lanes over 5 blocks,
+     falls > 3) vs the current pipeline: 300 % 76419 17 -> 24, 21063 11 -> 27,
+     21061 11 -> 32 (falls 0 -> 0); 200 % 21063 over-2 26 -> 41 but 76419
+     over-5 13 -> 7 (south shore climb lost, boathouse run back: kept by the
+     never-block check under the carve). The 76419 "1/3 clear" entrance did NOT
+     open (drawn solid at x 29-32 z 12-15, likely a drawn door). Data: carve
+     3k/9.7k/19.8k edits per turn at 200/300/400 % (placement.js 0.32 -> 1.33
+     MB; turns are equivariant - TODO ship turn 0 only). Open before merging:
+     the 200 % losses, the branch rebased on the gateway rule, a full sweep,
+     sim + regressions, a device round. Also: 21061 run 4 climbs a 0.6x0.5
      tree part; the jump-rule runs are not cross-judged (TODO cross-pass-main);
      design question: interiors whose doors are only drawn (21061 nave, 21063
      Palas). SEAT-05: coaster air dismount floats on the Pixel (lift top, loop:

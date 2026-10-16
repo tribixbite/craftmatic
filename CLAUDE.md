@@ -245,6 +245,17 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   edge; the "no stair used it" rerun drops only the stair's share. Read `dims` /
   `accessMargin` from the pack, never assume the grid is the model's bounds; the
   simulator replays device spots from the model's corner (`Placed.corner`).
+- **A tread run's SIDE is a wall, and a fix for one device route can take
+  another.** A run is a one-column staircase; its sides are as tall as its
+  treads. 76419's fine run along its south plate row walled off the boathouse
+  slip at 200 % (Saga 30zi); the cross pass that reverts such runs first took
+  21063's east-flank run too, the only route the Pixel walked to the lawn,
+  because a GRID walk (1.25 jumps, any detour) found another way up. The gateway
+  rule keeps a run that is the first way to >= 3 surfaces per tread
+  (`crossPass`, `CROSS_GATEWAY_PER_TREAD`). Judge any tread-planner change with
+  the per-tick walker on EVERY device-proven route of the microscale sets (the
+  three `_walk_line.ts` lines in TASKS "Start here" SCALE-06), never one route
+  and never grid reach alone.
 - **Build packs one at a time and read `substitutedParts` / `unresolvedParts`.**
   Parallel CLI exports drew the 429 above and shipped parts as aliases or
   AABBs without failing. Without `ldraw_ref/`, point the CLI at a running dev
