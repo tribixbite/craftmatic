@@ -715,11 +715,13 @@ interface RunEdit {
 const noVisited = (r: ReachResult): Omit<ReachResult, 'visited'> => ({ surfaces: r.surfaces, columns: r.columns, highest16: r.highest16 });
 
 /**
- * A cross probe whose feet start at most this high (blocks) starts on the GROUND: on it, or on a floor a step
- * over it (`crossLaneProbes` puts feet 0.01 over a floor). A step, not zero: the per-size carve leaves a plate's
- * outer edge a sixteenth or two high (76419's south row at 200 %), and the way in from outside starts there.
+ * A cross probe whose feet start at most this high (blocks) starts on the GROUND: on it, or on a floor one
+ * auto-jump over it (`crossLaneProbes` puts feet 0.01 over a floor). Not zero: the per-size carve leaves a plate
+ * yard 10/16 high (76419's boathouse slip at 200 %: a run along row z 25 walled it off from there, and a step's
+ * 9/16 missed it), and the way in from outside starts there. Not every floor: the hill runs above 76419's south
+ * shore at 300 % climb more than their sides cost.
  */
-const GROUND_PROBE_Y = STEP16 / 16 + 0.01;
+const GROUND_PROBE_Y = AUTO_JUMP16 / 16 + 0.01;
 /**
  * A fine run the cross pass would revert is kept when it is the first way (breadth first from the ground) to at
  * least this many surfaces per tread, and to `CROSS_GATEWAY_MIN` at least (`crossPass`'s `gateway`): measured,
