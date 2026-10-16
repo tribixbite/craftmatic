@@ -715,13 +715,13 @@ interface RunEdit {
 const noVisited = (r: ReachResult): Omit<ReachResult, 'visited'> => ({ surfaces: r.surfaces, columns: r.columns, highest16: r.highest16 });
 
 /**
- * A cross probe whose feet start at most this high (blocks) starts on the GROUND: on it, or on a floor one
- * auto-jump over it (`crossLaneProbes` puts feet 0.01 over a floor). Not zero: a base plate is the way in from
- * outside, and at 300 % under the per-size carve 21063's east plate strip stands 15/16 high - a run laid across
- * it at z 39-42 walled off the flank the Pixel climbed (round 30zi: 10.3 blocks), and a step's 9/16 missed it.
- * Not every floor: the hill runs above 76419's south shore at 300 % climb more than their sides cost.
+ * A cross probe whose feet start at most this high (blocks) starts on the GROUND: on it, or on a floor a step
+ * over it (`crossLaneProbes` puts feet 0.01 over a floor). A step, not zero: the per-size carve leaves a plate's
+ * outer edge a sixteenth or two high, and the way in from outside starts there. Not one auto-jump (tried twice,
+ * 2026-10-16, packs `output/scale06-1016/carve2/`): it reverted runs that other device routes stand on - at
+ * 200 % 76419's boathouse wall came back from the next run along, and 21063's lanes over 2 blocks fell 26 -> 20.
  */
-const GROUND_PROBE_Y = AUTO_JUMP16 / 16 + 0.01;
+const GROUND_PROBE_Y = STEP16 / 16 + 0.01;
 /**
  * A fine run the cross pass would revert is kept when it is the first way (breadth first from the ground) to at
  * least this many surfaces per tread, and to `CROSS_GATEWAY_MIN` at least (`crossPass`'s `gateway`): measured,
