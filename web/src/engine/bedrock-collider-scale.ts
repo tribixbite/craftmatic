@@ -714,14 +714,20 @@ interface RunEdit {
 
 const noVisited = (r: ReachResult): Omit<ReachResult, 'visited'> => ({ surfaces: r.surfaces, columns: r.columns, highest16: r.highest16 });
 
+/** A LEGO plate's height at 100 % on a microscale set (sixteenths): 21063's east plate strip, 76419's south yard. */
+const PLATE16_AT_100 = 5;
 /**
- * A cross probe whose feet start at most this high (blocks) starts on the GROUND: on it, or on a floor a step
- * over it (`crossLaneProbes` puts feet 0.01 over a floor). A step, not zero: the per-size carve leaves a plate's
- * outer edge a sixteenth or two high, and the way in from outside starts there. Not one auto-jump (tried twice,
- * 2026-10-16, packs `output/scale06-1016/carve2/`): it reverted runs that other device routes stand on - at
- * 200 % 76419's boathouse wall came back from the next run along, and 21063's lanes over 2 blocks fell 26 -> 20.
+ * A cross probe whose feet start at most this high (blocks) starts on the GROUND, the way in from outside
+ * (`crossLaneProbes` puts feet 0.01 over a floor): on it or a step over it (a carved plate edge sits a
+ * sixteenth or two high); under a per-size carve (`carved`), on a base plate at the size, at most an auto-jump.
+ * At 300 % 21063's east plate strip stands 15/16 high, and one fine run laid across its whole width at z 42
+ * walled off the flank the Pixel climbed (round 30zi: 10.3 blocks) while a step's 9/16 never probed it. Without
+ * a carve (200 %) the plate's 10/16 changed the device-proven routes' plan (21063's lanes over 2 blocks 26 -> 20,
+ * 2026-10-16), so it stays a step there until a device round judges it. Not every floor: the hill runs above
+ * 76419's south shore at 300 % climb more than their sides cost.
  */
-const GROUND_PROBE_Y = STEP16 / 16 + 0.01;
+const groundProbeY = (f: number, carved: boolean): number =>
+  (carved ? Math.min(AUTO_JUMP16, Math.max(STEP16, Math.round(PLATE16_AT_100 * f))) : STEP16) / 16 + 0.01;
 /**
  * A fine run the cross pass would revert is kept when it is the first way (breadth first from the ground) to at
  * least this many surfaces per tread, and to `CROSS_GATEWAY_MIN` at least (`crossPass`'s `gateway`): measured,
@@ -1275,7 +1281,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       // Only walks that start on the GROUND: the way in from outside. Judged on every reached floor, the pass also
       // took the hill runs above 76419's south shore at 300 % (the straight climb there 7.25 -> 4.44 blocks), and
       // those climb more than their sides cost.
-      const probes = crossLaneProbes(fg, reach, e.columns).filter(pr => pr.from.y <= GROUND_PROBE_Y + 1e-9);
+      const probes = crossLaneProbes(fg, reach, e.columns).filter(pr => pr.from.y <= groundProbeY(f, !!carve?.size) + 1e-9);
       if (!probes.length) continue;
       const withRun = blocksOf(), withoutRun = blocksOf(e);
       const worse = probes.some(pr => lane.walk(withRun, pr.from, pr.dir, LANE_CROSS) < lane.walk(withoutRun, pr.from, pr.dir, LANE_CROSS) - LANE_SLACK);
