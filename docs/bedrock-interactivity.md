@@ -972,13 +972,20 @@ are as tall as its treads: 76419's fine runs along its south plate row at
 one where 30zg had walked up the shore. After the lane pass, a fine run is
 reverted when its side shortens a straight walk from the GROUND into a column
 it writes (`crossLaneProbes`, the lane pass's probes, over the forms with every
-other tread laid), unless the form-grid walk loses any surface without it, a
-later run writes over it, or the unassisted walk is blocked. Ground walks only:
+other tread laid), unless it is the GATEWAY to enough of the model (breadth
+first from the ground, the first way to `CROSS_GATEWAY_PER_TREAD` 3 surfaces per
+tread and 16 at least), the form-grid walk climbing only auto-jump's 1.2
+(`AutoJumpGrid`) loses any surface without it, a later run writes over it, or
+the unassisted walk is blocked. Measured: the boathouse run is the first way to
+8 surfaces (a hut roof) and goes; 21063's east-flank run at 200 % is the first
+way to 115 (the road and lawn the Pixel walked to in round 30zi) and stays -
+without the gateway rule the pass took it (a grid walk found other ways up) and
+the flank climb stopped 3.7 blocks up instead of 8.1. Ground walks only:
 judged from every reached floor it also took 76419's 300 % hill runs (the shore
 climb 7.25 -> 4.44); run before the lane pass it took the runs 21061's lane
-climb starts from (150 %: 8.46 -> 4.46). Guard: test/bedrock-collider-treads
-"a fine run along a plate row". The jump-rule runs are not judged
-(TODO cross-pass-main).
+climb starts from (150 %: 8.46 -> 4.46). Guards: test/bedrock-collider-treads
+"a fine run along a plate row", "a fine run that is the gateway". The jump-rule
+runs are not judged (TODO cross-pass-main).
 
 **Entrances** (SCALE-06, 2026-10-15). The walk-through recommendation counts
 an opening as an ENTRANCE only when one side is the outside (flooded from the

@@ -512,6 +512,17 @@ export class ScaledColliderGrid {
   }
 }
 
+/**
+ * The scaled grid with the jump of AUTO-JUMP (`AUTO_JUMP16`, 1.2) instead of the jump button's (1.25): what a
+ * player who only walks climbs - adb's one finger and a child on touch. The cross pass judges what a run's
+ * removal loses with it (`crossPass`).
+ */
+class AutoJumpGrid extends ScaledColliderGrid {
+  override canRise(x: number, z: number, t: number, t2: number): boolean {
+    return t2 - t <= AUTO_JUMP16 && super.canRise(x, z, t, t2);
+  }
+}
+
 // ─── The reach walk ──────────────────────────────────────────────────────────
 
 export interface ReachResult {
@@ -684,6 +695,12 @@ const noVisited = (r: ReachResult): Omit<ReachResult, 'visited'> => ({ surfaces:
 
 /** A cross probe whose feet start under this (blocks) starts on the ground (`crossLaneProbes` puts feet 0.01 over a floor). */
 const GROUND_PROBE_Y = 1 / 16;
+/**
+ * A fine run the cross pass would revert is kept when it is the first way (breadth first from the ground) to at
+ * least this many surfaces per tread, and to `CROSS_GATEWAY_MIN` at least (`crossPass`'s `gateway`): measured,
+ * 21063's flank run 115 for 8 treads (kept), 76419's boathouse run 8 for 8 (reverted).
+ */
+const CROSS_GATEWAY_PER_TREAD = 3, CROSS_GATEWAY_MIN = 16;
 /** A straight walk a run must leave no shorter (`crossLaneProbes`): feet start (world blocks from the pin) and direction. */
 interface CrossProbe { from: { x: number; y: number; z: number }; dir: { x: number; z: number } }
 /**
@@ -1159,8 +1176,9 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
    * up the shore. So, after the lane pass, every fine run must leave each straight walk from the GROUND into a
    * column it writes, from two columns out along x and z (`crossLaneProbes`), no shorter than it was without
    * that run (`LANE_CROSS`, `LANE_SLACK`), over the shipped forms with every other tread laid. A run that shortens
-   * one is reverted, newest first, unless the walk over the forms then loses any surface (a climb is worth its
-   * sides), a later run writes over it (it is that run's floor), or the unassisted walk is blocked. It runs after
+   * one is reverted, newest first, unless it is the gateway to enough of the model (`CROSS_GATEWAY_PER_TREAD`),
+   * the walk over the forms (climbing auto-jump's 1.2) then loses any surface (a climb is worth its sides), a
+   * later run writes over it (it is that run's floor), or the unassisted walk is blocked. It runs after
    * the lane pass because a lane run can climb on from a fine run's top (21061 at 150 %: 8.46 -> 4.46 blocks when
    * it ran before). A reverted run is counted `verify`. Without `lane` (the grid-only callers) it checks nothing.
    * TODO(cross-pass-main): the jump-rule runs are not judged (76419 has one along the same row at x 16-19, a
@@ -1171,9 +1189,9 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     const fg = new ScaledColliderGrid(lane.cells, dims, f, rotation);
     for (const e of edits) for (const w of e.writes) fg.write(w.x, w.z, { ...w.block });
     const reach = walkScaledColliders(fg, undefined, SAFE_DROP16);
-    /** The walk over the forms with every run laid but `skip`. */
+    /** The walk over the forms with every run laid but `skip`, climbing only what auto-jump climbs (`AutoJumpGrid`). */
     const formReach = (skip?: RunEdit): ReachResult => {
-      const g = new ScaledColliderGrid(lane.cells, dims, f, rotation);
+      const g = new AutoJumpGrid(lane.cells, dims, f, rotation);
       for (const e of edits) if (e !== skip) for (const w of e.writes) g.write(w.x, w.z, { ...w.block });
       return walkScaledColliders(g);
     };
@@ -1181,6 +1199,37 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       const out = new Map<string, TreadBlock>();
       for (const e of edits) if (e !== skip) for (const w of e.writes) out.set(`${w.x},${w.block.row},${w.z}`, { x: w.x, y: w.block.row, z: w.z, lo: w.block.lo, hi: w.block.hi });
       return [...out.values()];
+    };
+    /**
+     * The surfaces a run is the GATEWAY to: in the breadth-first walk from the ground over the forms with every run
+     * laid (climbing auto-jump's 1.2, `AutoJumpGrid`), those first reached over one of the run's treads.
+     */
+    const gateway = (e: RunEdit): number => {
+      const g = new AutoJumpGrid(lane.cells, dims, f, rotation);
+      for (const o of edits) for (const w of o.writes) g.write(w.x, w.z, { ...w.block });
+      const own = new Set(e.treadSurfaces.map(q => g.key(q.x, q.z, q.t)));
+      const via = new Map<number, boolean>();
+      const queue: Surface[] = [];
+      for (let x = -1; x <= g.width; x++) for (let z = -1; z <= g.length; z++) {
+        if (x !== -1 && z !== -1 && x !== g.width && z !== g.length) continue;
+        for (const t of g.surfaces(x, z)) { const k = g.key(x, z, t); if (!via.has(k)) { via.set(k, false); queue.push({ x, z, t }); } }
+      }
+      let count = 0;
+      for (let h = 0; h < queue.length; h++) {
+        const q = queue[h]!, through = via.get(g.key(q.x, q.z, q.t))!;
+        for (const [nx, nz] of [[q.x + 1, q.z], [q.x - 1, q.z], [q.x, q.z + 1], [q.x, q.z - 1]] as const) {
+          if (!g.inRing(nx, nz)) continue;
+          for (const t of g.surfaces(nx, nz)) {
+            const k = g.key(nx, nz, t);
+            if (via.has(k) || !g.canMove(q.x, q.z, q.t, nx, nz, t)) continue;
+            const v = through || own.has(k);
+            via.set(k, v);
+            if (v && !own.has(k)) count++;
+            queue.push({ x: nx, z: nz, t });
+          }
+        }
+      }
+      return count;
     };
     let reverted = false;
     for (let i = edits.length - 1; i >= 0; i--) {
@@ -1197,9 +1246,17 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       const withRun = blocksOf(), withoutRun = blocksOf(e);
       const worse = probes.some(pr => lane.walk(withRun, pr.from, pr.dir, LANE_CROSS) < lane.walk(withoutRun, pr.from, pr.dir, LANE_CROSS) - LANE_SLACK);
       if (!worse) continue;
+      // Kept when it is the GATEWAY to enough of the model: 21063's east-flank run at 200 % is the first way to 115
+      // surfaces (the road and the lawn the Pixel walked to in round 30zi); removed, the climb there stopped 3.7
+      // blocks up instead of 8.1, though a grid walk found other ways round. 76419's boathouse run is the first way
+      // to 8, a hut roof, and goes.
+      if (gateway(e) >= Math.max(CROSS_GATEWAY_MIN, CROSS_GATEWAY_PER_TREAD * e.columns.length)) continue;
       // Kept when the walk over the FORMS loses any surface without it (bar its own tread tops): a climb is worth
       // its sides. Judged on the full-cell grid, a wall's rim read as a floor offered a way round that the shipped
-      // forms do not, and 21061's 150 % reach fell 8.46 -> 4.25 blocks.
+      // forms do not, and 21061's 150 % reach fell 8.46 -> 4.25 blocks. The walk climbs only auto-jump's 1.2, as a
+      // child on touch does: with the jump's 1.25 it found a way up 21063's east flank at 200 % without the run
+      // there, the pass took the run, and the climb the Pixel walked to the lawn (round 30zi) stopped 3.7 blocks
+      // up instead of 8.1.
       const reachWith = formReach(), reachWithout = formReach(e);
       const own = new Set(e.treadSurfaces.map(s => fg.key(s.x, s.z, s.t)));
       let lost = false;

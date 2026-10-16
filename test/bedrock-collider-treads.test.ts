@@ -371,33 +371,46 @@ describe('SCALE-06: the fine reach walk and the border margin', () => {
     expect(planColliderTreads(h.cells, h.dims, 200, 0, [], [], undefined, fineOn(h.dims, h.top16 - 2, rockColumns)).after.highest16).toBe(48);
   });
 
-  it('a fine run along a plate row is reverted where its side walls off a walk in from the ground, and kept where it is the only climb (Saga round 30zi, 76419\'s boathouse)', () => {
-    // A plate 0.5 high on x 0..11, z 0..3 with the open ground row z 4 beyond (the grid's edge, as 76419's south
-    // plate row), and a rock 2 blocks high on x 8..11, z 0..3: 1.5 over the plate, over the jump in the 1-block
-    // grid, which the fine walk stood on.
+  /**
+   * A plate 0.5 high on x 0..11, z 0..3 with the open ground row z 4 beyond (the grid's edge, as 76419's south
+   * plate row), and a rock 2 blocks high on `rock` columns: 1.5 over the plate, over the jump in the 1-block grid,
+   * which the fine walk stood on. Planned at 200 % with and without the cross pass (no lane check: no pass), and
+   * the straight walks north from the ground row (world z 9.5) across the plate's row z 3, a lane every 2 blocks.
+   */
+  const crossCase = (rock: (x: number, z: number) => boolean) => {
     const dims = { width: 12, height: 3, length: 5 };
     const g = new BlockGrid(dims.width, dims.height, dims.length);
-    for (let x = 0; x < 12; x++) for (let z = 0; z < 4; z++) solidTo(g, x, z, x >= 8 ? 32 : 8);
+    for (let x = 0; x < 12; x++) for (let z = 0; z < 4; z++) solidTo(g, x, z, rock(x, z) ? 32 : 8);
     const cells = colliderSourceCells({ ...dims, runs: encodeColliderRuns(g, COLLIDER_BLOCK_ID).runs });
     const fine = new Map<number, number[]>();
-    for (let x = 0; x < 12; x++) for (let z = 0; z < 5; z++) fine.set(x * dims.length + z, z < 4 ? [x >= 8 ? 32 : 8] : [0]);
+    for (let x = 0; x < 12; x++) for (let z = 0; z < 5; z++) fine.set(x * dims.length + z, z < 4 ? [rock(x, z) ? 32 : 8] : [0]);
     const walk = colliderLaneWalk(cells, dims, 200, 0);
-    // Straight walks north from the ground row (world z 9.5) across the plate's row z 3 (world z 6-7), each lane
-    // west of the rock: how far they get, at most 5 blocks.
-    const lanes = [1.5, 3.5, 5.5, 7.5, 9.5, 11.5];
+    const lanes = [1.5, 3.5, 5.5, 7.5, 9.5, 11.5, 13.5, 15.5, 17.5, 19.5, 21.5];
     const across = (blocks: Parameters<typeof walk>[0]): number[] => lanes.map(x => walk(blocks, { x, y: 0.01, z: 9.5 }, { x: 0, z: -1 }, 5));
     const bare = planColliderTreads(cells, dims, 200, 0, [], [], undefined, fine);
     const judged = planColliderTreads(cells, dims, 200, 0, [], [], { walk, cells }, fine);
-    expect(bare.runs.some(r => r.fine), 'the fine walk lays runs here').toBe(true);
-    // Without the cross pass (no lane check) some fine run's side stops a walk in that crossed the plate before.
-    const none = across([]), withBare = across(bare.blocks), withJudged = across(judged.blocks);
-    expect(withBare.some((d, i) => d < none[i]! - 0.5), `walks ${withBare.join(',')} vs ${none.join(',')} with no treads`).toBe(true);
-    // With it, no walk in from the ground is shorter than with no treads at all...
-    for (let i = 0; i < lanes.length; i++) expect(withJudged[i], `lane x ${lanes[i]}`).toBeGreaterThanOrEqual(none[i]! - 0.1);
-    // ...and the rock's top is still reached: the run that climbs it stays.
-    expect(judged.after.highest16).toBe(64);
-    expect(judged.runs.some(r => r.fine)).toBe(true);
-    assertNeverBlocks(cells, dims, judged);
+    return { dims, cells, lanes, bare, judged, none: across([]), withBare: across(bare.blocks), withJudged: across(judged.blocks) };
+  };
+
+  it('a fine run along a plate row is reverted where its side walls off a walk in from the ground and it climbs to little (Saga round 30zi, 76419\'s boathouse)', () => {
+    // A rock one cell wide at the row's east end: its top is 4 surfaces at 200 %, the boathouse run's hut roof.
+    const c = crossCase((x, z) => x === 11 && z === 3);
+    expect(c.bare.runs.some(r => r.fine), 'the fine walk lays runs here').toBe(true);
+    // Without the cross pass some fine run's side stops a walk in that crossed the plate before...
+    expect(c.withBare.some((d, i) => d < c.none[i]! - 0.5), `walks ${c.withBare.join(',')} vs ${c.none.join(',')} with no treads`).toBe(true);
+    // ...with it, no walk in from the ground is shorter than with no treads at all.
+    for (let i = 0; i < c.lanes.length; i++) expect(c.withJudged[i], `lane x ${c.lanes[i]}`).toBeGreaterThanOrEqual(c.none[i]! - 0.1);
+    assertNeverBlocks(c.cells, c.dims, c.judged);
+  });
+
+  it('a fine run that is the gateway to a large part of the model stays, side and all (Pixel round 30zi, 21063\'s east flank)', () => {
+    // A rock 4 x 4 cells: its top is 64 surfaces at 200 %, the road and lawn 21063's flank run leads to.
+    const c = crossCase(x => x >= 8);
+    expect(c.judged.after.highest16, 'the rock top is reached').toBe(64);
+    expect(c.judged.runs.some(r => r.fine), 'a fine run up the rock is kept').toBe(true);
+    // The run's side still shortens a walk in from the ground there: kept for what it leads to, not for its sides.
+    expect(c.withJudged.some((d, i) => d < c.none[i]! - 0.5)).toBe(true);
+    assertNeverBlocks(c.cells, c.dims, c.judged);
   });
 
   it('a plinth the fine walk never stood on stays a plinth, fine data or not', () => {
