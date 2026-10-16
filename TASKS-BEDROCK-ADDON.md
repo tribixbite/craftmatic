@@ -140,8 +140,10 @@ The round-30m fixes on the phones:
      `bun scripts/_walk_line.ts <76419> --x=7.5,8.5,9.5 --from=35.5 --to=18 --size=200`
      (x 8.5/9.5 REACHED 17.9), `<21063> --x=20.9,20.5,20.3 --from=30.45 --to=13
      --y=0.62 --size=200` (20.5/20.3 reach 13.3, highest 8.13), `<76419> --x=31.5
-     --from=60 --to=20 --size=300` (highest 7.25). NEXT: round 30zk from the
-     commit after d70923aa (`output/device-round-2026-10-15zk/`; Saga brief to
+     --from=60 --to=20 --size=300` (highest 7.25). ROUND 30zk ON BOTH PHONES (packs
+     `output/device-round-2026-10-15zk/packs-ae3e6c8d`, sim 150/150, regressions
+     38/0 failed, seats ok, the three routes verified on the shipped packs);
+     record `{saga,pixel}/notes.md` into REQUIREMENTS SCALE-06 ( Saga brief to
      adapt: `output/device-round-2026-10-15zj/brief-saga-30zj.md`, boathouse at
      200 %; Pixel: 21063 200 % ground -> lawn route still walks). Then the
      general fix, PER-SIZE CARVE, built and PARKED on branch `scale06-carve`
