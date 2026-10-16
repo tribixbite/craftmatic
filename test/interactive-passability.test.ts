@@ -92,7 +92,7 @@ async function buildPack(file: string, label: string): Promise<ArrayBuffer> {
 describe.skipIf(!HAVE)('doorways of real sets are passable open and blocked closed', () => {
   for (const { set, file, minDoorways, minOkAt100, check } of SETS) {
     it(`${set}: every doorway, at 100 and 200 percent, turned 0 and 90`, async () => {
-      const { loadAddonPreviewModel, treadBlocksAt } = await import('../web/src/ui/addon-preview-data.js');
+      const { carveAt, loadAddonPreviewModel, treadBlocksAt } = await import('../web/src/ui/addon-preview-data.js');
       const { verdictOf, walkThroughDoorway } = await import('../web/src/engine/interactive-walk.js');
       const bytes = await buildPack(file, set);
       const model = await loadAddonPreviewModel(bytes);
@@ -109,7 +109,7 @@ describe.skipIf(!HAVE)('doorways of real sets are passable open and blocked clos
       expect(cfg, `${set} ships no scripts/interactives.js`).toBeTruthy();
       const doorways = cfg!.items.map((it, i) => ({ it, i })).filter(({ it }) => it.passSize !== undefined && it.blocking.length);
       expect(doorways.length, `${set} doorways`).toBeGreaterThanOrEqual(minDoorways);
-      const pack = { cells: model.cells, dims: model.dims, interactives: cfg!, shippedTreads: (s: number, r: QuarterTurn) => treadBlocksAt(model, s, r) };
+      const pack = { cells: model.cells, dims: model.dims, interactives: cfg!, shippedTreads: (s: number, r: QuarterTurn) => treadBlocksAt(model, s, r), shippedCarve: (s: number, r: QuarterTurn) => carveAt(model, s, r) };
       const failures: string[] = [];
       let okAt100 = 0;
       for (const { it, i } of doorways) for (const size of [100, 200]) for (const rot of [0, 90] as QuarterTurn[]) {

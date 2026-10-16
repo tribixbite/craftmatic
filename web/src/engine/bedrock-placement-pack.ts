@@ -1,4 +1,5 @@
-import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type FineReachColumns, type GridDims, type LaneWalk, type QuarterTurn, type ReachTarget, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
+import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type FineReachColumns, type GridDims, type LaneWalk, type QuarterTurn, type ReachTarget, type SizeCarve, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
+import { carvesAt, decodeSizeCarve, encodeSizeCarve, planSizeCarve, type ModelBox } from './collider-carve.js';
 import { WalkWorld, tickPlayer, type PlayerState } from './addon-walk.js';
 import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
 import { IDENTITY, boneTransforms, cubeCorners, drawnCubeBox } from './bedrock-geometry-faces.js';
@@ -72,6 +73,12 @@ export interface PlacementColliders {
   keptCells: number;
   /** Invisible steps per size and turn (bedrock-collider-scale.ts); absent when the feature is off or no size needed one. */
   treads?: PlacementTreads;
+  /**
+   * The per-size carve (collider-carve.ts, SCALE-06): per whole size step and turn, every laid block cut to the
+   * drawn geometry inside it (`encodeSizeCarve`), applied by the runtime after the scaled cells and before the
+   * treads. Absent on packs built before it and where nothing changed.
+   */
+  carves?: PlacementTreads;
 }
 
 /**
@@ -777,7 +784,13 @@ export interface ColliderTreadsResult { colliders: PlacementColliders; report: P
  * One tread planning job: the planner's inputs, prepared once, and a `plan(pct, r)` step that adds one size
  * and turn's plan to the result. Shared by the sync and async entry points so they cannot drift.
  */
-function colliderTreadsJob(colliders: PlacementColliders, targets: readonly ReachTarget[], doorCells: ReadonlyArray<readonly (number | undefined)[]>, fineReach?: FineReachColumns): { plan: (pct: number, r: QuarterTurn) => void; result: () => ColliderTreadsResult } {
+/**
+ * What the per-size carve is cut to (collider-carve.ts): the drawn boxes the 100 % grid was built from, in model
+ * blocks at 100 % (`ModelBox`), and the source cells that are invisible on purpose (`planSizeCarve`'s `protect`).
+ */
+export interface CarveSource { boxes: readonly ModelBox[]; protect?: ReadonlySet<string> }
+
+function colliderTreadsJob(colliders: PlacementColliders, targets: readonly ReachTarget[], doorCells: ReadonlyArray<readonly (number | undefined)[]>, fineReach?: FineReachColumns, carveSource?: CarveSource): { plan: (pct: number, r: QuarterTurn) => void; result: () => ColliderTreadsResult } {
   // Planned over the grid as it was BEFORE clearance: every clearance form
   // (collider-form.ts) read as the full cell over its vertical extent. A tread
   // only ever fills a column the planner found standable and clear, and its
@@ -794,11 +807,15 @@ function colliderTreadsJob(colliders: PlacementColliders, targets: readonly Reac
   // The lane pass judges its runs physically, over the shipped FORMS (not the full-cell reading above).
   const formCells = colliderSourceCells(colliders);
   const plans: Record<string, string> = {}, counts: Record<string, number> = {};
+  const carvePlans: Record<string, string> = {}, carveCounts: Record<string, number> = {};
   const report: PlacementTreadReport = { rule: TREAD_RULE, plans: [] };
   const blocksAt100 = (t16: number, f: number): number => Math.round(t16 / 16 / f * 100) / 100;
   return {
     plan(pct, r) {
-      const plan = planColliderTreads(cells, dims, pct, r, targets, doorCells, { walk: colliderLaneWalk(formCells, dims, pct, r), cells: formCells }, fineReach);
+      // The carve first (over the shipped forms, as the runtime lays them); the treads are planned over it.
+      const carve = carveSource && carvesAt(pct) ? planSizeCarve(formCells, dims, pct, r, carveSource.boxes, carveSource.protect) : undefined;
+      if (carve?.size) { carvePlans[`${pct}:${r}`] = encodeSizeCarve(carve); carveCounts[`${pct}:${r}`] = carve.size; }
+      const plan = planColliderTreads(cells, dims, pct, r, targets, doorCells, { walk: colliderLaneWalk(formCells, dims, pct, r, carve), cells: formCells }, fineReach, carve);
       const f = pct / 100;
       const { blocks, guardBlocks: _guardBlocks, before, after, ...rest } = plan;
       report.plans.push({ ...rest, blocks: blocks.length, before: { surfaces: before.surfaces, columns: before.columns, highestBlocks: blocksAt100(before.highest16, f) }, after: { surfaces: after.surfaces, columns: after.columns, highestBlocks: blocksAt100(after.highest16, f) } });
@@ -807,7 +824,14 @@ function colliderTreadsJob(colliders: PlacementColliders, targets: readonly Reac
       plans[key] = encodeTreadPlan(blocks);
       counts[key] = blocks.length;
     },
-    result: () => ({ colliders: Object.keys(plans).length ? { ...colliders, treads: { plans, counts } } : colliders, report }),
+    result: () => ({
+      colliders: {
+        ...colliders,
+        ...(Object.keys(plans).length ? { treads: { plans, counts } } : {}),
+        ...(Object.keys(carvePlans).length ? { carves: { plans: carvePlans, counts: carveCounts } } : {}),
+      },
+      report,
+    }),
   };
 }
 
@@ -822,8 +846,8 @@ function treadPlanSteps(): Array<[number, QuarterTurn]> {
  * the tiles carry the grid verbatim and the planner is empty there by
  * construction (asserted in test/bedrock-collider-treads.test.ts).
  */
-export function withColliderTreads(colliders: PlacementColliders, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], fineReach?: FineReachColumns): ColliderTreadsResult {
-  const job = colliderTreadsJob(colliders, targets, doorCells, fineReach);
+export function withColliderTreads(colliders: PlacementColliders, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], fineReach?: FineReachColumns, carveSource?: CarveSource): ColliderTreadsResult {
+  const job = colliderTreadsJob(colliders, targets, doorCells, fineReach, carveSource);
   for (const [pct, r] of treadPlanSteps()) job.plan(pct, r);
   return job.result();
 }
@@ -835,8 +859,8 @@ export function withColliderTreads(colliders: PlacementColliders, targets: reado
  * way. The async export path (`buildPlayableAddon`) plans here and hands the result to
  * `buildPlacementPackAssets` as `spec.plannedTreads`.
  */
-export async function withColliderTreadsAsync(colliders: PlacementColliders, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], fineReach?: FineReachColumns): Promise<ColliderTreadsResult> {
-  const job = colliderTreadsJob(colliders, targets, doorCells, fineReach);
+export async function withColliderTreadsAsync(colliders: PlacementColliders, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], fineReach?: FineReachColumns, carveSource?: CarveSource): Promise<ColliderTreadsResult> {
+  const job = colliderTreadsJob(colliders, targets, doorCells, fineReach, carveSource);
   for (const [pct, r] of treadPlanSteps()) {
     job.plan(pct, r);
     await new Promise<void>(resolve => setTimeout(resolve, 0));
@@ -856,7 +880,7 @@ const LANE_TICKS_PER_BLOCK = 12, LANE_TICKS_EXTRA = 20;
  * and turn - every clearance form as itself - with the treads it is handed laid over them (as the runtime lays
  * a tread: the row's block replaced). One world per size and turn; each call re-lays only the treads.
  */
-export function colliderLaneWalk(formCells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn): LaneWalk {
+export function colliderLaneWalk(formCells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, carve?: SizeCarve): LaneWalk {
   let world: WalkWorld | undefined;
   /** The treads laid in the world now, `"x,row,z"` -> `"lo,hi"`: each call re-lays only what changed. */
   const laid = new Map<string, string>();
@@ -871,7 +895,7 @@ export function colliderLaneWalk(formCells: readonly SourceCell[], dims: GridDim
     for (const [k, v] of changes) { if (v) laid.set(k, v.join(',')); else laid.delete(k); }
   };
   return (treads, from, dir, limit) => {
-    world ??= new WalkWorld({ cells: formCells, dims, sizePct, rotation, treads: [] });
+    world ??= new WalkWorld({ cells: formCells, dims, sizePct, rotation, treads: [], ...(carve ? { carve } : {}) });
     // The same list as the last call (the planner hands back its cached array between changes): nothing to re-lay.
     if (treads !== lastList) relay(world, treads);
     lastList = treads;
@@ -890,6 +914,12 @@ export function colliderLaneWalk(formCells: readonly SourceCell[], dims: GridDim
     }
     return best;
   };
+}
+
+/** The shipped carve for a size and turn (collider-carve.ts), or undefined when the pack carries none there. */
+export function carveFor(colliders: PlacementColliders, sizePct: number, rotation: QuarterTurn): SizeCarve | undefined {
+  const plan = colliders.carves?.plans[`${sizePct}:${rotation}`];
+  return plan ? decodeSizeCarve(plan) : undefined;
 }
 
 /** Blocks a tread plan changes, for a size and turn, from the shipped colliders. */
@@ -1640,6 +1670,22 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     // z as two base-200 digits each, then the pair index). Set after the
     // re-lay of each box so a tread wins over the cell it stands on.
     const treadPlan: string = (c.treads && c.treads.plans && c.treads.plans[`${st.size}:${r}`]) || '';
+    // The per-size carve for THIS size and turn (collider-carve.ts `encodeSizeCarve`): world block "x,y,z" ->
+    // the form it takes instead of the scaled cells' (null: air). 8 chars per block: x, y, z and the form's run
+    // value (v * 136 + pair, 0 = air), each two base-200 digits over char 40. Applied as each block is laid.
+    const carvePlan: string = (c.carves && c.carves.plans && c.carves.plans[`${st.size}:${r}`]) || '';
+    const carve = new Map<string, any>();
+    for (let k = 0; k + 7 < carvePlan.length; k += 8) {
+      const at = (o: number) => (carvePlan.charCodeAt(k + o) - 40) * 200 + carvePlan.charCodeAt(k + o + 1) - 40;
+      const value = at(6);
+      let cf: any = null;
+      if (value > 0) {
+        const cv = Math.floor((value - 1) / 136);
+        const [lo, hi] = pairOf(value - cv * 136);
+        cf = { v: cv, lo, hi };
+      }
+      carve.set(`${at(0)},${at(2)},${at(4)}`, cf);
+    }
     let placed = 0, steps = 0;
     for (let bi = 0; bi < boxes.length; bi++) {
       const b = boxes[bi];
@@ -1687,8 +1733,10 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
         }
       }
       for (const [key, list] of pieces) {
-        const form = kit.cover(list);
+        let form = kit.cover(list);
         if (!form) continue;
+        // The carve cuts the block to the drawn geometry at this size, or leaves it air.
+        if (carve.has(key)) { form = carve.get(key); if (!form) continue; }
         const [wx, wy, wz] = key.split(',').map(Number);
         const pos = { x: st.anchor.x + wx, y: st.anchor.y + wy, z: st.anchor.z + wz };
         let block: any;

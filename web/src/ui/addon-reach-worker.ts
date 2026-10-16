@@ -13,7 +13,7 @@
  * output: nothing here touches the DOM.
  */
 import { buildWalkWorld, reachPoint, type PointReach } from '@engine/addon-walk.js';
-import type { GridDims, QuarterTurn, ReachTarget, SourceCell, TreadBlock } from '@engine/bedrock-collider-scale.js';
+import type { GridDims, QuarterTurn, ReachTarget, SizeCarve, SourceCell, TreadBlock } from '@engine/bedrock-collider-scale.js';
 import { reachSurfacesFromGrid, type ReachSurface } from './addon-preview-data.js';
 
 export interface ReachWorkerRequest {
@@ -23,6 +23,8 @@ export interface ReachWorkerRequest {
   sizePct: number;
   rotation: QuarterTurn;
   treads: TreadBlock[];
+  /** The pack's carve at this size and turn (collider-carve.ts), when it ships one. */
+  carve?: SizeCarve;
   targets: ReachTarget[];
   /** Also return every standable surface of the footprint with the BFS's verdict (the green/red plates). */
   overlay?: boolean;
@@ -45,7 +47,7 @@ export interface ReachWorkerResponse {
 export function answerReachRequest(req: ReachWorkerRequest): ReachWorkerResponse {
   const t0 = performance.now();
   try {
-    const world = buildWalkWorld({ cells: req.cells, dims: req.dims, sizePct: req.sizePct, rotation: req.rotation, treads: req.treads });
+    const world = buildWalkWorld({ cells: req.cells, dims: req.dims, sizePct: req.sizePct, rotation: req.rotation, treads: req.treads, ...(req.carve ? { carve: req.carve } : {}) });
     const results = req.targets.map(t => reachPoint(world, t));
     const out: ReachWorkerResponse = { id: req.id, results, ms: 0 };
     if (req.overlay) {

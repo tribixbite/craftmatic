@@ -49,7 +49,7 @@
 import * as THREE from 'three';
 import type { LDrawViewer } from '@viewer/ldraw/index.js';
 import { BEDROCK_FACE_CORNERS, IDENTITY, bedrockFaceUv, cubeCorners, pivotRotation } from '@engine/bedrock-geometry-faces.js';
-import { QUARTER_TURNS, type QuarterTurn, type ReachTarget } from '@engine/bedrock-collider-scale.js';
+import { QUARTER_TURNS, type QuarterTurn, type ReachTarget, type SizeCarve } from '@engine/bedrock-collider-scale.js';
 import type { PlacementRotation } from '@engine/bedrock-placement-pack.js';
 import { ixWorldBlocks } from '@engine/bedrock-interactives.js';
 import { COLLIDER_KIT } from '@engine/collider-form.js';
@@ -58,7 +58,7 @@ import type { AppearanceBone, AppearanceCube, AppearanceGroup } from './addon-ap
 import type { ReachWorkerRequest, ReachWorkerResponse } from './addon-reach-worker.js';
 import {
   classifyAddonEntity, defaultLegendState, entitySpawnsAt, evaluateClientAnimations, initializeClientAnimations, LEGEND_KINDS, LEGEND_LABELS, legendCounts, legendKindOf,
-  placedPoint, recommendedSize, toggleLegend, treadBlocksAt,
+  carveAt, placedPoint, recommendedSize, toggleLegend, treadBlocksAt,
   type AddonEntity, type AddonEntityKind, type AddonPreviewModel, type AddonRoute, type ClientAnimationSet, type LegendKind, type LegendState, type MolangEnv, type ReachSurface,
 } from './addon-preview-data.js';
 import {
@@ -1252,6 +1252,7 @@ class AddonWalk implements AddonPreviewHandle {
     const req: ReachWorkerRequest = {
       id, cells: this.model.cells, dims: this.model.dims, sizePct: this.sizePct, rotation: this.rotation,
       treads: treadBlocksAt(this.model, this.sizePct, this.rotation),
+      ...((): { carve?: SizeCarve } => { const c = carveAt(this.model, this.sizePct, this.rotation); return c ? { carve: c } : {}; })(),
       targets: this.targets.map((t): ReachTarget => ({ label: t.label, x: t.point.x, y: t.point.y, z: t.point.z })),
       overlay: true,
     };

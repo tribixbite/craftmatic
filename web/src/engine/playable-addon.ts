@@ -6,7 +6,7 @@ import { currentPipelineStamp, packDisplayName, packProvenance, packVersionAt, p
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
-import { boardPointsOf, buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, geometryEntityBoxes, geometryHitBox, hitTestAtSize, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsForSizeSteps, withColliderTreadsAsync, withSizeGroups, type HitTestBox, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
+import { boardPointsOf, buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, geometryEntityBoxes, geometryHitBox, hitTestAtSize, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsForSizeSteps, withColliderTreadsAsync, withSizeGroups, type CarveSource, type HitTestBox, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
 import { FLYER, flyerScript, type FlyerRuntimeConfig } from './bedrock-flyer.js';
 import type { CanonMount } from './set-canon.js';
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
@@ -17,13 +17,14 @@ import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
 import { renderSeatToEntity, riderVisibleSizes, roofMap, surfaceOnTop, RIDE_ON_TOP_BELOW, ROOF_SEAT_BELOW_SURFACE, RIDER_EYE_ABOVE_SEAT, seatAtOnTop, type RoofMap, type SeatPlan } from './cockpit-seat.js';
 import type { VehicleSeatReport } from './seat-census.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendation, type SceneGridFrame } from './bedrock-scene-actors.js';
-import { fineReachColumns, type FineReachColumns } from './bedrock-collider-scale.js';
+import { fineReachColumns, type FineReachColumns, type SourceCell } from './bedrock-collider-scale.js';
+import type { ModelBox } from './collider-carve.js';
 import { MINIDOLL_CLIENT_ANIMATIONS, MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CLIENT_ANIMATIONS, figureClientAnimations } from './minifig-rig.js';
 import { minifigFromSpec } from './minifig-rig.js';
 import { creatorFigureBehavior, minifigWandScript } from './bedrock-minifig-wand.js';
 import { MAX_PRINT_LAYERS, MINIFIG_CREATOR_COLOURS, POSE_PROPERTY, type MinifigLibrarySpec, type MinifigCreatorConfig, type CreatorSlot } from './minifig-creator-types.js';
 import { CREATOR_POSES, creatorPoseAnimations, ldrawColourName } from './minifig-creator.js';
-import { COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior, splitStaticShell, type ShellCell } from './bedrock-building-shell.js';
+import { COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior, splitStaticShell, type ShellCell, type ColliderSourceBox } from './bedrock-building-shell.js';
 import { CLEARANCE_REFUSALS, applyColliderClearance, type ClearanceReport, type GridBox } from './collider-clearance.js';
 import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
@@ -38,7 +39,7 @@ import { HOP, HOP_TAGS, hopKitConfig, hopRuntimeConfig, hopScript, type HopSourc
 import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, pressFlashOverlay, ballAnimation, ballProperties, buttonPressAnimation, consoleAssets, consoleHideAnimation, pressProperties, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
 import { BOARD, BOARD_OWNER_PROPERTY, BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, VEHICLE_DYNAMIC, VEHICLE_EGRESS, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
-import { ESCAPE_OPTIONS } from './collider-form.js';
+import { COLLIDER_KIT, ESCAPE_OPTIONS } from './collider-form.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { FREE_LOOK, NATIVE_HEADING_PROPERTY, NATIVE_STEER, cockpitCamera, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type FreeLookParams, type NativeSteerParams } from './vehicle-free-look.js';
 import { cellSpanLookup, figureLifeScript, FIGURE_TUNING, resolveFigureSpawn, separateFigureSpawns, type FigureSpawn, type SpanLookup } from './bedrock-figure-life.js';
@@ -350,6 +351,36 @@ const json = (v: unknown) => text(bedrockJsonText(v, 2));
  * files rather than listed by hand at each call site, so no rideable - seat,
  * bed, car, coaster car, pinball console, a later one - can ship without it.
  */
+/**
+ * The per-size carve's inputs (collider-carve.ts, SCALE-06) from an export: the collider box list
+ * `buildColliderGrid` took, through the same `sceneGridPoint` map, as model blocks at 100 % (each box's eight
+ * corners, so the z mirror and the frame's offsets are the grid's own); and the shipped cells the doorway
+ * planner, the sills and the guards laid PAST the geometry grid (`geometryRuns`: the grid right after
+ * `buildColliderGrid`, before anything else changed it) - nothing is drawn in those, so the carve keeps them.
+ * Clearance only trims, so a trimmed cell is not kept.
+ */
+export function colliderCarveSource(boxes: readonly ColliderSourceBox[], frame: SceneGridFrame, shipped: PlacementColliders, geometryRuns: string): CarveSource {
+  const modelBoxes: ModelBox[] = boxes.map(b => {
+    const ps = [0, 1].flatMap(i => [0, 1].flatMap(j => [0, 1].map(k => sceneGridPoint(frame, [i ? b.max[0] : b.min[0], j ? b.max[1] : b.min[1], k ? b.max[2] : b.min[2]]))));
+    const axis = (q: number): [number, number] => [Math.min(...ps.map(p => p[q]!)), Math.max(...ps.map(p => p[q]!))];
+    const [x0, x1] = axis(0), [y0, y1] = axis(1), [z0, z1] = axis(2);
+    return [x0, x1, y0, y1, z0, z1] as const;
+  });
+  /** A cell's vertical extent, sixteenths (a clearance form's boxes, else its lo..hi). */
+  const extent = (c: SourceCell): [number, number] => {
+    if (!c.v) return [c.lo, c.hi];
+    const fb = COLLIDER_KIT.formBoxes(c.v, c.lo, c.hi);
+    return [Math.min(...fb.map(q => q[2])), Math.max(...fb.map(q => q[3]))];
+  };
+  const geometry = new Map<string, [number, number]>(colliderSourceCells({ ...shipped, runs: geometryRuns }).map(c => [`${c.x},${c.y},${c.z}`, extent(c)]));
+  const protect = new Set<string>();
+  for (const c of colliderSourceCells(shipped)) {
+    const key = `${c.x},${c.y},${c.z}`, g = geometry.get(key), e = extent(c);
+    if (!g || e[0] < g[0] || e[1] > g[1]) protect.add(key);
+  }
+  return { boxes: modelBoxes, protect };
+}
+
 export function rideableExitHintLines(files: ReadonlyArray<{ name: string; data: Uint8Array }>, bpPrefix: string): string[] {
     const dec = new TextDecoder();
     const lines: string[] = [];
@@ -2570,6 +2601,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     let placementColliders: PlacementColliders | undefined;
     /** `options.accessReachLdu` in the shipped collider grid's source columns, for the tread planner (`fineReachColumns`). */
     let fineReach: FineReachColumns | undefined;
+    /** What the per-size carve cuts the scaled grid to (collider-carve.ts): the drawn boxes and the cells to keep. */
+    let carveSource: CarveSource | undefined;
     /** The moving parts' runtime (`scripts/interactives.js`) and their diagnostics; set with the shell. */
     let interactiveConfig: InteractiveRuntimeConfig | undefined;
     let interactiveReport: unknown[] | undefined;
@@ -3001,7 +3034,11 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     warnings.push(`${label}: ${ixLabel.toLowerCase()} (${it.part}) could not be compiled (${e instanceof Error ? e.message : String(e)}); it is missing from the build.`);
                 }
             }
-            const colliders = buildColliderGrid(scenery, [...(sgeo.partBoxesLdu ?? []), ...staticIxBoxes], options.shell.frame, options.colliderKeepClear);
+            const colliderBoxes = [...(sgeo.partBoxesLdu ?? []), ...staticIxBoxes];
+            const colliders = buildColliderGrid(scenery, colliderBoxes, options.shell.frame, options.colliderKeepClear);
+            // The grid as the drawn geometry lays it, before the doorway planner and clearance change it: the
+            // per-size carve keeps every cell the planners lay PAST it (an access stair, a sill: nothing drawn).
+            const geometryRuns = encodeColliderRuns(colliders.grid, COLLIDER_BLOCK_ID).runs;
             // The part geometry per cell goes along so a threshold tread or stair stands on a floor, never on a wall's rim (`standingTop16`).
             // What stands in the open air around the model, which an access stair may not take
             // (`accessAvoidCells`): the ride paths and their exits, the coaster track, the mounts'
@@ -3093,6 +3130,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             plan = planStructureTiles(structureGrid, id, options.maxTile ?? BEDROCK_MAX_TILE);
             const runs = encodeColliderRuns(structureGrid, COLLIDER_BLOCK_ID);
             placementColliders = { width: structureGrid.width, height: structureGrid.height, length: structureGrid.length, block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE, runs: runs.runs, keptCells: runs.keptCells };
+            if (colliderBoxes.length) carveSource = colliderCarveSource(colliderBoxes, options.shell.frame, placementColliders, geometryRuns);
             // The fine walk's floors through the SAME map the colliders were laid with (`buildColliderGrid`: `sceneGridPoint` over the shell's frame).
             if (options.accessReachLdu?.length) {
                 const shellFrame = options.shell.frame;
@@ -3874,7 +3912,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     addEntityName(ghost.typeId, `${label} Preview`, false);
     // Plan the treads in yielding steps: 16 size x turn plans run for minutes on a large set.
     const doorCells = interactiveConfig ? interactiveConfig.items.flatMap(item => item.blocking) : undefined;
-    const plannedTreads = placementColliders ? await withColliderTreadsAsync(placementColliders, [], doorCells ?? [], fineReach) : undefined;
+    const plannedTreads = placementColliders ? await withColliderTreadsAsync(placementColliders, [], doorCells ?? [], fineReach, carveSource) : undefined;
     const placement = buildPlacementPackAssets({ stem: id, label, width: grid.width, height: grid.height, length: grid.length,
         tiles: plan.map(tile => ({ identifier: `${PACK_NAMESPACE}:${tile.name}`, dx: tile.x, dy: tile.y, dz: tile.z, width: tile.width, height: tile.height, length: tile.length, nonAir: tile.nonAir })), actors, previewPoints,
         ...(shellMigrations.length ? { shellMigrations } : {}),

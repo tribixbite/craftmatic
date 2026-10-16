@@ -14,7 +14,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
-import { loadAddonPreviewModel, treadBlocksAt } from '../web/src/ui/addon-preview-data.ts';
+import { loadAddonPreviewModel, carveAt, treadBlocksAt } from '../web/src/ui/addon-preview-data.ts';
 import { verdictOf, walkThroughDoorway, type DoorwayWalkTrace } from '../web/src/engine/interactive-walk.ts';
 import { createZip, extractMatching } from '../web/src/engine/zip-utils.ts';
 import {
@@ -56,7 +56,7 @@ const model = await loadAddonPreviewModel(buffer);
 const cfg = model.interactives;
 const doorways: GametestDoorway[] = [];
 if (cfg) {
-  const pack = { cells: model.cells, dims: model.dims, interactives: cfg, shippedTreads: (s: number, r: QuarterTurn) => treadBlocksAt(model, s, r) };
+  const pack = { cells: model.cells, dims: model.dims, interactives: cfg, shippedTreads: (s: number, r: QuarterTurn) => treadBlocksAt(model, s, r), shippedCarve: (s: number, r: QuarterTurn) => carveAt(model, s, r) };
   cfg.items.forEach((it, i) => {
     if (it.passSize === undefined || !it.blocking.length) return;
     const route: DoorwayWalkTrace = { routes: [], tracks: [] };

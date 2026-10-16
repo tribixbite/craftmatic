@@ -10,7 +10,7 @@
  */
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadAddonPreviewModel, treadBlocksAt } from '../web/src/ui/addon-preview-data.ts';
+import { loadAddonPreviewModel, carveAt, treadBlocksAt } from '../web/src/ui/addon-preview-data.ts';
 import { verdictOf, walkThroughDoorway, type Verdict } from '../web/src/engine/interactive-walk.ts';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
 
@@ -34,7 +34,7 @@ for (const name of readdirSync(dir).filter(n => n.endsWith('.mcaddon')).sort()) 
   for (const it of cfg?.items ?? []) counts[it.kind] = (counts[it.kind] ?? 0) + 1;
   const row: Row = { set: name.replace(/\.mcaddon$/, ''), counts, seats: model.entities.filter(e => e.kind === 'seat' && !e.pinball).length, doorways: 0, at100: zero(), atPassSize: zero(), never: 0, failures: [], smallest: [] };
   if (cfg) {
-    const pack = { cells: model.cells, dims: model.dims, interactives: cfg, shippedTreads: (s: number, r: QuarterTurn) => treadBlocksAt(model, s, r) };
+    const pack = { cells: model.cells, dims: model.dims, interactives: cfg, shippedTreads: (s: number, r: QuarterTurn) => treadBlocksAt(model, s, r), shippedCarve: (s: number, r: QuarterTurn) => carveAt(model, s, r) };
     cfg.items.forEach((it, i) => {
       if (it.passSize === undefined || !it.blocking.length) return;
       row.doorways++;

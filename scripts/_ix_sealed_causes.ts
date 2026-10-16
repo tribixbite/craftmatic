@@ -41,7 +41,7 @@
  */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { entitySpawnsAt, loadAddonPreviewModel, placedPoint, readAddonPreviewFiles, treadBlocksAt } from '../web/src/ui/addon-preview-data.ts';
+import { entitySpawnsAt, loadAddonPreviewModel, placedPoint, readAddonPreviewFiles, carveAt, treadBlocksAt } from '../web/src/ui/addon-preview-data.ts';
 import { worldFaces, type AuditActor } from '../web/src/engine/bedrock-geometry-faces.ts';
 import { boxFree, verdictOf, walkThroughDoorway, type DoorwayWalkPack, type DoorwayWalkResult, type Verdict } from '../web/src/engine/interactive-walk.ts';
 import { WalkWorld, playerBox, worldPointToModel, type Box, type SolidBox, type WalkWorldOptions } from '../web/src/engine/addon-walk.ts';
@@ -268,7 +268,8 @@ for (const name of readdirSync(packDir).filter(n => n.endsWith('.mcaddon')).sort
     }
   }
   const shippedTreads = (s: number, r: QuarterTurn) => treadBlocksAt(model, s, r);
-  const basePack: DoorwayWalkPack = { cells: model.cells, dims: model.dims, interactives: cfg, shippedTreads };
+  const shippedCarve = (s: number, r: QuarterTurn) => carveAt(model, s, r);
+  const basePack: DoorwayWalkPack = { cells: model.cells, dims: model.dims, interactives: cfg, shippedTreads, shippedCarve };
   /** The pack with refused clearance trims of the given kinds applied (cells and every doorway's recorded neighbours). */
   const withTrims = (kinds: ReadonlySet<string>): DoorwayWalkPack => {
     const to = new Map<string, [number, number, number]>();
@@ -276,7 +277,7 @@ for (const name of readdirSync(packDir).filter(n => n.endsWith('.mcaddon')).sort
     const patch = <T extends { x: number; y: number; z: number; lo: number; hi: number; v?: number }>(c: T): T => { const t = to.get(`${c.x},${c.y},${c.z}`); return t ? { ...c, v: t[0], lo: t[1], hi: t[2] } : c; };
     const cells = model.cells.map(patch);
     const items: InteractiveRuntimeItem[] = cfg.items.map(it => ({ ...it, neighbours: it.neighbours.map(n => { const t = to.get(`${n[0]},${n[1]},${n[2]}`); return t ? [n[0], n[1], n[2], t[1], t[2], ...(t[0] ? [t[0]] : [])] as typeof n : n; }) }));
-    return { cells, dims: model.dims, interactives: { ...cfg, items }, shippedTreads };
+    return { cells, dims: model.dims, interactives: { ...cfg, items }, shippedTreads, shippedCarve };
   };
   // Colliders holding no geometry (treads, stairs) stay in the geometry world.
   const nonGeoCells: SourceCell[] = model.cells.filter(c => !geoCells.has(`${c.x},${c.y},${c.z}`));
@@ -297,7 +298,7 @@ for (const name of readdirSync(packDir).filter(n => n.endsWith('.mcaddon')).sort
     row.missing = base.open.directions.filter(d => d.outcome !== 'passed').map(d => `${d.from}:${d.reason ?? d.outcome}`).join(' ');
     // 1. Does the MODEL let a player through? (the opening forced passable, as a minifig would use it)
     if (!geo && !DRAWN) { row.cause = 'no-geometry-dump'; rows.push(row); continue; }
-    const gWorld = new GeometryWorld({ cells: nonGeoCells, dims: model.dims, sizePct: size, rotation: 0, treads: 'shipped', shippedTreads }, geoBoxes);
+    const gWorld = new GeometryWorld({ cells: nonGeoCells, dims: model.dims, sizePct: size, rotation: 0, treads: 'shipped', shippedTreads, shippedCarve }, geoBoxes);
     // Every OTHER doorway's leaf closed, as the walk lays it; this one's group lifted.
     const group = new Set([i, ...(it.pairs ?? [])]);
     gWorld.setOverlayBlocks(ixClosedBlocks(cfg.items.map((x, j) => group.has(j) ? { ...x, blocking: [] } : { ...x, neighbours: [] }), model.dims, size / 100, 0, () => false));
@@ -327,7 +328,7 @@ for (const name of readdirSync(packDir).filter(n => n.endsWith('.mcaddon')).sort
         if (!found) {
           // The colliders themselves, swept by the same exact-box lattice walk: if a player's box
           // fits through them, the column-granular route of the passability walk is what refuses.
-          const cWorld = new WalkWorld({ cells: model.cells, dims: model.dims, sizePct: size, rotation: 0, treads: 'shipped', shippedTreads });
+          const cWorld = new WalkWorld({ cells: model.cells, dims: model.dims, sizePct: size, rotation: 0, treads: 'shipped', shippedTreads, shippedCarve });
           cWorld.setOverlayBlocks(ixClosedBlocks(cfg.items.map((x, j) => group.has(j) ? { ...x, blocking: [] } : x), model.dims, size / 100, 0, () => false));
           if (debug) console.log('COLLIDERS');
           const cw = fineWalk(cWorld, cc, nrm, halfSpan, size / 100, debug);
@@ -374,7 +375,7 @@ for (const name of readdirSync(packDir).filter(n => n.endsWith('.mcaddon')).sort
             for (const b of KIT8_FORMS.formBoxes(f8.v, f8.lo, f8.hi)) boxes8.push({ x0: x + b[0] / 16, x1: x + b[1] / 16, y0: y + b[2] / 16, y1: y + b[3] / 16, z0: z + b[4] / 16, z1: z + b[5] / 16 });
           }
           const cells8 = model.cells.filter(c => !replaced.has(`${c.x},${c.y},${c.z}`));
-          const pack8: DoorwayWalkPack = { cells: cells8, dims: model.dims, interactives: cfg, shippedTreads, makeWorld: o => new GeometryWorld({ ...o, cells: cells8 }, boxes8) };
+          const pack8: DoorwayWalkPack = { cells: cells8, dims: model.dims, interactives: cfg, shippedTreads, shippedCarve, makeWorld: o => new GeometryWorld({ ...o, cells: cells8 }, boxes8) };
           row.kit8 = walkVerdict(pack8, i, size).verdict;
         }
       }
@@ -384,7 +385,7 @@ for (const name of readdirSync(packDir).filter(n => n.endsWith('.mcaddon')).sort
       const w = g.open;
       const bad = w.directions.find(d => d.outcome !== 'passed') ?? w.directions[0];
       const side = bad?.from ?? 1;
-      const world = new GeometryWorld({ cells: nonGeoCells, dims: model.dims, sizePct: size, rotation: 0, treads: 'shipped', shippedTreads }, geoBoxes);
+      const world = new GeometryWorld({ cells: nonGeoCells, dims: model.dims, sizePct: size, rotation: 0, treads: 'shipped', shippedTreads, shippedCarve }, geoBoxes);
       const t0 = w.centre.y, n = w.normal, k = size / 100;
       const measure: Record<string, number | string> = { side, doorFloor: r2(t0), centre: `${r2(w.centre.x)},${r2(w.centre.z)}`, normal: `${r2(n.x)},${r2(n.z)}` };
       const causes: string[] = [];
