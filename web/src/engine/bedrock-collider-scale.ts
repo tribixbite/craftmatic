@@ -732,6 +732,8 @@ const groundProbeY = (f: number): number => Math.min(AUTO_JUMP16, Math.max(STEP1
  * 21063's flank run 115 for 8 treads (kept), 76419's boathouse run 8 for 8 (reverted).
  */
 const CROSS_GATEWAY_PER_TREAD = 3, CROSS_GATEWAY_MIN = 16;
+/** The cross pass's sweeps at most (`crossPass`): each after the first re-judges the runs left by the last one's reverts. */
+const CROSS_SWEEPS = 4;
 /** A straight walk a run must leave no shorter (`crossLaneProbes`): feet start (world blocks from the pin) and direction. */
 interface CrossProbe { from: { x: number; y: number; z: number }; dir: { x: number; z: number } }
 /**
@@ -1224,9 +1226,14 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
    */
   const crossPass = (): void => {
     if (!lane || !edits.some(e => e.run.fine)) return;
-    const fg = new ScaledColliderGrid(lane.cells, dims, f, rotation, carve);
-    for (const e of edits) for (const w of e.writes) fg.write(w.x, w.z, { ...w.block });
-    const reach = walkScaledColliders(fg, undefined, SAFE_DROP16);
+    /** The forms with every run laid, and the walk over them the probes start from (`crossLaneProbes`). */
+    const laidForms = (): ScaledColliderGrid => {
+      const g = new ScaledColliderGrid(lane.cells, dims, f, rotation, carve);
+      for (const e of edits) for (const w of e.writes) g.write(w.x, w.z, { ...w.block });
+      return g;
+    };
+    let fg = laidForms();
+    let reach = walkScaledColliders(fg, undefined, SAFE_DROP16);
     /** The walk over the forms with every run laid but `skip`, climbing only what auto-jump climbs (`AutoJumpGrid`). */
     const formReach = (skip?: RunEdit): ReachResult => {
       const g = new AutoJumpGrid(lane.cells, dims, f, rotation, carve);
@@ -1270,6 +1277,13 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       return count;
     };
     let reverted = false;
+    // Sweeps until one reverts nothing: a run is judged against the runs laid when its turn comes, so one that
+    // was "not worse" only because a neighbour run walled the same probe first stood alone once that neighbour
+    // went (21063 at 300 % under the carve: four fine runs across the east plate strip, three reverted, the one
+    // at z 40 kept and still walling off the flank route).
+    for (let sweep = 0, again = true; again && sweep < CROSS_SWEEPS; sweep++) {
+    again = false;
+    if (sweep > 0) { fg = laidForms(); reach = walkScaledColliders(fg, undefined, SAFE_DROP16); }
     for (let i = edits.length - 1; i >= 0; i--) {
       const e = edits[i]!;
       // A lane run had its own cross walks (`lanePass`); a run a later one writes over is that run's floor.
@@ -1307,6 +1321,8 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       if (!neverBlocks(walkScaledColliders(grid), true, prior)) { edits.splice(i, 0, e); apply(e); continue; }
       refuse(e.run.from, e.run.to, 'verify');
       reverted = true;
+      again = true;
+    }
     }
     // The second guard pass reads the lane pass's form grid: lay it again without the reverted runs.
     if (reverted && formGrid) {
