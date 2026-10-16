@@ -143,26 +143,29 @@ The round-30m fixes on the phones:
      --from=60 --to=20 --size=300` (highest 7.25). ROUND 30zk PASSED on both phones (2026-10-16:
      Saga boathouse 4/4, no regressions; Pixel lawn route 1/2 on foot, 300 % unchanged;
      `output/device-round-2026-10-15zk/{saga,pixel}/notes.md`, recorded in REQUIREMENTS).
-     Then the
-     general fix, PER-SIZE CARVE, built and PARKED on branch `scale06-carve`
-     (worktree `.worktrees/carve`; `web/src/engine/collider-carve.ts`,
-     test/collider-carve.test.ts; prototype and fan walk
-     `output/scale06-1015/carve1/tools/{carve_probe,fan_walk}.ts <pack> <pct>`):
-     at each whole size >= 200 % every laid block is cut to the drawn part boxes
-     inside it (never adds; cells the planners laid past the geometry - stairs,
-     sills, guards - kept; a standing surface keeps its footprint; the highest
-     cut band under an uncovered block is capped - the shaft rule), planned
-     under the treads and applied by the runtime. Fan walk (lanes over 5 blocks,
-     falls > 3) vs the current pipeline: 300 % 76419 17 -> 24, 21063 11 -> 27,
-     21061 11 -> 32 (falls 0 -> 0); 200 % 21063 over-2 26 -> 41 but 76419
-     over-5 13 -> 7 (south shore climb lost, boathouse run back: kept by the
-     never-block check under the carve). The 76419 "1/3 clear" entrance did NOT
-     open (drawn solid at x 29-32 z 12-15, likely a drawn door). Data: carve
-     3k/9.7k/19.8k edits per turn at 200/300/400 % (placement.js 0.32 -> 1.33
-     MB; turns are equivariant - TODO ship turn 0 only). Open before merging:
-     the 200 % losses, the branch rebased on the gateway rule, a full sweep,
-     sim + regressions, a device round. Also: 21061 run 4 climbs a 0.6x0.5
-     tree part; the jump-rule runs are not cross-judged (TODO cross-pass-main);
+     PER-SIZE CARVE on branch `scale06-carve` (worktree `.worktrees/carve`, main merged in at 39c3e43b,
+     pushed; `web/src/engine/collider-carve.ts`, test/collider-carve.test.ts): at 300/400 % every laid block
+     is cut to the drawn part boxes (never adds; planner-laid cells kept; standing surfaces keep their
+     footprint; band + shaft rules; GROUND PLATES - bottom-row surfaces - kept as laid), planned under the
+     treads and applied by the runtime. NOT at 200 % (`CARVE_SIZES`): there it re-planned every device
+     route away (76419 boathouse walled by one fine run after another, 21063 lawn 8.13 -> 1.88). Branch
+     fixes since: the cross pass judges a revert by what it TAKES (`neverBlocks(.., prior)`: under the
+     carve the absolute invariant was false before it ran); under a carve its ground probe is one base
+     plate at the size (21063's 15/16 strip at 300 %). Tried and dropped (each cost other routes): sweeping
+     the cross pass to a fixed point; a one-auto-jump or plate-scaled ground at 200 %. Evaluation packs and
+     numbers: `output/scale06-1016/carve2/` (`tools/eval.sh <packs>` runs the 3 route lines, the 21063
+     flank lanes and the fan totals; `eval-<sha>.txt`). At e7bf976d vs main (30zk): 200 % IDENTICAL;
+     300 % fan lanes over 5 blocks 76419 15 -> 22, 21063 11 -> 18, 21061 11 -> 33; 21063 flank lane 31.5
+     10.38 (main 10.63, device 10.3); 21063 SW corner lanes 0.5-2.5 lose 12-14 blocks - main climbed
+     INVISIBLE collider there (drawn_at: 0 cuboids), so that loss is a fix; 76419 x 31.5 line 7.25 ->
+     6.44 at the same stop z 30.3. Sim 18/18 on the 3 packs; regressions need the full round (none of the
+     38 cases is a microscale set). COST, open: 76417 export 644 -> 862 s (300 % plans ~35 -> 53 s/turn,
+     400 % ~101 -> 134 s/turn), pack 1.55 -> 2.69 MB, and test/interactive-passability.test.ts's 76417
+     case times out (main 330 s, branch > 600 s) - the full suite is otherwise 3302/3303. Next: profile
+     planSizeCarve vs the planner on the carved grid, cut the cost (TODO ship turn 0 only: turns are
+     equivariant), then build round 30zl (`output/device-round-2026-10-16zl/build.sh`, ready: builds the
+     carve worktree), regressions, devices. Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule
+     runs are not cross-judged (TODO cross-pass-main);
      design question: interiors whose doors are only drawn (21061 nave, 21063
      Palas). SEAT-05: coaster air dismount floats on the Pixel (lift top, loop:
      no damage); one float applied to a player standing on 10303's run-out.
