@@ -963,12 +963,15 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       for (let k = 1; k <= n; k++) if (q.t - k * hop < floors[k - 1]! + 1) return false;
       return true;
     };
-    // Between the two, the fewest whose hops AUTO-JUMP climbs (`AUTO_JUMP16`, 1.1875): a hop of the jump's own 1.25
-    // is climbed only by pressing jump, and a child on touch does not - the Pixel (round 30zm) stopped at the foot of
-    // 21063's 400 % south run, three treads of 1.25 where four of 1.0 fit in the same columns.
+    // Between the two, for a run that sets out from the GROUND (the pin plane: the way onto the model from outside),
+    // the fewest whose hops AUTO-JUMP climbs (`AUTO_JUMP16`, 1.1875): a hop of the jump's own 1.25 is climbed only by
+    // pressing jump, and a child on touch does not - the Pixel (round 30zm) stopped at the foot of 21063's 400 % south
+    // run, three treads of 1.25 where four of 1.0 fit in the same columns. Only from the ground: offered to every run,
+    // the tier made a new run feasible on 21063's 300 % plate (x 31, z 38-40, landing on the plate at 0.94) whose
+    // side stood 1.31 over the flank lane the Pixel climbed, and that climb fell 10.38 -> 2.19 blocks (2026-10-17).
     let n = -1;
     for (let cand = 1; cand < floors.length && n < 0; cand++) if (feasible(cand) && hopFor(cand) <= GENTLE_HOP16) n = cand;
-    for (let cand = 1; cand < floors.length && n < 0; cand++) if (feasible(cand) && hopFor(cand) <= AUTO_JUMP16) n = cand;
+    for (let cand = 1; cand < floors.length && n < 0; cand++) if (floors[cand] === 0 && feasible(cand) && hopFor(cand) <= AUTO_JUMP16) n = cand;
     for (let cand = 1; cand < floors.length && n < 0; cand++) if (feasible(cand)) n = cand;
     if (n < 1) return 'no-run';
     const hop16 = hopFor(n);
