@@ -174,8 +174,10 @@ The round-30m fixes on the phones:
      auto-jump climbs 19/16. Tried (branch `scale06-autojump-hop`, NOT merged): a middle tier preferring hops
      <= `AUTO_JUMP16` -> 400 % south edge auto 0 -> 4.25, the 200 % lawn route REACHES z 12.9, fans flat/up, BUT
      the device-proven 300 % flank lanes 30.5/31.5 fall 7.50/10.38 -> 2.19 (`output/scale06-1017/autojump/
-     eval-compare.txt`). Next: find why the flank run is lost (another run's columns/sides, or a cross-pass
-     revert) before any tier ships; or scope the tier to runs onto the model from the ground at its edge.
+     eval-compare.txt`). CAUSE found: the tier makes a NEW run feasible across the flank lane (x 31, z 38-40,
+     tops 1.56/2.25/2.25); its side stands 1.31 over the lane's floor at z 41 and stops the walk there (the
+     'run side is a wall' class); the cross pass judges only FINE runs, so it stays. Next: let the cross pass
+     judge the runs the tier made possible (or every run - TODO cross-pass-main), then re-run eval.sh.
      OPEN: the watchdog line at 300/400 % placement on the Pixel (memory during re-laying).
      Evaluation tools: `output/scale06-1016/carve2/tools/` (`eval.sh <packs>`, `pack_diff.py`, `carve_stats.ts`).
      Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule
