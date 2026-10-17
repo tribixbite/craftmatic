@@ -169,7 +169,13 @@ The round-30m fixes on the phones:
      (auto 7.5 then a fall, 1.25 under). Placement 300 % ~10 s, 400 % ~16 s, 400 % fps 60, 0 errors; the watchdog
      'High memory usage' line came 3 times DURING the 300/400 % placements (none at load; Saga 30zm: none).
      OPEN (SCALE-06): at 400 % a touch player (auto-jump 1.2) cannot step onto 21063's south edge at x 31.5
-     - a riser over 1.2 the jump (1.25) climbs; judge whether treads/border margins should plan for auto-jump.
+     - the TREADS there are three hops of exactly 1.25 (tops 1.25/2.50/3.75 at z 94-92, z 91 empty):
+     `planRunCore` takes the fewest treads whose hops are within the JUMP (20/16) when no gentle hop fits, and
+     auto-jump climbs 19/16. Tried (branch `scale06-autojump-hop`, NOT merged): a middle tier preferring hops
+     <= `AUTO_JUMP16` -> 400 % south edge auto 0 -> 4.25, the 200 % lawn route REACHES z 12.9, fans flat/up, BUT
+     the device-proven 300 % flank lanes 30.5/31.5 fall 7.50/10.38 -> 2.19 (`output/scale06-1017/autojump/
+     eval-compare.txt`). Next: find why the flank run is lost (another run's columns/sides, or a cross-pass
+     revert) before any tier ships; or scope the tier to runs onto the model from the ground at its edge.
      OPEN: the watchdog line at 300/400 % placement on the Pixel (memory during re-laying).
      Evaluation tools: `output/scale06-1016/carve2/tools/` (`eval.sh <packs>`, `pack_diff.py`, `carve_stats.ts`).
      Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule
