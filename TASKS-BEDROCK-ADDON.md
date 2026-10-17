@@ -143,37 +143,25 @@ The round-30m fixes on the phones:
      --from=60 --to=20 --size=300` (highest 7.25). ROUND 30zk PASSED on both phones (2026-10-16:
      Saga boathouse 4/4, no regressions; Pixel lawn route 1/2 on foot, 300 % unchanged;
      `output/device-round-2026-10-15zk/{saga,pixel}/notes.md`, recorded in REQUIREMENTS).
-     PER-SIZE CARVE on branch `scale06-carve` (worktree `.worktrees/carve`, main merged in at 39c3e43b,
-     pushed; `web/src/engine/collider-carve.ts`, test/collider-carve.test.ts): at 300/400 % every laid block
-     is cut to the drawn part boxes (never adds; planner-laid cells kept; standing surfaces keep their
-     footprint; band + shaft rules; GROUND PLATES - bottom-row surfaces - kept as laid), planned under the
-     treads and applied by the runtime. NOT at 200 % (`CARVE_SIZES`): there it re-planned every device
-     route away (76419 boathouse walled by one fine run after another, 21063 lawn 8.13 -> 1.88). Branch
-     fixes since: the cross pass judges a revert by what it TAKES (`neverBlocks(.., prior)`: under the
-     carve the absolute invariant was false before it ran); under a carve its ground probe is one base
-     plate at the size (21063's 15/16 strip at 300 %). Tried and dropped (each cost other routes): sweeping
-     the cross pass to a fixed point; a one-auto-jump or plate-scaled ground at 200 %. Evaluation packs and
-     numbers: `output/scale06-1016/carve2/` (`tools/eval.sh <packs>` runs the 3 route lines, the 21063
-     flank lanes and the fan totals; `eval-<sha>.txt`). At e7bf976d vs main (30zk): 200 % IDENTICAL;
-     300 % fan lanes over 5 blocks 76419 15 -> 22, 21063 11 -> 18, 21061 11 -> 33; 21063 flank lane 31.5
-     10.38 (main 10.63, device 10.3); 21063 SW corner lanes 0.5-2.5 lose 12-14 blocks - main climbed
-     INVISIBLE collider there (drawn_at: 0 cuboids), so that loss is a fix; 76419 x 31.5 line 7.25 ->
-     6.44 at the same stop z 30.3. Sim 18/18 on the 3 packs; regressions need the full round (none of the
-     38 cases is a microscale set). COST: the cross pass was most of every plan (76417 at 300 %: 39 of 57 s),
-     now shares one grid per revert and lifts one run off it (feb168d9 on the branch, ce6c600e on MAIN;
-     packs byte-identical, checked with `output/scale06-1016/carve2/tools/pack_diff.py`): 76417 export on
-     the branch 865 -> 617 s (main before 644 s), the 76417 doorway test 413 s (limit 600; main 330 s).
-     OPEN: 76417 placement.js 0.80 -> 3.95 MB with the carve (all four turns shipped, 8 chars an edit;
-     TODO ship turn 0 only - needs a rotation map over the 43 clearance forms incl. the x-mirror quirk) -
-     judge load/memory on the phones. ROUND 30zl (packs `output/device-round-2026-10-16zl/packs-feb168d9`,
-     carve worktree at feb168d9) is clean offline: sim 150/0, regressions 38/0 (2 known-unreproduced, as
-     30zk), seat summaries identical to 30zk, `eval.txt` as above. The largest 300 % losses against 30zk
-     (21061 E lanes 8.5/27.5 9.9 -> 2.6, 76419 S lane 12.5 11.2 -> 2.6, 48.5, 21063 SW corner) end, on
-     30zk's pack, on MODEL collider forms with no drawn cuboid under the feet (drawn_at / laid_at), i.e.
-     invisible floors the carve removes; 21061 E 29.5 ends on a tread (unexplained). ON THE PHONES NOW:
-     briefs `brief-{saga,pixel}-30zl.md` (each check names its offline prediction), notes in
-     `{saga,pixel}/notes.md`. After: record results here and in REQUIREMENTS SCALE-06, then merge the
-     branch into main if the 300 % gains hold and nothing regresses (`git merge`, no rebase). Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule
+     PER-SIZE CARVE, MERGED into main (3641d43c, 59cf0d37; branch `scale06-carve` f1a3a130;
+     `web/src/engine/collider-carve.ts`, test/collider-carve.test.ts): at 300/400 % only (`CARVE_SIZES`; at
+     200 % it re-planned every device route away) every laid block is cut to the drawn part boxes (never
+     adds; planner-laid cells and ground plates kept), planned under the treads and applied by the runtime.
+     SAGA ROUND 30zl PASSED (`output/device-round-2026-10-16zl/saga/notes.md`): 76419 300 % x 9992.5/9993.5
+     14.88/12.88 up (30zk 6.69), 21061 300 % N/S 9.06/8.00 (30zk 2.75/2.33), the predicted losses (invisible
+     floors over nothing drawn) as predicted, 200 % boathouse 2/2 = 30zk; placement 300 % ~11 s, 400 % ~17.7 s;
+     fps 90.7 at 300 %, 31-34 at the 400 % south edge; 0 errors. NEW in 30zl: one `[Scripting][warning]-
+     [Watchdog] High memory usage detected` per world load (scripts 7.8 -> 37 MB over 25 packs, every turn
+     shipped whole). FIX f1a3a130 (`sizeCarveAt` / `encodeTurnedCarve`): turn 0 ships whole, turns 90/180/270
+     as edits against turn 0 turned (`CARVE_UNSET` = turn 0 carves the block, this turn does not); packs built
+     before read as shipped. Round 30zm packs (`output/device-round-2026-10-16zm/packs-f1a3a130`) decode
+     IDENTICALLY to 30zl at every size and turn (`bun output/scale06-1016/carve2/tools/carve_equal.ts <30zl
+     packs> <30zm packs>` from `.worktrees/carve`: ALL EQUAL, 25/25, `output/device-round-2026-10-16zm/carve_equal.txt`), colliders JSON 2-3.5x
+     smaller, all 25 packs' scripts 40.3 -> 19.0 MB (still above 30zk's, so the warning may persist). NEXT: Saga
+     recheck `output/device-round-2026-10-16zm/brief-saga-30zm.md` (is the watchdog line gone; a turned 90
+     placement on the device); the Pixel round of 30zl was not run (phone locked behind its password).
+     Evaluation tools: `output/scale06-1016/carve2/tools/` (`eval.sh <packs>`, `pack_diff.py`, `carve_stats.ts`).
+     Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule
      runs are not cross-judged (TODO cross-pass-main);
      design question: interiors whose doors are only drawn (21061 nave, 21063
      Palas). SEAT-05: coaster air dismount floats on the Pixel (lift top, loop:
