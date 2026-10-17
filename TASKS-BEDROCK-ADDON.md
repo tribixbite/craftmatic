@@ -157,7 +157,8 @@ The round-30m fixes on the phones:
      before read as shipped. Round 30zm packs (`output/device-round-2026-10-16zm/packs-f1a3a130`) decode
      IDENTICALLY to 30zl at every size and turn (`bun output/scale06-1016/carve2/tools/carve_equal.ts <30zl
      packs> <30zm packs>` from `.worktrees/carve`: ALL EQUAL, 25/25, `output/device-round-2026-10-16zm/carve_equal.txt`), colliders JSON 2-3.5x
-     smaller, all 25 packs' scripts 40.3 -> 19.0 MB (still above 30zk's, so the warning may persist). NEXT: Saga
+     smaller, all 25 packs' scripts 40.3 -> 19.0 MB (still above 30zk's, so the warning may persist). Sim 150/0, regressions 38/0 (2
+     known-unreproduced, = 30zl; `sim.txt`, `regr.txt` there). NEXT: Saga
      recheck `output/device-round-2026-10-16zm/brief-saga-30zm.md` (is the watchdog line gone; a turned 90
      placement on the device); the Pixel round of 30zl was not run (phone locked behind its password).
      Evaluation tools: `output/scale06-1016/carve2/tools/` (`eval.sh <packs>`, `pack_diff.py`, `carve_stats.ts`).
