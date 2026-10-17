@@ -179,8 +179,11 @@ The round-30m fixes on the phones:
      'run side is a wall' class); the cross pass judges only FINE runs, so it stays. Tried: the cross pass
      judging EVERY run (branch cae1fe44, undone de196d60): flank still 2.19, the 400 % edge run reverted again,
      76419 300 % max 16.25 -> 9.63 (the Saga-proved carve gain) - WORSE (`output/scale06-1017/autojump-cross/`).
-     Next idea: keep the tier only for a run that starts on the GROUND outside the model (the edge case) and
-     judge just that run's side against the straight ground lanes it crosses.
+     IN FLIGHT: the tier only for a run whose LANDING is the ground (`floors[cand] === 0`; the flank run landed
+     on the 0.94 plate, the edge run on empty ground) - branch commit 64707336, build + eval by
+     `bash output/scale06-1017/ground-tier.sh` -> `output/scale06-1017/ground-tier/{eval.txt,lanes.txt}`;
+     compare with `autojump/eval-compare.txt` and `device-round-2026-10-16zm/pixel/offline-auto.txt`. Merge only
+     if every device-proven route holds; else judge that run's side against the ground lanes it crosses.
      OPEN: the watchdog line at 300/400 % placement on the Pixel (memory during re-laying).
      OPEN (test time): test/interactive-passability.test.ts '76417: every doorway' times out at 600 s on
      main, alone, quiet machine (skipped on CI: needs the corpus). Profile (`output/figsweep-1017/prof/`,
