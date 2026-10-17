@@ -159,12 +159,16 @@ The round-30m fixes on the phones:
      10.38 (main 10.63, device 10.3); 21063 SW corner lanes 0.5-2.5 lose 12-14 blocks - main climbed
      INVISIBLE collider there (drawn_at: 0 cuboids), so that loss is a fix; 76419 x 31.5 line 7.25 ->
      6.44 at the same stop z 30.3. Sim 18/18 on the 3 packs; regressions need the full round (none of the
-     38 cases is a microscale set). COST, open: 76417 export 644 -> 862 s (300 % plans ~35 -> 53 s/turn,
-     400 % ~101 -> 134 s/turn), pack 1.55 -> 2.69 MB, and test/interactive-passability.test.ts's 76417
-     case times out (main 330 s, branch > 600 s) - the full suite is otherwise 3302/3303. Next: profile
-     planSizeCarve vs the planner on the carved grid, cut the cost (TODO ship turn 0 only: turns are
-     equivariant), then build round 30zl (`output/device-round-2026-10-16zl/build.sh`, ready: builds the
-     carve worktree), regressions, devices. Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule
+     38 cases is a microscale set). COST: the cross pass was most of every plan (76417 at 300 %: 39 of 57 s),
+     now shares one grid per revert and lifts one run off it (feb168d9 on the branch, ce6c600e on MAIN;
+     packs byte-identical, checked with `output/scale06-1016/carve2/tools/pack_diff.py`): 76417 export on
+     the branch 865 -> 617 s (main before 644 s), the 76417 doorway test 413 s (limit 600; main 330 s).
+     OPEN: 76417 placement.js 0.80 -> 3.95 MB with the carve (all four turns shipped, 8 chars an edit;
+     TODO ship turn 0 only - needs a rotation map over the 43 clearance forms incl. the x-mirror quirk) -
+     judge load/memory on the phones. Round 30zl building (`output/device-round-2026-10-16zl/build.sh`,
+     packs from the carve worktree at feb168d9): then `bun scripts/sim.ts <packs>`, `--scenario=regressions
+     --new=<packs>`, `tools/eval.sh`, then the devices (21063 flank at 300 %, 76419 300 % climbs, 21061 300 %
+     plate; 200 % should be unchanged). Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule
      runs are not cross-judged (TODO cross-pass-main);
      design question: interiors whose doors are only drawn (21061 nave, 21063
      Palas). SEAT-05: coaster air dismount floats on the Pixel (lift top, loop:
