@@ -38,6 +38,7 @@
  */
 
 import { BlockGrid } from '@craft/schem/types.js';
+import { colliderFormKit, type ColliderFormKit } from './collider-form.js';
 import { encodeMcstructureTile } from './mcstructure-encode.js';
 import { deterministicUuid } from './mcpack.js';
 import { FLIGHT_INPUT_EVENT } from './bedrock-vehicle.js';
@@ -471,8 +472,39 @@ export function judgeFigureTrack(track: FigureSample[], area: { min: Vec3; max: 
     minAboveGround: r2(Number.isFinite(minY) ? minY - groundY : 0),
     belowGround: Number.isFinite(minY) && minY < groundY - 0.5,
     droppedStorey: !!first && !!last && last.y < first.y - 1.5,
-    clippingSamples, ridingSamples, satAndStood, moved: pathLength >= 2, endInsideWall,
+    clippingSamples, ridingSamples, satAndStood, moved: pathLength >= 2,
+    // A figure still SITTING at the end (a roamer that borrowed a seat) sits in the seat's collider cells by
+    // design; only a standing one inside a wall is a fault (60380 figure 3, 910004 figure 7, 2026-10-17).
+    endInsideWall: endInsideWall && !last?.riding,
   };
+}
+
+/** World boxes `[x0, x1, y0, y1, z0, z1]` (blocks) of the block at (bx, by, bz); [] for air, undefined when unloaded. */
+export type WorldBoxesAt = (bx: number, by: number, bz: number) => ReadonlyArray<readonly number[]> | undefined;
+
+/**
+ * Does a figure standing with its feet at `at` overlap anything that rises more than a step over its feet
+ * (furniture, a counter, a wall), and is any of it a WALL (at least 12/16 tall)? The body is a minifig's 0.6-wide
+ * column judged from 0.6 to 1.6 over the feet. Boxes are the block's REAL collision boxes (`boxesAt`): the
+ * runtime reads a collider through the pack's kit, every one of its 43 form ids, because reading any id but
+ * `craftmatic:collider` as a whole cube put 76417's figures 6 and 11 "inside a wall" while they stood on
+ * floor forms one sixteenth tall (`collider_w5` / `collider_w1` lo 0 hi 1, 2026-10-17). Pure, so it is
+ * unit-tested here and serialised into the device runtime unchanged.
+ */
+export function figureBodyCheck(boxesAt: WorldBoxesAt, at: Vec3): { clipping: boolean; wall: boolean } {
+  const HALF = 0.3, BAND_LO = 0.6, BAND_HI = 1.6, WALL = 0.75;
+  const x0 = at.x - HALF, x1 = at.x + HALF, z0 = at.z - HALF, z1 = at.z + HALF, y0 = at.y + BAND_LO, y1 = at.y + BAND_HI;
+  let clipping = false, wall = false;
+  for (let bx = Math.floor(x0); bx <= Math.floor(x1); bx++) for (let bz = Math.floor(z0); bz <= Math.floor(z1); bz++) {
+    for (let by = Math.floor(at.y); by <= Math.floor(y1); by++) {
+      for (const w of boxesAt(bx, by, bz) ?? []) {
+        if (!(w[1]! > x0 && w[0]! < x1 && w[5]! > z0 && w[4]! < z1 && w[3]! > y0 && w[2]! < y1)) continue;
+        clipping = true;
+        if (w[3]! - w[2]! >= WALL) wall = true;
+      }
+    }
+  }
+  return { clipping, wall };
 }
 
 export interface GametestPinball {
@@ -651,7 +683,7 @@ interface RuntimeModules { mc: any; gt: any }
  * line `CMGT <TAG> <json>` via `console.warn` (the level the content log keeps
  * by default), then ~16 KiB of padding so the block-buffered log flushes.
  */
-export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena: Vec3, margin: number, judge: typeof judgeWalk, matches: typeof outcomeMatches, judgeFigure?: typeof judgeFigureTrack, vehicleKit?: { summarise: typeof summariseVehiclePhase; layout: typeof GT_VEHICLE_LAYOUT; inputEvent: string }): void {
+export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena: Vec3, margin: number, judge: typeof judgeWalk, matches: typeof outcomeMatches, judgeFigure?: typeof judgeFigureTrack, vehicleKit?: { summarise: typeof summariseVehiclePhase; layout: typeof GT_VEHICLE_LAYOUT; inputEvent: string }, figureBody?: typeof figureBodyCheck, kit?: ColliderFormKit): void {
   const { mc, gt } = mods;
   // `--only=vehicles`: none of the model's own tests, so a vehicle run is short and cannot collide with them.
   if (plan.vehiclesOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, figures: [], flyer: undefined };
@@ -1101,29 +1133,20 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     try { sim.teleport(test.worldLocation({ x: 0.5, y: 2, z: 0.5 })); } catch { /* stays */ }
     await test.idle(40);
     const col = plan.colliders;
-    /** Collision span [bottom, top] of the block in world row y at column (x, z); null for air. */
-    const spanAt = (x: number, y: number, z: number): number[] | null => {
+    /** The block's world collision boxes: a collider's FORM boxes through the kit (any of its ids), a whole box for any other solid block, [] for air or liquid, undefined when unreadable. */
+    const boxesAt = (bx: number, by: number, bz: number): number[][] | undefined => {
       let b: any;
-      try { b = dim.getBlock({ x, y, z }); } catch { return null; }
-      if (!b || b.isAir === true || b.isLiquid === true || b.typeId === 'minecraft:air') return null;
-      if (col && b.typeId === col.block) {
-        const lo = Number(b.permutation.getState(col.loState)), hi = Number(b.permutation.getState(col.hiState));
-        return Number.isFinite(lo) && Number.isFinite(hi) ? [y + lo / 16, y + hi / 16] : [y, y + 1];
+      try { b = dim.getBlock({ x: bx, y: by, z: bz }); } catch { return undefined; }
+      if (!b) return undefined;
+      if (b.isAir === true || b.isLiquid === true || b.typeId === 'minecraft:air') return [];
+      const v = col && kit ? kit.variantOf(b.typeId) : -1;
+      if (v >= 0) {
+        const lo = Number(b.permutation.getState(col!.loState)), hi = Number(b.permutation.getState(col!.hiState));
+        if (Number.isFinite(lo) && Number.isFinite(hi)) return kit!.formBoxes(v, lo, hi).map(w => [bx + w[0]! / 16, bx + w[1]! / 16, by + w[2]! / 16, by + w[3]! / 16, bz + w[4]! / 16, bz + w[5]! / 16]);
       }
-      return [y, y + 1];
+      return [[bx, bx + 1, by, by + 1, bz, bz + 1]];
     };
-    /** Does a body standing at `at` overlap a span that rises more than a step above its feet (furniture, a wall)? And a wall (a span at least 12/16 thick)? */
-    const bodyCheck = (at: Vec3): { clipping: boolean; wall: boolean } => {
-      const x = Math.floor(at.x), z = Math.floor(at.z), feet = at.y;
-      let clipping = false, wall = false;
-      for (let y = Math.floor(feet); y <= Math.floor(feet + 1.6); y++) {
-        const s = spanAt(x, y, z);
-        if (!s || !(s[0]! < feet + 1.6 && s[1]! > feet + 0.6)) continue;
-        clipping = true;
-        if (s[1]! - s[0]! >= 0.75) wall = true;
-      }
-      return { clipping, wall };
-    };
+    const bodyCheck = (at: Vec3): { clipping: boolean; wall: boolean } => figureBody ? figureBody(boxesAt, at) : { clipping: false, wall: false };
     const centre = add(anchor, { x: plan.dims.width / 2, y: 0, z: plan.dims.length / 2 });
     const reach = Math.max(plan.dims.width, plan.dims.length) + 6;
     const tracked = figs.map(f => {
@@ -1971,7 +1994,7 @@ export function gametestScript(plan: GametestPlan): string {
   const arena = arenaSize(plan.dims);
   return `import * as mc from "@minecraft/server";\nimport * as gt from "@minecraft/server-gametest";\n`
     + `const PLAN = ${JSON.stringify(plan)};\n`
-    + `(${gametestRuntime.toString()})({ mc, gt }, PLAN, ${JSON.stringify(arena)}, ${GT_MARGIN}, ${judgeWalk.toString()}, ${outcomeMatches.toString()}, ${judgeFigureTrack.toString()}, { summarise: ${summariseVehiclePhase.toString()}, layout: ${JSON.stringify(GT_VEHICLE_LAYOUT)}, inputEvent: ${JSON.stringify(FLIGHT_INPUT_EVENT)} });\n`;
+    + `(${gametestRuntime.toString()})({ mc, gt }, PLAN, ${JSON.stringify(arena)}, ${GT_MARGIN}, ${judgeWalk.toString()}, ${outcomeMatches.toString()}, ${judgeFigureTrack.toString()}, { summarise: ${summariseVehiclePhase.toString()}, layout: ${JSON.stringify(GT_VEHICLE_LAYOUT)}, inputEvent: ${JSON.stringify(FLIGHT_INPUT_EVENT)} }, ${figureBodyCheck.toString()}, (${colliderFormKit.toString()})());\n`;
 }
 
 /** `scripts/main.js` of the variant: the model's entry plus the tests (import declarations hoist). */

@@ -201,8 +201,8 @@ The round-30m fixes on the phones:
 2. COAST-06: 10261 eye MEASURED on the seat (Pixel 30n, -0.09..+0.14); 10303 and the Saga lag still unmeasured (marker on the seat,
    `camprobe` recipe) on a 10261 ride.
 3. Offline leftovers: `TODO(car-oblique-kerb)`, Milano chase ease jump,
-   76417 figures 6/11 end inside a wall in the figures GameTest (figure 9 fixed
-   `cd9ccaef`: spawn kept only over its own footprint; 40-set sweep owed), `TODO(nimbus-chase-residual)`,
+   910004 figure 7 stands up from a borrowed seat into a 0.5-block gap (offline figures GameTest; 76417's
+   6/11 were the test reading 1/16 floor forms as cubes, fixed 2026-10-17; sweep `output/figsweep-1017/all2/`), `TODO(nimbus-chase-residual)`,
    `TODO(nimbus-cockpit)`, `TODO(hit-test-footprint)`, `TODO(sweep-wide-spacing)`,
    `TODO(passage-geometry)` (910004 Doors 3/5).
 

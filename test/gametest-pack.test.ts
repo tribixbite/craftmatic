@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   arenaSize, arenaWindows, windowOf, buildArenaStructure, gametestRuntime, gametestVariantFiles, withGametestImport, gametestScript, GT_MARGIN, GT_PLACE_EVENT,
-  judgeWalk, outcomeMatches, patchPlacementForGametest, variantManifest, judgeFigureTrack, arenaExceeds, type GametestPlan, type Vec3,
+  judgeWalk, outcomeMatches, patchPlacementForGametest, variantManifest, judgeFigureTrack, figureBodyCheck, arenaExceeds, type GametestPlan, type Vec3,
   summariseVehiclePhase, buildVehicleArena, GT_VEHICLE_LAYOUT, gaitProbeController, withGaitProbe, GAIT_PROBE_CONTROLLER_ID, GAIT_PROBE_SPEED_CONTROLLER_ID, GAIT_SPEED_BUCKETS,
 } from '../web/src/engine/gametest-pack.js';
 
@@ -117,8 +117,32 @@ describe('figure verdicts', () => {
     expect(judgeFigureTrack([{ x: 1, y: 0, z: 1, riding: true }, { x: 1, y: 0, z: 1.5, riding: true }], area, 0, false, 1)).toMatchObject({ moved: false, ridingSamples: 2, satAndStood: false });
     // A figure riding a mount outside the footprint (a flyer companion on its orbit) has not left the model.
     expect(judgeFigureTrack([{ x: 20, y: 3, z: 1, riding: true }, { x: 22, y: 3, z: 1, riding: true }], area, 0, false, 1)).toMatchObject({ outsideSamples: 0, ridingSamples: 2 });
+    // A roamer that borrowed a seat and is still SITTING at the end sits in the chair's collider cells by design:
+    // not "inside a wall" (60380 figure 3, 910004 figure 7, offline sweep 2026-10-17). Standing again, it counts.
+    expect(judgeFigureTrack([{ x: 1, y: 0, z: 1 }, { x: 2, y: 0.6, z: 1, riding: true }], area, 0, true, 1)).toMatchObject({ endInsideWall: false });
+    expect(judgeFigureTrack([{ x: 1, y: 0, z: 1, riding: true }, { x: 2, y: 0, z: 1 }], area, 0, true, 1)).toMatchObject({ endInsideWall: true });
     // A roamer that borrowed a seat and got up again.
     expect(judgeFigureTrack([{ x: 1, y: 0.2, z: 1 }, { x: 2, y: 0.4, z: 1, riding: true }, { x: 2, y: 0.4, z: 1, riding: true }, { x: 2.8, y: 0.2, z: 1 }], area, 0, false, 1)).toMatchObject({ ridingSamples: 2, satAndStood: true });
+  });
+  it('judges a body against the collider FORM boxes: a figure on a 1/16 floor form is not inside a wall (76417 figures 6 and 11)', () => {
+    // World boxes per block, as the runtime builds them from the kit: 76417's cell (10, 17, 17) is `collider_w5`
+    // lo 0 hi 1, a slab one sixteenth tall over the half x 8..16 - read as a whole cube, figure 6 ended "inside a wall".
+    const slab: Record<string, number[][]> = { '10,17,17': [[10.5, 11, 17, 17 + 1 / 16, 17, 18]] };
+    const at = (m: Record<string, number[][]>) => (x: number, y: number, z: number) => m[`${x},${y},${z}`] ?? [];
+    expect(figureBodyCheck(at(slab), { x: 10.62, y: 17.06, z: 17.38 })).toEqual({ clipping: false, wall: false });
+    // The same half-block footprint as a full-height wall: the body (0.6 wide) overlaps it.
+    const wall: Record<string, number[][]> = { '10,17,17': [[10.5, 11, 17, 18, 17, 18]] };
+    expect(figureBodyCheck(at(wall), { x: 10.62, y: 17.06, z: 17.38 })).toEqual({ clipping: true, wall: true });
+    // Beside it, clear of its x 10.5: no overlap, though the body is in the same block column.
+    expect(figureBodyCheck(at(wall), { x: 10.2, y: 17.06, z: 17.38 })).toEqual({ clipping: false, wall: false });
+    // A wall in the NEXT column that the 0.6-wide body reaches into still counts.
+    const next: Record<string, number[][]> = { '11,17,17': [[11, 11.25, 17, 18, 17, 18]] };
+    expect(figureBodyCheck(at(next), { x: 10.8, y: 17.06, z: 17.38 })).toEqual({ clipping: true, wall: true });
+    // A low obstruction above a step but thinner than a wall (a counter top) clips without being a wall.
+    const ledge: Record<string, number[][]> = { '10,17,17': [[10, 11, 17.7, 18, 17, 18]] };
+    expect(figureBodyCheck(at(ledge), { x: 10.5, y: 17.06, z: 17.5 })).toEqual({ clipping: true, wall: false });
+    // An unloaded block reads nothing (the runtime's old rule): no verdict from a world it cannot see.
+    expect(figureBodyCheck(() => undefined, { x: 10.5, y: 17, z: 17.5 })).toEqual({ clipping: false, wall: false });
   });
   it('knows a model too wide for one structure, and the capped arena builds', () => {
     expect(arenaExceeds({ width: 77, height: 17, length: 15 })).toBe(true);
@@ -129,6 +153,9 @@ describe('figure verdicts', () => {
     const js = gametestScript({ ...PLAN, figures: [{ label: 'F1', typeId: 'craftmatic:demo_1_fig1', actor: { x: 2, y: 0, z: 2 }, seated: false }] });
     expect(js).toContain('figures_');
     expect(js).toContain('function judgeFigureTrack');
+    // The roaming test reads walls through the pack's collider kit, so every one of its 43 form ids is a form.
+    expect(js).toContain('function figureBodyCheck');
+    expect(js).toContain('function colliderFormKit');
   });
 });
 
