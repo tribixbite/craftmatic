@@ -45,7 +45,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
-import { loadAddonPreviewModel, treadBlocksAt } from '../web/src/ui/addon-preview-data.ts';
+import { loadAddonPreviewModel, carveAt, treadBlocksAt } from '../web/src/ui/addon-preview-data.ts';
 import { SHORT_APPROACH_ROOM, doorwayColumnLines, doorwayHoles, doorwaySneakStops, verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.ts';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
 
@@ -66,7 +66,7 @@ for (const file of files) {
   const counts: Record<string, number> = {};
   for (const it of cfg.items) counts[it.kind] = (counts[it.kind] ?? 0) + 1;
   console.log(`${basename(file)}: ${cfg.items.length} moving parts ${JSON.stringify(counts)}, ${doorways.length} doorways`);
-  const pack = { cells: model.cells, dims: model.dims, interactives: cfg, shippedTreads: (s: number, r: QuarterTurn) => treadBlocksAt(model, s, r) };
+  const pack = { cells: model.cells, dims: model.dims, interactives: cfg, shippedTreads: (s: number, r: QuarterTurn) => treadBlocksAt(model, s, r), shippedCarve: (s: number, r: QuarterTurn) => carveAt(model, s, r) };
   const rows: Array<Record<string, unknown>> = [];
   for (const { it, i } of doorways) for (const size of sizes) for (const rot of rotations) {
     const open = walkThroughDoorway(pack, i, size, rot, true);

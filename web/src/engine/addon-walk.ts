@@ -47,7 +47,7 @@
 
 import {
   JUMP16, PLAYER_NEED16, STEP16, ScaledColliderGrid, blocksAt100, planColliderTreads, walkScaledColliders,
-  type GridDims, type QuarterTurn, type ReachResult, type ReachTarget, type SourceCell, type Surface, type TreadBlock, type TreadPlan,
+  type GridDims, type QuarterTurn, type ReachResult, type ReachTarget, type SizeCarve, type SourceCell, type Surface, type TreadBlock, type TreadPlan,
 } from './bedrock-collider-scale.js';
 import { NO_INPUT, tickPlayer as simTickPlayer, type Box, type Contact as SimContact, type PlayerState, type SolidQuery, type TickResult as SimTickResult, type WalkInput } from '../sim/physics/body.js';
 import { BlockPalette, VoxelWorld, type Permutation, type TerrainGenerator, type WorldSolid } from '../sim/world/voxel-world.js';
@@ -93,6 +93,13 @@ export interface WalkWorldOptions {
   treads?: 'shipped' | 'planned' | 'none' | readonly TreadBlock[];
   /** The shipped plans, `${sizePct}:${rotation}` → decoded blocks, when `treads` is `shipped`. */
   shippedTreads?: (sizePct: number, rotation: QuarterTurn) => readonly TreadBlock[] | undefined;
+  /**
+   * The size's carve (collider-carve.ts): explicit, or `shipped` - the default - to read the pack's own through
+   * `shippedCarve`; none when no reader is handed (a pack built before the carve, a synthetic grid).
+   */
+  carve?: SizeCarve | 'shipped';
+  /** The shipped carves, `${sizePct}:${rotation}` → decoded, when `carve` is `shipped`. */
+  shippedCarve?: (sizePct: number, rotation: QuarterTurn) => SizeCarve | undefined;
   /** Model points a planned tread plan should report on (only used with `treads: 'planned'`). */
   targets?: readonly ReachTarget[];
   /** Static entity collision boxes (standing figures) the LIVE player bumps
@@ -162,7 +169,9 @@ export class WalkWorld {
     const { cells, dims, sizePct, rotation } = options;
     if (sizePct < 100) throw new Error(`WalkWorld needs a size of at least 100 % (got ${sizePct}): below it several cells share a block and the re-lay is not the scaled grid`);
     this.f = sizePct / 100;
-    this.grid = new ScaledColliderGrid(cells, dims, this.f, rotation);
+    // An explicit carve, else the pack's own when the caller handed its reader (`shippedCarve`).
+    const carve = options.carve !== undefined && options.carve !== 'shipped' ? options.carve : options.shippedCarve?.(sizePct, rotation);
+    this.grid = new ScaledColliderGrid(cells, dims, this.f, rotation, carve);
     this.width = this.grid.width; this.height = this.grid.height; this.length = this.grid.length;
     const want = options.treads ?? 'shipped';
     let blocks: readonly TreadBlock[] = [];
@@ -173,7 +182,7 @@ export class WalkWorld {
       const shipped = options.shippedTreads?.(sizePct, rotation);
       if (shipped && shipped.length) { blocks = shipped; source = 'shipped'; }
     } else if (want === 'planned') {
-      plan = planColliderTreads(cells, dims, sizePct, rotation, options.targets ?? []);
+      plan = planColliderTreads(cells, dims, sizePct, rotation, options.targets ?? [], [], undefined, undefined, carve);
       blocks = plan.blocks; source = blocks.length ? 'planned' : 'none';
     }
     for (const b of blocks) {

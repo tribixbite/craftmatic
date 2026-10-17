@@ -126,6 +126,12 @@ export function colliderPairOf(index: number): [number, number] {
  */
 export interface SourceCell { x: number; y: number; z: number; lo: number; hi: number; v?: number }
 export interface GridDims { width: number; height: number; length: number }
+/**
+ * A per-size carve (collider-carve.ts, SCALE-06): world block key `x,y,z` (from the pin, at one size and turn)
+ * -> the form that block takes instead of the scaled cell's, or null for air. Applied after the scaled cells
+ * and before the treads, by the runtime and by every reader of the laid grid.
+ */
+export type SizeCarve = ReadonlyMap<string, ColliderForm | null>;
 /** The quarter turns a pack with blocks may take (`placementRuntime`: block packs turn in 90° steps). */
 export type QuarterTurn = 0 | 90 | 180 | 270;
 export const QUARTER_TURNS: readonly QuarterTurn[] = [0, 90, 180, 270];
@@ -332,7 +338,8 @@ export class ScaledColliderGrid {
   /** Surface key stride: tops run 0..16·height. */
   private readonly keyT: number;
 
-  constructor(readonly cells: readonly SourceCell[], readonly dims: GridDims, readonly f: number, readonly r: QuarterTurn) {
+  /** `carve`: the size's carve (`SizeCarve`), applied to every column as it is built. */
+  constructor(readonly cells: readonly SourceCell[], readonly dims: GridDims, readonly f: number, readonly r: QuarterTurn, readonly carve?: SizeCarve) {
     if (f < 1) throw new Error(`ScaledColliderGrid needs a size factor of at least 1 (got ${f})`);
     const d = scaledDims(dims, f, r);
     this.width = d.width; this.height = d.height; this.length = d.length;
@@ -415,6 +422,20 @@ export class ScaledColliderGrid {
       if (list.every(b => b[0] === 0 && b[1] === 16 && b[4] === 0 && b[5] === 16)) continue;
       const form = COLLIDER_KIT.cover(list);
       if (form && form.v !== 0) rows.get(wy)!.form = form;
+    }
+    if (this.carve?.size) {
+      for (const [wy, b] of [...rows]) {
+        const key = `${x},${wy},${z}`;
+        if (!this.carve.has(key)) continue;
+        const form = this.carve.get(key);
+        if (!form) { rows.delete(wy); continue; }
+        const boxes = COLLIDER_KIT.formBoxes(form.v, form.lo, form.hi);
+        const lo = Math.min(...boxes.map(q => q[2])), hi = Math.max(...boxes.map(q => q[3]));
+        // The source top follows the block's own top down (sixteenths of a SOURCE block: a world sixteenth / f).
+        b.src16 += (hi - b.hi) / this.f;
+        b.lo = lo; b.hi = hi;
+        if (form.v !== 0) b.form = form; else delete b.form;
+      }
     }
     col.blocks = [...rows.values()].sort((p, q) => p.row - q.row);
     return col;
@@ -693,8 +714,20 @@ interface RunEdit {
 
 const noVisited = (r: ReachResult): Omit<ReachResult, 'visited'> => ({ surfaces: r.surfaces, columns: r.columns, highest16: r.highest16 });
 
-/** A cross probe whose feet start under this (blocks) starts on the ground (`crossLaneProbes` puts feet 0.01 over a floor). */
-const GROUND_PROBE_Y = 1 / 16;
+/** A LEGO plate's height at 100 % on a microscale set (sixteenths): 21063's east plate strip, 76419's south yard. */
+const PLATE16_AT_100 = 5;
+/**
+ * A cross probe whose feet start at most this high (blocks) starts on the GROUND, the way in from outside
+ * (`crossLaneProbes` puts feet 0.01 over a floor): on it or a step over it (a carved plate edge sits a
+ * sixteenth or two high); under a per-size carve (`carved`), on a base plate at the size, at most an auto-jump.
+ * At 300 % 21063's east plate strip stands 15/16 high, and one fine run laid across its whole width at z 42
+ * walled off the flank the Pixel climbed (round 30zi: 10.3 blocks) while a step's 9/16 never probed it. Without
+ * a carve (200 %) the plate's 10/16 changed the device-proven routes' plan (21063's lanes over 2 blocks 26 -> 20,
+ * 2026-10-16), so it stays a step there until a device round judges it. Not every floor: the hill runs above
+ * 76419's south shore at 300 % climb more than their sides cost.
+ */
+const groundProbeY = (f: number, carved: boolean): number =>
+  (carved ? Math.min(AUTO_JUMP16, Math.max(STEP16, Math.round(PLATE16_AT_100 * f))) : STEP16) / 16 + 0.01;
 /**
  * A fine run the cross pass would revert is kept when it is the first way (breadth first from the ground) to at
  * least this many surfaces per tread, and to `CROSS_GATEWAY_MIN` at least (`crossPass`'s `gateway`): measured,
@@ -780,9 +813,11 @@ export const LANE_ROUNDS = 32;
  * Plan the treads for one size step and quarter turn. Pure: the same cells
  * give the same plan. See the module header for the rule. `fine`: the export's
  * fine reach walk per source column (`fineReachColumns`); without it the 100 %
- * rule reads the 1-block grid alone, as it always did.
+ * rule reads the 1-block grid alone, as it always did. `carve`: the size's carve
+ * (collider-carve.ts), which every grid the plan reads is laid with; the lane
+ * walk must be built over it too (`colliderLaneWalk`).
  */
-export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], lane?: TreadLaneCheck, fine?: FineReachColumns): TreadPlan {
+export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], lane?: TreadLaneCheck, fine?: FineReachColumns, carve?: SizeCarve): TreadPlan {
   const f = sizePct / 100;
   /**
    * The fine walk stood on the top `src16` of the source column under world column `q` (this size and turn):
@@ -810,7 +845,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     const none = { surfaces: 0, columns: 0, highest16: 0 };
     return { sizePct, rotation, blocks: [], guardBlocks: [], runs: [], unrestored, refused, refusedUnreached: 0, before: none, after: none, verified: true };
   }
-  const grid = new ScaledColliderGrid(cells, dims, f, rotation);
+  const grid = new ScaledColliderGrid(cells, dims, f, rotation, carve);
   const before = walkScaledColliders(grid);
   /** The unassisted walk taking no drop past `SAFE_DROP16`: what the late pass counts as reached already. */
   const beforeSafe = walkScaledColliders(grid, undefined, SAFE_DROP16);
@@ -983,12 +1018,17 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
   /**
    * Every surface the unassisted walk reached still is, save a floor a tread now covers. `laneToo`: a lane run's
    * tread covers a floor as well (the lane pass keeps its floors apart from `treadFloor`; after it, the cross pass).
+   * `prior`: judge only what a change TAKES - a surface reached before the change and not after. The cross pass
+   * passes the walk as the grid stood before its revert: a lane run's treads can also cover a second surface in
+   * a column (a ledge over its floor), which neither exemption names, so the absolute check was already false
+   * when the cross pass started and every revert was refused (76419 at 200 % under the per-size carve: the
+   * boathouse run stood, every turn).
    */
-  const neverBlocks = (after: ReachResult, laneToo = false): boolean => {
+  const neverBlocks = (after: ReachResult, laneToo = false, prior?: ReachResult): boolean => {
     const laneFloors = new Set<string>();
     if (laneToo) for (const e of edits) if (e.run.lane) for (const c of e.columns) laneFloors.add(`${c.x},${c.z},${c.floor16}`);
     for (const k of before.visited) {
-      if (after.visited.has(k)) continue;
+      if (after.visited.has(k) || (prior && !prior.visited.has(k))) continue;
       const { x, z, t } = grid.unkey(k);
       if (treadFloor.get(colKey(x, z)) !== t && !laneFloors.has(`${x},${z},${t}`)) return false;
     }
@@ -1178,7 +1218,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
    * that run (`LANE_CROSS`, `LANE_SLACK`), over the shipped forms with every other tread laid. A run that shortens
    * one is reverted, newest first, unless it is the gateway to enough of the model (`CROSS_GATEWAY_PER_TREAD`),
    * the walk over the forms (climbing auto-jump's 1.2) then loses any surface (a climb is worth its sides), a
-   * later run writes over it (it is that run's floor), or the unassisted walk is blocked. It runs after
+   * later run writes over it (it is that run's floor), or its removal takes a surface the unassisted walk reached. It runs after
    * the lane pass because a lane run can climb on from a fine run's top (21061 at 150 %: 8.46 -> 4.46 blocks when
    * it ran before). A reverted run is counted `verify`. Without `lane` (the grid-only callers) it checks nothing.
    * TODO(cross-pass-main): the jump-rule runs are not judged (76419 has one along the same row at x 16-19, a
@@ -1186,21 +1226,21 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
    */
   const crossPass = (): void => {
     if (!lane || !edits.some(e => e.run.fine)) return;
-    const fg = new ScaledColliderGrid(lane.cells, dims, f, rotation);
+    const fg = new ScaledColliderGrid(lane.cells, dims, f, rotation, carve);
     for (const e of edits) for (const w of e.writes) fg.write(w.x, w.z, { ...w.block });
     const reach = walkScaledColliders(fg, undefined, SAFE_DROP16);
     /**
      * The forms with EVERY run laid, climbing only what auto-jump climbs (`AutoJumpGrid`), and the walk over them:
      * the same for every run judged until one is reverted,
      * so built once per revert (it was rebuilt per run, twice - here and in `gateway` - and was most of the pass's
-     * cost: 76417 at 300 % under the per-size carve, ~140 runs judged, 39 of a 57 s plan).
+     * cost: 76417 at 300 % under the carve, ~140 runs judged, 39 of a 57 s plan).
      */
     interface AllLaid { grid: AutoJumpGrid; reach: ReachResult; under: Map<RunEdit, Array<{ x: number; z: number; row: number; block: ColumnBlock | undefined }>> }
     let allLaid: AllLaid | undefined;
     const withEveryRun = (): AllLaid => {
       if (!allLaid) {
         // Laid run by run, keeping what each run's writes covered, so `formReach(e)` can lift one run off and back.
-        const grid = new AutoJumpGrid(lane.cells, dims, f, rotation);
+        const grid = new AutoJumpGrid(lane.cells, dims, f, rotation, carve);
         const under = new Map<RunEdit, Array<{ x: number; z: number; row: number; block: ColumnBlock | undefined }>>();
         for (const e of edits) {
           under.set(e, e.writes.map(w => ({ x: w.x, z: w.z, row: w.block.row, block: grid.blockAt(w.x, w.z, w.block.row) })));
@@ -1269,7 +1309,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       // Only walks that start on the GROUND: the way in from outside. Judged on every reached floor, the pass also
       // took the hill runs above 76419's south shore at 300 % (the straight climb there 7.25 -> 4.44 blocks), and
       // those climb more than their sides cost.
-      const probes = crossLaneProbes(fg, reach, e.columns).filter(pr => pr.from.y < GROUND_PROBE_Y);
+      const probes = crossLaneProbes(fg, reach, e.columns).filter(pr => pr.from.y <= groundProbeY(f, !!carve?.size) + 1e-9);
       if (!probes.length) continue;
       const withRun = blocksOf(), withoutRun = blocksOf(e);
       const worse = probes.some(pr => lane.walk(withRun, pr.from, pr.dir, LANE_CROSS) < lane.walk(withoutRun, pr.from, pr.dir, LANE_CROSS) - LANE_SLACK);
@@ -1293,15 +1333,16 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       if (gateway(e) >= Math.max(CROSS_GATEWAY_MIN, CROSS_GATEWAY_PER_TREAD * e.columns.length)) continue;
       // Never block on the full-cell grid too; what the other runs climb to is judged on the forms above (the
       // lane runs were proved there, and the full-cell reading can strand one the forms still reach).
+      const prior = walkScaledColliders(grid);
       revert(e); edits.splice(i, 1);
-      if (!neverBlocks(walkScaledColliders(grid), true)) { edits.splice(i, 0, e); apply(e); continue; }
+      if (!neverBlocks(walkScaledColliders(grid), true, prior)) { edits.splice(i, 0, e); apply(e); continue; }
       refuse(e.run.from, e.run.to, 'verify');
       reverted = true;
       allLaid = undefined;
     }
     // The second guard pass reads the lane pass's form grid: lay it again without the reverted runs.
     if (reverted && formGrid) {
-      formGrid = new ScaledColliderGrid(lane.cells, dims, f, rotation);
+      formGrid = new ScaledColliderGrid(lane.cells, dims, f, rotation, carve);
       for (const e of edits) for (const w of e.writes) formGrid.write(w.x, w.z, { ...w.block });
     }
   };
@@ -1333,7 +1374,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     if (!lane) return;
     const walk = lane.walk;
     // The FORM grid: each column read from its OWN pieces of a clearance form, with every tread laid so far.
-    const fg = new ScaledColliderGrid(lane.cells, dims, f, rotation);
+    const fg = new ScaledColliderGrid(lane.cells, dims, f, rotation, carve);
     for (const e of edits) for (const w of e.writes) fg.write(w.x, w.z, { ...w.block });
     const fBefore = walkScaledColliders(fg);
     let reach = walkScaledColliders(fg, undefined, SAFE_DROP16);
@@ -1701,7 +1742,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     const first = guardPass(grid, before, []);
     guardsLaid.push(...first);
     if (formGrid) {
-      const second = guardPass(formGrid, walkScaledColliders(new ScaledColliderGrid(lane!.cells, dims, f, rotation)), first);
+      const second = guardPass(formGrid, walkScaledColliders(new ScaledColliderGrid(lane!.cells, dims, f, rotation, carve)), first);
       guardsLaid.push(...second);
       guardCounts.formColumns = second.length;
     }

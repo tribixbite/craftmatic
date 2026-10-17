@@ -80,11 +80,11 @@ describe('auto-jump (quirk auto-jump)', () => {
 const PACK_30K = 'C:/git/craftmatic/output/device-round-2026-10-07k/packs-78e06246/10261-roller-coaster.mcaddon';
 describe.skipIf(!existsSync(PACK_30K))('10261\'s lift hill at 200 % on the 30k pack (Pixel 30k)', () => {
   it('the auto-jump walk stops where the phone stopped; the jump-whenever-blocked walk does not', async () => {
-    const { loadAddonPreviewModel, treadBlocksAt } = await import('../web/src/ui/addon-preview-data.js');
+    const { carveAt, loadAddonPreviewModel, treadBlocksAt } = await import('../web/src/ui/addon-preview-data.js');
     const { WalkWorld } = await import('../web/src/engine/addon-walk.js');
     const bytes = readFileSync(PACK_30K);
     const model = await loadAddonPreviewModel(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
-    const w = new WalkWorld({ cells: model.cells, dims: model.dims, sizePct: 200, rotation: 0, treads: 'shipped', shippedTreads: (s, q) => treadBlocksAt(model, s, q) });
+    const w = new WalkWorld({ cells: model.cells, dims: model.dims, sizePct: 200, rotation: 0, treads: 'shipped', shippedTreads: (s, q) => treadBlocksAt(model, s, q), shippedCarve: (s, q) => carveAt(model, s, q) });
     for (const z of [4.85, 5.2, 5.6]) {
       for (const mode of ['auto', 'blocked'] as const) {
         let s: PlayerState = { x: 15.6, y: 4.6, z, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 };

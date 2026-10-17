@@ -22,7 +22,7 @@
  * at 200 % (round 30k: pin + 28.2).
  */
 import { readFileSync } from 'node:fs';
-import { loadAddonPreviewModel, treadBlocksAt } from '../web/src/ui/addon-preview-data.ts';
+import { loadAddonPreviewModel, carveAt, treadBlocksAt } from '../web/src/ui/addon-preview-data.ts';
 import { WalkWorld, tickPlayer, type PlayerState } from '../web/src/engine/addon-walk.ts';
 import { ixClosedBlocks } from '../web/src/engine/bedrock-interactives.ts';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
@@ -43,7 +43,7 @@ const axis = dirFlag[1] as 'x' | 'z', sign = dirFlag[0] === '+' ? 1 : -1;
 
 const b = readFileSync(file);
 const model = await loadAddonPreviewModel(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
-const world = new WalkWorld({ cells: model.cells, dims: model.dims, sizePct, rotation, treads: 'shipped', shippedTreads: (s, q) => treadBlocksAt(model, s, q) });
+const world = new WalkWorld({ cells: model.cells, dims: model.dims, sizePct, rotation, treads: 'shipped', shippedTreads: (s, q) => treadBlocksAt(model, s, q), shippedCarve: (s, q) => carveAt(model, s, q) });
 const items = model.interactives?.items ?? [];
 if (model.interactives) world.setOverlayBlocks(ixClosedBlocks(items, model.dims, sizePct / 100, rotation, i => open.includes(items[i]!.label)));
 console.log(`${model.label}: walking ${dirFlag} from ${axis} ${from} to ${to}, feet from y ${startY}, at ${sizePct} % turn ${rotation}, jump ${jumpMode}${open.length ? `, open: ${open.join(', ')}` : ''}`);

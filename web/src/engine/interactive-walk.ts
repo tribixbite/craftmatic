@@ -21,7 +21,7 @@ import { COLLIDER_KIT } from './collider-form.js';
 import { PLAYER_WIDTH_BLOCKS } from './addon-scale.js';
 import { NO_INPUT, SNEAK_FACTOR, STEP_HEIGHT, WalkWorld, modelPointToWorld, playerBox, tickPlayer, type Box, type PlayerState, type SolidBox, type WalkWorldOptions } from './addon-walk.js';
 import type { SolidQuery } from '../sim/physics/body.js';
-import type { QuarterTurn, SourceCell, TreadBlock } from './bedrock-collider-scale.js';
+import type { QuarterTurn, SizeCarve, SourceCell, TreadBlock } from './bedrock-collider-scale.js';
 
 /** Ticks the walk gets (10 s at 20 ticks/s): a 4-block approach, a jump or two. */
 export const MAX_TICKS = 200;
@@ -95,6 +95,8 @@ export interface DoorwayWalkPack {
   dims: { width: number; height: number; length: number };
   interactives: InteractiveRuntimeConfig;
   shippedTreads?: (sizePct: number, rotation: QuarterTurn) => readonly TreadBlock[] | undefined;
+  /** The pack's carve per size and turn (collider-carve.ts), laid under the treads as the runtime lays it. */
+  shippedCarve?: (sizePct: number, rotation: QuarterTurn) => SizeCarve | undefined;
   /**
    * Build the walk world from the options the walk would use (default
    * `new WalkWorld`). A diagnostic walks the same doorway over another
@@ -448,7 +450,7 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
    * whether it is big enough yet, so the approach is found in that world.
    */
   const worldFor = (groupOpen: boolean, lifted = false, others = openOthers): WalkWorld => {
-    const options: WalkWorldOptions = { cells: pack.cells, dims: pack.dims, sizePct, rotation, treads: 'shipped', ...(pack.shippedTreads ? { shippedTreads: pack.shippedTreads } : {}) };
+    const options: WalkWorldOptions = { cells: pack.cells, dims: pack.dims, sizePct, rotation, treads: 'shipped', ...(pack.shippedTreads ? { shippedTreads: pack.shippedTreads } : {}), ...(pack.shippedCarve ? { shippedCarve: pack.shippedCarve } : {}) };
     const w = pack.makeWorld ? pack.makeWorld(options) : new WalkWorld(options);
     const items = lifted ? cfg.items.map((it, i) => group.has(i) ? { ...it, blocking: [] } : it) : cfg.items;
     w.setOverlayBlocks(ixClosedBlocks(items, pack.dims, f, rotation, i => group.has(i) ? groupOpen : others));
@@ -835,7 +837,7 @@ export function doorwayColumnLines(pack: DoorwayWalkPack, index: number, sizePct
   const { own, centre, n } = doorwayGeometry(pack, item, f, rotation);
   if (!own.length) return [];
   // The open world with this doorway's group lifted (its leaves gone), every other doorway closed.
-  const options: WalkWorldOptions = { cells: pack.cells, dims: pack.dims, sizePct, rotation, treads: 'shipped', ...(pack.shippedTreads ? { shippedTreads: pack.shippedTreads } : {}) };
+  const options: WalkWorldOptions = { cells: pack.cells, dims: pack.dims, sizePct, rotation, treads: 'shipped', ...(pack.shippedTreads ? { shippedTreads: pack.shippedTreads } : {}), ...(pack.shippedCarve ? { shippedCarve: pack.shippedCarve } : {}) };
   const world = pack.makeWorld ? pack.makeWorld(options) : new WalkWorld(options);
   world.setOverlayBlocks(ixClosedBlocks(cfg.items.map((it, i) => group.has(i) ? { ...it, blocking: [] } : it), pack.dims, f, rotation, i => group.has(i)));
   const columns = [...new Map(own.map(b => [`${b.x},${b.z}`, { x: b.x, z: b.z }])).values()];

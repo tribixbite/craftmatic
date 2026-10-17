@@ -33,7 +33,7 @@
  */
 import { readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadAddonPreviewModel, treadBlocksAt, type AddonPreviewModel } from '../web/src/ui/addon-preview-data.ts';
+import { loadAddonPreviewModel, carveAt, treadBlocksAt, type AddonPreviewModel } from '../web/src/ui/addon-preview-data.ts';
 import { WalkWorld, type SolidBox } from '../web/src/engine/addon-walk.ts';
 import { ixClosedBlocks } from '../web/src/engine/bedrock-interactives.ts';
 import { verdictOf, walkThroughDoorway, type Verdict } from '../web/src/engine/interactive-walk.ts';
@@ -54,7 +54,7 @@ interface DoorCounts { OK: number; SMALL: number; FAIL: number; 'NO-APPROACH': n
 /** Reach and rooms over one pack at one size (turn 0). */
 function measure(model: AddonPreviewModel, sizePct: number): Measure {
   const f = sizePct / 100, r: QuarterTurn = 0;
-  const world = new WalkWorld({ cells: model.cells, dims: model.dims, sizePct, rotation: r, treads: 'shipped', shippedTreads: (s, q) => treadBlocksAt(model, s, q) });
+  const world = new WalkWorld({ cells: model.cells, dims: model.dims, sizePct, rotation: r, treads: 'shipped', shippedTreads: (s, q) => treadBlocksAt(model, s, q), shippedCarve: (s, q) => carveAt(model, s, q) });
   if (model.interactives) world.setOverlayBlocks(ixClosedBlocks(model.interactives.items, model.dims, f, r, () => true));
   const W = world.width, L = world.length;
   const step = sizePct >= 300 ? 0.5 : 0.25;
@@ -157,7 +157,7 @@ function doorways(model: AddonPreviewModel, sizePct: number): DoorCounts {
   const counts: DoorCounts = { OK: 0, SMALL: 0, FAIL: 0, 'NO-APPROACH': 0, SEALED: 0, STEP: 0 };
   const cfg = model.interactives;
   if (!cfg) return counts;
-  const pack = { cells: model.cells, dims: model.dims, interactives: cfg, shippedTreads: (s: number, r: QuarterTurn) => treadBlocksAt(model, s, r) };
+  const pack = { cells: model.cells, dims: model.dims, interactives: cfg, shippedTreads: (s: number, r: QuarterTurn) => treadBlocksAt(model, s, r), shippedCarve: (s: number, r: QuarterTurn) => carveAt(model, s, r) };
   cfg.items.forEach((it, i) => {
     if (it.passSize === undefined || !it.blocking.length) return;
     const open = walkThroughDoorway(pack, i, sizePct, 0, true), closed = walkThroughDoorway(pack, i, sizePct, 0, false);

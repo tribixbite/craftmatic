@@ -28,12 +28,12 @@
  */
 
 import {
-  colliderSourceCells, decodeTreadPlan, rotatePlacementPoint, SIZE_STEPS,
+  carveFor, colliderSourceCells, decodeTreadPlan, rotatePlacementPoint, SIZE_STEPS,
   type PlacementActor, type PlacementColliders, type PlacementRotation, type PlacementTreadReport,
 } from '@engine/bedrock-placement-pack.js';
 import {
   scaledDims, ScaledColliderGrid, walkScaledColliders,
-  type GridDims, type QuarterTurn, type ReachResult, type SourceCell, type TreadBlock,
+  type GridDims, type QuarterTurn, type ReachResult, type SizeCarve, type SourceCell, type TreadBlock,
 } from '@engine/bedrock-collider-scale.js';
 import type { AccessScaleRecommendation } from '@engine/bedrock-scene-actors.js';
 import { isShellEntityId } from '@engine/bedrock-building-shell.js';
@@ -606,6 +606,11 @@ export function toggleLegend(state: LegendState, kind: LegendKind, flag: keyof L
  */
 export interface LaidBlock { x: number; y: number; z: number; lo: number; hi: number; tread: boolean; form?: ColliderForm }
 
+/** The shipped carve for a size and turn (collider-carve.ts; undefined where the pack carries none). */
+export function carveAt(model: Pick<AddonPreviewModel, 'colliders'>, sizePct: number, rotation: QuarterTurn): SizeCarve | undefined {
+  return model.colliders ? carveFor(model.colliders, sizePct, rotation) : undefined;
+}
+
 /** The shipped tread blocks for a size and turn (empty at 100 % and where none was needed). */
 export function treadBlocksAt(model: Pick<AddonPreviewModel, 'colliders'>, sizePct: number, rotation: QuarterTurn): TreadBlock[] {
   const plan = model.colliders?.treads?.plans[`${sizePct}:${rotation}`];
@@ -617,11 +622,12 @@ export function treadBlocksAt(model: Pick<AddonPreviewModel, 'colliders'>, sizeP
  * the runtime's `placeColliders` arithmetic for EVERY size: each source cell
  * covers `cellColumns` in x and z (below 100 % several cells share a block
  * and the shared block keeps min lo / max hi), its scaled span is cut into
- * per-row sixteenths, and the tread plan's blocks replace what they land on.
+ * per-row sixteenths, the size's carve cuts a block to the drawn geometry (or
+ * to air), and the tread plan's blocks replace what they land on.
  * For sizes of 100 % and above this equals `ScaledColliderGrid.allBlocks()`
  * (asserted in the tests); below 100 % that class does not apply.
  */
-export function laidColliderBlocks(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, treads: readonly TreadBlock[] = []): { blocks: LaidBlock[]; dims: GridDims } {
+export function laidColliderBlocks(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, treads: readonly TreadBlock[] = [], carve?: SizeCarve): { blocks: LaidBlock[]; dims: GridDims } {
   const f = sizePct / 100;
   const laid = scaledDims(dims, f, rotation);
   const key = (x: number, y: number, z: number): number => (x * laid.height + y) * laid.length + z;
@@ -637,8 +643,11 @@ export function laidColliderBlocks(cells: readonly SourceCell[], dims: GridDims,
   }
   const byKey = new Map<number, LaidBlock>();
   for (const [k, p] of pieces) {
-    const form = COLLIDER_KIT.cover(p.boxes);
+    let form = COLLIDER_KIT.cover(p.boxes);
     if (!form) continue;
+    // The size's carve, as the runtime applies it (`placeColliders`): the block's form, or air.
+    const cut = carve?.get(`${p.x},${p.y},${p.z}`);
+    if (carve?.has(`${p.x},${p.y},${p.z}`)) { if (!cut) continue; form = cut; }
     const boxes = COLLIDER_KIT.formBoxes(form.v, form.lo, form.hi);
     byKey.set(k, { x: p.x, y: p.y, z: p.z, lo: Math.min(...boxes.map(q => q[2])), hi: Math.max(...boxes.map(q => q[3])), tread: false, ...(form.v ? { form } : {}) });
   }
@@ -705,9 +714,9 @@ export interface ReachOverlay {
  * pipeline's own access measurement. Null below 100 %, where the scaled grid
  * class does not apply (no rise can exceed a jump there).
  */
-export function reachOverlay(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, treads: readonly TreadBlock[] = []): ReachOverlay | null {
+export function reachOverlay(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, treads: readonly TreadBlock[] = [], carve?: SizeCarve): ReachOverlay | null {
   if (sizePct < 100 || !cells.length) return null;
-  const grid = new ScaledColliderGrid(cells, dims, sizePct / 100, rotation);
+  const grid = new ScaledColliderGrid(cells, dims, sizePct / 100, rotation, carve);
   for (const t of treads) grid.write(t.x, t.z, { row: t.y, lo: t.lo, hi: t.hi, src16: 0 });
   const reach = walkScaledColliders(grid);
   const surfaces = reachSurfacesFromGrid(grid, reach);
