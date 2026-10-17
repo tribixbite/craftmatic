@@ -182,6 +182,11 @@ The round-30m fixes on the phones:
      Next idea: keep the tier only for a run that starts on the GROUND outside the model (the edge case) and
      judge just that run's side against the straight ground lanes it crosses.
      OPEN: the watchdog line at 300/400 % placement on the Pixel (memory during re-laying).
+     OPEN (test time): test/interactive-passability.test.ts '76417: every doorway' times out at 600 s on
+     main, alone, quiet machine (skipped on CI: needs the corpus). Profile (`output/figsweep-1017/prof/`,
+     scratch `time76417.ts`): export 1065 of 1074 s; tread planning ~90 %: guardPass `settle`/`fine` 333 s
+     (batch-then-halves re-walks), crossPass ~350 s, `walkScaledColliders` 31 % total with native Set.has
+     12.8 % and `surfaces`/`column` 22 %. Ideas: a reused typed visited bitmap; fewer settle re-walks.
      Evaluation tools: `output/scale06-1016/carve2/tools/` (`eval.sh <packs>`, `pack_diff.py`, `carve_stats.ts`).
      Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule
      runs are not cross-judged (TODO cross-pass-main);
