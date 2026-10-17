@@ -1,5 +1,5 @@
 import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type FineReachColumns, type GridDims, type LaneWalk, type QuarterTurn, type ReachTarget, type SizeCarve, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
-import { carvesAt, decodeSizeCarve, encodeSizeCarve, planSizeCarve, type ModelBox } from './collider-carve.js';
+import { carvesAt, encodeSizeCarve, encodeTurnedCarve, planSizeCarve, sizeCarveAt, type ModelBox, type ShippedCarves } from './collider-carve.js';
 import { WalkWorld, tickPlayer, type PlayerState } from './addon-walk.js';
 import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
 import { IDENTITY, boneTransforms, cubeCorners, drawnCubeBox } from './bedrock-geometry-faces.js';
@@ -75,10 +75,11 @@ export interface PlacementColliders {
   treads?: PlacementTreads;
   /**
    * The per-size carve (collider-carve.ts, SCALE-06): per whole size step and turn, every laid block cut to the
-   * drawn geometry inside it (`encodeSizeCarve`), applied by the runtime after the scaled cells and before the
-   * treads. Absent on packs built before it and where nothing changed.
+   * drawn geometry inside it, applied by the runtime after the scaled cells and before the treads; turn 0 whole,
+   * the other turns as their edits against it (`ShippedCarves`). Absent on packs built before it and where
+   * nothing changed.
    */
-  carves?: PlacementTreads;
+  carves?: ShippedCarves;
 }
 
 /**
@@ -807,14 +808,14 @@ function colliderTreadsJob(colliders: PlacementColliders, targets: readonly Reac
   // The lane pass judges its runs physically, over the shipped FORMS (not the full-cell reading above).
   const formCells = colliderSourceCells(colliders);
   const plans: Record<string, string> = {}, counts: Record<string, number> = {};
-  const carvePlans: Record<string, string> = {}, carveCounts: Record<string, number> = {};
+  const carvesPlanned = new Map<string, SizeCarve>();
   const report: PlacementTreadReport = { rule: TREAD_RULE, plans: [] };
   const blocksAt100 = (t16: number, f: number): number => Math.round(t16 / 16 / f * 100) / 100;
   return {
     plan(pct, r) {
       // The carve first (over the shipped forms, as the runtime lays them); the treads are planned over it.
       const carve = carveSource && carvesAt(pct) ? planSizeCarve(formCells, dims, pct, r, carveSource.boxes, carveSource.protect) : undefined;
-      if (carve?.size) { carvePlans[`${pct}:${r}`] = encodeSizeCarve(carve); carveCounts[`${pct}:${r}`] = carve.size; }
+      if (carve?.size) carvesPlanned.set(`${pct}:${r}`, carve);
       const plan = planColliderTreads(cells, dims, pct, r, targets, doorCells, { walk: colliderLaneWalk(formCells, dims, pct, r, carve), cells: formCells }, fineReach, carve);
       const f = pct / 100;
       const { blocks, guardBlocks: _guardBlocks, before, after, ...rest } = plan;
@@ -828,11 +829,26 @@ function colliderTreadsJob(colliders: PlacementColliders, targets: readonly Reac
       colliders: {
         ...colliders,
         ...(Object.keys(plans).length ? { treads: { plans, counts } } : {}),
-        ...(Object.keys(carvePlans).length ? { carves: { plans: carvePlans, counts: carveCounts } } : {}),
+        ...(carvesPlanned.size ? { carves: shippedCarves(carvesPlanned, dims) } : {}),
       },
       report,
     }),
   };
+}
+
+/**
+ * The planned carves as a pack ships them (`ShippedCarves`): turn 0 whole, every other turn as its edits against
+ * turn 0 turned. Built after every turn is planned, so the planning order does not matter.
+ */
+function shippedCarves(planned: ReadonlyMap<string, SizeCarve>, dims: { width: number; length: number }): ShippedCarves {
+  const plans: Record<string, string> = {}, turned: Record<string, string> = {}, counts: Record<string, number> = {};
+  for (const [key, carve] of planned) {
+    const [pct, r] = key.split(':').map(Number) as [number, number];
+    counts[key] = carve.size;
+    if (r === 0) plans[key] = encodeSizeCarve(carve);
+    else turned[key] = encodeTurnedCarve(planned.get(`${pct}:0`), carve, pct, r, dims);
+  }
+  return { plans, ...(Object.keys(turned).length ? { turned } : {}), counts };
 }
 
 /** Every planned size step (above 100 %) and quarter turn, in planning order. */
@@ -918,8 +934,7 @@ export function colliderLaneWalk(formCells: readonly SourceCell[], dims: GridDim
 
 /** The shipped carve for a size and turn (collider-carve.ts), or undefined when the pack carries none there. */
 export function carveFor(colliders: PlacementColliders, sizePct: number, rotation: QuarterTurn): SizeCarve | undefined {
-  const plan = colliders.carves?.plans[`${sizePct}:${rotation}`];
-  return plan ? decodeSizeCarve(plan) : undefined;
+  return sizeCarveAt(colliders.carves, sizePct, rotation, colliders, COLLIDER_KIT.turnForm);
 }
 
 /** Blocks a tread plan changes, for a size and turn, from the shipped colliders. */
@@ -933,7 +948,7 @@ const text = (value: string) => enc.encode(value.endsWith('\n') ? value : `${val
 
 // Serialized into each generated pack. Keep this function plain JavaScript so
 // its toString() output is a valid Bedrock script module after TS transpilation.
-function placementRuntime(config: any, openVehicleControls: ((player: any) => Promise<void>) | undefined, kit: ColliderFormKit) {
+function placementRuntime(config: any, openVehicleControls: ((player: any) => Promise<void>) | undefined, kit: ColliderFormKit, carveAt: typeof sizeCarveAt) {
   // Bedrock's form renderer drops a bare `%` ("100%" rendered "100" on the Pixel, 2026-09-21); the word, as playable-addon.ts's bedrockInGameText.
   const percent = (n: any) => `${n} percent`;
   const states = new Map(), previews = new Set(), histories = new Map(), held = new Set(), showing = new Set();
@@ -1670,22 +1685,9 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     // z as two base-200 digits each, then the pair index). Set after the
     // re-lay of each box so a tread wins over the cell it stands on.
     const treadPlan: string = (c.treads && c.treads.plans && c.treads.plans[`${st.size}:${r}`]) || '';
-    // The per-size carve for THIS size and turn (collider-carve.ts `encodeSizeCarve`): world block "x,y,z" ->
-    // the form it takes instead of the scaled cells' (null: air). 8 chars per block: x, y, z and the form's run
-    // value (v * 136 + pair, 0 = air), each two base-200 digits over char 40. Applied as each block is laid.
-    const carvePlan: string = (c.carves && c.carves.plans && c.carves.plans[`${st.size}:${r}`]) || '';
-    const carve = new Map<string, any>();
-    for (let k = 0; k + 7 < carvePlan.length; k += 8) {
-      const at = (o: number) => (carvePlan.charCodeAt(k + o) - 40) * 200 + carvePlan.charCodeAt(k + o + 1) - 40;
-      const value = at(6);
-      let cf: any = null;
-      if (value > 0) {
-        const cv = Math.floor((value - 1) / 136);
-        const [lo, hi] = pairOf(value - cv * 136);
-        cf = { v: cv, lo, hi };
-      }
-      carve.set(`${at(0)},${at(2)},${at(4)}`, cf);
-    }
+    // The per-size carve for THIS size and turn (collider-carve.ts `sizeCarveAt`, serialised beside the kit):
+    // world block "x,y,z" -> the form it takes instead of the scaled cells' (null: air).
+    const carve: Map<string, any> = carveAt(c.carves, st.size, r, c, kit.turnForm) || new Map();
     let placed = 0, steps = 0;
     for (let bi = 0; bi < boxes.length; bi++) {
       const b = boxes[bi];
@@ -2270,7 +2272,7 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
     // Last, so a reader keying on the older fields' order (a test's regex) reads unchanged.
     shellMigrations: spec.shellMigrations ?? [] };
   const controlsImport = spec.vehicleControls ? 'import { showTimeMachineControls } from "./time-machine.js";\n' : '';
-  const script = `${controlsImport}import { world, system, StructureSaveMode, BlockPermutation, BlockVolume } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG, ${spec.vehicleControls ? "showTimeMachineControls" : "undefined"}, (${colliderFormKit.toString()})());\n`;
+  const script = `${controlsImport}import { world, system, StructureSaveMode, BlockPermutation, BlockVolume } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG, ${spec.vehicleControls ? "showTimeMachineControls" : "undefined"}, (${colliderFormKit.toString()})(), ${sizeCarveAt.toString()});\n`;
   const item = {
     format_version: '1.21.30',
     'minecraft:item': {

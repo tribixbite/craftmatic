@@ -233,3 +233,89 @@ export function decodeSizeCarve(plan: string): Map<string, ColliderForm | null> 
   }
   return out;
 }
+
+/**
+ * The carves a pack ships (`PlacementColliders.carves`). Turn 0 is shipped whole; every other turn is shipped as
+ * the edits where it differs from turn 0 turned (`encodeTurnedCarve`): the four turns are the same cut up to the
+ * kit's tie-breaking between equal x and z bands, so shipping all four whole multiplied every pack's script
+ * (10261 placement.js 1.4 -> 6.5 MB, the 25 packs of round 30zl 7.8 -> 37 MB, and a new script-watchdog "High
+ * memory usage" warning on the Saga at world load).
+ */
+export interface ShippedCarves {
+  /** `${sizePct}:${rotation}` → `encodeSizeCarve`: turn 0, and every turn of a pack built before `turned`. */
+  plans: Record<string, string>;
+  /** `${sizePct}:${rotation}` (90, 180, 270) → that turn's edits against turn 0 turned (`encodeTurnedCarve`). */
+  turned?: Record<string, string>;
+  /** Edits per key (every turn), for diagnostics. */
+  counts: Record<string, number>;
+}
+
+/** A turned plan's value for "no edit here": turn 0 carves a block this turn leaves as laid. */
+export const CARVE_UNSET = DIGIT_BASE * DIGIT_BASE - 1;
+
+/**
+ * The carve a size and turn applies, from the shipped carves: the plan itself, or turn 0's turned with the
+ * wand (as `cellPieces` turns a cell and its sixteenths) and its own edits applied. Undefined when the pack
+ * carries none there. PLAIN JavaScript with no outside reference: the placement runtime receives it serialised
+ * with `.toString()`, as it receives `colliderFormKit`, so the runtime, the walk harness and the tests read a
+ * pack's carve through one implementation. `turnForm` is the kit's; `dims` the grid's width and length.
+ */
+export function sizeCarveAt(carves: ShippedCarves | undefined, sizePct: number, r: number, dims: { width: number; length: number }, turnForm: (form: ColliderForm, r: number) => ColliderForm): Map<string, ColliderForm | null> | undefined {
+  if (!carves) return undefined;
+  const key = sizePct + ':' + r;
+  const whole = carves.plans[key], edits = carves.turned ? carves.turned[key] : undefined;
+  if (whole === undefined && edits === undefined) return undefined;
+  /** Every record of a plan: x, y, z and the value, each two base-200 digits over char 40 (`encodeSizeCarve`). */
+  const read = (plan: string, each: (x: number, y: number, z: number, value: number) => void): void => {
+    const at = (k: number): number => (plan.charCodeAt(k) - 40) * 200 + plan.charCodeAt(k + 1) - 40;
+    for (let k = 0; k + 7 < plan.length; k += 8) each(at(k), at(k + 2), at(k + 4), at(k + 6));
+  };
+  /** A run value as a form (`v * 136 + pair`, 0 = air; the pair as `colliderPairOf`). */
+  const formOf = (value: number): ColliderForm | null => {
+    if (value === 0) return null;
+    const v = Math.floor((value - 1) / 136);
+    let index = value - v * 136, lo = 0;
+    while (index > 16 - lo) { index -= 16 - lo; lo++; }
+    return { v, lo, hi: lo + index };
+  };
+  const out = new Map<string, ColliderForm | null>();
+  if (whole !== undefined) {
+    read(whole, (x, y, z, value) => { out.set(x + ',' + y + ',' + z, formOf(value)); });
+    return out;
+  }
+  // World blocks at turn 0 span width * f by length * f (whole sizes: a cell owns exactly its scaled span).
+  const f = sizePct / 100, W = dims.width * f, L = dims.length * f;
+  read(carves.plans[sizePct + ':0'] || '', (x, y, z, value) => {
+    const tx = r === 90 ? L - 1 - z : r === 180 ? W - 1 - x : z;
+    const tz = r === 90 ? x : r === 180 ? L - 1 - z : W - 1 - x;
+    const form = formOf(value);
+    out.set(tx + ',' + y + ',' + tz, form ? turnForm(form, r) : null);
+  });
+  read(edits || '', (x, y, z, value) => {
+    if (value === 40000 - 1) out.delete(x + ',' + y + ',' + z); else out.set(x + ',' + y + ',' + z, formOf(value));
+  });
+  return out;
+}
+
+/**
+ * A turn's carve as shipped beside turn 0's (`ShippedCarves.turned`): the records where `carve` differs from
+ * `base` (turn 0's carve) turned by `r` through `sizeCarveAt` itself - a block whose form differs, and
+ * `CARVE_UNSET` where turn 0 turned carves a block this turn does not. Sorted as `encodeSizeCarve`.
+ */
+export function encodeTurnedCarve(base: SizeCarve | undefined, carve: SizeCarve, sizePct: number, r: number, dims: { width: number; length: number }): string {
+  if (!Number.isInteger(sizePct / 100) || ![90, 180, 270].includes(r)) throw new Error(`a turned carve needs a whole size and a quarter turn: ${sizePct} % at ${r}`);
+  const turned = sizeCarveAt({ plans: { [`${sizePct}:0`]: base ? encodeSizeCarve(base) : '' }, turned: { [`${sizePct}:${r}`]: '' }, counts: {} }, sizePct, r, dims, COLLIDER_KIT.turnForm)!;
+  const same = (a: ColliderForm | null, b: ColliderForm | null): boolean => a === b || (!!a && !!b && a.v === b.v && a.lo === b.lo && a.hi === b.hi);
+  const rows: Array<{ x: number; y: number; z: number; value: number }> = [];
+  const row = (key: string, value: number): void => {
+    const [x, y, z] = key.split(',').map(Number) as [number, number, number];
+    rows.push({ x, y, z, value });
+  };
+  for (const [key, form] of carve) {
+    if (turned.has(key) && same(turned.get(key)!, form)) continue;
+    row(key, form ? form.v * PAIRS + colliderPairIndex(form.lo, form.hi) : 0);
+  }
+  for (const key of turned.keys()) if (!carve.has(key)) row(key, CARVE_UNSET);
+  rows.sort((a, b) => a.x - b.x || a.z - b.z || a.y - b.y);
+  return rows.map(q => `${digits(q.x)}${digits(q.y)}${digits(q.z)}${digits(q.value)}`).join('');
+}
