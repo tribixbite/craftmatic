@@ -158,9 +158,11 @@ The round-30m fixes on the phones:
      IDENTICALLY to 30zl at every size and turn (`bun output/scale06-1016/carve2/tools/carve_equal.ts <30zl
      packs> <30zm packs>` from `.worktrees/carve`: ALL EQUAL, 25/25, `output/device-round-2026-10-16zm/carve_equal.txt`), colliders JSON 2-3.5x
      smaller, all 25 packs' scripts 40.3 -> 19.0 MB (still above 30zk's, so the warning may persist). Sim 150/0, regressions 38/0 (2
-     known-unreproduced, = 30zl; `sim.txt`, `regr.txt` there). NEXT: Saga
-     recheck `output/device-round-2026-10-16zm/brief-saga-30zm.md` (is the watchdog line gone; a turned 90
-     placement on the device); the Pixel round of 30zl was not run (phone locked behind its password).
+     known-unreproduced, = 30zl; `sim.txt`, `regr.txt` there). SAGA 30zm PASSED (`output/device-round-2026-10-16zm/saga/notes.md`): 0 watchdog lines over
+     three loads (30zl: 1 per load), 0 errors; 76419 300 % r0 2068 steps ~11 s, x 9992.5 14.88 up (= 30zl),
+     r90 (first device decode of turned edits) 1766 steps ~11.3 s, model whole, walkable onto the plate;
+     400 % 3463 steps ~17.5 s; 21061 300 % 1312 steps ~12.0 s, 9.06 up (= 30zl); PSS 5.17-5.23 GB (= 30zl).
+     OPEN: no Pixel round of the carve (phone locked behind its password).
      Evaluation tools: `output/scale06-1016/carve2/tools/` (`eval.sh <packs>`, `pack_diff.py`, `carve_stats.ts`).
      Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule
      runs are not cross-judged (TODO cross-pass-main);
