@@ -187,6 +187,9 @@ The round-30m fixes on the phones:
      scratch `time76417.ts`): export 1065 of 1074 s; tread planning ~90 %: guardPass `settle`/`fine` 333 s
      (batch-then-halves re-walks), crossPass ~350 s, `walkScaledColliders` 31 % total with native Set.has
      12.8 % and `surfaces`/`column` 22 %. Ideas: a reused typed visited bitmap; fewer settle re-walks.
+     CAUTION, the machine: the same-code 76417 CLI build took 946 s on 2026-10-17 against 639 s in round 30zm
+     (2026-10-16); re-time the test on a normal day before changing its limit. A clego Claude session's pwsh
+     held one core the whole time (not this repo's; left alone).
      Evaluation tools: `output/scale06-1016/carve2/tools/` (`eval.sh <packs>`, `pack_diff.py`, `carve_stats.ts`).
      Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule
      runs are not cross-judged (TODO cross-pass-main);
