@@ -165,10 +165,15 @@ The round-30m fixes on the phones:
      the branch 865 -> 617 s (main before 644 s), the 76417 doorway test 413 s (limit 600; main 330 s).
      OPEN: 76417 placement.js 0.80 -> 3.95 MB with the carve (all four turns shipped, 8 chars an edit;
      TODO ship turn 0 only - needs a rotation map over the 43 clearance forms incl. the x-mirror quirk) -
-     judge load/memory on the phones. Round 30zl building (`output/device-round-2026-10-16zl/build.sh`,
-     packs from the carve worktree at feb168d9): then `bun scripts/sim.ts <packs>`, `--scenario=regressions
-     --new=<packs>`, `tools/eval.sh`, then the devices (21063 flank at 300 %, 76419 300 % climbs, 21061 300 %
-     plate; 200 % should be unchanged). Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule
+     judge load/memory on the phones. ROUND 30zl (packs `output/device-round-2026-10-16zl/packs-feb168d9`,
+     carve worktree at feb168d9) is clean offline: sim 150/0, regressions 38/0 (2 known-unreproduced, as
+     30zk), seat summaries identical to 30zk, `eval.txt` as above. The largest 300 % losses against 30zk
+     (21061 E lanes 8.5/27.5 9.9 -> 2.6, 76419 S lane 12.5 11.2 -> 2.6, 48.5, 21063 SW corner) end, on
+     30zk's pack, on MODEL collider forms with no drawn cuboid under the feet (drawn_at / laid_at), i.e.
+     invisible floors the carve removes; 21061 E 29.5 ends on a tread (unexplained). ON THE PHONES NOW:
+     briefs `brief-{saga,pixel}-30zl.md` (each check names its offline prediction), notes in
+     `{saga,pixel}/notes.md`. After: record results here and in REQUIREMENTS SCALE-06, then merge the
+     branch into main if the 300 % gains hold and nothing regresses (`git merge`, no rebase). Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule
      runs are not cross-judged (TODO cross-pass-main);
      design question: interiors whose doors are only drawn (21061 nave, 21063
      Palas). SEAT-05: coaster air dismount floats on the Pixel (lift top, loop:
