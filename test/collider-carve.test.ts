@@ -3,7 +3,7 @@
  * size is cut to the drawn geometry inside it, never adding a collider.
  */
 import { describe, expect, it } from 'vitest';
-import { carvesAt, decodeSizeCarve, encodeSizeCarve, planSizeCarve, turnModelBox, type ModelBox } from '../web/src/engine/collider-carve.js';
+import { carvesAt, decodeSizeCarve, encodeSizeCarve, encodeTurnedCarve, planSizeCarve, sizeCarveAt, turnModelBox, type ModelBox, type ShippedCarves } from '../web/src/engine/collider-carve.js';
 import { COLLIDER_KIT } from '../web/src/engine/collider-form.js';
 import { QUARTER_TURNS, ScaledColliderGrid, rotatedCell, type SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
 
@@ -174,6 +174,43 @@ describe('collider carve (SCALE-06)', () => {
     const carve = planSizeCarve(cells, dims, 300, 90, jambs);
     carve.set('0,0,0', null);
     const back = decodeSizeCarve(encodeSizeCarve(carve));
+    expect(back.size).toBe(carve.size);
+    for (const [k, v] of carve) expect(back.get(k), k).toEqual(v);
+  });
+
+  it('ships turn 0 whole and every other turn as its edits against turn 0 turned, and reads back each turn exactly', () => {
+    // Not square, and not symmetric: a corner post a fifth of a block square (its least form is a tie between an
+    // x band and a z band, which the kit breaks by index, so a turned turn 0 is NOT always the turn's own carve),
+    // the doorway's jambs, and a wall along x.
+    const d = { width: 6, height: 3, length: 4 };
+    const laid: SourceCell[] = [
+      { x: 1, y: 0, z: 1, lo: 0, hi: 16 }, { x: 1, y: 1, z: 1, lo: 0, hi: 16 },
+      { x: 3, y: 0, z: 2, lo: 0, hi: 16 }, { x: 3, y: 1, z: 2, lo: 0, hi: 16 },
+      { x: 4, y: 0, z: 0, lo: 0, hi: 16 }, { x: 5, y: 0, z: 0, lo: 0, hi: 16 },
+    ];
+    const drawn: ModelBox[] = [[1.0, 1.2, 0, 2, 1.0, 1.2], [3.0, 3.2, 0, 2, 2, 3], [3.8, 4.0, 0, 2, 2, 3], [4, 6, 0, 0.7, 0.1, 0.4]];
+    for (const pct of [300, 400]) {
+      const planned = new Map(QUARTER_TURNS.map(r => [r, planSizeCarve(laid, d, pct, r, drawn)] as const));
+      const base = planned.get(0)!;
+      expect(base.size).toBeGreaterThan(0);
+      const shipped: ShippedCarves = { plans: { [`${pct}:0`]: encodeSizeCarve(base) }, turned: {}, counts: {} };
+      for (const r of [90, 180, 270] as const) shipped.turned![`${pct}:${r}`] = encodeTurnedCarve(base, planned.get(r)!, pct, r, d);
+      for (const r of QUARTER_TURNS) {
+        const back = sizeCarveAt(shipped, pct, r, d, COLLIDER_KIT.turnForm)!, want = planned.get(r)!;
+        expect(back.size, `${pct} % ${r}`).toBe(want.size);
+        for (const [k, v] of want) expect(back.get(k), `${pct} % ${r}: ${k}`).toEqual(v);
+      }
+      const whole = [90, 180, 270].reduce((n, r) => n + encodeSizeCarve(planned.get(r as 90)!).length, 0);
+      const edits = [90, 180, 270].reduce((n, r) => n + shipped.turned![`${pct}:${r}`]!.length, 0);
+      expect(edits, `${pct} %: the turns ship smaller than whole`).toBeLessThan(whole / 4);
+    }
+    // A size the pack does not carve reads as none.
+    expect(sizeCarveAt({ plans: {}, counts: {} }, 300, 90, d, COLLIDER_KIT.turnForm)).toBeUndefined();
+  });
+
+  it('reads a pack built before turned carves (every turn whole) as it shipped', () => {
+    const carve = planSizeCarve(cells, dims, 300, 90, jambs);
+    const back = sizeCarveAt({ plans: { '300:90': encodeSizeCarve(carve) }, counts: {} }, 300, 90, dims, COLLIDER_KIT.turnForm)!;
     expect(back.size).toBe(carve.size);
     for (const [k, v] of carve) expect(back.get(k), k).toEqual(v);
   });
