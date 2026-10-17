@@ -1229,7 +1229,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
    * 2-block side; months of device rounds stand on them) - judge them too once a round shows one in the way.
    */
   const crossPass = (): void => {
-    if (!lane || !edits.some(e => e.run.fine)) return;
+    if (!lane || !edits.length) return;
     const fg = new ScaledColliderGrid(lane.cells, dims, f, rotation, carve);
     for (const e of edits) for (const w of e.writes) fg.write(w.x, w.z, { ...w.block });
     const reach = walkScaledColliders(fg, undefined, SAFE_DROP16);
@@ -1307,7 +1307,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     for (let i = edits.length - 1; i >= 0; i--) {
       const e = edits[i]!;
       // A lane run had its own cross walks (`lanePass`); a run a later one writes over is that run's floor.
-      if (!e.run.fine || e.run.lane) continue;
+      if (e.run.lane) continue;
       const mine = new Set(e.writes.map(w => `${w.x},${w.block.row},${w.z}`));
       if (edits.slice(i + 1).some(o => o.writes.some(w => mine.has(`${w.x},${w.block.row},${w.z}`)))) continue;
       // Only walks that start on the GROUND: the way in from outside. Judged on every reached floor, the pass also
