@@ -162,7 +162,15 @@ The round-30m fixes on the phones:
      three loads (30zl: 1 per load), 0 errors; 76419 300 % r0 2068 steps ~11 s, x 9992.5 14.88 up (= 30zl),
      r90 (first device decode of turned edits) 1766 steps ~11.3 s, model whole, walkable onto the plate;
      400 % 3463 steps ~17.5 s; 21061 300 % 1312 steps ~12.0 s, 9.06 up (= 30zl); PSS 5.17-5.23 GB (= 30zl).
-     OPEN: no Pixel round of the carve (phone locked behind its password).
+     PIXEL 30zm (`output/device-round-2026-10-16zm/pixel/notes.md`; walks on AUTO-JUMP only, adb cannot hold
+     Forward + Jump): 21063 200 % lawn route 1/1 (= 30zk); 300 % lane 31.5 9.38, north 10.50, east 4.75, SW 0.94,
+     400 % lane 31.5 0 up (stops at the south edge, z 95.30) - each within 0.4 of `_walk_line.ts --jump=auto`
+     (`pixel/offline-auto.txt`; the brief's numbers were `--jump=blocked`: east 9.0, 400 % 3.76); lane 30.5 6.25
+     (auto 7.5 then a fall, 1.25 under). Placement 300 % ~10 s, 400 % ~16 s, 400 % fps 60, 0 errors; the watchdog
+     'High memory usage' line came 3 times DURING the 300/400 % placements (none at load; Saga 30zm: none).
+     OPEN (SCALE-06): at 400 % a touch player (auto-jump 1.2) cannot step onto 21063's south edge at x 31.5
+     - a riser over 1.2 the jump (1.25) climbs; judge whether treads/border margins should plan for auto-jump.
+     OPEN: the watchdog line at 300/400 % placement on the Pixel (memory during re-laying).
      Evaluation tools: `output/scale06-1016/carve2/tools/` (`eval.sh <packs>`, `pack_diff.py`, `carve_stats.ts`).
      Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule
      runs are not cross-judged (TODO cross-pass-main);
