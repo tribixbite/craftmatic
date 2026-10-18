@@ -72,11 +72,22 @@ footprint is right and the *vertical form* is wrong.
    `reconcileHeight` measures from that ground. Offline on the cached
    `geisel-v200.glb`: 31.7–35.1m. Live rebuild: `28.4m`, `levels = 9`.
    Still `h_unverified` (no OSM/Solar/Smarty height to cross-check).
-   **Next — synthesis stretches a thin slice:** the rebuild logged
-   `survived 17 bands, Y range 72.8..80.8 (8.0m) → scaled to expected 28.4m
-   (×3.552)`. Only the top 8m of bands survived the footprint mask and were
-   stretched ×3.5, which is a plausible cause of `features 0`. Start at the
-   band-survival mask in `sliced-tiles.ts`, not at the window overlay.
+   **Measure on the cached capture** (`iterate --only geisel --local-tiles`):
+   August's 72.9m came from `geisel-v200.glb`; a live capture on 2026-10-18
+   was degraded (65 meshes, only 8m of bands survived, stretched ×3.55).
+   Cached result: 31.7m, levels 11, consensus colour 1 / features 0 /
+   massing 0 (was 1/0/1 at 72.9m).
+   **Why features stays 0 — synthesis, not overlay:** the render is a flat
+   108m slab with a uniform window grid and photogrammetry patches; the
+   stepped cantilevered tower is gone because non-cantilever band rings snap
+   to the OSM outline. All 53m of bands (canyon floor up) are also squashed
+   ×0.6 into 31.7m.
+   **Rejected with data — trimming bands below the footprint ground:** made
+   the rescale ×1.01, but removed the podium. `sv-front.jpg` is shot from
+   the lower parking lot and shows that ~2-storey podium below the plaza
+   grade; Geisel is split-grade, so "ground" depends on the side. Consensus
+   unchanged (1/0/0). Next: per-side grade (or the lowest facade ring) and
+   restoring the tiered silhouette in `sliced-tiles.ts` masking.
    **Consensus caveat:** with only a Gemini key, `build.ts` runs
    `gemini-fanout-med3` — ONE scorer copied into the gemini/claude/gpt5
    slots, so `spread = 0` and "three models agree" are artefacts.

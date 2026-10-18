@@ -437,23 +437,24 @@
     "geisel": {
       "address": "9500 Gilman Dr, La Jolla, CA",
       "status": "fail-consensus",
-      "lastRun": "2026-10-18T18:07:12.228Z",
-      "elapsedSec": 165.6,
-      "attempts": 4,
+      "lastRun": "2026-10-18T18:18:34.908Z",
+      "elapsedSec": 98.6,
+      "attempts": 3,
       "recentFailureSignatures": [
         "fail-consensus:median=1,min=0",
         "fail-consensus:median=1,min=0",
-        "fail-consensus:median=1,min=0",
-        "fail-consensus:median=1,min=0"
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=0,min=0"
       ],
       "objective": {
         "footprintIoU": 1,
         "heightErr": 0,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 379,
+        "selfIntersect": 2425,
         "minWallThicknessMm": 7.710445880889893,
-        "voxelCount": 1281542,
+        "voxelCount": 1264355,
         "plinthWatertight": null,
         "unknownBlockStates": [],
         "pass": true,
@@ -463,25 +464,25 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 1,
+          "color": 0,
           "features": 0,
-          "massing": 1,
+          "massing": 0,
           "overall": 0
         },
         "claude": {
-          "color": 1,
+          "color": 0,
           "features": 0,
-          "massing": 1,
+          "massing": 0,
           "overall": 0
         },
         "gpt5": {
-          "color": 1,
+          "color": 0,
           "features": 0,
-          "massing": 1,
+          "massing": 0,
           "overall": 0
         },
         "min": 0,
-        "median": 0.5,
+        "median": 0,
         "spread": 0,
         "pass": false
       },
@@ -495,13 +496,13 @@
           },
           {
             "field": "height",
-            "value": "28.4m",
+            "value": "31.7m",
             "source": "tiles",
             "confidence": 0.95
           },
           {
             "field": "levels",
-            "value": "9",
+            "value": "11",
             "source": "inferred",
             "confidence": 0.475
           },
@@ -513,7 +514,7 @@
           },
           {
             "field": "roof",
-            "value": "lab(73,6,16) +1",
+            "value": "lab(64,8,20) +1",
             "source": "sat",
             "confidence": 0.85
           },
@@ -526,7 +527,7 @@
         ],
         "weakest": {
           "field": "levels",
-          "value": "9",
+          "value": "11",
           "source": "inferred",
           "confidence": 0.475
         },
@@ -534,14 +535,14 @@
       },
       "crossCheck": {
         "chosenSource": "tiles",
-        "chosenHeightM": 28.41376495361328,
+        "chosenHeightM": 31.68230438232422,
         "alternatives": [],
         "maxDisagreement": 0,
         "truncationSuspected": false,
         "ok": true,
         "verified": false,
         "warnings": [
-          "height 28m from tiles is UNVERIFIED — no independent source (OSM height/levels, Solar, Smarty) to cross-check against"
+          "height 32m from tiles is UNVERIFIED — no independent source (OSM height/levels, Solar, Smarty) to cross-check against"
         ]
       },
       "defectScore": {
@@ -552,25 +553,23 @@
           "footprint_wrong_shape": false,
           "surface_detail_visible": true,
           "proportions_correct": true,
-          "facade_incoherent": true,
+          "facade_incoherent": false,
           "facade_implausibly_dark": false
         },
-        "score": 9,
-        "penalties": [
-          "facade_incoherent"
-        ],
+        "score": 10,
+        "penalties": [],
         "grid": {
-          "total": 1281542,
+          "total": 1264355,
           "components": 1,
-          "largestSize": 1281542,
+          "largestSize": 1264355,
           "disconnectedRatio": 0,
-          "uniqueBlockTypes": 12,
+          "uniqueBlockTypes": 15,
           "computed": true,
-          "facadeTotal": 399806,
-          "facadeDominantShare": 0.21999919961181172,
+          "facadeTotal": 436440,
+          "facadeDominantShare": 0.32159059664558703,
           "facadeDominantState": "minecraft:smooth_stone",
-          "facadeMeanLuma": 146.50790404196033,
-          "facadeGlassShare": 0.09851778112384506
+          "facadeMeanLuma": 147.0838768843369,
+          "facadeGlassShare": 0.10404637521767024
         }
       },
       "synthesisPath": "7d-sliced",
