@@ -963,32 +963,51 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       for (let k = 1; k <= n; k++) if (q.t - k * hop < floors[k - 1]! + 1) return false;
       return true;
     };
-    // Between the two, for a run that sets out from the GROUND (the pin plane: the way onto the model from outside),
-    // the fewest whose hops AUTO-JUMP climbs (`AUTO_JUMP16`, 1.1875): a hop of the jump's own 1.25 is climbed only by
-    // pressing jump, and a child on touch does not - the Pixel (round 30zm) stopped at the foot of 21063's 400 % south
-    // run, three treads of 1.25 where four of 1.0 fit in the same columns. Only from the ground: offered to every run,
-    // the tier made a new run feasible on 21063's 300 % plate (x 31, z 38-40, landing on the plate at 0.94) whose
-    // side stood 1.31 over the flank lane the Pixel climbed, and that climb fell 10.38 -> 2.19 blocks (2026-10-17).
+    // The jump's own hop of 1.25 is climbed only by pressing jump, and a child on touch does not: the Pixel (round
+    // 30zm) stopped at the foot of 21063's 400 % south run, three treads of 1.25 where four of 1.0 fit in the same
+    // columns. So a run that would be laid with jump-height hops, and whose foot is the GROUND (the pin plane: the way
+    // onto the model from outside), takes the fewest treads whose hops AUTO-JUMP climbs (`AUTO_JUMP16`, 1.1875)
+    // instead, when they fit. Only a run that is laid ANYWAY, and only from the ground: offered to every run, the
+    // softer hops made runs feasible that the jump's could not lay (headroom) - on 21063's 300 % plate (z 38-40, x 30-32,
+    // landing on the ground east of the model) one stood 1.31 over the flank lane the Pixel climbed, and that climb
+    // fell 10.38 -> 2.19 blocks (2026-10-17).
     let n = -1;
     for (let cand = 1; cand < floors.length && n < 0; cand++) if (feasible(cand) && hopFor(cand) <= GENTLE_HOP16) n = cand;
-    for (let cand = 1; cand < floors.length && n < 0; cand++) if (floors[cand] === 0 && feasible(cand) && hopFor(cand) <= AUTO_JUMP16) n = cand;
+    const gentle = n >= 1;
     for (let cand = 1; cand < floors.length && n < 0; cand++) if (feasible(cand)) n = cand;
     if (n < 1) return 'no-run';
-    const hop16 = hopFor(n);
-    const tops: number[] = [];
-    for (let k = 1; k <= n; k++) tops.push(q.t - k * hop16);
-    const landing = { ...columnAt(n), t: floors[n]! };
-    // A jump-height hop needs its arc clear above the column it starts from (the landing for the lowest tread).
-    if (hop16 > STEP16 && !g.clear(landing.x, landing.z, landing.t, tops[n - 1]! + PLAYER_NEED16)) return 'headroom';
+    /** The tread tops and landing of the run of `m` treads, or 'headroom' where the game would not let the player climb it. */
+    const layout = (m: number): { hop16: number; tops: number[]; landing: Surface } | 'headroom' => {
+      const hop16 = hopFor(m);
+      const tops: number[] = [];
+      for (let k = 1; k <= m; k++) tops.push(q.t - k * hop16);
+      const landing = { ...columnAt(m), t: floors[m]! };
+      // A jump-height hop needs its arc clear above the column it starts from (the landing for the lowest tread).
+      if (hop16 > STEP16 && !g.clear(landing.x, landing.z, landing.t, tops[m - 1]! + PLAYER_NEED16)) return 'headroom';
+      for (let k = 1; k <= m; k++) {
+        const { x, z } = columnAt(k - 1), next = k === 1 ? q.t : tops[k - 2]!;
+        // Open from the floor to the tread's own standing headroom - and, when the next hop up is a jump, to the
+        // arc of that jump - so the tread never reduces headroom below the player's and every hop is one the game allows.
+        if (!g.clear(x, z, floors[k - 1]!, (hop16 > STEP16 ? next : tops[k - 1]!) + PLAYER_NEED16)) return 'headroom';
+      }
+      return { hop16, tops, landing };
+    };
+    let laid = layout(n);
+    if (!gentle && laid !== 'headroom' && laid.hop16 > AUTO_JUMP16) {
+      for (let cand = n + 1; cand < floors.length; cand++) {
+        if (floors[cand] !== 0 || !feasible(cand) || hopFor(cand) > AUTO_JUMP16) continue;
+        const soft = layout(cand);
+        if (soft !== 'headroom') { n = cand; laid = soft; }
+        break;
+      }
+    }
+    if (laid === 'headroom') return 'headroom';
+    const { hop16, tops, landing } = laid;
     const writes: RunEdit['writes'] = [];
     const columns: RunEdit['columns'] = [];
     const treadSurfaces: Surface[] = [];
     for (let k = 1; k <= n; k++) {
       const { x, z } = columnAt(k - 1), top = tops[k - 1]!, floor16 = floors[k - 1]!;
-      // Open from the floor to the tread's own standing headroom - and, when the next hop up is a jump, to the
-      // arc of that jump - so the tread never reduces headroom below the player's and every hop is one the game allows.
-      const next = k === 1 ? q.t : tops[k - 2]!;
-      if (!g.clear(x, z, floor16, (hop16 > STEP16 ? next : top) + PLAYER_NEED16)) return 'headroom';
       const floorBlock = floor16 > 0 ? g.blockWithTop(x, z, floor16) : undefined;
       const floorRow = floorBlock ? floorBlock.row : -1;
       const topRow = (top - 1) >> 4, topHi = top - 16 * topRow;
