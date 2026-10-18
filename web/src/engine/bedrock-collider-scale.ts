@@ -129,7 +129,8 @@ export interface GridDims { width: number; height: number; length: number }
 /**
  * A per-size carve (collider-carve.ts, SCALE-06): world block key `x,y,z` (from the pin, at one size and turn)
  * -> the form that block takes instead of the scaled cell's, or null for air. Applied after the scaled cells
- * and before the treads, by the runtime and by every reader of the laid grid.
+ * and before the treads, by the runtime and by every reader of the laid grid. NEVER edited once a grid reads it:
+ * grids over the same cells share their column builds by the carve's identity (`gridBuildKey`).
  */
 export type SizeCarve = ReadonlyMap<string, ColliderForm | null>;
 /** The quarter turns a pack with blocks may take (`placementRuntime`: block packs turn in 90° steps). */
@@ -321,6 +322,32 @@ interface Column {
   blocks: ColumnBlock[];
   /** Standable tops (sixteenths above the pin), ascending; computed on demand. */
   surfaces?: number[];
+  /** The shared build this column was copied from, while nothing has written to it (`SharedColumn`). */
+  shared?: SharedColumn;
+}
+
+/**
+ * A column as the source cells lay it at one size, turn and carve, before any tread or guard is written: built once
+ * and shared by every grid over the same cells (frozen - a grid copies the block list before it writes). The planner
+ * builds a fresh grid after each change it judges (the cross pass's form grids, the guard passes' bases), and each
+ * rebuilt every column it read from the cells: 20 % of 10326's export was `surfaces` -> `column` (2026-10-17 profile,
+ * `output/scale06-1017/prof10326/`).
+ */
+interface SharedColumn {
+  readonly blocks: readonly ColumnBlock[];
+  /** Standable tops of the unwritten column, once some grid has computed them. */
+  surfaces?: readonly number[];
+}
+
+/** Shared column builds per source-cell list, then per size / turn / dims / carve (`gridBuildKey`). */
+const sharedColumns = new WeakMap<readonly SourceCell[], Map<string, Map<number, SharedColumn>>>();
+/** An identity per carve object, for the build key (a carve is never edited after it is planned). */
+const carveIds = new WeakMap<SizeCarve, number>();
+let nextCarveId = 1;
+function gridBuildKey(dims: GridDims, f: number, r: QuarterTurn, carve: SizeCarve | undefined): string {
+  let id = 0;
+  if (carve) { id = carveIds.get(carve) ?? 0; if (!id) carveIds.set(carve, id = nextCarveId++); }
+  return `${dims.width},${dims.height},${dims.length}|${f}|${r}|${id}`;
 }
 
 /**
@@ -333,8 +360,15 @@ export class ScaledColliderGrid {
   readonly width: number;
   readonly height: number;
   readonly length: number;
-  private readonly columns = new Map<number, Column>();
+  /**
+   * The columns read so far, by `colKey`: a dense array over the footprint and its ring (the walk reads a column per
+   * neighbouring surface, and a `Map` lookup there was 8 % of 76417's export), a `Map` for any key outside it.
+   */
+  private readonly columns: Array<Column | undefined>;
+  private readonly columnsOutside = new Map<number, Column>();
   private readonly cellsByColumn = new Map<number, SourceCell[]>();
+  /** The column builds this grid shares with every other grid over the same cells, size, turn and carve. */
+  private readonly shared: Map<number, SharedColumn>;
   /** Surface key stride: tops run 0..16·height. */
   private readonly keyT: number;
 
@@ -344,6 +378,13 @@ export class ScaledColliderGrid {
     const d = scaledDims(dims, f, r);
     this.width = d.width; this.height = d.height; this.length = d.length;
     this.keyT = 16 * this.height + 1;
+    this.columns = new Array<Column | undefined>((this.width + 2) * (this.length + 2));
+    let byKey = sharedColumns.get(cells);
+    if (!byKey) sharedColumns.set(cells, byKey = new Map());
+    const buildKey = gridBuildKey(dims, f, r, carve);
+    let shared = byKey.get(buildKey);
+    if (!shared) byKey.set(buildKey, shared = new Map());
+    this.shared = shared;
     for (const c of cells) {
       const k = c.x * dims.length + c.z;
       let list = this.cellsByColumn.get(k);
@@ -360,6 +401,8 @@ export class ScaledColliderGrid {
   private colKey(x: number, z: number): number { return (x + 1) * (this.length + 2) + (z + 1); }
   /** A surface's identity: its column and its top. */
   key(x: number, z: number, t: number): number { return this.colKey(x, z) * this.keyT + t; }
+  /** How many keys `key` can give: every column of the footprint and its ring, every top. */
+  get keySpace(): number { return (this.width + 2) * (this.length + 2) * this.keyT; }
   /** Column index and top from a surface key. */
   unkey(key: number): { x: number; z: number; t: number } {
     const t = key % this.keyT, col = (key - t) / this.keyT;
@@ -370,10 +413,28 @@ export class ScaledColliderGrid {
   /** The blocks of a world column, laid exactly as `placeColliders` lays them. */
   column(x: number, z: number): Column {
     const k = this.colKey(x, z);
-    let col = this.columns.get(k);
+    // `colKey` aliases off the ring exactly as it always has (the dense slots and the Map take the same keys).
+    const dense = k >= 0 && k < this.columns.length;
+    let col = dense ? this.columns[k] : this.columnsOutside.get(k);
     if (col) return col;
-    col = { blocks: [] };
-    this.columns.set(k, col);
+    const built = this.shared.get(k);
+    if (built) {
+      col = { blocks: built.blocks.slice(), shared: built, ...(built.surfaces ? { surfaces: built.surfaces as number[] } : {}) };
+      if (dense) this.columns[k] = col; else this.columnsOutside.set(k, col);
+      return col;
+    }
+    col = this.buildColumn(x, z);
+    if (dense) this.columns[k] = col; else this.columnsOutside.set(k, col);
+    const fresh: SharedColumn = { blocks: Object.freeze(col.blocks.map(b => Object.freeze(b))) };
+    this.shared.set(k, fresh);
+    col.blocks = fresh.blocks.slice();
+    col.shared = fresh;
+    return col;
+  }
+
+  /** A column as the source cells lay it, `placeColliders`'s way (no tread, guard or other write). */
+  private buildColumn(x: number, z: number): Column {
+    const col: Column = { blocks: [] };
     if (!this.inside(x, z)) return col;
     // The turned cell whose scaled span holds this column's centre (f >= 1).
     const i = Math.floor((x + 0.5) / this.f), j = Math.floor((z + 0.5) / this.f);
@@ -478,6 +539,8 @@ export class ScaledColliderGrid {
       if (this.clear(x, z, t, t + PLAYER_NEED16)) out.push(t);
     }
     col.surfaces = out;
+    // An unwritten column's tops are the same in every grid that shares its build.
+    if (col.shared) col.shared.surfaces = Object.freeze(out);
     return out;
   }
 
@@ -516,6 +579,7 @@ export class ScaledColliderGrid {
     const at = col.blocks.findIndex(b => b.row === block.row);
     if (at >= 0) col.blocks[at] = block; else { col.blocks.push(block); col.blocks.sort((p, q) => p.row - q.row); }
     col.surfaces = undefined;
+    col.shared = undefined;
   }
 
   /** Remove a block from a column (undoing a tread's fill row). */
@@ -523,6 +587,7 @@ export class ScaledColliderGrid {
     const col = this.column(x, z);
     col.blocks = col.blocks.filter(b => b.row !== row);
     col.surfaces = undefined;
+    col.shared = undefined;
   }
 
   /** Every laid block, for comparison with the runtime's output (tests). Keyed `x,y,z` from the pin, value `[lo, hi]`. */
@@ -546,9 +611,47 @@ class AutoJumpGrid extends ScaledColliderGrid {
 
 // ─── The reach walk ──────────────────────────────────────────────────────────
 
+/** A read-only set of surface keys: what a walk reached (`SurfaceKeys`, or a plain `Set`). */
+export interface SurfaceSet extends Iterable<number> {
+  has(key: number): boolean;
+  readonly size: number;
+}
+
+/** The most keys a walk marks in a bitmap (32 MB); a larger grid's walk keeps a `Set`. */
+const SURFACE_BITMAP_MAX_KEYS = 2 ** 28;
+
+/**
+ * The surfaces one walk reached (`ReachResult.visited`). A walk's hot path is the membership test, one per
+ * neighbouring surface: as a `Set<number>` it was 13 % of 76417's whole export (the 2026-10-17 profile,
+ * `output/figsweep-1017/prof/`), the walk itself about 60 %. Membership is one bit per key of the grid's key space
+ * (`ScaledColliderGrid.keySpace`); iteration runs over the keys in the order they were added - the order the `Set`
+ * iterated in - so every caller sees exactly what it saw before.
+ */
+export class SurfaceKeys implements SurfaceSet {
+  private readonly bits: Uint32Array;
+  private readonly order: number[] = [];
+  constructor(keySpace: number) {
+    if (!(keySpace >= 0 && keySpace <= SURFACE_BITMAP_MAX_KEYS)) throw new Error(`SurfaceKeys: key space ${keySpace} out of range`);
+    this.bits = new Uint32Array(Math.ceil(keySpace / 32));
+  }
+  has(key: number): boolean {
+    const word = this.bits[key >>> 5];
+    return word !== undefined && key >= 0 && (word & (1 << (key & 31))) !== 0;
+  }
+  /** Mark `key` reached; false when it already was. */
+  add(key: number): boolean {
+    if (this.has(key)) return false;
+    this.bits[key >>> 5]! |= 1 << (key & 31);
+    this.order.push(key);
+    return true;
+  }
+  get size(): number { return this.order.length; }
+  [Symbol.iterator](): Iterator<number> { return this.order[Symbol.iterator](); }
+}
+
 export interface ReachResult {
-  /** Surface keys (`grid.key`) reached, including the ring's ground. */
-  visited: Set<number>;
+  /** Surface keys (`grid.key`) reached, including the ring's ground, in the order the walk reached them. */
+  visited: SurfaceSet;
   /** Reached surfaces inside the footprint. */
   surfaces: number;
   /** Columns inside the footprint with at least one reached surface. */
@@ -560,6 +663,9 @@ export interface ReachResult {
 /** A surface the walk stands on: a column and its top in sixteenths above the pin. */
 export interface Surface { x: number; z: number; t: number }
 
+/** The walk's four neighbours, as offsets (no array per step: the walk takes millions). */
+const WALK_DX = [1, -1, 0, 0] as const, WALK_DZ = [0, 0, 1, -1] as const;
+
 /**
  * The breadth-first walk over standable surfaces from the ring of ground
  * around the footprint, moving to a neighbouring column's surface at most one
@@ -570,10 +676,11 @@ export interface Surface { x: number; z: number; t: number }
  */
 export function walkScaledColliders(
   grid: ScaledColliderGrid,
-  onBlocked?: (from: Surface, to: Surface, push: (s: Surface) => void, visited: ReadonlySet<number>) => boolean,
+  onBlocked?: (from: Surface, to: Surface, push: (s: Surface) => void, visited: SurfaceSet) => boolean,
   maxDrop16 = Infinity,
 ): ReachResult {
-  const visited = new Set<number>();
+  const space = grid.keySpace;
+  const visited: SurfaceKeys | Set<number> = space <= SURFACE_BITMAP_MAX_KEYS ? new SurfaceKeys(space) : new Set<number>();
   const queue: Surface[] = [];
   const push = (s: Surface): void => {
     const k = grid.key(s.x, s.z, s.t);
@@ -587,7 +694,9 @@ export function walkScaledColliders(
   }
   for (let h = 0; h < queue.length; h++) {
     const s = queue[h]!;
-    for (const [nx, nz] of [[s.x + 1, s.z], [s.x - 1, s.z], [s.x, s.z + 1], [s.x, s.z - 1]] as const) {
+    // +x, -x, +z, -z, the order the walk has always taken (and so the order `visited` iterates in).
+    for (let d = 0; d < 4; d++) {
+      const nx = s.x + WALK_DX[d]!, nz = s.z + WALK_DZ[d]!;
       if (!grid.inRing(nx, nz)) continue;
       for (const t of grid.surfaces(nx, nz)) {
         if (visited.has(grid.key(nx, nz, t))) continue;
@@ -747,7 +856,7 @@ interface CrossProbe { from: { x: number; y: number; z: number }; dir: { x: numb
  * A start on the run itself is the run's own lane, never probed (its old floor is under a tread). `g` is the
  * FORM grid the walks are judged over (the lane pass's, the cross pass's).
  */
-function crossLaneProbes(g: ScaledColliderGrid, visited: ReadonlySet<number>, columns: RunEdit['columns']): CrossProbe[] {
+function crossLaneProbes(g: ScaledColliderGrid, visited: SurfaceSet, columns: RunEdit['columns']): CrossProbe[] {
   const out: CrossProbe[] = [];
   for (const c of columns) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
     const sx = c.x - 2 * dx, sz = c.z - 2 * dz;
@@ -900,7 +1009,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
    * merged staircase would replace a gentle climb another column of the same
    * riser already serves, so it is refused instead.
    */
-  const planRun = (p: Surface, q: Surface, visited: ReadonlySet<number>): RunEdit | UnrestoredReason | 'no-rule' => {
+  const planRun = (p: Surface, q: Surface, visited: SurfaceSet): RunEdit | UnrestoredReason | 'no-rule' => {
     const ownerAt = edits.findIndex(e => e.to.x === p.x && e.to.z === p.z && e.to.t === p.t);
     if (ownerAt < 0) return planRunCore(p, q, visited);
     const owner = edits[ownerAt]!;
@@ -921,7 +1030,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     treadAt: (x, z) => treadFloor.has(colKey(x, z)),
     taken: (x, z) => treadFloor.has(colKey(x, z)) || arrivals.has(colKey(x, z)),
   };
-  const planRunCore = (p: Surface, q: Surface, visited: ReadonlySet<number>, maxHop16 = JUMP16, on: RunGround = mainGround): RunEdit | UnrestoredReason | 'no-rule' => {
+  const planRunCore = (p: Surface, q: Surface, visited: SurfaceSet, maxHop16 = JUMP16, on: RunGround = mainGround): RunEdit | UnrestoredReason | 'no-rule' => {
     const { g } = on;
     // A tread is reached by its own run and is never a target; a column another run arrives at (its
     // `to` or its landing) is never converted, so a later run cannot break an earlier one's approach.
