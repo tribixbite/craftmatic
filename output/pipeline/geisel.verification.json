@@ -1,14 +1,14 @@
 {
   "status": "fail-consensus",
-  "lastRun": "2026-08-28T01:50:30.281Z",
+  "lastRun": "2026-10-18T18:07:12.228Z",
   "objective": {
     "footprintIoU": 1,
     "heightErr": 0,
     "watertight": true,
     "manifold": true,
-    "selfIntersect": 2426,
+    "selfIntersect": 379,
     "minWallThicknessMm": 7.710445880889893,
-    "voxelCount": 1773135,
+    "voxelCount": 1281542,
     "plinthWatertight": null,
     "unknownBlockStates": [],
     "pass": true,
@@ -50,13 +50,13 @@
       },
       {
         "field": "height",
-        "value": "72.9m",
+        "value": "28.4m",
         "source": "tiles",
         "confidence": 0.95
       },
       {
         "field": "levels",
-        "value": "24",
+        "value": "9",
         "source": "inferred",
         "confidence": 0.475
       },
@@ -68,7 +68,7 @@
       },
       {
         "field": "roof",
-        "value": "lab(64,8,20) +1",
+        "value": "lab(73,6,16) +1",
         "source": "sat",
         "confidence": 0.85
       },
@@ -81,7 +81,7 @@
     ],
     "weakest": {
       "field": "levels",
-      "value": "24",
+      "value": "9",
       "source": "inferred",
       "confidence": 0.475
     },
@@ -89,14 +89,14 @@
   },
   "crossCheck": {
     "chosenSource": "tiles",
-    "chosenHeightM": 72.86758422851562,
+    "chosenHeightM": 28.41376495361328,
     "alternatives": [],
     "maxDisagreement": 0,
     "truncationSuspected": false,
     "ok": true,
     "verified": false,
     "warnings": [
-      "height 73m from tiles is UNVERIFIED — no independent source (OSM height/levels, Solar, Smarty) to cross-check against"
+      "height 28m from tiles is UNVERIFIED — no independent source (OSM height/levels, Solar, Smarty) to cross-check against"
     ]
   },
   "defectScore": {
@@ -107,23 +107,25 @@
       "footprint_wrong_shape": false,
       "surface_detail_visible": true,
       "proportions_correct": true,
-      "facade_incoherent": false,
+      "facade_incoherent": true,
       "facade_implausibly_dark": false
     },
-    "score": 10,
-    "penalties": [],
+    "score": 9,
+    "penalties": [
+      "facade_incoherent"
+    ],
     "grid": {
-      "total": 1773135,
+      "total": 1281542,
       "components": 1,
-      "largestSize": 1773135,
+      "largestSize": 1281542,
       "disconnectedRatio": 0,
-      "uniqueBlockTypes": 18,
+      "uniqueBlockTypes": 12,
       "computed": true,
-      "facadeTotal": 1001984,
-      "facadeDominantShare": 0.3038042523633112,
+      "facadeTotal": 399806,
+      "facadeDominantShare": 0.21999919961181172,
       "facadeDominantState": "minecraft:smooth_stone",
-      "facadeMeanLuma": 145.71682197679803,
-      "facadeGlassShare": 0.10000459089167092
+      "facadeMeanLuma": 146.50790404196033,
+      "facadeGlassShare": 0.09851778112384506
     }
   },
   "synthesisPath": "7d-sliced",

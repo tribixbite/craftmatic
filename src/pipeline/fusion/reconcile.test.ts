@@ -155,6 +155,34 @@ describe('reconcileHeight', () => {
     expect(r.source).toBe('tiles');
     expect(r.value).toBe(73);
   });
+
+  it('measures from the ground at the footprint, not the capture minimum', () => {
+    // geisel's failure mode: a ~33 m building on a canyon edge. The capture
+    // spans canyon floor (y=0) → roof (y=58); the plaza around the footprint
+    // sits 25 m above the floor. Height must be 58 − 25 = 33, not 58.
+    const dLat = 10 / 111_111;
+    const dLon = 10 / (111_111 * Math.cos(C.lat * Math.PI / 180));
+    const polygon: LatLon[] = [
+      { lat: C.lat - dLat, lon: C.lng - dLon }, { lat: C.lat - dLat, lon: C.lng + dLon },
+      { lat: C.lat + dLat, lon: C.lng + dLon }, { lat: C.lat + dLat, lon: C.lng - dLon },
+    ];
+    const W = 60, L = 60; // 1 m cells, corner at (-30, -30)
+    const heightmap = new Float32Array(W * L);
+    for (let z = 0; z < L; z++) {
+      for (let x = 0; x < W; x++) heightmap[z * W + x] = x < 8 ? 0.5 : 25; // canyon west of x = -22
+    }
+    const tiles: TileEvidence = {
+      ...makeTiles(58),
+      heightmap, heightmapWidth: W, heightmapLength: L,
+      measuredBbox: { min: { x: -30, y: 0, z: -30 }, max: { x: 30, y: 58, z: 30 } },
+    };
+    const r = reconcileHeight(
+      baseCtx({ archType: 'civic', polygon, polygonSource: 'osm', mbr: { rotationDeg: 0, widthM: 20, depthM: 20, corners: [] as never } }),
+      tiles,
+    );
+    expect(r.source).toBe('tiles');
+    expect(r.value).toBeCloseTo(33, 5);
+  });
 });
 
 // ─── Levels ────────────────────────────────────────────────────────────────

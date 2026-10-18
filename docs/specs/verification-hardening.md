@@ -63,20 +63,23 @@ footprint is right and the *vertical form* is wrong.
 2. **flatiron — recolor splotch (colour 3, features 2).** Photogrammetry
    noise fragments the facade. NOTE the rejected approach below before
    starting: attack the recolor's *sampling*, not post-hoc smoothing.
-3. **geisel — DIAGNOSED: its height is 2× reality, and nothing checked it.**
-   Evidence: `height = 72.9m (tiles/0.95)`, `levels = 24 (inferred)` — Geisel
-   Library is ~33m and 8 floors. The grid is 650×438×186 @ 6 blocks/m ≈
-   108 × 73 × 31m for a roughly-square 90m building.
-   **Root cause:** tile height is `maxY − minY` of the whole captured mesh
-   (`heightmap.ts` BboxAccumulator). Geisel sits on a canyon edge, so the
-   capture spans canyon floor → roof (`Y range 61.9..114.9`). It measures
-   CAPTURE EXTENT, not building height.
-   **Fix direction:** derive the base from the ground under the FOOTPRINT
-   (median terrain elevation inside the OSM polygon) rather than the global
-   bbox minimum. Everything downstream — levels, storey pitch, window rows —
-   inherits this error, so this is upstream of any overlay work.
-   Made visible (not yet fixed) this round: the report now prints
-   `h_unverified=73m/tiles`.
+3. **geisel — height FIXED (2026-10-18); features 0 is the next target.**
+   Was: `height = 72.9m (tiles/0.95)`, `levels = 24` for a ~33m, 8-floor
+   library — tile height was `maxY − minY` of the whole capture, and Geisel
+   sits on a canyon edge, so it measured canyon floor → roof.
+   **Fix:** `footprintGroundElevation()` (`capture/heightmap.ts`) takes the
+   median heightmap cell in a 6m ring just outside the OSM footprint;
+   `reconcileHeight` measures from that ground. Offline on the cached
+   `geisel-v200.glb`: 31.7–35.1m. Live rebuild: `28.4m`, `levels = 9`.
+   Still `h_unverified` (no OSM/Solar/Smarty height to cross-check).
+   **Next — synthesis stretches a thin slice:** the rebuild logged
+   `survived 17 bands, Y range 72.8..80.8 (8.0m) → scaled to expected 28.4m
+   (×3.552)`. Only the top 8m of bands survived the footprint mask and were
+   stretched ×3.5, which is a plausible cause of `features 0`. Start at the
+   band-survival mask in `sliced-tiles.ts`, not at the window overlay.
+   **Consensus caveat:** with only a Gemini key, `build.ts` runs
+   `gemini-fanout-med3` — ONE scorer copied into the gemini/claude/gpt5
+   slots, so `spread = 0` and "three models agree" are artefacts.
 4. **240-highland — REOPENED; my earlier "source-data-limited" call was too
    strong.** Three of its four SV panes are genuinely foliage, but
    `sv-left.jpg` is a clear facade view: cream clapboard, green shutters,

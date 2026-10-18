@@ -28,6 +28,8 @@ import type {
   TreeInstance,
 } from './types.js';
 import { rgbToLab } from '../color.js';
+import { footprintGroundElevation } from '../capture/heightmap.js';
+import { projectPolygonToLocal } from '../synthesis/features.js';
 
 // ─── Footprint ──────────────────────────────────────────────────────────────
 
@@ -64,6 +66,27 @@ export function reconcileFootprint(
 
 // ─── Height ────────────────────────────────────────────────────────────────
 
+/**
+ * Building height from the tile capture: the capture's top minus the ground at
+ * the footprint's edge. The bbox minimum is the lowest terrain anywhere in the
+ * capture sphere, which on a slope is not the building's base (geisel, on a
+ * canyon edge, measured 72.9 m for a ~33 m library). Falls back to the plain
+ * bbox span when there is no footprint polygon or the ring around it was not
+ * captured.
+ */
+function measuredTileHeight(ctx: BuildingContext, tiles: TileEvidence): number {
+  const { min, max } = tiles.measuredBbox;
+  const span = max.y - min.y;
+  if (!ctx.polygon || ctx.polygon.length < 3 || tiles.heightmapWidth === 0) return span;
+  // Tile scenes are recentred on ctx.center and NOT rotated: rotation 0.
+  const footprint = projectPolygonToLocal(ctx.polygon, ctx.center, 0);
+  const ground = footprintGroundElevation(
+    tiles.heightmap, tiles.heightmapWidth, tiles.heightmapLength,
+    { x: min.x, z: min.z }, footprint,
+  );
+  return ground === null ? span : span - ground;
+}
+
 export function reconcileHeight(
   ctx: BuildingContext,
   tiles: TileEvidence | null,
@@ -77,7 +100,7 @@ export function reconcileHeight(
   //     past the 10% gate. When OSM/Solar disagrees with photogrammetry
   //     by >30%, prefer the surveyed value.
   if (tiles && !tiles.truncated && !tiles.noCoverage) {
-    const measuredH = tiles.measuredBbox.max.y - tiles.measuredBbox.min.y;
+    const measuredH = measuredTileHeight(ctx, tiles);
     if (measuredH > 2) {
       const surveyed = ctx.heightM ?? 0;
       // Plausibility check:

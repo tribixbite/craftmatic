@@ -4,6 +4,7 @@ import {
   addPositionsToHeightmap,
   createHeightmapState,
   encodeHeightmapSidecar,
+  footprintGroundElevation,
   isHeightTruncated,
   normaliseHeightmap,
   type HeightmapBbox,
@@ -96,5 +97,47 @@ describe('isHeightTruncated', () => {
   });
   it('false when captured ≥ 60%', () => {
     expect(isHeightTruncated(bbox(110), 172)).toBe(false);
+  });
+});
+
+describe('footprintGroundElevation', () => {
+  // 40×40 cells, 1 m each, cell (0,0) corner at scene (-20, -20).
+  const W = 40, L = 40;
+  const origin = { x: -20, z: -20 };
+  // 10×10 m footprint centred on the scene origin.
+  const square = [{ x: -5, z: -5 }, { x: 5, z: -5 }, { x: 5, z: 5 }, { x: -5, z: 5 }];
+  /** Heightmap where `fn(sceneX, sceneZ)` gives each cell's normalised height. */
+  const field = (fn: (x: number, z: number) => number): Float32Array => {
+    const h = new Float32Array(W * L);
+    for (let z = 0; z < L; z++) for (let x = 0; x < W; x++) h[z * W + x] = fn(origin.x + x + 0.5, origin.z + z + 0.5);
+    return h;
+  };
+
+  it('reads the ground at the foot, not the low point of the capture (canyon edge)', () => {
+    // Plaza at 20 m above the capture minimum; a canyon west of x = -14 drops
+    // to 0.5 m. The bbox minimum is the canyon floor — the ring is the plaza.
+    const hm = field(x => (x < -14 ? 0.5 : 20));
+    expect(footprintGroundElevation(hm, W, L, origin, square)).toBe(20);
+  });
+
+  it('skips exactly-zero cells (untouched, or the single global minimum)', () => {
+    // Every ring cell west of the footprint is untouched (0); the rest are 12 m.
+    const hm = field(x => (x < -5 ? 0 : 12));
+    expect(footprintGroundElevation(hm, W, L, origin, square)).toBe(12);
+  });
+
+  it('ignores the cells inside the footprint', () => {
+    // Inside: an overhang's ground or a roof — either way not the ring.
+    const hm = field((x, z) => (Math.abs(x) < 5 && Math.abs(z) < 5 ? 40 : 8));
+    expect(footprintGroundElevation(hm, W, L, origin, square)).toBe(8);
+  });
+
+  it('returns null when the ring falls outside the capture', () => {
+    const far = square.map(p => ({ x: p.x + 500, z: p.z + 500 }));
+    expect(footprintGroundElevation(field(() => 10), W, L, origin, far)).toBeNull();
+  });
+
+  it('returns null for a degenerate footprint', () => {
+    expect(footprintGroundElevation(field(() => 10), W, L, origin, square.slice(0, 2))).toBeNull();
   });
 });
