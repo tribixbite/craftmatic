@@ -176,8 +176,10 @@ The round-30m fixes on the phones:
      to 3.06 at z 88.3. Geometry at x 31-32 (`output/figsweep-1017/column_at.ts <pack> 31 86 92 400`): z 90 floor 1.25;
      z 89 a box 1.25-2.0 over z 89.0-89.5 and a slab 2.0-2.125 over the whole cell. The sim's Java `autoJumpWanted`
      (probe at feet + 0.51) meets the 1.25-2.0 box half a block on and jumps; the device's first contact is the
-     chest-height slab and it does not jump. Add a quirk row (`web/src/sim/quirks/registry.ts`) and a regression case,
-     then decide whether the planner should avoid such an overhang over a tread's approach.
+     chest-height slab and it does not jump. Recorded in quirk `auto-jump` (evidence + gap; NOT modelled: one point does
+     not say which rule Bedrock applies). Next: probe the rule on the device (an overhang at chest height with a step
+     behind it, at several gaps), then model it and add a regression case; then decide whether the planner should
+     avoid such an overhang over a tread's approach.
      TODO: no unit test for the cross-pass swap itself (the flank case); `output/scale06-1017/soft-kept/` is its check.
      OPEN: the watchdog line at 300/400 % placement on the Pixel (memory during re-laying).
      OPEN (test time): test/interactive-passability.test.ts '76417: every doorway' times out at 600 s on
