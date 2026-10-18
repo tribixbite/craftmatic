@@ -191,8 +191,11 @@ The round-30m fixes on the phones:
      30zn; `aj-sim.txt` / `aj-regr.txt`, the nimbus fixture built into `aj-all` too). 10261 at 200 % lost 6 lane-pass
      treads (`_tread_run_diff.py`), one ON the lift lane (x 36, z 5 -> 6, 8.25 up). Offline lift lane z+4.6 climbs to
      43.5 and holds at the edge, but lane z+5.0 stops at x 17.7 (4.6 up) on BOTH aj-all and 30zn packs, where Pixel
-     30m climbed it. IN FLIGHT round 30zp (`output/device-round-2026-10-18zp/brief-pixel-30zp.md`, aj-all packs + the
-     30zn creator): lift lanes z+4.6 / z+5.0 and the top south-east hold. NOTE the pack's 1-block z0 margin: at 200 %
+     30m climbed it. PIXEL 30zp (aj-all packs, `output/device-round-2026-10-18zp/pixel/notes.md`) = offline on all
+     three: lane z+4.6 climbs to 43.5 and holds at x+79.7; top south-east holds 2/2; lane z+5.0 stops at x+17.7 ~4 up
+     2/2 (HUD log `shots/_liftB1-hud.jpg`); placement ~30 s, 0 errors, 0 watchdog lines. OPEN (minor): lane z+5.0 was
+     lost between 30m and 30zn (NOT by this change: the 30zn pack stops there offline too); find which pack with
+     `_tread_run_diff.py` on the round packs if a second lift lane matters. NOTE the pack's 1-block z0 margin: at 200 %
      the model corner is pin + (0, 0, 2), so 30m's pin-relative spots move +2 in z. Then decide whether the planner should avoid such an overhang over a tread's approach.
      The probe's walls turned the grass under them to dirt; the tester restored it (`fill ... grass_block replace dirt`).
      TODO: no unit test for the cross-pass swap itself (the flank case); `output/scale06-1017/soft-kept/` is its check.
