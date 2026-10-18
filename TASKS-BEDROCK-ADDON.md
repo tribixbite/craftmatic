@@ -214,12 +214,10 @@ The round-30m fixes on the phones:
      42639 211 -> 172, 21063 105 -> 91, 10303 835 -> 836 (untouched: its time is elsewhere), 10261 1852 (no 30zn
      figure). 10303 PROFILED (`output/scale06-1018/prof10303/`, walk counts `stats10303/run.log`): verify
      walks 4798 / 133 s (the last required key is found at 96 % of a walk, so early exit on success is useless),
-     guardPass `settle` `fine()` 2 x 3342 walks / ~182 s, crossPass + latePass tens of s each. BRANCH `scale06-perf2`
-     (`.worktrees/perf2`, d5f4beb9 + main merged in 0531bbc2, NOT merged): `walkScaledColliders(..., stopAt)` stops
-     a `fine()` walk as soon as it stands on a laid guard top (that answer is already "fails"). A/B 10303/10326/76417:
-     packs equal bar diagnostics (`output/scale06-1018/perf2-ab.txt`); timings there ran under contention.
-     IN FLIGHT quiet re-time of 10303 main vs perf2 (`output/scale06-1018/time10303.sh` -> `time10303/times.txt`);
-     merge if faster and equal. Further: fewer rebuild+walk rounds in `crossPass` (`withEveryRun` after each
+     guardPass `settle` `fine()` 2 x 3342 walks / ~182 s, crossPass + latePass tens of s each. TRIED, NOT MERGED
+     (branch `scale06-perf2`, 0531bbc2): stopping a guard `fine()` walk once it stands on a laid guard top gives the
+     same packs but no gain - 10303 quiet, back to back: main 802 s, perf2 803 s (`output/scale06-1018/time10303/
+     times.txt`); the settle walks that cost are the ones that pass. Don't retry. Further: fewer rebuild+walk rounds in `crossPass` (`withEveryRun` after each
      revert), fewer slow-path verifies. `.worktrees/carve` holds TEMPORARY uncommitted walk-count instrumentation
      (`CM_WALK_STATS`): never commit it. A clego Claude session's pwsh
      held one core the whole time (not this repo's; left alone).
