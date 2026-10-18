@@ -178,8 +178,10 @@ The round-30m fixes on the phones:
      (x 1.5 -z: highest 1.63 -> 1.31, same stop); fans flat or up (21063 400 % mean 2.82 -> 2.92); 21063 400 % falls >3
      2 -> 4 (N lane 0.5 at the existing N 1.5 spot; S lane 43.5 now climbs to 9.0 and walks off the model's own east
      edge at 8.88 - border edges of the model stay open by design). NEXT ON A PHONE: Pixel 400 % lane 31.5 from z 97.5
-     walking -z (offline auto 4.25), and the 300 % flank lanes again. Scratch tools: `output/scale06-1017/
-     {ground-tier.sh <out-dir>, run_diff.py}` (run_diff prints the tread runs one pack has and another lacks).
+     walking -z (offline auto 4.25), and the 300 % flank lanes again: ROUND 30zn, packs built from main by
+     `output/device-round-2026-10-17zn/build.sh`, brief `brief-pixel-30zn.md` (PACKS_COMMIT to fill in), then
+     sim + regressions, then a Sonnet adb subagent (`.claude/skills/bedrock-device-round.md`). Tools:
+     `bash output/scale06-1017/ground-tier.sh <out-dir>` (3 sets + eval), `scripts/_tread_run_diff.py`.
      TODO: no unit test for the cross-pass swap itself (the flank case); the eval above is its check.
      OPEN: the watchdog line at 300/400 % placement on the Pixel (memory during re-laying).
      OPEN (test time): test/interactive-passability.test.ts '76417: every doorway' times out at 600 s on
@@ -187,8 +189,9 @@ The round-30m fixes on the phones:
      scratch `time76417.ts`): export 1065 of 1074 s; tread planning ~90 %: guardPass `settle`/`fine` 333 s
      (batch-then-halves re-walks), crossPass ~350 s, `walkScaledColliders` 31 % total with native Set.has
      12.8 % and `surfaces`/`column` 22 %. Ideas: a reused typed visited bitmap; fewer settle re-walks.
-     CAUTION, the machine: the same-code 76417 CLI build took 946 s on 2026-10-17 against 639 s in round 30zm
-     (2026-10-16); re-time the test on a normal day before changing its limit. A clego Claude session's pwsh
+     Not only the machine: on 2026-10-17 evening (21063 built in 85 s, normal) it still failed at 608 s inside
+     the full suite (`output/scale06-1017/branch-test.log`); the same day's slow morning build took 946 s
+     against 639 s in round 30zm. The test needs a longer limit or a faster planner. A clego Claude session's pwsh
      held one core the whole time (not this repo's; left alone).
      Evaluation tools: `output/scale06-1016/carve2/tools/` (`eval.sh <packs>`, `pack_diff.py`, `carve_stats.ts`).
      Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule

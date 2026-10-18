@@ -260,7 +260,8 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   jump rule lays it anyway, and is judged against that jump form, never against
   no run: auto-jump climbs the softened one, so the cross pass's "what it opens"
   rule kept softened runs that walled the Pixel-proven 300 % flank (2026-10-17,
-  `RunEdit.hard`).
+  `RunEdit.hard`). When a walk changes, `python -I scripts/_tread_run_diff.py
+  <old> <new> <size> [x z r]` names the runs that came, went or changed shape.
 - **Build packs one at a time and read `substitutedParts` / `unresolvedParts`.**
   Parallel CLI exports drew the 429 above and shipped parts as aliases or
   AABBs without failing. Without `ldraw_ref/`, point the CLI at a running dev
