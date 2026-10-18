@@ -129,7 +129,8 @@ export interface GridDims { width: number; height: number; length: number }
 /**
  * A per-size carve (collider-carve.ts, SCALE-06): world block key `x,y,z` (from the pin, at one size and turn)
  * -> the form that block takes instead of the scaled cell's, or null for air. Applied after the scaled cells
- * and before the treads, by the runtime and by every reader of the laid grid.
+ * and before the treads, by the runtime and by every reader of the laid grid. NEVER edited once a grid reads it:
+ * grids over the same cells share their column builds by the carve's identity (`gridBuildKey`).
  */
 export type SizeCarve = ReadonlyMap<string, ColliderForm | null>;
 /** The quarter turns a pack with blocks may take (`placementRuntime`: block packs turn in 90° steps). */
@@ -321,6 +322,32 @@ interface Column {
   blocks: ColumnBlock[];
   /** Standable tops (sixteenths above the pin), ascending; computed on demand. */
   surfaces?: number[];
+  /** The shared build this column was copied from, while nothing has written to it (`SharedColumn`). */
+  shared?: SharedColumn;
+}
+
+/**
+ * A column as the source cells lay it at one size, turn and carve, before any tread or guard is written: built once
+ * and shared by every grid over the same cells (frozen - a grid copies the block list before it writes). The planner
+ * builds a fresh grid after each change it judges (the cross pass's form grids, the guard passes' bases), and each
+ * rebuilt every column it read from the cells: 20 % of 10326's export was `surfaces` -> `column` (2026-10-17 profile,
+ * `output/scale06-1017/prof10326/`).
+ */
+interface SharedColumn {
+  readonly blocks: readonly ColumnBlock[];
+  /** Standable tops of the unwritten column, once some grid has computed them. */
+  surfaces?: readonly number[];
+}
+
+/** Shared column builds per source-cell list, then per size / turn / dims / carve (`gridBuildKey`). */
+const sharedColumns = new WeakMap<readonly SourceCell[], Map<string, Map<number, SharedColumn>>>();
+/** An identity per carve object, for the build key (a carve is never edited after it is planned). */
+const carveIds = new WeakMap<SizeCarve, number>();
+let nextCarveId = 1;
+function gridBuildKey(dims: GridDims, f: number, r: QuarterTurn, carve: SizeCarve | undefined): string {
+  let id = 0;
+  if (carve) { id = carveIds.get(carve) ?? 0; if (!id) carveIds.set(carve, id = nextCarveId++); }
+  return `${dims.width},${dims.height},${dims.length}|${f}|${r}|${id}`;
 }
 
 /**
@@ -335,6 +362,8 @@ export class ScaledColliderGrid {
   readonly length: number;
   private readonly columns = new Map<number, Column>();
   private readonly cellsByColumn = new Map<number, SourceCell[]>();
+  /** The column builds this grid shares with every other grid over the same cells, size, turn and carve. */
+  private readonly shared: Map<number, SharedColumn>;
   /** Surface key stride: tops run 0..16·height. */
   private readonly keyT: number;
 
@@ -344,6 +373,12 @@ export class ScaledColliderGrid {
     const d = scaledDims(dims, f, r);
     this.width = d.width; this.height = d.height; this.length = d.length;
     this.keyT = 16 * this.height + 1;
+    let byKey = sharedColumns.get(cells);
+    if (!byKey) sharedColumns.set(cells, byKey = new Map());
+    const buildKey = gridBuildKey(dims, f, r, carve);
+    let shared = byKey.get(buildKey);
+    if (!shared) byKey.set(buildKey, shared = new Map());
+    this.shared = shared;
     for (const c of cells) {
       const k = c.x * dims.length + c.z;
       let list = this.cellsByColumn.get(k);
@@ -374,8 +409,24 @@ export class ScaledColliderGrid {
     const k = this.colKey(x, z);
     let col = this.columns.get(k);
     if (col) return col;
-    col = { blocks: [] };
+    const built = this.shared.get(k);
+    if (built) {
+      col = { blocks: built.blocks.slice(), shared: built, ...(built.surfaces ? { surfaces: built.surfaces as number[] } : {}) };
+      this.columns.set(k, col);
+      return col;
+    }
+    col = this.buildColumn(x, z);
     this.columns.set(k, col);
+    const fresh: SharedColumn = { blocks: Object.freeze(col.blocks.map(b => Object.freeze(b))) };
+    this.shared.set(k, fresh);
+    col.blocks = fresh.blocks.slice();
+    col.shared = fresh;
+    return col;
+  }
+
+  /** A column as the source cells lay it, `placeColliders`'s way (no tread, guard or other write). */
+  private buildColumn(x: number, z: number): Column {
+    const col: Column = { blocks: [] };
     if (!this.inside(x, z)) return col;
     // The turned cell whose scaled span holds this column's centre (f >= 1).
     const i = Math.floor((x + 0.5) / this.f), j = Math.floor((z + 0.5) / this.f);
@@ -480,6 +531,8 @@ export class ScaledColliderGrid {
       if (this.clear(x, z, t, t + PLAYER_NEED16)) out.push(t);
     }
     col.surfaces = out;
+    // An unwritten column's tops are the same in every grid that shares its build.
+    if (col.shared) col.shared.surfaces = Object.freeze(out);
     return out;
   }
 
@@ -518,6 +571,7 @@ export class ScaledColliderGrid {
     const at = col.blocks.findIndex(b => b.row === block.row);
     if (at >= 0) col.blocks[at] = block; else { col.blocks.push(block); col.blocks.sort((p, q) => p.row - q.row); }
     col.surfaces = undefined;
+    col.shared = undefined;
   }
 
   /** Remove a block from a column (undoing a tread's fill row). */
@@ -525,6 +579,7 @@ export class ScaledColliderGrid {
     const col = this.column(x, z);
     col.blocks = col.blocks.filter(b => b.row !== row);
     col.surfaces = undefined;
+    col.shared = undefined;
   }
 
   /** Every laid block, for comparison with the runtime's output (tests). Keyed `x,y,z` from the pin, value `[lo, hi]`. */

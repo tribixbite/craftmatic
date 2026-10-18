@@ -157,7 +157,9 @@ export function planSizeCarve(cells: readonly SourceCell[], dims: GridDims, size
   // it - would be a floor to every grid reader and a hole to the player: 21061's north aisle at 300 % took a
   // tread run up to such a band, and the walk stepped off its top and fell 4.4 blocks through it. It keeps its
   // whole footprint over its cut span. The grid reads a band and a full block alike, so this changes no surface.
-  const carvedGrid = new ScaledColliderGrid(cells, dims, f, rotation, out);
+  // A snapshot: `out` is edited below, and a grid's carve is never edited (grids share column builds by its identity,
+  // `SizeCarve`). The same reading: each edit is in a column this loop has just read, which the grid has built.
+  const carvedGrid = new ScaledColliderGrid(cells, dims, f, rotation, new Map(out));
   for (const [key, form] of [...out]) {
     if (!form || form.v === 0) continue;
     const [wx, wy, wz] = key.split(',').map(Number) as [number, number, number];
