@@ -1,6 +1,6 @@
 {
   "status": "fail-consensus",
-  "lastRun": "2026-08-16T15:52:14.095Z",
+  "lastRun": "2026-08-28T01:50:30.281Z",
   "objective": {
     "footprintIoU": 1,
     "heightErr": 0,
@@ -94,7 +94,10 @@
     "maxDisagreement": 0,
     "truncationSuspected": false,
     "ok": true,
-    "warnings": []
+    "verified": false,
+    "warnings": [
+      "height 73m from tiles is UNVERIFIED — no independent source (OSM height/levels, Solar, Smarty) to cross-check against"
+    ]
   },
   "defectScore": {
     "defects": {
