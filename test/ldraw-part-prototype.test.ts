@@ -1,0 +1,520 @@
+import { describe, expect, it } from 'vitest';
+import type { LdrawPartMesh, LdrawTriangle, Vec3 } from '../web/src/engine/ldraw-part-geometry.js';
+import {
+  LEGO_ENTITY_QUALITY, PLANNER_COARSEST_LDU, bestOfCuboids, compilePartPrototype, createPrototypeCache, downsample, fillInterior, greedyCuboids, greedyCuboidsOrdered,
+  FAR_SLIVER_LDU, decomposeLattice, foldFarSlivers, maxBoxCuboids, planPartGrains, rasterizeSurface, resolveEntityQuality, silhouetteIoU, silhouetteReference, triangleBoxOverlap,
+  type GrainPlanPart, type LegoEntityQuality,
+} from '../web/src/engine/ldraw-part-prototype.js';
+
+// ─── Synthetic meshes (part-local LDU, LDraw −Y up) ───────────────────────────
+
+const quad = (a: Vec3, b: Vec3, c: Vec3, d: Vec3, color = 16): LdrawTriangle[] => [
+  { a, b, c, color }, { a, b: c, c: d, color },
+];
+
+function mesh(partId: string, triangles: LdrawTriangle[], studs: LdrawPartMesh['studs'] = []): LdrawPartMesh {
+  const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const t of triangles) for (const v of [t.a, t.b, t.c]) for (let i = 0; i < 3; i++) {
+    min[i] = Math.min(min[i]!, v[i]!); max[i] = Math.max(max[i]!, v[i]!);
+  }
+  return { partId, resolvedAs: partId, triangles, studs, bounds: { min, max }, unresolvedRefs: [], description: '' };
+}
+
+/** Axis-aligned box [x0,x1]×[y0,y1]×[z0,z1]; `faces` selects which of the six to emit. */
+function box(x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, faces = 'xXyYzZ', color = 16): LdrawTriangle[] {
+  const t: LdrawTriangle[] = [];
+  if (faces.includes('y')) t.push(...quad([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], color)); // top (min Y)
+  if (faces.includes('Y')) t.push(...quad([x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1], color)); // bottom
+  if (faces.includes('z')) t.push(...quad([x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0], color));
+  if (faces.includes('Z')) t.push(...quad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], color));
+  if (faces.includes('x')) t.push(...quad([x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1], color));
+  if (faces.includes('X')) t.push(...quad([x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1], color));
+  return t;
+}
+
+/** 2×1 45° slope: 40 long (Z), 24 tall, 20 wide; high end at z=0, ramp down to z=40. Open bottom. */
+function slope(): LdrawTriangle[] {
+  const t: LdrawTriangle[] = [];
+  t.push(...quad([-10, -24, 0], [10, -24, 0], [10, 0, 0], [-10, 0, 0]));            // back wall (z=0), full height
+  t.push(...quad([-10, -24, 0], [10, -24, 0], [10, 0, 40], [-10, 0, 40]));          // the slanted face
+  t.push({ a: [-10, -24, 0], b: [-10, 0, 0], c: [-10, 0, 40], color: 16 });       // side triangles
+  t.push({ a: [10, -24, 0], b: [10, 0, 0], c: [10, 0, 40], color: 16 });
+  return t;
+}
+
+/** Cylinder of radius r along X from x0 to x1 (a wheel), closed ends. */
+function cylinderX(r: number, x0: number, x1: number, segments = 24): LdrawTriangle[] {
+  const t: LdrawTriangle[] = [];
+  for (let i = 0; i < segments; i++) {
+    const a0 = (i / segments) * Math.PI * 2, a1 = ((i + 1) / segments) * Math.PI * 2;
+    const p0: Vec3 = [x0, r * Math.cos(a0), r * Math.sin(a0)], p1: Vec3 = [x0, r * Math.cos(a1), r * Math.sin(a1)];
+    const q0: Vec3 = [x1, r * Math.cos(a0), r * Math.sin(a0)], q1: Vec3 = [x1, r * Math.cos(a1), r * Math.sin(a1)];
+    t.push(...quad(p0, p1, q1, q0));
+    t.push({ a: [x0, 0, 0], b: p0, c: p1, color: 16 }, { a: [x1, 0, 0], b: q0, c: q1, color: 16 });
+  }
+  return t;
+}
+
+/** Flat wedge plate: right triangle footprint (x,z) ∈ {x≥0, z≥0, x+z≤40}, 8 tall, open bottom. */
+function wedge(): LdrawTriangle[] {
+  return [
+    { a: [0, -8, 0], b: [40, -8, 0], c: [0, -8, 40], color: 16 },                         // top
+    ...quad([0, -8, 0], [40, -8, 0], [40, 0, 0], [0, 0, 0]),                              // z=0 side
+    ...quad([0, -8, 0], [0, -8, 40], [0, 0, 40], [0, 0, 0]),                              // x=0 side
+    ...quad([40, -8, 0], [0, -8, 40], [0, 0, 40], [40, 0, 0]),                            // hypotenuse side
+  ];
+}
+
+/**
+ * A 4 LDU grain with a tight part cap, pinned explicitly: the decomposition
+ * tests below are about what the lattice does at that grain and how the cap
+ * coarsens, not about the shipped preset (which starts at 2 LDU with a
+ * planner-sized cap since 2026-09-21).
+ */
+const Q: LegoEntityQuality = { maxModelCubes: 6144, maxPartCubes: 128, microcellLdu: 4, meshChunkCubes: 1024, maxStudCubes: 1536, studFacets: 4 };
+/** 2 LDU under a 256-cuboid part cap, the grain/cap pair the dome test needs. */
+const Q2: LegoEntityQuality = { ...Q, microcellLdu: 2, maxPartCubes: 256 };
+const volume = (c: { min: Vec3; max: Vec3 }): number => (c.max[0] - c.min[0]) * (c.max[1] - c.min[1]) * (c.max[2] - c.min[2]);
+const aabbVolume = (p: { boundsLdu: { min: Vec3; max: Vec3 } }): number => volume(p.boundsLdu);
+const inside = (c: { min: Vec3; max: Vec3 }, b: { min: Vec3; max: Vec3 }): boolean =>
+  c.min.every((v, i) => v >= b.min[i]! - 1e-9) && c.max.every((v, i) => v <= b.max[i]! + 1e-9);
+
+describe('triangleBoxOverlap', () => {
+  it('detects crossing, touching and separated triangles', () => {
+    expect(triangleBoxOverlap(-5, -5, 0, 5, -5, 0, 0, 5, 0, 1, 1, 1)).toBe(true);   // plane through the box
+    expect(triangleBoxOverlap(-5, -5, 3, 5, -5, 3, 0, 5, 3, 1, 1, 1)).toBe(false);  // parallel plane outside
+    expect(triangleBoxOverlap(-5, -5, 1, 5, -5, 1, 0, 5, 1, 1, 1, 1)).toBe(true);   // touching the face
+    expect(triangleBoxOverlap(2, 2, 2, 3, 2, 2, 2, 3, 2, 1, 1, 1)).toBe(false);     // small triangle away
+    expect(triangleBoxOverlap(1.5, 1.5, 0, 3, -3, 0, -3, 3, 0, 1, 1, 1)).toBe(true); // big triangle around a corner
+  });
+});
+
+describe('far-side slivers', () => {
+  // Bounds end 0.0005 LDU past the 4 LDU plane (10261's float-noise shape); a
+  // different colour in the last row stops greedy merging it into the row before.
+  const bounds: Vec3 = [4.0005, 2, 2];
+  const lattice = () => ({
+    origin: [0, 0, 0] as Vec3, cell: 2, nx: 3, ny: 1, nz: 1,
+    solid: new Uint8Array([1, 1, 1]), label: new Uint16Array([1, 1, 2]), colors: [4, 1],
+  });
+  const thinnest = (cs: ReadonlyArray<{ min: Vec3; max: Vec3 }>): number =>
+    Math.min(...cs.flatMap(c => [0, 1, 2].map(a => c.max[a]! - c.min[a]!)));
+
+  it('the plain greedy merge leaves a 0.0005 LDU sliver cuboid', () => {
+    expect(thinnest(greedyCuboids(lattice(), bounds))).toBeLessThan(0.001);
+  });
+
+  it('folds a last row thinner than FAR_SLIVER_LDU into the row before it', () => {
+    const cs = decomposeLattice(lattice(), bounds, 'greedy');
+    expect(thinnest(cs)).toBeGreaterThan(FAR_SLIVER_LDU);
+    expect(cs).toHaveLength(1);
+    // The part's true extent is kept, and nothing reaches past it.
+    expect(cs[0]!.max[0]).toBeCloseTo(4.0005, 9);
+    expect(decomposeLattice(lattice(), bounds, 'best-of').every(c => c.max[0] - c.min[0] > FAR_SLIVER_LDU)).toBe(true);
+  });
+
+  it('extends only the boxes that absorbed a sliver', () => {
+    // Row y=0 has a sliver cell at x=2; row y=1 (another colour) ends on the
+    // plane with nothing beyond it and must stay short of the bound, clear of
+    // any neighbouring part's face there.
+    const lat = {
+      origin: [0, 0, 0] as Vec3, cell: 2, nx: 3, ny: 2, nz: 1,
+      solid: new Uint8Array([1, 1, 1, 1, 1, 0]), label: new Uint16Array([1, 1, 2, 3, 3, 0]), colors: [4, 1, 14],
+    };
+    const cs = decomposeLattice(lat, [4.0005, 4, 2], 'greedy');
+    const row = (y: number) => cs.find(c => c.min[1] === y * 2)!;
+    expect(row(0).max[0]).toBeCloseTo(4.0005, 9);
+    expect(row(1).max[0]).toBe(4);
+  });
+
+  it('keeps a sliver cell whose neighbour is empty (never opens a hole)', () => {
+    const lat = {
+      origin: [0, 0, 0] as Vec3, cell: 2, nx: 3, ny: 1, nz: 1,
+      solid: new Uint8Array([1, 0, 1]), label: new Uint16Array(3), colors: [],
+    };
+    const { lattice, foldedPlane } = foldFarSlivers(lat, [4.001, 2, 2]);
+    expect(foldedPlane[0]).toBe(4);
+    expect([...lattice.solid]).toEqual([1, 0, 1]);
+    const full = foldFarSlivers({ ...lat, solid: new Uint8Array([1, 1, 1]) }, [4.001, 2, 2]);
+    expect([...full.lattice.solid]).toEqual([1, 1, 0]);
+    expect([...lat.solid]).toEqual([1, 0, 1]); // the input lattice is not mutated
+  });
+});
+
+describe('compilePartPrototype', () => {
+  it('compiles a closed box to exactly one cuboid equal to its AABB', () => {
+    const p = compilePartPrototype(mesh('box', box(-10, 10, -24, 0, -10, 10)), Q);
+    expect(p.source).toBe('exact-box');
+    expect(p.cuboids).toEqual([{ min: [-10, -24, -10], max: [10, 0, 10], color: 16 }]);
+    expect(p.metrics.fill).toBe(1);
+  });
+
+  it('fills an OPEN-BOTTOM box solid (LDraw parts have no underside face)', () => {
+    const p = compilePartPrototype(mesh('brick', box(-20, 20, -24, 0, -10, 10, 'xXyzZ')), Q);
+    expect(p.source).toBe('exact-box');
+    expect(p.cuboids).toHaveLength(1);
+  });
+
+  it('keeps a through-hole open: a bore reachable from a side is air', () => {
+    // A 40×40×40 block with a 12-wide square tunnel along X, open at both ends.
+    const t: LdrawTriangle[] = [
+      ...box(-20, 20, -40, 0, -20, 20, 'yYzZ'),
+      // x faces with the tunnel cut out are approximated by four quads each
+      ...quad([-20, -40, -20], [-20, -40, 20], [-20, -26, 20], [-20, -26, -20]), ...quad([-20, -14, -20], [-20, -14, 20], [-20, 0, 20], [-20, 0, -20]),
+      ...quad([-20, -26, -20], [-20, -26, -6], [-20, -14, -6], [-20, -14, -20]), ...quad([-20, -26, 6], [-20, -26, 20], [-20, -14, 20], [-20, -14, 6]),
+      ...quad([20, -40, -20], [20, -40, 20], [20, -26, 20], [20, -26, -20]), ...quad([20, -14, -20], [20, -14, 20], [20, 0, 20], [20, 0, -20]),
+      ...quad([20, -26, -20], [20, -26, -6], [20, -14, -6], [20, -14, -20]), ...quad([20, -26, 6], [20, -26, 20], [20, -14, 20], [20, -14, 6]),
+      // tunnel walls
+      ...box(-20, 20, -26, -14, -6, 6, 'yYzZ'),
+    ];
+    const p = compilePartPrototype(mesh('tunnel', t), Q);
+    expect(p.source).toBe('mesh-decomposition');
+    const solid = p.cuboids.reduce((n, c) => n + volume(c), 0);
+    // The 12-LDU bore quantises to 8 LDU at a 4-LDU microcell (a half-covered
+    // cell is solid), so the air is 8×8×40 of 40×40×40: 4 % of the volume.
+    expect(solid).toBe(aabbVolume(p) - 8 * 8 * 40);
+    // …and the tunnel runs the whole length: no cuboid crosses the bore.
+    for (const c of p.cuboids) {
+      const crossesBore = c.min[1] < -14 && c.max[1] > -26 && c.min[2] < 6 && c.max[2] > -6;
+      if (crossesBore) expect(c.min[1] >= -22 || c.max[1] <= -18 || c.min[2] >= -2 || c.max[2] <= 2).toBe(true);
+    }
+  });
+
+  it('decomposes a 45° slope into a stair, not its AABB', () => {
+    const p = compilePartPrototype(mesh('slope', slope()), Q);
+    expect(p.source).toBe('mesh-decomposition');
+    expect(p.cuboids.length).toBeGreaterThan(3);
+    for (const c of p.cuboids) expect(inside(c, p.boundsLdu)).toBe(true);
+    expect(p.cuboids.some(c => volume(c) === aabbVolume(p))).toBe(false);
+    const fill = p.cuboids.reduce((n, c) => n + volume(c), 0) / aabbVolume(p);
+    expect(fill).toBeGreaterThan(0.4);
+    expect(fill).toBeLessThan(0.65);
+    expect(p.boundsLdu).toEqual({ min: [-10, -24, 0], max: [10, 0, 40] });
+  });
+
+  it('decomposes a wheel (cylinder) into a round-ish stack, bounds exact', () => {
+    const p = compilePartPrototype(mesh('wheel', cylinderX(24, -12, 12)), Q);
+    expect(p.source).toBe('mesh-decomposition');
+    expect(p.cuboids.length).toBeGreaterThan(4);
+    expect(p.cuboids.length).toBeLessThanOrEqual(Q.maxPartCubes);
+    const fill = p.cuboids.reduce((n, c) => n + volume(c), 0) / aabbVolume(p);
+    expect(fill).toBeGreaterThan(0.7);
+    expect(fill).toBeLessThan(0.9);
+    expect(p.boundsLdu.min[1]).toBeCloseTo(-24, 6);
+    expect(p.boundsLdu.max[2]).toBeCloseTo(24, 6);
+  });
+
+  it('decomposes a triangular wedge plate', () => {
+    const p = compilePartPrototype(mesh('wedge', wedge()), Q);
+    expect(p.source).toBe('mesh-decomposition');
+    const fill = p.cuboids.reduce((n, c) => n + volume(c), 0) / aabbVolume(p);
+    expect(fill).toBeGreaterThan(0.45);
+    expect(fill).toBeLessThan(0.65);
+  });
+
+  it('keeps a translucent part as a shell when hollow', () => {
+    const solid = compilePartPrototype(mesh('canopy', box(-20, 20, -24, 0, -20, 20, 'xXyzZ')), Q);
+    const shell = compilePartPrototype(mesh('canopy', box(-20, 20, -24, 0, -20, 20, 'xXyzZ')), Q, { hollow: true });
+    expect(solid.cuboids).toHaveLength(1);
+    expect(shell.hollow).toBe(true);
+    expect(shell.cuboids.length).toBeGreaterThan(1);
+    expect(shell.metrics.fill).toBeLessThan(0.6);
+  });
+
+  it('keeps a thin tilted shell whole with preserveSurface, where the majority rule leaves holes', () => {
+    // A hair-like cap: a 1 LDU thick slab, 40 wide, leaning 45° so it crosses
+    // the 2 LDU lattice diagonally (the majority rule keeps half its cells).
+    // Every surface triangle should land inside a cuboid.
+    const c = Math.cos(Math.PI / 4), s = Math.sin(Math.PI / 4);
+    const P = (x: number, u: number, v: number): Vec3 => [x, u * c - v * s, u * s + v * c];
+    const t: LdrawTriangle[] = [];
+    for (let i = -20; i < 20; i += 4) {
+      t.push(...quad(P(i, -20, 0), P(i + 4, -20, 0), P(i + 4, 20, 0), P(i, 20, 0)));
+      t.push(...quad(P(i, -20, 1), P(i + 4, -20, 1), P(i + 4, 20, 1), P(i, 20, 1)));
+    }
+    const m = mesh('cap', t);
+    const inside = (p: { cuboids: Array<{ min: Vec3; max: Vec3 }> }): number => {
+      let hit = 0;
+      for (const tri of t) {
+        const cx = (tri.a[0] + tri.b[0] + tri.c[0]) / 3, cy = (tri.a[1] + tri.b[1] + tri.c[1]) / 3, cz = (tri.a[2] + tri.b[2] + tri.c[2]) / 3;
+        if (p.cuboids.some(b => cx >= b.min[0] - 1e-6 && cx <= b.max[0] + 1e-6 && cy >= b.min[1] - 1e-6 && cy <= b.max[1] + 1e-6 && cz >= b.min[2] - 1e-6 && cz <= b.max[2] + 1e-6)) hit++;
+      }
+      return hit / t.length;
+    };
+    const majority = compilePartPrototype(m, Q2, { hollow: true });
+    const preserved = compilePartPrototype(m, Q2, { hollow: true, preserveSurface: true });
+    expect(inside(majority)).toBeLessThan(1);
+    expect(inside(preserved)).toBe(1);
+    // Cached separately from the majority build.
+    const cache = createPrototypeCache();
+    cache.get(m, Q2, { hollow: true });
+    cache.get(m, Q2, { hollow: true, preserveSurface: true });
+    expect(cache.size).toBe(2);
+  });
+
+  it('gives a printed face its own cuboids in the explicit colour', () => {
+    const t = [...box(-10, 10, -24, 0, -10, 10), ...quad([-8, -20, -10], [8, -20, -10], [8, -4, -10], [-8, -4, -10], 4)];
+    const p = compilePartPrototype(mesh('printed', t), Q);
+    const colors = new Set(p.cuboids.map(c => c.color));
+    expect(colors.has(4)).toBe(true);
+    expect(colors.has(16)).toBe(true);
+    const red = p.cuboids.filter(c => c.color === 4);
+    // The print sits on the z=-10 face only.
+    for (const c of red) expect(c.min[2]).toBe(-10);
+  });
+
+  it('respects the part budget by coarsening, then falls back to the AABB with a reason', () => {
+    const wheel = mesh('wheel', cylinderX(24, -12, 12));
+    const tight = compilePartPrototype(wheel, { ...Q, maxPartCubes: 6 });
+    expect(tight.metrics.coarsened).toBeGreaterThan(0);
+    expect(tight.cuboids.length).toBeLessThanOrEqual(6);
+    const impossible = compilePartPrototype(wheel, { ...Q, maxPartCubes: 1 });
+    expect(impossible.source).toBe('aabb-fallback');
+    expect(impossible.cuboids).toHaveLength(1);
+    expect(impossible.cuboids[0]!.min).toEqual(wheel.bounds.min);
+  });
+
+  it('passes studs through and reports an empty part explicitly', () => {
+    const stud = { center: [0, -24, 0] as Vec3, up: [0, -1, 0] as Vec3, radius: 6, height: 4 };
+    const p = compilePartPrototype(mesh('brick', box(-10, 10, -24, 0, -10, 10), [stud]), Q);
+    expect(p.studs).toEqual([stud]);
+    const empty = compilePartPrototype({ ...mesh('nothing', []), bounds: { min: [0, 0, 0], max: [0, 0, 0] } }, Q);
+    expect(empty.source).toBe('empty');
+    expect(empty.cuboids).toEqual([]);
+  });
+
+  it('is deterministic and the cache instances once per (part, quality, hollow)', () => {
+    const a = compilePartPrototype(mesh('slope', slope()), Q);
+    const b = compilePartPrototype(mesh('slope', slope()), Q);
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    const cache = createPrototypeCache();
+    const m = mesh('slope', slope());
+    const first = cache.get(m, Q);
+    expect(cache.get(m, Q)).toBe(first);
+    expect(cache.get(m, Q, { hollow: true })).not.toBe(first);
+    expect(cache.get(m, LEGO_ENTITY_QUALITY.high)).not.toBe(first);
+    expect(cache.size).toBe(3);
+    expect(cache.hits).toBe(1);
+  });
+
+  it('resolves quality names and partial overrides', () => {
+    expect(resolveEntityQuality()).toEqual(LEGO_ENTITY_QUALITY.balanced);
+    expect(resolveEntityQuality('ultra').microcellLdu).toBe(1);
+    expect(resolveEntityQuality({ maxModelCubes: 99 })).toEqual({ ...LEGO_ENTITY_QUALITY.balanced, maxModelCubes: 99 });
+  });
+});
+
+// ─── best-of decomposition ────────────────────────────────────────────────────
+
+/** Dome of radius r (LDraw −Y up): stacked rings, a shape the scan-order greedy merges poorly. */
+function dome(r = 30, rings = 12, segments = 24): LdrawTriangle[] {
+  const t: LdrawTriangle[] = [];
+  for (let j = 0; j < rings; j++) {
+    const y0 = -r * Math.cos(j / rings * Math.PI / 2), y1 = -r * Math.cos((j + 1) / rings * Math.PI / 2);
+    const r0 = r * Math.sin(j / rings * Math.PI / 2) || 0.01, r1 = r * Math.sin((j + 1) / rings * Math.PI / 2);
+    for (let i = 0; i < segments; i++) {
+      const a0 = i / segments * 2 * Math.PI, a1 = (i + 1) / segments * 2 * Math.PI;
+      t.push(...quad([r0 * Math.cos(a0), y0, r0 * Math.sin(a0)], [r0 * Math.cos(a1), y0, r0 * Math.sin(a1)], [r1 * Math.cos(a1), y1, r1 * Math.sin(a1)], [r1 * Math.cos(a0), y1, r1 * Math.sin(a0)]));
+    }
+  }
+  return t;
+}
+
+/** The set of (lattice cell, colour) a prototype's cuboids occupy, at its own microcell from its own AABB corner. */
+function occupiedCells(p: { cuboids: Array<{ min: Vec3; max: Vec3; color: number }>; boundsLdu: { min: Vec3 }; microcellLdu: number }): Set<string> {
+  const cells = new Set<string>();
+  const o = p.boundsLdu.min, cell = p.microcellLdu;
+  for (const c of p.cuboids) {
+    const lo = c.min.map((v, i) => Math.round((v - o[i]!) / cell));
+    // A flat part (zero extent on an axis) still occupies one cell row there.
+    const hi = c.max.map((v, i) => Math.max(lo[i]! + 1, Math.ceil((v - o[i]!) / cell - 1e-9)));
+    for (let y = lo[1]!; y < hi[1]!; y++) for (let z = lo[2]!; z < hi[2]!; z++) for (let x = lo[0]!; x < hi[0]!; x++) cells.add(`${x},${y},${z}:${c.color}`);
+  }
+  return cells;
+}
+
+describe('best-of decomposition', () => {
+  const cases: Array<[string, LdrawTriangle[], { hollow?: boolean }]> = [
+    ['slope', slope(), {}], ['wheel', cylinderX(24, -12, 12), {}], ['wedge', wedge(), {}], ['dome', dome(), {}],
+    ['canopy', box(-20, 20, -24, 0, -20, 20, 'xXyzZ'), { hollow: true }],
+    ['printed', [...box(-20, 20, -24, 0, -20, 20, 'xXyYzZ'), ...quad([-20, -24, -20], [20, -24, -20], [20, 0, -20], [-20, 0, -20], 4)], {}],
+  ];
+
+  it('tiles exactly the same cells as the greedy merge, in the same colours, with no more cuboids', () => {
+    for (const [name, tris, opts] of cases) {
+      const g = compilePartPrototype(mesh(name, tris), Q, opts);
+      const b = compilePartPrototype(mesh(name, tris), Q, { ...opts, decomposition: 'best-of' });
+      expect(b.microcellLdu, name).toBe(g.microcellLdu);
+      expect(b.source, name).toBe(g.source);
+      expect(b.cuboids.length, name).toBeLessThanOrEqual(g.cuboids.length);
+      expect(occupiedCells(b), name).toEqual(occupiedCells(g));
+      // Volume is a consequence of identical cells, but check it independently of the cell helper.
+      const vol = (p: { cuboids: Array<{ min: Vec3; max: Vec3 }> }): number => p.cuboids.reduce((n, c) => n + volume(c), 0);
+      expect(vol(b), name).toBeCloseTo(vol(g), 6);
+    }
+  });
+
+  it('needs strictly fewer cuboids for a dome and leaves a box part alone', () => {
+    const g = compilePartPrototype(mesh('dome', dome()), Q);
+    const b = compilePartPrototype(mesh('dome', dome()), Q, { decomposition: 'best-of' });
+    expect(g.cuboids.length).toBe(80);
+    expect(b.cuboids.length).toBeLessThan(g.cuboids.length);
+    const boxPart = compilePartPrototype(mesh('brick', box(-20, 20, -24, 0, -10, 10)), Q, { decomposition: 'best-of' });
+    expect(boxPart.source).toBe('exact-box');
+    expect(boxPart.cuboids).toHaveLength(1);
+  });
+
+  it('keeps a finer microcell where the greedy merge had to coarsen to meet the cap', () => {
+    // At 2 LDU under a 256 cap the greedy dome exceeds the cap and coarsens to 4 LDU; best-of fits under it at 2 LDU.
+    const g = compilePartPrototype(mesh('dome', dome()), Q2);
+    const b = compilePartPrototype(mesh('dome', dome()), Q2, { decomposition: 'best-of' });
+    expect(g.metrics.coarsened).toBe(1);
+    expect(b.metrics.coarsened).toBe(0);
+    expect(b.microcellLdu).toBe(2);
+    expect(b.cuboids.length).toBeLessThanOrEqual(Q2.maxPartCubes);
+  });
+
+  it('is deterministic and keyed separately in the cache', () => {
+    const a = compilePartPrototype(mesh('dome', dome()), Q, { decomposition: 'best-of' });
+    const b = compilePartPrototype(mesh('dome', dome()), Q, { decomposition: 'best-of' });
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    const cache = createPrototypeCache();
+    const m = mesh('dome', dome());
+    const greedy = cache.get(m, Q);
+    const best = cache.get(m, Q, { decomposition: 'best-of' });
+    expect(best).not.toBe(greedy);
+    expect(cache.get(m, Q, { decomposition: 'best-of' })).toBe(best);
+    expect(cache.size).toBe(2);
+  });
+
+  it('exposes the lattice stages and the three merges, all covering the same cells', () => {
+    const m = mesh('wedge', wedge());
+    const fine = rasterizeSurface(m.triangles, m.bounds.min, m.bounds.max, Q.microcellLdu / 2);
+    fillInterior(fine, false);
+    const coarse = downsample(fine);
+    const solid = Array.from(coarse.solid).reduce((n, v) => n + v, 0);
+    const cellsOf = (cs: Array<{ min: Vec3; max: Vec3; color: number }>): Set<string> => occupiedCells({ cuboids: cs, boundsLdu: { min: m.bounds.min }, microcellLdu: Q.microcellLdu });
+    const g = greedyCuboids(coarse, m.bounds.max);
+    const ordered = greedyCuboidsOrdered(coarse, m.bounds.max, [0, 2, 1]);
+    const mb = maxBoxCuboids(coarse, m.bounds.max);
+    const best = bestOfCuboids(coarse, m.bounds.max);
+    expect(ordered.length).toBe(g.length); // [0, 2, 1] is the shipped scan order
+    expect(cellsOf(g).size).toBe(solid);
+    for (const c of [ordered, mb, best]) expect(cellsOf(c)).toEqual(cellsOf(g));
+    expect(best.length).toBe(Math.min(g.length, mb.length, ...[[0, 1, 2], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]].map(o => greedyCuboidsOrdered(coarse, m.bounds.max, o as [number, number, number]).length)));
+  });
+});
+
+// ─── Silhouette fidelity and the per-part grain plan ─────────────────────────
+
+describe('silhouetteIoU', () => {
+  it('scores a box part as exact and a cylinder finer the finer the grain', () => {
+    const brick = mesh('brick', box(-20, 20, -24, 0, -10, 10));
+    expect(silhouetteIoU(silhouetteReference(brick), compilePartPrototype(brick, Q).cuboids)).toBeCloseTo(1, 3);
+    const wheel = mesh('wheel', cylinderX(24, -12, 12));
+    const ref = silhouetteReference(wheel);
+    const at = (cell: number): number => silhouetteIoU(ref, compilePartPrototype(wheel, { ...Q, microcellLdu: cell, maxPartCubes: 4096 }).cuboids);
+    const [c8, c4, c2] = [at(8), at(4), at(2)];
+    expect(c8).toBeLessThan(c4);
+    expect(c4).toBeLessThan(c2);
+    expect(c2).toBeLessThan(1);
+    expect(c8).toBeGreaterThan(0.6);
+    expect(ref.areaLdu2).toBeGreaterThan(0);
+  });
+});
+
+describe('planPartGrains', () => {
+  const fine: LegoEntityQuality = { ...Q, microcellLdu: 2, maxPartCubes: 4096 };
+  const parts = (): GrainPlanPart[] => [
+    { key: 'wheel', mesh: mesh('wheel', cylinderX(24, -12, 12)), placements: 20, hollow: false },
+    { key: 'slope', mesh: mesh('slope', slope()), placements: 20, hollow: false },
+    { key: 'brick', mesh: mesh('brick', box(-20, 20, -24, 0, -10, 10)), placements: 100, hollow: false },
+  ];
+  const sum = (r: Record<string, number>): number => Object.values(r).reduce((a, b) => a + b, 0);
+
+  it('keeps every part at the requested grain when the model already fits', () => {
+    const plan = planPartGrains(parts(), fine, createPrototypeCache(), { decomposition: 'greedy', budget: 1_000_000 });
+    expect([...plan.grains.values()]).toEqual([2, 2, 2]);
+    expect(plan.summary).toMatchObject({ requestedMicrocellLdu: 2, coarsestMicrocellLdu: PLANNER_COARSEST_LDU, partsCoarsened: 0, placementsCoarsened: 0, fits: true, steps: 0 });
+    expect(plan.summary.cuboids).toBe(plan.summary.cuboidsAtRequested);
+    expect(plan.summary.fidelity).toBe(plan.summary.fidelityAtRequested);
+    expect(plan.summary.partsAtGrain).toEqual({ '2': 3 });
+  });
+
+  it('does not read a coarse grain\'s collapsed cuboid as a perfect box', () => {
+    // A 1x1-round-brick shape: 20 LDU across and 20 tall. At 8 LDU its lattice
+    // is a single bbox-filling cell, and `compilePartPrototype` labels ANY such
+    // cuboid `exact-box` — its "reached only by coarsening" guard counts only
+    // its own internal loop, which the planner never triggers because it walks
+    // the ladder by passing `microcellLdu`.
+    const round = mesh('round', cylinderX(10, -10, 10));
+    const coarse = compilePartPrototype(round, { ...fine, microcellLdu: 8 });
+    expect(coarse.cuboids).toHaveLength(1);
+    expect(coarse.source).toBe('exact-box'); // the trap, pinned deliberately
+
+    // Reading that label as a perfect silhouette told the planner a cylinder
+    // turned into a cube scored 1.000 against 0.931 at 4 LDU — better AND
+    // cheaper — so round parts were coarsened first and read as squares up
+    // close. Coarsening one must cost fidelity.
+    const plan = planPartGrains(
+      [{ key: 'round', mesh: round, placements: 50, hollow: false }],
+      fine, createPrototypeCache(), { decomposition: 'greedy', budget: 60 },
+    );
+    expect(plan.grains.get('round')).toBeGreaterThan(2);
+    expect(plan.summary.fidelity).toBeLessThan(0.99);
+    expect(plan.summary.fidelity).toBeLessThan(plan.summary.fidelityAtRequested);
+  });
+
+  it('coarsens individual parts until the model fits, never a box part, never past a plate', () => {
+    const cache = createPrototypeCache();
+    const full = planPartGrains(parts(), fine, cache, { decomposition: 'greedy', budget: 1_000_000 }).summary.cuboidsAtRequested;
+    const budget = Math.round(full * 0.4);
+    const plan = planPartGrains(parts(), fine, cache, { decomposition: 'greedy', budget, fixedCuboids: 7 });
+    expect(plan.summary.fits).toBe(true);
+    expect(plan.summary.cuboids).toBeLessThanOrEqual(budget);
+    expect(plan.summary.fixedCuboids).toBe(7);
+    expect(plan.summary.partsCoarsened).toBeGreaterThan(0);
+    expect(plan.summary.steps).toBeGreaterThan(0);
+    // A box is one cuboid at any grain: nothing to save, so it is never touched.
+    expect(plan.grains.get('brick')).toBe(2);
+    for (const cell of plan.grains.values()) expect(cell).toBeLessThanOrEqual(PLANNER_COARSEST_LDU);
+    expect(sum(plan.summary.partsAtGrain)).toBe(3);
+    expect(sum(plan.summary.placementsAtGrain)).toBe(140);
+    expect(plan.summary.fidelity).toBeLessThanOrEqual(plan.summary.fidelityAtRequested);
+    expect(plan.summary.fidelity).toBeGreaterThan(0.5);
+  });
+
+  it('takes the step that loses the least silhouette per cuboid saved', () => {
+    // Independently rank each part's first useful coarsening; the planner's one step must be the cheapest.
+    const cache = createPrototypeCache();
+    const candidates = parts().filter(p => p.key !== 'brick');
+    const ranked = candidates.map(p => {
+      const ref = silhouetteReference(p.mesh);
+      const at = (cell: number) => { const c = cache.get(p.mesh, { ...fine, microcellLdu: cell }, { decomposition: 'greedy' }).cuboids; return { n: c.length, iou: silhouetteIoU(ref, c) }; };
+      const cur = at(2);
+      const next = [4, 8].map(at).find(m => m.n < cur.n)!;
+      return { key: p.key, priority: (p.placements * ref.areaLdu2 * Math.max(0, cur.iou - next.iou)) / (p.placements * (cur.n - next.n)) };
+    }).sort((a, b) => a.priority - b.priority);
+    const total = planPartGrains(candidates, fine, cache, { decomposition: 'greedy', budget: 1_000_000 }).summary.cuboidsAtRequested;
+    const plan = planPartGrains(candidates, fine, cache, { decomposition: 'greedy', budget: total - 1 });
+    expect(plan.summary.steps).toBe(1);
+    expect(plan.grains.get(ranked[0]!.key)).toBeGreaterThan(2);
+    expect(plan.grains.get(ranked[1]!.key)).toBe(2);
+  });
+
+  it('reports a model that cannot fit rather than coarsening past the floor', () => {
+    const plan = planPartGrains(parts(), fine, createPrototypeCache(), { decomposition: 'greedy', budget: 10 });
+    expect(plan.summary.fits).toBe(false);
+    expect(plan.grains.get('wheel')).toBe(PLANNER_COARSEST_LDU);
+    expect(plan.grains.get('slope')).toBe(PLANNER_COARSEST_LDU);
+    expect(plan.grains.get('brick')).toBe(2);
+    expect(plan.summary.cuboids).toBeGreaterThan(10);
+  });
+
+  it('is deterministic', () => {
+    const a = planPartGrains(parts(), fine, createPrototypeCache(), { decomposition: 'best-of', budget: 300 });
+    const b = planPartGrains(parts(), fine, createPrototypeCache(), { decomposition: 'best-of', budget: 300 });
+    expect([...a.grains]).toEqual([...b.grains]);
+    expect(a.summary).toEqual(b.summary);
+  });
+});

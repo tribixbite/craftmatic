@@ -1,0 +1,1681 @@
+{
+  "run": "output\\pdf-placement-beam\\40377-r5-contain-v1",
+  "rows": [
+    {
+      "page": 16,
+      "allocated": [
+        [
+          "3031",
+          15
+        ]
+      ],
+      "body_colors": [
+        1,
+        15,
+        19,
+        29,
+        71,
+        72,
+        322
+      ],
+      "allocated_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "3031",
+            15
+          ]
+        ],
+        "colors": [
+          {
+            "color": 15,
+            "drawn_pixels": 25458,
+            "single_piece_min_pixels": 11136.866683841856,
+            "drawn_share": 2.285921231052918,
+            "absent": false,
+            "pieces": [
+              [
+                "3031",
+                15
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 52304,
+        "unclassified_pixels": 26846,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "with_body_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "3031",
+            15
+          ]
+        ],
+        "colors": [
+          {
+            "color": 15,
+            "drawn_pixels": 11896,
+            "single_piece_min_pixels": 11136.866683841856,
+            "drawn_share": 1.0681639942102878,
+            "absent": false,
+            "pieces": [
+              [
+                "3031",
+                15
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 52304,
+        "unclassified_pixels": 14397,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [
+          1,
+          15,
+          19,
+          29,
+          71,
+          72,
+          322
+        ],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "verdict_changed": false
+    },
+    {
+      "page": 17,
+      "allocated": [
+        [
+          "60474",
+          0
+        ],
+        [
+          "60474",
+          0
+        ]
+      ],
+      "body_colors": [
+        1,
+        15,
+        19,
+        29,
+        71,
+        72,
+        322
+      ],
+      "allocated_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "60474",
+            0
+          ],
+          [
+            "60474",
+            0
+          ]
+        ],
+        "colors": [
+          {
+            "color": 0,
+            "drawn_pixels": 35372,
+            "single_piece_min_pixels": 8458.168621724748,
+            "drawn_share": 4.181992767222359,
+            "absent": false,
+            "pieces": [
+              [
+                "60474",
+                0
+              ],
+              [
+                "60474",
+                0
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 52177,
+        "unclassified_pixels": 16805,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "with_body_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "60474",
+            0
+          ],
+          [
+            "60474",
+            0
+          ]
+        ],
+        "colors": [
+          {
+            "color": 0,
+            "drawn_pixels": 13050,
+            "single_piece_min_pixels": 8458.168621724748,
+            "drawn_share": 1.5428871879523853,
+            "absent": false,
+            "pieces": [
+              [
+                "60474",
+                0
+              ],
+              [
+                "60474",
+                0
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 52177,
+        "unclassified_pixels": 4559,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [
+          1,
+          15,
+          19,
+          29,
+          71,
+          72,
+          322
+        ],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "verdict_changed": false
+    },
+    {
+      "page": 18,
+      "allocated": [
+        [
+          "3031",
+          15
+        ]
+      ],
+      "body_colors": [
+        0,
+        1,
+        15,
+        19,
+        29,
+        71,
+        72,
+        322
+      ],
+      "allocated_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "3031",
+            15
+          ]
+        ],
+        "colors": [
+          {
+            "color": 15,
+            "drawn_pixels": 26746,
+            "single_piece_min_pixels": 10915.243360213532,
+            "drawn_share": 2.4503347399005473,
+            "absent": false,
+            "pieces": [
+              [
+                "3031",
+                15
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 55568,
+        "unclassified_pixels": 28822,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "with_body_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "3031",
+            15
+          ]
+        ],
+        "colors": [
+          {
+            "color": 15,
+            "drawn_pixels": 16422,
+            "single_piece_min_pixels": 10915.243360213532,
+            "drawn_share": 1.5045014992390184,
+            "absent": false,
+            "pieces": [
+              [
+                "3031",
+                15
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 55568,
+        "unclassified_pixels": 3467,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [
+          0,
+          1,
+          15,
+          19,
+          29,
+          71,
+          72,
+          322
+        ],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "verdict_changed": false
+    },
+    {
+      "page": 19,
+      "allocated": [
+        [
+          "2431",
+          15
+        ],
+        [
+          "25269",
+          15
+        ],
+        [
+          "25269",
+          15
+        ],
+        [
+          "25269",
+          15
+        ],
+        [
+          "25269",
+          15
+        ],
+        [
+          "41740",
+          15
+        ]
+      ],
+      "body_colors": [
+        0,
+        1,
+        15,
+        19,
+        29,
+        71,
+        72,
+        322
+      ],
+      "allocated_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "2431",
+            15
+          ],
+          [
+            "25269",
+            15
+          ],
+          [
+            "25269",
+            15
+          ],
+          [
+            "25269",
+            15
+          ],
+          [
+            "25269",
+            15
+          ],
+          [
+            "41740",
+            15
+          ]
+        ],
+        "colors": [
+          {
+            "color": 15,
+            "drawn_pixels": 28182,
+            "single_piece_min_pixels": 765.4174830219993,
+            "drawn_share": 36.81912240720272,
+            "absent": false,
+            "pieces": [
+              [
+                "2431",
+                15
+              ],
+              [
+                "25269",
+                15
+              ],
+              [
+                "25269",
+                15
+              ],
+              [
+                "25269",
+                15
+              ],
+              [
+                "25269",
+                15
+              ],
+              [
+                "41740",
+                15
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 56043,
+        "unclassified_pixels": 27861,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "with_body_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "2431",
+            15
+          ],
+          [
+            "25269",
+            15
+          ],
+          [
+            "25269",
+            15
+          ],
+          [
+            "25269",
+            15
+          ],
+          [
+            "25269",
+            15
+          ],
+          [
+            "41740",
+            15
+          ]
+        ],
+        "colors": [
+          {
+            "color": 15,
+            "drawn_pixels": 17607,
+            "single_piece_min_pixels": 765.4174830219993,
+            "drawn_share": 23.00313278772331,
+            "absent": false,
+            "pieces": [
+              [
+                "2431",
+                15
+              ],
+              [
+                "25269",
+                15
+              ],
+              [
+                "25269",
+                15
+              ],
+              [
+                "25269",
+                15
+              ],
+              [
+                "25269",
+                15
+              ],
+              [
+                "41740",
+                15
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 56043,
+        "unclassified_pixels": 3388,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [
+          0,
+          1,
+          15,
+          19,
+          29,
+          71,
+          72,
+          322
+        ],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "verdict_changed": false
+    },
+    {
+      "page": 22,
+      "allocated": [
+        [
+          "87079",
+          15
+        ],
+        [
+          "87079",
+          15
+        ]
+      ],
+      "body_colors": [
+        0,
+        1,
+        15,
+        19,
+        29,
+        71,
+        72,
+        322
+      ],
+      "allocated_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "87079",
+            15
+          ],
+          [
+            "87079",
+            15
+          ]
+        ],
+        "colors": [
+          {
+            "color": 15,
+            "drawn_pixels": 32480,
+            "single_piece_min_pixels": 5798.423441911419,
+            "drawn_share": 5.601522607892386,
+            "absent": false,
+            "pieces": [
+              [
+                "87079",
+                15
+              ],
+              [
+                "87079",
+                15
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 59535,
+        "unclassified_pixels": 27055,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "with_body_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "87079",
+            15
+          ],
+          [
+            "87079",
+            15
+          ]
+        ],
+        "colors": [
+          {
+            "color": 15,
+            "drawn_pixels": 26512,
+            "single_piece_min_pixels": 5798.423441911419,
+            "drawn_share": 4.572277320826445,
+            "absent": false,
+            "pieces": [
+              [
+                "87079",
+                15
+              ],
+              [
+                "87079",
+                15
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 59535,
+        "unclassified_pixels": 3796,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [
+          0,
+          1,
+          15,
+          19,
+          29,
+          71,
+          72,
+          322
+        ],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "verdict_changed": false
+    },
+    {
+      "page": 23,
+      "allocated": [
+        [
+          "3031",
+          15
+        ]
+      ],
+      "body_colors": [
+        0,
+        1,
+        15,
+        19,
+        29,
+        71,
+        72,
+        322
+      ],
+      "allocated_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "3031",
+            15
+          ]
+        ],
+        "colors": [
+          {
+            "color": 15,
+            "drawn_pixels": 32567,
+            "single_piece_min_pixels": 11134.639413996709,
+            "drawn_share": 2.9248365204410587,
+            "absent": false,
+            "pieces": [
+              [
+                "3031",
+                15
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 58519,
+        "unclassified_pixels": 25952,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "with_body_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "3031",
+            15
+          ]
+        ],
+        "colors": [
+          {
+            "color": 15,
+            "drawn_pixels": 25898,
+            "single_piece_min_pixels": 11134.639413996709,
+            "drawn_share": 2.3258948078233344,
+            "absent": false,
+            "pieces": [
+              [
+                "3031",
+                15
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 58519,
+        "unclassified_pixels": 4211,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [
+          0,
+          1,
+          15,
+          19,
+          29,
+          71,
+          72,
+          322
+        ],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "verdict_changed": false
+    },
+    {
+      "page": 24,
+      "allocated": [
+        [
+          "87079",
+          15
+        ],
+        [
+          "87079",
+          15
+        ]
+      ],
+      "body_colors": [
+        0,
+        1,
+        15,
+        19,
+        29,
+        71,
+        72,
+        322
+      ],
+      "allocated_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "87079",
+            15
+          ],
+          [
+            "87079",
+            15
+          ]
+        ],
+        "colors": [
+          {
+            "color": 15,
+            "drawn_pixels": 36553,
+            "single_piece_min_pixels": 5914.972100369036,
+            "drawn_share": 6.179741743451242,
+            "absent": false,
+            "pieces": [
+              [
+                "87079",
+                15
+              ],
+              [
+                "87079",
+                15
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 59485,
+        "unclassified_pixels": 22932,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "with_body_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "87079",
+            15
+          ],
+          [
+            "87079",
+            15
+          ]
+        ],
+        "colors": [
+          {
+            "color": 15,
+            "drawn_pixels": 30453,
+            "single_piece_min_pixels": 5914.972100369036,
+            "drawn_share": 5.148460463253924,
+            "absent": false,
+            "pieces": [
+              [
+                "87079",
+                15
+              ],
+              [
+                "87079",
+                15
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 59485,
+        "unclassified_pixels": 3729,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [
+          0,
+          1,
+          15,
+          19,
+          29,
+          71,
+          72,
+          322
+        ],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "verdict_changed": false
+    },
+    {
+      "page": 25,
+      "allocated": [
+        [
+          "87079",
+          15
+        ],
+        [
+          "87079",
+          15
+        ]
+      ],
+      "body_colors": [
+        0,
+        1,
+        15,
+        19,
+        29,
+        71,
+        72,
+        322
+      ],
+      "allocated_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "87079",
+            15
+          ],
+          [
+            "87079",
+            15
+          ]
+        ],
+        "colors": [
+          {
+            "color": 15,
+            "drawn_pixels": 37908,
+            "single_piece_min_pixels": 5914.972100369036,
+            "drawn_share": 6.408821437659007,
+            "absent": false,
+            "pieces": [
+              [
+                "87079",
+                15
+              ],
+              [
+                "87079",
+                15
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 61901,
+        "unclassified_pixels": 23993,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "with_body_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "87079",
+            15
+          ],
+          [
+            "87079",
+            15
+          ]
+        ],
+        "colors": [
+          {
+            "color": 15,
+            "drawn_pixels": 31820,
+            "single_piece_min_pixels": 5914.972100369036,
+            "drawn_share": 5.379568907521094,
+            "absent": false,
+            "pieces": [
+              [
+                "87079",
+                15
+              ],
+              [
+                "87079",
+                15
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 61901,
+        "unclassified_pixels": 3913,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [
+          0,
+          1,
+          15,
+          19,
+          29,
+          71,
+          72,
+          322
+        ],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "verdict_changed": false
+    },
+    {
+      "page": 26,
+      "allocated": [
+        [
+          "3023b",
+          191
+        ],
+        [
+          "3023b",
+          191
+        ],
+        [
+          "3023b",
+          191
+        ],
+        [
+          "3023b",
+          191
+        ]
+      ],
+      "body_colors": [
+        0,
+        1,
+        15,
+        19,
+        29,
+        71,
+        72,
+        322
+      ],
+      "allocated_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "3023b",
+            191
+          ],
+          [
+            "3023b",
+            191
+          ],
+          [
+            "3023b",
+            191
+          ],
+          [
+            "3023b",
+            191
+          ]
+        ],
+        "colors": [
+          {
+            "color": 191,
+            "drawn_pixels": 12489,
+            "single_piece_min_pixels": 1959.595828661495,
+            "drawn_share": 6.373253003161693,
+            "absent": false,
+            "pieces": [
+              [
+                "3023b",
+                191
+              ],
+              [
+                "3023b",
+                191
+              ],
+              [
+                "3023b",
+                191
+              ],
+              [
+                "3023b",
+                191
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 60789,
+        "unclassified_pixels": 48300,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "with_body_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "3023b",
+            191
+          ],
+          [
+            "3023b",
+            191
+          ],
+          [
+            "3023b",
+            191
+          ],
+          [
+            "3023b",
+            191
+          ]
+        ],
+        "colors": [
+          {
+            "color": 191,
+            "drawn_pixels": 12236,
+            "single_piece_min_pixels": 1959.595828661495,
+            "drawn_share": 6.244144747112377,
+            "absent": false,
+            "pieces": [
+              [
+                "3023b",
+                191
+              ],
+              [
+                "3023b",
+                191
+              ],
+              [
+                "3023b",
+                191
+              ],
+              [
+                "3023b",
+                191
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 60789,
+        "unclassified_pixels": 5495,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [
+          0,
+          1,
+          15,
+          19,
+          29,
+          71,
+          72,
+          322
+        ],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "verdict_changed": false
+    },
+    {
+      "page": 27,
+      "allocated": [
+        [
+          "43723",
+          191
+        ],
+        [
+          "43722",
+          191
+        ]
+      ],
+      "body_colors": [
+        0,
+        1,
+        15,
+        19,
+        29,
+        71,
+        72,
+        191,
+        322
+      ],
+      "allocated_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "43723",
+            191
+          ],
+          [
+            "43722",
+            191
+          ]
+        ],
+        "colors": [
+          {
+            "color": 191,
+            "drawn_pixels": 15114,
+            "single_piece_min_pixels": 3625.8446777888967,
+            "drawn_share": 4.168408010576113,
+            "absent": false,
+            "pieces": [
+              [
+                "43723",
+                191
+              ],
+              [
+                "43722",
+                191
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 63094,
+        "unclassified_pixels": 47980,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "with_body_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "43723",
+            191
+          ],
+          [
+            "43722",
+            191
+          ]
+        ],
+        "colors": [
+          {
+            "color": 191,
+            "drawn_pixels": 14882,
+            "single_piece_min_pixels": 3625.8446777888967,
+            "drawn_share": 4.104422920033989,
+            "absent": false,
+            "pieces": [
+              [
+                "43723",
+                191
+              ],
+              [
+                "43722",
+                191
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 63094,
+        "unclassified_pixels": 6417,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [
+          0,
+          1,
+          15,
+          19,
+          29,
+          71,
+          72,
+          191,
+          322
+        ],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "verdict_changed": false
+    },
+    {
+      "page": 28,
+      "allocated": [
+        [
+          "3623",
+          1
+        ],
+        [
+          "3710",
+          1
+        ],
+        [
+          "61252",
+          1
+        ]
+      ],
+      "body_colors": [
+        0,
+        1,
+        15,
+        19,
+        29,
+        71,
+        72,
+        191,
+        322
+      ],
+      "allocated_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "3623",
+            1
+          ],
+          [
+            "3710",
+            1
+          ],
+          [
+            "61252",
+            1
+          ]
+        ],
+        "colors": [
+          {
+            "color": 1,
+            "drawn_pixels": 11661,
+            "single_piece_min_pixels": 1516.5116466319766,
+            "drawn_share": 7.6893573655684975,
+            "absent": false,
+            "pieces": [
+              [
+                "3623",
+                1
+              ],
+              [
+                "3710",
+                1
+              ],
+              [
+                "61252",
+                1
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 66731,
+        "unclassified_pixels": 55070,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "with_body_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "3623",
+            1
+          ],
+          [
+            "3710",
+            1
+          ],
+          [
+            "61252",
+            1
+          ]
+        ],
+        "colors": [
+          {
+            "color": 1,
+            "drawn_pixels": 11652,
+            "single_piece_min_pixels": 1516.5116466319766,
+            "drawn_share": 7.683422693045547,
+            "absent": false,
+            "pieces": [
+              [
+                "3623",
+                1
+              ],
+              [
+                "3710",
+                1
+              ],
+              [
+                "61252",
+                1
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 66731,
+        "unclassified_pixels": 6903,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [
+          0,
+          1,
+          15,
+          19,
+          29,
+          71,
+          72,
+          191,
+          322
+        ],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "verdict_changed": false
+    },
+    {
+      "page": 29,
+      "allocated": [
+        [
+          "15068",
+          1
+        ],
+        [
+          "15068",
+          1
+        ]
+      ],
+      "body_colors": [
+        0,
+        1,
+        15,
+        19,
+        29,
+        71,
+        72,
+        191,
+        322
+      ],
+      "allocated_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "15068",
+            1
+          ],
+          [
+            "15068",
+            1
+          ]
+        ],
+        "colors": [
+          {
+            "color": 1,
+            "drawn_pixels": 15035,
+            "single_piece_min_pixels": 2291.7112584960323,
+            "drawn_share": 6.560599614921354,
+            "absent": false,
+            "pieces": [
+              [
+                "15068",
+                1
+              ],
+              [
+                "15068",
+                1
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 67445,
+        "unclassified_pixels": 52410,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "with_body_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "15068",
+            1
+          ],
+          [
+            "15068",
+            1
+          ]
+        ],
+        "colors": [
+          {
+            "color": 1,
+            "drawn_pixels": 15028,
+            "single_piece_min_pixels": 2291.7112584960323,
+            "drawn_share": 6.557545128901769,
+            "absent": false,
+            "pieces": [
+              [
+                "15068",
+                1
+              ],
+              [
+                "15068",
+                1
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 67445,
+        "unclassified_pixels": 6255,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [
+          0,
+          1,
+          15,
+          19,
+          29,
+          71,
+          72,
+          191,
+          322
+        ],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "verdict_changed": false
+    },
+    {
+      "page": 30,
+      "allocated": [
+        [
+          "3069b",
+          1
+        ],
+        [
+          "60478",
+          0
+        ],
+        [
+          "85984",
+          1
+        ]
+      ],
+      "body_colors": [
+        0,
+        1,
+        15,
+        19,
+        29,
+        71,
+        72,
+        191,
+        322
+      ],
+      "allocated_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "3069b",
+            1
+          ],
+          [
+            "60478",
+            0
+          ],
+          [
+            "85984",
+            1
+          ]
+        ],
+        "colors": [
+          {
+            "color": 0,
+            "drawn_pixels": 36769,
+            "single_piece_min_pixels": 2543.8507853953033,
+            "drawn_share": 14.454071052868873,
+            "absent": false,
+            "pieces": [
+              [
+                "60478",
+                0
+              ]
+            ]
+          },
+          {
+            "color": 1,
+            "drawn_pixels": 16278,
+            "single_piece_min_pixels": 1533.8886362002777,
+            "drawn_share": 10.612243689557268,
+            "absent": false,
+            "pieces": [
+              [
+                "3069b",
+                1
+              ],
+              [
+                "85984",
+                1
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 70051,
+        "unclassified_pixels": 17004,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "with_body_palette": {
+        "withheld_keys": [],
+        "withheld": [],
+        "kept": [
+          [
+            "3069b",
+            1
+          ],
+          [
+            "60478",
+            0
+          ],
+          [
+            "85984",
+            1
+          ]
+        ],
+        "colors": [
+          {
+            "color": 0,
+            "drawn_pixels": 6872,
+            "single_piece_min_pixels": 2543.8507853953033,
+            "drawn_share": 2.701416309263643,
+            "absent": false,
+            "pieces": [
+              [
+                "60478",
+                0
+              ]
+            ]
+          },
+          {
+            "color": 1,
+            "drawn_pixels": 16273,
+            "single_piece_min_pixels": 1533.8886362002777,
+            "drawn_share": 10.608984000501623,
+            "absent": false,
+            "pieces": [
+              [
+                "3069b",
+                1
+              ],
+              [
+                "85984",
+                1
+              ]
+            ]
+          }
+        ],
+        "foreground_pixels": 70051,
+        "unclassified_pixels": 6078,
+        "min_share": 0.25,
+        "reason": "Every allocated colour has enough drawn ink for at least one of its pieces",
+        "context_colors": [
+          0,
+          1,
+          15,
+          19,
+          29,
+          71,
+          72,
+          191,
+          322
+        ],
+        "truth_used": false,
+        "runtime_vlm_calls": 0,
+        "certified": false,
+        "protocol": "Per-colour drawn ink from the palette classifier against the smallest silhouette one allocated piece of that colour can cover at this camera. The classifier palette is the allocated colours plus any context colours supplied; without the latter a single-colour allocation has no competitor and absorbs the whole drawing.",
+        "limitations": "A piece drawn but wholly occluded by the rest of the assembly is indistinguishable from one that is not drawn, so this withholds a whole colour only when its ink falls below a fraction of a single piece's silhouette, never withholds every piece, and refuses when it would leave fewer than two. It says a colour is not visible in one drawing, never that the allocation is wrong."
+      },
+      "verdict_changed": false
+    }
+  ],
+  "pages": 13,
+  "verdicts_changed": 0,
+  "truth_used": false,
+  "runtime_vlm_calls": 0,
+  "certified": false,
+  "scope": "Replays a shipped opt-in rule over a completed run under two classifier palettes. Nothing here changes a run or reads a reference model.",
+  "limitations": "Occlusion is still indistinguishable from absence, and the body colour list is the emitted body's, so a body missing a colour cannot supply it as a competitor."
+}

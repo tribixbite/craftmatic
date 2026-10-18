@@ -23,7 +23,7 @@ import type {
 // ─── Image decode via Canvas (no sharp) ────────────────────────────────────
 
 async function decodeToRgba(bytes: Uint8Array, w: number, h: number): Promise<Uint8Array> {
-  const blob = new Blob([bytes]);
+  const blob = new Blob([bytes as Uint8Array<ArrayBuffer>]);
   const bitmap = await createImageBitmap(blob);
   const canvas = new OffscreenCanvas(w || bitmap.width, h || bitmap.height);
   const ctx = canvas.getContext('2d');

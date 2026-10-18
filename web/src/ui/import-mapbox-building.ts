@@ -10,7 +10,7 @@
  * height queries — meaning story count never benefited from Mapbox data.
  */
 
-import { getMapboxToken, hasMapboxToken } from './import-mapbox.js';
+import { getMapboxToken } from './import-mapbox.js';
 
 const API_BASE = 'https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery';
 

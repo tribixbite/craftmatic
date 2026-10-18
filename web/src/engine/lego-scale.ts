@@ -1,0 +1,29 @@
+/**
+ * THE LEGO ↔ Minecraft scale, shared by the Bedrock entity compiler, the
+ * block-export resolution planner and the placement of figures and seats.
+ *
+ * A standing minifig is 96 LDU from the soles to the top of the head
+ * (measured 2026-09-15 from 3816/3815/973/3626 at their standard offsets:
+ * legs at y 36, hips 24, torso −8, head −32 → feet at 64, head top at −32)
+ * and the Minecraft player is 1.8 blocks, so 1 block = 53.33 LDU = 2.67
+ * studs and 1 stud = 6 geometry units (16 per block). Before 2026-09-15 the
+ * entity scale was 1 block = 5 studs, which made every vehicle 1.8× too
+ * small (a Senna the height of a chair) and read as "erratic" between sets.
+ */
+
+/** Feet to head top of a standing minifig, LDU. */
+export const LDU_PER_MINIFIG = 96;
+/** Minecraft player height in blocks. */
+export const PLAYER_HEIGHT_BLOCKS = 1.8;
+/** LDU per block at minifig scale (53.33). */
+export const LDU_PER_BLOCK = LDU_PER_MINIFIG / PLAYER_HEIGHT_BLOCKS;
+/** Bedrock geometry units (16 per block) per LDU: 0.3. */
+export const BEDROCK_UNITS_PER_LDU = 16 / LDU_PER_BLOCK;
+/**
+ * A riding player's eye above its seat position, MEASURED: on the Saga
+ * (26.52, 2026-09-26) a player on 42172's seat at y -0.3 read
+ * `getHeadLocation()` 0.82 and `location` -0.7 over the vehicle's origin, so
+ * the eye is 1.12 above the seat and the feet 0.4 under it. It was a guess of
+ * 1.25 until then; every seat (vehicles, passengers, coaster cars) reads this.
+ */
+export const SEATED_EYE_HEIGHT_BLOCKS = 1.12;

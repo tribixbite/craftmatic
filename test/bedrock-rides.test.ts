@@ -1,0 +1,359 @@
+/**
+ * Slides and lifts (engine/bedrock-rides.ts): the chute is read from a part's
+ * top surface, a lift from its guides, car and floors, and the runtime carries
+ * a seated player along the world path the placement wrote and sets them down -
+ * the shipped `scripts/rides.js` on the headless simulator (test/_sim-host.ts).
+ */
+import { describe, expect, it } from 'vitest';
+import { RIDE, type RideRuntimeConfig, findLifts, findSlides, isLiftCarDescription, isLiftColumnDescription, isLiftGuideDescription, isSlideDescription, ridesScript, slidePathLdu } from '../web/src/engine/bedrock-rides.js';
+import { isSwingSeat, isFurnitureSeat } from '../web/src/engine/bedrock-scene-actors.js';
+import { COLLIDER_KIT } from '../web/src/engine/collider-form.js';
+import { COLLIDER_BLOCK_ID, COLLIDER_HI_STATE, COLLIDER_LO_STATE } from '../web/src/engine/bedrock-building-shell.js';
+import { isVehicleAndPlaceLabel, isWholeVehicleLabel } from '../web/src/engine/playable-components.js';
+import { companionSeatBehavior, rideSeatBehavior } from '../web/src/engine/playable-addon.js';
+import type { SimEntity } from '../web/src/sim/entity/entity.js';
+import { simHost, type SimHost } from './_sim-host.js';
+import type { LdrawPartMesh, LdrawTriangle, Vec3 } from '../web/src/engine/ldraw-part-geometry.js';
+import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
+
+const I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+const brick = (part: string, x = 0, y = 0, z = 0): ParsedBrick => ({ part, color: 4, x, y, z, rot: I });
+
+/** A mesh of axis-aligned boxes (two triangles per face), LDraw frame. */
+function boxMesh(partId: string, description: string, boxes: Array<{ min: Vec3; max: Vec3 }>): LdrawPartMesh {
+  const triangles: LdrawTriangle[] = [];
+  const quad = (a: Vec3, b: Vec3, c: Vec3, d: Vec3): void => { triangles.push({ a, b, c, color: 16 }, { a, b: c, c: d, color: 16 }); };
+  for (const { min: n, max: x } of boxes) {
+    quad([n[0], n[1], n[2]], [x[0], n[1], n[2]], [x[0], n[1], x[2]], [n[0], n[1], x[2]]); // top (LDraw -Y)
+    quad([n[0], x[1], n[2]], [x[0], x[1], n[2]], [x[0], x[1], x[2]], [n[0], x[1], x[2]]); // bottom
+    quad([n[0], n[1], n[2]], [x[0], n[1], n[2]], [x[0], x[1], n[2]], [n[0], x[1], n[2]]);
+    quad([n[0], n[1], x[2]], [x[0], n[1], x[2]], [x[0], x[1], x[2]], [n[0], x[1], x[2]]);
+    quad([n[0], n[1], n[2]], [n[0], n[1], x[2]], [n[0], x[1], x[2]], [n[0], x[1], n[2]]);
+    quad([x[0], n[1], n[2]], [x[0], n[1], x[2]], [x[0], x[1], x[2]], [x[0], x[1], n[2]]);
+  }
+  const min: Vec3 = [Math.min(...boxes.map(b => b.min[0])), Math.min(...boxes.map(b => b.min[1])), Math.min(...boxes.map(b => b.min[2]))];
+  const max: Vec3 = [Math.max(...boxes.map(b => b.max[0])), Math.max(...boxes.map(b => b.max[1])), Math.max(...boxes.map(b => b.max[2]))];
+  return { partId, resolvedAs: partId, triangles, studs: [], bounds: { min, max }, unresolvedRefs: [], description } as LdrawPartMesh;
+}
+
+/** A straight chute falling 96 LDU over 160 along +X: ten 16-LDU steps. */
+function stairSlide(): LdrawPartMesh {
+  const steps = Array.from({ length: 10 }, (_, i) => ({ min: [i * 16, -96 + i * 9.6, 0] as Vec3, max: [(i + 1) * 16, 0, 40] as Vec3 }));
+  return boxMesh('27976', 'Slide  4 x  6 x  6', steps);
+}
+
+describe('slides', () => {
+  it('reads a playground slide by its description only', () => {
+    expect(isSlideDescription('Slide  6 x  6 x  6 Quarter Turn Left Down Going')).toBe(true);
+    expect(isSlideDescription('~Slide  7 x 12 x  6.333 Half Turn')).toBe(true);
+    expect(isSlideDescription('Slope Brick 45  2 x  2')).toBe(false);
+  });
+
+  it('runs the chute from its top to its foot, then a run-out along the last direction', () => {
+    const path = slidePathLdu(brick('27976.dat'), stairSlide())!;
+    expect(path.length).toBeGreaterThanOrEqual(5);
+    // Top first (LDraw Y down: smallest y), then non-increasing height.
+    for (let i = 1; i < path.length; i++) expect(path[i]![1]).toBeGreaterThanOrEqual(path[i - 1]![1] - 1e-9);
+    // Descending along +X.
+    expect(path[path.length - 2]![0]).toBeGreaterThan(path[0]![0]);
+    const [a, z] = [path[path.length - 2]!, path[path.length - 1]!];
+    expect(z[0] - a[0]).toBeCloseTo(RIDE.SLIDE_RUNOUT_LDU, 0);
+  });
+
+  it('runs on the chute bed, not along the tops of its side walls (10788)', () => {
+    // A U-section chute: a bed falling 54 LDU along +X between walls standing 30 LDU over it,
+    // as 27976's rails do. Reading the walls too started 10788's rider 30 LDU over the bed.
+    const boxes = Array.from({ length: 10 }, (_, i) => [
+      { min: [i * 16, -60 + i * 6, 8] as Vec3, max: [(i + 1) * 16, 0, 32] as Vec3 },
+      { min: [i * 16, -90 + i * 6, 0] as Vec3, max: [(i + 1) * 16, 0, 8] as Vec3 },
+      { min: [i * 16, -90 + i * 6, 32] as Vec3, max: [(i + 1) * 16, 0, 40] as Vec3 },
+    ]).flat();
+    const path = slidePathLdu(brick('27976.dat'), boxMesh('27976', 'Slide  4 x  6 x  6', boxes))!;
+    // Every point of the running line is on the bed: between the walls, at the bed's height there.
+    for (const q of path.slice(0, -1)) {
+      expect(q[2]).toBeGreaterThan(8);
+      expect(q[2]).toBeLessThan(32);
+      const i = Math.min(9, Math.max(0, Math.floor(q[0] / 16)));
+      expect(Math.abs(q[1] - (-60 + i * 6))).toBeLessThanOrEqual(6);
+    }
+    expect(path[0]![1]).toBeGreaterThan(-66);
+  });
+
+  it('a flat part called a slide is not a ride', () => {
+    const flat = boxMesh('x', 'Slide  2 x  2 Flat', [{ min: [0, -8, 0], max: [40, 0, 40] }]);
+    expect(slidePathLdu(brick('x.dat'), flat)).toBeNull();
+    expect(findSlides([brick('x.dat')], new Map([['x.dat', flat]]))).toEqual([]);
+  });
+});
+
+describe('lifts', () => {
+  const PLATFORM = 'Brick  2 x  4 x  5 with Hole for Worm Screw  6L, Runners for Channels and Elevator Platform';
+  /**
+   * 10788's shaft, measured from its DbixConvV3 source: an elevator platform
+   * (a 120-LDU runner block behind a 16-LDU platform) at the foot of four
+   * stacked grooved door frames, and a room floor (a 2/3 brick) either side at
+   * every storey: tops -16, -208, -400 and the attic's -592.
+   */
+  function dollhouse(): { bricks: ParsedBrick[]; meshes: Map<string, LdrawPartMesh> } {
+    const meshes = new Map<string, LdrawPartMesh>();
+    meshes.set('3863.dat', boxMesh('3863', PLATFORM, [{ min: [-50, -120, 18], max: [50, 0, 58] }, { min: [-50, -16, -50], max: [50, 0, 18] }]));
+    meshes.set('bl_3417.dat', boxMesh('bl_3417', 'FRAME 3X6X6, W/ REDUCED KNOBS, CUT OUT', [{ min: [-60, -148, -30], max: [60, 0, 30] }]));
+    meshes.set('2629.dat', boxMesh('2629', 'Brick, Modified 8 x 16 x 2/3 with 1 x 4 Indentations', [{ min: [0, -16, -60], max: [320, 0, 100] }]));
+    meshes.set('2629l.dat', boxMesh('2629l', 'Brick, Modified 8 x 16 x 2/3 with 1 x 4 Indentations', [{ min: [-320, -16, -60], max: [0, 0, 100] }]));
+    const bricks: ParsedBrick[] = [brick('3863.dat', 420, 0, -80)];
+    for (const y of [0, -144, -288, -432]) bricks.push(brick('bl_3417.dat', 420, y, -30));
+    for (const y of [0, -192, -384, -576]) bricks.push(brick('2629.dat', 480, y, 0), brick('2629l.dat', 360, y, 0));
+    return { bricks, meshes };
+  }
+
+  it('finds the elevator platform in its column of frames and a stop at every floor it can reach', () => {
+    const { bricks, meshes } = dollhouse();
+    const lifts = findLifts(bricks, meshes);
+    expect(lifts).toHaveLength(1);
+    const lift = lifts[0]!;
+    expect(lift.kind).toBe('lift');
+    expect(lift.part).toBe('3863');
+    // The car is the platform alone: the frames are the shaft and stay in the building.
+    expect(lift.carBricks!.map(b => b.part)).toEqual(['3863.dat']);
+    // Stops at the room floors (lowest first); the attic (-592) would take the runner block past the top frame.
+    expect(lift.pathLdu.map(p => Math.round(p[1]))).toEqual([-16, -208, -400]);
+    expect(lift.startStop).toBe(0);
+    // The rider stands on the platform (its 16-LDU top, in front of the runner block), not on the block.
+    for (const p of lift.pathLdu) { expect(p[0]).toBeCloseTo(420, 0); expect(p[2]).toBeLessThan(-80 + 18); expect(p[2]).toBeGreaterThan(-80 - 50); }
+    // Each exit is on that storey's room floor, beside the shaft, inside the floor (not at its edge).
+    lift.exitsLdu!.forEach((e, i) => {
+      expect(e[1]).toBeCloseTo(lift.pathLdu[i]![1], 0);
+      expect(e[0] > 480 || e[0] < 360).toBe(true);
+      expect(e[2]).toBeGreaterThanOrEqual(-60 + RIDE.LIFT_EXIT_INSET_LDU);
+    });
+    expect(isLiftCarDescription(PLATFORM)).toBe(true);
+    expect(isLiftCarDescription('Brick  2 x  4 x  5 with Platform and Hole for Worm Screw')).toBe(true);
+    expect(isLiftColumnDescription('Door Frame  3 x  6 x  6 with Inside Grooves')).toBe(true);
+    expect(isLiftGuideDescription('Support  2 x  2 x 13 with  5 Pegholes')).toBe(true);
+    // Frame members are not guides (10303's Technic beams, 10341's girder tower: sweep 2026-09-26).
+    expect(isLiftGuideDescription('Technic Beam 11')).toBe(false);
+    expect(isLiftGuideDescription('Support  2 x  2 x 10 Girder Triangular  3 Sections with Axlehole')).toBe(false);
+  });
+
+  it('steps the rider off where the room floor has standing room, past furniture beside the shaft', () => {
+    const { bricks, meshes } = dollhouse();
+    // A 2 x 4 brick (a cabinet) on the ground floor right beside the shaft, as in 10788's right room.
+    meshes.set('3001.dat', boxMesh('3001', 'Brick  2 x  4', [{ min: [-20, -24, -40], max: [20, 0, 40] }]));
+    bricks.push(brick('3001.dat', 520, -16, 0));
+    const lift = findLifts(bricks, meshes)[0]!;
+    const e = lift.exitsLdu![0]!;
+    const inside = e[0] > 500 - RIDE.LIFT_EXIT_INSET_LDU && e[0] < 540 + RIDE.LIFT_EXIT_INSET_LDU && e[2] > -40 - RIDE.LIFT_EXIT_INSET_LDU && e[2] < 40 + RIDE.LIFT_EXIT_INSET_LDU;
+    expect(inside).toBe(false);
+    expect(e[1]).toBeCloseTo(-16, 0);
+  });
+
+  it('a cap standing on supports is not a lift, and neither is a platform with no column', () => {
+    // Before 2026-09-29 a lift was "a car on two supports": 10788's only such car was the top of
+    // its shaft's back wall, which then flew over the roof while the platform stood still.
+    const meshes = new Map<string, LdrawPartMesh>();
+    meshes.set('91176.dat', boxMesh('91176', 'Support  2 x  2 x 13 with  5 Pegholes', [{ min: [-20, 0, -20], max: [20, 312, 20] }]));
+    meshes.set('3002.dat', boxMesh('3002', 'Brick  2 x  3', [{ min: [-30, 0, -20], max: [30, 24, 20] }]));
+    meshes.set('3863.dat', boxMesh('3863', PLATFORM, [{ min: [-50, -120, 18], max: [50, 0, 58] }, { min: [-50, -16, -50], max: [50, 0, 18] }]));
+    const cap = [brick('91176.dat', 380, -424, 20), brick('91176.dat', 460, -424, 20), brick('3002.dat', 400, -456, 20), brick('3002.dat', 440, -456, 20)];
+    expect(findLifts(cap, meshes)).toEqual([]);
+    expect(findLifts([brick('3863.dat', 420, 0, -80)], meshes)).toEqual([]);
+  });
+});
+
+describe('ride runtime', () => {
+  const SEAT = 'craftmatic:t_ride', ORBIT_SEAT = 'craftmatic:t_orbit', CAR = 'craftmatic:t_car', OTHER = 'craftmatic:t_prop';
+  /** A static actor a child can tap: a lift car, or anything that is not a ride. */
+  const PROP = { components: { 'minecraft:type_family': { family: ['craftmatic_actor'] }, 'minecraft:collision_box': { width: 1, height: 1 } } };
+
+  /**
+   * `scripts/rides.js` as the pack ships it (`ridesScript`: the runtime with its
+   * collider body probe) on the headless simulator (test/_sim-host.ts): the
+   * pack's own ride seat and orbit seat types (`rideSeatBehavior`,
+   * `companionSeatBehavior`), a lift car and a prop. Air everywhere unless a
+   * test lays blocks; `seat` spawns a seat carrying the placement's ride marks.
+   */
+  function rideHost(rides: RideRuntimeConfig['rides'], o: { colliders?: boolean } = {}) {
+    const h = simHost({
+      script: ridesScript({ seatType: SEAT, rides, constants: RIDE }),
+      entities: { [SEAT]: rideSeatBehavior('t_ride') as Record<string, unknown>, [ORBIT_SEAT]: companionSeatBehavior('t_orbit') as Record<string, unknown>, [CAR]: PROP, [OTHER]: PROP },
+      ...(o.colliders ? { colliders: true } : {}),
+    });
+    const seat = (index: number, at: { x: number; y: number; z: number }, marks: Record<string, unknown> = {}, typeId = SEAT) =>
+      h.spawn(typeId, at, { dynamic: { 'craftmatic:ride': index, 'craftmatic:ride_scale': 1, ...marks } });
+    return { h, seat };
+  }
+
+  /** One player sitting on one seat of a slide or a lift. */
+  function world(path: Array<{ x: number; y: number; z: number }>, kind: 'slide' | 'lift', extra: Record<string, unknown> = {}, at = path[0]!) {
+    const { h, seat: place } = rideHost([{ kind }]);
+    const seat = place(0, at, { 'craftmatic:ride_path': JSON.stringify(path), ...extra });
+    const player = h.addPlayer('Rider', at);
+    h.seat(player, seat);
+    return { h, seat: h.api(seat), player, props: seat.dynamic, run: (n: number) => h.run(n) };
+  }
+
+  it('slides the rider to the foot, sets them down there and returns the seat to the top', () => {
+    const path = [{ x: 0, y: 5, z: 0 }, { x: 4, y: 2, z: 0 }, { x: 6, y: 1, z: 0 }];
+    const w = world(path, 'slide');
+    w.run(1);
+    expect(w.seat.location.x).toBeGreaterThan(0);
+    w.run(200);
+    expect(w.player.ridingOn).toBeUndefined();
+    // Set down at the foot (nothing stands there in this empty world, so the probe keeps the planned point; the body then falls straight down).
+    expect(w.player.location.x).toBeCloseTo(6, 5);
+    expect(w.seat.location).toEqual(path[0]);
+  });
+
+  it('sets the rider down where the body fits: out of a floor slab its planned point sits in (41703, 42652, 10788 lift exits; simulator 2026-09-30)', () => {
+    // The shipped module (ridesScript), so the collider body probe it is handed is the one the pack runs.
+    const path = [{ x: 0.5, y: 5, z: 0.5 }, { x: 4.5, y: 2, z: 0.5 }, { x: 6.5, y: 1.3, z: 0.5 }];
+    // A floor slab (a collider form, lo 0 hi 8: the lower half of the block) under the slide's foot: its top is 1.5,
+    // and the planned set-down (1.3 + 0.05) is 0.15 inside it.
+    const { h, seat: place } = rideHost([{ kind: 'slide' }], { colliders: true });
+    h.fill({ x: 4, y: 1, z: -2 }, { x: 9, y: 1, z: 2 }, COLLIDER_BLOCK_ID, { [COLLIDER_LO_STATE]: 0, [COLLIDER_HI_STATE]: 8 });
+    const seat = place(0, path[0]!, { 'craftmatic:ride_path': JSON.stringify(path) });
+    const player = h.addPlayer('Rider', path[0]!);
+    h.seat(player, seat);
+    h.run(300);
+    expect(player.ridingOn).toBeUndefined();
+    // On the slab's top, not inside it (and standing there since: the simulator's player stands on the slab).
+    expect(player.location.y).toBeCloseTo(1.5, 6);
+    expect(player.location.x).toBeCloseTo(6.5, 6);
+  });
+
+  it('reaches the first safe landing two blocks from a slide terminal when every nearer ring is obstructed (10797)', () => {
+    const path = [{ x: -3.5, y: 5, z: 0.5 }, { x: 0.5, y: 1.3, z: 0.5 }];
+    const { h, seat: place } = rideHost([{ kind: 'slide' }], { colliders: true });
+    // Floor under the whole search, with a three-block-tall 3x3 obstruction centred on the terminal. A
+    // 0.6-wide body still clips it at radius 1.75; the first sampled free pose is +x at radius 2.
+    h.fill({ x: -4, y: 0, z: -4 }, { x: 4, y: 0, z: 4 }, COLLIDER_BLOCK_ID);
+    h.fill({ x: -1, y: 1, z: -1 }, { x: 1, y: 3, z: 1 }, COLLIDER_BLOCK_ID);
+    const seat = place(0, path[0]!, { 'craftmatic:ride_path': JSON.stringify(path) });
+    const player = h.addPlayer('Rider', path[0]!);
+    h.seat(player, seat);
+    h.run(300);
+    expect(player.ridingOn).toBeUndefined();
+    expect(player.location).toMatchObject({ x: 2.5, y: 1, z: 0.5 });
+  });
+
+  it('never sets a rider down through a wall: a closed room beside a terminal it cannot walk from is not a landing', () => {
+    // The run-out ends over a hole in the floor (no floor within the 3-block drop), walled on three sides; across
+    // the fourth wall (x = 1) lies a CLOSED room (walls and a roof) whose floor is 2 blocks from the terminal - inside
+    // the 2-block search. Before the route check the set-down landed in that room, through its wall.
+    const path = [{ x: -3.5, y: 5, z: 0.5 }, { x: 0.5, y: 1.3, z: 0.5 }];
+    const { h, seat: place } = rideHost([{ kind: 'slide' }], { colliders: true });
+    for (let x = -6; x <= 8; x++) for (let z = -6; z <= 6; z++) if (x || z) h.setBlock(x, 0, z, COLLIDER_BLOCK_ID);
+    const wall = (x0: number, z0: number, x1: number, z1: number, y1 = 3) => h.fill({ x: x0, y: 1, z: z0 }, { x: x1, y: y1, z: z1 }, COLLIDER_BLOCK_ID);
+    wall(-1, -1, -1, 1); wall(0, -1, 0, -1); wall(0, 1, 0, 1); // the terminal's three walls
+    wall(1, -1, 1, 1); // the wall between
+    wall(5, -2, 5, 2); wall(2, -2, 4, -2); wall(2, 2, 4, 2); // the closed room x 2..4, z -1..1
+    h.fill({ x: 1, y: 4, z: -2 }, { x: 5, y: 4, z: 2 }, COLLIDER_BLOCK_ID); // and its roof
+    const seat = place(0, path[0]!, { 'craftmatic:ride_path': JSON.stringify(path) });
+    const player = h.addPlayer('Rider', path[0]!);
+    h.seat(player, seat);
+    h.run(300);
+    expect(player.ridingOn).toBeUndefined();
+    const { x, y, z } = player.location;
+    expect(x >= 2 && x < 5 && z >= -1 && z < 2, `set down at ${x},${y},${z}`).toBe(false);
+    expect(y).toBe(1);
+  });
+
+  it('a lift goes to the next storey, sets the rider on that floor and stays there', () => {
+    const path = [{ x: 0, y: 0, z: 0 }, { x: 0, y: 4, z: 0 }, { x: 0, y: 8, z: 0 }];
+    const exits = [{ x: 2, y: -0.5, z: 0 }, { x: 2, y: 3.5, z: 0 }, { x: 2, y: 7.5, z: 0 }];
+    const w = world(path, 'lift', { 'craftmatic:ride_exits': JSON.stringify(exits), 'craftmatic:ride_stop': 1 }, path[1]!);
+    const ran = w.h.runUntil(() => !w.player.ridingOn, 400);
+    expect(w.player.ridingOn).toBeUndefined();
+    // Read the tick the rider is set down: no floor is built at the exit in this world, so the body falls from there after.
+    expect(w.player.location.y).toBeCloseTo(7.55, 5);
+    w.run(400 - ran);
+    expect(w.seat.location.y).toBeCloseTo(8, 5);
+    expect(w.props.get('craftmatic:ride_stop')).toBe(2);
+  });
+
+  /** A tap is a HIT (`entityHitEntity`); a press held ~0.5 s is the interact (`playerInteractWithEntity`). Each is delivered in the next tick's script phase. */
+  const touches = (h: SimHost, player: SimEntity) => ({
+    tap: (target: SimEntity, who = player) => { h.engine.emit('entityHitEntity', { damagingEntity: who, hitEntity: target }); h.run(1); },
+    press: (target: SimEntity, who = player) => { h.engine.emit('playerInteractWithEntity', { player: who, target }); h.run(1); },
+  });
+
+  it('a tap on the car of a lift boards its seat (the seat is invisible; the car is what a child sees)', () => {
+    const path = [{ x: 0, y: 0, z: 0 }, { x: 0, y: 4, z: 0 }];
+    const { h, seat: place } = rideHost([{ kind: 'lift', carType: CAR }]);
+    const seat = place(0, path[0]!, { 'craftmatic:ride_path': JSON.stringify(path), 'craftmatic:ride_exits': JSON.stringify(path) });
+    const car = h.spawn(CAR, { x: 0, y: 0, z: 0.3 }, { dynamic: { 'craftmatic:ride': 0 } });
+    const player = h.addPlayer('Child', { x: 1, y: 0, z: 0 });
+    const t = touches(h, player);
+    t.tap(car);
+    expect(seat.riderList()).toEqual([player]);
+    // A tap on anything else boards nothing; a second tap does not add the rider twice.
+    t.press(h.spawn(OTHER, car.location));
+    t.press(car);
+    expect(seat.riderList()).toEqual([player]);
+  });
+
+  /** Ride seats (and a lift car) the placement laid, and a player who taps or presses them. */
+  function tapWorld(rides: RideRuntimeConfig['rides'], seats: Array<{ index: number; typeId?: string; at: { x: number; y: number; z: number } }>) {
+    const { h, seat: place } = rideHost(rides);
+    const sims = seats.map(s => place(s.index, s.at, { 'craftmatic:ride_path': JSON.stringify([s.at, { x: s.at.x + 2, y: s.at.y - 1, z: s.at.z }]), 'craftmatic:ride_exits': JSON.stringify([s.at, s.at]) }, s.typeId ?? SEAT));
+    const car = h.spawn(CAR, { x: 0, y: 0, z: 0.3 }, { dynamic: { 'craftmatic:ride': rides.findIndex(r => r.kind === 'lift') } });
+    const player = h.addPlayer('Child', { x: 1, y: 0, z: 0 });
+    return { h, player, car, seats: sims, place, ...touches(h, player) };
+  }
+
+  it("a tap on a slide's seat boards it: the seat, not a car, is what a child taps at the chute's top (Pixel 2026-09-29c)", () => {
+    // 10788 at 100 %: the slide's seat idles at its chute's top band, 9.878,9.918,3.749 in model
+    // blocks, INSIDE cell (9,9,3)'s `collider_w6[lo=0,hi=16]` (the west wall's band, x 9.75..10).
+    // Colliders have no selection box, so a tap's ray passes them and reaches the seat's box; on a
+    // touch screen that tap is a hit, and the runtime boarded only a lift's CAR on a hit - three
+    // taps boarded nobody while `/ride` on the same seat ran the chute.
+    const idle = { x: 9.878, y: 9.918, z: 3.749 };
+    const wall = COLLIDER_KIT.formBoxes(COLLIDER_KIT.variantOf('craftmatic:collider_w6'), 0, 16);
+    const inside = (b: readonly number[]): boolean => (idle.x - 9) * 16 >= b[0]! && (idle.x - 9) * 16 < b[1]! && (idle.y - 9) * 16 >= b[2]! && (idle.y - 9) * 16 < b[3]! && (idle.z - 3) * 16 >= b[4]! && (idle.z - 3) * 16 < b[5]!;
+    expect(wall.some(inside)).toBe(true);
+    const w = tapWorld([{ kind: 'slide' }, { kind: 'lift', carType: CAR }], [{ index: 0, at: idle }, { index: 1, at: { x: 16.875, y: 1.01, z: 4.8 } }]);
+    const [slide, lift] = w.seats as [SimEntity, SimEntity];
+    w.tap(slide);
+    expect(slide.riderList()).toEqual([w.player]);
+    // A second tap, or the held press that mounts a vanilla rideable, does not add the rider twice.
+    w.tap(slide); w.press(slide);
+    expect(slide.riderList()).toEqual([w.player]);
+    // A lift's seat boards on a tap too, as its car does (a second child: the first is on the slide, and a
+    // rider already aboard one seat cannot be added to another).
+    const other = w.h.addPlayer('Child2', { x: 1, y: 0, z: 0 });
+    w.tap(lift, other);
+    expect(lift.riderList()).toEqual([other]);
+  });
+
+  it('a tap on an orbit seat, or on anything that is not a ride, boards nothing', () => {
+    const w = tapWorld([{ kind: 'orbit', carType: 'craftmatic:t_cloud', seatType: ORBIT_SEAT }, { kind: 'slide' }], [{ index: 0, typeId: ORBIT_SEAT, at: { x: 0, y: 3, z: 0 } }, { index: 1, at: { x: 5, y: 5, z: 5 } }]);
+    const [orbit, slide] = w.seats as [SimEntity, SimEntity];
+    w.tap(orbit);
+    w.tap(w.h.spawn(OTHER, slide.location));
+    // A seat of the player type whose ride index is an orbit is not a player's ride either.
+    w.tap(w.place(0, slide.location));
+    expect(orbit.riderList()).toEqual([]);
+    expect(slide.riderList()).toEqual([]);
+  });
+
+  it('serialises into a module that names only Script API globals', () => {
+    const src = ridesScript({ seatType: 'x:y', rides: [{ kind: 'slide' }], constants: RIDE });
+    expect(src).toMatch(/^import \{ world, system \} from '@minecraft\/server';/);
+    expect(() => new Function('world', 'system', src.replace(/^import.*\n/, ''))).not.toThrow();
+  });
+});
+
+describe('scene classification added for the Gabby sets', () => {
+  it('a title that joins a vehicle to a place is a scene, not one craft', () => {
+    expect(isVehicleAndPlaceLabel("Gabby & MerCat's Ship & Spa (10786-1)")).toBe(true);
+    expect(isWholeVehicleLabel("Gabby & MerCat's Ship & Spa (10786-1)")).toBe(false);
+    expect(isWholeVehicleLabel('Beach Buggy (31000-1)')).toBe(true);
+    expect(isWholeVehicleLabel('Pirate Ship (10365-1)')).toBe(true);
+  });
+
+  it('a playground swing is a seat', () => {
+    expect(isSwingSeat('Friends Swing 2 x 6 x 5 1/3')).toBe(true);
+    expect(isFurnitureSeat('Friends Swing Seat')).toBe(true);
+    expect(isSwingSeat('Swing Arm 1 x 4')).toBe(false);
+  });
+});

@@ -10,40 +10,470 @@
  */
 
 import { BlockGrid } from '@craft/schem/types.js';
-import { parseLDraw, type ParsedBrick } from '@engine/ldraw-parser.js';
-import { voxelizeLDraw } from '@engine/ldraw-voxelizer.js';
-import { extractIoLDraw } from '@engine/io-extractor.js';
-import { parseLxf } from '@engine/lxf-parser.js';
+import { parseLDraw, countSteps, type ParsedBrick } from '@engine/ldraw-parser.js';
+import { voxelizeLDraw, solidifyColumns, fillSingleVoxelGaps, keepLargestComponent, type VoxelizeOptions } from '@engine/ldraw-voxelizer.js';
+import { voxelizeLDrawGeometry } from '@engine/ldraw-geometry.js';
+import { extractIoModel, type IoModel } from '@engine/io-extractor.js';
+import { synthesizeLSynth } from '@engine/lsynth.js';
+import {
+  parseLxfWithDiagnostics, describeLxfDiagnostics, type LxfDiagnostics,
+} from '@engine/lxf-parser.js';
 import { studioColorToBlock } from '@engine/studio-colors.js';
+import { reconstructionQuality, sourceCaveat } from '@engine/source-quality.js';
+import { modelExportStem } from '@engine/export-name.js';
+import { sourceHash12, type SourceProvenance } from '@engine/pipeline-version.js';
 import { fetchBffInventory, bffInventoryToLDraw } from '@engine/bff-loader.js';
 import {
-  ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr, isOmrLoaded,
+  ensureCatalog, searchCatalog, splitQueryTerms, getThemes, isLoaded, isInOmr, isOmrLoaded, mergeIndexSets,
   type CatalogSet, type CatalogTheme,
 } from '@engine/lego-catalog.js';
+import { exportGLB, exportSTL, exportOBJ, export3MF, countExportTriangles } from '@viewer/exporter.js';
+import { runMinecraftExport, spanOfBricks } from '@ui/schem-export.js';
+import { mountSchemSettings, getSchemSettings } from '@ui/schem-settings-panel.js';
+import { mountMinifigBuilder } from '@ui/minifig-builder.js';
+import { beginExportProgress, type ExportProgressHandle } from '@ui/export-progress.js';
+import type { ViewerState } from '@viewer/scene.js';
+import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
+import {
+  baseSetNum, lookupIndexModels, indexedTryOrder, bestIndexedModel,
+  sortByBestSourceClass, SOURCE_GROUPS, sourceBadgeLabel, sourceClass,
+  assemblyStatus, assemblyStatusLabel, tryOrderReason,
+  type IndexModel, type LegoModelsIndex,
+} from '@engine/lego-sources.js';
+import { buildLegoDiagnostics, diagnosticsFilename } from '@ui/lego-diagnostics.js';
+import { contactCheckStatus } from '@ui/contact-check-status.js';
+
+/**
+ * Pick the colour→block table for an extracted .io model.
+ *
+ * MUST be chosen per-FILE, not per-extension. Studio ships the same model as
+ * `model.ldr` (standard LDraw ids) and `model2.ldr` (Studio/BrickLink ids), and
+ * `extractIoModel` prefers whichever has brick refs — modern exports win on
+ * model.ldr. Blanket-applying studioColorToBlock to every ".io" read LDraw ids
+ * through the BL table, so LDraw 15 (White) landed on Studio 15
+ * (Trans-Light Blue → light_blue_stained_glass): 21063's white castle walls
+ * exported as translucent blue glass, LDraw 71/28 as magenta/orange terrain.
+ * `undefined` means "use the default LDraw resolver".
+ */
+function ioColorFn(model: IoModel): ((id: number) => string) | undefined {
+  if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
+    console.info(`[lego] .io colour space: ${model.colorSpace} — ${model.colorSpaceReason} (entry ${model.sourceEntry}); ${model.classBReframed} placement(s) re-framed from Studio's mould copy to upstream's`);
+  }
+  return model.colorSpace === 'bl' ? studioColorToBlock : undefined;
+}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const OMR_BASE = 'https://library.ldraw.org/library/omr';
 // Route through local proxy (Vite in dev, CF Pages Function in prod) to avoid CORS
 const OMR_FETCH_BASE = '/ldraw-omr';
+// Reconstructed 3D LDR files served locally from clego project (dev server middleware)
+const RECONSTRUCTED_BASE = '/lego-reconstructed';
+// Lazily loaded set of reconstructed set IDs
+let _reconstructedIndex: Set<string> | null = null;
+// Lazily loaded map of set base-number → instruction PDF URLs
+let _instructionsMap: Record<string, string[]> | null = null;
+
+async function getInstructionsMap(): Promise<Record<string, string[]>> {
+  if (_instructionsMap) return _instructionsMap;
+  try {
+    const r = await fetch('/lego-instructions.json');
+    if (r.ok) _instructionsMap = await r.json() as Record<string, string[]>;
+  } catch { /* offline */ }
+  _instructionsMap ??= {};
+  return _instructionsMap;
+}
+
+async function getReconstructedIndex(): Promise<Set<string>> {
+  if (_reconstructedIndex) return _reconstructedIndex;
+  try {
+    const r = await fetch('/lego-reconstructed-index.json');
+    if (r.ok) {
+      const ids: string[] = await r.json();
+      _reconstructedIndex = new Set(ids);
+    }
+  } catch { /* offline or prod — no reconstructed files available */ }
+  _reconstructedIndex ??= new Set();
+  return _reconstructedIndex;
+}
+
+// ─── Unified best-model index ────────────────────────────────────────────────
+// Generated by the clego repo; served from web/public/lego-models-index.json.
+// models[] is ordered best-first; path is relative to /lego-models/ (the dev
+// mount of C:/git/clego/lego_sets — e.g. "OMR/10001-1.mpd").
+// Types + the shared best-source resolution live in @engine/lego-sources.
+
+// Model corpus base. Dev: the vite middleware mounts C:/git/clego/lego_sets at
+// /lego-models. Prod: SAME-ORIGIN through the CF worker (routes
+// craftmatic.click/lego-models/* + /lego-models-index.json → R2 binding) —
+// the raw pub-*.r2.dev domain serves bytes UNCOMPRESSED and off-zone; the
+// worker path gets edge gzip/brotli (2.4 MB index → ~0.5 MB, .ldr ~4-5x
+// smaller) plus edge caching. r2.dev is kept only as a fallback.
+// VITE_MODELS_BASE overrides both.
+const R2_MODELS_BASE = 'https://pub-02c7ef4c74d5445691176fe4b4455d50.r2.dev/models';
+// (tsconfig has no vite/client types; narrow cast keeps this file self-contained)
+const _viteEnv = (import.meta as unknown as
+  { env?: { DEV?: boolean; VITE_MODELS_BASE?: string } }).env;
+const MODELS_BASE: string =
+  _viteEnv?.VITE_MODELS_BASE ?? '/lego-models';
+let _modelsIndex: LegoModelsIndex | null = null;
+
+/**
+ * In-flight fetch, shared by every concurrent caller.
+ *
+ * Memoising only the RESULT was the race window behind the production stall:
+ * two overlapping `doSearch()` runs (the user's, and the panel's own
+ * browse-all) each saw `_modelsIndex === null` and each started its own 3.8 MB
+ * download. The first finished, rendered the results and let the user click a
+ * set; the second finished SECONDS later and ran its clean-up — clearing
+ * `selectedSet` under the load that click had just started. On dev the same
+ * file is a local read, both "downloads" finish in the same millisecond, and
+ * the window does not exist — which is why the stall was production-only
+ * (~45 % of cold loads there, 1 of 18 on dev).
+ */
+let _modelsIndexFetch: Promise<LegoModelsIndex> | null = null;
+
+async function getModelsIndex(): Promise<LegoModelsIndex> {
+  if (_modelsIndex) return _modelsIndex;
+  return _modelsIndexFetch ??= fetchModelsIndex();
+}
+
+async function fetchModelsIndex(): Promise<LegoModelsIndex> {
+  // Same-origin worker copy first (compressed, edge-cached, updated by every
+  // corpus sync); bundled public/ copy ships with the deploy as fallback;
+  // raw R2 last. In dev the same path serves the local file directly.
+  const urls = _viteEnv?.DEV
+    ? ['/lego-models-index.json']
+    : ['/lego-models-index.json',
+       `${R2_MODELS_BASE.replace(/\/models$/, '')}/lego-models-index.json`];
+  for (const u of urls) {
+    try {
+      const r = await fetch(u);
+      if (r.ok) { _modelsIndex = await r.json() as LegoModelsIndex; break; }
+    } catch { /* offline or index not generated yet — try next */ }
+  }
+  if (_modelsIndex) return _modelsIndex;
+  // Every source failed. Serve an empty index to THIS caller so the panel still
+  // renders, but do NOT memoise it: `_modelsIndex` is the permanent cache, and
+  // storing the empty object would leave the tab with no catalogue for the rest
+  // of its life, with no path back. Dropping the in-flight promise lets the
+  // next caller retry instead.
+  _modelsIndexFetch = null;
+  return { generated: '', sets: {} };
+}
+
+/** Already-fetched index, or null. renderResults() is synchronous and needs the
+ *  best-source badge; doSearch() always awaits getModelsIndex() first, so by
+ *  render time this is populated (and a null just means "no badges yet"). */
+function modelsIndexSync(): LegoModelsIndex | null { return _modelsIndex; }
+
+/** Encode an index model path per segment — encodeURI leaves '#' and '?' raw,
+ *  and the corpus really contains filenames like "LDR/31378_step #cr.ldr". */
+function encodeModelPath(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/');
+}
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
 let rootEl: HTMLElement;
-let onResult: ((grid: BlockGrid, label: string) => void) | null = null;
+let onResult: ((grid: BlockGrid, label: string, isCubic: boolean) => void) | null = null;
 let selectedSet: CatalogSet | null = null;
 let searchResults: CatalogSet[] = [];
+/**
+ * Monotonic id of the newest `doSearch()` run.
+ *
+ * `doSearch` awaits the catalog AND the models index, so two runs overlap
+ * routinely — the panel's own browse-all fires from `ensureCatalog().then()`
+ * while the user's typed search is still waiting on that same catalog. On dev
+ * both awaits are local reads and the overlap is invisible; on production the
+ * index alone is a 3.8 MB fetch, so the slower run finishes LAST and its
+ * clean-up then applies to a UI the user has already moved on from.
+ *
+ * Measured 2026-09-18 on craftmatic.click (set 910032): the browse-all run
+ * resolved AFTER the user's card click, cleared `selectedSet`, and the
+ * in-flight model load hit its `selectedSet !== set` guard and returned — with
+ * no error, no failed request and a source badge that then reported SUCCESS.
+ * Nothing rendered and nothing said why.
+ */
+let searchSeq = 0;
+/** `searchSeq` as it stood when the current set was selected (see `doSearch`). */
+let selectionSeq = -1;
+/** Cards rendered per page; "Show more" reveals the next page. */
+const RESULTS_PAGE = 48;
+let visibleResults = RESULTS_PAGE;
+/** When true, use 1 stud = 1 block in all axes (no 2.5× vertical stretch). */
+let cubicScale = false;
+let detailScale = false;
+/** When true, fetch real .dat triangle geometry for accurate shape rendering (slow, dev-only). */
+let geometryMode = false;
+/** When true, render LDraw brick geometry directly as 3D meshes instead of voxelizing. */
+let directRenderMode = false;
+/** Current parsed bricks for step-slider re-voxelization */
+let currentBricks: ParsedBrick[] | null = null;
+let currentBricksLabel = '';
+/**
+ * The file `currentBricks` came from, with its sha256/12, for a Bedrock pack's
+ * provenance record (engine/pipeline-version.ts). Set by every loader that has
+ * the bytes (indexed load, the three upload branches, the OMR/BFF fallbacks)
+ * and cleared when a load starts, so a pack can never name the previous model.
+ */
+let currentSource: SourceProvenance | null = null;
+let currentBricksColorFn: ((id: number) => string) | undefined;
+
+/**
+ * The stem every download from this tab is named with: `Colosseum-10276`.
+ *
+ * Deliberately NOT `currentBricksLabel` — that is the internal loader label and
+ * carries the source suffix (`10276-1-omr`), which is meaningless to the user.
+ * See engine/export-name.ts. Uploads have no catalog entry, so they fall back to
+ * the uploaded file's own name.
+ */
+function exportStem(): string {
+  return modelExportStem({
+    name: selectedSet?.name,
+    setNum: selectedSet?.set_num,
+    fallback: currentBricksLabel.replace(/\.[^.]+$/, ''),
+  });
+}
+/** Raw MPD/LDR content for inline sub-model resolution in 3D renderer */
+let currentMpdContent: string | undefined;
+/** Part definitions bundled inside the loaded .io archive (CustomParts/). */
+let currentCustomParts: Map<string, string> | undefined;
+/**
+ * Monotonic token bumped at the START of every user-initiated model load
+ * (upload, indexed-model load, OMR auto-load chain). Long async load paths
+ * capture it and bail before displaying if a newer load has started — without
+ * this, a slow earlier load (e.g. big OMR fetch) finishing LAST silently
+ * overwrites the model the user actually asked for.
+ */
+let loadEpoch = 0;
+/**
+ * Source-quality caveat for the CURRENT load (broken/approximate conversion,
+ * .lxf alignment note …). voxelizeAndDisplay appends it to the final status —
+ * setting it via setStatus() before display doesn't work because the render
+ * success line immediately overwrites it (visual-QA finding: users never saw
+ * the "broken conversion" warning at all).
+ */
+let currentSourceWarning: string | undefined;
+const newLoadEpoch = (): number => { currentSourceWarning = undefined; return ++loadEpoch; };
+const loadIsStale = (epoch: number): boolean => epoch !== loadEpoch;
+
+/**
+ * A load that stops half-way must SAY SO. Every `return` that abandons a load
+ * runs through here, so the console names which guard fired and why — the
+ * alternative (a bare `return`) is a UI frozen on `loading…` with no trace at
+ * all, which is what made the 2026-09-18 production stall cost a day to find.
+ *
+ * Returns true when the caller should abandon.
+ */
+function loadAbandoned(where: string, epoch: number, set?: CatalogSet | null): boolean {
+  const stale = loadIsStale(epoch);
+  const switched = set !== undefined && selectedSet !== set;
+  if (!stale && !switched) return false;
+  console.warn(`[lego] load abandoned at ${where}:`, {
+    reason: stale ? 'a newer load superseded this one' : 'the selected set changed',
+    epoch, currentEpoch: loadEpoch,
+    set: set?.set_num ?? null, selectedSet: selectedSet?.set_num ?? null,
+  });
+  return true;
+}
+
+// ─── Load watchdog ───────────────────────────────────────────────────────────
+// A load that makes no progress must not look identical to one that is simply
+// slow. Every load path funnels through voxelizeAndDisplay, so the watchdog
+// lives there: while a load owns the UI, it tracks the last progress/stage
+// event and, past the threshold, says so in the status AND the badge instead
+// of leaving `<source> · loading…` on screen indefinitely.
+
+/** No progress for this long ⇒ tell the user, and say it in the console. */
+const LOAD_STALL_WARN_MS = 20_000;
+let loadWatchdogTimer: ReturnType<typeof setInterval> | null = null;
+let lastLoadActivity = 0;
+let watchdogEpoch = -1;
+
+/** Called from every progress/stage callback — "work is still happening". */
+function noteLoadActivity(): void { lastLoadActivity = Date.now(); }
+
+function startLoadWatchdog(epoch: number, what: string): void {
+  stopLoadWatchdog();
+  watchdogEpoch = epoch;
+  lastLoadActivity = Date.now();
+  const startedAt = Date.now();
+  let warned = false;
+  loadWatchdogTimer = setInterval(() => {
+    if (loadIsStale(watchdogEpoch)) { stopLoadWatchdog(); return; }
+    const idleMs = Date.now() - lastLoadActivity;
+    if (idleMs < LOAD_STALL_WARN_MS) return;
+    const idle = Math.round(idleMs / 1000);
+    const badge = document.getElementById('lego-source-badge');
+    // The badge is the thing that used to freeze on `loading…` forever.
+    if (badge) badge.textContent = `${what} · loading… (${idle}s, no progress)`;
+    if (!warned) {
+      warned = true;
+      console.warn('[lego] load has reported no progress for', idle, 's', {
+        what, epoch, elapsedMs: Date.now() - startedAt,
+      });
+      setStatus(
+        `Still loading ${what} — no progress for ${idle}s. Large sets over a slow or `
+        + 'throttled connection can take a while; if it never finishes, click the set '
+        + 'again to restart the load.', 'info');
+    }
+  }, 2_000);
+}
+
+function stopLoadWatchdog(): void {
+  if (loadWatchdogTimer) { clearInterval(loadWatchdogTimer); loadWatchdogTimer = null; }
+}
+
+/** The source name the badge is currently advertising, without its suffix. */
+function badgeSourceName(): string | null {
+  const text = document.getElementById('lego-source-badge')?.textContent ?? '';
+  const name = text.split('·')[0]?.trim();
+  return name ? name : null;
+}
+
+/**
+ * INTENDED vs ACTUAL source, plus what the loader walked past to get there.
+ *
+ * The audit's distinction (P1 item 4): the try-order names a first pick, but a
+ * gated/404/empty source throws and the chain moves on — so the model on screen
+ * is often NOT the source the card advertised, and nothing said so. Recorded
+ * here for the badge, the status note and the diagnostic bundle.
+ *
+ * Deliberately NOT reset by newLoadEpoch(): each attempt in the chain bumps the
+ * epoch, so an epoch-scoped record could never accumulate the fallback trail.
+ * The chain resets it once, at its start; single-shot load paths overwrite it.
+ */
+interface LoadDiagnostics {
+  models: IndexModel[] | null;
+  intendedIndex: number | null;
+  loadedIndex: number | null;
+  attempts: { src: string; path: string; error: string }[];
+  url?: string;
+  loader?: string;
+  /**
+   * How the LDD→LDraw alignment table served the last `.lxf` load: table
+   * state/identity, mapped vs unmapped placements, skipped transforms. Absent
+   * for every other source kind. Audit P1 #3 — an alignment failure used to be
+   * completely invisible.
+   */
+  lxfAlignment?: LxfDiagnostics;
+  /**
+   * Content identity of the bytes that actually rendered, checked against the
+   * index's `hash` (schema 2). Audit P1 #6: the index carries a sha256/12 per
+   * file, so "is the deployed model the one the index describes?" is now an
+   * answerable question rather than an assumption — and every grade, lineage
+   * and defect list in the index describes THAT file, not merely that path.
+   * `expected: null` = a schema-1 entry / ungraded corpus, not a mismatch.
+   */
+  contentHash?: { expected: string | null; actual: string | null; match: boolean | null };
+}
+let loadDiag: LoadDiagnostics = {
+  models: null, intendedIndex: null, loadedIndex: null, attempts: [],
+};
+/** Build-time version string injected by vite (a DATE, not a commit). */
+declare const __APP_VERSION__: string;
+/** Last contact-candidate audit result, for the diagnostic bundle. */
+let lastContactAudit: {
+  pieces: number; components: number; largestPct: number;
+  detached: number; resolutionLDU: number; snapAssisted?: number;
+} | null = null;
+const resetLoadDiag = (loader: string, models: IndexModel[] | null = null,
+                       intendedIndex: number | null = null): void => {
+  loadDiag = { models, intendedIndex, loadedIndex: null, attempts: [], loader };
+};
+/**
+ * Persistent 3D viewer instance — kept alive across step-slider drags so
+ * setMaxStep() is an O(1) visibility toggle instead of a full rebuild.
+ * Imported lazily; type widened to interoperate with both the old shim
+ * return type and the new LDrawViewer class.
+ */
+import type { LDrawViewer as LDrawViewerType } from '@viewer/ldraw/index.js';
+let currentLDrawViewer: LDrawViewerType | null = null;
+/** The last `.mcaddon` exported from this tab, kept for the add-on walk (no file round trip). */
+let lastAddonExport: { bytes: Uint8Array; label: string } | null = null;
+/** The open add-on walk (ui/addon-preview.ts), if any; it borrows the viewer's renderer while open. */
+let addonWalk: import('@ui/addon-preview.js').AddonPreviewHandle | null = null;
+/** Total number of steps in the current model (1 = no step markers) */
+let totalSteps = 1;
+/**
+ * Slider key for the 3D viewer: assembly steps or vertical (plate) layers.
+ * Layer mode is what makes the slider useful for Studio .io exports that
+ * carry no STEP meta (e.g. 71043: 5,936 bricks, one step).
+ */
+let sliderMode: 'step' | 'layer' = 'step';
+/** Current step being shown (undefined = all steps) */
+let currentStep: number | undefined;
 
 // ─── Init ────────────────────────────────────────────────────────────────────
+
+/**
+ * Is the LDraw part library reachable? Decides between real 3D brick geometry
+ * and the voxel fallback, so a false negative costs the user the whole
+ * renderer — one retry, and a GET rather than a HEAD (see the call site).
+ */
+async function probeCapability(): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch('/ldraw-parts/parts/3001.dat', { signal: AbortSignal.timeout(10_000) });
+      if (r.ok) return true;
+      // A real HTTP answer that is not ok (404 = no library here) is a verdict,
+      // not a hiccup — retrying it only delays the voxel fallback.
+      if (r.status === 404 || r.status === 410) return false;
+    } catch (err) {
+      if (attempt === 1) throw err;
+    }
+  }
+  return false;
+}
 
 export function initLego(
   controls: HTMLElement,
   _viewer: HTMLElement,
-  callback: (grid: BlockGrid, label: string) => void,
+  callback: (grid: BlockGrid, label: string, isCubic: boolean) => void,
 ): void {
   rootEl = controls;
   onResult = callback;
   buildUI();
+  // Auto-detect LDraw parts library and enable 3D Render by default. If the
+  // library is present, schedule a background warmup of the ~40 most common
+  // bricks so the first model load doesn't pay the full per-part fetch cost.
+  // GET, not HEAD. Chrome discards a HEAD response body and reports the
+  // request as `net::ERR_ABORTED`; usually `fetch()` still resolves ok, but not
+  // always — measured on craftmatic.click 2026-09-18, one page load in 16 had
+  // the HEAD REJECT, so this fell into the catch below and the whole tab
+  // silently rendered in voxel mode: no 3D viewer, no viewer chunk ever
+  // fetched, and nothing said why. A GET of a 2 KB part has no such semantics
+  // and warms the cache with a part nearly every model uses.
+  probeCapability()
+    .then(ok => {
+      if (ok) {
+        directRenderMode = true;
+        const cb = document.getElementById('lego-direct-render') as HTMLInputElement | null;
+        if (cb) cb.checked = true;
+        updateScaleControlsVisibility();
+        // Idle-callback so warmup never competes with first-paint work.
+        const schedule = (window as Window & { requestIdleCallback?: (cb: () => void) => void })
+          .requestIdleCallback ?? ((fn: () => void) => setTimeout(fn, 500));
+        schedule(() => {
+          void import('@viewer/ldraw/parts.js').then(({ prewarmCommonParts, primePartCache }) =>
+            // Reconcile the persistent part cache with the DEPLOYED library
+            // revision before the warmup fills it (audit P1 #6) — doing it here
+            // also keeps the probe's round-trip off the first model load.
+            primePartCache().then(() => prewarmCommonParts()));
+        });
+      } else {
+        // Voxel mode is a MAJOR downgrade (Minecraft blocks instead of real
+        // brick geometry). It must never happen quietly.
+        console.warn('[lego] /ldraw-parts is not reachable — falling back to voxel '
+          + 'rendering for this session. Reload to retry the 3D renderer.');
+        setStatus('LDraw part library unreachable — rendering in voxel mode. '
+          + 'Reload the page to retry 3D.', 'info');
+      }
+    })
+    .catch(err => {
+      console.warn('[lego] LDraw capability probe failed — voxel mode for this session:', err);
+    });
   // Pre-load catalog in background so search is instant when user types
   ensureCatalog(msg => setStatus(msg, 'info')).catch(err => {
     setStatus(`Catalog load failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
@@ -56,8 +486,208 @@ function buildUI(): void {
   rootEl.innerHTML = `
     <!-- Status (shared) -->
     <div class="lego-status" id="lego-status" hidden></div>
+    <!-- Reproduction bundle: source URL + content hash + measured verdict +
+         mapping/render state. A set number alone does not identify the FILE
+         that rendered (audit P1 #4). Hidden until something has loaded. -->
+    <div id="lego-diag-row" hidden style="margin-top:4px;text-align:right">
+      <button id="lego-diag-download" type="button" title="Download a small JSON bundle identifying the exact source, part-resolution and render state — attach it to a bug report"
+        style="background:none;border:none;padding:0;color:#a78bfa;font-size:0.72rem;cursor:pointer;text-decoration:underline">⤓ diagnostics</button>
+    </div>
+    <div id="lego-progress" hidden style="margin-top:6px;height:4px;background:rgba(255,255,255,0.08);border-radius:2px;overflow:hidden">
+      <div id="lego-progress-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#7c3aed,#a78bfa);transition:width 120ms ease-out"></div>
+    </div>
+    <div id="lego-picked-brick" hidden style="margin-top:6px;padding:6px 8px;background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.4);border-radius:4px;font-size:0.78rem;line-height:1.5"></div>
+    <div id="lego-hover-tooltip" hidden style="position:fixed;z-index:9999;pointer-events:none;padding:4px 8px;background:rgba(0,0,0,0.85);color:#fff;border-radius:4px;font-size:0.7rem;line-height:1.3;white-space:nowrap;font-family:ui-sans-serif,system-ui,sans-serif"></div>
+    <div id="lego-help-overlay" hidden style="position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.65);backdrop-filter:blur(4px);font-family:ui-sans-serif,system-ui,sans-serif">
+      <div style="background:rgba(20,20,28,0.96);border:1px solid rgba(124,58,237,0.5);border-radius:10px;padding:24px 32px;color:#e6e6f0;max-width:480px;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:18px;gap:12px">
+          <h3 style="margin:0;font-size:1rem;letter-spacing:0.04em;text-transform:uppercase;color:#a78bfa">Viewer Controls</h3>
+          <span style="font-size:0.7rem;opacity:0.6;flex:1">? to toggle · Esc · click outside</span>
+          <button id="lego-help-close" type="button" aria-label="Close help"
+            style="background:transparent;border:none;color:#888;font-size:1.4rem;line-height:1;padding:0 4px;cursor:pointer">×</button>
+        </div>
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:10px 16px;font-size:0.82rem;line-height:1.5">
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">I</kbd><span>Isometric (3/4) view</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">F</kbd><span>Front view</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">B</kbd><span>Back view</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">L</kbd><span>Left side</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">R</kbd><span>Right side</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">T</kbd><span>Top-down</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">←&nbsp;/&nbsp;→</kbd><span>Previous / next build step</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">Space</kbd><span>Toggle auto-rotate</span>
+          <kbd style="background:#2a2a36;border:1px solid #3a3a48;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:0.75rem">Esc</kbd><span>Close picked-brick info / help</span>
+        </div>
+        <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.08);font-size:0.78rem;line-height:1.6;opacity:0.85">
+          <strong style="color:#a78bfa">Mouse:</strong> drag to orbit · scroll to zoom · right-drag to pan · click a brick to inspect · hover for part ID
+        </div>
+      </div>
+    </div>
 
-    <!-- Primary: Upload LDraw file -->
+    <!-- Scale mode toggle -->
+    <div class="lego-section lego-scale-row">
+      <span class="lego-section-label" style="font-size:0.75rem;opacity:0.7">Scale</span>
+      <div class="lego-scale-btns" id="lego-scale-btns">
+        <button class="lego-scale-btn active" data-mode="accurate" title="1 plate = 1 block — maximum vertical detail, 2.5× taller than real LEGO proportions">Accurate</button>
+        <button class="lego-scale-btn" data-mode="cubic" title="1 stud = 1 block in all axes — correct LEGO proportions, flat models look flat">Cubic</button>
+        <button class="lego-scale-btn" data-mode="detail" title="1 plate = 1 block in ALL axes — 2.5× more horizontal detail, captures thin walls and windows">Detail</button>
+      </div>
+      <label title="Fetch real .dat triangle geometry for accurate shape rendering (dev only — requires /ldraw-parts)" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
+        <input type="checkbox" id="lego-geometry-mode" style="margin:0">
+        Geometry
+      </label>
+      <label title="Render actual LDraw brick geometry as 3D meshes — closest to assembled LEGO set (dev only)" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
+        <input type="checkbox" id="lego-direct-render" style="margin:0">
+        3D Render
+      </label>
+      <label title="Slowly orbit the camera around the model — useful for showcase / comparison" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
+        <input type="checkbox" id="lego-auto-rotate" style="margin:0">
+        Rotate
+      </label>
+      <label title="Hide brick fills, show only edge lines — useful for inspecting connectivity" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
+        <input type="checkbox" id="lego-wireframe" style="margin:0">
+        Wireframe
+      </label>
+      <label title="Contact check (heuristic, not a certificate): highlights red every piece with no detected attachment to the main structure. Evidence is surface contact within ~4 LDU plus LDCad attachment points for clips, bars, pins and minifig headgear — coverage of that table is partial, so red means &quot;look at this&quot;, never proof of a floating piece. One component is not proof of correct assembly either: the 4 LDU tolerance closes small real gaps." style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
+        <input type="checkbox" id="lego-verify" style="margin:0">
+        Contact check
+      </label>
+      <label title="Show FPS / draw calls / triangle count overlay (dev)" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
+        <input type="checkbox" id="lego-stats" style="margin:0">
+        Stats
+      </label>
+      <label title="Background color (and matching studio backdrop)" style="display:flex;align-items:center;gap:4px;font-size:0.75rem;opacity:0.8;margin-left:8px;cursor:pointer">
+        <input type="color" id="lego-bg-color" value="#2d2d3d" style="width:20px;height:20px;border:none;background:transparent;padding:0;cursor:pointer">
+        BG
+      </label>
+      <span id="lego-view-presets" style="display:inline-flex;gap:2px;margin-left:8px">
+        <button class="lego-view-btn" data-view="iso"   title="3/4 isometric view (default)" style="font-size:0.7rem;padding:2px 6px;border-radius:3px">iso</button>
+        <button class="lego-view-btn" data-view="front" title="Front view" style="font-size:0.7rem;padding:2px 6px;border-radius:3px">F</button>
+        <button class="lego-view-btn" data-view="left"  title="Left view"  style="font-size:0.7rem;padding:2px 6px;border-radius:3px">L</button>
+        <button class="lego-view-btn" data-view="right" title="Right view" style="font-size:0.7rem;padding:2px 6px;border-radius:3px">R</button>
+        <button class="lego-view-btn" data-view="back"  title="Back view"  style="font-size:0.7rem;padding:2px 6px;border-radius:3px">B</button>
+        <button class="lego-view-btn" data-view="top"   title="Top view"   style="font-size:0.7rem;padding:2px 6px;border-radius:3px">T</button>
+        <button id="lego-flip-front" type="button" title="If F shows the wrong side, click to flip the detected front/back" style="font-size:0.7rem;padding:2px 6px;border-radius:3px">↻F</button>
+      </span>
+      <select id="lego-export-png" title="Export current view as PNG at chosen size" style="margin-left:8px;font-size:0.7rem;padding:2px 4px;border-radius:3px">
+        <option value="">PNG…</option>
+        <option value="1920x1080">1920×1080 HD</option>
+        <option value="2560x1440">2560×1440 QHD</option>
+        <option value="3840x2160">3840×2160 4K</option>
+        <option value="7680x4320">7680×4320 8K</option>
+        <option value="turntable">Turntable video (.webm)</option>
+      </select>
+      <select id="lego-export-model" title="Download the loaded set as a 3D model or Minecraft schematic" style="margin-left:6px;font-size:0.7rem;padding:2px 4px;border-radius:3px">
+        <option value="">Download…</option>
+        <optgroup label="3D model">
+          <option value="glb">GLB (.glb)</option>
+          <option value="obj">OBJ (.obj)</option>
+          <option value="stl">STL (.stl)</option>
+          <option value="3mf">3MF, color 3D print (.3mf)</option>
+        </optgroup>
+        <optgroup label="Minecraft: Java">
+          <option value="schem">Java schematic / WorldEdit (.schem)</option>
+          <option value="litematic">Litematica (.litematic)</option>
+          <option value="display">Java 1.19.4+ Display Entities (.mcfunction)</option>
+        </optgroup>
+        <optgroup label="Minecraft: Bedrock">
+          <option value="live">Send to Minecraft Planner (experimental)</option>
+          <option value="mcaddon">Add-on — controls detected or selected components (.mcaddon)</option>
+          <option value="mcpack">Static structure pack (.mcpack)</option>
+          <option value="lego-mcpack">Craftmatic LEGO Texture Pack (.mcpack)</option>
+        </optgroup>
+        <optgroup label="Minecraft: any edition">
+          <option value="guide">Build guide, layer-by-layer (.html)</option>
+        </optgroup>
+        <optgroup label="Data">
+          <option value="csv">Parts list (.csv)</option>
+        </optgroup>
+      </select>
+      <label title="Override automatic vehicle detection for the interactive Bedrock add-on" style="margin-left:6px;font-size:0.7rem;white-space:nowrap">Vehicle
+        <select id="lego-vehicle-mode" style="font-size:0.7rem;padding:2px 4px;border-radius:3px">
+          <option value="auto">Detect vehicle components</option><option value="car">Car (whole model)</option><option value="plane">Plane (whole model)</option><option value="boat">Boat / Ship (whole model)</option><option value="static">Structure only</option>
+        </select>
+      </label>
+      <span id="lego-mc-settings" style="margin-left:6px;display:inline-flex"></span>
+      <button id="lego-addon-walk" type="button" class="lego-scale-btn" disabled
+        title="Walk the collider blocks the last add-on exported here lays, in the browser: legend, reach on foot, sizes. Export an add-on (.mcaddon) first.">Walk add-on</button>
+      <button id="lego-addon-walk-open" type="button" class="lego-scale-btn" title="Walk a built .mcaddon from disk (one from the CLI, or an older export)">Open .mcaddon…</button>
+      <input type="file" id="lego-addon-walk-file" accept=".mcaddon,.zip" hidden>
+    </div>
+
+    <!-- Assembly step / vertical layer slider (hidden until a model loads) -->
+    <div class="lego-section lego-scale-row" id="lego-step-row" hidden style="display:none">
+      <button id="lego-step-mode" type="button"
+        title="Toggle between assembly steps and vertical layers (one plate per layer)"
+        style="background:transparent;border:1px solid rgba(167,139,250,0.35);color:#a78bfa;border-radius:4px;padding:2px 6px;font-size:0.72rem;cursor:pointer;font-family:inherit">Step</button>
+      <button id="lego-step-play" type="button" title="Auto-advance (click to play/pause)"
+        style="background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.45);color:#a78bfa;border-radius:4px;padding:2px 8px;font-size:0.78rem;cursor:pointer;font-family:inherit">▶</button>
+      <input type="range" id="lego-step-slider" min="1" max="1" value="1" style="flex:1;min-width:60px">
+      <span id="lego-step-label" style="font-size:0.75rem;min-width:3.5em;text-align:right">1/1</span>
+    </div>
+
+    <!-- Explode slider (hidden until 3D direct-render viewer is mounted) -->
+    <div class="lego-section lego-scale-row" id="lego-explode-row" hidden style="display:none">
+      <span class="lego-section-label" style="font-size:0.75rem;opacity:0.7">Explode</span>
+      <input type="range" id="lego-explode-slider" min="0" max="100" value="0" style="flex:1;min-width:60px">
+      <span id="lego-explode-label" style="font-size:0.75rem;min-width:3.5em;text-align:right">0%</span>
+    </div>
+
+    <!-- PRIMARY FLOW: search / browse → pick → render -->
+    <div class="lego-section">
+      <div class="lego-search-row">
+        <input type="text" id="lego-search" class="lego-input lego-search-input"
+          aria-label="Search for LEGO sets by name or number"
+          placeholder="Search sets — several at once with commas (10354, 71040) — or leave empty to browse all…">
+        <button class="btn btn-primary btn-sm" id="lego-search-btn">Search</button>
+      </div>
+      <div class="lego-filters">
+        <select id="lego-theme" class="lego-select" title="Filter by theme">
+          <option value="">All Themes</option>
+        </select>
+        <input type="number" id="lego-year-min" class="lego-input lego-year-input"
+          placeholder="From" min="1950" max="2030" title="From year">
+        <input type="number" id="lego-year-max" class="lego-input lego-year-input"
+          placeholder="To" min="1950" max="2030" title="To year">
+        <input type="number" id="lego-pieces-min" class="lego-input lego-year-input"
+          placeholder="Min pcs" min="0" title="Minimum piece count">
+        <input type="number" id="lego-pieces-max" class="lego-input lego-year-input"
+          placeholder="Max pcs" min="0" title="Maximum piece count">
+        <select id="lego-sort" class="lego-select" title="Sort results">
+          <option value="relevance">Relevance</option>
+          <option value="pieces-desc">Pieces ↓</option>
+          <option value="pieces-asc">Pieces ↑</option>
+          <option value="year-desc">Year ↓</option>
+          <option value="year-asc">Year ↑</option>
+          <option value="name-asc">Name A-Z</option>
+        </select>
+        <select id="lego-source-filter" class="lego-select" title="Filter by available 3D model source">
+          <option value="">Any source</option>
+          <option value="omr">Official LDraw (omr/ldr)</option>
+          <option value="io">Studio (io)</option>
+          <option value="dbix">DBIX</option>
+          <option value="mecabricks">Mecabricks</option>
+          <option value="eurobricks">Eurobricks</option>
+          <option value="lxf">LDD (lxf)</option>
+          <option value="recon">Vision recon</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="lego-results" id="lego-results" hidden>
+      <div class="lego-results-grid" id="lego-results-grid"></div>
+    </div>
+
+    <!-- Selected set detail -->
+    <div class="lego-detail" id="lego-detail" hidden>
+      <div class="lego-detail-inner" id="lego-detail-inner"></div>
+      <div class="lego-omr-links" id="lego-omr-links"></div>
+    </div>
+
+    <!-- Divider -->
+    <div class="lego-divider"><span>or upload your own file</span></div>
+
+    <!-- Upload LDraw file -->
     <div class="lego-section">
       <div class="lego-label-row">
         <span class="lego-section-label">Upload LDraw File</span>
@@ -72,7 +702,7 @@ function buildUI(): void {
         <span class="lego-upload-zone-text">
           Drop <code>.mpd</code> / <code>.ldr</code> / <code>.io</code> / <code>.lxf</code> here, or click to browse
         </span>
-        <input type="file" id="lego-mpd-input" accept=".mpd,.ldr,.io,.lxf" hidden>
+        <input type="file" id="lego-mpd-input" accept=".mpd,.ldr,.io,.lxf,.lxfml" hidden>
       </label>
       <div class="lego-omr-quick">
         <span class="lego-omr-label">Get files:</span>
@@ -80,45 +710,380 @@ function buildUI(): void {
         <a href="https://www.bricklink.com/v3/studio/studio.page" target="_blank" rel="noopener" class="lego-ext-link">BrickLink Studio ↗</a>
       </div>
     </div>
-
-    <!-- Divider -->
-    <div class="lego-divider"><span>or search for a set</span></div>
-
-    <!-- Search (no API key required — uses public CSV) -->
-    <div class="lego-section">
-      <div class="lego-search-row">
-        <input type="text" id="lego-search" class="lego-input lego-search-input"
-          aria-label="Search for a LEGO set by name or number"
-          placeholder="Set name or number (e.g. 75192, Falcon, Technic)…">
-        <button class="btn btn-primary btn-sm" id="lego-search-btn">Search</button>
-      </div>
-      <div class="lego-filters">
-        <select id="lego-theme" class="lego-select" title="Filter by theme">
-          <option value="">All Themes</option>
-        </select>
-        <input type="number" id="lego-year-min" class="lego-input lego-year-input"
-          placeholder="From" min="1950" max="2030" title="From year">
-        <input type="number" id="lego-year-max" class="lego-input lego-year-input"
-          placeholder="To" min="1950" max="2030" title="To year">
-      </div>
-    </div>
-
-    <!-- Results -->
-    <div class="lego-results" id="lego-results" hidden>
-      <div class="lego-results-grid" id="lego-results-grid"></div>
-    </div>
-
-    <!-- Selected set detail -->
-    <div class="lego-detail" id="lego-detail" hidden>
-      <div class="lego-detail-inner" id="lego-detail-inner"></div>
-      <div class="lego-omr-links" id="lego-omr-links"></div>
-    </div>
   `;
 
   wireEvents();
 }
 
+/**
+ * Toggle the help overlay. Uses both the `hidden` attribute AND inline
+ * `style.display` because the overlay's inline `display:flex` would otherwise
+ * override `hidden` (inline style wins over the UA default for [hidden]).
+ */
+function setHelpOpen(open: boolean): void {
+  const help = document.getElementById('lego-help-overlay');
+  if (!help) return;
+  help.hidden = !open;
+  help.style.display = open ? 'flex' : 'none';
+}
+
 function wireEvents(): void {
+  // ── Scale mode toggle ──────────────────────────────────────────────────────
+  document.getElementById('lego-scale-btns')?.addEventListener('click', e => {
+    const btn = (e.target as HTMLElement).closest('[data-mode]') as HTMLElement | null;
+    if (!btn) return;
+    const mode = btn.dataset['mode'];
+    cubicScale = mode === 'cubic';
+    detailScale = mode === 'detail';
+    document.querySelectorAll('.lego-scale-btn').forEach(b =>
+      b.classList.toggle('active', b === btn));
+    if (currentBricks) void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
+  });
+
+  // ── Geometry mode toggle ───────────────────────────────────────────────────
+  document.getElementById('lego-geometry-mode')?.addEventListener('change', e => {
+    geometryMode = (e.target as HTMLInputElement).checked;
+    if (currentBricks) void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
+  });
+
+  // ── Direct 3D render toggle ───────────────────────────────────────────────
+  document.getElementById('lego-direct-render')?.addEventListener('change', e => {
+    directRenderMode = (e.target as HTMLInputElement).checked;
+    updateScaleControlsVisibility();
+    if (currentBricks) void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
+  });
+  updateScaleControlsVisibility();
+
+  // ── Auto-rotation toggle ──────────────────────────────────────────────────
+  document.getElementById('lego-auto-rotate')?.addEventListener('change', e => {
+    const on = (e.target as HTMLInputElement).checked;
+    currentLDrawViewer?.setAutoRotate(on);
+  });
+
+  // ── Wireframe toggle ──────────────────────────────────────────────────────
+  document.getElementById('lego-wireframe')?.addEventListener('change', e => {
+    const on = (e.target as HTMLInputElement).checked;
+    currentLDrawViewer?.setWireframe(on);
+  });
+
+  // ── Contact-candidate check toggle ────────────────────────────────────────
+  // A HEURISTIC, and the copy here says so (audit P1 #5). ON runs the hybrid
+  // audit — surface contact within one voxel, fused with LDCad attachment
+  // points for the clip/bar/pin/headgear joints surfaces miss — and highlights
+  // every piece with no detected attachment; OFF restores colors and the
+  // pre-audit status. Neither outcome is a certificate: see
+  // viewer/ldraw/connectivity-audit.ts for the limits each message discloses.
+  let statusBeforeVerify: { text: string; className: string } | null = null;
+  document.getElementById('lego-verify')?.addEventListener('change', e => {
+    void (async () => {
+      const box = e.target as HTMLInputElement;
+      if (!box.checked) {
+        currentLDrawViewer?.clearDetachedHighlight();
+        const el = document.getElementById('lego-status');
+        if (el && statusBeforeVerify) {
+          el.textContent = statusBeforeVerify.text;
+          el.className = statusBeforeVerify.className;
+        }
+        statusBeforeVerify = null;
+        return;
+      }
+      if (!currentLDrawViewer) {
+        setStatus('The contact check needs the 3D render mode with a model loaded.', 'info');
+        box.checked = false;
+        return;
+      }
+      const el = document.getElementById('lego-status');
+      statusBeforeVerify = el ? { text: el.textContent ?? '', className: el.className } : null;
+      const pieceCount = currentBricks?.length ?? 0;
+      setStatus(`Checking contacts across ${pieceCount.toLocaleString()} pieces… (surface + attachment-point analysis${pieceCount > 3000 ? ', may take several seconds' : ''})`, 'info');
+      // Yield a couple of frames so the status paints before the CPU-heavy
+      // synchronous audit blocks the main thread.
+      await new Promise(r => setTimeout(r, 60));
+      try {
+        const rep = await currentLDrawViewer.highlightDetached(4);
+        lastContactAudit = {
+          pieces: rep.pieces, components: rep.components,
+          largestPct: rep.largestPct, detached: rep.detached,
+          resolutionLDU: rep.resolutionLDU, snapAssisted: rep.snapOnlyUnions,
+        };
+        // Pass the PARSED placement count too: pieces whose part never resolved
+        // are not instanced, so the audit never sees them and its percentages
+        // are over a smaller model than the user loaded.
+        setStatus(contactCheckStatus(rep, currentBricks?.length),
+                  rep.components <= 1 ? 'success' : 'info');
+      } catch (err) {
+        setStatus(`Contact check failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+        box.checked = false;
+        statusBeforeVerify = null;
+      }
+    })();
+  });
+
+  // ── Diagnostic bundle download ────────────────────────────────────────────
+  document.getElementById('lego-diag-download')?.addEventListener('click', () => {
+    void downloadDiagnostics().catch(err => {
+      setStatus(`Diagnostics export failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    });
+  });
+
+  // ── Stats overlay toggle ──────────────────────────────────────────────────
+  document.getElementById('lego-stats')?.addEventListener('change', e => {
+    const on = (e.target as HTMLInputElement).checked;
+    currentLDrawViewer?.setStatsOverlay(on);
+  });
+
+  // ── Background color picker ───────────────────────────────────────────────
+  document.getElementById('lego-bg-color')?.addEventListener('input', e => {
+    const hex = parseInt((e.target as HTMLInputElement).value.replace('#', ''), 16);
+    if (!isNaN(hex)) currentLDrawViewer?.setBackgroundColor(hex);
+  });
+
+  // ── View preset buttons ───────────────────────────────────────────────────
+  document.getElementById('lego-view-presets')?.addEventListener('click', e => {
+    const btn = (e.target as HTMLElement).closest('[data-view]') as HTMLElement | null;
+    const name = btn?.dataset['view'] as 'iso' | 'front' | 'back' | 'left' | 'right' | 'top' | undefined;
+    if (name) currentLDrawViewer?.setView(name);
+  });
+  document.getElementById('lego-flip-front')?.addEventListener('click', () => {
+    currentLDrawViewer?.flipFront();
+  });
+
+  // ── Keyboard shortcuts (active only when LEGO tab is showing) ─────────────
+  document.addEventListener('keydown', e => {
+    // Don't intercept when typing in a text/number input
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' || target.isContentEditable) return;
+    // The add-on walk owns the keyboard while it is open (WASD, F, R, Esc...).
+    if (addonWalk?.open) return;
+    // Only act when LEGO tab is the active view (heuristic: viewer is visible)
+    const viewer = document.getElementById('lego-viewer');
+    if (!viewer || viewer.offsetParent === null) return;
+
+    // Help-overlay open/close and Esc-dismiss must work even when no model is
+    // loaded yet — otherwise the viewer-gate below traps the overlay.
+    const key = e.key.toLowerCase();
+    if (key === 'escape') {
+      const help = document.getElementById('lego-help-overlay');
+      if (help && !help.hidden) { setHelpOpen(false); e.preventDefault(); return; }
+      const picked = document.getElementById('lego-picked-brick');
+      if (picked) picked.hidden = true;
+      return;
+    }
+    if (key === '?' || (key === '/' && e.shiftKey)) {
+      const help = document.getElementById('lego-help-overlay');
+      if (help) setHelpOpen(help.hidden);
+      e.preventDefault();
+      return;
+    }
+
+    if (!currentLDrawViewer) return;
+
+    switch (e.key.toLowerCase()) {
+      case 'i': currentLDrawViewer.setView('iso'); e.preventDefault(); break;
+      case 'f': currentLDrawViewer.setView('front'); e.preventDefault(); break;
+      case 'b': currentLDrawViewer.setView('back'); e.preventDefault(); break;
+      case 'l': currentLDrawViewer.setView('left'); e.preventDefault(); break;
+      case 'r': currentLDrawViewer.setView('right'); e.preventDefault(); break;
+      case 't': currentLDrawViewer.setView('top'); e.preventDefault(); break;
+      case ' ': {
+        const cb = document.getElementById('lego-auto-rotate') as HTMLInputElement | null;
+        if (cb) {
+          cb.checked = !cb.checked;
+          cb.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        e.preventDefault();
+        break;
+      }
+      case 'arrowleft':
+      case 'arrowright': {
+        const slider = document.getElementById('lego-step-slider') as HTMLInputElement | null;
+        if (!slider) break;
+        stopStepPlay();
+        const cur = parseInt(slider.value, 10);
+        const max = parseInt(slider.max, 10);
+        const min = parseInt(slider.min, 10);
+        const delta = e.key.toLowerCase() === 'arrowleft' ? -1 : 1;
+        const next = Math.max(min, Math.min(max, cur + delta));
+        if (next !== cur) {
+          slider.value = String(next);
+          slider.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        e.preventDefault();
+        break;
+      }
+    }
+  });
+
+  // Click overlay backdrop or × button to close
+  document.getElementById('lego-help-overlay')?.addEventListener('click', e => {
+    const overlay = e.currentTarget as HTMLElement;
+    const closeBtn = (e.target as HTMLElement).closest('#lego-help-close');
+    if (closeBtn || e.target === overlay) setHelpOpen(false);
+  });
+  // Belt-and-suspenders: a window-level capture-phase Esc listener that
+  // ALWAYS closes the help overlay if it's visible, regardless of which
+  // element has focus or what other handlers might absorb the event.
+  window.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const help = document.getElementById('lego-help-overlay');
+    if (help && !help.hidden) {
+      setHelpOpen(false);
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  }, { capture: true });
+
+  // ── PNG export ────────────────────────────────────────────────────────────
+  document.getElementById('lego-export-png')?.addEventListener('change', e => {
+    const sel = e.target as HTMLSelectElement;
+    const dim = sel.value;
+    sel.value = ''; // reset back to placeholder
+    if (!dim) return;
+    if (dim === 'turntable') { void exportTurntable(); return; }
+    if (!currentLDrawViewer) return;
+    const [wStr, hStr] = dim.split('x');
+    const w = parseInt(wStr!, 10);
+    const h = parseInt(hStr!, 10);
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return;
+    setStatus(`Rendering ${w}×${h} PNG…`, 'info');
+    try {
+      const dataUrl = currentLDrawViewer.captureScreenshotAt(w, h);
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `${exportStem()}-${w}x${h}.png`;
+      a.click();
+      setStatus(`Exported ${w}×${h} PNG`, 'success');
+    } catch (err) {
+      setStatus(`Export failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    }
+  });
+
+  // ── Model / schematic export ────────────────────────────────────────────────
+  document.getElementById('lego-export-model')?.addEventListener('change', e => {
+    const sel = e.target as HTMLSelectElement;
+    const fmt = sel.value;
+    sel.value = ''; // reset to placeholder
+    if (!fmt) return;
+    void exportLoadedModel(fmt);
+  });
+
+  // ── Add-on walk: the last export, or a built .mcaddon from disk ───────────
+  document.getElementById('lego-addon-walk')?.addEventListener('click', () => {
+    if (!lastAddonExport) { setStatus('Export an add-on (.mcaddon) first, or open a built one with "Open .mcaddon…".', 'info'); return; }
+    void openAddonWalk(lastAddonExport.bytes, lastAddonExport.label);
+  });
+  document.getElementById('lego-addon-walk-open')?.addEventListener('click', () => {
+    (document.getElementById('lego-addon-walk-file') as HTMLInputElement | null)?.click();
+  });
+  document.getElementById('lego-addon-walk-file')?.addEventListener('change', e => {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    void (async () => {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      void openAddonWalk(bytes, file.name.replace(/\.[^.]+$/, ''));
+    })();
+  });
+  updateAddonWalkButtons();
+
+  // ── Minecraft export settings (shared with the Upload tab) ────────────────
+  const mcSettingsHost = document.getElementById('lego-mc-settings');
+  if (mcSettingsHost) {
+    mountSchemSettings(mcSettingsHost, {
+      resolutionApplicable: true,
+      // Live output-size preview for whatever set is currently loaded.
+      getSpan: () => (currentBricks && currentBricks.length > 0 ? spanOfBricks(currentBricks) : null),
+      // The add-on scale preview reads the title the export would (set name first).
+      getScaleContext: () => (currentBricks && currentBricks.length > 0
+        ? { bricks: currentBricks, label: selectedSet ? `${selectedSet.name} (${selectedSet.set_num})` : '' }
+        : null),
+      key: 'lego',
+    });
+    // Custom minifig NPC → figures-only Bedrock add-on (ui/minifig-builder.ts).
+    mountMinifigBuilder(mcSettingsHost, { onStatus: setStatus });
+  }
+
+  // ── Explode slider ────────────────────────────────────────────────────────
+  document.getElementById('lego-explode-slider')?.addEventListener('input', e => {
+    const pct = parseInt((e.target as HTMLInputElement).value, 10);
+    const label = document.getElementById('lego-explode-label');
+    if (label) label.textContent = `${pct}%`;
+    // 0-100 → 0-1.5. 1.5× lets the bricks fly far apart for engineering-view
+    // inspection without flying out of the camera frustum on typical zoom.
+    currentLDrawViewer?.setExplodeFactor(pct / 100 * 1.5);
+  });
+
+  // ── Step playback (▶ button auto-advances steps) ───────────────────────────
+  let stepPlayTimer: ReturnType<typeof setInterval> | null = null;
+  const stopStepPlay = (): void => {
+    if (stepPlayTimer) clearInterval(stepPlayTimer);
+    stepPlayTimer = null;
+    const btn = document.getElementById('lego-step-play');
+    if (btn) btn.textContent = '▶';
+  };
+  document.getElementById('lego-step-play')?.addEventListener('click', () => {
+    const slider = document.getElementById('lego-step-slider') as HTMLInputElement | null;
+    const btn = document.getElementById('lego-step-play');
+    if (!slider || !btn) return;
+    if (stepPlayTimer) { stopStepPlay(); return; }
+    btn.textContent = '⏸';
+    const max = parseInt(slider.max, 10);
+    // If at max already, restart from step 1
+    if (parseInt(slider.value, 10) >= max) {
+      slider.value = '1';
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    stepPlayTimer = setInterval(() => {
+      const cur = parseInt(slider.value, 10);
+      if (cur >= max) { stopStepPlay(); return; }
+      slider.value = String(cur + 1);
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    }, 350);
+  });
+
+  // ── Step slider ────────────────────────────────────────────────────────────
+  // Stop playback when the user explicitly drags/clicks the thumb (not on the
+  // programmatic dispatchEvent('input') from playback, which uses the input
+  // event but not pointerdown).
+  // Step ⟷ Layer mode toggle (3D mode only; updateStepSlider gates it)
+  document.getElementById('lego-step-mode')?.addEventListener('click', () => {
+    if (!directRenderMode || !currentLDrawViewer) return;
+    stopStepPlay();
+    sliderMode = sliderMode === 'step' ? 'layer' : 'step';
+    updateStepSlider(); // re-applies mode to the viewer + resets slider to max
+  });
+
+  document.getElementById('lego-step-slider')?.addEventListener('pointerdown', stopStepPlay);
+  document.getElementById('lego-step-slider')?.addEventListener('input', async e => {
+    const slider = e.target as HTMLInputElement;
+    const step = parseInt(slider.value, 10);
+    const label = document.getElementById('lego-step-label');
+    const sliderMax = parseInt(slider.max, 10) || totalSteps;
+    if (label) label.textContent = `${step}/${sliderMax}`;
+    if (!currentBricks) return;
+
+    // 3D direct mode: instant visibility toggle on the persistent viewer.
+    // No part refetch, no mesh rebuild — the architectural turn-around.
+    if (directRenderMode && currentLDrawViewer) {
+      // Only persist step-mode positions: currentStep feeds re-loads and the
+      // voxelizer, both of which speak assembly steps, not layers.
+      if (sliderMode === 'step') currentStep = step < totalSteps ? step : undefined;
+      currentLDrawViewer.setMaxStep(step >= sliderMax ? Number.POSITIVE_INFINITY : step);
+      return;
+    }
+
+    currentStep = step < totalSteps ? step : undefined; // undefined = show all
+
+    // Voxelizer mode still rebuilds (cheap relative to part fetching anyway)
+    const opts: VoxelizeOptions = { cubicScale, detailScale, maxStep: currentStep };
+    const result = geometryMode
+      ? await voxelizeLDrawGeometry(currentBricks, currentBricksColorFn, opts)
+      : voxelizeLDraw(currentBricks, currentBricksColorFn, opts);
+    if (onResult) onResult(result.grid, exportStem(), cubicScale);
+  });
+
   // ── MPD file upload ────────────────────────────────────────────────────────
   const mpdInput = document.getElementById('lego-mpd-input') as HTMLInputElement;
   const uploadZone = document.getElementById('lego-upload-zone') as HTMLLabelElement;
@@ -149,15 +1114,32 @@ function wireEvents(): void {
     const themeEl  = document.getElementById('lego-theme')    as HTMLSelectElement;
     const minYrEl  = document.getElementById('lego-year-min') as HTMLInputElement;
     const maxYrEl  = document.getElementById('lego-year-max') as HTMLInputElement;
+    const sortEl   = document.getElementById('lego-sort')          as HTMLSelectElement | null;
+    const pMinEl   = document.getElementById('lego-pieces-min')    as HTMLInputElement  | null;
+    const pMaxEl   = document.getElementById('lego-pieces-max')    as HTMLInputElement  | null;
+    const srcEl    = document.getElementById('lego-source-filter') as HTMLSelectElement | null;
     const themeId  = themeEl.value  ? parseInt(themeEl.value)  : null;
     const minYear  = minYrEl.value  ? parseInt(minYrEl.value)  : null;
     const maxYear  = maxYrEl.value  ? parseInt(maxYrEl.value)  : null;
+    const sortMode = sortEl?.value || 'relevance';
+    const minPcs   = pMinEl?.value ? parseInt(pMinEl.value) : null;
+    const maxPcs   = pMaxEl?.value ? parseInt(pMaxEl.value) : null;
+    const srcGroup = srcEl?.value || null;
 
-    if (!query && themeId == null && minYear == null) {
-      setStatus('Enter a set name, number, or choose a theme.', 'error');
-      return;
-    }
+    // A query may hold SEVERAL terms separated by `,` `;` or a newline, and
+    // the catalog treats them as a union ("10354,71040" returns both). Parsed
+    // here too so the browse-all test and the result wording agree with what
+    // `rankSets` actually did — a box holding only separators is a blank box.
+    const terms = splitQueryTerms(query).filter(Boolean);
+    // Empty query + no filters = BROWSE ALL: rankSets scores every set by
+    // flagship-ness (part count + recency), so the front page is the good
+    // stuff, not 1970s promo polybags. No forced theme selection.
+    const browsing = terms.length === 0 && themeId == null && minYear == null
+      && maxYear == null && minPcs == null && maxPcs == null && srcGroup == null;
 
+    // This run's identity. Everything below it awaits, so by the time it
+    // writes to shared state another run may own the UI.
+    const seq = ++searchSeq;
     searchBtn.disabled = true;
 
     try {
@@ -166,46 +1148,171 @@ function wireEvents(): void {
         await ensureCatalog(msg => setStatus(msg, 'info'));
       }
 
-      searchResults = searchCatalog(query, themeId, minYear, maxYear);
+      // Apply source/piece filters and sorting to ALL matching sets. Capping
+      // first hid most reconstruction-only sets outside the top 2,000; the
+      // 48-card render pagination below already bounds DOM work.
+      // Built in a LOCAL until this run is known to still be the newest: a
+      // superseded run that assigned the global left the rendered cards
+      // indexing a different array, so a click could select the wrong set.
+      // The models index is async but cached after the first load, so only the
+      // very first search pays a fetch. The source filter and the default
+      // (relevance) ordering need it, and so does the search itself: a set the
+      // index holds but Rebrickable does not list yet (a release-day set) is
+      // searchable only once `mergeIndexSets` has appended it to the catalog.
+      const idx = await getModelsIndex();
+      mergeIndexSets(idx);
+      let results = searchCatalog(query, themeId, minYear, maxYear, Infinity);
+      if (minPcs != null) results = results.filter(s => (s.num_parts ?? 0) >= minPcs);
+      if (maxPcs != null) results = results.filter(s => (s.num_parts ?? 0) <= maxPcs);
+      const srcMatch = srcGroup ? SOURCE_GROUPS[srcGroup] : undefined;
+      // A newer search owns the UI now — say so and touch nothing. Silence here
+      // is how a stale run used to repaint the panel under the user.
+      if (seq !== searchSeq) {
+        console.warn('[lego] search results dropped — a newer search superseded this one',
+          { seq, newest: searchSeq, query });
+        return;
+      }
+      if (srcMatch && idx) {
+        // Filter on the set's BEST source — the one the indexed auto-load will
+        // actually resolve — NOT "any entry in the index". Matching any entry
+        // listed 71040-1 under "Vision recon" because it has a pdf_recon
+        // fallback, while it really loads its mecabricks model.
+        results = results.filter(s => {
+          const best = bestIndexedModel(idx, s.set_num);
+          return best != null && srcMatch(best.src);
+        });
+      }
+      // Sort AFTER filtering, over the full list, before pagination.
+      sortSearchResults(results, sortMode);
+      // 'relevance' (incl. browse-all) keeps rankSets' flagship order but
+      // stably partitions it by source quality, so authentic .io/OMR builds
+      // come before conversions and reconstructions.
+      //
+      // NOT for a multi-term query: there the user named specific things and
+      // `rankSets` already interleaved them so each term's best hit is near the
+      // top. Re-partitioning by source class throws that away — "castle,titanic"
+      // put Titanic first purely because its best source is OMR and the castles'
+      // is .io, which reads as the wrong answer to a list the user typed in a
+      // deliberate order. An explicit sort mode still applies, because that is
+      // the user asking for a different order.
+      if (sortMode === 'relevance' && idx && terms.length < 2) {
+        sortByBestSourceClass(results, idx);
+      }
+      searchResults = results;
+      visibleResults = RESULTS_PAGE;
       // Populate theme dropdown once loaded
       populateThemes(getThemes());
 
-      // Clear any previously selected set when a new search runs
-      selectedSet = null;
-      const detailEl = document.getElementById('lego-detail');
-      if (detailEl) detailEl.hidden = true;
+      // Clear the selected set — but ONLY when it was selected BEFORE this
+      // search started. A selection made while this run was still awaiting the
+      // catalog/index belongs to the user's newer intent, and clearing it
+      // aborted the model load they had just started: the load's
+      // `selectedSet !== set` guard fired, it returned with no error, and the
+      // badge then reported the source as loaded while nothing rendered
+      // (craftmatic.click, 910032, 2026-09-18).
+      if (selectionSeq < seq) {
+        selectedSet = null;
+        const detailEl = document.getElementById('lego-detail');
+        if (detailEl) detailEl.hidden = true;
+      }
 
       if (searchResults.length === 0) {
         setStatus('No sets found — try a different query.', 'info');
         hideResults();
       } else {
-        setStatus(`${searchResults.length} set${searchResults.length !== 1 ? 's' : ''} found`, 'success');
-        renderResults(searchResults);
+        const found = `${searchResults.length.toLocaleString()} set${searchResults.length !== 1 ? 's' : ''} found`;
+        setStatus(
+          browsing
+            ? `Browsing all sets — ${searchResults.length.toLocaleString()} available, best first`
+            : terms.length > 1
+              ? `${found} across ${terms.length} terms`
+              : found,
+          'success',
+        );
+        renderResults();
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setStatus(`Search failed: ${msg}`, 'error');
     } finally {
-      searchBtn.disabled = false;
+      // Only the newest run may re-enable the button: a superseded run doing
+      // it advertised "search finished" while the real one was still working,
+      // which is how automation (and a fast user) clicks a card mid-search.
+      if (seq === searchSeq) searchBtn.disabled = false;
     }
   };
 
   searchBtn.addEventListener('click', doSearch);
   searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+  // Live filter re-run when theme / year filters change (no Search click needed)
+  document.getElementById('lego-theme')?.addEventListener('change', doSearch);
+  document.getElementById('lego-year-min')?.addEventListener('change', doSearch);
+  document.getElementById('lego-year-max')?.addEventListener('change', doSearch);
+  document.getElementById('lego-sort')?.addEventListener('change', doSearch);
+  document.getElementById('lego-pieces-min')?.addEventListener('change', doSearch);
+  document.getElementById('lego-pieces-max')?.addEventListener('change', doSearch);
+  document.getElementById('lego-source-filter')?.addEventListener('change', doSearch);
 
-  // Populate themes once catalog finishes loading in background
-  ensureCatalog().then(() => populateThemes(getThemes())).catch(() => {});
+  // Populate themes once the catalog loads, then show the browse-all grid so
+  // the tab isn't a dead end before the first search.
+  ensureCatalog().then(async () => {
+    populateThemes(getThemes());
+    // Deep link: `?tab=lego&set=11390` selects that set and auto-loads its
+    // best indexed model - the URL a release-day check (scripts/
+    // _live_set_check.mjs) and a shared link both use. The index is merged
+    // first so a set Rebrickable does not list yet still resolves.
+    const wanted = new URLSearchParams(location.search).get('set')?.trim();
+    if (wanted && !selectedSet) {
+      const idx = await getModelsIndex().catch(() => null);
+      if (idx) mergeIndexSets(idx);
+      const base = wanted.replace(/-\d+$/, '');
+      const hit = searchCatalog(wanted, null, null, null, 8).find(s => s.set_num.replace(/-\d+$/, '') === base);
+      if (hit) { selectSet(hit); return; }
+      setStatus(`Set ${wanted} is not in the catalog or the models index yet.`, 'error');
+    }
+    // `searchResults.length === 0` is NOT "the user has not searched": a user
+    // search that is itself still awaiting this same catalog has not assigned
+    // them yet, so this fired a SECOND search underneath it (and, on
+    // production, one that finished later and cleared the user's selection —
+    // see `searchSeq`). `searchSeq` is 0 only while nothing has searched at all.
+    if (searchSeq === 0 && searchResults.length === 0 && !selectedSet) void doSearch();
+  }).catch(() => {});
+}
+
+// ─── Search sort + extra filters ─────────────────────────────────────────────
+
+/** Sort the (already filtered) full result list in place, before pagination.
+ *  'relevance' = leave the rankSets order untouched (doSearch then applies the
+ *  stable best-source-class partition on top). */
+function sortSearchResults(results: CatalogSet[], mode: string): void {
+  switch (mode) {
+    case 'pieces-desc': results.sort((a, b) => (b.num_parts ?? 0) - (a.num_parts ?? 0)); break;
+    case 'pieces-asc':  results.sort((a, b) => (a.num_parts ?? 0) - (b.num_parts ?? 0)); break;
+    case 'year-desc':   results.sort((a, b) => (b.year ?? 0) - (a.year ?? 0)); break;
+    case 'year-asc':    results.sort((a, b) => (a.year ?? 0) - (b.year ?? 0)); break;
+    case 'name-asc':    results.sort((a, b) => a.name.localeCompare(b.name)); break;
+    // default ('relevance'): no-op
+  }
 }
 
 // ─── Results ─────────────────────────────────────────────────────────────────
 
-function renderResults(sets: CatalogSet[]): void {
+function renderResults(): void {
   const resultsEl = document.getElementById('lego-results')!;
   const gridEl    = document.getElementById('lego-results-grid')!;
   resultsEl.hidden = false;
 
-  gridEl.innerHTML = sets.map((s, i) => {
+  const shown = searchResults.slice(0, visibleResults);
+  const idx = modelsIndexSync();
+  const cardHtml = shown.map((s, i) => {
     const inOmr = isInOmr(s.set_num);
+    // Best source = what auto-load will actually give you (same helper the
+    // filter and the loader use), so the badge can never advertise a source
+    // the set won't load.
+    const best = idx ? bestIndexedModel(idx, s.set_num) : null;
+    const srcBadge = best
+      ? `<div class="lego-src-badge lego-src-${sourceClass(best.src)}" title="Best source: ${escAttr(best.src)}">${escAttr(sourceBadgeLabel(best.src))}</div>`
+      : '';
     return `
     <button class="lego-result-card${inOmr ? ' lego-result-card-omr' : ''}" data-idx="${i}" title="${escAttr(s.name)}">
       <img class="lego-result-img" src="/lego-thumbs/${escAttr(s.set_num)}.jpg"
@@ -218,6 +1325,7 @@ function renderResults(sets: CatalogSet[]): void {
         </svg>
       </div>
       ${inOmr ? '<div class="lego-omr-badge">3D</div>' : ''}
+      ${srcBadge}
       <div class="lego-result-info">
         <div class="lego-result-num">${escAttr(s.set_num)}</div>
         <div class="lego-result-name">${escAttr(s.name)}</div>
@@ -227,8 +1335,22 @@ function renderResults(sets: CatalogSet[]): void {
   `;
   }).join('');
 
+  const remaining = searchResults.length - shown.length;
+  const moreHtml = remaining > 0
+    ? `<button class="lego-show-more" id="lego-show-more">Show ${Math.min(remaining, RESULTS_PAGE)} more (${remaining.toLocaleString()} remaining)</button>`
+    : '';
+  gridEl.innerHTML = cardHtml + moreHtml;
+
   gridEl.querySelectorAll<HTMLButtonElement>('.lego-result-card').forEach(card => {
-    card.addEventListener('click', () => selectSet(sets[parseInt(card.dataset['idx']!)]));
+    card.addEventListener('click', () => selectSet(shown[parseInt(card.dataset['idx']!)]!));
+  });
+  document.getElementById('lego-show-more')?.addEventListener('click', () => {
+    visibleResults += RESULTS_PAGE;
+    // Preserve scroll position across the re-render (innerHTML resets it).
+    const scroller = resultsEl;
+    const top = scroller.scrollTop;
+    renderResults();
+    scroller.scrollTop = top;
   });
 }
 
@@ -241,6 +1363,10 @@ function hideResults(): void {
 
 function selectSet(set: CatalogSet): void {
   selectedSet = set;
+  // Stamp the selection with the search generation it was made in, so an
+  // OLDER search still in flight cannot clear it out from under the load this
+  // click is about to start (see `searchSeq`).
+  selectionSeq = searchSeq;
 
   document.querySelectorAll<HTMLElement>('.lego-result-card').forEach(c => {
     const idx = parseInt(c.dataset['idx'] ?? '-1', 10);
@@ -269,7 +1395,14 @@ function selectSet(set: CatalogSet): void {
         <a href="${escAttr(set.set_url)}" target="_blank" rel="noopener" class="lego-ext-link">
           Rebrickable ↗
         </a>
+        <span id="lego-instr-links"></span>
       </div>
+    </div>
+    <!-- Unified-index source picker (populated when the index has models) -->
+    <div id="lego-source-row" hidden style="display:none;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap">
+      <span style="font-size:0.72rem;opacity:0.7">Source</span>
+      <span id="lego-source-badge" style="font-size:0.68rem;padding:1px 7px;border-radius:9px;background:rgba(124,58,237,0.18);border:1px solid rgba(124,58,237,0.5);color:#a78bfa;text-transform:uppercase;letter-spacing:0.04em"></span>
+      <select id="lego-source-select" title="Switch between available 3D model sources for this set" style="font-size:0.72rem;padding:2px 4px;border-radius:3px;max-width:100%"></select>
     </div>
     <button class="btn btn-primary lego-auto-load-btn" id="lego-auto-load">
       Auto-Load LDraw from OMR
@@ -279,6 +1412,59 @@ function selectSet(set: CatalogSet): void {
   // Wire auto-load button
   const autoBtn = document.getElementById('lego-auto-load') as HTMLButtonElement;
   autoBtn.addEventListener('click', () => autoLoadFromOMR(set));
+
+  // Unified index: if this set has indexed models, show the source picker and
+  // auto-load the best (first) one. Sets absent from the index keep the
+  // classic flow (Auto-Load button → OMR / reconstructed / BFF fallbacks).
+  void getModelsIndex().then(async idx => {
+    if (selectedSet !== set) return; // stale — user selected another set
+    const models = lookupIndexModels(idx, set.set_num);
+    if (!models) return;
+    renderSourcePicker(set, models);
+    // Try indexed sources in order — quality-gated loads throw on broken
+    // conversions, so a set whose "best" entry is a bad LXF-lineage file
+    // still auto-loads its first GOOD source (visual-QA: 10255's first three
+    // entries are all the same repackaged conversion). Only when every
+    // indexed source fails does the classic OMR/reconstructed/BFF chain run.
+    let loaded = false;
+    // Shared with the search filter/sort/badges (@engine/lego-sources) so the
+    // source a card advertises is the source this loop actually tries first.
+    const tryOrder = indexedTryOrder(models, set.num_parts);
+    resetLoadDiag('indexed', models, tryOrder[0] ?? null);
+    for (const i of tryOrder) {
+      try {
+        await loadIndexedModel(set, models, i);
+        loaded = true;
+        break;
+      } catch (err) {
+        if (selectedSet !== set) return; // stale selection — stop entirely
+        const msg = err instanceof Error ? err.message : String(err);
+        // Record the fall-through so the badge/status/diagnostics can say WHY
+        // the model on screen isn't the one the card advertised.
+        loadDiag.attempts.push({ src: models[i]!.src, path: models[i]!.path, error: msg });
+        console.warn(`[lego] indexed source ${models[i]!.src} (${models[i]!.path}) failed:`, err);
+      }
+    }
+    if (!loaded) {
+      if (selectedSet !== set) return;
+      setStatus('Indexed sources unavailable — falling back to OMR/reconstructed…', 'info');
+      await autoLoadFromOMR(set);
+    }
+  }).catch(err => {
+    console.warn('[lego] indexed auto-load chain failed:', err);
+  });
+
+  // Async: inject instruction PDF links when map is loaded
+  getInstructionsMap().then(map => {
+    const urls = map[setNumBase];
+    const linksEl = document.getElementById('lego-instr-links');
+    if (!urls || urls.length === 0 || !linksEl) return;
+    linksEl.innerHTML = urls.map((url, i) =>
+      `<a href="${escAttr(url)}" target="_blank" rel="noopener" class="lego-ext-link">
+        Instructions${urls.length > 1 ? ` ${i + 1}` : ''} PDF ↗
+      </a>`
+    ).join('');
+  });
 
   const omrFileUrl = `${OMR_BASE}/${encodeURIComponent(set.set_num)}.mpd`;
   omrEl.innerHTML = `
@@ -297,6 +1483,414 @@ function selectSet(set: CatalogSet): void {
   detailEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
+// ─── Unified-index model loading + source picker ─────────────────────────────
+
+/** Compact option label: `omr · tier1 · 246 steps · 965 parts · ✓verified`. */
+function sourceLabel(m: IndexModel): string {
+  const variant = m.variant ? ` · ${m.variant}` : '';
+  const conv = m.conv ? ' · conversion' : '';
+  // Measured assembly status (index schema 2). '?' is honest: the file was
+  // never geometry-audited, which is not the same as "fine" — see
+  // engine/lego-sources.ts assemblyStatus().
+  const asm = { verified: ' · ✓verified', defective: ' · ✗defects', unverified: ' · ?unverified' };
+  return `${m.src} · tier${m.tier}${m.steps > 1 ? ` · ${m.steps} steps` : ''} · ${m.n} parts${variant}${conv}${asm[assemblyStatus(m)]}`;
+}
+
+/**
+ * Badge text + tooltip for the source that ACTUALLY rendered.
+ *
+ * `⚠ fallback` is shown whenever the loaded entry is not the one the try-order
+ * intended, so the UI never advertises a source it isn't showing.
+ */
+function loadedSourceBadge(): { text: string; title: string } | null {
+  const { models, intendedIndex, loadedIndex, attempts } = loadDiag;
+  if (!models || loadedIndex == null) return null;
+  const loaded = models[loadedIndex];
+  if (!loaded) return null;
+  const fellBack = intendedIndex != null && intendedIndex !== loadedIndex;
+  const lines = [`${loaded.src} — ${loaded.path}`, assemblyStatusLabel(loaded)];
+  if (loaded.lineage) lines.push(`lineage: ${loaded.lineage}`);
+  const pickReason = tryOrderReason(models);
+  if (pickReason) lines.push(`pick: ${pickReason}`);
+  for (const a of attempts) lines.push(`skipped ${a.src}: ${a.error}`);
+  return { text: fellBack ? `${loaded.src} ⚠ fallback` : loaded.src, title: lines.join('\n') };
+}
+
+/**
+ * Concise "not the source we meant to load" note for the render status.
+ *
+ * Takes the entry being loaded rather than reading `loadDiag.loadedIndex` —
+ * this runs INSIDE the load, before success is recorded.
+ */
+function fallbackNote(loadingIndex: number): string | undefined {
+  const { models, intendedIndex, attempts } = loadDiag;
+  if (!models || intendedIndex == null) return undefined;
+  if (intendedIndex === loadingIndex || attempts.length === 0) return undefined;
+  const first = attempts[0]!;
+  const more = attempts.length > 1 ? ` (+${attempts.length - 1} more)` : '';
+  return `fell back to ${models[loadingIndex]?.src ?? 'another source'}`
+    + ` — ${first.src} failed: ${first.error}${more}`;
+}
+
+/** Build the source <select> + active-source badge for the selected set. */
+function renderSourcePicker(set: CatalogSet, models: IndexModel[]): void {
+  const row = document.getElementById('lego-source-row');
+  const select = document.getElementById('lego-source-select') as HTMLSelectElement | null;
+  if (!row || !select) return;
+  select.innerHTML = models
+    .map((m, i) => `<option value="${i}">${escAttr(sourceLabel(m))}</option>`)
+    .join('');
+  // onchange assignment (NOT addEventListener): renderSourcePicker runs once
+  // per set selection, and stacked listeners from previous sets would each
+  // fire with their own stale set/models and race the current load.
+  select.onchange = () => {
+    const i = parseInt(select.value, 10);
+    if (!Number.isFinite(i) || !models[i]) return;
+    // An explicit pick makes the auto-chain's fallback trail irrelevant — the
+    // user's choice IS the intent, so the record restarts here (otherwise the
+    // badge would keep claiming a fallback the user overrode).
+    resetLoadDiag('manual-pick', models, i);
+    // Explicit user choice → allowBroken: load even known-broken conversions,
+    // clearly labelled (the auto path skips them and falls back instead).
+    void loadIndexedModel(set, models, i, true).catch(err => {
+      setStatus(`Failed to load ${models[i]!.src} model: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    });
+  };
+  updateSourcePickerUI(models, 0);
+  // `.lego-scale-row`-style rows use flex; hidden alone is overridden by
+  // inline display, so toggle both (same pattern as the step-slider row).
+  row.hidden = false;
+  row.style.display = 'flex';
+}
+
+function updateSourcePickerUI(models: IndexModel[], idx: number): void {
+  const badge = document.getElementById('lego-source-badge');
+  const select = document.getElementById('lego-source-select') as HTMLSelectElement | null;
+  if (badge) badge.textContent = models[idx]?.src ?? '';
+  if (select && select.value !== String(idx)) select.value = String(idx);
+}
+
+// ─── Diagnostic bundle (audit P1 #4) ────────────────────────────────────────
+
+/** Reveal the "⤓ diagnostics" link once something has actually rendered. */
+function updateDiagnosticsButton(): void {
+  const row = document.getElementById('lego-diag-row');
+  if (row) row.hidden = currentBricks == null;
+}
+
+/**
+ * Assemble + download the reproduction bundle for whatever is on screen.
+ *
+ * Reads the LDD alignment table's size straight from the served file: it is the
+ * one mapping revision that changes placement for every .lxf load, and after an
+ * .lxf render the browser already has it cached, so this is normally free.
+ */
+async function downloadDiagnostics(): Promise<void> {
+  const { LDRAW_PART_ALIASES } = await import('@engine/ldraw-part-aliases.js');
+  const { partCacheRevision } = await import('@viewer/ldraw/parts.js');
+  const countEntries = async (url: string): Promise<number | null> => {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) return null;
+      return Object.keys(await r.json() as Record<string, unknown>).length;
+    } catch { return null; } // absent table is itself a finding — reported as null
+  };
+  const [lddEntries, measuredEntries] = await Promise.all([
+    countEntries('/ldd-part-map.json'),
+    countEntries('/ldd-measured-align.json'),
+  ]);
+  const cacheRev = partCacheRevision();
+  const explodeEl = document.getElementById('lego-explode-slider') as HTMLInputElement | null;
+  const v = currentLDrawViewer;
+  const bundle = buildLegoDiagnostics({
+    setNum: selectedSet?.set_num,
+    setName: selectedSet?.name,
+    index: _modelsIndex,
+    models: loadDiag.models,
+    intendedIndex: loadDiag.intendedIndex,
+    loadedIndex: loadDiag.loadedIndex,
+    attempts: loadDiag.attempts,
+    sourceUrl: loadDiag.url,
+    fallbackLoader: loadDiag.loader,
+    warning: currentSourceWarning,
+    contentHash: loadDiag.contentHash,
+    appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : undefined,
+    mapping: {
+      lddPartMapEntries: lddEntries,
+      lddMeasuredAlignEntries: measuredEntries,
+      partAliasEntries: Object.keys(LDRAW_PART_ALIASES).length,
+      // Cache FORMAT version and the DEPLOYED library revision it is pinned to
+      // (audit P1 #6). `libraryRevision: null` means the revision could not be
+      // established — no IndexedDB, no `_rev` endpoint, or offline — NOT that
+      // the library is unversioned.
+      datCacheVersion: cacheRev.format,
+      libraryRevision: cacheRev.library,
+    },
+    render: {
+      mode: directRenderMode ? 'direct-3d' : 'voxel',
+      bricks: currentBricks?.length ?? null,
+      steps: totalSteps,
+      sliderMode,
+      maxStep: currentStep ?? null,
+      explodeFactor: explodeEl ? Number(explodeEl.value) / 100 : null,
+      edgesDropped: v?.edgesDroppedForSize ?? false,
+    },
+    parts: {
+      missing: v?.missingParts ?? [],
+      substituted: v?.substitutedParts ?? [],
+      unresolvedSubparts: v?.unresolvedSubparts ?? [],
+    },
+    contactAudit: lastContactAudit,
+  });
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = diagnosticsFilename(selectedSet?.set_num);
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 100);
+  setStatus(`Saved ${a.download} — attach it to a bug report`, 'success');
+}
+
+/**
+ * Fetch one indexed model from /lego-models/ and display it through the same
+ * direct-3D path uploads use (LDrawViewer via voxelizeAndDisplay).
+ * Dispatch by extension: .ldr/.mpd → parseLDraw, .io → extractIoModel,
+ * .lxf → parseLxf.
+ */
+async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: number, allowBroken = false): Promise<void> {
+  const model = models[idx];
+  if (!model) throw new Error(`no model at index ${idx}`);
+  const epoch = newLoadEpoch();
+  updateSourcePickerUI(models, idx);
+  // Loading state: the PREVIOUS model stays on screen while this one streams
+  // in (parts fetch one by one), so the badge must say so and the picker must
+  // freeze — otherwise the UI claims the new source while still showing the
+  // old model. Epoch-guarded restore so a newer load's UI is never clobbered.
+  const srcBadge = document.getElementById('lego-source-badge');
+  const srcSelect = document.getElementById('lego-source-select') as HTMLSelectElement | null;
+  if (srcBadge) srcBadge.textContent = `${model.src} · loading…`;
+  if (srcSelect) srcSelect.disabled = true;
+  try {
+    const displayed = await loadIndexedModelBody(set, model, idx, epoch, allowBroken);
+    if (!displayed) {
+      // Abandoned part-way, not rendered. The badge must NOT then advertise
+      // this source as loaded: that lie is what made the production stall read
+      // as a successful load with an empty viewer, and it is what sent the
+      // first investigation looking for a hang that was not there.
+      if (!loadIsStale(epoch) && srcBadge) {
+        srcBadge.textContent = `${model.src} · cancelled`;
+        srcBadge.title = 'this load was superseded before it rendered — see the console';
+      }
+      return;
+    }
+    loadDiag.loadedIndex = idx;
+    // Badge reports the source that ACTUALLY rendered, flagged when the
+    // try-order fell through to it (audit P1 #4: intended vs actual).
+    const badge = loadedSourceBadge();
+    if (!loadIsStale(epoch) && srcBadge) {
+      srcBadge.textContent = badge?.text ?? model.src;
+      srcBadge.title = badge?.title ?? '';
+    }
+    if (!loadIsStale(epoch)) updateDiagnosticsButton();
+  } catch (err) {
+    if (!loadIsStale(epoch) && srcBadge) srcBadge.textContent = `${model.src} · failed`;
+    throw err;
+  } finally {
+    if (!loadIsStale(epoch) && srcSelect) srcSelect.disabled = false;
+  }
+}
+
+/**
+ * What to tell the user about a `.lxf` model's placement accuracy.
+ *
+ * `.lxf` needs a per-design LDD→LDraw origin correction. Since 2026-09-17 the
+ * primary one is Studio's own `ldraw.xml` row applied as its INVERSE (see
+ * lxf-parser.ts's header), with clego's measured table as the fallback:
+ * measured over 91 native `.lxf` files with an authentic Studio `.io`
+ * (scripts/lxf_gt_eval.py) it lands ≈93 % of parts on ground truth. So the
+ * caveat is a real, quantified accuracy figure, not a vague hedge.
+ */
+const LXF_ALIGNMENT_CAVEAT =
+  'LDD .lxf: placed through the Studio per-part alignment (≈93% of parts land '
+  + 'on authentic Studio ground truth, measured over 91 sets); flex parts and '
+  + 'designs Studio does not map can still sit off';
+
+/**
+ * Surface a `.lxf` load's alignment coverage: keep the structured record for the
+ * diagnostic bundle, log it, and fold the one-line summary into
+ * `currentSourceWarning` so the user sees it in the FINAL status (a bare
+ * setStatus here is clobbered by the render-success status — see the
+ * `currentSourceWarning` contract above).
+ *
+ * A missing table is a hard failure with a retry hint, not a silent fallback to
+ * raw LDD origins: that silent path is exactly audit P1 item 3.
+ */
+/**
+ * Append a sentence to the source warning without repeating one already there.
+ * The `.lxf` caveat used to be ASSIGNED after `reportLxfDiagnostics` had
+ * appended its coverage line, so every `.lxf` over 150 bricks lost the line
+ * (the class-B re-frame count never reached the status; seen on 60118).
+ */
+function addSourceWarning(line: string): void {
+  if (!line || currentSourceWarning?.includes(line)) return;
+  currentSourceWarning = currentSourceWarning ? `${currentSourceWarning}; ${line}` : line;
+}
+
+function reportLxfDiagnostics(d: LxfDiagnostics, model: string): void {
+  loadDiag.lxfAlignment = d;
+  const line = describeLxfDiagnostics(d);
+  if (d.table.state !== 'ok') {
+    console.error('[lego] LDD alignment table unavailable', { model, ...d.table });
+  } else {
+    console.info('[lego] .lxf alignment coverage', { model, ...d });
+  }
+  if (line) addSourceWarning(line);
+}
+
+/**
+ * sha256/12 of the raw bytes — the same identity clego stamps into the index.
+ * Pure TypeScript (engine/pipeline-version.ts), NOT `crypto.subtle`: WebCrypto
+ * is absent on an insecure origin, which is exactly how the phone loads the
+ * dev server (`http://10.0.0.211:4000`), and there the hash used to come back
+ * null — so the index check silently never ran and a pack's provenance would
+ * have had no source hash. ~50 ms for a 4 MB model on the main thread.
+ * Returns null only if hashing itself throws, because "could not check" must
+ * never read as "did not match".
+ */
+function contentHash12(buf: ArrayBuffer): string | null {
+  try {
+    return sourceHash12(buf);
+  } catch {
+    return null;
+  }
+}
+
+/** File name as the user saw it (`10303 Loop Coaster.io`) from an index path or URL. */
+const fileNameOf = (path: string): string => path.split(/[\\/]/).pop() || path;
+
+async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: number,
+                                    epoch: number, allowBroken: boolean): Promise<boolean> {
+  const url = `${MODELS_BASE}/${encodeModelPath(model.path)}`;
+  loadDiag.url = url;
+  currentSource = null;
+  setStatus(`Loading ${sourceLabel(model)}: ${model.path}…`, 'info');
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${model.path}`);
+  // Bail if the user picked another set/source or uploaded while we fetched.
+  if (loadAbandoned('indexed:after-fetch', epoch, set)) return false;
+
+  // Read the bytes ONCE, then branch. Every source kind derives from `buf`, so
+  // the content hash below covers exactly what rendered — not a second fetch
+  // that could serve different bytes.
+  const buf = await resp.arrayBuffer();
+  const actualHash = contentHash12(buf);
+  loadDiag.contentHash = {
+    expected: model.hash ?? null,
+    actual: actualHash,
+    match: model.hash && actualHash ? model.hash === actualHash : null,
+  };
+  // What a Bedrock pack built from these bytes will name as its source: the
+  // hash of what actually rendered, falling back to the index's claim.
+  currentSource = { file: fileNameOf(model.path), hash: actualHash ?? model.hash ?? null, origin: 'index', path: model.path, setNum: set.set_num };
+  if (loadDiag.contentHash.match === false) {
+    // The deployed file is NOT the file the index describes. Everything the
+    // index says about it — grade, severity, defects, lineage — describes other
+    // bytes, so say so rather than presenting stale metadata as measured fact.
+    console.warn('[lego] model content hash mismatch', { path: model.path, expected: model.hash, actual: actualHash });
+    const note = 'the deployed file does not match the index hash — its recorded grade/lineage describe different bytes';
+    currentSourceWarning = currentSourceWarning ? `${currentSourceWarning}; ${note}` : note;
+  }
+  if (loadAbandoned('indexed:after-content-hash', epoch, set)) return false;
+
+  const ext = model.path.split('.').pop()?.toLowerCase();
+  let bricks: ParsedBrick[];
+  let colorFn: ((id: number) => string) | undefined;
+
+  if (ext === 'io') {
+    const ioModel = await extractIoModel(buf);
+    if (loadAbandoned('indexed:after-io-extract', epoch, set)) return false;
+    const text = maybeSynthesize(ioModel.text);
+    // Some ".io" files are laundered LXF conversions (raw LDD material-id
+    // colors, no alignment) rather than authentic Studio exports — 10255's
+    // is. Same gate as the .ldr branch.
+    {
+      const ioQ = reconstructionQuality(text);
+      if (ioQ === 'broken') {
+        if (!allowBroken) throw new Error('repackaged LXFML conversion (LDD colors, unaligned) — skipped');
+        currentSourceWarning = 'this .io is a repackaged LXFML conversion — placements/colors may be wrong (defects are in the file, not the renderer)';
+      } else {
+        const caveat = sourceCaveat(text, ioQ); // e.g. laundered DBIX repack (72153's ".io")
+        if (caveat) currentSourceWarning = caveat;
+      }
+    }
+    currentMpdContent = text;
+    currentCustomParts = ioModel.customParts.size ? ioModel.customParts : undefined;
+    bricks = parseLDraw(text);
+    colorFn = ioColorFn(ioModel);
+  } else if (ext === 'lxf') {
+    const parsed = await parseLxfWithDiagnostics(buf);
+    if (loadAbandoned('indexed:after-lxf-parse', epoch, set)) return false;
+    bricks = parsed.bricks;
+    reportLxfDiagnostics(parsed.diagnostics, model.path);
+    currentMpdContent = undefined;
+    currentCustomParts = undefined;
+  } else {
+    // .ldr / .mpd (and anything else text-shaped). Decoded from the same
+    // buffer the hash covers; TextDecoder strips a BOM exactly as
+    // Response.text() would.
+    const text = maybeSynthesize(new TextDecoder().decode(buf));
+    if (loadAbandoned('indexed:after-text-decode', epoch, set)) return false;
+    // Quality gate (visual-QA finding 2026-07-20: the index ranks unaligned
+    // convert_lxf.py conversions tier1 for some sets — they render as
+    // stacked/scrambled parts with LDD-material-id colors, e.g. 10255/1924).
+    // Auto-load SKIPS them (throw → caller falls back to the classic
+    // OMR/reconstructed/BFF chain); an EXPLICIT source-picker choice still
+    // loads them, labelled via currentSourceWarning (setStatus here would be
+    // clobbered by the render-success status).
+    const q = reconstructionQuality(text);
+    if (q === 'broken' && !allowBroken) {
+      throw new Error('unaligned LXFML conversion (scrambled placements/colors) — skipped');
+    }
+    if (q === 'broken') {
+      currentSourceWarning = 'this source is an unaligned LXFML conversion — parts render scattered/stacked and colors may be wrong (defects are in the file, not the renderer)';
+    } else {
+      const caveat = sourceCaveat(text, q);
+      if (caveat) currentSourceWarning = caveat;
+    }
+    currentMpdContent = text;
+    currentCustomParts = undefined;
+    bricks = parseLDraw(text);
+  }
+
+  if (ext === 'lxf' && bricks.length > 150) addSourceWarning(LXF_ALIGNMENT_CAVEAT);
+  if (bricks.length === 0) throw new Error(`no brick placements in ${model.path}`);
+  // Index-level conversion flag (lineage metadata — catches laundered LXF
+  // conversions that text-sniffing can't). Routed through currentSourceWarning
+  // so it APPENDS to the final render status (a bare setStatus after display
+  // replaced the whole info line — brick count, dims — with just the warning).
+  // Never blocks loading — for some sets this is the only model that exists.
+  // Don't clobber a more specific text-level caveat (e.g. DBIX_WARNING on a
+  // conv-flagged legacy dbix entry) with this generic one.
+  if (model.conv && !currentSourceWarning) {
+    currentSourceWarning = 'script-converted model (LXF lineage) — some parts may be misrotated/misplaced; prefer another source if available';
+  }
+  // Measured-defect note (index schema 2): geograde graded THIS file and it
+  // failed a calibrated threshold. Distinct from the provenance caveats above —
+  // it says what was measured, not what the lineage suggests. An 'unverified'
+  // source says nothing here: absence of a grade is not a defect.
+  if (assemblyStatus(model) === 'defective') {
+    const why = model.defects?.length ? model.defects.join('; ') : 'defects found';
+    const note = `geometry audit of this source found: ${why}`;
+    currentSourceWarning = currentSourceWarning ? `${note}; ${currentSourceWarning}` : note;
+  }
+  // The chain reached this source only after earlier ones failed — say so in
+  // the SAME status line the render writes (a later setStatus is clobbered).
+  const fell = fallbackNote(idx);
+  if (fell) currentSourceWarning = currentSourceWarning ? `${fell}; ${currentSourceWarning}` : fell;
+  await voxelizeAndDisplay(bricks, `${set.set_num}-${model.src}`, colorFn);
+  return true;
+}
+
 // ─── OMR Auto-Load ───────────────────────────────────────────────────────────
 
 /**
@@ -305,40 +1899,94 @@ function selectSet(set: CatalogSet): void {
 async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
   const btn = document.getElementById('lego-auto-load') as HTMLButtonElement | null;
   if (btn) btn.disabled = true;
+  const epoch = newLoadEpoch();
+  try {
 
   // ── Source 1: LDraw OMR ──────────────────────────────────────────────────
   const inOmr = !isOmrLoaded() || isInOmr(set.set_num);
   if (inOmr) {
     const filename = `${set.set_num}.mpd`;
     const url = `${OMR_FETCH_BASE}/${encodeURIComponent(filename)}`;
+    // This chain has no index entry, so the diagnostic bundle records the
+    // loader name + URL instead of a source entry.
+    resetLoadDiag('omr-chain');
+    loadDiag.url = url;
     setStatus(`Trying LDraw OMR: ${filename}…`, 'info');
     try {
       const resp = await fetch(url);
       if (resp.ok) {
         const text = await resp.text();
-        if (btn) btn.disabled = false;
-        await parseMpdFile(new File([text], filename, { type: 'text/plain' }));
+        if (loadAbandoned('omr:after-omr-fetch', epoch, set)) return;
+        await parseMpdFile(new File([text], filename, { type: 'text/plain' }), 'omr-chain');
         return;
       }
-      // 404 → not found
+      // 404 → not found; fall through to the next source
     } catch (err) {
-      throw err;
+      // Transient network failure must NOT abort the chain (the old rethrow
+      // here skipped both fallbacks and stranded the button disabled).
+      console.warn('[lego] OMR fetch failed, trying fallbacks:', err);
     }
   }
+  if (loadAbandoned('omr:before-reconstructed', epoch, set)) return;
 
-  // ── Source 2: BrickLink BFF inventory (flat colour layout) ───────────────
+  // ── Source 2: Clego reconstructed LDR (3D assembled model from PDF/IO) ──
+  const reconIdx = await getReconstructedIndex();
+  const baseNum = baseSetNum(set.set_num);
+  if (reconIdx.has(baseNum)) {
+    const filename = `${baseNum}_reconstructed.ldr`;
+    setStatus(`Trying reconstructed 3D model: ${filename}…`, 'info');
+    resetLoadDiag('reconstructed-chain');
+    loadDiag.url = `${RECONSTRUCTED_BASE}/${filename}`;
+    try {
+      const resp = await fetch(`${RECONSTRUCTED_BASE}/${filename}`);
+      if (resp.ok) {
+        const text = await resp.text();
+        if (loadAbandoned('omr:after-reconstructed-fetch', epoch, set)) return;
+        const quality = reconstructionQuality(text);
+        if (quality === 'broken') {
+          // DBIX_LXFML-sourced conversions were written without per-part
+          // LDD→LDraw origin alignment — parts render scattered/mis-rotated
+          // and colors are raw material ids (10320 et al. are a jumble).
+          // A flat BFF inventory beats a jumble; fall through.
+          console.warn(`[lego] skipping ${filename}: DBIX_LXFML conversion lacks part alignment (would render scrambled)`);
+        } else {
+          const caveat = sourceCaveat(text, quality);
+          if (caveat) currentSourceWarning = caveat;
+          currentMpdContent = text;
+          currentCustomParts = undefined;
+          const bricks = parseLDraw(text);
+          if (bricks.length > 0) {
+            const warn = caveat ? ` ⚠ ${caveat}` : '';
+            setStatus(`Loaded reconstructed 3D model for ${set.set_num} (${bricks.length} parts)${warn}`, 'info');
+            currentSource = { file: fileNameOf(filename), hash: contentHash12(new TextEncoder().encode(text).buffer as ArrayBuffer), origin: 'unknown', path: filename, setNum: set.set_num };
+            await voxelizeAndDisplay(bricks, set.set_num);
+            return;
+          }
+        }
+      }
+    } catch { /* fall through */ }
+  }
+  if (loadAbandoned('omr:before-bff', epoch, set)) return;
+
+  // ── Source 3: BrickLink BFF inventory (flat colour layout — last resort) ─
   setStatus(`No 3D model found — trying BL parts inventory for ${set.set_num}…`, 'info');
+  resetLoadDiag('bff-inventory');
   try {
     const parts = await fetchBffInventory(set.set_num);
     if (parts.length > 0) {
+      if (loadAbandoned('omr:after-bff-fetch', epoch, set)) return;
       const ldrText = bffInventoryToLDraw(set.set_num, parts);
+      currentMpdContent = ldrText;
+      currentCustomParts = undefined;
       const bricks = parseLDraw(ldrText);
       if (bricks.length > 0) {
+        // A synthesised inventory layout, not a file anyone has: hashed so the
+        // provenance still identifies exactly what was exported.
+        currentSource = { file: `${set.set_num} BrickLink inventory (generated).ldr`, hash: contentHash12(new TextEncoder().encode(ldrText).buffer as ArrayBuffer), origin: 'unknown', setNum: set.set_num };
         setStatus(
-          `No 3D model in OMR — showing colour layout from BL parts (${parts.length} part types, ${bricks.length} total)`,
+          `⚠ 2D colour map only — no 3D model available (${parts.length} part types from BL inventory)`,
           'info',
         );
-        if (btn) btn.disabled = false;
         await voxelizeAndDisplay(bricks, set.set_num, studioColorToBlock);
         return;
       }
@@ -370,21 +2018,316 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
       <p class="lego-omr-note">Download the <code>.mpd</code> or <code>.ldr</code> file, then drag it into the upload zone above.</p>
     `;
   }
-  if (btn) btn.disabled = false;
+
+  } finally {
+    // Whatever path was taken (success, stale bail, or an unexpected throw),
+    // the Auto-Load button must come back.
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ─── Export loaded set (3D model / Minecraft schematic) ──────────────────────
+
+/** Lazily fetch + cache the LDraw color-id → name map (for the BOM CSV). */
+let colorNamesPromise: Promise<Record<string, string>> | null = null;
+function loadColorNames(): Promise<Record<string, string>> {
+  if (!colorNamesPromise) {
+    colorNamesPromise = fetch('/ldraw-color-names.json')
+      .then(r => (r.ok ? r.json() : {}))
+      .catch(() => ({} as Record<string, string>));
+  }
+  return colorNamesPromise;
+}
+
+/** The "Walk add-on" button follows whether an add-on has been exported in this session. */
+function updateAddonWalkButtons(): void {
+  const btn = document.getElementById('lego-addon-walk') as HTMLButtonElement | null;
+  if (!btn) return;
+  btn.disabled = !lastAddonExport;
+  btn.title = lastAddonExport
+    ? `Walk the collider blocks ${lastAddonExport.label} lays, in the browser: legend, reach on foot, sizes`
+    : 'Walk the collider blocks the last add-on exported here lays, in the browser: legend, reach on foot, sizes. Export an add-on (.mcaddon) first.';
+}
+
+/**
+ * Open the add-on walk (ui/addon-preview.ts, lazy) over the tab's viewer for
+ * a built `.mcaddon`. The viewer is mounted if the tab has not rendered in 3D
+ * yet; the walk borrows its renderer and hands it back on exit.
+ */
+async function openAddonWalk(bytes: Uint8Array, label: string): Promise<void> {
+  try {
+    addonWalk?.close();
+    const viewerEl = rootEl.closest('.tab-content')?.querySelector('.viewer-area, .inline-viewer') as HTMLElement
+      ?? document.getElementById('lego-viewer');
+    if (!viewerEl) { setStatus('The LEGO viewer panel is missing; cannot open the walk.', 'error'); return; }
+    setStatus(`Reading ${label}…`, 'info');
+    const [{ openAddonPreview }, { loadAddonPreviewModel }] = await Promise.all([
+      import('@ui/addon-preview.js'),
+      import('@ui/addon-preview-data.js'),
+    ]);
+    const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    const model = await loadAddonPreviewModel(buffer);
+    const viewer = await mountDirectViewer(viewerEl);
+    // The walk's simulator runs the pack from the same bytes (ui/addon-sim-worker.ts).
+    addonWalk = openAddonPreview({
+      viewer, model, bytes: buffer,
+      onStatus: (m, k) => setStatus(m, k),
+      onClose: () => { addonWalk = null; setStatus(`Left the add-on walk of ${label}.`, 'info'); },
+    });
+  } catch (err) {
+    setStatus(`Add-on walk failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+  }
+}
+
+async function exportLoadedModel(fmt: string): Promise<void> {
+  if (!currentBricks) { setStatus('Load a set first, then export.', 'error'); return; }
+  const base = exportStem();
+  let progress: ExportProgressHandle | null = null;
+  try {
+    if (fmt === 'glb' || fmt === 'obj' || fmt === 'stl' || fmt === '3mf') {
+      if (!currentLDrawViewer) {
+        setStatus('3D export needs the 3D renderer (enable “3D Render”).', 'error');
+        return;
+      }
+      // bakeInstances bakes material × instanceColor — drop an active
+      // connectivity-verify highlight or the export comes out red/grey.
+      if (currentLDrawViewer.detachedHighlightActive) {
+        currentLDrawViewer.clearDetachedHighlight();
+        const vb = document.getElementById('lego-verify') as HTMLInputElement | null;
+        if (vb) vb.checked = false;
+      }
+      const meshes = currentLDrawViewer.exportMeshes();
+      if (meshes.length === 0) { setStatus('No geometry to export.', 'error'); return; }
+      // exporter.ts bakes one Mesh per instance (no instancing in OBJ/STL), so
+      // file size scales with triangles. OBJ ≈ 320 B/tri, STL = 50 B/tri.
+      // GLB stays compact (glTF reuses shared accessors). Guard the un-instanced
+      // formats so a huge set can't OOM the browser building a multi-GB
+      // string/buffer — steer the user to GLB instead.
+      const tris = countExportTriangles(meshes as unknown as Parameters<typeof countExportTriangles>[0]);
+      const OBJ_MAX_TRIS = 2_000_000; // ~640 MB OBJ
+      const STL_MAX_TRIS = 12_000_000; // ~600 MB STL
+      const THREEMF_MAX_TRIS = 1_500_000; // XML text ~200 B/tri before zip — string building is the bottleneck
+      if (fmt === 'obj' && tris > OBJ_MAX_TRIS) {
+        setStatus(`Too large for OBJ (${(tris / 1e6).toFixed(1)}M triangles → ~${Math.round(tris * 320 / 1e6)} MB). Use GLB — it stays compact via shared geometry.`, 'error');
+        return;
+      }
+      if (fmt === 'stl' && tris > STL_MAX_TRIS) {
+        setStatus(`Too large for STL (${(tris / 1e6).toFixed(1)}M triangles → ~${Math.round(tris * 50 / 1e6)} MB). Use GLB, or slice the model with the layer/step slider first.`, 'error');
+        return;
+      }
+      if (fmt === '3mf' && tris > THREEMF_MAX_TRIS) {
+        setStatus(`Too large for 3MF (${(tris / 1e6).toFixed(1)}M triangles — the XML would exceed browser string limits). Use GLB, or slice the model with the layer/step slider first.`, 'error');
+        return;
+      }
+      const big = (fmt === 'obj' || fmt === 'stl' || fmt === '3mf') && tris > 1_000_000;
+      setStatus(big ? `Baking ${(tris / 1e6).toFixed(1)}M triangles to ${fmt.toUpperCase()} — large file, please wait…` : `Exporting ${fmt.toUpperCase()}…`, 'info');
+      // The mesh bake is synchronous inside three's exporters, so the banner can
+      // only report the phase (indeterminate) — but it stays visible while the
+      // scrollable status line does not.
+      progress = beginExportProgress(`${base}.${fmt}`);
+      progress.update(`baking ${(tris / 1e6).toFixed(1)}M triangles`);
+      await new Promise(r => setTimeout(r, 0)); // paint the status before the (heavy, sync) bake
+      // Only viewer.meshes is read by the exporters — duck-type a ViewerState.
+      const shim = { meshes } as unknown as ViewerState;
+      if (fmt === 'glb') {
+        await exportGLB(shim, `${base}.glb`);
+        setStatus(`Exported ${base}.glb`, 'success');
+        progress.done(`Exported ${base}.glb`);
+      }
+      else {
+        // STL/OBJ bake at real-LEGO scale (8 mm/stud) so prints come out true size.
+        const sz = currentLDrawViewer.getModelSizeStuds();
+        const mm = sz ? ` at real scale ${Math.round(sz.x * 8)}×${Math.round(sz.z * 8)}×${Math.round(sz.y * 8)} mm` : '';
+        if (fmt === 'obj') await exportOBJ(shim, `${base}.obj`);
+        else if (fmt === '3mf') await export3MF(shim, `${base}.3mf`);
+        else await exportSTL(shim, `${base}.stl`);
+        const colorNote = fmt === '3mf' ? ' with per-brick color' : '';
+        setStatus(`Exported ${base}.${fmt}${mm}${colorNote}`, 'success');
+        progress.done(`Exported ${base}.${fmt}`);
+      }
+      return;
+    }
+
+    if (fmt === 'lego-mcpack') {
+      try {
+        const { buildLegoResourcePack } = await import('../engine/lego-resource-pack.js');
+        const packBytes = await buildLegoResourcePack();
+        const blob = new Blob([packBytes as Uint8Array<ArrayBuffer>], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'Craftmatic-Lego-Pack.mcpack';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        setStatus('Downloaded Craftmatic-Lego-Pack.mcpack — double-click to install LEGO ABS plastic textures into Minecraft Bedrock.', 'success');
+      } catch {
+        const a = document.createElement('a');
+        a.href = '/downloads/Craftmatic-Lego-Pack.mcpack';
+        a.download = 'Craftmatic-Lego-Pack.mcpack';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setStatus('Downloaded Craftmatic-Lego-Pack.mcpack — double-click to install into Minecraft Bedrock.', 'success');
+      }
+      return;
+    }
+
+    if (fmt === 'schem' || fmt === 'litematic' || fmt === 'guide' || fmt === 'mcpack' || fmt === 'mcaddon' || fmt === 'live' || fmt === 'display') {
+      // Everything Minecraft-shaped goes through the ONE shared export module
+      // (ui/schem-export.ts → engine/schem-pipeline.ts, in a Web Worker) that
+      // the Upload tab also uses — Bedrock `.mcpack` included, so it shares the
+      // whole voxelize/shape/light path and differs only in the encoder.
+      // Resolution / block mapping / interior lights come from the ⚙ settings
+      // popover; the defaults reproduce the shipped proportion-exact behaviour
+      // byte-for-byte.
+      const exportLabel = selectedSet ? `${selectedSet.name} (${selectedSet.set_num})` : base;
+      const exported = await runMinecraftExport({
+        source: {
+          kind: 'bricks',
+          bricks: currentBricks,
+          colorSpace: currentBricksColorFn === studioColorToBlock ? 'bl' : 'ldraw',
+        },
+        format: fmt,
+        basename: base,
+        // The pack's name in Minecraft's own add-on list, where "Colosseum
+        // (10276)" reads better than the filename stem.
+        label: exportLabel,
+        settings: getSchemSettings(),
+        vehicleMode: ((document.getElementById('lego-vehicle-mode') as HTMLSelectElement | null)?.value ?? 'auto') as 'auto' | 'car' | 'plane' | 'boat' | 'static',
+        // The loaded file + its sha256/12, for the pack's provenance record.
+        sourceProvenance: currentSource,
+        onStatus: (m, k) => setStatus(m, k),
+      });
+      // The add-on just built stays in memory for the walk (ui/addon-preview.ts):
+      // the questions it answers used to need a device round per iteration.
+      if (fmt === 'mcaddon' && exported.ok && exported.bytes) {
+        lastAddonExport = { bytes: exported.bytes, label: exportLabel };
+        updateAddonWalkButtons();
+        setStatus(`${exported.message} Walk it in the browser with "Walk add-on".`, 'success');
+      }
+      return;
+    }
+
+    if (fmt === 'csv') {
+      // Bill of materials: count each (part, color) and emit CSV.
+      const counts = new Map<string, { part: string; color: number; count: number }>();
+      for (const b of currentBricks) {
+        const part = b.part.replace(/\.dat$/i, '');
+        const color = Number.isNaN(b.color) ? 16 : b.color;
+        const key = `${part}|${color}`;
+        const e = counts.get(key) ?? { part, color, count: 0 };
+        e.count++;
+        counts.set(key, e);
+      }
+      const rows = [...counts.values()].sort((a, b) => b.count - a.count || a.part.localeCompare(b.part));
+      const colorNames = await loadColorNames();
+      const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+      const lines = ['Part,ColorID,ColorName,ColorHex,Count'];
+      for (const r of rows) {
+        const name = colorNames[String(r.color)] ?? '';
+        lines.push(`${esc(r.part)},${r.color},${esc(name)},${LDRAW_COLOR_RGB[r.color] ?? ''},${r.count}`);
+      }
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${base}-parts.csv`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 100);
+      setStatus(`Exported parts list: ${rows.length} unique part/colors, ${currentBricks.length} bricks`, 'success');
+      return;
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    setStatus(`Export failed: ${msg}`, 'error');
+    progress?.fail(`Export failed: ${msg}`);
+  }
+}
+
+/**
+ * Record a 360° turntable of the loaded 3D model and download it as
+ * {set}-turntable.webm. Camera is orbited from OUTSIDE the viewer through its
+ * public controls/camera surface (see @viewer/turntable.js).
+ */
+async function exportTurntable(): Promise<void> {
+  if (!currentLDrawViewer) {
+    setStatus('Turntable export needs a model loaded in 3D Render mode — load a set first.', 'error');
+    return;
+  }
+  try {
+    const { recordTurntable, turntableSupported } = await import('@viewer/turntable.js');
+    if (!turntableSupported()) {
+      setStatus('Turntable export is not supported in this browser (needs MediaRecorder + canvas.captureStream).', 'error');
+      return;
+    }
+    const base = exportStem();
+    setStatus('Recording turntable: 0%… (6 s orbit)', 'info');
+    const blob = await recordTurntable(currentLDrawViewer, {
+      durationMs: 6000,
+      fps: 30,
+      onProgress: f => setStatus(`Recording turntable: ${Math.round(f * 100)}%…`, 'info'),
+    });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${base}-turntable.webm`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 100);
+    setStatus(`Exported ${base}-turntable.webm (${(blob.size / 1e6).toFixed(1)} MB, 360° orbit)`, 'success');
+  } catch (err) {
+    setStatus(`Turntable export failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+  }
 }
 
 // ─── Parse + Voxelize ────────────────────────────────────────────────────────
 
-async function parseMpdFile(file: File): Promise<void> {
+/**
+ * Synthesize any UNsynthesized LSynth flex blocks (hand-authored / editor
+ * exports) into swept-tube geometry. Pre-synthesized OMR blocks and Studio
+ * .io baked flex parts pass through untouched. Surfaces a status note on hit.
+ */
+function maybeSynthesize(text: string): string {
+  const r = synthesizeLSynth(text);
+  if (r.count > 0) {
+    setStatus(`Synthesized ${r.count} flexible part${r.count > 1 ? 's' : ''} (hose/tube) from LSynth constraints.`, 'info');
+  }
+  return r.text;
+}
+
+/**
+ * Parse + display an LDraw/Studio/LDD file. Shared by the upload zone and the
+ * OMR auto-load chain (which hands it a synthetic File), so the caller names
+ * the loader for the diagnostic bundle — 'upload' would misreport an OMR fetch.
+ */
+async function parseMpdFile(file: File, loader = 'upload'): Promise<void> {
   if (!onResult) return;
+  const epoch = newLoadEpoch();
+  if (loadDiag.loader !== loader) resetLoadDiag(loader);
+  // An upload replaces whatever set was selected — clear it, or the display
+  // label and the catalog-completeness note describe the WRONG set (seen:
+  // uploading a 374-piece train right after browsing a 6,838-piece set
+  // produced "file contains 374 of the set's 6,838 catalog pieces").
+  selectedSet = null;
+  currentSource = null;
   setStatus(`Parsing ${file.name}…`, 'info');
+  // Provenance for a pack built from this file: the bytes as chosen, hashed
+  // BEFORE any LSynth/parse rewriting, so the hash matches the file on disk.
+  const origin: SourceProvenance['origin'] = loader === 'upload' ? 'upload' : 'unknown';
+  const recordSource = (buf: ArrayBuffer): void => { currentSource = { file: file.name, hash: contentHash12(buf), origin }; };
 
   try {
     const ext = file.name.split('.').pop()?.toLowerCase();
 
-    if (ext === 'lxf') {
+    if (ext === 'lxf' || ext === 'lxfml') {
       const buf = await file.arrayBuffer();
-      const bricks = await parseLxf(buf);
+      recordSource(buf);
+      const parsed = await parseLxfWithDiagnostics(buf);
+      if (loadAbandoned('upload:after-lxf-parse', epoch)) return;
+      const bricks = parsed.bricks;
+      currentMpdContent = undefined;
+      currentCustomParts = undefined;
+      if (bricks.length > 150) addSourceWarning(LXF_ALIGNMENT_CAVEAT);
+      reportLxfDiagnostics(parsed.diagnostics, file.name);
       await voxelizeAndDisplay(bricks, file.name);
       return;
     }
@@ -392,21 +2335,191 @@ async function parseMpdFile(file: File): Promise<void> {
     let text: string;
     if (ext === 'io') {
       const buf = await file.arrayBuffer();
-      text = await extractIoLDraw(buf);
+      recordSource(buf);
+      const ioModel = await extractIoModel(buf);
+      if (loadAbandoned('upload:after-io-extract', epoch)) return;
+      text = maybeSynthesize(ioModel.text);
+      // User explicitly chose the file — load it, but flag laundered LXF/DBIX
+      // conversions masquerading as .io (10255's and 72153's are).
+      {
+        const upQ = reconstructionQuality(text);
+        if (upQ === 'broken') {
+          currentSourceWarning = 'this .io is a repackaged LXFML conversion — placements/colors may be wrong (defects are in the file, not the renderer)';
+        } else {
+          const caveat = sourceCaveat(text, upQ);
+          if (caveat) currentSourceWarning = caveat;
+        }
+      }
+      currentMpdContent = text;
+      currentCustomParts = ioModel.customParts.size ? ioModel.customParts : undefined;
       const bricks = parseLDraw(text);
       if (bricks.length === 0) throw new Error('No brick placements found in file.');
-      await voxelizeAndDisplay(bricks, file.name, studioColorToBlock);
+      await voxelizeAndDisplay(bricks, file.name, ioColorFn(ioModel));
       return;
     }
 
-    text = await file.text();
+    {
+      // Read the bytes once: hashed for provenance, then decoded as UTF-8
+      // exactly as `file.text()` would (BOM stripped, no throw on bad bytes).
+      const buf = await file.arrayBuffer();
+      recordSource(buf);
+      text = maybeSynthesize(new TextDecoder().decode(buf));
+    }
+    if (loadAbandoned('upload:after-text-read', epoch)) return;
+    currentMpdContent = text; // store for 3D renderer inline sub-model resolution
+    currentCustomParts = undefined;
     const bricks = parseLDraw(text);
     if (bricks.length === 0) throw new Error('No brick placements found in file.');
+    // User explicitly chose this file — load it, but set expectations if it's
+    // a known-imperfect reconstruction (the defects are in the data).
+    const q = reconstructionQuality(text);
+    if (q === 'broken') {
+      currentSourceWarning = 'this file is an unaligned LXFML conversion — parts render scattered/stacked and colors may be wrong (defects are in the file, not the renderer)';
+    } else {
+      const caveat = sourceCaveat(text, q);
+      if (caveat) currentSourceWarning = caveat;
+    }
     await voxelizeAndDisplay(bricks, file.name);
   } catch (err) {
     setStatus(`Parse failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
   }
 }
+
+function updateScaleControlsVisibility(): void {
+  // Scale buttons (Accurate/Cubic/Detail) and the Geometry checkbox only affect
+  // the voxelizer pipeline. In direct 3D render mode they have no effect, so
+  // hide them to avoid the appearance of broken controls.
+  const btns = document.getElementById('lego-scale-btns');
+  const geomLabel = document.getElementById('lego-geometry-mode')?.parentElement as HTMLElement | null;
+  const scaleLabel = btns?.previousElementSibling as HTMLElement | null;
+  if (btns) btns.style.display = directRenderMode ? 'none' : '';
+  if (geomLabel) geomLabel.style.display = directRenderMode ? 'none' : '';
+  if (scaleLabel && scaleLabel.classList.contains('lego-section-label')) {
+    scaleLabel.style.display = directRenderMode ? 'none' : '';
+  }
+}
+
+function updateStepSlider(): void {
+  const row = document.getElementById('lego-step-row');
+  const slider = document.getElementById('lego-step-slider') as HTMLInputElement | null;
+  const label = document.getElementById('lego-step-label');
+  const modeBtn = document.getElementById('lego-step-mode') as HTMLButtonElement | null;
+  if (!row || !slider || !label) return;
+
+  // Layer count comes from the 3D viewer (quantized plate heights) — only
+  // known once a model is loaded there. Voxel mode sticks to steps.
+  const is3d = directRenderMode && !!currentLDrawViewer;
+  const layers = is3d ? currentLDrawViewer!.getMaxAvailableLayer() : 1;
+  const steps = totalSteps;
+
+  // Pick/repair the slider mode: layer mode needs the 3D viewer; default to
+  // layers when the model has no usable STEP markers (most .io exports).
+  if (!is3d) sliderMode = 'step';
+  else if (steps <= 1 && layers > 1) sliderMode = 'layer';
+  else if (layers <= 1) sliderMode = 'step';
+  if (is3d) currentLDrawViewer!.setSliderMode(sliderMode);
+
+  const hasAny = is3d ? steps > 1 || layers > 1 : steps > 1;
+  const max = Math.max(1, sliderMode === 'layer' ? layers : steps);
+  // NOTE: `.lego-scale-row` sets `display:flex`, which overrides the `hidden`
+  // attribute (inline/UA precedence) — so we MUST toggle style.display, not
+  // just .hidden, or the row stays visible. Also ALWAYS reset the slider
+  // values (even when hiding) so a stale count from a previous multi-step
+  // model can't persist into a no-step model.
+  slider.max = String(max);
+  slider.value = String(max);
+  label.textContent = `${max}/${max}`;
+  if (modeBtn) {
+    modeBtn.textContent = sliderMode === 'layer' ? 'Layer' : 'Step';
+    // The button doubles as the row label; it's a working toggle only when
+    // both keys are meaningful.
+    const toggleable = is3d && steps > 1 && layers > 1;
+    modeBtn.disabled = !toggleable;
+    modeBtn.style.cursor = toggleable ? 'pointer' : 'default';
+    modeBtn.style.opacity = toggleable ? '1' : '0.7';
+  }
+  row.hidden = !hasAny;
+  row.style.display = hasAny ? '' : 'none';
+}
+
+/**
+ * Mount the direct 3D viewer on the tab's viewer panel once; `load()` is
+ * called per model. Shared by the render path and the add-on walk (which
+ * borrows the renderer and can open before any model is loaded).
+ */
+async function mountDirectViewer(viewerEl: HTMLElement): Promise<LDrawViewerType> {
+  const { LDrawViewer } = await import('@viewer/ldraw/index.js');
+  if (currentLDrawViewer && currentLDrawViewer.container !== viewerEl) {
+    currentLDrawViewer.dispose();
+    currentLDrawViewer = null;
+  }
+  if (currentLDrawViewer) return currentLDrawViewer;
+  viewerEl.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;gap:12px">
+    <div style="width:40px;height:40px;border:3px solid rgba(255,255,255,0.2);border-top-color:#7c3aed;border-radius:50%;animation:spin 0.8s linear infinite"></div>
+    <span style="color:#999;font-size:13px">Loading geometry…</span>
+    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+  </div>`;
+  currentLDrawViewer = await LDrawViewer.create(viewerEl);
+  // GPU context loss (driver reset / GPU OOM, common on mobile with
+  // mega-sets) used to leave a permanently black panel. Rebuild the
+  // whole viewer and re-display the current model instead.
+  currentLDrawViewer.onContextLost = () => {
+    setStatus('Graphics context was lost — reloading the model…', 'info');
+    try { currentLDrawViewer?.dispose(); } catch { /* already dead */ }
+    currentLDrawViewer = null;
+    if (currentBricks) {
+      void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
+    }
+  };
+  currentLDrawViewer.onBrickHover = (brick, x, y) => {
+    const tip = document.getElementById('lego-hover-tooltip');
+    if (!tip) return;
+    if (!brick) { tip.hidden = true; return; }
+    const partName = brick.part.replace(/\.dat$/i, '');
+    tip.textContent = `${partName} · color ${brick.color}`;
+    // Position 12px down-right of cursor, clamp to viewport
+    const tipW = tip.offsetWidth || 100;
+    const tipH = tip.offsetHeight || 20;
+    const px = Math.min(x + 12, window.innerWidth - tipW - 4);
+    const py = Math.min(y + 12, window.innerHeight - tipH - 4);
+    tip.style.left = `${px}px`;
+    tip.style.top = `${py}px`;
+    tip.hidden = false;
+  };
+  currentLDrawViewer.onBrickClick = async brick => {
+    const el = document.getElementById('lego-picked-brick');
+    if (!el) return;
+    const { LDRAW_COLOR_RGB } = await import('@engine/ldraw-colors.js');
+    const colorHex = LDRAW_COLOR_RGB[brick.color] ?? '#808080';
+    const partName = brick.part.replace(/\.dat$/i, '');
+    el.replaceChildren();
+    const swatch = document.createElement('span');
+    swatch.style.cssText = `display:inline-block;width:10px;height:10px;background:${colorHex};border:1px solid rgba(255,255,255,0.3);border-radius:2px;margin-right:6px;vertical-align:middle`;
+    const colorRow = document.createElement('div');
+    colorRow.appendChild(swatch);
+    colorRow.append(`Color id ${brick.color} (${colorHex})`);
+    const lines = [
+      `Part: ${partName}`,
+    ];
+    for (const line of lines) {
+      const div = document.createElement('div');
+      div.textContent = line;
+      el.appendChild(div);
+    }
+    el.appendChild(colorRow);
+    const posDiv = document.createElement('div');
+    posDiv.textContent = `Pos: ${brick.x.toFixed(1)}, ${brick.y.toFixed(1)}, ${brick.z.toFixed(1)}`;
+    el.appendChild(posDiv);
+    if (brick.step != null) {
+      const stepDiv = document.createElement('div');
+      stepDiv.textContent = `Step: ${brick.step}`;
+      el.appendChild(stepDiv);
+    }
+    el.hidden = false;
+  };
+  return currentLDrawViewer;
+}
+
 
 async function voxelizeAndDisplay(
   bricks: ParsedBrick[],
@@ -415,18 +2528,242 @@ async function voxelizeAndDisplay(
 ): Promise<void> {
   if (!onResult) return;
 
-  const result = voxelizeLDraw(bricks, colorFn);
-  if (result.warning) setStatus(result.warning, 'info');
+  // Only reset the slider when a *new* model is loaded — not when the user
+  // drags the slider, since the slider handler re-enters this function and
+  // would otherwise snap the value back to totalSteps every input event.
+  const isNewModel = bricks !== currentBricks;
+  currentBricks = bricks;
+  currentBricksLabel = filename;
+  currentBricksColorFn = colorFn;
+  // Something is on screen from here on, so the diagnostic bundle is meaningful
+  // (every load path funnels through here — upload, indexed, OMR chain, BFF).
+  updateDiagnosticsButton();
+  if (isNewModel) {
+    lastContactAudit = null;   // a new model invalidates the previous audit
+    totalSteps = countSteps(bricks);
+    currentStep = undefined;
+    // Explicit slider-key rule: >1 distinct step values → the file carries
+    // real "0 STEP" markers → step mode; otherwise default to layer mode
+    // (updateStepSlider repairs 'layer' → 'step' when the 3D viewer isn't
+    // active or the model has no usable layer count).
+    const distinctSteps = new Set(bricks.map(b => b.step ?? 1)).size;
+    sliderMode = distinctSteps > 1 ? 'step' : 'layer';
+    updateStepSlider();
+  }
 
+  // ── Direct 3D Render mode: render LDraw triangles as meshes, skip voxelization ──
+  if (directRenderMode) {
+    // Capture (not bump) the load epoch: re-entrant calls (slider/scale) run
+    // under the current epoch, while a NEW load initiator bumping it makes
+    // this call stale — bail before touching the UI so overlapping loads
+    // never fight over status/detail (the viewer itself also cancels stale
+    // load() calls internally via its loadSeq).
+    const displayEpoch = loadEpoch;
+    const label = selectedSet
+      ? `${selectedSet.set_num} ${selectedSet.name}`
+      : filename.replace(/\.[^.]+$/, '');
+    setStatus(`Rendering ${label} — ${bricks.length} bricks (loading geometry…)`, 'info');
+    try {
+      if (loadAbandoned('display:before-viewer-mount', displayEpoch)) return;
+      const viewerEl = rootEl.closest('.tab-content')?.querySelector('.viewer-area, .inline-viewer') as HTMLElement
+        ?? document.getElementById('lego-viewer');
+      if (viewerEl) {
+        // Persistent viewer: create once, call load() per model. If the
+        // viewer is mounted on the same element, keep it alive across
+        // model changes — load() clears prior meshes but reuses the
+        // renderer/scene/composer/part-cache.
+        if (currentLDrawViewer && currentLDrawViewer.container !== viewerEl) {
+          currentLDrawViewer.dispose();
+          currentLDrawViewer = null;
+        }
+        // The assignment is what narrows `currentLDrawViewer` for the rest of
+        // this block; mountDirectViewer stores the same instance itself.
+        currentLDrawViewer = await mountDirectViewer(viewerEl);
+        if (loadAbandoned('display:after-viewer-mount', displayEpoch)) return;
+        let lastProgressUpdate = 0;
+        showProgress(0);
+        // Nothing past this point may be mute: `onStage` covers the phases
+        // after the prefetch, and the watchdog covers a phase that reports
+        // nothing at all.
+        startLoadWatchdog(displayEpoch, badgeSourceName() ?? label);
+        await currentLDrawViewer.load(bricks, {
+          mpdContent: currentMpdContent,
+          datFiles: currentCustomParts,
+          maxStep: currentStep,
+          onProgress: (done, total) => {
+            if (loadIsStale(displayEpoch)) return; // a newer load owns the UI
+            noteLoadActivity();
+            const pct = total > 0 ? done / total : 0;
+            showProgress(pct);
+            const now = Date.now();
+            if (now - lastProgressUpdate > 200 || done === total) {
+              setStatus(`Loading geometry: ${done}/${total} parts (${Math.round(pct * 100)}%)…`, 'info');
+              lastProgressUpdate = now;
+            }
+          },
+          onStage: label2 => {
+            if (loadIsStale(displayEpoch)) return;
+            noteLoadActivity();
+            const now = Date.now();
+            if (now - lastProgressUpdate < 200) return;
+            lastProgressUpdate = now;
+            setStatus(label2, 'info');
+          },
+        });
+        stopLoadWatchdog();
+        // Stale = a newer load started while ours streamed in; the viewer
+        // already cancelled our scene work — leave the UI to the newer load.
+        if (loadAbandoned('display:after-viewer-load', displayEpoch)) return;
+        hideProgress();
+        // Surface any pieces that couldn't be rendered (missing from the
+        // bundled part library, or LSynth flexible parts needing synthesis)
+        // so missing geometry is never silent.
+        // Physical size: scene units == studs (1 stud = 0.8 cm). Footprint in
+        // studs + overall L×W×H in cm — what builders/display-planners want.
+        const sz = currentLDrawViewer.getModelSizeStuds();
+        let dims = '';
+        if (sz) {
+          const studs = (n: number) => Math.round(n);
+          const cm = (n: number) => (n * 0.8).toFixed(1);
+          dims = ` · ≈ ${studs(sz.x)}×${studs(sz.z)} studs (${cm(sz.x)}×${cm(sz.z)}×${cm(sz.y)} cm)`;
+        }
+        // The viewer now knows the model's vertical layer count — refresh the
+        // slider so layer mode becomes available (it's the default for
+        // models without STEP markers, i.e. most Studio .io exports).
+        updateStepSlider();
+        // Completeness check: a fan-made model file can contain fewer pieces
+        // than the official set (e.g. one 21063 .io ships 3,245 of 3,455 —
+        // its autumn trees were never modelled). Say so, or users read the
+        // gap as a rendering bug.
+        let completeness = '';
+        {
+          const setNum = selectedSet?.set_num
+            ?? (filename.match(/\b(\d{4,7})(?:-\d)?\b/)?.[1]);
+          if (setNum && isLoaded()) {
+            const cat = searchCatalog(setNum, null, null, null, 1)[0];
+            if (cat?.num_parts && cat.num_parts > 0) {
+              const diff = cat.num_parts - bricks.length;
+              if (diff > Math.max(20, cat.num_parts * 0.02)) {
+                completeness = ` · file contains ${bricks.length.toLocaleString()} of the set's ${cat.num_parts.toLocaleString()} catalog pieces (incomplete source model)`;
+              }
+            }
+          }
+        }
+        const missing = currentLDrawViewer.missingParts;
+        const subGaps = currentLDrawViewer.unresolvedSubparts.length;
+        const subGapNote = subGaps > 0 ? ` (${subGaps} sub-part file(s) unresolved — minor gaps, see console)` : '';
+        // Alias resolutions are informational, not a defect: the piece IS
+        // drawn, under a different LDraw name. Some are exact (the model used
+        // LEGO's re-tooled design id, LDraw kept the original part number),
+        // others drop a print or pick a sibling mould — the console lists the
+        // exact name→name mapping. Stay neutral here rather than over- or
+        // under-claiming; a silent swap would misrepresent fidelity either way.
+        const subst = currentLDrawViewer.substitutedParts;
+        const substCount = subst.reduce((s, m) => s + m.count, 0);
+        const substNote = subst.length > 0
+          ? ` · ${substCount} piece(s) resolved via part-name aliases (${subst.length} part type(s), see console)`
+          : '';
+        const edgeNote = currentLDrawViewer.edgesDroppedForSize ? ' · edge outlines hidden (very large model)' : '';
+        const sourceNote = currentSourceWarning ? ` · ⚠ ${currentSourceWarning}` : '';
+        if (missing.length > 0) {
+          const totalMissing = missing.reduce((s, m) => s + m.count, 0);
+          const names = missing.slice(0, 6).map(m => m.part.replace(/\.dat$/i, '')).join(', ');
+          const more = missing.length > 6 ? ` +${missing.length - 6} more` : '';
+          setStatus(
+            `${label} — ${bricks.length} bricks rendered${dims}${completeness}. ⚠ ${totalMissing} piece(s) of ${missing.length} part type(s) not in library: ${names}${more}${subGapNote}${substNote}${sourceNote}`,
+            'info',
+          );
+          console.warn('[lego] unrendered parts (missing from /ldraw-parts or LSynth):', missing);
+        } else {
+          setStatus(`${label} — ${bricks.length} bricks rendered as 3D geometry${dims}${completeness}${subGapNote}${substNote}${edgeNote}${sourceNote}`, subGaps > 0 || subst.length > 0 || completeness || currentSourceWarning ? 'info' : 'success');
+        }
+        viewerEl.closest('.panel-layout')?.setAttribute('data-has-model', '');
+        const explodeRow = document.getElementById('lego-explode-row');
+        if (explodeRow) { explodeRow.hidden = false; explodeRow.style.display = ''; }
+        // Reset explode slider to 0 on new model load so the freshly-rendered
+        // model is in its assembled state.
+        const exSlider = document.getElementById('lego-explode-slider') as HTMLInputElement | null;
+        const exLabel = document.getElementById('lego-explode-label');
+        if (exSlider) exSlider.value = '0';
+        if (exLabel) exLabel.textContent = '0%';
+        // load() rebuilt every mesh with fresh colors — drop any stale
+        // connectivity-verify highlight state (viewer flag resets in load()).
+        const verifyBox = document.getElementById('lego-verify') as HTMLInputElement | null;
+        if (verifyBox) verifyBox.checked = false;
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setStatus(`3D render failed: ${msg}`, 'error');
+      console.error('[ldraw-renderer]', e);
+    } finally {
+      // Whatever happened — rendered, threw, or bailed out as stale — the
+      // watchdog's job is over. Leaving it armed would keep rewriting the
+      // badge of a load that is no longer running.
+      stopLoadWatchdog();
+    }
+    return;
+  }
+
+  // Voxelizer path is about to mount its own canvas in the same viewer
+  // container. Dispose the 3D LDraw viewer first so the renderer.domElement
+  // doesn't get orphaned (its render loop's container.isConnected check
+  // would silently stop, leaving a dead canvas behind on next 3D toggle).
+  if (currentLDrawViewer) {
+    currentLDrawViewer.dispose();
+    currentLDrawViewer = null;
+  }
+
+  const opts: VoxelizeOptions = { cubicScale, detailScale, maxStep: currentStep };
+  if (geometryMode) setStatus('Loading triangle geometry…', 'info');
+  const result = geometryMode
+    ? await voxelizeLDrawGeometry(bricks, colorFn, opts)
+    : voxelizeLDraw(bricks, colorFn, opts);
+
+  const { width: w, height: h, length: l } = result.grid;
+  const blockCount = result.grid.countNonAir();
   const label = selectedSet
     ? `${selectedSet.set_num} ${selectedSet.name}`
     : filename.replace(/\.[^.]+$/, '');
 
-  setStatus(
-    `Built ${label}: ${result.grid.width}×${result.grid.height}×${result.grid.length} — ${result.grid.countNonAir().toLocaleString()} blocks`,
-    'success',
-  );
-  onResult(result.grid, label);
+  // Build status + warnings
+  const warnings: string[] = [];
+  if (currentSourceWarning) warnings.push(`⚠ ${currentSourceWarning}`);
+  if (result.warning) warnings.push(result.warning);
+  if (result.wasFlipped) warnings.push('Model Y-axis was auto-flipped (upside-down source file)');
+  if (result.unmappedColors.length > 0) {
+    const ids = result.unmappedColors.slice(0, 5).join(', ');
+    const more = result.unmappedColors.length > 5 ? ` +${result.unmappedColors.length - 5} more` : '';
+    warnings.push(`${result.unmappedColors.length} unmapped color IDs (${ids}${more}) → gray`);
+  }
+  if (!cubicScale && h > 384) {
+    warnings.push(`Height ${h} exceeds render limit (384) — try Cubic scale`);
+  }
+  if (Math.max(w, h, l) > 300 && !cubicScale) {
+    warnings.push(`Large model (${w}×${h}×${l}) — Cubic scale reduces proportionally`);
+  }
+  if (result.fallbackPartCount > 0) {
+    warnings.push(`${result.fallbackPartCount} parts had unknown dims (fell back to 1×1×1)`);
+  }
+
+  // Post-processing differs by mode:
+  // AABB mode: fill hollows + gaps (bounding boxes leave interior voids)
+  // Geometry mode: remove debris + light gap-fill (ray casting is mostly accurate but
+  // non-watertight meshes leave 1-cell holes in surfaces)
+  if (geometryMode) {
+    keepLargestComponent(result.grid);
+    fillSingleVoxelGaps(result.grid); // close 1-2 cell surface holes from mesh gaps
+  } else {
+    solidifyColumns(result.grid, 6);
+    fillSingleVoxelGaps(result.grid);
+  }
+
+  const statusMsg = `Built ${label}: ${w}×${h}×${l} — ${blockCount.toLocaleString()} blocks` +
+    (cubicScale ? ' (cubic)' : '');
+  // Render warnings as separate lines under the main status so the panel
+  // doesn't wrap a single long ⚠-prefixed paragraph mid-word.
+  setStatusWithWarnings(statusMsg, warnings, warnings.length ? 'info' : 'success');
+
+  onResult(result.grid, label, cubicScale);
 }
 
 // ─── Theme Dropdown ──────────────────────────────────────────────────────────
@@ -447,6 +2784,44 @@ function setStatus(msg: string, type: 'info' | 'error' | 'success'): void {
   el.textContent = msg;
   el.className = `lego-status lego-status-${type}`;
   el.hidden = !msg;
+}
+
+function showProgress(fraction: number): void {
+  const bar = document.getElementById('lego-progress');
+  const fill = document.getElementById('lego-progress-fill');
+  if (!bar || !fill) return;
+  bar.hidden = false;
+  fill.style.width = `${Math.max(0, Math.min(1, fraction)) * 100}%`;
+}
+
+function hideProgress(): void {
+  const bar = document.getElementById('lego-progress');
+  if (bar) bar.hidden = true;
+}
+
+/**
+ * Like setStatus but renders warnings on their own lines under the main
+ * message so they don't wrap mid-word in the narrow side panel.
+ */
+function setStatusWithWarnings(
+  msg: string,
+  warnings: readonly string[],
+  type: 'info' | 'error' | 'success',
+): void {
+  const el = document.getElementById('lego-status');
+  if (!el) return;
+  el.replaceChildren();
+  const main = document.createElement('div');
+  main.textContent = msg;
+  el.appendChild(main);
+  for (const w of warnings) {
+    const line = document.createElement('div');
+    line.textContent = `⚠ ${w}`;
+    line.style.cssText = 'margin-top:4px;font-size:0.92em;opacity:0.85';
+    el.appendChild(line);
+  }
+  el.className = `lego-status lego-status-${type}`;
+  el.hidden = false;
 }
 
 function escAttr(s: string): string {

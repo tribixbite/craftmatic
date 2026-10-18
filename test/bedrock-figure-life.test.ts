@@ -1,0 +1,854 @@
+/**
+ * Minifig NPC life (web/src/engine/bedrock-figure-life.ts): the pure planner
+ * over collision spans, and the SERIALISED `scripts/figures.js` runtime run
+ * on the headless simulator (sim/adapters/craftmatic/figure-life.ts) - rooms with floor plates under a
+ * ceiling (the Winter Chalet case where vanilla mob AI never moved), walls,
+ * a drop, a doorway leaf, seats, and a figure pushed out of its area.
+ */
+import { existsSync, readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import type { SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
+import { host } from './_placement-host.js';
+import { simHost, solidBelow } from './_sim-host.js';
+import { blockSpan, cellSpanLookup, exploreWalkable, FIGURE_SEATING_GRACE_MS, FIGURE_SEATING_PROPERTY, FIGURE_TUNING, figureLifeScript, pathTo, resolveFigureSpawn, separateFigureSpawns, spawnLift, standFeetAt, type FigureLifeConfig, type SpanLookup } from '../web/src/engine/bedrock-figure-life.js';
+import { simulateFigureLife, type SimSample, type SimWorld } from '../web/src/sim/adapters/craftmatic/figure-life.js';
+import { seatBehavior } from '../web/src/engine/playable-addon.js';
+import { RIDE } from '../web/src/engine/bedrock-rides.js';
+import { COLLIDER_BLOCK_ID, COLLIDER_HI_STATE, COLLIDER_LO_STATE } from '../web/src/engine/bedrock-building-shell.js';
+import { COLLIDER_KIT, ESCAPE_OPTIONS, colliderBodyProbe, type Box16 } from '../web/src/engine/collider-form.js';
+import { packText, readAddon, type Addon } from '../web/src/sim/pack/pack.js';
+import { extractJsonAfter } from '../web/src/sim/pack/script-config.js';
+import { runScenario } from '../web/src/sim/scenario/runner.js';
+import type { StepHandler } from '../web/src/sim/scenario/types.js';
+import { CRAFTMATIC_ALLOWED_LINES, CRAFTMATIC_YIELDING_LINES, craftmaticHandlers } from '../web/src/sim/adapters/craftmatic/child-play.js';
+import { readCraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.js';
+
+const BODY_PROBE = colliderBodyProbe(COLLIDER_KIT, COLLIDER_LO_STATE, COLLIDER_HI_STATE);
+
+const spansOf = (cells: SourceCell[], ground = 0): SpanLookup => {
+  const m = new Map(cells.map(c => [`${c.x},${c.y},${c.z}`, c]));
+  return (x, y, z) => {
+    const c = m.get(`${x},${y},${z}`);
+    if (c) return [y + c.lo / 16, y + c.hi / 16];
+    return y < ground ? [y, y + 1] : null;
+  };
+};
+
+/**
+ * A 9 x 7 room: 3/16 floor plates, walls around (full cells, rows 0-2), a
+ * ceiling slab 2.25 blocks over the floor (row 2, 4..16), a doorway gap in the
+ * front wall at x = 4, and a 3-block pit at (6, 3).
+ */
+function room(): SourceCell[] {
+  const cells: SourceCell[] = [];
+  for (let x = 0; x < 9; x++) for (let z = 0; z < 7; z++) {
+    const wall = x === 0 || x === 8 || z === 0 || z === 6;
+    const door = z === 6 && x === 4;
+    if (wall && !door) { for (let y = 0; y < 3; y++) cells.push({ x, y, z, lo: 0, hi: 16 }); continue; }
+    if (!(x === 6 && z === 3)) cells.push({ x, y: 0, z, lo: 0, hi: 3 });
+    cells.push({ x, y: 2, z, lo: 4, hi: 16 });
+  }
+  return cells;
+}
+
+describe('planner', () => {
+  const span = spansOf(room(), -3);
+  it('stands on a floor plate under a 2.25-block ceiling (1.8 body) and not in a wall', () => {
+    expect(standFeetAt(span, 3, 3, 0, 1.8, 0.6, 0.6)).toBeCloseTo(3 / 16);
+    expect(standFeetAt(span, 0, 3, 0.19, 1.8, 0.6, 0.6)).toBeNull();
+    // A 2.2 body does not fit under the ceiling.
+    expect(standFeetAt(span, 3, 3, 0, 2.2, 0.6, 0.6)).toBeNull();
+  });
+  it('does not step down into a pit (drop > 0.6) and explores the room only', () => {
+    const cells = exploreWalkable(span, { x: 2, z: 2, feet: 3 / 16 }, 1.8, 0.6, 0.6, () => true, 500, standFeetAt);
+    const keys = new Set(cells.map(c => `${c.x},${c.z}`));
+    expect(keys.has('6,3')).toBe(false);
+    expect(keys.has('0,2')).toBe(false);
+    // Interior 7 x 5 minus the pit = 34, plus the doorway cell (standing on the ground below: a 3/16 drop).
+    expect(keys.has('4,6')).toBe(true);
+    expect(cells.every(c => c.x >= 1 && c.x <= 7 && c.z >= 1 && c.z <= 7)).toBe(true);
+  });
+  it('bounds the walk with the allowed predicate and reads a path back', () => {
+    const cells = exploreWalkable(span, { x: 2, z: 2, feet: 3 / 16 }, 1.8, 0.6, 0.6, (x) => x <= 4, 500, standFeetAt);
+    expect(cells.every(c => c.x <= 4)).toBe(true);
+    const far = cells.findIndex(c => c.x === 4 && c.z === 5);
+    const path = pathTo(cells, far);
+    expect(path[path.length - 1]).toMatchObject({ x: 4, z: 5 });
+    for (let i = 1; i < path.length; i++) expect(Math.max(Math.abs(path[i]!.x - path[i - 1]!.x), Math.abs(path[i]!.z - path[i - 1]!.z))).toBe(1);
+  });
+  it('never cuts a wall corner diagonally', () => {
+    // An L of wall: (3,3) solid; from (2,2) the diagonal to (3,3)'s neighbour (3,2)->(4,3) must go round.
+    const cells: SourceCell[] = [{ x: 3, y: 0, z: 3, lo: 0, hi: 16 }, { x: 3, y: 1, z: 3, lo: 0, hi: 16 }];
+    const found = exploreWalkable(spansOf(cells), { x: 2, z: 2, feet: 0 }, 1.8, 0.6, 0.6, (x, z) => x >= 0 && x <= 5 && z >= 0 && z <= 5, 500, standFeetAt);
+    const idx = found.findIndex(c => c.x === 4 && c.z === 4);
+    const path = pathTo(found, idx);
+    const prev = (i: number) => (i === 0 ? { x: 2, z: 2 } : path[i - 1]!);
+    for (let i = 0; i < path.length; i++) {
+      const a = prev(i), b = path[i]!;
+      if (a.x !== b.x && a.z !== b.z) expect(`${a.x},${b.z}` !== '3,3' && `${b.x},${a.z}` !== '3,3').toBe(true);
+    }
+  });
+  it('reads block spans: collider sixteenths, plants as nothing, carpet thin, the rest full', () => {
+    const C = { block: 'craftmatic:collider' };
+    expect(blockSpan('craftmatic:collider', false, false, 5, C, 0, 3)).toEqual([5, 5 + 3 / 16]);
+    expect(blockSpan('minecraft:short_grass', false, false, 5, C, NaN, NaN)).toBeNull();
+    expect(blockSpan('minecraft:white_carpet', false, false, 5, C, NaN, NaN)).toEqual([5, 5 + 1 / 16]);
+    expect(blockSpan('minecraft:stone', false, false, 5, C, NaN, NaN)).toEqual([5, 6]);
+    expect(blockSpan('minecraft:grass_block', false, false, 5, C, NaN, NaN)).toEqual([5, 6]);
+    expect(blockSpan('minecraft:mushroom_stem', false, false, 5, C, NaN, NaN)).toEqual([5, 6]);
+    expect(blockSpan('minecraft:red_tulip', false, false, 5, C, NaN, NaN)).toBeNull();
+    expect(blockSpan('minecraft:air', true, false, 5, C, NaN, NaN)).toBeNull();
+  });
+});
+
+describe('spawn resolution (resolveFigureSpawn, at export)', () => {
+  const opts = { maxUp: FIGURE_TUNING.maxUp, maxDown: FIGURE_TUNING.maxDown, minRoom: FIGURE_TUNING.minRoamCells };
+  const inside = (w: number, l: number) => (x: number, z: number): boolean => x >= 0 && z >= 0 && x < w && z < l;
+  it('keeps a figure its own column carries, snapped onto the plate it stands on', () => {
+    const span = spansOf(room(), 0);
+    const s = resolveFigureSpawn(span, { x: 3.4, y: 0.15, z: 3.6 }, 1.8, inside(9, 7), opts);
+    expect(s.kind).toBe('kept');
+    expect([s.x, s.z]).toEqual([3.4, 3.6]);
+    expect(s.y).toBeCloseTo(3 / 16);
+  });
+  it('sets a box-art line-up figure (standing on no part, 2 blocks up) down on the ground, not onto a ledge', () => {
+    // A model base 2.4-3.1 blocks up beside the figure's column (21360's line-up); nothing under the figure.
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < 8; x++) for (let z = 3; z < 6; z++) { cells.push({ x, y: 2, z, lo: 6, hi: 16 }); cells.push({ x, y: 3, z, lo: 0, hi: 2 }); }
+    const span = spansOf(cells, 0);
+    const s = resolveFigureSpawn(span, { x: 4.4, y: 2.1, z: 2.9 }, 1.8, inside(8, 6), opts);
+    expect(s.kind).toBe('grounded');
+    expect(s.y).toBe(0);
+    expect([s.x, s.z]).toEqual([4.4, 2.9]);
+    // The placement's own lift would have left it in the air (nothing overlaps its body): it fell.
+    expect(spawnLift(span, 4.4, 2.9, 2.1, 1.8, 3)).toBe(2.1);
+  });
+  it('grounds a line-up figure far above the ground (a model standing on stray low parts)', () => {
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < 6; x++) for (let z = 4; z < 6; z++) cells.push({ x, y: 5, z, lo: 0, hi: 4 });
+    const s = resolveFigureSpawn(spansOf(cells, 0), { x: 1.5, y: 5.25, z: 1.5 }, 1.8, inside(6, 6), opts);
+    expect(s.kind).toBe('grounded');
+    expect(s.y).toBe(0);
+    // Beside the base on its own level, the base itself is the nearest surface: one step across.
+    const beside = resolveFigureSpawn(spansOf(cells, 0), { x: 1.5, y: 5.25, z: 3.5 }, 1.8, inside(6, 6), opts);
+    expect(beside.kind).toBe('moved');
+    expect(beside.y).toBe(5.25);
+  });
+  it('moves a figure standing inside a solid column onto the roomy floor beside it, never onto the roof', () => {
+    // 71040's case: a floor plate at 0-0.19, a solid tower column 0-5.4 at (3, 3) where the figure stands.
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) cells.push({ x, y: 0, z, lo: 0, hi: 3 });
+    for (let y = 0; y < 5; y++) cells.push({ x: 3, y, z: 3, lo: 0, hi: 16 });
+    cells.push({ x: 3, y: 5, z: 3, lo: 0, hi: 7 });
+    const span = spansOf(cells, 0);
+    // The spawn lift puts it on the tower (5.44 blocks up), where one cell is all there is.
+    expect(spawnLift(span, 3.5, 3.5, 0.19, 1.8, 6)).toBeCloseTo(5 + 7 / 16);
+    const s = resolveFigureSpawn(span, { x: 3.5, y: 0.19, z: 3.5 }, 1.8, inside(8, 8), opts);
+    expect(s.kind).toBe('moved');
+    expect(s.y).toBeCloseTo(3 / 16);
+    expect(s.shift).toBeCloseTo(1);
+    expect(s.room).toBeGreaterThanOrEqual(FIGURE_TUNING.minRoamCells);
+    expect(spawnLift(span, s.x, s.z, s.y, 1.8, 3)).toBeCloseTo(s.y);
+  });
+  it('prefers a spot with room over a nearer one-cell ledge', () => {
+    // Figure inside a wall at (2, 2); west of it a 1-cell ledge boxed in by walls, 3 cells east an open floor.
+    const cells: SourceCell[] = [];
+    for (let y = 0; y < 4; y++) for (let z = 0; z < 5; z++) { cells.push({ x: 2, y, z, lo: 0, hi: 16 }); cells.push({ x: 0, y, z, lo: 0, hi: 16 }); }
+    for (let y = 0; y < 4; y++) { cells.push({ x: 1, y, z: 1, lo: 0, hi: 16 }); cells.push({ x: 1, y, z: 3, lo: 0, hi: 16 }); }
+    for (let x = 3; x < 8; x++) for (let z = 0; z < 5; z++) cells.push({ x, y: 0, z, lo: 0, hi: 3 });
+    const s = resolveFigureSpawn(spansOf(cells, 0), { x: 2.3, y: 0.19, z: 2.5 }, 1.8, inside(8, 5), opts);
+    expect(s.kind).toBe('moved');
+    expect(Math.floor(s.x)).toBe(3);
+    expect(s.room).toBeGreaterThanOrEqual(FIGURE_TUNING.minRoamCells);
+  });
+});
+
+describe('collider body walk exits', () => {
+  const shapedProbe = (boxes: Box16[]) => colliderBodyProbe({
+    ...COLLIDER_KIT,
+    formBoxes: () => boxes,
+  }, COLLIDER_LO_STATE, COLLIDER_HI_STATE);
+
+  it('accepts an open supported one-block exit and rejects a body-free sealed pocket', () => {
+    const open = simHost({ colliders: true, terrain: solidBelow(0) });
+    expect(BODY_PROBE.hasWalkExit(open.dimension(), { x: 0.5, y: 0, z: 0.5 })).toBe(true);
+
+    const sealed = simHost({ colliders: true, terrain: solidBelow(0) });
+    for (let x = -1; x <= 1; x++) for (let z = -1; z <= 1; z++) {
+      if (x || z) sealed.fill({ x, y: 0, z }, { x, y: 1, z }, COLLIDER_BLOCK_ID);
+    }
+    const pocket = { x: 0.5, y: 0, z: 0.5 };
+    expect(BODY_PROBE.bodyFree(sealed.dimension(), pocket)).toBe(true);
+    expect(BODY_PROBE.hasWalkExit(sealed.dimension(), pocket)).toBe(false);
+  });
+
+  it('rejects a supported start whose eight one-block routes cross a gap', () => {
+    const h = simHost({ colliders: true });
+    h.setBlock(0, -1, 0, COLLIDER_BLOCK_ID, { [COLLIDER_LO_STATE]: 0, [COLLIDER_HI_STATE]: 16 });
+    const pinFloor: Box16[] = [[7.5, 8.5, 0, 16, 7.5, 8.5]];
+    const q = { x: 0.5, y: 0, z: 0.5 };
+    const narrow = shapedProbe(pinFloor);
+    expect(narrow.bodyFree(h.dimension(), q)).toBe(true);
+    expect(narrow.floorTop(h.dimension(), q.x, q.z, 1 / 16, 1 / 8)).toBe(0);
+    expect(narrow.hasWalkExit(h.dimension(), q)).toBe(false);
+  });
+
+  it('samples the swept route instead of accepting a clear diagonal endpoint through a thin wall', () => {
+    const h = simHost({ colliders: true, terrain: solidBelow(0) });
+    h.setBlock(0, 0, 0, COLLIDER_BLOCK_ID, { [COLLIDER_LO_STATE]: 0, [COLLIDER_HI_STATE]: 16 });
+    // Six posts block W/N/S routes and their diagonals. The seventh at
+    // (+x, centre-z) closes E and only the middle of the NE diagonal: its NE
+    // endpoint remains body-free, so endpoint-only validation would accept it.
+    const post = (x: number, z: number): Box16 => [(x - 0.01) * 16, (x + 0.01) * 16, 0, 16, (z - 0.01) * 16, (z + 0.01) * 16];
+    const walls = shapedProbe([
+      post(0.9, 0.5), post(0.1, 0.5), post(0.5, 0.9), post(0.5, 0.1),
+      post(0.1, 0.9), post(0.9, 0.1), post(0.1, 0.1),
+    ]);
+    const q = { x: 0.5, y: 0, z: 0.5 };
+    const diagonalEnd = { x: q.x + Math.SQRT1_2, y: 0, z: q.z + Math.SQRT1_2 };
+    expect(walls.bodyFree(h.dimension(), q)).toBe(true);
+    expect(walls.bodyFree(h.dimension(), diagonalEnd)).toBe(true);
+    expect(walls.hasWalkExit(h.dimension(), q)).toBe(false);
+  });
+
+  it('counts a body a little over its floor as landing there, within the allowed fall and through a clear column', () => {
+    const h = simHost({ colliders: true, terrain: solidBelow(0) });
+    const air = { x: 0.5, y: 0.4, z: 0.5 };
+    expect(BODY_PROBE.hasWalkExit(h.dimension(), air)).toBe(false);
+    expect(BODY_PROBE.hasWalkExit(h.dimension(), air, 3)).toBe(true);
+    // Too high to fall unhurt: no landing.
+    expect(BODY_PROBE.hasWalkExit(h.dimension(), { x: 0.5, y: 3.5, z: 0.5 }, 3)).toBe(false);
+  });
+
+  it('walks a route out of the obstruction it starts in, but never through a wall after open floor', () => {
+    const h = simHost({ colliders: true, terrain: solidBelow(0) });
+    h.fill({ x: 0, y: 0, z: -1 }, { x: 0, y: 2, z: 1 }, COLLIDER_BLOCK_ID); // a wall across x = 0..1
+    const west = { x: -1.5, y: 0, z: 0.5 }, east = { x: 2.5, y: 0, z: 0.5 }, inWall = { x: 0.5, y: 0, z: 0.5 };
+    expect(BODY_PROBE.routeClear(h.dimension(), west, { x: -1, y: 0, z: 0.5 }, 3)).toBe(true);
+    expect(BODY_PROBE.routeClear(h.dimension(), west, east, 3)).toBe(false); // through the wall
+    expect(BODY_PROBE.routeClear(h.dimension(), inWall, east, 3)).toBe(true); // out of the wall it starts in
+    h.fill({ x: 3, y: 0, z: -1 }, { x: 3, y: 2, z: 1 }, COLLIDER_BLOCK_ID); // a second wall beyond open floor
+    expect(BODY_PROBE.routeClear(h.dimension(), inWall, { x: 4.5, y: 0, z: 0.5 }, 3)).toBe(false);
+  });
+
+  describe('escape (the last resort)', () => {
+    it('walks off a pin\'s top (no walk exit: every step off it is a drop) to the first floor with one', () => {
+      // Every collider here is a 1/16 pin a block tall; a body balanced on its top has no one-block route.
+      const pins = shapedProbe([[7.5, 8.5, 0, 16, 7.5, 8.5]]);
+      const h = simHost({ colliders: true, terrain: solidBelow(0) });
+      h.setBlock(0, 0, 0, COLLIDER_BLOCK_ID, { [COLLIDER_LO_STATE]: 0, [COLLIDER_HI_STATE]: 16 });
+      const top = { x: 0.5, y: 1, z: 0.5 };
+      expect(pins.hasWalkExit(h.dimension(), top)).toBe(false);
+      const r = pins.escape(h.dimension(), top, { ...ESCAPE_OPTIONS, seedReach: 0.5 });
+      expect(r?.how).toBe('walk');
+      expect(r?.at.y).toBe(0);
+      expect(pins.hasWalkExit(h.dimension(), r!.at)).toBe(true);
+    });
+    it('takes a sealed pocket to the ground outside, not onto the top of its own wall', () => {
+      const h = simHost({ colliders: true, terrain: solidBelow(0) });
+      for (let x = -1; x <= 1; x++) for (let z = -1; z <= 1; z++) if (x || z) h.fill({ x, y: 0, z }, { x, y: 1, z }, COLLIDER_BLOCK_ID);
+      const r = BODY_PROBE.escape(h.dimension(), { x: 0.5, y: 0, z: 0.5 }, ESCAPE_OPTIONS);
+      expect(r).toMatchObject({ how: 'exterior', at: { x: 2.5, y: 0, z: 0.5 } });
+    });
+    it('takes a roof only when no ring has a floor at the seat\'s level, and finds nothing in a void', () => {
+      const roofOnly = simHost({ colliders: true });
+      roofOnly.fill({ x: -3, y: 0, z: -3 }, { x: 3, y: 2, z: 3 }, COLLIDER_BLOCK_ID);
+      expect(BODY_PROBE.escape(roofOnly.dimension(), { x: 0.5, y: 0, z: 0.5 }, ESCAPE_OPTIONS)).toMatchObject({ how: 'exterior', at: { y: 3 } });
+      expect(BODY_PROBE.escape(simHost({ colliders: true }).dimension(), { x: 0.5, y: 0, z: 0.5 }, ESCAPE_OPTIONS)).toBeUndefined();
+    });
+  });
+
+  it('lets settle reject a nearer trapped point without changing its default choice', () => {
+    const h = simHost({ colliders: true, terrain: solidBelow(0) });
+    const at = { x: 0.5, y: 0, z: 0.5 };
+    const ordinary = BODY_PROBE.settle(h.dimension(), at, 2, 3);
+    const accepted = BODY_PROBE.settle(h.dimension(), at, 2, 3, q => q.x >= 1);
+    expect(ordinary).toEqual(at);
+    expect(accepted.x).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('the serialised runtime', () => {
+  const config = { figureTypes: ['craftmatic:a_fig1', 'craftmatic:a_fig2', 'craftmatic:a_fig3'], seatTypes: ['craftmatic:a_seat'], bodyHeights: {}, bodyHeight: 1.8, tuning: FIGURE_TUNING };
+  it('serialises without references outside itself', () => {
+    const js = figureLifeScript({ ...config, interactiveFamily: 'craftmatic_interactive' });
+    expect(js).not.toMatch(/__name|import_|bedrock_figure_life/);
+    expect(js).toContain("import { world, system } from '@minecraft/server'");
+  });
+
+  const seatSafetyConfig = {
+    ...config,
+    figureTypes: [],
+    colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE },
+    seatSafety: { lift: RIDE.SETDOWN_LIFT_BLOCKS, reach: RIDE.SETDOWN_REACH_BLOCKS, drop: RIDE.SETDOWN_DROP_BLOCKS },
+  };
+  const seatSafetyHost = () => simHost({
+    script: figureLifeScript(seatSafetyConfig), colliders: true, terrain: solidBelow(0),
+    entities: {
+      'craftmatic:a_seat': seatBehavior('a_seat') as Record<string, unknown>,
+      'craftmatic:other_seat': seatBehavior('other_seat') as Record<string, unknown>,
+    },
+  });
+
+  it('moves a player from a scenery seat native dismount fallback to the first wider body-safe floor', () => {
+    const h = seatSafetyHost();
+    h.fill({ x: -1, y: 0, z: -1 }, { x: 1, y: 2, z: 1 }, COLLIDER_BLOCK_ID);
+    const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
+    const player = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    h.seat(player, seat); h.run(1);
+    h.controls(player, { sneak: true }); h.run(1); h.controls(player, { sneak: false });
+    expect(player.ridingOn).toBeUndefined();
+    expect(player.location).toMatchObject({ x: 2.5, y: 0, z: 0.5 });
+  });
+
+  it('leaves an already-free native dismount alone', () => {
+    const h = seatSafetyHost();
+    const seat = h.spawn('craftmatic:a_seat', { x: 5.5, y: 0, z: 5.5 });
+    const player = h.addPlayer('Rider', { x: 5.5, y: 0, z: 5.5 });
+    h.seat(player, seat); h.run(1);
+    h.controls(player, { sneak: true }); h.run(1); h.controls(player, { sneak: false });
+    expect(player.ridingOn).toBeUndefined();
+    expect(player.location).toMatchObject({ x: 5.5, y: 0, z: 4.5 });
+    expect(h.lines('actionbar', 'Rider')).toEqual([]);
+  });
+
+  it('takes a sealed pocket\'s seat out to the ground beyond it, never through its wall and never onto its wall\'s top', () => {
+    const h = seatSafetyHost();
+    // The centre fits a standing player; the ring around it (two blocks high) seals it. Nothing within reach is
+    // walk-connected to the pocket, so the last resort is the exterior: the ground at the first ring outside
+    // (x 2.5), not the ring's own top one block out (a roof two blocks over the seat's level).
+    for (let x = -1; x <= 1; x++) for (let z = -1; z <= 1; z++) {
+      if (x || z) h.fill({ x, y: 0, z }, { x, y: 1, z }, COLLIDER_BLOCK_ID);
+    }
+    const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
+    const player = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    expect(BODY_PROBE.bodyFree(h.dimension(), player.location)).toBe(true);
+    h.seat(player, seat); h.run(1);
+    h.controls(player, { sneak: true }); h.run(1); h.controls(player, { sneak: false });
+    expect(player.ridingOn).toBeUndefined();
+    expect(player.location).toMatchObject({ x: 2.5, y: 0, z: 0.5 });
+    expect(h.lines('actionbar', 'Rider')).toEqual([]);
+    player.rotation.y = -90; // walk farther east, away from the ring
+    h.controls(player, { forward: 1 }); h.run(20);
+    expect(player.location.x).toBeGreaterThan(3.5);
+  });
+
+  it('never re-seats a player whose seat is inside a solid block when ground exists outside it (the 10326 / 910004 traps)', () => {
+    const h = seatSafetyHost();
+    h.fill({ x: -3, y: 0, z: -3 }, { x: 3, y: 2, z: 3 }, COLLIDER_BLOCK_ID);
+    const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
+    const player = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    h.seat(player, seat); h.run(1);
+    h.controls(player, { sneak: true }); h.run(1); h.controls(player, { sneak: false });
+    expect(player.ridingOn).toBeUndefined();
+    expect(h.lines('actionbar', 'Rider')).toEqual([]);
+    // On the ground beside the 7 x 7 block (its top, three blocks over the seat, is a roof: not chosen).
+    expect(player.location.y).toBe(0);
+    expect(Math.max(Math.abs(player.location.x - 0.5), Math.abs(player.location.z - 0.5))).toBeGreaterThan(3.3);
+    expect(BODY_PROBE.hasWalkExit(h.dimension(), player.location)).toBe(true);
+  });
+
+  /**
+   * A void: nothing anywhere a body can stand. Any block at all would do as a floor - even a 1 x 1 plinth's top is
+   * a walk exit across itself for a 0.6-wide body, and a sealed box's roof is an exterior floor - so only a world
+   * with no floor (or none loaded) leaves the watcher nothing but the seat.
+   */
+  const voidHost = () => simHost({
+    script: figureLifeScript(seatSafetyConfig), colliders: true,
+    entities: {
+      'craftmatic:a_seat': seatBehavior('a_seat') as Record<string, unknown>,
+      'craftmatic:other_seat': seatBehavior('other_seat') as Record<string, unknown>,
+    },
+  });
+
+  it('re-seats only when nothing walkable exists, at most twice in a row under a held Sneak, and leaves a transfer alone', () => {
+    const h = voidHost();
+    const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
+    const other = h.spawn('craftmatic:other_seat', { x: 0.5, y: 0, z: 2.5 });
+    const player = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    h.seat(player, seat); h.run(1);
+    // Each press: Bedrock sets the player down in the air over nothing, so it is re-seated - twice. The third press in a row is left where Bedrock put it (a held Sneak must not loop seat, off, seat).
+    for (const expected of [seat, seat, undefined]) {
+      h.controls(player, { sneak: true }); h.run(1); h.controls(player, { sneak: false }); h.run(1);
+      expect(player.ridingOn).toBe(expected);
+    }
+    expect(h.lines('actionbar', 'Rider').filter(l => l === 'No safe place to get off here')).toHaveLength(2);
+    expect(h.lines('console').some(l => l.includes('after 2 re-seats'))).toBe(true);
+    // A transfer to another mount is never pulled back.
+    h.seat(player, seat); h.run(1);
+    h.unseat(player); h.seat(player, other); h.run(1);
+    expect(player.ridingOn).toBe(other);
+  });
+
+  it('leaves a deliberate move out of the seat alone (a /tp more than 2 blocks away)', () => {
+    const h = seatSafetyHost();
+    h.fill({ x: -3, y: 0, z: -3 }, { x: 3, y: 2, z: 3 }, COLLIDER_BLOCK_ID);
+    const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
+    const player = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    h.seat(player, seat); h.run(1);
+    // Teleported 11 blocks off the seat into a sealed pocket of its own (no walk exit there either): not Bedrock's
+    // set-down, so nothing is searched or re-seated - the move was meant.
+    for (let x = 10; x <= 12; x++) for (let z = -1; z <= 1; z++) if (x !== 11 || z !== 0) h.fill({ x, y: 0, z }, { x, y: 1, z }, COLLIDER_BLOCK_ID);
+    h.unseat(player); const tp = { x: 11.5, y: 0, z: 0.5 }; player.location = { ...tp };
+    h.run(1);
+    expect(player.ridingOn).toBeUndefined();
+    expect(player.location).toEqual(tp);
+  });
+
+  it('accepts a set-down a little over a walkable floor: the body lands on it a tick later', () => {
+    const h = seatSafetyHost();
+    const seat = h.spawn('craftmatic:a_seat', { x: 5.5, y: 0, z: 5.5 });
+    const player = h.addPlayer('Rider', { x: 5.5, y: 0, z: 5.5 });
+    h.seat(player, seat); h.run(1);
+    // Set down a block aside and 0.4 up, in the air over open floor: it lands there. The watcher must not judge it
+    // unsupported and move it back to the seat (the 1/16 floor test alone did).
+    h.unseat(player); player.location = { x: 6.5, y: 0.4, z: 5.5 };
+    h.run(1);
+    expect(player.location.x).toBe(6.5);
+    expect(player.location.z).toBe(5.5);
+    expect(h.lines('actionbar', 'Rider')).toEqual([]);
+  });
+
+  it('does not mistake a body-free point with no floor for a safe landing', () => {
+    const h = voidHost();
+    const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
+    const player = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    h.seat(player, seat); h.run(1);
+    // Set down beside the seat over the void: body-free, but nothing under it to land on.
+    h.unseat(player); player.location = { x: 1.5, y: 0, z: 0.5 };
+    h.run(1);
+    expect(player.ridingOn).toBe(seat);
+    expect(h.lines('actionbar', 'Rider')).toContain('No safe place to get off here');
+  });
+
+  it('preserves an unresolved pose when the remembered seat was taken, and ignores cross-dimension exits', () => {
+    const h = voidHost();
+    const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
+    const rider = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    const taker = h.addPlayer('Taker', { x: 0.5, y: 0, z: 8.5 });
+    h.seat(rider, seat); h.run(1);
+    h.unseat(rider); h.seat(taker, seat);
+    const unresolved = { x: 0.5, y: 0.2, z: 1.5 }; rider.location = { ...unresolved };
+    h.run(1);
+    expect(rider.ridingOn).toBeUndefined();
+    expect(rider.location.x).toBe(unresolved.x);
+    expect(rider.location.z).toBe(unresolved.z);
+    expect(h.lines('console').some(l => l.includes('[craftmatic seat] no safe dismount'))).toBe(true);
+
+    h.unseat(taker); h.seat(rider, seat); h.run(1);
+    h.unseat(rider); rider.dimension = 'nether'; rider.location = { ...unresolved };
+    h.run(1);
+    expect(rider.ridingOn).toBeUndefined();
+    expect(rider.location).toEqual(unresolved);
+  });
+
+  const inRoom = (w: SimWorld, tracks: ReturnType<typeof simulateFigureLife>) => tracks.map(t => ({
+    path: t.reduce((s, p, i) => i ? s + Math.hypot(p.x - t[i - 1]!.x, p.z - t[i - 1]!.z) : 0, 0),
+    outside: t.filter(p => p.x < w.area[0] || p.x > w.area[2] || p.z < w.area[1] || p.z > w.area[3]).length,
+    minY: Math.min(...t.map(p => p.y)),
+    riding: t.filter(p => p.riding).length,
+  }));
+
+  it('walks figures about a floor-plate room under a ceiling, inside it, never into the pit', () => {
+    // The room stands on stilts: under its plates is a 3-block drop to the ground.
+    const w: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: -3, figures: [
+      { typeId: 'craftmatic:a_fig1', at: { x: 2.5, y: 3 / 16, z: 2.5 } },
+      { typeId: 'craftmatic:a_fig2', at: { x: 5.5, y: 3 / 16, z: 4.5 } },
+    ] };
+    const r = inRoom(w, simulateFigureLife(w, config, 2400, 7));
+    for (const f of r) {
+      expect(f.path).toBeGreaterThan(4);
+      expect(f.outside).toBe(0);
+      expect(f.minY).toBeGreaterThan(0); // never into the pit, never off the doorway's edge
+    }
+  });
+
+  it('walks a Minifig Creator figure like a set figure, but only once the wand releases its draft', () => {
+    // No home record (the wand writes none): the runtime makes one where it stands when it adopts it.
+    const w: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: -3, figures: [
+      { typeId: 'craftmatic:a_minifig', at: { x: 3.5, y: 3 / 16, z: 3.5 }, noHome: true, draftUntil: 600 },
+    ] };
+    const t = simulateFigureLife(w, { ...config, figureTypes: [...config.figureTypes, 'craftmatic:a_minifig'], draftTypes: ['craftmatic:a_minifig'] }, 2400, 5)[0]!;
+    const moved = (from: number, to: number): number => t.slice(from, to).reduce((s, p, i, a) => i ? s + Math.hypot(p.x - a[i - 1]!.x, p.z - a[i - 1]!.z) : 0, 0);
+    expect(moved(0, 600)).toBe(0); // held by the wand
+    expect(moved(600, 2400)).toBeGreaterThan(3);
+    expect(t.every(p => p.x > 0 && p.x < 9 && p.z > 0 && p.z < 7 && p.y > 0)).toBe(true);
+  });
+
+  it('never borrows a seat on the storey below it (Pixel 76269: a figure sat 6 blocks down through the floor)', () => {
+    // A 2 x 2 upper floor (4 cells: enough to roam) 3 blocks over the ground, and a free
+    // seat on the ground under its middle: within 1.6 blocks sideways of every cell.
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < 2; x++) for (let z = 0; z < 2; z++) cells.push({ x, y: 3, z, lo: 0, hi: 3 });
+    const w: SimWorld = { cells, area: [0, 0, 2, 2], ground: 0,
+      seats: [{ typeId: 'craftmatic:a_seat', at: { x: 1, y: 0.6, z: 1 } }],
+      figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 0.5, y: 3 + 3 / 16, z: 0.5 } }] };
+    const tuning = { ...FIGURE_TUNING, seatChance: 1 };
+    const [t] = simulateFigureLife(w, { ...config, tuning }, 3000, 13);
+    expect(t!.filter(p => p.riding)).toHaveLength(0);
+    expect(Math.min(...t!.map(p => p.y))).toBeGreaterThan(3);
+  });
+
+  it('keeps a figure standing on a 1-cell plinth where it is', () => {
+    const cells: SourceCell[] = [{ x: 5, y: 0, z: 5, lo: 0, hi: 16 }];
+    const w: SimWorld = { cells, area: [4, 4, 7, 7], ground: 0, figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 5.5, y: 1, z: 5.5 } }] };
+    const [f] = inRoom(w, simulateFigureLife(w, config, 1200, 3));
+    expect(f!.path).toBe(0);
+    expect(f!.minY).toBe(1);
+  });
+
+  it('leaves a source-seated figure on its seat, and lets a roamer borrow a free seat and give it up', () => {
+    const w: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0,
+      seats: [{ typeId: 'craftmatic:a_seat', at: { x: 2.5, y: 0.6, z: 2.5 } }, { typeId: 'craftmatic:a_seat', at: { x: 6.5, y: 0.6, z: 1.5 } }],
+      figures: [
+        { typeId: 'craftmatic:a_fig1', at: { x: 2.5, y: 0.6, z: 2.5 }, mode: 'seated' },
+        { typeId: 'craftmatic:a_fig2', at: { x: 5.5, y: 3 / 16, z: 3.5 } },
+      ] };
+    const tuning = { ...FIGURE_TUNING, seatChance: 1, sitMin: 100, sitMax: 120 };
+    const r = inRoom(w, simulateFigureLife(w, { ...config, tuning }, 3000, 11));
+    expect(r[0]!.riding).toBe(3000);
+    expect(r[1]!.riding).toBeGreaterThan(50);
+    expect(r[1]!.riding).toBeLessThan(3000);
+  });
+
+  it('gives a source-seated figure\'s seat to a player who comes to it, and takes it back after the player leaves', () => {
+    const w: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0,
+      seats: [{ typeId: 'craftmatic:a_seat', at: { x: 2.5, y: 0.6, z: 2.5 } }],
+      figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 2.5, y: 0.6, z: 2.5 }, mode: 'seated' }],
+      // The player stands beside the chair for 600 ticks, then walks away.
+      player: { x: 3.5, y: 3 / 16, z: 2.5 }, playerLeavesAt: 600 };
+    const [t] = simulateFigureLife(w, config, 1200, 5);
+    // Up within a tick of the player arriving, and off the seat while the player is there.
+    expect(t!.slice(2, 600).every(p => !p.riding)).toBe(true);
+    // Back on its seat within the 100-tick retry once the player has gone.
+    expect(t!.slice(720).every(p => p.riding)).toBe(true);
+  });
+
+  it('tells the content log of a missing seat on the second retake check in a row, not while a placement is still spawning its seats', () => {
+    // A seated figure is adopted the tick it spawns; a large placement (10261, ~2 min) spawns its
+    // seats later. Both phones logged FIGURE_RETAKE_NO_SEAT for 10261's kiosk figure at that first
+    // check, before its seat existed, and the figure sat on it afterwards (Saga round 2026-09-29c).
+    const tuning = { ...FIGURE_TUNING, idleMin: 20, idleMax: 30 }; // the first check at tick 21..31, the second 100 later
+    const late: string[] = [];
+    const seatComes: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0,
+      seats: [{ typeId: 'craftmatic:a_seat', at: { x: 2.5, y: 0.6, z: 2.5 }, spawnAt: 60 }],
+      figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 2.5, y: 0.6, z: 2.5 }, mode: 'seated' }],
+      onWarn: l => late.push(l) };
+    const [t] = simulateFigureLife(seatComes, { ...config, tuning }, 400, 5);
+    expect(late.filter(l => l.includes('FIGURE_RETAKE'))).toEqual([]);
+    // Seated on it by the second check.
+    expect(t!.slice(200).every(p => p.riding)).toBe(true);
+    // No seat ever: the line once, on the second miss (two checks, 10 s), never on the first.
+    const never: string[] = [];
+    simulateFigureLife({ ...seatComes, seats: [], onWarn: l => never.push(l) }, { ...config, tuning }, 400, 5);
+    expect(never.filter(l => l.includes('FIGURE_RETAKE_NO_SEAT'))).toHaveLength(1);
+    expect(never[0]).toMatch(/FIGURE_RETAKE_NO_SEAT craftmatic:a_fig1 near 3,1,3 \(2 checks, 10 s\)/);
+    const early: string[] = [];
+    simulateFigureLife({ ...seatComes, seats: [], onWarn: l => early.push(l) }, { ...config, tuning }, 100, 5);
+    expect(early).toEqual([]);
+  });
+
+  it('looks for its seat as far from home as the wand size puts it (10261 fig2 at 200 %: seat 4.95 from home, child play 2026-10-08)', () => {
+    // 10261's kiosk figure has its home ~2.5 blocks from the seat it rode at 100 %; the gap is the model's and
+    // doubles at 200 %, past a fixed 4-block search: FIGURE_RETAKE_NO_SEAT after every visit.
+    const tuning = { ...FIGURE_TUNING, idleMin: 20, idleMax: 30 };
+    const run = (f: number): { warns: string[]; track: SimSample[] } => {
+      const warns: string[] = [];
+      const w: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0, f,
+        seats: [{ typeId: 'craftmatic:a_seat', at: { x: 2.5, y: 0.6, z: 2.5 } }],
+        figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 2.5, y: 0.6, z: 2.5 }, mode: 'seated', home: { x: 6, y: 0.6, z: 6 } }],
+        player: { x: 3.5, y: 3 / 16, z: 2.5 }, playerLeavesAt: 300, onWarn: l => warns.push(l) };
+      const [track] = simulateFigureLife(w, { ...config, tuning }, 1200, 5);
+      return { warns, track: track! };
+    };
+    const big = run(2);
+    expect(big.warns.filter(l => l.includes('FIGURE_RETAKE_NO_SEAT'))).toEqual([]);
+    expect(big.track.slice(900).every(p => p.riding)).toBe(true);
+    // At 100 % the same 4.95 is past the reach (a seat that far from home is another figure's): the line, as before.
+    expect(run(1).warns.filter(l => l.includes('FIGURE_RETAKE_NO_SEAT'))).toHaveLength(1);
+  });
+
+  it('says nothing while the placement is still seating the figure, however long its seat takes to spawn (10261, ~2 min)', () => {
+    // 10261's placement spawns its actors over ~2 minutes, the kiosk figure long before its seat:
+    // both phones logged FIGURE_RETAKE_NO_SEAT ~2 min into every placement (Saga round 2026-09-29c).
+    // The seat comes at tick 2400 (2 min); the placement's seating mark is on the figure until then.
+    const late: string[] = [];
+    const slow: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0,
+      seats: [{ typeId: 'craftmatic:a_seat', at: { x: 2.5, y: 0.6, z: 2.5 }, spawnAt: 2400 }],
+      figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 2.5, y: 0.6, z: 2.5 }, mode: 'seated', seatingUntil: 2400 }],
+      onWarn: l => late.push(l) };
+    const [t] = simulateFigureLife(slow, config, 2800, 5);
+    expect(late.filter(l => l.includes('FIGURE_RETAKE'))).toEqual([]);
+    // Once the mark goes the retake runs and seats it (the placement's own pass would have first, on the device).
+    expect(t!.slice(2600).every(p => p.riding)).toBe(true);
+    // Without the mark (a pack built before it) two misses in a row are not enough grace for a 2-minute placement.
+    const unmarked: string[] = [];
+    simulateFigureLife({ ...slow, figures: [{ ...slow.figures[0]!, seatingUntil: undefined }], onWarn: l => unmarked.push(l) }, config, 2800, 5);
+    expect(unmarked.filter(l => l.includes('FIGURE_RETAKE_NO_SEAT'))).toHaveLength(1);
+  });
+
+  it('spells the seating mark and its grace as the constants say, in both serialised runtimes', () => {
+    const js = figureLifeScript({ ...config, interactiveFamily: 'craftmatic_interactive' });
+    const quoted = new RegExp(`["']${FIGURE_SEATING_PROPERTY}["']`);
+    expect(js).toMatch(quoted);
+    // The transpiler may spell the number differently (6e5): compare values.
+    expect(Number(/SEATING_GRACE_MS = ([^,;\s]+)/.exec(js)?.[1])).toBe(FIGURE_SEATING_GRACE_MS);
+    const tile = { identifier: 'craftmatic:t0', dx: 0, dy: 0, dz: 0, width: 4, height: 2, length: 2, nonAir: 4 };
+    const h = host({ stem: 'marks', label: 'Marks', width: 4, height: 2, length: 2, tiles: [tile], actors: [], settleTicks: 1, finalHoldTicks: 1 });
+    expect(h.assets.script).toMatch(quoted);
+  });
+
+  it('the placement marks a source-seated figure until its seating pass is done with it', async () => {
+    // The figure spawns BEFORE its seat (10261's order); the host's seat is not rideable, so the
+    // pass retries and gives up - the mark must go either way.
+    const tile = { identifier: 'craftmatic:t0', dx: 0, dy: 0, dz: 0, width: 4, height: 2, length: 2, nonAir: 4 };
+    const h = host({ stem: 'seated', label: 'Seated', width: 4, height: 2, length: 2, tiles: [tile],
+      actors: [
+        { typeId: 'craftmatic:seated_fig1', label: 'Figure 1', x: 1, y: 1, z: 1, rideOf: 1 },
+        { typeId: 'craftmatic:seated_seat', label: 'Seat', x: 1, y: 0.5, z: 1 },
+        { typeId: 'craftmatic:seated_fig2', label: 'Figure 2', x: 2, y: 1, z: 1 },
+      ],
+      settleTicks: 1, finalHoldTicks: 1 });
+    const dim = h.world.getDimension('overworld') as { spawnEntity: (t: string, at: unknown) => unknown };
+    const spawn = dim.spawnEntity;
+    let markWhileSeatSpawns: unknown = 'unset';
+    dim.spawnEntity = (t: string, at: unknown) => {
+      if (t === 'craftmatic:seated_seat') markWhileSeatSpawns = h.spawned.find(s => s.typeId === 'craftmatic:seated_fig1')!.entity.getDynamicProperty(FIGURE_SEATING_PROPERTY);
+      return spawn(t, at);
+    };
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await h.open({ action: 'Place' }, { selection: 0 });
+    await h.flush(2000);
+    expect(typeof markWhileSeatSpawns).toBe('number');
+    const fig1 = h.spawned.find(s => s.typeId === 'craftmatic:seated_fig1')!.entity;
+    const fig2 = h.spawned.find(s => s.typeId === 'craftmatic:seated_fig2')!.entity;
+    expect(fig1.getDynamicProperty(FIGURE_SEATING_PROPERTY)).toBeUndefined();
+    // A roaming figure is never marked.
+    expect(fig2.getDynamicProperty(FIGURE_SEATING_PROPERTY)).toBeUndefined();
+    expect(JSON.parse(String(fig1.getDynamicProperty('craftmatic:fig'))).mode).toBe('seated');
+  });
+
+  it('retakes a seat whose entity sits 2 blocks under the figure\'s home (10261\'s kiosk, round 2026-09-29b)', () => {
+    const w: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0,
+      seats: [{ typeId: 'craftmatic:a_seat', at: { x: 2.5, y: 0.6, z: 2.5 } }],
+      figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 2.5, y: 2.6, z: 2.5 }, mode: 'seated' }],
+      player: { x: 3.5, y: 3 / 16, z: 2.5 }, playerLeavesAt: 600 };
+    const [t] = simulateFigureLife(w, config, 1200, 5);
+    expect(t!.slice(720).every(p => p.riding)).toBe(true);
+  });
+
+  it('walks a figure spawned inside a collider column into the free cell beside it, then keeps it there', () => {
+    const cells: SourceCell[] = [0, 1, 2].map(y => ({ x: 2, y, z: 2, lo: 0, hi: 16 }));
+    const w: SimWorld = { cells, area: [2, 2, 4, 3], ground: 0, figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 2.4, y: 0, z: 2.5 } }] };
+    const [t] = simulateFigureLife(w, config, 800, 4);
+    const last = t![t!.length - 1]!;
+    expect(Math.floor(last.x)).toBe(3);
+    expect(t!.slice(-200).every(p => Math.hypot(p.x - last.x, p.z - last.z) < 1e-6)).toBe(true);
+  });
+
+  it('sets a figure walled into a collider (no free column beside it) down on the nearest roomy floor', () => {
+    // Column (5,5) and its eight neighbours are 3-block solids; open ground beyond.
+    const cells: SourceCell[] = [];
+    for (let x = 4; x <= 6; x++) for (let z = 4; z <= 6; z++) for (let y = 0; y < 3; y++) cells.push({ x, y, z, lo: 0, hi: 16 });
+    const w: SimWorld = { cells, area: [0, 0, 11, 11], ground: 0, figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 5.5, y: 0, z: 5.5 } }] };
+    const [t] = simulateFigureLife(w, config, 600, 9);
+    const last = t![t!.length - 1]!;
+    const inSolid = (p: { x: number; z: number }) => Math.floor(p.x) >= 4 && Math.floor(p.x) <= 6 && Math.floor(p.z) >= 4 && Math.floor(p.z) <= 6;
+    expect(inSolid(last)).toBe(false);
+    expect(Math.hypot(last.x - 5.5, last.z - 5.5)).toBeLessThan(9);
+  });
+
+  it('re-homes a figure whose spawn point had nothing under it where it landed, and lets it roam there', () => {
+    // Spawned 2 blocks up over open ground (a display stand the collider grid does not carry).
+    const w: SimWorld = { cells: [], area: [0, 0, 10, 10], ground: 0, figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 5.5, y: 2.1, z: 5.5 } }] };
+    const [t] = simulateFigureLife(w, config, 2400, 6);
+    const after = t!.slice(40);
+    expect(Math.max(...after.map(p => p.y))).toBeLessThan(0.01); // never put back up in the air
+    let path = 0;
+    for (let i = 1; i < after.length; i++) path += Math.hypot(after[i]!.x - after[i - 1]!.x, after[i]!.z - after[i - 1]!.z);
+    expect(path).toBeGreaterThan(4);
+  });
+
+  it('never stops next to a door leaf', () => {
+    const w: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0, leaves: [{ x: 4.5, y: 0.2, z: 6 }], figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 4.5, y: 3 / 16, z: 3.5 } }] };
+    const [t] = simulateFigureLife(w, config, 4000, 5);
+    // Resting samples (no movement between ticks) are all clear of the leaf.
+    const rests = t!.filter((p, i) => i > 0 && Math.hypot(p.x - t![i - 1]!.x, p.z - t![i - 1]!.z) < 1e-4);
+    expect(rests.length).toBeGreaterThan(100);
+    expect(rests.every(p => Math.hypot(p.x - 4.5, p.z - 6) >= 1.2)).toBe(true);
+  });
+
+  it('brings a figure pushed out of its area back in', () => {
+    // Flat ground, a 6 x 6 area; the figure starts 4 blocks outside it.
+    const w: SimWorld = { cells: [], area: [0, 0, 6, 6], ground: 0, figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 10.5, y: 0, z: 3.5 }, home: { x: 2.5, y: 0, z: 3.5 } }] };
+    const [t] = simulateFigureLife(w, config, 600, 2);
+    const last = t![t!.length - 1]!;
+    expect(last.x).toBeLessThanOrEqual(6.5);
+  });
+});
+
+const GABBY_10796_PACK = 'C:/git/craftmatic/output/fidelity-audit-20261005/packs-9ed44be0/10796-gabbys-kitty-care-ear.mcaddon';
+describe.skipIf(!existsSync(GABBY_10796_PACK))('10796 shipped scenery-seat exit', () => {
+  it('directly mounts, Sneaks off, and can physically walk a block from the recovered landing', async () => {
+    const bytes = readFileSync(GABBY_10796_PACK);
+    const source = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    const load = async (currentRuntime: boolean): Promise<Addon> => {
+      const addon = await readAddon(source, `${GABBY_10796_PACK}${currentRuntime ? '#current-runtime' : '#shipped'}`);
+      if (currentRuntime) {
+        const pack = readCraftmaticPack(addon)!.pack;
+        const config = extractJsonAfter(packText(pack, 'scripts/figures.js')!, 'const CONFIG') as unknown as FigureLifeConfig;
+        pack.files.set('scripts/figures.js', new TextEncoder().encode(figureLifeScript(config)));
+      }
+      return addon;
+    };
+    const exercise = async (addon: Addon) => {
+      const pack = readCraftmaticPack(addon)!;
+      const directMount: StepHandler = async (_step, ctx) => {
+        const seat = ctx.find({ type: 'craftmatic:gabbyskitty_10796_seat' });
+        if (!seat) throw new Error('the placed source seat was not spawned');
+        const mounted = seat.addRider(ctx.player, ctx.sim.engine.tick);
+        if (!mounted.ok) throw new Error(`the source seat refused the rider: ${mounted.why}`);
+        await ctx.run(1); // figures.js records the occupied scenery seat before Sneak
+      };
+      const proveMobility: StepHandler = async (_step, ctx) => {
+        if (ctx.player.ridingOn) throw new Error('Sneak did not dismount the scenery seat');
+        const landing = { ...ctx.player.location };
+        const hasExit = BODY_PROBE.hasWalkExit(ctx.sim.host.dimensionApi(ctx.player.dimension), landing);
+        let farthest = 0;
+        for (let yaw = 0; yaw < 360; yaw += 45) {
+          ctx.player.location = { ...landing };
+          ctx.player.velocity = { x: 0, y: 0, z: 0 };
+          ctx.player.onGround = true;
+          ctx.player.rotation.y = yaw;
+          ctx.sim.controls.set(ctx.player.id, { forward: 1, strafe: 0, jump: false });
+          await ctx.run(20);
+          farthest = Math.max(farthest, Math.hypot(ctx.player.location.x - landing.x, ctx.player.location.z - landing.z));
+        }
+        ctx.sim.controls.set(ctx.player.id, { forward: 0, strafe: 0, jump: false });
+        ctx.state['10796SeatExit'] = { landing, hasExit, farthest };
+        // A full block of actual travel distinguishes walking away from the
+        // sub-block shuffling possible inside the native trapped pocket.
+        if (!hasExit || farthest < 1) ctx.violate({ invariant: 'scenery-seat-walk-exit', message: `10796 scenery-seat landing hasExit=${hasExit}, farthest=${farthest.toFixed(3)} blocks`, evidence: { landing, hasExit, farthest } });
+      };
+      return runScenario({
+        name: '10796-source-seat-exit',
+        start: { x: 0.5, y: -60, z: 0.5 },
+        items: [pack.placement.itemId],
+        invariants: [],
+        allowLines: [...CRAFTMATIC_ALLOWED_LINES],
+        yieldingLines: [...CRAFTMATIC_YIELDING_LINES],
+        steps: [
+          { kind: 'place', size: 100, rotation: 0 },
+          { kind: 'wait', ticks: 40 },
+          { kind: 'directMount' },
+          { kind: 'sneak' },
+          { kind: 'proveMobility' },
+        ],
+      }, [addon], { handlers: { ...craftmaticHandlers(pack, addon), directMount, proveMobility } });
+    };
+    const shipped = await exercise(await load(false));
+    expect(shipped.status, JSON.stringify({ violations: shipped.violations, steps: shipped.steps, state: shipped.state }, null, 2)).toBe('fail');
+    expect((shipped.state['10796SeatExit'] as { hasExit: boolean }).hasExit).toBe(false);
+    expect((shipped.state['10796SeatExit'] as { farthest: number }).farthest).toBeLessThan(1);
+
+    const current = await exercise(await load(true));
+    expect(current.status, JSON.stringify({ violations: current.violations, steps: current.steps, state: current.state }, null, 2)).toBe('pass');
+    expect(current.state['10796SeatExit']).toMatchObject({ hasExit: true });
+    expect((current.state['10796SeatExit'] as { farthest: number }).farthest).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('figures recorded on one spot (separateFigureSpawns, at export)', () => {
+  const opts = { maxUp: FIGURE_TUNING.maxUp, maxDown: FIGURE_TUNING.maxDown };
+  const inside = (w: number, l: number) => (x: number, z: number): boolean => x >= 0 && z >= 0 && x < w && z < l;
+  it('moves the later of two coincident figures to the nearest free standable column and leaves the others alone', () => {
+    const span = spansOf(room(), 0);
+    const figs = [{ x: 3.5, y: 3 / 16, z: 3.5, body: 1.8 }, { x: 5.5, y: 3 / 16, z: 3.5, body: 1.8 }, { x: 3.5, y: 3 / 16, z: 3.5, body: 1.8 }];
+    const r = separateFigureSpawns(span, figs, inside(9, 7), opts);
+    expect(r.moved).toEqual([2]);
+    expect(r.at[0]).toEqual({ x: 3.5, y: 3 / 16, z: 3.5 });
+    expect(r.at[1]).toEqual({ x: 5.5, y: 3 / 16, z: 3.5 });
+    const p = r.at[2]!;
+    expect(Math.hypot(p.x - 3.5, p.z - 3.5)).toBeCloseTo(1);
+    expect(p.y).toBeCloseTo(3 / 16);
+  });
+  it('leaves figures a body apart, or one floor above another, where they are', () => {
+    const span = spansOf(room(), 0);
+    const figs = [{ x: 3.5, y: 3 / 16, z: 3.5, body: 1.8 }, { x: 4.2, y: 3 / 16, z: 3.5, body: 1.8 }, { x: 3.5, y: 4, z: 3.5, body: 1.8 }];
+    expect(separateFigureSpawns(span, figs, inside(9, 7), opts).moved).toEqual([]);
+  });
+});
+
+/**
+ * FIG-01, 76417 figure 9 (the round-30 combined sim, 2026-10-08: "never moves"). The
+ * source stands it 1.25 blocks over the ground beside a turned crate; the crate's
+ * clearance forms fill only x 12/16..16/16 of the figure's column (13, 18) and x
+ * 0..8/16 of the next, so nothing lies under the figure's 0.6-wide feet. Read whole,
+ * the column "carried" it at 1.25: the export kept it there, it fell to the ground
+ * at placement, and with its home floor 1.25 up (past the 1.2 band) the ground it
+ * fell to was outside its area: the planner found no cell and it stood still for
+ * the whole watch (GameTest `figures_gringotts_76417` offline: pathLength 0,
+ * clipping 61/61). The cells are the pack's own around it (round 30o build,
+ * x 10..17, z 15..19, rows 0-3).
+ */
+describe('76417 figure 9: a spawn over a form that does not reach its feet (FIG-01)', () => {
+  const c = (x: number, y: number, z: number, lo: number, hi: number, v?: number): SourceCell => ({ x, y, z, lo, hi, ...(v ? { v } : {}) });
+  const cells: SourceCell[] = [
+    c(13, 0, 18, 4, 16, 6), c(14, 0, 18, 4, 16, 2),
+    c(10, 1, 15, 0, 16), c(11, 1, 15, 0, 12), c(15, 1, 15, 2, 16, 4), c(16, 1, 15, 2, 16, 3), c(17, 1, 15, 13, 16, 8),
+    c(10, 1, 16, 0, 16), c(11, 1, 16, 0, 16, 2), c(15, 1, 16, 0, 6), c(16, 1, 16, 0, 6),
+    c(10, 1, 17, 0, 12, 22), c(11, 1, 17, 0, 15),
+    c(13, 1, 18, 0, 4, 6), c(14, 1, 18, 0, 5, 2),
+    c(12, 1, 19, 9, 14, 5), c(13, 1, 19, 8, 14),
+    c(10, 2, 15, 0, 5, 17), c(15, 2, 15, 0, 16, 6), c(16, 2, 15, 0, 4, 15), c(17, 2, 15, 0, 3),
+    c(10, 2, 16, 0, 5, 17), c(11, 2, 16, 0, 2, 1), c(10, 2, 17, 0, 2, 8),
+    c(11, 2, 19, 2, 16, 5), c(12, 2, 19, 2, 16, 2),
+    c(10, 3, 15, 0, 16, 2), c(15, 3, 15, 0, 16, 6), c(16, 3, 15, 12, 16, 29), c(17, 3, 15, 13, 16, 4),
+    c(10, 3, 16, 0, 16, 2), c(17, 3, 16, 5, 16), c(17, 3, 17, 11, 16, 5),
+    c(11, 3, 19, 0, 2, 5), c(12, 3, 19, 0, 2, 1),
+  ];
+  const grid = new Map(cells.map(k => [`${k.x},${k.y},${k.z}`, k]));
+  const cellAt = (x: number, y: number, z: number): SourceCell | undefined => grid.get(`${x},${y},${z}`);
+  const whole = cellSpanLookup(cellAt);
+  const source = { x: 13.288778500493871, y: 1.25, z: 18.76724418554086 };
+  const body = 1.7, half = 0.3;
+  const carried = cellSpanLookup(cellAt, { x0: source.x - half, x1: source.x + half, z0: source.z - half, z1: source.z + half });
+  const inside = (x: number, z: number): boolean => x >= 0 && z >= 0 && x < 27 && z < 27;
+  const opts = { maxUp: FIGURE_TUNING.maxUp, maxDown: FIGURE_TUNING.maxDown, minRoom: FIGURE_TUNING.minRoamCells };
+
+  it('reads a form by its boxes: whole by its extent, under a footprint only where it reaches', () => {
+    // v6 is a wall x 12..16 sixteenths: the column's top is 1.25 read whole, and nothing under x 12.99..13.59.
+    expect(whole(13, 1, 18)).toEqual([1, 1.25]);
+    expect(carried(13, 1, 18)).toBeNull();
+    expect(carried(13, 0, 18)).toBeNull();
+    // The ground under the pin plane carries every footprint.
+    expect(carried(13, -1, 18)).toEqual([-1, 0]);
+    expect(whole(0, 0, 0)).toBeNull();
+    // A floor + wall form (kind 1, v = 1 + 14 + shape - 1) reads to the block top whole, as the placement lift and `blockSpan` read it.
+    expect(cellSpanLookup(() => ({ x: 0, y: 0, z: 0, lo: 0, hi: 3, v: 1 + 14 + 5 }))(0, 0, 0)).toEqual([0, 1]);
+  });
+
+  it('moves the figure off a surface its own footprint does not carry, onto ground the placement lift keeps', () => {
+    // Read whole (the export until 2026-10-12) the column carries it where it stands.
+    expect(resolveFigureSpawn(whole, source, body, inside, opts).kind).toBe('kept');
+    const s = resolveFigureSpawn(whole, source, body, inside, { ...opts, carried });
+    expect(s.kind).toBe('moved');
+    expect(s.y).toBe(0);
+    expect(s.room).toBeGreaterThanOrEqual(FIGURE_TUNING.minRoamCells);
+    // The device's spawn lift leaves it there (at the source spot it lifts it back onto the 1.25 "top").
+    expect(spawnLift(whole, s.x, s.z, s.y, 1.8, 3)).toBe(s.y);
+    expect(spawnLift(whole, source.x, source.z, 0, 1.8, 3)).toBe(1.25);
+  });
+
+  it('walks the figure from the spot the export now picks; from the source spot it never moved', () => {
+    const config = { figureTypes: ['craftmatic:g_fig9'], seatTypes: [], bodyHeights: { 'craftmatic:g_fig9': body }, bodyHeight: 1.8, tuning: FIGURE_TUNING };
+    const run = (at: { x: number; y: number; z: number }): number => {
+      const w: SimWorld = { cells, area: [0, 0, 27, 27], ground: 0, figures: [{ typeId: 'craftmatic:g_fig9', at }] };
+      const [t] = simulateFigureLife(w, config, 1200, 9);
+      return t!.reduce((sum, p, i) => i ? sum + Math.hypot(p.x - t![i - 1]!.x, p.z - t![i - 1]!.z) : 0, 0);
+    };
+    expect(run(source)).toBeLessThan(0.5);
+    const s = resolveFigureSpawn(whole, source, body, inside, { ...opts, carried });
+    expect(run({ x: s.x, y: s.y, z: s.z })).toBeGreaterThan(4);
+  });
+});

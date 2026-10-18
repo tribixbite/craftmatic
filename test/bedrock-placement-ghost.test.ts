@@ -1,0 +1,233 @@
+import { describe, expect, it, vi } from 'vitest';
+import { buildPlacementPackAssets } from '../web/src/engine/bedrock-placement-pack.js';
+import { host } from './_placement-host.js';
+
+/**
+ * The wand's ghost preview and progress bar, driven through the serialized
+ * runtime exactly as bedrock-placement-runtime.test.ts drives the planner.
+ */
+it('spawns a ghost at the rotated footprint centre, turns it with the rotation, removes it on hide and place, and reports progress on the action bar', async () => {
+  // The serialised runtime on the simulator (test/_placement-host.ts). Its own ticking areas are
+  // what the old fake called "loaded": a structure load, a snapshot and every actor spawn must come
+  // while the runtime holds an area over the target (the preview ghost is spawned beside the player).
+  const h = host({ stem: 'ghosted', label: 'Ghosted', width: 40, height: 10, length: 20,
+    tiles: [{ identifier: 'craftmatic:t0', dx: 0, dy: 0, dz: 0, width: 40, height: 10, length: 20, nonAir: 5 }],
+    actors: [{ typeId: 'craftmatic:car', label: 'Car', x: 20, y: 1, z: 10 }],
+    preview: { typeId: 'craftmatic:ghosted_preview' }, settleTicks: 3, finalHoldTicks: 5 });
+  const { assets, player, spawned } = h;
+  expect(assets.script).toContain('"preview":{"typeId":"craftmatic:ghosted_preview"}');
+  expect(assets.script).toContain('"settleTicks":3');
+  const shown = () => h.buttons.length;
+  /** The ids of the spawned entities the runtime removed, in spawn order (`e1` is the first spawned). */
+  const removed = () => spawned.flatMap((s, i) => (s.entity.remove.mock.calls.length ? [`e${i + 1}`] : []));
+  const loaded = () => h.runtimeAreas().length > 0;
+  // Every command other than a ticking area, and every actor spawn, needs the runtime's area over its
+  // target; a use without one is listed (the runtime catches a throw, so the test asserts the list).
+  const outsideArea: string[] = [];
+  const runCommand = h.dimension.runCommand;
+  h.dimension.runCommand = (command: string) => {
+    if (!command.startsWith('tickingarea ')) { const [, , , x, , z] = command.split(' '); if (!h.runtimeLoads(Number(x), Number(z))) outsideArea.push(command); }
+    return runCommand(command);
+  };
+  h.engine.on('entitySpawn', ({ entity }) => { if (entity.typeId !== 'craftmatic:ghosted_preview' && !entity.isPlayer && !h.runtimeLoads(entity.location.x, entity.location.z)) outsideArea.push(entity.typeId); });
+  // The particles the preview draws, and the tick counts of every timeout the runtime waits.
+  const spawnParticle = vi.fn(h.dimension.spawnParticle);
+  h.dimension.spawnParticle = spawnParticle;
+  const timeouts: number[] = [];
+  const runTimeout = h.system.runTimeout;
+  h.system.runTimeout = (fn: () => void, ticks?: number) => { timeouts.push(ticks ?? 1); return runTimeout(fn, ticks); };
+  const drawPreview = h.intervals.get(12)!;
+  expect(h.host.subscriberCount('playerLeave')).toBeGreaterThan(0);
+  const use = () => h.use(80);
+  const responses = h.responses;
+
+  // The first use of an unpinned wand starts following the aim and shows no
+  // form; nothing is under the crosshair here, so no ghost stands yet.
+  await use();
+  expect(shown()).toBe(0);
+  drawPreview();
+  expect(spawned).toHaveLength(0);
+  // Pin the corner at the feet: the ghost appears at the footprint centre (20, 0, 10) from the pin, yaw 0.
+  responses.push({ action: 'Pin corner at my feet' }, { canceled: true });
+  await use();
+  expect(shown()).toBe(2);
+  drawPreview();
+  expect(spawned).toHaveLength(1);
+  expect(spawned[0]).toMatchObject({ typeId: 'craftmatic:ghosted_preview', at: { x: 120, y: 64, z: 210 } });
+  expect(spawned[0]!.entity.teleport).toHaveBeenCalledWith({ x: 120, y: 64, z: 210 }, { rotation: { x: 0, y: 0 } });
+  // No particle sample points once a ghost ships (the outline and the +Y axis marker at the pin stay).
+  expect(spawnParticle.mock.calls.some((c: any[]) => c[0] === 'minecraft:villager_happy' && (c[1].x !== 100 || c[1].z !== 200))).toBe(false);
+  expect(spawnParticle.mock.calls.some((c: any[]) => c[0] === 'minecraft:endrod')).toBe(true);
+
+  // Rotate → 90°: the same ghost is moved to the rotated centre (length − z, x) = (10, 20) and turned.
+  responses.push({ action: 'Rotate' }, { canceled: true });
+  await use();
+  drawPreview();
+  expect(spawned).toHaveLength(1);
+  expect(spawned[0]!.entity.teleport).toHaveBeenLastCalledWith({ x: 110, y: 64, z: 220 }, { rotation: { x: 0, y: 90 } });
+  // "Pin centred on me" puts the rotated footprint centre (10, 20 at 90°) on the player: anchor = feet − centre.
+  responses.push({ action: 'Pin centred on me' }, { canceled: true });
+  await use();
+  drawPreview();
+  expect(spawned[0]!.entity.teleport).toHaveBeenLastCalledWith({ x: 100, y: 64, z: 200 }, { rotation: { x: 0, y: 90 } });
+  responses.push({ action: 'Pin corner at my feet' }, { canceled: true });
+  await use();
+
+  // Hide preview removes it; showing it again spawns a fresh one.
+  responses.push({ action: 'Hide preview' });
+  await use();
+  expect(removed()).toEqual(['e1']);
+  drawPreview();
+  expect(spawned).toHaveLength(1);
+  responses.push({ action: 'View preview in world' });
+  await use();
+  drawPreview();
+  expect(spawned).toHaveLength(2);
+
+  // Place: the ghost goes away before the first tile, the bar runs 0 → 100 %, the area is held after the last piece.
+  responses.push({ action: 'Place' }, { selection: 0 });
+  await h.use(200);
+  expect(removed()).toEqual(['e1', 'e2']);
+  expect(h.commands).toEqual(['structure load craftmatic:t0 100 64 200 90_degrees none']);
+  expect(spawned.filter(s => s.typeId === 'craftmatic:car')).toHaveLength(1);
+  expect(h.actionBars.some(s => s.includes('▱') && s.includes(' 0 percent ') && s.includes('loading area for piece 1/1'))).toBe(true);
+  expect(h.actionBars.some(s => s.includes('50 percent') && s.includes('piece 1/1 placed'))).toBe(true);
+  expect(h.actionBars.some(s => s.includes('100 percent') && s.includes('done'))).toBe(true);
+  expect(timeouts).toContain(3);
+  expect(timeouts).toContain(5);
+  expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Placing Ghosted: 1 structure piece and 1 entity.'));
+  expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Placed Ghosted.'));
+  expect(loaded()).toBe(false);
+  expect(outsideArea).toEqual([]);
+  // Placement cleared the preview: nothing is respawned afterwards.
+  drawPreview();
+  expect(spawned.filter(s => s.typeId === 'craftmatic:ghosted_preview')).toHaveLength(2);
+});
+
+/**
+ * Device round 2026-09-26a (Saga, 10261): after an Undo a white see-through
+ * ghost stood beside the player. A preview shown before the Undo survived it -
+ * the Undo only hid the ghost while it ran - and the next redraw spawned it
+ * again. Undo and putting the wand away now END the preview, and removal also
+ * sweeps by the player's ghost tag, so a ghost whose id lookup fails is not orphaned.
+ */
+describe('the ghost never outlives an Undo or the wand', () => {
+  const tile = { identifier: 'craftmatic:t0', dx: 0, dy: 0, dz: 0, width: 4, height: 2, length: 2, nonAir: 3 };
+  const spec = { stem: 'ghosted', label: 'Ghosted', width: 4, height: 2, length: 2, tiles: [tile], actors: [], preview: { typeId: 'craftmatic:ghosted_preview' }, settleTicks: 1, finalHoldTicks: 1 };
+  const ghosts = (h: ReturnType<typeof host>) => h.spawned.filter(s => s.typeId === 'craftmatic:ghosted_preview');
+  /** Live ghosts: spawned and not removed. */
+  const live = (h: ReturnType<typeof host>) => ghosts(h).filter(s => !s.entity.remove.mock.calls.length);
+
+  it('an Undo removes a ghost shown before it, and the next redraw does not bring it back', async () => {
+    const h = host(spec);
+    const draw = h.intervals.get(12)!;
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true }); // pin at the feet
+    await h.open({ action: 'Place' }, { selection: 0 }); // place
+    await h.flush(400);
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Placed Ghosted.'));
+    // Look at the preview again after placing (the Saga's sequence), then Undo.
+    await h.open({ action: 'View preview in world' });
+    draw();
+    expect(live(h)).toHaveLength(1);
+    await h.open({ action: 'Undo last placement' });
+    await h.flush(400);
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Undo complete'));
+    expect(live(h)).toHaveLength(0);
+    draw(); draw();
+    expect(live(h)).toHaveLength(0);
+    expect(ghosts(h)).toHaveLength(1); // nothing respawned
+  });
+
+  it('putting the wand away removes the ghost and stops following the aim; the pin is kept', async () => {
+    const h = host(spec);
+    const draw = h.intervals.get(12)!, aim = h.intervals.get(4)!, hold = h.intervals.get(5)!;
+    let inHand: { typeId: string } | undefined = { typeId: h.assets.itemId };
+    h.player.getComponent = (name: string) => name === 'minecraft:inventory' ? { container: { getItem: () => inHand } } : undefined;
+    hold(); await h.flush(); // selecting a fresh wand starts following the aim (no menu)
+    expect(h.buttons).toHaveLength(0);
+    h.setHit({ block: { location: { x: 10, y: 70, z: 20 } }, face: 'Up' });
+    aim(); draw();
+    expect(live(h)).toHaveLength(1);
+    const ghost = live(h)[0]!.entity;
+    expect(ghost.tags).toEqual([`cmg_${h.assets.shortAlias}_player`]);
+    inHand = { typeId: 'minecraft:stick' };
+    hold();
+    expect(live(h)).toHaveLength(0);
+    // It stays gone, and the aim no longer moves a preview.
+    const teleports = ghost.teleport.mock.calls.length;
+    h.setHit({ block: { location: { x: 40, y: 70, z: 40 } }, face: 'Up' });
+    aim(); draw();
+    expect(live(h)).toHaveLength(0);
+    expect(ghost.teleport.mock.calls.length).toBe(teleports);
+    // Selecting the wand again and asking for the preview shows it at the kept pin.
+    inHand = { typeId: h.assets.itemId };
+    hold(); await h.flush();
+    await h.open({ action: 'View preview in world' });
+    draw();
+    expect(live(h)).toHaveLength(1);
+    expect(live(h)[0]!.entity.teleport).toHaveBeenLastCalledWith({ x: 10, y: 71, z: 20 }, { rotation: { x: 0, y: 0 } });
+  });
+
+  it('standing up from pinball with the wand slot re-selected does not reopen the wand menu (Saga, 2026-09-26)', async () => {
+    const h = host(spec);
+    const hold = h.intervals.get(5)!;
+    let inHand: { typeId: string } | undefined = { typeId: h.assets.itemId };
+    const tags = new Set<string>();
+    h.player.hasTag = (t: string) => tags.has(t);
+    h.player.getComponent = (name: string) => name === 'minecraft:inventory' ? { container: { getItem: () => inHand } } : undefined;
+    // A pinned wand: selecting it opens the MENU (an unpinned one would only
+    // start following the aim, which draws no form to count).
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    const pinned = h.buttons.length;
+    hold(); await h.flush(); // selecting the wand opens it once
+    const opened = h.buttons.length;
+    expect(opened).toBe(pinned + 1);
+    expect(opened).toBeGreaterThan(0);
+    // Seated at the pinball table: the hotbar is parked on an empty slot.
+    tags.add('craftmatic_pinball'); inHand = undefined;
+    hold(); await h.flush();
+    // Standing up: the pinball runtime puts back the wand's slot and removes the tag.
+    tags.delete('craftmatic_pinball'); inHand = { typeId: h.assets.itemId };
+    hold(); await h.flush();
+    expect(h.buttons.length).toBe(opened);
+    // Putting the wand away and selecting it again still opens it.
+    inHand = { typeId: 'minecraft:stick' }; hold(); await h.flush();
+    inHand = { typeId: h.assets.itemId }; hold(); await h.flush();
+    expect(h.buttons.length).toBeGreaterThan(opened);
+  });
+
+  it('a ghost the id lookup misses is still removed by its tag', async () => {
+    const h = host(spec);
+    const draw = h.intervals.get(12)!;
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    draw();
+    const g = live(h)[0]!.entity;
+    // The id no longer resolves (as a stale id does), but the entity is still in the world with its tag.
+    h.world.getEntity = () => undefined;
+    h.player.dimension.getEntities = (q: { type?: string; tags?: string[] }) =>
+      ghosts(h).map(s => s.entity).filter((e: any) => !e.remove.mock.calls.length && (!q.type || e.typeId === q.type) && (q.tags ?? []).every((t: string) => e.tags.includes(t)));
+    await h.open({ action: 'Hide preview' }); // hide preview
+    expect(g.remove).toHaveBeenCalled();
+  });
+
+  it('the first use of a fresh wand follows the aim with no form; the next use, once the aim has anchored, opens the menu with Place… first', async () => {
+    const h = host(spec);
+    const draw = h.intervals.get(12)!;
+    h.setHit({ block: { location: { x: 10, y: 70, z: 20 } }, face: 'Up' });
+    await h.use();
+    expect(h.buttons).toHaveLength(0);
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('The preview follows the block you look at'));
+    // The aim anchored on the block hit: the ghost stands on top of it.
+    draw();
+    expect(live(h)).toHaveLength(1);
+    await h.use();
+    expect(h.buttons).toHaveLength(1);
+    const menu = h.buttons[0]!;
+    expect(menu[0]).toBe('Place');
+    // The rest of the non-running order for a pack with no fine turn, door
+    // size, marked seats or vehicle controls.
+    const expected = ['Place', 'Stop following my aim', 'Pin centred on me', 'Pin corner at my feet', 'Edit coordinates', 'Rotate → 90°', 'Size ', 'View preview in world', 'Hide preview', 'Undo last placement', 'Lighting / night vision'];
+    expect(menu).toHaveLength(expected.length);
+    expected.forEach((prefix, i) => expect(menu[i]!.startsWith(prefix), `${i}: "${menu[i]}" starts with "${prefix}"`).toBe(true));
+  });
+});

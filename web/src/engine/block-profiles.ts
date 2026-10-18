@@ -1,0 +1,77 @@
+/**
+ * Block-mapping profiles for the Minecraft export.
+ *
+ * A profile is the seam between "brick colour id" and "Minecraft block": one
+ * mapping-table module per profile. There is exactly ONE profile today (the
+ * built-in concrete/wool tables in `ldraw-colors.ts` / `studio-colors.ts`) —
+ * this file exists so a second one (texture-pack-friendly, terracotta-only,
+ * survival-obtainable…) is a data addition, not a refactor. Don't add
+ * placeholder profiles that just re-point at the default; an entry here must
+ * be a real, distinct mapping table.
+ *
+ * `colorFn` returns `undefined` for a colour space when the engine's built-in
+ * default is wanted: the voxelizers treat a null colorFn as "default table" and
+ * use it to decide whether unmapped colour ids are worth reporting
+ * (`isDefaultFn`), so passing `ldrawColorToBlock` explicitly would NOT be a
+ * no-op. Keep `undefined` meaning "engine default".
+ */
+
+import { studioColorToBlock } from './studio-colors.js';
+import { texturedLdrawColorToBlock, texturedStudioColorToBlock } from './textured-palette.js';
+
+export type BrickColorSpace = 'ldraw' | 'bl';
+
+export interface BlockMappingProfile {
+  id: string;
+  label: string;
+  description: string;
+  /** Resolver for a colour space; `undefined` = the engine's built-in LDraw table. */
+  colorFn(space: BrickColorSpace): ((colorId: number) => string) | undefined;
+  /** Block used by the interior light-fill option. */
+  lightBlock: string;
+  /**
+   * Partial-block form of `lightBlock`, used by the light fill when the Block
+   * shapes setting is on AND the light has something solid under it (slice 6).
+   * A lantern is light level 15 like glowstone but reads as a lamp in a room
+   * instead of a glowing cube filling a floor tile.
+   */
+  lightElement?: string;
+}
+
+export const DEFAULT_PROFILE_ID = 'default';
+
+/**
+ * The perceptual/shape-capable palette (engine/textured-palette.ts).
+ *
+ * NOT the default, deliberately: it repaints every export, and the proposal's
+ * own rule (§6) is that a palette change ships selectable until a corpus-wide
+ * A/B says otherwise. It is the recommended pairing with the Block shapes
+ * setting, which is what the settings popover says.
+ */
+export const TEXTURED_PROFILE_ID = 'textured';
+
+export const BLOCK_PROFILES: readonly BlockMappingProfile[] = [
+  {
+    id: DEFAULT_PROFILE_ID,
+    label: 'Default — concrete & glass',
+    description:
+      'LEGO colours → dyed concrete, with stained glass for transparent bricks and metal blocks for chrome/gold.',
+    colorFn: (space) => (space === 'bl' ? studioColorToBlock : undefined),
+    lightBlock: 'minecraft:glowstone',
+    lightElement: 'minecraft:lantern[hanging=false,waterlogged=false]',
+  },
+  {
+    id: TEXTURED_PROFILE_ID,
+    label: 'Textured + shapes — stone, wood & sandstone',
+    description:
+      'Perceptual (OKLab) match onto stone, sandstone, brick, quartz and plank families, which — unlike dyed concrete — have slabs and stairs. Pair it with Block shapes: on 21063 that takes shaped cells from 5,367 to 57,702. Saturated colours keep their concrete.',
+    colorFn: (space) => (space === 'bl' ? texturedStudioColorToBlock : texturedLdrawColorToBlock),
+    lightBlock: 'minecraft:glowstone',
+    lightElement: 'minecraft:lantern[hanging=false,waterlogged=false]',
+  },
+];
+
+/** Look up a profile by id, falling back to the default for unknown ids. */
+export function getBlockProfile(id: string | undefined): BlockMappingProfile {
+  return BLOCK_PROFILES.find(p => p.id === id) ?? BLOCK_PROFILES[0]!;
+}

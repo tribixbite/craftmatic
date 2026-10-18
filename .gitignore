@@ -1,5 +1,4 @@
 node_modules/
-output/
 dist/
 web/dist/
 *.tgz
@@ -35,5 +34,44 @@ web/public/lego-catalog.json
 # Agent subagent worktrees — transient
 .claude/worktrees/
 
-# Recorded API responses (large; regenerate with --cache-mode refresh)
-output/api-cache/**/blobs/
+# Test/dev LDraw model fixtures kept locally for renderer testing — not
+# part of the app or production bundle. Drop new ones into web/public/
+# for quick fetch('/<name>.ldr') access during development.
+web/public/*.ldr
+web/public/*.mpd
+web/public/*.io
+web/public/*.lxf
+
+# Python bytecode caches (research scripts)
+__pycache__/
+*.pyc
+
+# pdf-recon research artifacts written beside the scripts by their own tests
+scripts/pdf-recon/output/
+
+# Browser-automation downloads and base64 screenshot dumps left by agent sessions
+.playwright-mcp/
+cap-*.txt
+
+# Generated analysis / experiment output. The subtrees below are deliberately
+# tracked (reports, the PDF universal-parts data, comparison + tiles fixtures);
+# everything else under output/ is a private run artifact. Adding a new file to
+# an ignored path needs `git add -f`.
+output/*
+!output/*.md
+!output/*.html
+!output/comparison/
+!output/pdf-placement-diagnosis/
+!output/pdf-universal-parts/
+!output/tiles/
+
+# Pipeline state + per-slug verification reports are tracked (the Stop hook and
+# the handoff docs read them); the heavy per-slug artifacts (.glb/.schem/
+# .litematic/renders) beside them stay private. Hand-edited pipeline inputs too.
+!output/pipeline-state.json
+!output/polygon-overrides.json
+!output/goldens.json
+!output/category-state.json
+!output/pipeline/
+output/pipeline/**
+!output/pipeline/*.verification.json

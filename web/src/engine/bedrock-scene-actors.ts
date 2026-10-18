@@ -1,0 +1,2002 @@
+/**
+ * What a LEGO BUILDING contains that Minecraft can make live: the figures
+ * standing in it (minifig NPCs that walk about), the seats (an invisible
+ * rideable entity, so a chair can be sat on) and the door leaves (vanilla
+ * doors that open, in the opening the leaf occupied).
+ *
+ * Runs on the placements that are NOT a vehicle component (those carry their
+ * own figures through the entity compiler's `extras`). Detection is by the
+ * LDraw library's own description line, the same rule part-elements.ts uses
+ * for panes and fences: a hand-written id list is stale the day it is written.
+ *
+ * Doors were REFUSED by the block-element pass (part-elements.ts header) at
+ * the old resolutions because a 1×4×6 leaf covered ~5×8 cells. At minifig
+ * scale (lego-scale.ts, 53.33 LDU per block) the same leaf is 1.5 × 2.7
+ * cells: the leaf's cells become air and a vanilla door (two blocks tall)
+ * stands at the bottom of that opening, hinged on the side the mould's
+ * origin marks, one door per cell of width. What is left above the door is
+ * the transom of a tall LEGO doorway, open. Leaves under two cells tall
+ * (cupboard doors, 1×3×1) are left as blocks.
+ *
+ * Positions come back in LDraw; the pipeline maps them into grid cells with
+ * the voxelizer's own `gridOrigin` (`sceneGridPoint`), so an actor lands on
+ * the block its part became.
+ *
+ * A figure becomes an NPC only when the source stood it (near) upright. A
+ * Bedrock entity has a yaw and a head pitch and no roll: the rig re-poses
+ * every figure standing, so a torso the source pitched or laid over cannot be
+ * reproduced by an actor at all. 10303's three drop-track riders sit
+ * nose-down at 90° in a vertical train; as NPCs they stood bolt upright,
+ * anchored at their cluster's lowest point (their hanging hands), straddling
+ * the car in mid-air (Pixel 8 Pro, 2026-09-21). Such a figure now stays in
+ * the build's geometry at its exact source pose (`posedFigures`), reported in
+ * `warnings`, never silently dropped.
+ */
+
+import type { ParsedBrick } from './ldraw-parser.js';
+import { classifiedDescription, createPartGeometryProvider, withClassifiedDescriptions, type LdrawPartMesh, type PartGeometryProvider, type Vec3 } from './ldraw-part-geometry.js';
+import { figureRole, groupFigures, isSeat, cleanPartId } from './ldraw-entity-compiler.js';
+import { assembleMinifig, figureAnchor, SEAT_BELOW_TORSO_LDU, seatedFigure } from './minifig-rig.js';
+import type { BlockGrid } from '@craft/schem/types.js';
+import { LDU_PER_BLOCK, PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
+import { toBedrockBlock } from './bedrock-blocks.js';
+import { ACCESS_SCALE_STEPS, JUMP_HEIGHT_BLOCKS, PASSAGE_HEIGHT_BLOCKS, PASSAGE_WIDTH_BLOCKS, accessStepFor, passageRequiredScale } from './addon-scale.js';
+
+export interface SceneFigure {
+  bricks: ParsedBrick[];
+  /** Centre of the figure's real bounds, LDraw. */
+  centreLdu: Vec3;
+  /**
+   * The lowest point of its BODY (torso, head, hips, legs; LDraw Y down: the
+   * largest y) - the floor it stands on. Held and worn parts are left out: a
+   * pushbroom reaching 12 LDU under the feet would otherwise hang the figure.
+   */
+  floorLdu: number;
+  /** Torso's local −Z through its placement, horizontal unit (x, z). */
+  facingLdu: [number, number];
+  /** Angle between the torso's up axis and world up, degrees (0 = standing straight). */
+  tiltDeg: number;
+  /** True when the figure sits on a seat. */
+  seated: boolean;
+  /** Index into `seats` of the seat it sits on: it spawns riding that seat's entity. */
+  seatIndex?: number;
+}
+
+/**
+ * The widest lean an upright NPC can stand in for. The rig discards the
+ * torso's lean anyway, so a figure within this angle reads as standing;
+ * beyond it the source posed something an actor cannot show (lying, hanging,
+ * riding a vertical drop) and the figure keeps its exact pose in the geometry.
+ */
+export const FIGURE_UPRIGHT_MAX_TILT_DEG = 30;
+
+/** A figure the source posed off upright: kept in the build's geometry, not spawned. */
+export interface ScenePosedFigure {
+  bricks: ParsedBrick[];
+  /** Angle between the torso's up axis and world up, degrees. */
+  tiltDeg: number;
+  /** Centre of the figure's real bounds, LDraw. */
+  centreLdu: Vec3;
+}
+
+export interface SceneSeat {
+  /** The seat mould's id, or `stool` for a brick-built one (`brickBuiltStools`). */
+  part: string;
+  /** The placement it was read from (the mould, or a stool's top tile): the interactivity report's key. */
+  brick?: ParsedBrick;
+  /** The sitting surface's centre, LDraw. */
+  surfaceLdu: Vec3;
+  /** Which way a sitter faces: the seat's local −Z (the backrest is at +Z), horizontal unit (x, z). */
+  facingLdu: [number, number];
+}
+
+export interface SceneDoor {
+  part: string;
+  description: string;
+  color: number;
+  /** Source placement, retained so only viable leaves are removed from the shell. */
+  brick?: ParsedBrick;
+  /** World AABB of the leaf, LDraw. */
+  minLdu: Vec3;
+  maxLdu: Vec3;
+  /** The horizontal axis the leaf runs along, and which end of it (in LDRAW coordinates) the hinge is on. */
+  alongAxis: 'x' | 'z';
+  hingeAtMin: boolean;
+  /**
+   * Across the leaf (its thin axis), the extent of the frame it hangs in - a
+   * 20 LDU wall straddling a cell boundary is TWO blocks thick, and a door
+   * cut only from the leaf's own cell sat entombed in the other half (every
+   * museum door on the Pixel, 2026-09-16). Absent when no frame encloses it.
+   */
+  frameAcrossLdu?: [number, number];
+  /**
+   * How far the leaf's own width axis is turned off the nearest grid axis,
+   * degrees (0 = square to the grid, 45 = diagonal). A vanilla door can only
+   * stand square, so a leaf past `DOOR_MAX_OFF_GRID_DEG` is not hung (see there).
+   */
+  offGridDeg?: number;
+}
+
+/**
+ * The most a door leaf may be turned off the grid and still be replaced by a
+ * vanilla door. 76417 Gringotts' bank sits on its rock at a 44.8 degree turn
+ * (the set's own final page), so two of its leaves stand at 45 degrees: a
+ * square vanilla door cut into a diagonal wall faced along neither, sat half
+ * out of the wall and read as a door "turned wrong" (device report
+ * 2026-09-24). Such a leaf now stays the exact LEGO geometry of the shell. The
+ * bank's front doors, 8.1 degrees off, still hang: 20 degrees is where a
+ * block-wide door stops overlapping its own leaf by most of its width.
+ */
+export const DOOR_MAX_OFF_GRID_DEG = 20;
+
+export interface SceneActors {
+  figures: SceneFigure[];
+  /** Figures beyond `FIGURE_UPRIGHT_MAX_TILT_DEG`: they stay in the geometry (their bricks are NOT in `figureBricks`). */
+  posedFigures: ScenePosedFigure[];
+  seats: SceneSeat[];
+  doors: SceneDoor[];
+  /** Every placement that belongs to a spawned figure (to leave out of the block scenery). */
+  figureBricks: Set<ParsedBrick>;
+  /** What the scene could not make live and why, for the export's warning list. */
+  warnings: string[];
+  /** Every door LEAF placement (a vanilla door stands in for it, so a brick shell leaves it out). */
+  doorBricks: Set<ParsedBrick>;
+  meshes: Map<string, LdrawPartMesh | null>;
+  /**
+   * The model's underside, LDraw (the largest world y over every placement
+   * that is not a spawned figure): the plane the brick shell is grounded on
+   * and the wand pins to. Heights the pack ships (figures, seats) are measured
+   * up from it (`sceneFloorPoint`), NOT from the voxel grid's row 0, whose
+   * bottom the voxelizer's surface pass rounds up to half a cell above a thin
+   * baseplate (the chalet's 7 figures spawned at −0.15 blocks, one plate under
+   * the pin plane, 2026-09-21). NaN when the model has no placements.
+   */
+  groundLdu: number;
+}
+
+/** What `settleLooseAccessories` did: each accessory it set down, and how far (LDU, down). */
+export interface SettledAccessory { part: string; description: string; dropLdu: number }
+
+/** Box-touch tolerance (LDU): a part within this of another on every axis is held by it (a bar in a clip). */
+const ACCESSORY_TOUCH_LDU = 1;
+
+/**
+ * The display scatter: figure-vocabulary parts outside every NPC that touch
+ * NOTHING (no other placement's box within `ACCESSORY_TOUCH_LDU` on every
+ * axis) are set straight down onto the first surface under them - another
+ * part's top overlapping them in plan, else the model's underside.
+ *
+ * Measured first (`_figure_parts_census.ts --support`, 76417 DbixConvV3,
+ * 2026-09-26): 84 figure parts stand outside the 13 NPCs - vault loot (22
+ * Viking helmets, fezzes, shields) and display pieces. 55 rest on a part, 9
+ * are held from the side (a harpoon in a clip, a key on a hook), and 20 touch
+ * nothing: LEGO's finished-model page lays 16 goblets in two rows and two
+ * wands in FRONT of the model, a hair and a helmet hang in the air. Those 20
+ * are what the device showed floating. Setting them down keeps every part the
+ * source placed (nothing is deleted) and changes nothing that is carried.
+ *
+ * `exclude` holds placements that must not move or count (figure bricks, the
+ * moving parts). Mutates the settled bricks' `y`. Pure otherwise.
+ */
+export function settleLooseAccessories(bricks: ParsedBrick[], meshes: ReadonlyMap<string, LdrawPartMesh | null>, exclude: ReadonlySet<ParsedBrick>,
+  isAccessory: (b: ParsedBrick, description: string) => boolean): SettledAccessory[] {
+  const boxOf = (b: ParsedBrick): { min: Vec3; max: Vec3 } | null => {
+    const m = meshes.get(b.part);
+    if (!m || !m.triangles.length) return null;
+    const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+    for (const cx of [m.bounds.min[0], m.bounds.max[0]]) for (const cy of [m.bounds.min[1], m.bounds.max[1]]) for (const cz of [m.bounds.min[2], m.bounds.max[2]]) {
+      const w = local(b, [cx, cy, cz]);
+      for (let i = 0; i < 3; i++) { min[i] = Math.min(min[i]!, w[i]!); max[i] = Math.max(max[i]!, w[i]!); }
+    }
+    return { min, max };
+  };
+  const boxes = new Map<ParsedBrick, { min: Vec3; max: Vec3 }>();
+  for (const b of bricks) { if (exclude.has(b)) continue; const box = boxOf(b); if (box) boxes.set(b, box); }
+  if (!boxes.size) return [];
+  // LDraw y is DOWN: the underside is the largest y.
+  const ground = Math.max(...[...boxes.values()].map(x => x.max[1]));
+  const loose = [...boxes.keys()].filter(b => isAccessory(b, meshes.get(b.part)?.description ?? ''));
+  const T = ACCESSORY_TOUCH_LDU;
+  const settled: SettledAccessory[] = [];
+  const touch = (p: { min: Vec3; max: Vec3 }, q: { min: Vec3; max: Vec3 }): boolean => [0, 1, 2].every(i => q.min[i]! <= p.max[i]! + T && q.max[i]! >= p.min[i]! - T);
+  // Held means touching the model or an accessory the model holds (a flag in a signal holder on a
+  // wall), grown to a fixpoint. Accessories that only touch EACH OTHER are not held: the page's 16
+  // goblets in front of 76417 stand in a grid 20 LDU apart, every one touching its neighbours.
+  const looseSet = new Set(loose);
+  const held = new Set<ParsedBrick>([...boxes.keys()].filter(b => !looseSet.has(b)));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const b of loose) {
+      if (held.has(b)) continue;
+      const box = boxes.get(b)!;
+      for (const o of held) if (touch(box, boxes.get(o)!)) { held.add(b); grew = true; break; }
+    }
+  }
+  for (const b of loose) {
+    if (held.has(b)) continue;
+    const box = boxes.get(b)!;
+    // The first surface under it: the highest top (smallest y) at or below its bottom that overlaps it in plan.
+    let surface = ground;
+    for (const [o, ob] of boxes) {
+      if (o === b) continue;
+      const plan = ob.min[0]! < box.max[0]! - T && ob.max[0]! > box.min[0]! + T && ob.min[2]! < box.max[2]! - T && ob.max[2]! > box.min[2]! + T;
+      if (plan && ob.min[1]! >= box.max[1]! && ob.min[1]! < surface) surface = ob.min[1]!;
+    }
+    const drop = surface - box.max[1];
+    if (!(drop > T)) continue;
+    b.y += drop;
+    box.min[1] += drop; box.max[1] += drop;
+    settled.push({ part: b.part, description: meshes.get(b.part)?.description ?? '', dropLdu: Math.round(drop * 10) / 10 });
+  }
+  return settled;
+}
+
+const IDENTITY: readonly number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+const apply = (m: readonly number[], v: Vec3): Vec3 => [
+  m[0]! * v[0] + m[1]! * v[1] + m[2]! * v[2],
+  m[3]! * v[0] + m[4]! * v[1] + m[5]! * v[2],
+  m[6]! * v[0] + m[7]! * v[1] + m[8]! * v[2],
+];
+const local = (b: ParsedBrick, v: Vec3): Vec3 => { const r = apply(b.rot ?? IDENTITY, v); return [b.x + r[0], b.y + r[1], b.z + r[2]]; };
+const horizontal = (b: ParsedBrick, v: Vec3): [number, number] | null => {
+  const r = apply(b.rot ?? IDENTITY, v);
+  const h = Math.hypot(r[0], r[2]);
+  return h > 0.5 ? [r[0] / h, r[2] / h] : null;
+};
+/**
+ * How far a placement's up axis (local −Y, LDraw Y down) leans from world up,
+ * degrees. The cosine is the matrix's middle element, normalised so Studio's
+ * 0.999988-scaled rotations and a mirrored axis still give a real angle.
+ */
+export function tiltDegOf(rot: readonly number[] | undefined): number {
+  const m = rot ?? IDENTITY;
+  const len = Math.hypot(m[1]!, m[4]!, m[7]!) || 1;
+  const cos = Math.max(-1, Math.min(1, m[4]! / len));
+  return Math.round(Math.acos(cos) * 180 / Math.PI * 10) / 10;
+}
+function worldBounds(b: ParsedBrick, mesh: LdrawPartMesh): { min: Vec3; max: Vec3 } {
+  const { min: lo, max: hi } = mesh.bounds;
+  const corners: Vec3[] = [
+    [lo[0], lo[1], lo[2]], [hi[0], lo[1], lo[2]], [lo[0], hi[1], lo[2]], [hi[0], hi[1], lo[2]],
+    [lo[0], lo[1], hi[2]], [hi[0], lo[1], hi[2]], [lo[0], hi[1], hi[2]], [hi[0], hi[1], hi[2]],
+  ];
+  const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const c of corners) { const w = local(b, c); for (let i = 0; i < 3; i++) { if (w[i]! < min[i]!) min[i] = w[i]!; if (w[i]! > max[i]!) max[i] = w[i]!; } }
+  return { min, max };
+}
+
+/**
+ * A piece of furniture a figure sits on that is not a minifig seat mould: the
+ * library's own chairs, benches, stools, thrones and sofas (Fabuland's among
+ * them). LEGO's modern chairs are brick-built and have no such mould; the
+ * Brick Wand's "Add seat here" marks those by hand.
+ */
+export function isFurnitureSeat(description: string): boolean {
+  const d = description.replace(/^[~=_]+\s*/, '');
+  // A playground swing (67075: `Friends Swing Seat` upstream, `Friends Swing 2 x 6 x 5 1/3` in Studio; 10796) is a seat too.
+  return (/^(Minifig |Fabuland |Duplo )?(Chair|Bench|Stool|Toilet|Throne|Sofa|Couch|Armchair)\b/i.test(d) || isSwingSeat(d)) && !/\b(Holder|Sticker|Pattern)\b/i.test(d);
+}
+
+/** A hanging swing seat: its pan is the seat UNDER the bar it hangs from (`seatPanLocalY`'s `hanging`). */
+export function isSwingSeat(description: string): boolean {
+  return /^(Friends |Minifig )?Swing\b(?! Arm)/i.test(description.replace(/^[~=_]+\s*/, ''));
+}
+
+/**
+ * A seat's sitting surface in the part's own frame: the highest face a
+ * vertical line through the footprint's centre meets (LDraw Y down, so the
+ * smallest y). A chair's box top is its BACKREST (a Fabuland chair's is 40
+ * LDU over its pan); the pan is what a line down the middle meets first.
+ * Falls back to the box top when the line meets nothing (an open frame).
+ */
+export function seatPanLocalY(mesh: LdrawPartMesh, hanging = false): number {
+  const { min, max } = mesh.bounds;
+  const cx = (min[0] + max[0]) / 2, cz = (min[2] + max[2]) / 2;
+  let best = Infinity;
+  // Every face the centre line meets, for a hanging seat: its pan is the face just
+  // above the LOWEST one (the seat's own underside), not the bar at the top.
+  const hits: number[] = [];
+  for (const t of mesh.triangles) {
+    // Barycentric test of (cx, cz) against the triangle's XZ projection.
+    const x1 = t.b[0] - t.a[0], z1 = t.b[2] - t.a[2], x2 = t.c[0] - t.a[0], z2 = t.c[2] - t.a[2];
+    const det = x1 * z2 - x2 * z1;
+    if (Math.abs(det) < 1e-9) continue; // edge-on (a vertical face)
+    const px = cx - t.a[0], pz = cz - t.a[2];
+    const u = (px * z2 - x2 * pz) / det, v = (x1 * pz - px * z1) / det;
+    if (u < -1e-6 || v < -1e-6 || u + v > 1 + 1e-6) continue;
+    const y = t.a[1] + u * (t.b[1] - t.a[1]) + v * (t.c[1] - t.a[1]);
+    if (y < best) best = y;
+    if (hanging) hits.push(y);
+  }
+  if (hanging && hits.length) {
+    // Distinct depths (a face split into triangles meets the line more than once), deepest first.
+    const levels = [...new Set(hits.map(h => Math.round(h * 2) / 2))].sort((a, b) => b - a);
+    return levels.length >= 2 ? levels[1]! : levels[0]!;
+  }
+  return Number.isFinite(best) ? best : min[1];
+}
+
+/**
+ * A stool's seat: a 2 x 2 tile (`Tile 2 x 2`, round, grooved or with studs on
+ * edge), or a steering wheel laid flat - the round 2 x 2 disc builders put on
+ * a bar stool (910032's four black stools at the cafe counter, each on two
+ * 1 x 1 round plates). The footprint, thickness and upright checks in
+ * `brickBuiltStools` keep a wheel mounted on a dashboard out.
+ */
+export function isStoolTop(description: string): boolean {
+  const d = description.replace(/^[~=_]+\s*/, '');
+  if (/^(Car\s+)?Steering\s+Wheel\b/i.test(d)) return !/\b(Sticker|Holder)\b/i.test(d);
+  return /^Tile\s+2\s*x\s*2\b/i.test(d) && !/\b(Sticker|Pattern|Inverted|Corner|Hinge|Swivel)\b/i.test(d);
+}
+
+/**
+ * An inverted dome, dish or bowl: under a stool's seat tile it is a toilet bowl (910032's bathroom: a
+ * `Tile 2 x 2 Round with Hole` on a `Dome 2 x 2 Inverted`), so the seat faces away from its cistern.
+ */
+export function isToiletBowl(description: string): boolean {
+  const d = description.replace(/^[~=_]+\s*/, '');
+  return /^(Dome|Dish|Bowl)\b/i.test(d) && /\bInverted\b/i.test(d) && !/\b(Sticker|Pattern)\b/i.test(d);
+}
+
+/**
+ * How close a seat must be to a sitting figure's hips (LDU) to be the one it
+ * sits on: a stool top or a bench surface is read from its tiles, the hips
+ * from the torso, and they agree within a plate and a half-stud.
+ */
+export const FIGURE_SEAT_MATCH_LDU = { across: 20, up: 16 } as const;
+
+/** How high a brick-built stool's seat may stand over its floor, LDU: a plate (a pouf) to a brick and a third (4079's pan is 16). */
+export const STOOL_HEIGHT_LDU = { min: 6, max: 32 } as const;
+
+/**
+ * Brick-built stools: LEGO's modern furniture has no seat mould, and a
+ * minifig stool is a 2 x 2 tile on a narrow column (a 2 x 2 round plate, a
+ * 1 x 1 round brick) standing a plate to a brick and a third over the floor.
+ * 76457's dark-red stool by the shop window is a 2 x 2 tile with studs on
+ * edge on a 2 x 2 round plate set into the floor tiles; with no seat there,
+ * the nearest seat was the upstairs chair right above it (device 2026-09-24e).
+ *
+ * A candidate is an upright `isStoolTop` tile whose column (the parts under
+ * its centre) is no wider than the tile until it reaches the floor - a part
+ * wider than the tile, or a layer where other parts stand flush beside the
+ * column (the floor tiles round a round plate) - at `STOOL_HEIGHT_LDU`, with
+ * nothing else at its seat height touching it (a counter or a table top is a
+ * surface, not a seat) and two bricks of head room over it. It faces the
+ * nearest part standing higher beside it (a table), else the model's front.
+ */
+export function brickBuiltStools(bricks: readonly ParsedBrick[], sourceMeshes: ReadonlyMap<string, LdrawPartMesh | null>, skip: ReadonlySet<ParsedBrick>, trace?: (b: ParsedBrick, verdict: string) => void): SceneSeat[] {
+  const meshes = withClassifiedDescriptions(sourceMeshes);
+  const boxes = bricks.map(b => {
+    const m = meshes.get(b.part);
+    return m && m.triangles.length ? worldBounds(b, m) : null;
+  });
+  // The model's underside: a column whose foot reaches it stands on the ground.
+  let ground = -Infinity;
+  boxes.forEach((o, j) => { if (o && !skip.has(bricks[j]!) && o.max[1] > ground) ground = o.max[1]; });
+  const out: SceneSeat[] = [];
+  bricks.forEach((b, i) => {
+    const m = meshes.get(b.part), box = boxes[i];
+    if (!m || !box || skip.has(b) || !isStoolTop(m.description)) return;
+    const no = (why: string): void => { trace?.(b, why); };
+    if (tiltDegOf(b.rot) > 3) return no('tilted');
+    const w = box.max[0] - box.min[0], d = box.max[2] - box.min[2];
+    if (w > 44 || d > 44 || w < 36 || d < 36) return no(`footprint ${w.toFixed(0)} x ${d.toFixed(0)}`);
+    const cx = (box.min[0] + box.max[0]) / 2, cz = (box.min[2] + box.max[2]) / 2;
+    // A tile's origin is its top face; any other seat top (a steering wheel) is read from its bounds.
+    const isTile = /^Tile\b/i.test(m.description.replace(/^[~=_]+\s*/, ''));
+    const pan = isTile ? b.y : box.min[1];
+    if (box.max[1] - pan > 20) return no(`${(box.max[1] - pan).toFixed(0)} LDU thick: not a seat top`);
+    const near = (j: number, pad: number): boolean => {
+      const o = boxes[j]!;
+      return o.min[0] < box.max[0] + pad && o.max[0] > box.min[0] - pad && o.min[2] < box.max[2] + pad && o.max[2] > box.min[2] - pad;
+    };
+    // Nothing else at the seat's height touching it. (910032's fourth bar stool touches the counter's side at
+    // its seat height and is lost here: letting a round top touch was measured to admit round tiles set into
+    // counters and floors in four other favourites.)
+    for (let j = 0; j < bricks.length; j++) {
+      if (j === i || !boxes[j] || skip.has(bricks[j]!)) continue;
+      if (Math.abs(boxes[j]!.min[1] - pan) <= 2 && near(j, 1)) return no(`surface continues into ${bricks[j]!.part}`);
+    }
+    // Down the column to the floor.
+    let bottom = box.max[1], floor = NaN, bowl = false;
+    for (let step = 0; step < 6 && Number.isNaN(floor); step++) {
+      // A few LDU of slack either way under the part above: an open-stud round plate's library mesh ends 5 LDU
+      // short of its own bottom (85861's bounds are 3 LDU tall), so a column of them read as floating (910032's
+      // cafe stools); a toilet seat's round tile sits 4 LDU down inside its inverted dome (910032's bathroom).
+      const under = boxes.map((_, j) => j).filter(j => j !== i && boxes[j] && !skip.has(bricks[j]!) && boxes[j]!.min[1] - bottom >= -6 && boxes[j]!.min[1] - bottom <= 6
+        && boxes[j]!.max[1] > bottom + 1
+        && boxes[j]!.min[0] <= cx && boxes[j]!.max[0] >= cx && boxes[j]!.min[2] <= cz && boxes[j]!.max[2] >= cz);
+      if (!under.length) {
+        // The column's foot is on the model's underside (within a plate of it): it stands on the ground.
+        // 76457's stool is a round plate at the bottom of a room with no floor of its own; on the device it stood on the grass.
+        if (step > 0 && ground - bottom <= 8.5) { floor = bottom; break; }
+        return no(`nothing under the column at ${bottom.toFixed(1)}`); // floating: not a stool
+      }
+      const wide = under.some(j => boxes[j]!.max[0] - boxes[j]!.min[0] > 44 || boxes[j]!.max[2] - boxes[j]!.min[2] > 44);
+      // A tile lying straight on a wide part is floor decoration, not a stool.
+      if (wide && step === 0) return no('lies flat on the floor');
+      if (wide) { floor = bottom; break; }
+      if (step === 0) bowl = under.some(j => isToiletBowl(meshes.get(bricks[j]!.part)?.description ?? ''));
+      const col = under[0]!;
+      // A layer where other parts stand flush beside the column: that layer's top is the floor.
+      const flush = boxes.some((o, j) => j !== col && j !== i && o && !skip.has(bricks[j]!) && Math.abs(o.min[1] - boxes[col]!.min[1]) <= 1.5 && !under.includes(j) && near(j, 2));
+      if (flush) { floor = boxes[col]!.min[1]; break; }
+      bottom = Math.max(...under.map(j => boxes[j]!.max[1]));
+    }
+    if (Number.isNaN(floor)) return no('column never reaches a floor');
+    const height = floor - pan;
+    // A seat top that is not a tile must stand on something: a steering wheel lying on the floor is the foot
+    // of 910032's painter's easel, not a stool.
+    if (!isTile && floor - box.max[1] < 4) return no('lies on the floor');
+    // Half an LDU of slack: Studio's positions are not exact (910032's bar stools stand 32.000004 up).
+    if (height < STOOL_HEIGHT_LDU.min - 0.5 || height > STOOL_HEIGHT_LDU.max + 0.5) return no(`seat ${height.toFixed(1)} LDU over its floor`);
+    // Face the nearest higher part beside it (a table), else the model's front. A toilet faces away from it
+    // (its cistern on the wall behind).
+    let facing: [number, number] = [0, -1], best = Infinity;
+    for (let j = 0; j < bricks.length; j++) {
+      const o = boxes[j];
+      if (j === i || !o || skip.has(bricks[j]!) || !(o.min[1] < pan - 8 && o.min[1] > pan - 48) || !near(j, 24)) continue;
+      const ox = (o.min[0] + o.max[0]) / 2 - cx, oz = (o.min[2] + o.max[2]) / 2 - cz, dist = Math.hypot(ox, oz);
+      if (dist > 1 && dist < best) { best = dist; facing = bowl ? [-ox / dist, -oz / dist] : [ox / dist, oz / dist]; }
+    }
+    // Head room: two bricks clear over the seat's middle - over the half away from the table it faces when
+    // it has one, since a bar stool stands with its front half under the counter's edge (910032's cafe).
+    const room = { x0: cx - 14, x1: cx + 14, z0: cz - 14, z1: cz + 14 };
+    if (Number.isFinite(best) && !bowl) {
+      if (Math.abs(facing[0]) >= Math.abs(facing[1])) { if (facing[0] > 0) room.x1 = cx; else room.x0 = cx; }
+      else if (facing[1] > 0) room.z1 = cz; else room.z0 = cz;
+    }
+    for (let j = 0; j < bricks.length; j++) {
+      if (j === i || !boxes[j] || skip.has(bricks[j]!)) continue;
+      const o = boxes[j]!;
+      if (o.max[1] <= pan + 0.5 && o.max[1] > pan - 48 && o.min[0] < room.x1 && o.max[0] > room.x0 && o.min[2] < room.z1 && o.max[2] > room.z0) return no(`no head room under ${bricks[j]!.part}`);
+    }
+    trace?.(b, bowl ? 'stool (a toilet: its seat is on an inverted bowl)' : 'stool');
+    out.push({ part: 'stool', brick: b, surfaceLdu: [cx, pan, cz], facingLdu: facing });
+  });
+  return out;
+}
+
+/** Seat-sized and bed-sized flat surfaces a brick-built piece of furniture presents, LDU (width = the short side). */
+export const FURNITURE_SIZES = {
+  seat: { minWide: 16, maxWide: 44, minLong: 36, maxLong: 124 },
+  bed: { minWide: 36, maxWide: 90, minLong: 76, maxLong: 170 },
+} as const;
+/** How high a brick-built seat or bed surface stands over its floor, LDU. */
+export const FURNITURE_HEIGHT_LDU = { seat: { min: 12, max: 32 }, bed: { min: 8, max: 24 } } as const;
+
+/**
+ * How far a placement is turned about the vertical off the model's grid,
+ * degrees (0-45): 910032's green armchair by the coffee table is turned 14°.
+ */
+function offGridYawDeg(rot: readonly number[] | undefined): number {
+  const m = rot ?? IDENTITY;
+  const deg = Math.abs(Math.atan2(m[6]!, m[0]!) * 180 / Math.PI) % 90;
+  return Math.min(deg, 90 - deg);
+}
+
+type Box = { min: Vec3; max: Vec3 };
+
+/**
+ * Brick-built benches, chairs, sofas and beds: the seat is a flat surface of
+ * plates or tiles (one part or several side by side at one height) of seat or
+ * bed size, standing 12-32 LDU over its floor (8-24 for a bed) with a
+ * minifig's head room over its middle and no counter continuing it. A plate
+ * or tile with something resting on half its top is not a surface anyone
+ * sits on (the 1 x 1 plate an armrest stands on beside a cushion). It is
+ *   - a CHAIR or SOFA when a backrest rises 20-60 LDU along one long side
+ *     (either side of a square seat) and it faces away from it. The backrest
+ *     is measured to the top of what is stacked on the part beside the seat
+ *     (a 1 x 4 brick, two plates and a curved brick: 910032's sofas), so a
+ *     wall, whose stack rises past 60, is not one - except for a seat with
+ *     armrests at both ends set against it (910032's cafe sofa),
+ *   - a BENCH when it stands on legs (what holds it up covers under 70 % of
+ *     its footprint),
+ *   - a BED when it is bed-sized, 8-24 LDU up, with a headboard rising 16-60
+ *     LDU across 80 % of one short end, or when it is a MATTRESS: see
+ *     `isMattress`.
+ * A long bench or sofa seats one per two studs, up to three. The 2 x 2 stool
+ * has its own rule (`brickBuiltStools`). What this cannot see: a seat whose
+ * surface is a slope or a brick top, or one hidden inside a closed wall.
+ */
+export function brickBuiltFurniture(bricks: readonly ParsedBrick[], sourceMeshes: ReadonlyMap<string, LdrawPartMesh | null>, skip: ReadonlySet<ParsedBrick>, trace?: (b: ParsedBrick, verdict: string) => void): SceneSeat[] {
+  const meshes = withClassifiedDescriptions(sourceMeshes);
+  const boxes = bricks.map(b => {
+    const m = meshes.get(b.part);
+    return m && m.triangles.length && !skip.has(b) ? worldBounds(b, m) : null;
+  });
+  let ground = -Infinity;
+  boxes.forEach(o => { if (o && o.max[1] > ground) ground = o.max[1]; });
+  const overlapArea = (o: Box, bb: Box): number =>
+    Math.max(0, Math.min(o.max[0], bb.max[0]) - Math.max(o.min[0], bb.min[0])) * Math.max(0, Math.min(o.max[2], bb.max[2]) - Math.max(o.min[2], bb.min[2]));
+  // What rests on each part's top face: its bottom within 1.5 LDU of that top, overlapping it.
+  const byBottom = new Map<number, number[]>();
+  boxes.forEach((o, j) => { if (!o) return; const k = Math.round(o.max[1]); const l = byBottom.get(k) ?? []; l.push(j); byBottom.set(k, l); });
+  const restingOn = (i: number): number[] => {
+    const o = boxes[i]!, out: number[] = [];
+    for (let k = Math.round(o.min[1] - 1.5); k <= Math.round(o.min[1] + 1.5); k++) {
+      for (const j of byBottom.get(k) ?? []) if (j !== i && Math.abs(boxes[j]!.max[1] - o.min[1]) <= 1.5 && boxes[j]!.min[1] < o.min[1] - 1 && overlapArea(boxes[j]!, o) > 1) out.push(j);
+    }
+    return out;
+  };
+  // The top of everything stacked on a part (a backrest of a brick, two plates and a curved brick), LDraw y.
+  const stackTopMemo = new Map<number, number>();
+  const stackTop = (i: number): number => {
+    const known = stackTopMemo.get(i);
+    if (known !== undefined) return known;
+    stackTopMemo.set(i, boxes[i]!.min[1]); // guards a malformed cycle
+    let t = boxes[i]!.min[1];
+    for (const j of restingOn(i)) t = Math.min(t, stackTop(j));
+    stackTopMemo.set(i, t);
+    return t;
+  };
+  // Something resting on half its top: a footing (the 1 x 1 plate under an armrest, 910032), not a surface
+  // anyone sits on, and not a counter a seat continues into.
+  const covered = (i: number): boolean => {
+    const o = boxes[i]!;
+    return restingOn(i).reduce((n, j) => n + overlapArea(boxes[j]!, o), 0) >= 0.5 * (o.max[0] - o.min[0]) * (o.max[2] - o.min[2]);
+  };
+  /**
+   * A mattress with no headboard (42663's three camper beds: a red, a yellow and a dark-blue pair of tiles
+   * side by side on tan plates, each with a white pillow): an elongated surface of ONE colour, with a pillow
+   * (a part rising at most 16 LDU) at exactly one short end, at least 1.8 times as long as wide,
+   * standing clear of everything beside it - nothing touching its sides reaches its height - on parts of
+   * other colours. A tiled floor or a counter continues into its neighbours at its height (rejected before
+   * this is asked) and a one-colour step or ledge sits on its own colour.
+   */
+  const isMattress = (members: number[], bb: Box, others: Array<{ o: Box; j: number }>): string => {
+    const colour = bricks[members[0]!]!.color;
+    if (members.some(i => bricks[i]!.color !== colour)) return 'more than one colour';
+    const ex = bb.max[0] - bb.min[0], ez = bb.max[2] - bb.min[2];
+    if (Math.max(ex, ez) < 1.8 * Math.min(ex, ez)) return 'not elongated';
+    const top = bb.min[1], bottom = bb.max[1];
+    const long = ex >= ez ? 0 : 2;
+    let under = 0, underOwn = 0;
+    const pillowEnds = new Set<'min' | 'max'>();
+    for (const { o, j } of others) {
+      const beside = o.min[0] < bb.max[0] + 2 && o.max[0] > bb.min[0] - 2 && o.min[2] < bb.max[2] + 2 && o.max[2] > bb.min[2] - 2;
+      if (!beside) continue;
+      if (o.min[1] < top + 2 && o.max[1] > top - 60) {
+        // Only a pillow may: a part at ONE short end rising no more than 16 LDU (42663's white curved slopes).
+        const end = o.min[long]! >= bb.max[long]! - 2 ? 'max' : o.max[long]! <= bb.min[long]! + 2 ? 'min' : undefined;
+        if (!end || top - o.min[1] > 16) return `${bricks[j]!.part} beside it reaches its height`;
+        pillowEnds.add(end);
+        if (pillowEnds.size > 1) return 'raised at both ends';
+        continue;
+      }
+      if (Math.abs(o.min[1] - bottom) <= 1.5) { const a = overlapArea(o, bb); under += a; if (bricks[j]!.color === colour) underOwn += a; }
+    }
+    if (!pillowEnds.size) return 'no pillow at either end'; // a bare raised tile is a mat, a lid or a roof panel (41395, 41732, 42639)
+    return under <= 0 ? 'nothing under it' : underOwn >= 0.5 * under ? 'on its own colour' : '';
+  };
+  const isFlatPart = (i: number): boolean => /^(Tile|Plate)\b/i.test((meshes.get(bricks[i]!.part)?.description ?? '').replace(/^[~=_]+\s*/, ''));
+  const flat = (i: number): boolean => {
+    const b = bricks[i]!, m = meshes.get(b.part), o = boxes[i];
+    if (!m || !o) return false;
+    const d = m.description.replace(/^[~=_]+\s*/, '');
+    // An inverted tile laid upside down shows its flat face up: 42663's three camper mattresses are
+    // `Tile 2 x 2 Inverted` pairs placed flipped.
+    const flipped = /\bInverted\b/i.test(d) && /^Tile\b/i.test(d) && tiltDegOf(b.rot) > 177;
+    if (tiltDegOf(b.rot) > 3 && !flipped) return false;
+    if (!/^(Tile|Plate)\b/i.test(d) || /\b(Sticker|Hinge|Swivel|Round Corner|with Hole|Grille)\b/i.test(d) || (/\bInverted\b/i.test(d) && !flipped)) return false;
+    if (o.max[1] - o.min[1] > 10 || Math.max(o.max[0] - o.min[0], o.max[2] - o.min[2]) > FURNITURE_SIZES.bed.maxLong) return false;
+    // Its footprint is no bigger than its name says: `Plate 1 x 1 Round with 3 Leaves` spans 36 LDU of leaves,
+    // and a clip, a handle or a bar sticking out is no part of a seat either (910049's flower beds read as chairs).
+    const nominal = /\b(\d+)\s*x\s*(\d+)\b/i.exec(d);
+    if (nominal) {
+      const lx = m.bounds.max[0] - m.bounds.min[0], lz = m.bounds.max[2] - m.bounds.min[2];
+      const a = Number(nominal[1]) * 20 + 2, c = Number(nominal[2]) * 20 + 2;
+      if (Math.max(lx, lz) > Math.max(a, c) || Math.min(lx, lz) > Math.min(a, c)) return false;
+    }
+    return !covered(i);
+  };
+  const cand = boxes.map((_, i) => i).filter(flat);
+  // Same-height surfaces side by side are one surface (a two-tile mattress, a sofa seat of two plates).
+  const parent = new Map<number, number>(cand.map(i => [i, i]));
+  const find = (i: number): number => { let r = i; while (parent.get(r) !== r) r = parent.get(r)!; parent.set(i, r); return r; };
+  const byTop = [...cand].sort((a, b) => boxes[a]!.min[1] - boxes[b]!.min[1]);
+  for (let x = 0; x < byTop.length; x++) {
+    const a = boxes[byTop[x]!]!;
+    for (let y = x + 1; y < byTop.length && boxes[byTop[y]!]!.min[1] - a.min[1] <= 1; y++) {
+      const b = boxes[byTop[y]!]!;
+      if (a.min[0] <= b.max[0] + 1 && b.min[0] <= a.max[0] + 1 && a.min[2] <= b.max[2] + 1 && b.min[2] <= a.max[2] + 1) parent.set(find(byTop[y]!), find(byTop[x]!));
+    }
+  }
+  const comps = new Map<number, number[]>();
+  for (const i of cand) { const r = find(i); const l = comps.get(r) ?? []; l.push(i); comps.set(r, l); }
+  const out: SceneSeat[] = [];
+  for (const members of comps.values()) {
+    const set = new Set(members);
+    const first = bricks[members[0]!]!;
+    const no = (why: string): void => { trace?.(first, why); };
+    const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+    for (const i of members) { const o = boxes[i]!; for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k]!, o.min[k]!); max[k] = Math.max(max[k]!, o.max[k]!); } }
+    const bb = { min, max };
+    const ex = max[0] - min[0], ez = max[2] - min[2];
+    // Size and fill in the surface's own frame: a seat turned off the grid (910032's armchair, 14°) has a
+    // world box wider than itself. Members share the first one's turn; anything else is measured on the grid.
+    const yaw = offGridYawDeg(first.rot);
+    let w = Math.min(ex, ez), l = Math.max(ex, ez), area = 0, frameArea = ex * ez;
+    let turned: [number, number] | undefined; // the surface's own x axis when it is turned off the grid
+    if (yaw > 3 && members.every(i => Math.abs(offGridYawDeg(bricks[i]!.rot) - yaw) < 2)) {
+      const r = first.rot ?? IDENTITY, len = Math.hypot(r[0]!, r[6]!) || 1, ux = r[0]! / len, uz = r[6]! / len;
+      turned = [ux, uz];
+      let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+      for (const i of members) {
+        const mb = meshes.get(bricks[i]!.part)!.bounds;
+        for (const cx of [mb.min[0], mb.max[0]]) for (const cz of [mb.min[2], mb.max[2]]) {
+          const p = local(bricks[i]!, [cx, 0, cz]);
+          const u = p[0] * ux + p[2] * uz, v = -p[0] * uz + p[2] * ux;
+          u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+        }
+        area += (mb.max[0] - mb.min[0]) * (mb.max[2] - mb.min[2]);
+      }
+      w = Math.min(u1 - u0, v1 - v0); l = Math.max(u1 - u0, v1 - v0); frameArea = (u1 - u0) * (v1 - v0);
+    } else {
+      for (const i of members) { const o = boxes[i]!; area += (o.max[0] - o.min[0]) * (o.max[2] - o.min[2]); }
+    }
+    const S = FURNITURE_SIZES;
+    const seatSize = w >= S.seat.minWide && w <= S.seat.maxWide && l >= S.seat.minLong && l <= S.seat.maxLong;
+    const bedSize = w >= S.bed.minWide && w <= S.bed.maxWide && l >= S.bed.minLong && l <= S.bed.maxLong;
+    if (!seatSize && !bedSize) continue;
+    if (area < 0.8 * frameArea) { no('not a rectangle of tiles'); continue; }
+    const top = min[1], bottom = max[1];
+    const others = boxes.map((o, j) => ({ o, j })).filter(({ o, j }) => o && !set.has(j)) as Array<{ o: Box; j: number }>;
+    const touching = (o: Box, pad: number): boolean => o.min[0] < max[0] + pad && o.max[0] > min[0] - pad && o.min[2] < max[2] + pad && o.max[2] > min[2] - pad;
+    // A counter or a shelf: the surface continues into something else at its height.
+    // A plate or tile under an armrest does not count; a brick with more wall on it does (a counter, a sill).
+    const cont = others.find(({ o, j }) => Math.abs(o.min[1] - top) <= 2 && touching(o, 1) && !(isFlatPart(j) && covered(j)));
+    if (cont) { no(`surface continues into ${bricks[cont.j]!.part}`); continue; }
+    // The floor: the nearest part below reaching well past the surface, or the model's underside.
+    let floor = Infinity;
+    for (const { o } of others) {
+      if (o.min[1] < bottom - 1 || o.min[1] > top + 60 || !touching(o, -1)) continue;
+      // A floor reaches well past the surface along BOTH horizontal axes: a 1 x 6 plate under a 1 x 4 tile is a coaster support's foot (10303), not a floor.
+      const wide = (o.min[0] < min[0] - 16 || o.max[0] > max[0] + 16) && (o.min[2] < min[2] - 16 || o.max[2] > max[2] + 16);
+      // Nor is the piece's own base a floor: a 3 x 3 plate under half (over 40 %) of the cushion, carrying the armrests
+      // too, is under 2.5 times the seat's area (910032's sofas stood "8 LDU up" on theirs).
+      const ownBase = overlapArea(o, bb) >= 0.4 * ex * ez && (o.max[0] - o.min[0]) * (o.max[2] - o.min[2]) < 2.5 * ex * ez;
+      if (wide && !ownBase && o.min[1] < floor) floor = o.min[1];
+    }
+    if (!Number.isFinite(floor)) { if (ground - top <= 40) floor = ground; else { no('no floor under it'); continue; } }
+    const height = floor - top;
+    const supports = others.filter(({ o }) => touching(o, -1) && o.min[1] >= bottom - 1 && o.max[1] <= floor + 1);
+    const supportArea = supports.reduce((n, { o }) => n + overlapArea(o, bb), 0);
+    const onLegs = supports.length > 0 && supportArea < 0.7 * ex * ez;
+    /**
+     * What rises beside one side of the surface (`axis` is the axis across that side): the share of the
+     * side's length covered by parts touching it (within 2 LDU) that reach down to about the seat and
+     * whose stack rises `minRise`-60 LDU over it (`rest`, its parts in `parts`), or past 60 (`wall`).
+     * Without `stacks` only the part itself counts (armrests and headboards: read that way, a stack of
+     * plates under a coaster's track read as a headboard).
+     */
+    const rising = (axis: 0 | 2, side: 'min' | 'max', minRise: number, stacks = true): { rest: number; wall: number; parts: number[]; classic: number } => {
+      const runAxis = axis === 0 ? 2 : 0;
+      const edge = side === 'min' ? min[axis]! : max[axis]!;
+      let rest = 0, wall = 0, classicRun = 0;
+      const parts: number[] = [];
+      for (const { o, j } of others) {
+        const adj = (side === 'min' ? Math.abs(o.max[axis]! - edge) <= 2 : Math.abs(o.min[axis]! - edge) <= 2) || (o.min[axis]! < edge && o.max[axis]! > edge);
+        if (!adj || o.max[1] < top - 4) continue;
+        const rise = top - o.min[1];
+        if (rise < 2) continue; // at or under the seat: a neighbouring floor tile, the seat's own base
+        const run = Math.max(0, Math.min(o.max[runAxis]!, max[runAxis]!) - Math.max(o.min[runAxis]!, min[runAxis]!));
+        if (run <= 0) continue; // in line with the side but beyond its ends
+        // A turned seat is a turned piece of furniture: its backrest is turned with it, and a wall or a
+        // flag on the grid beside a turned tile is not one (41703, 76269).
+        if (turned && Math.abs(offGridYawDeg(bricks[j]!.rot) - yaw) > 2) continue;
+        // A single part rising 20-60 LDU along a long side is the original backrest rule and stays as it was
+        // (10261's park bench has an L-shaped panel for a back). Every newer reading - a stack, a square
+        // seat's other axis, a turned seat - also needs the part to be one stud thick: a 2 x 3 brick or a
+        // 2 x 2 round brick beside a plate is a cupboard or a post (31141, 60380). Measured in its own frame.
+        const pm = meshes.get(bricks[j]!.part)!.bounds;
+        const thin = Math.min(pm.max[0] - pm.min[0], pm.max[2] - pm.min[2]) <= 26;
+        const classic = (axis === acrossLong || !stacks) && !turned; // !stacks: the ends (armrests, headboards), read as before
+        if (rise >= minRise && rise <= 60 && (classic || thin)) { rest += run; if (classic) classicRun += run; parts.push(j); continue; }
+        if (!thin) continue;
+        // Stacks are read beside a surface two studs deep only: a one-stud ledge between stacked bricks is a
+        // roof ridge or a sill far more often than a seat (910032's dormer ridge tile).
+        if (w < 36 || !stacks) continue;
+        const stacked = top - stackTop(j);
+        if (stacked >= minRise && stacked <= 60) { rest += run; parts.push(j); }
+        else if (stacked > 60) wall += run;
+      }
+      const span = runAxis === 0 ? ex : ez;
+      return { rest: Math.min(1, rest / span), wall: Math.min(1, wall / span), parts, classic: Math.min(1, classicRun / span) };
+    };
+    // Which axis runs along the surface's length; a square seat may have its back on either.
+    const longX = ex >= ez;
+    const acrossLong: 0 | 2 = longX ? 2 : 0, acrossShort: 0 | 2 = longX ? 0 : 2;
+    const backAxes: Array<0 | 2> = Math.abs(ex - ez) <= 8 ? [acrossLong, acrossShort] : [acrossLong];
+    // A backrest is a rising side whose opposite side is open: on a square armchair the two armrests rise
+    // on one axis and the backrest alone on the other (910032's turned armchair read its armrest as its back).
+    let back: { axis: 0 | 2; side: 'min' | 'max'; parts: number[] } | undefined, backScore = 0;
+    for (const axis of backAxes) {
+      const pair = { min: rising(axis, 'min', 20), max: rising(axis, 'max', 20) };
+      for (const side of ['min', 'max'] as const) {
+        const r = pair[side], opposite = pair[side === 'min' ? 'max' : 'min'];
+        // Read the original way (one part along a long side) half the side is enough; a backrest found only
+        // by the newer readings must span 80 % of it (a pin or a post beside a 2 x 2 plate is not a back: 60380).
+        const score = r.rest < (r.classic >= 0.5 ? 0.5 : 0.8) ? 0 : r.rest + (opposite.rest < 0.5 ? 1 : 0);
+        if (score > backScore + 1e-9) { back = { axis, side, parts: r.parts }; backScore = score; }
+      }
+    }
+    const ends = (['min', 'max'] as const).map(side => rising(acrossShort, side, 16, false));
+    const headSide = (['min', 'max'] as const).find((_, k) => ends[k]!.rest >= 0.8);
+    // A sofa against a wall: armrests at both ends and a wall along a long side (910032's cafe sofa).
+    const armed = ends.every(e => e.rest >= 0.8);
+    // Two studs deep: a one-stud ledge between two bricks against a wall is a planter or a doorstep (910032).
+    const wallSide = !back && armed && w >= 36 && w <= S.seat.maxWide ?(['min', 'max'] as const).find(side => rising(acrossLong, side, 20).wall >= 0.8) : undefined;
+    const rest = back ?? (wallSide ? { axis: acrossLong, side: wallSide } : undefined);
+    // A minifig's head room: over the middle, or over the half by the backrest
+    // (a dining chair is tucked under its table's edge, 910032).
+    const sh = Math.max(0, Math.min(6, (w - 8) / 2));
+    const room = { min: [min[0] + sh, 0, min[2] + sh] as Vec3, max: [max[0] - sh, 0, max[2] - sh] as Vec3 };
+    if (rest) {
+      const mid = (min[rest.axis]! + max[rest.axis]!) / 2;
+      if (rest.side === 'min') room.max[rest.axis] = mid; else room.min[rest.axis] = mid;
+    }
+    // The backrest and what is stacked on it are over nobody's head, even where a seat turned off the
+    // grid puts their world boxes over its own (910032's 14° armchair).
+    const backrest = new Set<number>();
+    const addStack = (j: number): void => { if (backrest.has(j)) return; backrest.add(j); for (const k of restingOn(j)) if (top - boxes[k]!.min[1] <= 60) addStack(k); };
+    // Only a turned seat needs this; beside a seat on the grid a stack that reaches over it is a roof (910032's dormer).
+    if (turned) for (const j of back?.parts ?? []) addStack(j);
+    // ...and a part set into one of them (the tile on a curved brick's top lies inside the brick's box).
+    for (const j of [...backrest]) {
+      const o = boxes[j]!;
+      for (const { o: k, j: kj } of others) if (k.min[1] >= o.min[1] - 1.5 && k.max[1] <= o.max[1] + 1.5 && overlapArea(k, o) > 1) backrest.add(kj);
+    }
+    const roof = others.find(({ o, j }) => !backrest.has(j) && o.max[1] <= top + 0.5 && o.max[1] > top - 44 && o.min[0] < room.max[0] && o.max[0] > room.min[0] && o.min[2] < room.max[2] && o.max[2] > room.min[2]);
+    if (roof) { no(`no head room under ${bricks[roof.j]!.part}`); continue; }
+    // Knee room: a sitter's legs go over the half away from the backrest, so nothing may stand on it or hang
+    // within 16 LDU over it across half its area (a table's edge may; a window standing on the far half of a
+    // ledge may not: 910032's balcony window box read as a bench facing its window).
+    if (rest) {
+      const knee = { min: [...room.min] as Vec3, max: [...room.max] as Vec3 };
+      const mid = (min[rest.axis]! + max[rest.axis]!) / 2;
+      if (rest.side === 'min') { knee.min[rest.axis] = mid; knee.max[rest.axis] = max[rest.axis]! - sh; } else { knee.max[rest.axis] = mid; knee.min[rest.axis] = min[rest.axis]! + sh; }
+      const kneeArea = Math.max(0, knee.max[0] - knee.min[0]) * Math.max(0, knee.max[2] - knee.min[2]);
+      const kneeBox = { min: knee.min, max: knee.max };
+      const blocked = others.reduce((n, { o, j }) => !backrest.has(j) && o.max[1] <= top + 0.5 && o.max[1] > top - 16 ? n + overlapArea(o, kneeBox) : n, 0);
+      if (kneeArea > 0 && blocked >= 0.5 * kneeArea) { no('no knee room: something stands on its front half'); continue; }
+    }
+    let kind: 'bench' | 'chair' | 'bed' | undefined;
+    let mattressWhy = '';
+    const seatHeight = height >= FURNITURE_HEIGHT_LDU.seat.min - 0.5 && height <= FURNITURE_HEIGHT_LDU.seat.max + 0.5;
+    // A backrest along a long side makes it a sofa even when it is bed-sized (910032's attic sofa: its armrests
+    // read as a headboard) - unless only ONE end rises: a bed with its headboard against a side panel (42639).
+    if (bedSize && (!rest || !armed) && height >= FURNITURE_HEIGHT_LDU.bed.min && height <= FURNITURE_HEIGHT_LDU.bed.max && headSide) kind = 'bed';
+    else if ((seatSize || (bedSize && rest)) && seatHeight) kind = rest ? 'chair' : onLegs && seatSize ? 'bench' : undefined;
+    if (!kind && bedSize && !rest && height >= FURNITURE_HEIGHT_LDU.bed.min && height <= FURNITURE_HEIGHT_LDU.bed.max) {
+      const why = isMattress(members, bb, others);
+      if (!why) kind = 'bed'; else mattressWhy = `; not a mattress: ${why}`;
+    }
+    if (!kind) { no(`${bedSize ? 'bed' : 'seat'}-sized ${w.toFixed(0)} x ${l.toFixed(0)}, ${height.toFixed(0)} LDU up, ${back ? 'backrest' : 'no backrest'}, ends ${ends.map(e => e.rest.toFixed(2)).join('/')}, ${onLegs ? 'on legs' : 'on a solid base'}${mattressWhy}: not furniture`); continue; }
+    // Facing: away from a backrest; a bed along its length from the headboard; a bench towards the table beside it.
+    const cx = (min[0] + max[0]) / 2, cz = (min[2] + max[2]) / 2;
+    let facing: [number, number] = [0, -1];
+    if (kind === 'chair' && back && turned) {
+      // A turned seat faces away from its backrest along its own axis: the grid side the backrest was read
+      // on is only the nearest of four.
+      let bx = 0, bz = 0;
+      for (const j of back.parts) { bx += (boxes[j]!.min[0] + boxes[j]!.max[0]) / 2; bz += (boxes[j]!.min[2] + boxes[j]!.max[2]) / 2; }
+      const dx = cx - bx / back.parts.length, dz = cz - bz / back.parts.length;
+      const [ux, uz] = turned, du = dx * ux + dz * uz, dv = -dx * uz + dz * ux;
+      facing = Math.abs(du) >= Math.abs(dv) ? [Math.sign(du) * ux, Math.sign(du) * uz] : [-Math.sign(dv) * uz, Math.sign(dv) * ux];
+    } else if (kind === 'chair' && rest) facing = rest.axis === 0 ? [rest.side === 'min' ? 1 : -1, 0] : [0, rest.side === 'min' ? 1 : -1];
+    else if (kind === 'bed' && headSide) facing = longX ? [headSide === 'min' ? 1 : -1, 0] : [0, headSide === 'min' ? 1 : -1];
+    else {
+      let best = Infinity;
+      for (const { o } of others) {
+        if (!(o.min[1] < top - 8 && o.min[1] > top - 48) || !touching(o, 24)) continue;
+        const ox = (o.min[0] + o.max[0]) / 2 - cx, oz = (o.min[2] + o.max[2]) / 2 - cz, dist = Math.hypot(ox, oz);
+        if (dist > 1 && dist < best) { best = dist; facing = [ox / dist, oz / dist]; }
+      }
+    }
+    // Seats sit along the side the backrest is on (a square seat's back may be on its short axis).
+    const alongX = rest ? rest.axis === 2 : longX;
+    const run = alongX ? ex : ez;
+    const n = kind === 'bed' ? 1 : Math.max(1, Math.min(3, Math.floor(run / 40 + 0.05))) // + 0.05: a turned or Studio-scaled part measures 79.99;
+    for (let k = 0; k < n; k++) {
+      const t = (k + 0.5) / n;
+      const p: Vec3 = alongX ? [min[0] + ex * t, top, cz] : [cx, top, min[2] + ez * t];
+      out.push({ part: kind, brick: first, surfaceLdu: p, facingLdu: facing });
+    }
+    trace?.(first, `${kind} x${n} (${w.toFixed(0)} x ${l.toFixed(0)}, ${height.toFixed(0)} LDU up${wallSide ? ', against a wall' : ''}${back ? `, backrest ${back.parts.map(j => bricks[j]!.part.replace(/\.dat$/i, '')).join('+')}` : ''})`);
+  }
+  return out;
+}
+
+/** A door LEAF (not a frame, not the glass insert, not a sticker). */
+export function isDoorLeafDescription(description: string): boolean {
+  const d = description.replace(/^[~=_]+\s*/, '');
+  // 60616's unofficial file is described "GLASS DOOR FOR FRAME 1X4X6 (Needs Work)": a leaf, not the glass insert.
+  if (/^GLASS DOOR\b/i.test(d)) return true;
+  return /^Door\b/i.test(d) && !/\b(Frame|Glass|Sticker|Sliding|Revolving)\b/i.test(d);
+}
+
+export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartGeometryProvider = createPartGeometryProvider()): Promise<SceneActors> {
+  const meshes = new Map<string, LdrawPartMesh | null>();
+  await Promise.all([...new Set(bricks.map(b => b.part))].map(async part => { meshes.set(part, await provider.getPartMesh(part)); }));
+  // Seats, doors and furniture classify a retired mould by the part it moved to; figures keep the stub (`mouldFamilyId`).
+  const classedDesc = (b: ParsedBrick): string => { const m = meshes.get(b.part); return m ? classifiedDescription(m) : ''; };
+
+  // Figures: a torso with at least a head or legs beside it.
+  const figures: SceneFigure[] = [];
+  const posedFigures: ScenePosedFigure[] = [];
+  const figureBricks = new Set<ParsedBrick>();
+  const warnings: string[] = [];
+  for (const g of groupFigures(bricks, meshes)) {
+    if (g.parts.length < 3) continue;
+    const parts = g.parts.map(i => bricks[i]!);
+    // Statues and busts stay in the blocks (figureRole).
+    if (figureRole(parts, meshes) !== 'npc') continue;
+    const torso = bricks[g.torso]!;
+    const facing = horizontal(torso, [0, 0, -1]) ?? [0, -1];
+    let min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+    for (const b of parts) {
+      const m = meshes.get(b.part);
+      const box = m && m.triangles.length ? worldBounds(b, m) : { min: [b.x - 10, b.y - 24, b.z - 10] as Vec3, max: [b.x + 10, b.y, b.z + 10] as Vec3 };
+      min = [Math.min(min[0], box.min[0]), Math.min(min[1], box.min[1]), Math.min(min[2], box.min[2])];
+      max = [Math.max(max[0], box.max[0]), Math.max(max[1], box.max[1]), Math.max(max[2], box.max[2])];
+    }
+    let centreLdu: Vec3 = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
+    const tiltDeg = tiltDegOf(torso.rot);
+    // An actor stands upright whatever the source did: a figure posed past the
+    // limit keeps its whole cluster (legs, hair, held items) in the geometry.
+    if (tiltDeg > FIGURE_UPRIGHT_MAX_TILT_DEG) { posedFigures.push({ bricks: parts, tiltDeg, centreLdu }); continue; }
+    for (const b of parts) figureBricks.add(b);
+    // The floor is where the ASSEMBLED figure's feet are — the rig's own feet
+    // level under the frame it settled on — not the lowest source body part:
+    // a converted source can put the torso itself at a raw origin (76417's
+    // big-fig, 70 LDU low), and its bounds would have sunk Hagrid to his
+    // shoulders. The rig re-anchors the frame on the limbs' consensus, so the
+    // centre follows the same move.
+    const assembled = assembleMinifig(parts, meshes);
+    const feet = local(torso, [0, assembled.feetY, 0]);
+    const floorLdu = assembled.torso.position[1] + (feet[1] - torso.y);
+    if (assembled.reanchoredLdu) {
+      const shift = local(torso, assembled.reanchoredLdu);
+      centreLdu = [centreLdu[0] + shift[0] - torso.x, centreLdu[1] + shift[1] - torso.y, centreLdu[2] + shift[2] - torso.z];
+    }
+    figures.push({ bricks: parts, centreLdu, floorLdu, facingLdu: facing, tiltDeg, seated: false });
+  }
+  if (posedFigures.length) {
+    const tilts = posedFigures.map(p => `${p.tiltDeg}°`).join(', ');
+    warnings.push(`${posedFigures.length} figure${posedFigures.length === 1 ? '' : 's'} the source posed off upright (torso tilt ${tilts}, over ${FIGURE_UPRIGHT_MAX_TILT_DEG}°) stay${posedFigures.length === 1 ? 's' : ''} in the build's geometry at the exact source pose instead of walking: a Bedrock entity stands upright (yaw only, no roll), so a pitched or lying rider cannot be an NPC.`);
+  }
+
+  // Seats: the sitting surface is one plate above the mould's origin (4079: the
+  // origin is under the seat pan). Other furniture moulds (a Fabuland chair or
+  // bench, a stool, a throne) sit on their PAN - the face a line down the
+  // middle meets (`seatPanLocalY`), not the box top, which is a chair's
+  // backrest (4222a: 40 LDU over the pan). A seat with a figure's torso over
+  // it is taken.
+  const seats: SceneSeat[] = [];
+  for (const b of bricks) {
+    const isMouldSeat = isSeat(b.part, classedDesc(b));
+    if (!isMouldSeat && !isFurnitureSeat(classedDesc(b))) continue;
+    const bm = meshes.get(b.part);
+    const surface = isMouldSeat || !bm || !bm.triangles.length
+      ? local(b, [0, -8, 0])
+      : local(b, [(bm.bounds.min[0] + bm.bounds.max[0]) / 2, seatPanLocalY(bm, isSwingSeat(classedDesc(b))), (bm.bounds.min[2] + bm.bounds.max[2]) / 2]);
+    const facing = horizontal(b, [0, 0, -1]) ?? [0, -1];
+    // The figure's torso, or the head standing in for a lost one (`figureAnchor`), at the head's offset.
+    const sitter = figures.find(f => f.seatIndex === undefined && (() => {
+      const root = figureAnchor(f.bricks, meshes);
+      if (!root) return false;
+      const t = f.bricks[root.index]!;
+      const y = root.headless ? t.y + (root.system === 'minidoll' ? 33.2 : 24) : t.y;
+      return Math.hypot(t.x - surface[0], t.z - surface[2]) <= 30 && y <= surface[1] && y >= surface[1] - 60;
+    })());
+    seats.push({ part: cleanPartId(b.part), brick: b, surfaceLdu: surface, facingLdu: facing });
+    // A figure the source sat here rides this seat's entity (the seat stays, occupied).
+    if (sitter) { sitter.seated = true; sitter.seatIndex = seats.length - 1; }
+  }
+  // Brick-built stools, benches, chairs, sofas and beds (no seat mould), away from any seat already found.
+  for (const seat of [...brickBuiltStools(bricks, meshes, figureBricks), ...brickBuiltFurniture(bricks, meshes, figureBricks)]) {
+    if (seats.some(s => Math.hypot(s.surfaceLdu[0] - seat.surfaceLdu[0], s.surfaceLdu[2] - seat.surfaceLdu[2]) < 20 && Math.abs(s.surfaceLdu[1] - seat.surfaceLdu[1]) < 24)) continue;
+    seats.push(seat);
+  }
+  // A figure the source SAT DOWN (legs bent at the hip) proves a seat under
+  // its hips, whatever it sits on: a brick bench the rules above found (it
+  // takes that one), or bricks they cannot read as furniture (a ledge, a wall
+  // top, a sofa built sideways). It rides that seat as a mould's sitter does,
+  // and gives it up to a player (bedrock-figure-life.ts). No such figure, no
+  // seat: this adds nothing on geometry nobody sat on.
+  for (const f of figures) {
+    if (f.seatIndex !== undefined) continue;
+    const seated = seatedFigure(f.bricks, meshes);
+    if (!seated) continue;
+    const surface = local(seated.torso, [0, SEAT_BELOW_TORSO_LDU[seated.system], 0]);
+    const found = seats.findIndex((s, i) => !figures.some(g => g.seatIndex === i)
+      && Math.hypot(s.surfaceLdu[0] - surface[0], s.surfaceLdu[2] - surface[2]) < FIGURE_SEAT_MATCH_LDU.across && Math.abs(s.surfaceLdu[1] - surface[1]) < FIGURE_SEAT_MATCH_LDU.up);
+    if (found < 0) seats.push({ part: 'figure seat', surfaceLdu: surface, facingLdu: f.facingLdu });
+    f.seated = true;
+    f.seatIndex = found >= 0 ? found : seats.length - 1;
+  }
+
+  // Door leaves, and the frames they hang in.
+  const frames: Array<{ min: Vec3; max: Vec3 }> = [];
+  for (const b of bricks) {
+    const m = meshes.get(b.part);
+    if (m && m.triangles.length && /^[~=_]*\s*Door\b.*\bFrame\b/i.test(m.description)) frames.push(worldBounds(b, m));
+  }
+  const doors: SceneDoor[] = [];
+  const doorBricks = new Set<ParsedBrick>();
+  for (const b of bricks) {
+    const m = meshes.get(b.part);
+    if (!m || !m.triangles.length || !isDoorLeafDescription(m.description)) continue;
+    doorBricks.add(b);
+    const box = worldBounds(b, m);
+    // The leaf's WIDTH axis is its longer local horizontal axis, turned by the
+    // placement: judged from the part's own frame, not from its world AABB,
+    // which is square for a leaf at 45 degrees and says nothing about it.
+    const R = b.rot ?? [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    const localX = m.bounds.max[0] - m.bounds.min[0], localZ = m.bounds.max[2] - m.bounds.min[2];
+    const col = localX >= localZ ? 0 : 2;
+    const wx = R[col]!, wz = R[6 + col]!;
+    const fromX = Math.atan2(Math.abs(wz), Math.abs(wx)) * 180 / Math.PI;
+    const offGridDeg = Math.round(Math.min(fromX, 90 - fromX) * 10) / 10;
+    const alongAxis: 'x' | 'z' = Math.hypot(wx, wz) > 1e-6 ? (fromX <= 45 ? 'x' : 'z') : (box.max[0] - box.min[0] >= box.max[2] - box.min[2] ? 'x' : 'z');
+    // The hinge is the end of the leaf nearest the mould's origin (every LDraw door leaf: measured 2026-09-16).
+    const o = alongAxis === 'x' ? b.x : b.z;
+    const lo = alongAxis === 'x' ? box.min[0] : box.min[2], hi = alongAxis === 'x' ? box.max[0] : box.max[2];
+    const centre: Vec3 = [(box.min[0] + box.max[0]) / 2, (box.min[1] + box.max[1]) / 2, (box.min[2] + box.max[2]) / 2];
+    const frame = frames.find(f => centre[0] >= f.min[0] - 4 && centre[0] <= f.max[0] + 4 && centre[1] >= f.min[1] - 4 && centre[1] <= f.max[1] + 4 && centre[2] >= f.min[2] - 4 && centre[2] <= f.max[2] + 4);
+    const across: [number, number] | undefined = frame ? (alongAxis === 'x' ? [frame.min[2], frame.max[2]] : [frame.min[0], frame.max[0]]) : undefined;
+    doors.push({ part: cleanPartId(b.part), description: m.description, color: b.color, brick: b, minLdu: box.min, maxLdu: box.max, alongAxis, hingeAtMin: Math.abs(o - lo) <= Math.abs(o - hi), ...(across ? { frameAcrossLdu: across } : {}), offGridDeg });
+  }
+  let groundLdu = -Infinity;
+  for (const b of bricks) {
+    if (figureBricks.has(b)) continue;
+    const m = meshes.get(b.part);
+    const bottom = m && m.triangles.length ? worldBounds(b, m).max[1] : b.y;
+    if (bottom > groundLdu) groundLdu = bottom;
+  }
+  return { figures, posedFigures, seats, doors, figureBricks, doorBricks, meshes, warnings, groundLdu: Number.isFinite(groundLdu) ? groundLdu : NaN };
+}
+
+/** The voxelizer's grid frame (`VoxelizeResult.gridOrigin`). */
+export interface SceneGridFrame { x: number; y: number; z: number; scale: number; cellXZ: number; cellY: number }
+
+/**
+ * An LDraw point in grid coordinates (fractional cells). The grid is LDraw
+ * turned half a turn about X: `(x, −y, −z)` per cell size, then the grid
+ * origin — the SAME frame `ldraw-geometry.ts` `rasterizeTriangles` fills the
+ * blocks in, so an actor lands on the block its part became. LDraw Y down is
+ * grid Y up, and LDraw −Z (the model's front) is grid +Z (south). A Y-only
+ * flip would be a mirror (det −1): that was the grid until 2026-09-22.
+ */
+export function sceneGridPoint(frame: SceneGridFrame, p: Vec3): Vec3 {
+  return [(p[0] / frame.cellXZ - frame.x) * frame.scale, (-p[1] / frame.cellY - frame.y) * frame.scale, (-p[2] / frame.cellXZ - frame.z) * frame.scale];
+}
+
+/**
+ * An LDraw point in grid coordinates whose HEIGHT is measured up from the
+ * model's underside (`SceneActors.groundLdu`, the pin plane the shell and the
+ * colliders stand on) instead of the voxel grid's row-0 bottom. Use it for
+ * anything an actor stands or sits on: feet on a baseplate's top land at
+ * +0.15 blocks (one plate), feet on the ground beside the model at 0.
+ * Doors keep `sceneGridPoint`: they are cut into the block grid itself.
+ */
+export function sceneFloorPoint(frame: SceneGridFrame, groundLdu: number, p: Vec3): Vec3 {
+  const g = sceneGridPoint(frame, p);
+  return [g[0], Number.isFinite(groundLdu) ? (groundLdu - p[1]) / frame.cellY * frame.scale : g[1], g[2]];
+}
+
+/**
+ * The underside the actors' heights are measured from, for a voxel grid `frame`: the model's own underside
+ * (`SceneActors.groundLdu`, which leaves figures out) - unless the GRID reaches more than half a cell below it.
+ * The grid holds every placement, figures included, and the shell and its colliders are laid in the grid's
+ * frame; so when figures stand below the model (42652's display line-up, 1.1 blocks under the tree's base) the
+ * shell is laid that far above the grid's bottom, and heights measured from the model's underside put the
+ * slides and seats that far UNDER the parts they belong to (the slide ran 1.1 blocks under its drawn chute,
+ * simulator triage 2026-09-30). Then the grid's bottom is the underside. Within half a cell the model's own
+ * underside stands: that is the voxelizer's row-0 rounding of a thin baseplate (the chalet's plate, below).
+ */
+export function actorGroundLdu(frame: SceneGridFrame, groundLdu: number): number {
+  if (!Number.isFinite(groundLdu)) return groundLdu;
+  // LDraw y (down) of the grid's row-0 bottom: where `sceneGridPoint`'s height is 0.
+  const gridBottomLdu = -frame.y * frame.cellY;
+  return groundLdu < gridBottomLdu - frame.cellY / 2 ? gridBottomLdu : groundLdu;
+}
+
+/**
+ * The export warning for an `actorGroundLdu` that moved the underside, or undefined when it did not. A scene with
+ * no shell bricks (a whole-model vehicle: 7140, 76286, 42172, 60221, 10365) has no underside (`groundLdu` NaN);
+ * there is nothing to lift then, and `NaN !== NaN` used to print "NaN cells over the lowest placement".
+ */
+export function groundLiftWarning(frame: SceneGridFrame, sceneGroundLdu: number, groundLdu: number): string | undefined {
+  if (!Number.isFinite(sceneGroundLdu) || !Number.isFinite(groundLdu) || groundLdu === sceneGroundLdu) return undefined;
+  const cells = Math.round((groundLdu - sceneGroundLdu) / frame.cellY * 100) / 100;
+  return `Ground: the model's underside is ${cells} cells over the lowest placement (figures stand below it); figures, seats and rides are measured from the grid's bottom, where the shell is laid.`;
+}
+
+/**
+ * Bedrock yaw (degrees; 0 faces +Z, forward = (−sin, cos)) for a horizontal
+ * LDraw direction (x, z). World Z is LDraw −Z (`sceneGridPoint`), so the
+ * world direction is (x, −z): a figure facing LDraw −Z (the front) faces
+ * world +Z, yaw 0.
+ */
+export function yawForFacing(f: [number, number]): number {
+  return normaliseYaw(Math.atan2(-f[0] || 0, -f[1]) * 180 / Math.PI);
+}
+
+/**
+ * Whether a door leaf's hinge is at the grid-MIN end of its axis. `hingeAtMin`
+ * is measured in LDraw; along X the axes agree, along Z the grid runs the
+ * other way (`sceneGridPoint`), so the LDraw-min end is the grid-max end.
+ */
+const hingeAtGridMin = (d: Pick<SceneDoor, 'alongAxis' | 'hingeAtMin'>): boolean => d.alongAxis === 'x' ? d.hingeAtMin : !d.hingeAtMin;
+
+/** Round to a tenth of a degree in (−180, 180], never −0. */
+export function normaliseYaw(deg: number): number {
+  let yaw = Math.round(deg * 10) / 10;
+  while (yaw <= -180) yaw += 360;
+  while (yaw > 180) yaw -= 360;
+  return yaw === 0 ? 0 : yaw;
+}
+
+/** Door wood by the leaf's LDraw colour: the nearest vanilla door in tone. */
+export function doorBlockForColor(color: number): string {
+  if ([0, 8, 72, 308, 26].includes(color)) return 'minecraft:dark_oak_door';
+  if ([6, 70, 89, 84].includes(color)) return 'minecraft:spruce_door';
+  if ([15, 1, 73, 212, 9].includes(color)) return 'minecraft:birch_door';
+  if ([19, 28, 14, 191, 226, 78].includes(color)) return 'minecraft:bamboo_door';
+  if ([4, 320, 216, 27].includes(color)) return 'minecraft:mangrove_door';
+  if ([25, 182, 462].includes(color)) return 'minecraft:acacia_door';
+  if ([2, 288, 10, 27, 378].includes(color)) return 'minecraft:warped_door';
+  if ([5, 13, 29, 30, 322].includes(color)) return 'minecraft:cherry_door';
+  if ([7, 71, 135, 179, 80].includes(color)) return 'minecraft:iron_door';
+  return 'minecraft:oak_door';
+}
+
+export interface DoorPlacementStats {
+  doors: number; leavesCleared: number; skippedSmall: number; skippedOutside: number;
+  /** Solid cells opened across the doorway so a door can be reached from a room within three cells. */
+  passageCleared: number;
+  /** Doors with no air within three cells on either side (deep inside a solid mass): left as they are. */
+  unreachable: number;
+}
+
+/** A measured export-scale recommendation for real, semantic LDraw door leaves. */
+export interface DoorScaleRecommendation {
+  /** The smallest leaf height found, before the model-scale multiplier. */
+  shortestLeafLdu: number;
+  /** The smallest multiplier that gives a player-height, two-block vanilla opening. */
+  requiredScale: number;
+  /** The first supported export scale at or above `requiredScale`, if any. */
+  recommendedScale?: number;
+  /** Why the wand must not promise that its runtime Size button can fix this. */
+  note: string;
+}
+
+const EXPORT_SCALE_STEPS = ACCESS_SCALE_STEPS;
+export const WAND_SIZE_STEPS = [25, 50, 75, 100, 150, 200, 300, 400] as const;
+
+/** A semantic leaf retained for the wand when it is too small at 100%. */
+export interface RuntimeDoorCandidate {
+  /** Model-local lower-door point in the exported block grid. */
+  x: number; y: number; z: number;
+  /** First supported wand factor that gives the leaf a two-block opening. */
+  requiredSize: number;
+  lower: { id: string; states: Record<string, string | number | boolean> };
+  upper: { id: string; states: Record<string, string | number | boolean> };
+}
+
+/**
+ * Retain a real leaf's measured opening for runtime resizing. This is deliberately
+ * leaf-only: an arbitrary brick gap is not enough evidence to add a door.
+ */
+export function runtimeDoorCandidates(doors: readonly SceneDoor[], frame: SceneGridFrame): RuntimeDoorCandidate[] {
+  const out: RuntimeDoorCandidate[] = [];
+  const seen = new Set<string>();
+  for (const d of doors) {
+    const a = sceneGridPoint(frame, d.minLdu), b = sceneGridPoint(frame, d.maxLdu);
+    const height = Math.abs(b[1] - a[1]);
+    const width = d.alongAxis === 'x' ? Math.abs(b[0] - a[0]) : Math.abs(b[2] - a[2]);
+    // A usable vanilla leaf needs both its two-block headroom and a full
+    // block across; height-only scaling can otherwise hang a door through a
+    // sub-block slit. The remaining leaf cell is deliberately the only block
+    // cleared: source door bricks were excluded from the collider shell.
+    const requiredSize = WAND_SIZE_STEPS.find(size => size >= 100 && height * size / 100 >= 2 && width * size / 100 >= 1);
+    if (!requiredSize) continue;
+    const x = (a[0] + b[0]) / 2, z = (a[2] + b[2]) / 2;
+    // LDraw Y is down; the lower edge maps to the smaller grid Y.
+    // Keep the physical edge fractional until worldPoint applies the wand
+    // factor. Flooring here magnifies the error (1.8 × 3 must land at 5.4,
+    // not floor(1.8) × 3 = 3) and moves upper-storey doors off their floors.
+    const y = Math.min(a[1], b[1]);
+    const key = `${x.toFixed(3)}:${y}:${z.toFixed(3)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const facing = d.alongAxis === 'x' ? 'south' : 'east';
+    const hinge = hingeAtGridMin(d) === (d.alongAxis === 'x') ? 'left' : 'right';
+    const block = doorBlockForColor(d.color);
+    const lower = toBedrockBlock(`${block}[facing=${facing},half=lower,hinge=${hinge},open=false,powered=false]`);
+    const upper = toBedrockBlock(`${block}[facing=${facing},half=upper,hinge=${hinge},open=false,powered=false]`);
+    if (!lower || !upper) continue;
+    out.push({ x, y, z, requiredSize, lower: { id: lower.name, states: lower.states }, upper: { id: upper.name, states: upper.states } });
+  }
+  return out;
+}
+
+/**
+ * Measure whether genuine LDraw door leaves can become usable vanilla doors.
+ *
+ * A Minecraft player is 1.8 blocks high, but a vanilla door always needs a
+ * two-block opening. This recommends an export scale for doors at 100%; the
+ * separate runtime candidates measure each leaf against the exported grid
+ * and allow the wand to replace leaf actors at an eligible larger size.
+ */
+export function recommendDoorExportScale(doors: readonly SceneDoor[]): DoorScaleRecommendation | null {
+  if (!doors.length) return null;
+  const shortestLeafLdu = Math.min(...doors.map(d => Math.abs(d.maxLdu[1] - d.minLdu[1])));
+  const openingBlocks = Math.max(2, PLAYER_HEIGHT_BLOCKS);
+  const requiredScale = Math.max(...doors.map(d => Math.max(
+    openingBlocks * LDU_PER_BLOCK / Math.abs(d.maxLdu[1] - d.minLdu[1]),
+    LDU_PER_BLOCK / Math.abs(d.maxLdu[d.alongAxis === 'x' ? 0 : 2] - d.minLdu[d.alongAxis === 'x' ? 0 : 2]),
+  )));
+  const recommendedScale = EXPORT_SCALE_STEPS.find(scale => scale + 1e-9 >= requiredScale);
+  const roundedRequired = Math.ceil(requiredScale * 100) / 100;
+  if (!recommendedScale) return {
+    shortestLeafLdu, requiredScale,
+    note: `Shortest real door leaf is ${shortestLeafLdu} LDU: it needs ${roundedRequired}× minifig export scale for a ${openingBlocks}-block player opening, above the supported 4× export scale. No usable door is claimed.`,
+  };
+  return {
+    shortestLeafLdu, requiredScale, recommendedScale,
+    note: `Shortest real door leaf is ${shortestLeafLdu} LDU: export at ${recommendedScale}× minifig scale if every door must work at 100% (requires ${roundedRequired}×). Brick Wand sizes can otherwise swap exact semantic leaf geometry for vanilla doors at measured thresholds up to 400%.`,
+  };
+}
+
+/**
+ * Cut each door leaf out of the block scenery and stand vanilla doors in the
+ * opening. Facing is the leaf's thin axis toward the positive side; `hinge`
+ * is judged the way Minecraft does, from the side the door faces: for a door
+ * facing south (viewer south of it looking north) the viewer's left is west.
+ * A leaf two or more cells wide gets one door per cell, outer hinges, so the
+ * pair opens like double doors.
+ */
+export function applySceneDoors(grid: BlockGrid, doors: SceneDoor[], frame: SceneGridFrame, hungDoors?: Set<SceneDoor>, clearedCells?: Set<number>): DoorPlacementStats {
+  // Every cell this pass opens (leaf and passage), so the collider builder
+  // (bedrock-building-shell.ts `keepClear`) does not wall it up again from
+  // the frame's or the facade's geometry.
+  const clear = (x: number, y: number, z: number): void => { grid.set(x, y, z, 'minecraft:air'); clearedCells?.add((x * grid.height + y) * grid.length + z); };
+  const stats: DoorPlacementStats = { doors: 0, leavesCleared: 0, skippedSmall: 0, skippedOutside: 0, passageCleared: 0, unreachable: 0 };
+  // Converted sources sometimes retain an overlapping leaf placement beside
+  // the visible one. A Bedrock door occupies one lower-cell coordinate, so
+  // placing both used to count two doors while silently overwriting the first
+  // block state (and could turn a double doorway into a duplicate single one).
+  const hungCells = new Set<string>();
+  for (const d of doors) {
+    const a = sceneGridPoint(frame, d.minLdu), b = sceneGridPoint(frame, d.maxLdu);
+    const physicalHeight = Math.abs(b[1] - a[1]);
+    const physicalWidth = d.alongAxis === 'x' ? Math.abs(b[0] - a[0]) : Math.abs(b[2] - a[2]);
+    // Cell straddling is not physical clearance. A narrow/tiny leaf can touch
+    // two voxel cells while remaining less than one block wide or two high;
+    // that leaf stays exact source geometry until a measured wand threshold.
+    if (physicalHeight + 1e-9 < 2 || physicalWidth + 1e-9 < 1) { stats.skippedSmall++; continue; }
+    // Along the leaf and up: every cell it straddles. Across its thickness (6 LDU,
+    // often astride a cell boundary): the one cell its centre line is in.
+    const span = (lo: number, hi: number): [number, number] => [Math.floor(Math.min(lo, hi) + 0.02), Math.floor(Math.max(lo, hi) - 0.02)];
+    const thin = (lo: number, hi: number): [number, number] => { const c = Math.floor((lo + hi) / 2); return [c, c]; };
+    /**
+     * Along the leaf: as many cells as the leaf is wide (a 1.5-cell leaf is
+     * two doors, a 1.1-cell leaf one), taken where it covers the most. A leaf
+     * that straddles three cells does NOT get three doors: the sliver it
+     * leaves in the third cell stays wall.
+     */
+    const along = (lo: number, hi: number): [number, number] => {
+      const min = Math.min(lo, hi), max = Math.max(lo, hi);
+      // A 1×4 LEGO door is 80 LDU = 1.5 cells: two doors (the float lands a hair under 1.5).
+      const count = Math.max(1, Math.round(max - min + 0.05));
+      const first = Math.floor(min), last = Math.floor(max - 0.02);
+      let best = first, bestCover = -1;
+      for (let start = first; start + count - 1 <= last; start++) {
+        const cover = Math.min(max, start + count) - Math.max(min, start);
+        if (cover > bestCover) { bestCover = cover; best = start; }
+      }
+      return [best, best + count - 1];
+    };
+    const [x0, x1] = d.alongAxis === 'x' ? along(a[0], b[0]) : thin(a[0], b[0]);
+    let [y0, y1] = span(a[1], b[1]);
+    const [z0, z1] = d.alongAxis === 'z' ? along(a[2], b[2]) : thin(a[2], b[2]);
+    if (y1 - y0 + 1 < 2) { stats.skippedSmall++; continue; }
+    if (x0 < 0 || y0 < 0 || z0 < 0 || x1 >= grid.width || y1 >= grid.height || z1 >= grid.length) { stats.skippedOutside++; continue; }
+    // Outside the model is the open world: a door on the outer wall opens onto it.
+    const cellAt = (x: number, y: number, z: number): string => (x < 0 || z < 0 || y < 0 || x >= grid.width || z >= grid.length || y >= grid.height) ? 'minecraft:air' : grid.get(x, y, z);
+    const acrossAt = (k: number): [number, number] => d.alongAxis === 'x' ? [x0, z0 + k] : [x0 + k, z0];
+    const airAcross = (y: number): number => { let n = 0; for (const k of [-3, -2, -1, 1, 2, 3]) { const [x, z] = acrossAt(k); if (cellAt(x, y, z) === 'minecraft:air') n++; } return n; };
+    // Floor-ness is judged on cells INSIDE the grid only (an exterior door's outside is air by definition).
+    const solidAcrossInGrid = (y: number): boolean => { for (const k of [-3, -2, -1, 1, 2, 3]) { const [x, z] = acrossAt(k); if (x < 0 || z < 0 || x >= grid.width || z >= grid.length) continue; if (grid.get(x, y, z) === 'minecraft:air') return false; } return true; };
+    // A leaf that starts inside the FLOOR's cell (an 8 LDU baseplate makes its
+    // whole 53 LDU cell solid, and the leaf sits on that plate) reads its
+    // bottom cell as the floor row: every neighbour across is solid there and
+    // air begins one cell up. The door then hangs one cell up, on the floor,
+    // instead of replacing the floor and popping off - the museum on the Pixel.
+    if (solidAcrossInGrid(y0) && airAcross(y0 + 1) > 0 && y1 > y0 + 1) y0 += 1;
+    // The door must rest on a block: a leaf whose bottom edge reads just above the
+    // floor cell sits one cell up, and a Bedrock door over air pops off (3 of 6
+    // museum doors on the Pixel). Step down onto the first solid cell, at most one.
+    const solidBelow = (y: number): boolean => y - 1 < 0 || cellAt(x0, y - 1, z0) !== 'minecraft:air';
+    if (!solidBelow(y0) && y0 - 1 >= 0 && solidBelow(y0 - 1)) { y0 -= 1; y1 = Math.max(y1, y0 + 1); }
+    if (!solidBelow(y0)) { stats.skippedOutside++; continue; }
+    // The passage across the doorway: every cell the FRAME straddles across the
+    // leaf's thin axis (a 20 LDU wall on a cell boundary is two blocks thick).
+    const acrossCells = (): [number, number] => {
+      if (!d.frameAcrossLdu) return d.alongAxis === 'x' ? [z0, z1] : [x0, x1];
+      const f = d.alongAxis === 'x'
+        ? [sceneGridPoint(frame, [0, 0, d.frameAcrossLdu[0]])[2], sceneGridPoint(frame, [0, 0, d.frameAcrossLdu[1]])[2]]
+        : [sceneGridPoint(frame, [d.frameAcrossLdu[0], 0, 0])[0], sceneGridPoint(frame, [d.frameAcrossLdu[1], 0, 0])[0]];
+      const [lo, hi] = span(f[0]!, f[1]!);
+      const limit = d.alongAxis === 'x' ? grid.length : grid.width;
+      return [Math.max(0, Math.min(lo, d.alongAxis === 'x' ? z0 : x0)), Math.min(limit - 1, Math.max(hi, d.alongAxis === 'x' ? z1 : x1))];
+    };
+    const [c0, c1] = acrossCells();
+    const [px0, px1] = d.alongAxis === 'x' ? [x0, x1] : [c0, c1];
+    const [pz0, pz1] = d.alongAxis === 'x' ? [c0, c1] : [z0, z1];
+    // Cells across the opening, ordered from the viewer's LEFT (facing south: west→east; facing east: south→north).
+    const cells: Array<{ x: number; z: number }> = [];
+    if (d.alongAxis === 'x') for (let x = x0; x <= x1; x++) cells.push({ x, z: z0 });
+    else for (let z = z1; z >= z0; z--) cells.push({ x: x0, z });
+    // Do not let an overlapping duplicate leaf erase the already-hung vanilla door.
+    if (cells.every(c => hungCells.has(`${c.x},${y0},${c.z}`))) continue;
+    for (let y = y0; y <= y1; y++) for (let z = pz0; z <= pz1; z++) for (let x = px0; x <= px1; x++) { clear(x, y, z); stats.leavesCleared++; }
+    const block = doorBlockForColor(d.color);
+    // Thin axis = the one the leaf does NOT run along; the door faces its positive side.
+    const facing = d.alongAxis === 'x' ? 'south' : 'east';
+    const hingeLeft = (i: number): boolean => {
+      if (cells.length >= 2) return i < cells.length / 2; // double doors: outer hinges
+      // Single door: the hinge end the mould marks, seen from the facing side
+      // (facing south, the viewer's left is grid −X; facing east, it is grid +Z).
+      const hingeAtLeftEnd = d.alongAxis === 'x' ? hingeAtGridMin(d) : !hingeAtGridMin(d);
+      return hingeAtLeftEnd;
+    };
+    // A door implies a passage: across its thin axis, on each side, open the
+    // solid cells between the door and the nearest air within three cells
+    // (a facade two studs deep, a straddled wall the frame did not cover).
+    // Five of the museum's six doors were entombed this way on the Pixel.
+    let reachable = false;
+    for (const c of cells) for (const dir of [-1, 1]) {
+      const at = (k: number): [number, number] => d.alongAxis === 'x' ? [c.x, c.z + dir * k] : [c.x + dir * k, c.z];
+      let airAt = -1;
+      for (let k = 1; k <= 3; k++) { const [x, z] = at(k); if (cellAt(x, y0, z) === 'minecraft:air' && cellAt(x, y0 + 1, z) === 'minecraft:air') { airAt = k; break; } }
+      if (airAt < 0) continue;
+      reachable = true;
+      for (let k = 1; k < airAt; k++) { const [x, z] = at(k); for (const y of [y0, y0 + 1]) if (cellAt(x, y, z) !== 'minecraft:air') { clear(x, y, z); stats.passageCleared++; } }
+      // The whole passage, the air it reaches included, stays open in the
+      // colliders too (they are laid from geometry, which may reach a cell
+      // the voxel grid left air).
+      if (clearedCells) for (let k = 1; k <= airAt; k++) {
+        const [x, z] = at(k);
+        if (x < 0 || z < 0 || x >= grid.width || z >= grid.length) continue;
+        for (const y of [y0, y0 + 1]) if (y < grid.height) clearedCells.add((x * grid.height + y) * grid.length + z);
+      }
+    }
+    if (!reachable) stats.unreachable++;
+    const doorsBefore = stats.doors;
+    cells.forEach((c, i) => {
+      const key = `${c.x},${y0},${c.z}`;
+      if (hungCells.has(key)) return;
+      const hinge = hingeLeft(i) ? 'left' : 'right';
+      grid.set(c.x, y0, c.z, `${block}[facing=${facing},half=lower,hinge=${hinge},open=false,powered=false]`);
+      grid.set(c.x, y0 + 1, c.z, `${block}[facing=${facing},half=upper,hinge=${hinge},open=false,powered=false]`);
+      hungCells.add(key);
+      stats.doors++;
+    });
+    if (stats.doors > doorsBefore) hungDoors?.add(d);
+  }
+  return stats;
+}
+
+// ─── Access: doorways, headroom and the walk-through size recommendation ─────
+//
+// A player needs a clear opening one block wide and two high to pass, and two
+// blocks of headroom to stand (addon-scale.ts, `PASSAGE_*`). Whether a set has
+// such openings is a property of its GEOMETRY, not of its theme: a modular's
+// 1×4×6 doors clear it at 1×, an Architecture landmark's one-stud gateways
+// need 300-400 %, a sculpture has nothing to walk through at any size. The
+// measurement below therefore reads the model itself, in two tiers:
+//
+//  1. Semantic door LEAVES (the library's own "Door …" descriptions, the same
+//     rule `discoverSceneActors` hangs vanilla doors by): the leaf's extent is
+//     the opening. Strong evidence when present - a set with door moulds was
+//     built for its figures to walk through them.
+//  2. APERTURES in an occupancy grid of the whole model: every part's box
+//     (moulds with a hole - doors, windows, arches - are rasterised from their
+//     triangles so the hole stays open) at a plate-sized cell, then every
+//     floor-level air run that is walled on both sides, has a lintel, and opens
+//     into a wider space (or the outside) within a wall's thickness on BOTH
+//     sides. That is a doorway however it was built: a door frame, a brick
+//     arch, or the one-stud gap in a microscale gatehouse.
+//
+// The recommendation is the smallest supported step (100/150/200/300/400 %) at
+// which the model's representative doorway clears the passage AND its floors
+// clear standing headroom; it is DATA for the caller to show ("doorways are
+// 0.4 blocks wide at 100 %; 300 % makes them 1.2"), never an applied size.
+
+/** Moulds with an aperture: their triangles are rasterised into the occupancy, not their bounding box. */
+const APERTURE_MOULD = /^[~=_]*\s*(?:Half\s+|Duplo\s+)?(?:Door|Window|Arch)\b/i;
+
+/**
+ * Occupancy cells for the access grid, LDU, and the grid is aligned to world
+ * multiples of them. LEGO geometry sits on half-stud (10 LDU) multiples
+ * horizontally and plate (8 LDU) multiples vertically - a door frame's jambs
+ * are at ±30, a brick is 24 tall - so with a 5 × 4 cell an axis-aligned
+ * opening is measured exactly. A plate-sized cell under-read a 104 LDU
+ * (1.95-block) doorway by up to a cell, enough to push a 100 % doorway to
+ * 150 %. Coarsened (×1.5 steps) for very large models (`maxCells`).
+ */
+export const ACCESS_CELL_LDU: Readonly<{ xz: number; y: number }> = { xz: 5, y: 4 };
+/** The cells an access grid may hold before its cells are coarsened (48 MB; a 71043 goes to 7.5 × 6 LDU). */
+const ACCESS_MAX_CELLS = 48_000_000;
+/** A wall's thickness, LDU: how far past a doorway's throat the space must widen for it to be a doorway. */
+const WALL_DEPTH_LDU = 100;
+/** The smallest aperture counted, LDU: a brick tall (below that it is the gap between two plates). */
+const MIN_APERTURE_HEIGHT_LDU = 24;
+const MIN_APERTURE_WIDTH_LDU = 16;
+/**
+ * A doorway is not a slot: an opening wider than this many times its height
+ * is the gap under a car, between a plate and the ground, under eaves. A
+ * garage door (3 wide × 2.5 high) stays in; a 5.3 × 0.6 undercarriage does not.
+ */
+const MAX_APERTURE_ASPECT = 2.5;
+
+/**
+ * Where an opening leads (`measureSceneAccess`'s outside flood): `entrance` - the outside on one side, a closed
+ * interior on the other; `interior` - between two of the model's own enclosed spaces (a nave arcade);
+ * `outside` - the outside on both sides at its own level (a gap between two pillars); `blind` - on one side nothing
+ * a player stands in: solid (a leaf drawn on a wall) or a pocket smaller than a room (a niche behind an arch).
+ */
+export type OpeningConnection = 'entrance' | 'interior' | 'outside' | 'blind';
+
+export interface SceneOpening {
+  /** How it was found: a door-shaped semantic leaf's own extent, a leaf wider than tall (a hatch), or an aperture in the occupancy grid. */
+  source: 'door-leaf' | 'hatch-leaf' | 'aperture';
+  /** The horizontal axis a player travels along to pass through it. */
+  axis: 'x' | 'z';
+  /** Clear width across the opening and clear height under its lintel, LDU. */
+  widthLdu: number;
+  heightLdu: number;
+  /** Centre of the opening's threshold, LDraw. */
+  centreLdu: Vec3;
+  /** Smallest multiplier of the minifig scale at which a 1×2-block passage clears it. */
+  requiredScale: number;
+  /** Where it leads: only an `entrance` lets a player walk INTO the model from outside. */
+  connects: OpeningConnection;
+}
+
+export interface SceneAccessMeasurement {
+  /** Occupancy cells used, LDU (horizontal, vertical). */
+  cell: { xz: number; y: number };
+  /** The occupancy grid's cells and how many are solid. */
+  grid: { x: number; y: number; z: number; solid: number };
+  /** Every opening found, by ascending `requiredScale` (the easiest to pass first). */
+  openings: SceneOpening[];
+  /** Interior floor-to-ceiling: the median finite headroom over floor cells at least a brick high, LDU; null when the model has no interior. */
+  headroomLdu: number | null;
+  /** Floor cells behind that median. */
+  interiorFloorCells: number;
+  /**
+   * Of those, the floor cells the outside never reaches with every opening closed: the model's ENCLOSED interior
+   * (rooms under a roof). Positive with no `entrance` opening means an interior no player can walk into.
+   */
+  enclosedFloorCells: number;
+  /**
+   * The highest floor surface a player could stand on anywhere in the model
+   * (at least a brick of headroom), LDU above the model's ground; null when
+   * there is none. The reach walk's ceiling.
+   */
+  topFloorLdu: number | null;
+  /**
+   * The walk: at each supported step, how far into and UP the model a player
+   * gets from the outside. Columns one block wide at that step (the collider
+   * re-lay claims a column by its centre), standing surfaces with player
+   * headroom, moves to a neighbouring column's surface up to one jump higher
+   * (and any drop). Rises grow with the model while the player does not, so
+   * a brick riser (0.45 blocks) that is a step at 100 % is a wall at 300 %:
+   * `highestReachedLdu` then falls to the ground floor.
+   */
+  reach: SceneReach[];
+  /**
+   * With `SceneAccessOptions.keepReachAt`: every floor the walk at that scale reached, as LDraw x, y, z triples
+   * (the cell's centre and the floor's surface). The tread planner reads it (bedrock-collider-scale.ts
+   * `fineReachColumns`): a hill of one-stud steps the 1-block collider grid reads as a cliff is climbed here.
+   */
+  reachedFloorsLdu?: Float64Array;
+}
+
+export interface SceneReach {
+  scale: number;
+  /** Standing surfaces (column × floor) the walk reached. */
+  reachedSurfaces: number;
+  /** Highest reached surface, LDU above the model's ground. */
+  highestReachedLdu: number;
+}
+
+export interface SceneAccessOptions {
+  /** Placements left out of the occupancy (a scene's spawned figures: an NPC standing in a doorway is not a wall). */
+  exclude?: ReadonlySet<ParsedBrick>;
+  /** Force the cells, LDU (default `ACCESS_CELL_LDU`, coarsened to fit `maxCells`). */
+  cell?: { xz: number; y: number };
+  maxCells?: number;
+  /** Keep the reach walk's floors at this scale (the pack's own 100 %): `SceneAccessMeasurement.reachedFloorsLdu`. */
+  keepReachAt?: number;
+}
+
+/** `floodOutside`'s marks per access-grid cell: open air not (yet) reached, the outside, an opening's closed passage. */
+const AIR_UNREACHED = 0, AIR_OUTSIDE = 1, AIR_CLOSED = 2;
+
+/**
+ * The air the grid's outside reaches AT ITS OWN LEVEL, marked `AIR_OUTSIDE` in `marks` (where the caller marked
+ * the closed passages `AIR_CLOSED`; one byte a cell for both): per row, a breadth-first flood, four-connected in
+ * x and z, from every open cell on the grid's four sides, through cells neither `solid` nor closed. Level by
+ * level and never through the sky: a cloister or a courtyard walled round is not the outside however open its
+ * roof, and air reached only by climbing over a wall is not walked to (Notre-Dame's east end, 21061: a 3-D flood
+ * entered its nave through an opening the ground never reaches). A ring buffer that grows on demand holds the
+ * frontier, so a 48-million-cell grid does not need a queue of its whole size.
+ */
+function floodOutside(solid: Uint8Array, marks: Uint8Array, sx: number, sy: number, sz: number): void {
+  const idx = (x: number, y: number, z: number): number => (y * sz + z) * sx + x;
+  let ring = new Int32Array(1 << 16), head = 0, size = 0;
+  const push = (i: number): void => {
+    if (marks[i] !== AIR_UNREACHED || solid[i]) return;
+    marks[i] = AIR_OUTSIDE;
+    if (size === ring.length) {
+      // Unroll the ring into a buffer twice the size, oldest first.
+      const next = new Int32Array(ring.length * 2);
+      for (let k = 0; k < size; k++) next[k] = ring[(head + k) % ring.length]!;
+      ring = next; head = 0;
+    }
+    ring[(head + size) % ring.length] = i;
+    size++;
+  };
+  for (let y = 0; y < sy; y++) {
+    for (let x = 0; x < sx; x++) { push(idx(x, y, 0)); push(idx(x, y, sz - 1)); }
+    for (let z = 1; z < sz - 1; z++) { push(idx(0, y, z)); push(idx(sx - 1, y, z)); }
+  }
+  while (size > 0) {
+    const i = ring[head]!;
+    head = (head + 1) % ring.length; size--;
+    const x = i % sx, z = ((i - x) / sx) % sz;
+    if (x > 0) push(i - 1);
+    if (x < sx - 1) push(i + 1);
+    if (z > 0) push(i - sx);
+    if (z < sz - 1) push(i + sx);
+  }
+}
+
+/**
+ * Measure what a player could walk through: the model's doorways (semantic
+ * leaves and geometric apertures) and its interior headroom. Pure and
+ * synchronous given the part meshes (`discoverSceneActors` already loads
+ * them); the pipeline calls it once per export and ships the result as data.
+ */
+export function measureSceneAccess(bricks: readonly ParsedBrick[], meshes: ReadonlyMap<string, LdrawPartMesh | null>, options: SceneAccessOptions = {}): SceneAccessMeasurement {
+  type Box = { min: Vec3; max: Vec3 };
+  const boxes: Box[] = [];
+  const rasterised: Array<{ brick: ParsedBrick; mesh: LdrawPartMesh }> = [];
+  const leaves: Array<Box & { alongAxis: 'x' | 'z' }> = [];
+  for (const b of bricks) {
+    if (options.exclude?.has(b)) continue;
+    const m = meshes.get(b.part);
+    const box: Box = m && m.triangles.length ? worldBounds(b, m) : { min: [b.x - 10, b.y - 24, b.z - 10], max: [b.x + 10, b.y, b.z + 10] };
+    if (m && m.triangles.length && isDoorLeafDescription(m.description)) {
+      // A leaf opens: it is the doorway, not a wall.
+      leaves.push({ ...box, alongAxis: box.max[0] - box.min[0] >= box.max[2] - box.min[2] ? 'x' : 'z' });
+      continue;
+    }
+    if (m && m.triangles.length && APERTURE_MOULD.test(m.description)) rasterised.push({ brick: b, mesh: m });
+    else boxes.push(box);
+  }
+  const all = [...boxes, ...rasterised.map(r => worldBounds(r.brick, r.mesh)), ...leaves];
+  if (!all.length) return { cell: { ...(options.cell ?? ACCESS_CELL_LDU) }, grid: { x: 0, y: 0, z: 0, solid: 0 }, openings: [], headroomLdu: null, interiorFloorCells: 0, enclosedFloorCells: 0, topFloorLdu: null, reach: [] };
+  const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const b of all) for (let i = 0; i < 3; i++) { if (b.min[i]! < min[i]!) min[i] = b.min[i]!; if (b.max[i]! > max[i]!) max[i] = b.max[i]!; }
+
+  // Cells: half a stud by half a plate, coarsened until the grid fits the budget.
+  const maxCells = options.maxCells ?? ACCESS_MAX_CELLS;
+  let cell = options.cell ?? ACCESS_CELL_LDU, cellXZ = cell.xz, cellY = cell.y;
+  const cellsAt = (): number => (Math.floor((max[0] - min[0]) / cellXZ) + 2 * Math.ceil(LDU_PER_BLOCK / cellXZ) + 3) * (Math.floor((max[1] - min[1]) / cellY) + 3) * (Math.floor((max[2] - min[2]) / cellXZ) + 2 * Math.ceil(LDU_PER_BLOCK / cellXZ) + 3);
+  if (options.cell === undefined) while (cellsAt() > maxCells) { cellXZ *= 1.5; cellY *= 1.5; }
+  cell = { xz: cellXZ, y: cellY };
+  // Grid frame, aligned to world multiples of the cell: one air cell of padding
+  // around, a SOLID ground row under the model (it stands on the world), LDraw
+  // Y down mapped to grid Y up.
+  // The horizontal padding is a whole block at 1×, so the outermost column of
+  // the reach walk stands on open ground at every step.
+  const pad = Math.ceil(LDU_PER_BLOCK / cellXZ) + 1;
+  const ox = Math.floor(min[0] / cellXZ) * cellXZ - pad * cellXZ, oz = Math.floor(min[2] / cellXZ) * cellXZ - pad * cellXZ;
+  const bottom = Math.ceil(max[1] / cellY) * cellY + cellY; // LDraw y of the ground row's underside
+  const gx = (x: number): number => Math.floor((x - ox) / cellXZ);
+  const gz = (z: number): number => Math.floor((z - oz) / cellXZ);
+  const gy = (y: number): number => Math.floor((bottom - y) / cellY);
+  const sx = gx(max[0]) + pad + 1, sz = gz(max[2]) + pad + 1, sy = gy(min[1]) + 2;
+  const solid = new Uint8Array(sx * sy * sz);
+  const idx = (x: number, y: number, z: number): number => (y * sz + z) * sx + x;
+  const mark = (x: number, y: number, z: number): void => { if (x >= 0 && y >= 0 && z >= 0 && x < sx && y < sy && z < sz) solid[idx(x, y, z)] = 1; };
+  for (let x = 0; x < sx; x++) for (let z = 0; z < sz; z++) solid[idx(x, 0, z)] = 1;
+  // A face exactly on a cell boundary claims only its own side (the 0.05-cell
+  // tolerance); a part thinner than that still claims the cell it lies in.
+  const lo = (v: number): number => Math.floor(v + 0.05), hi = (v: number, from: number): number => Math.max(Math.ceil(v - 0.05) - 1, from);
+  for (const b of boxes) {
+    const x0 = lo((b.min[0] - ox) / cellXZ), x1 = hi((b.max[0] - ox) / cellXZ, x0);
+    const z0 = lo((b.min[2] - oz) / cellXZ), z1 = hi((b.max[2] - oz) / cellXZ, z0);
+    const y0 = lo((bottom - b.max[1]) / cellY), y1 = hi((bottom - b.min[1]) / cellY, y0);
+    for (let y = Math.max(0, y0); y <= Math.min(sy - 1, y1); y++) for (let z = Math.max(0, z0); z <= Math.min(sz - 1, z1); z++) {
+      const row = idx(0, y, z);
+      for (let x = Math.max(0, x0); x <= Math.min(sx - 1, x1); x++) solid[row + x] = 1;
+    }
+  }
+  // Aperture moulds: a solid voxelization of the mould's own triangles (ray
+  // parity along all three axes at cell centres, unioned - the voxelizer's
+  // own method), so the jambs and the lintel are solid and the hole between
+  // them is air. Sampling the surface cannot do this: an axis-aligned face on
+  // a cell boundary does not know which side is solid, and a 60 LDU frame
+  // opening read 56 or 80.
+  const centreX = (i: number): number => ox + (i + 0.5) * cellXZ;
+  const centreZ = (i: number): number => oz + (i + 0.5) * cellXZ;
+  const centreY = (i: number): number => bottom - (i + 0.5) * cellY;
+  /** Where the axis-`w` ray through (u, v) crosses a triangle, or null. `p` = the vertex components picked per axis. */
+  const cross = (u: number, v: number, a: [number, number, number], b: [number, number, number], c: [number, number, number]): number | null => {
+    const d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+    if (Math.abs(d) < 1e-9) return null; // edge-on to the ray
+    const l0 = ((b[1] - c[1]) * (u - c[0]) + (c[0] - b[0]) * (v - c[1])) / d;
+    const l1 = ((c[1] - a[1]) * (u - c[0]) + (a[0] - c[0]) * (v - c[1])) / d;
+    const l2 = 1 - l0 - l1;
+    if (l0 < -1e-6 || l1 < -1e-6 || l2 < -1e-6) return null;
+    return l0 * a[2] + l1 * b[2] + l2 * c[2];
+  };
+  for (const { brick, mesh } of rasterised) {
+    const tris = mesh.triangles.map(t => [local(brick, t.a), local(brick, t.b), local(brick, t.c)] as [Vec3, Vec3, Vec3]);
+    const box = worldBounds(brick, mesh);
+    const x0 = Math.max(0, gx(box.min[0])), x1 = Math.min(sx - 1, gx(box.max[0]));
+    const z0 = Math.max(0, gz(box.min[2])), z1 = Math.min(sz - 1, gz(box.max[2]));
+    const y0 = Math.max(0, gy(box.max[1])), y1 = Math.min(sy - 1, gy(box.min[1]));
+    const hits: number[] = [];
+    /** Sorted, de-duplicated crossings paired into solid spans; cells whose centre lies in a span are marked by `markSpan`. */
+    const fill = (markSpan: (w0: number, w1: number) => void): void => {
+      hits.sort((p, q) => p - q);
+      let n = 0;
+      for (const h of hits) if (n === 0 || h - hits[n - 1]! > 1e-4) hits[n++] = h;
+      for (let k = 0; k + 1 < n; k += 2) markSpan(hits[k]!, hits[k + 1]!);
+      hits.length = 0;
+    };
+    // Rays along Y (LDraw down) through each (x, z) column.
+    for (let ix = x0; ix <= x1; ix++) for (let iz = z0; iz <= z1; iz++) {
+      const u = centreX(ix), v = centreZ(iz);
+      for (const [a, b, c] of tris) { const w = cross(u, v, [a[0], a[2], a[1]], [b[0], b[2], b[1]], [c[0], c[2], c[1]]); if (w !== null) hits.push(w); }
+      fill((w0, w1) => { for (let iy = Math.max(y0, Math.ceil((bottom - w1) / cellY - 0.5)); iy <= Math.min(y1, Math.floor((bottom - w0) / cellY - 0.5)); iy++) mark(ix, iy, iz); });
+    }
+    // Rays along X through each (y, z).
+    for (let iy = y0; iy <= y1; iy++) for (let iz = z0; iz <= z1; iz++) {
+      const u = centreY(iy), v = centreZ(iz);
+      for (const [a, b, c] of tris) { const w = cross(u, v, [a[1], a[2], a[0]], [b[1], b[2], b[0]], [c[1], c[2], c[0]]); if (w !== null) hits.push(w); }
+      fill((w0, w1) => { for (let ix = Math.max(x0, Math.ceil((w0 - ox) / cellXZ - 0.5)); ix <= Math.min(x1, Math.floor((w1 - ox) / cellXZ - 0.5)); ix++) mark(ix, iy, iz); });
+    }
+    // Rays along Z through each (x, y).
+    for (let ix = x0; ix <= x1; ix++) for (let iy = y0; iy <= y1; iy++) {
+      const u = centreX(ix), v = centreY(iy);
+      for (const [a, b, c] of tris) { const w = cross(u, v, [a[0], a[1], a[2]], [b[0], b[1], b[2]], [c[0], c[1], c[2]]); if (w !== null) hits.push(w); }
+      fill((w0, w1) => { for (let iz = Math.max(z0, Math.ceil((w0 - oz) / cellXZ - 0.5)); iz <= Math.min(z1, Math.floor((w1 - oz) / cellXZ - 0.5)); iz++) mark(ix, iy, iz); });
+    }
+  }
+  let solidCount = 0;
+  for (let i = sx * sz; i < solid.length; i++) solidCount += solid[i]!;
+
+  const isSolid = (x: number, y: number, z: number): boolean => solid[idx(x, y, z)] === 1;
+  /** Air cells from (x,y,z) upward until a solid; Infinity when the sky is reached. */
+  const headroom = (x: number, y: number, z: number): number => {
+    let h = 0;
+    for (let yy = y; yy < sy; yy++) { if (isSolid(x, yy, z)) return h; h++; }
+    return Infinity;
+  };
+  const minWidthCells = Math.max(1, Math.round(MIN_APERTURE_WIDTH_LDU / cellXZ));
+  const minHeightCells = Math.max(1, Math.round(MIN_APERTURE_HEIGHT_LDU / cellY));
+  const wallDepthCells = Math.max(2, Math.ceil(WALL_DEPTH_LDU / cellXZ));
+
+  // ── Apertures: floor-level air runs across a wall, walled both sides, with a lintel, open beyond both faces.
+  interface Run { y: number; d: number; w0: number; w1: number; h: number }
+  interface Aperture { y: number; w0: number; w1: number; d0: number; d1: number; throat: Run; minH: number; maxH: number }
+  /** Each counted aperture's passage, for the entrance flood below (`connects`): its axis and the cells it spans. */
+  interface Passage { axis: 'x' | 'z'; y: number; d0: number; d1: number; w0: number; w1: number; wc: number; h: number; maxH: number }
+  const openings: Array<Omit<SceneOpening, 'connects'>> = [];
+  const passages: Passage[] = [];
+  /** Per entry of `openings`, its passage (an aperture's index in `passages`). */
+  const passageOf: number[] = [];
+  for (const axis of ['x', 'z'] as const) {
+    const depthN = axis === 'x' ? sx : sz, widthN = axis === 'x' ? sz : sx;
+    const at = (d: number, y: number, w: number): boolean => axis === 'x' ? isSolid(d, y, w) : isSolid(w, y, d);
+    const head = (d: number, y: number, w: number): number => axis === 'x' ? headroom(d, y, w) : headroom(w, y, d);
+    const floorAir = (d: number, y: number, w: number): boolean => !at(d, y, w) && at(d, y - 1, w);
+    /** Length of the air run along the width axis through w at (d, y); Infinity when it reaches the grid edge. */
+    const runThrough = (d: number, y: number, w: number): number => {
+      let a = w, b = w;
+      while (a - 1 >= 0 && !at(d, y, a - 1)) a--;
+      while (b + 1 < widthN && !at(d, y, b + 1)) b++;
+      return a === 0 || b === widthN - 1 ? Infinity : b - a + 1;
+    };
+    /** From the throat, along `dir`: does the space open up (a room, the outside, a drop, the sky) within a wall's depth, unobstructed? */
+    const opensBeyond = (d: number, y: number, w: number, dir: 1 | -1, n: number): boolean => {
+      for (let k = 1; k <= wallDepthCells; k++) {
+        const dd = d + dir * k;
+        if (dd < 0 || dd >= depthN) return true;
+        if (at(dd, y, w)) return false;
+        if (!at(dd, y - 1, w)) return true;
+        if (runThrough(dd, y, w) >= 2 * n || head(dd, y, w) === Infinity) return true;
+      }
+      return false;
+    };
+    const runs: Run[] = [];
+    for (let y = 1; y < sy; y++) for (let d = 0; d < depthN; d++) {
+      for (let w = 0; w < widthN;) {
+        if (!floorAir(d, y, w)) { w++; continue; }
+        const w0 = w;
+        while (w < widthN && floorAir(d, y, w)) w++;
+        const w1 = w - 1;
+        if (w0 - 1 < 0 || w1 + 1 >= widthN || !at(d, y, w0 - 1) || !at(d, y, w1 + 1)) continue;
+        const n = w1 - w0 + 1;
+        if (n < minWidthCells) continue;
+        const wc = (w0 + w1) >> 1;
+        const h = head(d, y, wc);
+        if (!Number.isFinite(h) || h < minHeightCells) continue;
+        if (!opensBeyond(d, y, wc, 1, n) || !opensBeyond(d, y, wc, -1, n)) continue;
+        runs.push({ y, d, w0, w1, h });
+      }
+    }
+    // A wall several cells thick yields the same aperture once per cell of depth: merge
+    // depth-adjacent, overlapping runs and keep the narrowest run as the throat.
+    const apertures: Aperture[] = [];
+    runs.sort((p, q) => p.y - q.y || p.d - q.d || p.w0 - q.w0);
+    for (const r of runs) {
+      const width = r.w1 - r.w0 + 1;
+      const home = apertures.find(a => a.y === r.y && a.d1 === r.d - 1 && r.w0 <= a.w1 && r.w1 >= a.w0);
+      if (home) {
+        home.d1 = r.d;
+        home.w0 = Math.min(home.w0, r.w0); home.w1 = Math.max(home.w1, r.w1);
+        home.minH = Math.min(home.minH, r.h);
+        home.maxH = Math.max(home.maxH, r.h);
+        const throatWidth = home.throat.w1 - home.throat.w0 + 1;
+        if (width < throatWidth || (width === throatWidth && r.h < home.throat.h)) home.throat = r;
+      } else apertures.push({ y: r.y, w0: r.w0, w1: r.w1, d0: r.d, d1: r.d, throat: r, minH: r.h, maxH: r.h });
+    }
+    for (const a of apertures) {
+      const widthLdu = (a.throat.w1 - a.throat.w0 + 1) * cellXZ, heightLdu = a.minH * cellY;
+      if (widthLdu > MAX_APERTURE_ASPECT * heightLdu) continue;
+      const dc = (a.d0 + a.d1 + 1) / 2 * cellXZ, wc = (a.throat.w0 + a.throat.w1 + 1) / 2 * cellXZ;
+      const centreLdu: Vec3 = axis === 'x' ? [ox + dc, bottom - a.y * cellY, oz + wc] : [ox + wc, bottom - a.y * cellY, oz + dc];
+      passageOf.push(passages.length);
+      passages.push({ axis, y: a.y, d0: a.d0, d1: a.d1, w0: a.w0, w1: a.w1, wc: (a.throat.w0 + a.throat.w1) >> 1, h: a.minH, maxH: a.maxH });
+      openings.push({ source: 'aperture', axis, widthLdu, heightLdu, centreLdu, requiredScale: passageRequiredScale(widthLdu, heightLdu) });
+    }
+  }
+  // Semantic leaves are the doorway they hang in: drop the aperture measured
+  // through their frame. A leaf wider than it is tall (1×3×1 cupboard doors,
+  // the Titanic's 44 hull hatches) is a hatch, not a doorway: it counts as an
+  // opening like any aperture, never as door evidence.
+  const leafOpenings: Array<Omit<SceneOpening, 'connects'>> = leaves.map(l => {
+    const widthLdu = l.alongAxis === 'x' ? l.max[0] - l.min[0] : l.max[2] - l.min[2];
+    const heightLdu = l.max[1] - l.min[1];
+    const centreLdu: Vec3 = [(l.min[0] + l.max[0]) / 2, l.max[1], (l.min[2] + l.max[2]) / 2];
+    return { source: heightLdu >= widthLdu ? 'door-leaf' : 'hatch-leaf', axis: l.alongAxis === 'x' ? 'z' : 'x', widthLdu, heightLdu, centreLdu, requiredScale: passageRequiredScale(widthLdu, heightLdu) };
+  });
+  const inLeaf = (o: Omit<SceneOpening, 'connects'>): boolean => leaves.some(l =>
+    o.centreLdu[0] >= l.min[0] - cellXZ && o.centreLdu[0] <= l.max[0] + cellXZ &&
+    o.centreLdu[1] >= l.min[1] - cellY && o.centreLdu[1] <= l.max[1] + cellY &&
+    o.centreLdu[2] >= l.min[2] - cellXZ && o.centreLdu[2] <= l.max[2] + cellXZ);
+
+  // ── Entrances (SCALE-06, 2026-10-15): which side of each opening is the OUTSIDE. Every counted opening's
+  // passage (an aperture's throat, a leaf's own box) is closed, and the air the grid's sides reach through the
+  // rest, level by level (`floodOutside`), is the outside. An opening with the outside on one side and, on the
+  // other, a space the flood never reached that a player could stand in (a ROOM: `roomBeyond`) leads IN: an
+  // entrance. Notre-Dame (21061) has 196 floor-level openings and the easiest are its nave arcade, between the
+  // model's own rooms; every outside door is a leaf drawn on a solid wall, and the recommendation read "57/196
+  // clear it" for a model a player cannot enter at any size (Pixel round 30zg).
+  const marks = new Uint8Array(solid.length);
+  const closeBox = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): void => {
+    for (let y = Math.max(0, y0); y <= Math.min(sy - 1, y1); y++) for (let z = Math.max(0, z0); z <= Math.min(sz - 1, z1); z++) for (let x = Math.max(0, x0); x <= Math.min(sx - 1, x1); x++) marks[idx(x, y, z)] = AIR_CLOSED;
+  };
+  for (const p of passages) {
+    if (p.axis === 'x') closeBox(p.d0, p.d1, p.y, p.y + p.maxH - 1, p.w0, p.w1);
+    else closeBox(p.w0, p.w1, p.y, p.y + p.maxH - 1, p.d0, p.d1);
+  }
+  for (const l of leaves) closeBox(gx(l.min[0]), gx(l.max[0]), gy(l.max[1]), gy(l.min[1]), gz(l.min[2]), gz(l.max[2]));
+  floodOutside(solid, marks, sx, sy, sz);
+  /** Open air the outside never reached at its level and no opening's passage: an enclosed space's. */
+  const enclosedAir = (i: number): boolean => !solid[i] && marks[i] === AIR_UNREACHED;
+  /**
+   * Whether the enclosed air at cell `i` is a ROOM for an opening `n` cells wide: its own level holds at least
+   * (2n)² cells of it (a flood within the row, stopped there) - the space `opensBeyond` asks a doorway to open
+   * into, both ways. Notre-Dame's west-front galleries open onto 64-cell pockets behind an 80 LDU arch: the
+   * flood never reaches them, and nobody stands in them.
+   */
+  const roomBeyond = (i0: number, n: number): boolean => {
+    const need = 4 * n * n, seen = new Set<number>([i0]), queue = [i0];
+    for (let h = 0; h < queue.length && seen.size < need; h++) {
+      const i = queue[h]!, x = i % sx, z = ((i - x) / sx) % sz;
+      for (const j of [x > 0 ? i - 1 : -1, x < sx - 1 ? i + 1 : -1, z > 0 ? i - sx : -1, z < sz - 1 ? i + sx : -1]) {
+        if (j < 0 || seen.has(j) || !enclosedAir(j)) continue;
+        seen.add(j); queue.push(j);
+      }
+    }
+    return seen.size >= need;
+  };
+  /**
+   * What lies along `axis` past an opening `n` cells wide, from cell `from` (depth) in direction `dir`, at the rows
+   * `y`..`y + h - 1` of the width cell `w`: the first open cell (not solid, not another opening's passage) within a
+   * wall's depth - the outside, a room (`roomBeyond`), or `none` (solid all the way, a leaf drawn on a wall; or a
+   * pocket no player stands in). Past the grid is outside.
+   */
+  const sideOf = (axis: 'x' | 'z', from: number, dir: 1 | -1, y: number, h: number, w: number, n: number): 'out' | 'in' | 'none' => {
+    const depthN = axis === 'x' ? sx : sz;
+    for (let k = 0; k <= wallDepthCells; k++) {
+      const d = from + dir * k;
+      if (d < 0 || d >= depthN) return 'out';
+      for (let r = y; r < Math.min(sy, y + Math.max(1, h)); r++) {
+        const [x, z] = axis === 'x' ? [d, w] : [w, d];
+        const i = idx(x, r, z);
+        if (solid[i] || marks[i] === AIR_CLOSED) continue;
+        return marks[i] === AIR_OUTSIDE ? 'out' : roomBeyond(i, n) ? 'in' : 'none';
+      }
+    }
+    return 'none';
+  };
+  const connection = (a: 'out' | 'in' | 'none', b: 'out' | 'in' | 'none'): OpeningConnection =>
+    (a === 'out' && b === 'in') || (a === 'in' && b === 'out') ? 'entrance'
+      : a === 'in' && b === 'in' ? 'interior'
+        : a === 'out' && b === 'out' ? 'outside' : 'blind';
+  const apertureOpenings: SceneOpening[] = openings.map((o, k) => {
+    const p = passages[passageOf[k]!]!;
+    const n = p.w1 - p.w0 + 1;
+    return { ...o, connects: connection(sideOf(p.axis, p.d0 - 1, -1, p.y, p.h, p.wc, n), sideOf(p.axis, p.d1 + 1, 1, p.y, p.h, p.wc, n)) };
+  });
+  const leafConnected: SceneOpening[] = leafOpenings.map((o, k) => {
+    const l = leaves[k]!;
+    // The leaf's travel axis (`o.axis`): its box spans a0..a1 cells along it; probed at the floor row over the
+    // leaf's foot, through the middle of its width.
+    const along = o.axis === 'x' ? 0 : 2;
+    const a0 = (o.axis === 'x' ? gx : gz)(l.min[along]!), a1 = (o.axis === 'x' ? gx : gz)(l.max[along]!);
+    const w = o.axis === 'x' ? gz((l.min[2] + l.max[2]) / 2) : gx((l.min[0] + l.max[0]) / 2);
+    const row = Math.max(1, gy(l.max[1])), h = Math.max(1, Math.round((l.max[1] - l.min[1]) / cellY));
+    const n = Math.max(1, Math.round(o.widthLdu / cellXZ));
+    return { ...o, connects: connection(sideOf(o.axis, a0 - 1, -1, row, h, w, n), sideOf(o.axis, a1 + 1, 1, row, h, w, n)) };
+  });
+  const merged = [...leafConnected, ...apertureOpenings.filter(o => !inLeaf(o))].sort((p, q) => p.requiredScale - q.requiredScale);
+
+  // ── Headroom: the median floor-to-ceiling over interior floor cells (finite, at least a brick).
+  const hist = new Map<number, number>();
+  let floorCells = 0, enclosedFloorCells = 0;
+  for (let y = 1; y < sy; y++) for (let z = 0; z < sz; z++) for (let x = 0; x < sx; x++) {
+    if (isSolid(x, y, z) || !isSolid(x, y - 1, z)) continue;
+    const h = headroom(x, y, z);
+    if (!Number.isFinite(h) || h < minHeightCells) continue;
+    hist.set(h, (hist.get(h) ?? 0) + 1);
+    floorCells++;
+    // A floor the outside flood never reached, and not an opening's own passage: a room's.
+    if (enclosedAir(idx(x, y, z))) enclosedFloorCells++;
+  }
+  let headroomLdu: number | null = null;
+  if (floorCells) {
+    let seen = 0;
+    for (const h of [...hist.keys()].sort((p, q) => p - q)) { seen += hist.get(h)!; if (seen * 2 >= floorCells) { headroomLdu = h * cellY; break; } }
+  }
+
+  // ── The reach walk, once per supported step: a breadth-first walk over the
+  // fine grid's standing cells from the outside ring. A cell is standable at a
+  // step when it is a floor with player headroom and a player-wide clear run
+  // through it along one horizontal axis (checked at foot, waist and head
+  // height); a move to a neighbouring standing cell may rise at most one jump.
+  const isFloor = (x: number, y: number, z: number): boolean => y >= 1 && !isSolid(x, y, z) && isSolid(x, y - 1, z);
+  let topFloorLdu: number | null = null;
+  for (let y = sy - 1; y >= 1 && topFloorLdu === null; y--) for (let z = 0; z < sz && topFloorLdu === null; z++) for (let x = 0; x < sx; x++) {
+    if (isFloor(x, y, z) && headroom(x, y, z) >= minHeightCells) { topFloorLdu = (y - 1) * cellY; break; }
+  }
+  const reach: SceneReach[] = [];
+  const visited = new Uint8Array(Math.ceil(solid.length / 8));
+  const airAt = (x: number, y: number, z: number): boolean => y >= sy || !isSolid(x, y, z);
+  /**
+   * The walk at one step; with `keep`, every reached floor too, as LDraw points (cell centre, the floor's
+   * surface): `SceneAccessMeasurement.reachedFloorsLdu`, which the tread planner reads (SCALE-06).
+   */
+  const walkAt = (scale: number, keep: boolean): { reached: SceneReach; floors?: Float64Array } => {
+    const blockLdu = LDU_PER_BLOCK / scale;
+    const needCells = Math.ceil(PLAYER_HEIGHT_BLOCKS * blockLdu / cellY - 1e-9);
+    const wideCells = Math.ceil(PASSAGE_WIDTH_BLOCKS * blockLdu / cellXZ - 1e-9);
+    const jumpCells = JUMP_HEIGHT_BLOCKS * blockLdu / cellY;
+    const rows = (y: number): [number, number, number] => [y, y + (needCells >> 1), y + needCells - 1];
+    /** Contiguous cells through (x, z) along `axis` that are air at all three body rows, capped at `wideCells`. */
+    const clearRun = (x: number, y: number, z: number, axis: 'x' | 'z'): number => {
+      const [r0, r1, r2] = rows(y);
+      const open = (i: number): boolean => axis === 'x' ? (i >= 0 && i < sx && airAt(i, r0, z) && airAt(i, r1, z) && airAt(i, r2, z)) : (i >= 0 && i < sz && airAt(x, r0, i) && airAt(x, r1, i) && airAt(x, r2, i));
+      const at = axis === 'x' ? x : z;
+      let n = 1;
+      for (let i = at - 1; n < wideCells && open(i); i--) n++;
+      for (let i = at + 1; n < wideCells && open(i); i++) n++;
+      return n;
+    };
+    const standable = (x: number, y: number, z: number): boolean =>
+      isFloor(x, y, z) && headroom(x, y, z) >= needCells && (clearRun(x, y, z, 'x') >= wideCells || clearRun(x, y, z, 'z') >= wideCells);
+    visited.fill(0);
+    const queue: number[] = [];
+    const push = (x: number, y: number, z: number): void => {
+      const k = idx(x, y, z);
+      if (visited[k >> 3]! & (1 << (k & 7))) return;
+      visited[k >> 3]! |= 1 << (k & 7);
+      queue.push(k);
+    };
+    // The outside: the padding ring's ground (and any surface standing on it there).
+    for (let z = 0; z < sz; z++) for (let x = 0; x < sx; x++) {
+      if (x !== 0 && z !== 0 && x !== sx - 1 && z !== sz - 1) continue;
+      for (let y = 1; y < sy; y++) if (standable(x, y, z)) push(x, y, z);
+    }
+    let highest = 0;
+    for (let h = 0; h < queue.length; h++) {
+      const k = queue[h]!, x = k % sx, rest = (k - x) / sx, z = rest % sz, y = (rest - z) / sz;
+      if (y - 1 > highest) highest = y - 1;
+      for (const [nx, nz] of [[x + 1, z], [x - 1, z], [x, z + 1], [x, z - 1]] as const) {
+        if (nx < 0 || nz < 0 || nx >= sx || nz >= sz) continue;
+        // The neighbour column's floors within a jump up (or any drop): scan from the ceiling of this cell down.
+        const top = Math.min(sy - 1, y + Math.floor(jumpCells + 1e-9));
+        for (let ny = top; ny >= 1; ny--) if (standable(nx, ny, nz)) push(nx, ny, nz);
+      }
+    }
+    const reached: SceneReach = { scale, reachedSurfaces: queue.length, highestReachedLdu: highest * cellY };
+    if (!keep) return { reached };
+    const floors = new Float64Array(queue.length * 3);
+    queue.forEach((k, n) => {
+      const x = k % sx, rest = (k - x) / sx, z = rest % sz, y = (rest - z) / sz;
+      floors[3 * n] = centreX(x); floors[3 * n + 1] = bottom - y * cellY; floors[3 * n + 2] = centreZ(z);
+    });
+    return { reached, floors };
+  };
+  const keepAt = options.keepReachAt;
+  const keeps = (scale: number): boolean => keepAt !== undefined && Math.abs(scale - keepAt) < 1e-3;
+  let reachedFloorsLdu: Float64Array | undefined;
+  for (const scale of ACCESS_SCALE_STEPS) {
+    const w = walkAt(scale, keeps(scale));
+    reach.push(w.reached);
+    if (w.floors) reachedFloorsLdu = w.floors;
+  }
+  // A pack exported at a size that is not a step (a display model at 0.5x) is walked once more at its own.
+  if (keepAt !== undefined && !reachedFloorsLdu) reachedFloorsLdu = walkAt(keepAt, true).floors;
+  return { cell, grid: { x: sx, y: sy, z: sz, solid: solidCount }, openings: merged, headroomLdu, interiorFloorCells: floorCells, enclosedFloorCells, topFloorLdu, reach, ...(reachedFloorsLdu ? { reachedFloorsLdu } : {}) };
+}
+
+/**
+ * Which doorway the recommendation is measured on. Semantic leaves are all
+ * real doorways, so their MEDIAN speaks for the set. Apertures include every
+ * gap the geometry happens to form (between a chair and a wall, under a
+ * shelf), which are small; the doorways proper are the larger ones, so the
+ * aperture at the 25th percentile of required scale (among the easiest
+ * quarter to pass) stands for them.
+ */
+const LEAF_PERCENTILE = 0.5;
+const APERTURE_PERCENTILE = 0.25;
+
+export interface AccessScaleRecommendation {
+  /** Recommended multiplier of the minifig scale (1, 1.5, 2, 3 or 4); absent when no step makes the model walkable. */
+  scale?: number;
+  /** The same step as the Brick Wand's size percentage (100…400). */
+  sizePct?: number;
+  /** What the recommendation was measured on. */
+  basis: 'door-leaves' | 'apertures' | 'none';
+  /** The representative doorway at 100 %, blocks, and how many of its kind clear the passage at the recommended step. */
+  doorway?: { widthBlocks: number; heightBlocks: number; requiredScale: number; count: number; passable: number };
+  /** Interior floor-to-ceiling at 100 %, blocks, and the first step that gives standing room (absent: none does). */
+  headroom?: { blocks: number; requiredScale: number; scale?: number };
+  /**
+   * How far UP the model the reach walk gets at the recommended step, as a
+   * fraction of the model's top floor (`topFloorLdu`), against the best any
+   * step manages. A doorway step that loses the upper floors hands the user a
+   * building they can enter and not climb - `reason` names that tension and
+   * the step that keeps the floors, instead of choosing silently.
+   */
+  climb?: { fraction: number; bestFraction: number; bestStep: number; climbableAtScale: boolean };
+  /**
+   * Where the model's openings lead (`SceneOpening.connects`), and whether it has an enclosed interior: the
+   * recommendation is measured on the ENTRANCES when there are any. `enclosed` with no entrance is a model a
+   * player cannot walk into at any size (its doors are drawn, not cut). Always set by `recommendAccessScale`;
+   * absent from a pack's diagnostics written before 2026-10-15.
+   */
+  openings?: { entrances: number; interior: number; outside: number; blind: number; enclosed: boolean };
+  /** One sentence for the UI, with the measured numbers. */
+  reason: string;
+}
+
+/**
+ * Enclosed floor cells (`SceneAccessMeasurement.enclosedFloorCells`) below this are a sealed cavity between
+ * parts, not a room: a stud's square at the default 5 LDU cell (16 cells).
+ */
+const MIN_ENCLOSED_FLOOR_CELLS = 16;
+
+const blocks1 = (ldu: number, scale = 1): string => (Math.round(ldu * scale / LDU_PER_BLOCK * 10) / 10).toFixed(1);
+/** A step must lose at least this much of the model's height against another step before the reason calls it a tension. */
+const CLIMB_LOSS_FRACTION = 0.25;
+const pctOf = (scale: number): string => `${Math.round(scale * 100)} %`;
+
+/** The smallest supported size at which a player can walk through the measured model, as data with its reason. */
+export function recommendAccessScale(m: SceneAccessMeasurement): AccessScaleRecommendation {
+  const count = (c: OpeningConnection): number => m.openings.filter(o => o.connects === c).length;
+  const enclosed = m.enclosedFloorCells >= Math.max(1, Math.round(MIN_ENCLOSED_FLOOR_CELLS * (ACCESS_CELL_LDU.xz / m.cell.xz) ** 2));
+  const openingKinds = { entrances: count('entrance'), interior: count('interior'), outside: count('outside'), blind: count('blind'), enclosed };
+  // The doorways a player walks INTO the model through, when it has any: the entrances (door leaves first, as
+  // ever); otherwise every opening, as before - and the reason then says that none of them leads in.
+  const entrances = m.openings.filter(o => o.connects === 'entrance');
+  const source = entrances.length ? entrances : m.openings;
+  const leaves = source.filter(o => o.source === 'door-leaf');
+  const pool = leaves.length ? leaves : source;
+  const basis: AccessScaleRecommendation['basis'] = leaves.length ? 'door-leaves' : pool.length ? 'apertures' : 'none';
+  const need = `a player needs ${PASSAGE_WIDTH_BLOCKS}×${PASSAGE_HEIGHT_BLOCKS}`;
+  /**
+   * An enclosed interior and not one opening leading into it from outside: said first and plainly, with the
+   * counts, so a size chosen for the openings inside is not read as a way in (Notre-Dame, round 30zg).
+   */
+  const noEntrance = enclosed && !entrances.length
+    ? `No entrance at any size: the model has a closed interior, but none of its ${m.openings.length} opening${m.openings.length === 1 ? '' : 's'} leads in from outside (${openingKinds.interior} between its own rooms, ${openingKinds.outside} open to the outside on both sides${openingKinds.blind ? `, ${openingKinds.blind} onto a solid wall or a niche no player stands in` : ''}) - its doors are drawn, not cut. `
+    : '';
+  const headroom = m.headroomLdu !== null ? (() => {
+    const requiredScale = PASSAGE_HEIGHT_BLOCKS * LDU_PER_BLOCK / m.headroomLdu!;
+    const scale = accessStepFor(requiredScale);
+    return { blocks: Number(blocks1(m.headroomLdu!)), requiredScale, ...(scale !== undefined ? { scale } : {}) };
+  })() : undefined;
+  /** The walk's verdict at `scale`: what fraction of the model's height it reaches, against the best step. */
+  const climbAt = (scale: number) => {
+    if (m.topFloorLdu === null || m.topFloorLdu <= 0 || !m.reach.length) return undefined;
+    const fractionAt = (s: number): number => Math.min(1, (m.reach.find(r => r.scale === s)?.highestReachedLdu ?? 0) / m.topFloorLdu!);
+    const best = m.reach.reduce((b, r) => fractionAt(r.scale) > fractionAt(b.scale) + 1e-9 ? r : b, m.reach[0]!);
+    const fraction = fractionAt(scale), bestFraction = fractionAt(best.scale);
+    return { fraction, bestFraction, bestStep: best.scale, climbableAtScale: fraction + CLIMB_LOSS_FRACTION >= bestFraction };
+  };
+  if (!pool.length) {
+    const reason = headroom
+      ? `No doorway found; interior floors are ${blocks1(m.headroomLdu!)} blocks under the ceiling at 100 %${headroom.scale ? ` (${pctOf(headroom.scale)} gives standing room)` : ''}, but nothing leads into them.`
+      : 'No doorway or interior floor found: a solid model with nothing to walk through at any size.';
+    return { basis, ...(headroom ? { headroom } : {}), openings: openingKinds, reason };
+  }
+  // `pool` is sorted by ascending required scale: the percentile picks the representative doorway.
+  const pick = pool[Math.min(pool.length - 1, Math.floor((pool.length - 1) * (leaves.length ? LEAF_PERCENTILE : APERTURE_PERCENTILE)))]!;
+  const doorStep = accessStepFor(pick.requiredScale);
+  const kind = entrances.length ? (leaves.length ? 'Entrance door leaves' : 'Entrances') : noEntrance ? (leaves.length ? 'Its door leaves' : 'Its openings') : leaves.length ? 'Door leaves' : 'Wall openings';
+  const size = (o: SceneOpening, s = 1): string => `${blocks1(o.widthLdu, s)}×${blocks1(o.heightLdu, s)}`;
+  if (doorStep === undefined) {
+    const easiest = pool[0]!;
+    const top = ACCESS_SCALE_STEPS[ACCESS_SCALE_STEPS.length - 1]!;
+    return {
+      basis, doorway: { widthBlocks: Number(blocks1(pick.widthLdu)), heightBlocks: Number(blocks1(pick.heightLdu)), requiredScale: pick.requiredScale, count: pool.length, passable: 0 }, ...(headroom ? { headroom } : {}), openings: openingKinds,
+      reason: `${noEntrance}No size step makes the model walkable: its largest ${entrances.length ? 'entrance' : 'doorway'} is ${size(easiest)} blocks at 100 % and ${size(easiest, top)} at ${pctOf(top)} (${need}).`,
+    };
+  }
+  // Floors must clear standing headroom too, when a step can give it; a model
+  // whose rooms stay low at every step still gets its doorway step, said plainly.
+  const scale = headroom?.scale !== undefined ? Math.max(doorStep, headroom.scale) : doorStep;
+  const passable = pool.filter(o => o.requiredScale <= scale + 1e-9).length;
+  let reason = noEntrance + (scale === 1
+    ? `${kind} are ${size(pick)} blocks at 100 %: a player walks through as exported (${passable}/${pool.length} clear the ${PASSAGE_WIDTH_BLOCKS}×${PASSAGE_HEIGHT_BLOCKS} passage)`
+    : `${kind} are ${size(pick)} blocks at 100 %; ${pctOf(scale)} makes them ${size(pick, scale)} (${need}; ${passable}/${pool.length} clear it)`);
+  if (headroom) {
+    if (headroom.scale !== undefined && headroom.scale > doorStep) reason += `; floors are ${blocks1(m.headroomLdu!)} blocks under the ceiling at 100 %, so ${pctOf(scale)} is what gives standing room (${blocks1(m.headroomLdu!, scale)})`;
+    else if (headroom.scale === undefined) reason += `; floors are only ${blocks1(m.headroomLdu!)} blocks under the ceiling at 100 % and ${blocks1(m.headroomLdu!, scale)} at ${pctOf(scale)} - stooping room, not standing`;
+    else reason += `; floors are ${blocks1(m.headroomLdu!, scale)} blocks under the ceiling at ${pctOf(scale)}`;
+  }
+  // The floors must still be reachable at that size: a rise the player could
+  // jump at 100 % grows with the model while the player does not.
+  const climb = climbAt(scale);
+  const pctFloors = (f: number): string => `${Math.round(f * 100)} %`;
+  if (climb && !climb.climbableAtScale) {
+    const alt = climb.bestStep;
+    reason += `. But at ${pctOf(scale)} a player reaches only ${pctFloors(climb.fraction)} of the model's height (its top floor is ${blocks1(m.topFloorLdu!)} blocks up at 100 %), against ${pctFloors(climb.bestFraction)} at ${pctOf(alt)}: rises the player jumped at ${pctOf(alt)} are above the ${JUMP_HEIGHT_BLOCKS}-block jump at ${pctOf(scale)}`;
+    reason += `. ${pctOf(alt)} keeps the floors but leaves doorways at ${size(pick, alt)}${alt < doorStep ? ` - under the ${PASSAGE_WIDTH_BLOCKS}×${PASSAGE_HEIGHT_BLOCKS} passage` : ''}; the choice is between the doors and the stairs`;
+  } else if (climb && scale > 1 && climb.bestFraction > 0) {
+    reason += `; a player still reaches ${pctFloors(climb.fraction)} of the model's height at ${pctOf(scale)}`;
+  }
+  return {
+    scale, sizePct: Math.round(scale * 100), basis,
+    doorway: { widthBlocks: Number(blocks1(pick.widthLdu)), heightBlocks: Number(blocks1(pick.heightLdu)), requiredScale: pick.requiredScale, count: pool.length, passable },
+    ...(headroom ? { headroom } : {}),
+    ...(climb ? { climb } : {}),
+    openings: openingKinds,
+    reason: `${reason}.`,
+  };
+}

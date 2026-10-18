@@ -1,0 +1,65 @@
+{
+  "run": "output\\pdf-placement-beam\\40377-r5-contain-v1",
+  "page": 17,
+  "view": 2,
+  "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "mask_source": "largest_component",
+  "screened_placements": 2322,
+  "reference_targets": 2,
+  "located_reference_poses": 1,
+  "rows": [
+    {
+      "kind": "reference",
+      "truth_index": 49,
+      "placement": 1125,
+      "painted": 9343.0,
+      "agreement": 6315.0,
+      "rate": 0.6759070962217703,
+      "count_rank": 1,
+      "rate_rank": 1
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 1125,
+      "painted": 9343.0,
+      "agreement": 6315.0,
+      "rate": 0.6759070962217703,
+      "count_rank": 1,
+      "rate_rank": 1
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 1128,
+      "painted": 9343.0,
+      "agreement": 6315.0,
+      "rate": 0.6759070962217703,
+      "count_rank": 2,
+      "rate_rank": 2
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 1130,
+      "painted": 9343.0,
+      "agreement": 6315.0,
+      "rate": 0.6759070962217703,
+      "count_rank": 3,
+      "rate_rank": 3
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 1134,
+      "painted": 9343.0,
+      "agreement": 6315.0,
+      "rate": 0.6759070962217703,
+      "count_rank": 4,
+      "rate_rank": 4
+    }
+  ],
+  "median_count_rank": 1.0,
+  "median_rate_rank": 1.0,
+  "truth_used_at_runtime": false,
+  "runtime_vlm_calls": 0,
+  "certified": false,
+  "scope": "Evaluation-only. The bank, screen and camera are the run's own; the reference model supplies the poses to locate and selects nothing. No runtime code is changed by this measurement.",
+  "limitations": "Ranks are over the screened bank for this page and view only. A better rank is a necessary condition for the traversal to reach a pose, not a proof that the search would then keep it, because the traversal is over combinations and this ranks single placements."
+}

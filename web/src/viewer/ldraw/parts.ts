@@ -1,0 +1,1435 @@
+/**
+ * LDraw part fetching, parsing, and geometry resolution.
+ *
+ * Module-level caches survive across LDrawViewer instances so reloading the
+ * same model is fast (parts already in memory). The parsing handles BFC
+ * winding, !COLOUR inline definitions, !TEXMAP/!DATA blocks (currently
+ * skipped), color-16 inheritance, and recursive sub-file references.
+ */
+
+import type { Vec3, Triangle, Edge, PartGeom, UV } from './types.js';
+import { partAliasCandidates, studioFrameRedirect } from '../../engine/ldraw-part-aliases.js';
+
+const datTextCache = new Map<string, string | null>();
+const partGeomCache = new Map<string, PartGeom>();
+const datInFlight = new Map<string, Promise<string | null>>();
+const geomInFlight = new Map<string, Promise<PartGeom>>();
+
+/**
+ * Names whose `.dat` this LOAD could not fetch because every candidate path
+ * failed TRANSIENTLY — production relays an upstream throttle as `503
+ * no-store` (worker/ldraw-omr.js) precisely so the client retries instead of
+ * recording a miss, and a cold big-set load can see dozens of them.
+ *
+ * Deliberately NOT a `datTextCache` null: that is permanent for the page
+ * session and would turn a throttle into a missing part, which is the
+ * regression the transient handling exists to prevent. This memo is per-LOAD
+ * (`clearTransientMisses()` runs at the top of every viewer load), so the next
+ * load retries everything, while THIS load stops re-walking a ladder it has
+ * already proved unreachable.
+ *
+ * What it cost without one (measured 2026-09-18): nothing memoised a transient
+ * failure, so every later reference — the alias fallback, a second parent, and
+ * above all `repairIncompleteGeometry`, which walks its keys SEQUENTIALLY and
+ * reports no progress — re-probed the whole candidate-path ladder. A cold
+ * production load then sat on `Loading geometry: N/N parts (100%)` with the
+ * source badge frozen at `loading…` for minutes, with nothing on screen, in
+ * the console or on the network panel to say work was still happening. The
+ * offline regression is in test/part-cache-revision.test.ts.
+ */
+const transientMisses = new Set<string>();
+
+/**
+ * Let a fresh load retry every name the previous one could not reach.
+ *
+ * A transient child can leave a parent with PARTIAL but non-empty assembled
+ * geometry. The repair pass deliberately does not re-probe during the same
+ * throttle window, so invalidate the child's whole ancestor closure here;
+ * otherwise the next load returns that partial parent straight from
+ * `partGeomCache` and never gives the recovered child a chance to load.
+ * Called from `LDrawViewer.load()` beside the other per-model cache resets.
+ */
+export function clearTransientMisses(): void {
+  const dropped = new Set<string>();
+  for (const key of transientMisses) invalidateGeomTree(key, dropped);
+  transientMisses.clear();
+}
+
+/** How many names this load has written off as unreachable (diagnostics). */
+export function transientMissCount(): number { return transientMisses.size; }
+
+/** Exact names unreachable this load, so partial parent holes are reportable. */
+export function transientMissNames(): string[] { return [...transientMisses]; }
+
+/**
+ * Reverse dependency edges: child part key → every parent whose ASSEMBLED
+ * geometry baked that child's triangles in.
+ *
+ * Why (audit P1 #6, "dependent assembled geometry invalidated when child
+ * definitions change"): `resolvePartGeometry` flattens a sub-file's triangles
+ * into its parent and caches the result. Dropping only the child's entry
+ * therefore leaves every parent still holding the OLD child geometry. That is
+ * a real leak, not a hypothetical: a Studio `.io` ships `CustomParts/` that
+ * include the exact PRIMITIVES its modified parts need (`p/48/…`), which
+ * ordinary library parts also reference — so model A's modified primitive can
+ * stay baked inside a shared library part while model B renders.
+ *
+ * Edges are recorded at resolve time and only ever read to widen an
+ * invalidation, so a stale edge (child evicted by the LRU) costs one extra
+ * cache delete, never a wrong render.
+ */
+const geomDependents = new Map<string, Set<string>>();
+
+/**
+ * Forward dependency edges: parent part key → every child it flattened in.
+ * The mirror of `geomDependents`, recorded on the same line.
+ *
+ * Why both directions are needed: `geomDependents` widens an invalidation
+ * UPWARDS (an ancestor holding a baked copy of a changed child is stale), but
+ * the concurrent-resolution race leaves damage BELOW the part you noticed.
+ * `981` (Minifig Arm Left) is `981 → 3819 → 3818 → s\3818s01`, one hop deeper
+ * than `982 → 3818 → s\3818s01`, so while `982`'s chain had `3818` in flight,
+ * `981`'s chain read `3818`'s not-yet-populated cache placeholder and BOTH
+ * `3819` and `981` cached empty. Re-resolving only `981` then rebuilt it from
+ * the still-stale `3819` and it stayed empty no matter how often it was
+ * retried — measured as 19 one-armed minifigs across 18 sets (910047 lost 8
+ * left arms, 910032 7, 11371 3, 76419 1). Repair has to walk down to the
+ * empty descendant and drop THAT.
+ */
+const geomDependencies = new Map<string, Set<string>>();
+
+const MAX_CACHE_ENTRIES = 10_000;
+
+/** Color IDs discovered to be transparent via inline !COLOUR ALPHA definitions */
+export const inlineTransparentColors = new Set<number>();
+
+/**
+ * Sub-file names that exhausted every candidate path with a definitive miss.
+ * Parents referencing them still render their OTHER geometry, so these are
+ * SILENT holes unless surfaced — the viewer reports them after each load.
+ * Cleared per-model by clearMpdInlines().
+ */
+export const unresolvedDatNames = new Set<string>();
+
+/**
+ * Names that only resolved through the alias ladder, mapped to the file
+ * actually rendered (`42923` → `63868`, `6538c` → `6538`). Surfaced by the
+ * viewer so the swap is never silent.
+ *
+ * Lifetime deliberately matches `datTextCache`, NOT the model: that cache is
+ * module-level and survives loads, so the SECOND model to use an aliased name
+ * gets its text straight from the cache and never re-enters the alias branch.
+ * Clearing this map per-load would therefore report the swap on whichever model
+ * happened to be loaded first and stay silent for every one after. Growing
+ * without bound isn't the mirror risk, because the viewer intersects this with
+ * the CURRENT model's part list. (`unresolvedDatNames` has the same shape but
+ * no such filter, so it keeps its per-load clear.) Pinned by
+ * test/part-alias.test.ts "still reports … after clearMpdInlines".
+ */
+export const substitutedDatNames = new Map<string, string>();
+
+/**
+ * Texture data from !DATA blocks. Keyed by image filename (lowercased,
+ * no path). Stored as data URLs so they can be passed straight to
+ * THREE.TextureLoader without an extra round-trip.
+ */
+export const partTextureUrls = new Map<string, string>();
+
+/**
+ * UV from a PLANAR texmap: project the point onto the (u, v) basis defined
+ * by the three texmap points and normalize by axis length squared, so the
+ * basis-endpoint vertices land at u=1 (or v=1) and the origin at (0, 0).
+ */
+function planarUV(
+  p: Vec3,
+  tm: { p1: Vec3; uAxis: Vec3; vAxis: Vec3; uLenSq: number; vLenSq: number },
+): UV {
+  const dx = p[0] - tm.p1[0];
+  const dy = p[1] - tm.p1[1];
+  const dz = p[2] - tm.p1[2];
+  const u = (dx * tm.uAxis[0] + dy * tm.uAxis[1] + dz * tm.uAxis[2]) / (tm.uLenSq || 1);
+  const v = (dx * tm.vAxis[0] + dy * tm.vAxis[1] + dz * tm.vAxis[2]) / (tm.vLenSq || 1);
+  return [u, v];
+}
+
+/**
+ * Synchronous cache reader. Returns undefined if the part hasn't been
+ * resolved yet (caller should await resolvePartGeometry first). The
+ * viewer relies on this to read prefetched geometry without re-promising.
+ */
+export function getCachedPartGeom(id: string): PartGeom | undefined {
+  return partGeomCache.get(normId(id));
+}
+
+/**
+ * Drop a part's assembled geometry from the cache so the next
+ * resolvePartGeometry() rebuilds it from scratch. Used to repair geometry
+ * that came back incomplete from a concurrent-resolution race (a parent that
+ * read a child's not-yet-populated placeholder). The underlying .dat text
+ * stays cached (it's fine); only the assembled triangle set is rebuilt.
+ *
+ * TRANSITIVE: every ancestor that flattened this part's triangles into itself
+ * is invalidated too — see `geomDependents`.
+ *
+ * RETURNS every key it dropped, ancestors included. Callers that invalidate in
+ * order to REBUILD must re-resolve all of them: dropping an ancestor and then
+ * re-resolving only the part you named leaves the ancestor with no cached
+ * geometry at all, which the viewer reports as a missing part. (Measured: it
+ * cost 71043 all 25 placements of `90398` and 10316 one more, until the repair
+ * pass was changed to rebuild the whole returned set.)
+ */
+export function invalidatePartGeom(id: string): string[] {
+  const dropped = new Set<string>();
+  invalidateGeomTree(normId(id), dropped);
+  return [...dropped];
+}
+
+/** Delete `key`'s assembled geometry and that of everything holding a copy. */
+function invalidateGeomTree(key: string, seen = new Set<string>()): void {
+  if (seen.has(key)) return; // reference cycles exist in the wild
+  seen.add(key);
+  partGeomCache.delete(key);
+  const parents = geomDependents.get(key);
+  if (parents) for (const p of parents) invalidateGeomTree(p, seen);
+}
+
+/**
+ * Does this part carry NO geometry of any kind?
+ *
+ * Deliberately wider than the viewer's triangle-count test for a missing part:
+ * plenty of healthy library primitives are pure EDGE files (`4-4edge`,
+ * `1-4edge`, …) with zero triangles, and calling those empty made the repair
+ * walk drop them plus their whole ancestor closure — measured on 910032, a
+ * single edge primitive cascaded into re-resolving hundreds of parts.
+ */
+function geomIsEmpty(geom: PartGeom | undefined): boolean {
+  if (!geom) return true;
+  if (geom.tris.length > 0 || geom.edges.length > 0) return false;
+  for (const tris of geom.colorTris.values()) if (tris.length > 0) return false;
+  for (const edges of geom.colorEdges.values()) if (edges.length > 0) return false;
+  for (const tris of geom.texTris?.values() ?? []) if (tris.length > 0) return false;
+  return true;
+}
+
+/** Assembled triangle count (inherit-color plus every explicit-color bucket). */
+function geomTriCount(geom: PartGeom | undefined): number {
+  if (!geom) return 0;
+  let n = geom.tris.length;
+  for (const tris of geom.colorTris.values()) n += tris.length;
+  return n;
+}
+
+/**
+ * Drop everything standing between `id` and a correct rebuild: every part in
+ * its dependency SUBTREE that cached with NO geometry, plus (transitively, via
+ * `invalidateGeomTree`) every ancestor that baked one of those in.
+ *
+ * Only empty nodes are dropped, so a healthy child is never rebuilt for
+ * nothing — and descending past a healthy child still finds an empty
+ * grandchild, whose upward invalidation then takes that child with it.
+ *
+ * Returns every key dropped; the caller MUST re-resolve all of them (see
+ * `invalidatePartGeom` for what leaving an ancestor unbuilt costs).
+ */
+function invalidateEmptyGeomChain(id: string): string[] {
+  const dropped = new Set<string>();
+  const visited = new Set<string>();
+  const walk = (key: string): void => {
+    if (visited.has(key)) return; // reference cycles exist in the wild
+    visited.add(key);
+    const children = geomDependencies.get(key);
+    if (children) for (const child of children) walk(child);
+    // Judged AFTER descending: a child's upward invalidation deletes the very
+    // cache entry this test reads, so testing first would miss nothing but
+    // testing later would call a healthy parent empty and re-walk it.
+    if (geomIsEmpty(partGeomCache.get(key))) invalidateGeomTree(key, dropped);
+  };
+  walk(normId(id));
+  return [...dropped];
+}
+
+/** What one `repairIncompleteGeometry()` run did — logged by the viewer. */
+export interface GeomRepairReport {
+  /** How many drop/rebuild rounds ran (0 when nothing was empty). */
+  passes: number;
+  /** Requested parts that went from no geometry to some. */
+  repaired: string[];
+  /** Requested parts still empty: genuinely unrenderable (absent from the
+   *  library, or an LSynth flexible part needing curve synthesis). */
+  stillEmpty: string[];
+}
+
+/**
+ * Repair parts that came back from the concurrent prefetch with NO geometry.
+ *
+ * Concurrent resolution caches a placeholder for a part as soon as its text
+ * arrives and fills it as its sub-files land, so a second chain reaching that
+ * part meanwhile flattens an empty placeholder into itself (see
+ * `geomDependencies` for the minifig-arm case this was measured on). The fix
+ * is to drop the stale entries and rebuild them SEQUENTIALLY, where no such
+ * race exists.
+ *
+ * Iterates to a fixed point rather than running a single round: one round
+ * repairs one layer of damage, and `maxPasses` bounds it so a genuinely
+ * unrenderable part cannot loop. In practice the downward walk makes one pass
+ * enough — the second pass only proves nothing changed.
+ *
+ * Runs before meshes are built, so it fixes the render and not just the
+ * missing-parts report.
+ */
+export async function repairIncompleteGeometry(
+  partIds: readonly string[],
+  opts: {
+    maxPasses?: number;
+    cancelled?: () => boolean;
+    /**
+     * Rebuild progress. This loop is SEQUENTIAL and can hold a big-set load for
+     * seconds; reporting nothing made it indistinguishable from a hang.
+     */
+    onProgress?: (done: number, total: number) => void;
+  } = {},
+): Promise<GeomRepairReport> {
+  const maxPasses = opts.maxPasses ?? 5;
+  const cancelled = opts.cancelled ?? ((): boolean => false);
+  // Seeds use the TRIANGLE count, matching what the viewer reports as a
+  // missing part; the walk below uses the wider `geomIsEmpty` so it doesn't
+  // mistake a healthy edge-only primitive for damage.
+  const emptyIds = (): string[] =>
+    partIds.filter(p => geomTriCount(partGeomCache.get(normId(p))) === 0);
+
+  const repaired = new Set<string>();
+  let empties = emptyIds();
+  let passes = 0;
+  while (passes < maxPasses && empties.length > 0) {
+    passes++;
+    const dropped = new Set<string>();
+    for (const p of empties) for (const k of invalidateEmptyGeomChain(p)) dropped.add(k);
+    let done = 0;
+    for (const k of dropped) {
+      if (cancelled()) return { passes, repaired: [...repaired], stillEmpty: empties };
+      await resolvePartGeometry(k);
+      opts.onProgress?.(++done, dropped.size);
+    }
+    const before = empties;
+    empties = emptyIds();
+    const stillEmpty = new Set(empties);
+    for (const p of before) if (!stillEmpty.has(p)) repaired.add(p);
+    // Fixed point: a pass that repaired nothing would drop and rebuild exactly
+    // the same keys again, so stop instead of burning the remaining passes.
+    if (empties.length >= before.length) break;
+  }
+  return { passes, repaired: [...repaired], stillEmpty: empties };
+}
+
+let LDRAW_BASE = '/ldraw-parts';
+
+export function setLDrawBase(base: string): void {
+  LDRAW_BASE = base;
+}
+
+// ─── Persistent .dat text cache (IndexedDB) ──────────────────────────────────
+// Library part files are immutable in practice, so caching their text across
+// sessions makes repeat loads near-instant (a cold large-set load is ~97%
+// network time). Only POSITIVE results are persisted — misses stay
+// session-local so library additions are picked up. Every operation degrades
+// silently to "no persistent cache" (node/vitest, private browsing, quota).
+//
+// ── Cache identity is tied to the DEPLOYED library (audit P1 #6) ─────────────
+// "Immutable in practice" is not "immutable". The weekly R2 sync
+// (scripts/sync-ldraw-r2.mjs) re-uploads every part whose upstream bytes
+// changed, and a CORRECTED part would otherwise stay stale forever in a warm
+// browser: the entry is keyed only by part name, so the browser never asks for
+// it again. `IDB_VERSION_KEY` was a hand-maintained 'v1' and nobody bumped it.
+//
+// So cache identity now carries a real, deployed revision:
+//   IDB_VERSION_KEY   — the cache FORMAT version (bump when the stored value
+//                       shape changes; entry keys are prefixed with it).
+//   library revision  — `GET /ldraw-parts/_rev` → `{ rev }`, written into R2 by
+//                       the sync and served by the worker (dev: a constant
+//                       stamp from the vite middleware). Stored in the object
+//                       store under IDB_REV_KEY; a MISMATCH clears the store
+//                       once and records the new revision.
+//
+// WHY a served revision rather than hashing a canary set of parts: a canary
+// only detects changes to the canary. The 2026-09-02 rewrite of the sync
+// uploads a delta over the whole 48k-file mirror, so the part that gets
+// corrected is exactly the one no canary would contain. One small request
+// describes the entire mirror instead.
+//
+// WHY the revision is a CONTENT hash and not the sync's run timestamp: the
+// sync runs weekly and is usually a no-op. A timestamp would evict every
+// browser's whole part cache every week for nothing. The stamp hashes the
+// sorted `key:md5` list of the synced file set, so it only moves when the
+// library's bytes actually move.
+//
+// FAILURE SEMANTICS (deliberate): an UNKNOWN revision — endpoint absent (older
+// worker), offline, 404, malformed body, timeout — never invalidates anything
+// and never records anything. Only a KNOWN revision that differs from the
+// stored one clears the cache. Guessing "changed" on a network blip would
+// throw away a warm cache and re-download the library on a flaky connection.
+
+const IDB_NAME = 'craftmatic-ldraw';
+const IDB_STORE = 'dat-text';
+const IDB_VERSION_KEY = 'v1';
+/** Meta record holding the library revision this cache was filled from.
+ *  `:` and `__` cannot appear in a normId()'d part key, so it cannot collide. */
+const IDB_REV_KEY = `${IDB_VERSION_KEY}:__meta:library-rev`;
+/** Budget for the revision probe. Exceeding it means "unknown", not "changed". */
+const REV_TIMEOUT_MS = 3500;
+let idbHandle: Promise<IDBDatabase | null> | null = null;
+/** Deployed library revision, once known. null = not probed / unknowable. */
+let libraryRevision: string | null = null;
+let revisionProbe: Promise<string | null> | null = null;
+let cacheReady: Promise<void> | null = null;
+
+function openIdb(): Promise<IDBDatabase | null> {
+  if (idbHandle) return idbHandle;
+  idbHandle = new Promise(resolve => {
+    try {
+      if (typeof indexedDB === 'undefined') { resolve(null); return; }
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains(IDB_STORE)) {
+          req.result.createObjectStore(IDB_STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+      req.onblocked = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+  return idbHandle;
+}
+
+/** Raw single-record read. undefined = absent or unreadable. */
+function idbGetRaw(db: IDBDatabase, key: string): Promise<string | undefined> {
+  return new Promise(resolve => {
+    try {
+      const rq = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(key);
+      rq.onsuccess = () => resolve(typeof rq.result === 'string' ? rq.result : undefined);
+      rq.onerror = () => resolve(undefined);
+    } catch {
+      resolve(undefined);
+    }
+  });
+}
+
+/** Raw single-record write. Resolves either way — persistence is best-effort. */
+function idbPutRaw(db: IDBDatabase, key: string, value: string): Promise<void> {
+  return new Promise(resolve => {
+    try {
+      const rq = db.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).put(value, key);
+      rq.onsuccess = () => resolve();
+      rq.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+/** Drop every cached part text. Used only on a proven revision change. */
+function idbClearStore(db: IDBDatabase): Promise<void> {
+  return new Promise(resolve => {
+    try {
+      const rq = db.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).clear();
+      rq.onsuccess = () => resolve();
+      rq.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+/**
+ * Ask the deployment which library revision it is serving.
+ * Returns null for EVERY failure mode — see the FAILURE SEMANTICS note above.
+ */
+async function probeLibraryRevision(): Promise<string | null> {
+  try {
+    const r = await fetch(`${LDRAW_BASE}/_rev`, { signal: AbortSignal.timeout(REV_TIMEOUT_MS) });
+    if (!r.ok) return null;
+    const body = await r.json() as { rev?: unknown };
+    return typeof body.rev === 'string' && body.rev.length > 0 ? body.rev : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reconcile the persistent cache with the deployed library revision. Runs at
+ * most once per page session; every persistent read/write awaits it.
+ *
+ * Gated on IndexedDB being available: with no persistent cache there is
+ * nothing to version, so node/vitest and private-mode browsers never issue the
+ * probe request at all (which also keeps the offline test suites fetch-exact).
+ */
+function ensureCacheRevision(): Promise<void> {
+  cacheReady ??= (async () => {
+    const db = await openIdb();
+    if (!db) return;
+    const rev = await (revisionProbe ??= probeLibraryRevision());
+    if (rev === null) return; // unknown → keep whatever is cached
+    libraryRevision = rev;
+    const stored = await idbGetRaw(db, IDB_REV_KEY);
+    if (stored === rev) return;
+    // Two cases clear, for the same reason — the cached bytes cannot be shown
+    // to match the served library:
+    //   stored !== undefined → the library moved under a warm cache.
+    //   stored === undefined → entries predate revision tracking (or the store
+    //     is empty, in which case the clear is a no-op), so their provenance
+    //     is unknown. Clearing once at adoption is the whole point of the item.
+    await idbClearStore(db);
+    if (stored !== undefined) {
+      console.info(`[ldraw] part cache cleared: library revision ${stored} → ${rev}`);
+    }
+    await idbPutRaw(db, IDB_REV_KEY, rev);
+  })();
+  return cacheReady;
+}
+
+/**
+ * Kick off the revision reconciliation before any model load needs it, so the
+ * probe's round-trip overlaps app idle instead of stalling the first part
+ * fetch. Safe to call repeatedly; the work happens once.
+ */
+export function primePartCache(): Promise<void> {
+  return ensureCacheRevision();
+}
+
+/**
+ * Cache identity, for the diagnostic bundle. `library` is null when the
+ * revision could not be established (no IndexedDB, no `_rev` endpoint,
+ * offline) — that is "not tracked", not "revision zero".
+ */
+export function partCacheRevision(): { format: string; library: string | null } {
+  return { format: IDB_VERSION_KEY, library: libraryRevision };
+}
+
+/** Read a cached .dat text. undefined = not cached (or no IDB available). */
+async function idbGetDat(key: string): Promise<string | undefined> {
+  await ensureCacheRevision();
+  const db = await openIdb();
+  if (!db) return undefined;
+  return idbGetRaw(db, `${IDB_VERSION_KEY}:${key}`);
+}
+
+/** Persist a fetched .dat text (fire-and-forget). */
+function idbPutDat(key: string, text: string): void {
+  void ensureCacheRevision()
+    .then(() => openIdb())
+    .then(db => { if (db) return idbPutRaw(db, `${IDB_VERSION_KEY}:${key}`, text); return undefined; });
+}
+
+export function normId(id: string): string {
+  return id.replace(/\\/g, '/').toLowerCase().replace(/\.dat$/i, '').trim();
+}
+
+/**
+ * Synthetic placeholder for LSynth segment parts (`ls<NN>`) that are absent
+ * from the LDraw library (they ship with the LSynth tool only). Mirrors the
+ * one bundled example we have (ls10.dat, "Electric Cable Segment"): a unit
+ * segment spanning y ∈ [0, 1] whose placement matrix stretches it along the
+ * synthesized hose path. Cylinder radius 4.5 LDU ≈ ribbed-hose/pneumatic
+ * girth; per-file matrices leave the radial axes ~unit so the radius reads
+ * from the part. Returns null for names that aren't LSynth segments.
+ */
+function synthesizeLsSegment(stem: string): string | null {
+  if (!/^ls\d{1,3}$/i.test(stem)) return null;
+  return [
+    `0 ~LSynth Segment ${stem} (synthesized placeholder)`,
+    `0 Name: ${stem}.dat`,
+    '0 !LDRAW_ORG Unofficial_Part',
+    '0 BFC CERTIFY CCW',
+    '1 16 0 0 0 4.5 0 0 0 1 0 0 0 4.5 4-4cyli.dat',
+    '1 16 0 0 0 4.5 0 0 0 1 0 0 0 4.5 4-4edge.dat',
+    '1 16 0 1 0 4.5 0 0 0 1 0 0 0 4.5 4-4edge.dat',
+  ].join('\n');
+}
+
+function applyMat(v: Vec3, R: readonly number[], T: Vec3): Vec3 {
+  return [
+    R[0]! * v[0] + R[1]! * v[1] + R[2]! * v[2] + T[0],
+    R[3]! * v[0] + R[4]! * v[1] + R[5]! * v[2] + T[1],
+    R[6]! * v[0] + R[7]! * v[1] + R[8]! * v[2] + T[2],
+  ];
+}
+
+/**
+ * Inject MPD inline sub-model contents into the .dat text cache so they
+ * resolve without HTTP fetches. Pass the raw MPD/LDR file content.
+ */
+export function preloadMpdInlines(mpdContent: string): void {
+  const lines = mpdContent.split(/\r?\n/);
+  let currentName: string | null = null;
+  let currentLines: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const fileMatch = /^0\s+FILE\s+(.+)$/i.exec(trimmed);
+    const nofileMatch = /^0\s+NOFILE\s*$/i.test(trimmed);
+    if (fileMatch) {
+      if (currentName) {
+        datTextCache.set(normId(currentName), currentLines.join('\n'));
+      }
+      currentName = fileMatch[1]!.trim();
+      currentLines = [];
+    } else if (nofileMatch) {
+      if (currentName) {
+        datTextCache.set(normId(currentName), currentLines.join('\n'));
+        currentName = null;
+        currentLines = [];
+      }
+    } else if (currentName) {
+      currentLines.push(line);
+    }
+  }
+  if (currentName) {
+    datTextCache.set(normId(currentName), currentLines.join('\n'));
+  }
+}
+
+/** Keys registered by preloadDatTexts for the CURRENT model — cleared between loads. */
+const preloadedDatKeys = new Set<string>();
+
+/**
+ * Register model-bundled .dat definitions (e.g. a Studio .io archive's
+ * `CustomParts/` entries) so sub-file references resolve from memory instead
+ * of the network. Entries are keyed by their archive-relative path; each is
+ * registered under every path suffix (`p/48/x.dat` → `p/48/x`, `48/x`, `x`)
+ * because LDraw references may use any of those forms. Model-specific:
+ * cleared by clearMpdInlines() on the next load.
+ */
+export function preloadDatTexts(files: Map<string, string>): void {
+  for (const [rawPath, text] of files) {
+    const path = rawPath.replace(/\\/g, '/').toLowerCase();
+    const segs = path.split('/').filter(Boolean);
+    for (let i = 0; i < segs.length; i++) {
+      const key = normId(segs.slice(i).join('/'));
+      if (!key) continue;
+      datTextCache.set(key, text);
+      // Text changed → this part's assembled geometry AND every parent that
+      // already flattened the old definition into itself are stale.
+      invalidateGeomTree(key);
+      preloadedDatKeys.add(key);
+    }
+  }
+}
+
+/**
+ * Snapshot every `.dat` text this session has already resolved.
+ *
+ * WHY (2026-09-02): the Minecraft export re-resolved geometry through
+ * `engine/ldraw-geometry.ts`, whose fetch cache is a DIFFERENT module from this
+ * one — so exporting a model that was already loaded and rendered re-downloaded
+ * its whole part library. The main thread holds the texts already (library
+ * fetches, the IndexedDB warm cache, MPD inlines AND archive-bundled
+ * `CustomParts/`), so `ui/schem-export.ts` ships this map into the export
+ * worker as a seed and the export performs ZERO part fetches.
+ *
+ * `null` values are DEFINITIVE misses and are included on purpose: our
+ * candidate-path list is a superset of the export resolver's, so a miss here is
+ * a miss there too, and seeding it saves the export a pointless 404 volley.
+ *
+ * Bonus: `.io` CustomParts are only ever in memory (never in the library), so
+ * before this seam the export silently fell back to an AABB box fill for them.
+ */
+export function collectDatTexts(): Map<string, string | null> {
+  return new Map(datTextCache);
+}
+
+/**
+ * Clear inline .ldr entries between model loads. Keeps the .dat library
+ * cache (which is shared) but evicts model-specific MPD inlines and
+ * preloaded archive part definitions.
+ *
+ * The eviction is TRANSITIVE (`invalidateGeomTree`): a `.io`'s `CustomParts/`
+ * can redefine a name a SHARED library part references, and dropping only the
+ * custom entry left the previous model's definition baked inside that shared
+ * part for every model after it. Pinned by test/part-cache-revision.test.ts.
+ */
+export function clearMpdInlines(): void {
+  inlineTransparentColors.clear();
+  unresolvedDatNames.clear();
+  // substitutedDatNames is NOT cleared — see its declaration.
+  for (const key of [...partGeomCache.keys()]) {
+    if (key.endsWith('.ldr')) {
+      invalidateGeomTree(key);
+      datTextCache.delete(key);
+    }
+  }
+  for (const key of preloadedDatKeys) {
+    invalidateGeomTree(key);
+    datTextCache.delete(key);
+  }
+  preloadedDatKeys.clear();
+}
+
+/**
+ * Common LEGO bricks/plates/tiles/slopes — the ~40 parts that show up in
+ * nearly every set. Fetching them in parallel at app idle pre-warms the
+ * datTextCache so the first model load is meaningfully faster (cold-load
+ * benchmark on 10248-ferrari dropped from ~10s to ~3-4s in dev).
+ *
+ * Fire-and-forget: errors are silently swallowed since this is a
+ * speculative warmup, not a load-blocking operation.
+ */
+const COMMON_PARTS = [
+  // Basic bricks
+  '3001', '3002', '3003', '3004', '3005', '3007', '3009', '3010',
+  '3622', '3700', '3701', '3702',
+  // Plates
+  '3020', '3021', '3022', '3023', '3024', '3034', '3035', '3460',
+  '3623', '3666', '3710', '3795', '41539',
+  // Tiles
+  '3068', '3069', '3070', '6636', '4150',
+  // Slopes
+  '3037', '3038', '3039', '3040', '3298', '54200', '60481',
+  // Round/curved
+  '4032', '4073', '6141', '85984', '3062',
+];
+
+export function prewarmCommonParts(): Promise<void> {
+  const tasks = COMMON_PARTS.map(id =>
+    fetchDatText(id).then(() => undefined).catch(() => undefined),
+  );
+  return Promise.all(tasks).then(() => undefined);
+}
+
+/**
+ * Heuristic: does this bare name look like a `p/` geometry primitive rather
+ * than a numbered part? Drives candidate-path ORDER (primitives live in `p/`,
+ * numbered parts in `parts/`), which matters a lot for load time: probing
+ * `parts/` first for the hundreds of primitives in a big model wastes 1–7
+ * 404 round-trips per primitive (and floods the console with 404 noise).
+ */
+function looksLikePrimitive(stem: string): boolean {
+  if (/^\d+-\d+/.test(stem)) return true; // fraction prims: 4-4cyli, 1-12ring14…
+  // Real PARTS are numbered (3001, 32523…); these letter-prefixed names only
+  // exist as p/ primitives. Probing p/ first avoids a parts/ 404 round-trip per
+  // primitive (on prod, each is a CF-Worker hop to upstream). Misclassifying is
+  // safe: it just probes p/ first, then falls through. The technic family
+  // (bush/conn/confric/fric/fillet/npeghol/beamhole/ribt/stud-cyl/radius) was
+  // added after live prod testing surfaced dozens of such 404s on Technic sets.
+  return /^(stud|stug|box|rect|ring|ndis|disc|edge|cyl|con[ec]?\d|conn|confric|cone|axl|bump|chrd|tri|tooth|peghole|npeghol|knob|duck|clip|filstud|fillet|bush|fric|beamhol|ribt|logo|ldu|empty|arm\d|handle|hinge|t[0-9]{2}[io]|r[0-9]+o|st[0-9x]j|typestn?[0-9])/.test(stem);
+}
+
+// ── Micro-batched part fetch ─────────────────────────────────────────────────
+// A cold big-set load needs hundreds of small .dat files; even over H2 the
+// per-request overhead (and the worker→R2 hop each) dominates. Concurrent
+// fetchDatText calls are aggregated for ~20 ms (or until 48 distinct names)
+// and resolved through ONE `/ldraw-parts/_batch?files=…` request served
+// R2-side by the worker. The endpoint checks official+unofficial mirrors per
+// name, so UnOfficial/ candidate variants need not be submitted.
+//
+// Failure handling mirrors fetchDatText's transient/definitive split, and for
+// the same reason. An ABSENT endpoint (old worker) answers with a real status
+// and is permanent, so batching is switched off for the session. A THROWN
+// fetch — timeout, network error, a dev middleware still draining an upstream
+// burst — is transient, and disabling the fast path for the whole session on
+// it is a cure worse than the disease: every part then falls to per-path
+// probing, which for one 2,253-brick set is ~340 requests against ~80 batched,
+// and each of those probes ends at the `models/<stem>.dat` last resort that
+// only ever 404s. Measured on the dev middleware 2026-09-19: two `_batch`
+// timeouts during one slow load left 329 of 338 part fetches timing out and
+// the model rendered as "No 3D model found". Transient failures now back off
+// for BATCH_RETRY_MS and the fast path returns by itself.
+const BATCH_MAX = 48;
+const BATCH_DELAY_MS = 20;
+/** How long a transient `_batch` failure parks the fast path before a retry. */
+const BATCH_RETRY_MS = 5_000;
+/** Set only by a real HTTP answer: the endpoint does not exist here. */
+let batchAbsent = false;
+/** Epoch ms before which the fast path stays parked after a thrown fetch. */
+let batchRetryAt = 0;
+let batchFailures = 0;
+let pendingBatch: {
+  rels: Set<string>;
+  waiters: { resolve: (r: Map<string, string> | null) => void }[];
+} | null = null;
+let batchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function batchLookup(rels: string[]): Promise<Map<string, string> | null> {
+  if (batchAbsent || rels.length === 0) return Promise.resolve(null);
+  if (Date.now() < batchRetryAt) return Promise.resolve(null);
+  return new Promise(resolve => {
+    pendingBatch ??= { rels: new Set(), waiters: [] };
+    for (const r of rels) pendingBatch.rels.add(r);
+    pendingBatch.waiters.push({ resolve });
+    if (pendingBatch.rels.size >= BATCH_MAX) void flushBatch();
+    else batchTimer ??= setTimeout(() => { void flushBatch(); }, BATCH_DELAY_MS);
+  });
+}
+
+async function flushBatch(): Promise<void> {
+  const b = pendingBatch;
+  pendingBatch = null;
+  if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+  if (!b) return;
+  // Set the moment a real HTTP response arrives, so the catch below can tell
+  // "this host does not serve /_batch" (a status, or a body that is not the
+  // documented JSON — an old worker answers 200 with the SPA's index.html)
+  // from "the request never completed" (timeout / network error).
+  let answered = false;
+  try {
+    const q = [...b.rels].join(',');
+    const r = await fetch(`${LDRAW_BASE}/_batch?files=${encodeURIComponent(q)}`,
+      { signal: AbortSignal.timeout(12000) });
+    answered = true;
+    if (!r.ok) throw new Error(String(r.status));
+    const data = await r.json() as { found?: Record<string, string> };
+    const map = new Map(Object.entries(data.found ?? {}));
+    batchFailures = 0;
+    batchRetryAt = 0;
+    for (const w of b.waiters) w.resolve(map);
+  } catch {
+    if (answered) {
+      if (++batchFailures >= 2) batchAbsent = true;
+    } else {
+      batchRetryAt = Date.now() + BATCH_RETRY_MS;
+    }
+    for (const w of b.waiters) w.resolve(null);
+  }
+}
+
+/**
+ * Test seam: the batch fast path is module-level state, and a suite that
+ * asserts the transient/definitive split has to be able to start from a known
+ * one. Not used by the renderer.
+ */
+export function __resetBatchStateForTests(): void {
+  batchAbsent = false;
+  batchRetryAt = 0;
+  batchFailures = 0;
+  pendingBatch = null;
+  if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+}
+
+/** Test seam: what the batch fast path currently believes about the endpoint. */
+export function __batchStateForTests(): { absent: boolean; parkedMs: number; failures: number } {
+  return { absent: batchAbsent, parkedMs: Math.max(0, batchRetryAt - Date.now()), failures: batchFailures };
+}
+
+/**
+ * The alias ladder now lives in the engine (`ldraw-part-aliases.ts`) so the
+ * export/entity resolver and the offline census share it; re-exported here
+ * because the renderer and its tests import it from this module.
+ */
+export { partAliasCandidates };
+
+/**
+ * Every library-relative path a part name may live at, in probe order.
+ *
+ * Exported (and kept free of `LDRAW_BASE`) because it is the single definition
+ * of "where can this name resolve" — the renderer probes it, and the offline
+ * census (`scripts/missing-geometry-census.ts`) replays it to decide whether a
+ * name is a genuine hole. A census that re-implemented this drifted instantly:
+ * directory-prefixed refs like `48\1-12edge` are ordinary `p/48/` primitives,
+ * and probing only the bare stem reported 100 phantom misses on one Technic set.
+ *
+ * `id` may carry a directory prefix (`s\3001s01`, `48\1-12edge`, `8\2-4ndis`)
+ * and any case; it is normalised here.
+ */
+export function candidateRelPaths(id: string): string[] {
+  const key = normId(id);
+  const stem = key.split('/').pop()!;
+  const paths: string[] = [];
+  if (key.includes('/')) {
+    if (key.startsWith('s/'))
+      paths.push(`parts/${key}.dat`, `parts/s/${stem}.dat`, `UnOfficial/parts/${key}.dat`);
+    else if (key.startsWith('48/'))
+      paths.push(`p/${key}.dat`, `p/48/${stem}.dat`, `UnOfficial/p/${key}.dat`);
+    else
+      paths.push(`p/${key}.dat`, `UnOfficial/p/${key}.dat`);
+  } else if (looksLikePrimitive(stem)) {
+    // Primitive-shaped name → p/ first; the parts/ fallbacks below still run
+    // for the rare part whose number begins like a primitive.
+    paths.push(
+      `p/${stem}.dat`,
+      `UnOfficial/p/${stem}.dat`,
+      `parts/${stem}.dat`,
+      `UnOfficial/parts/${stem}.dat`,
+      // Some Studio-era subparts reference primitives that only exist as
+      // hi-res `48/` variants (e.g. bare `1-12ring14` → p/48/1-12ring14.dat).
+      // The 48/ version is the same shape at finer tessellation — a safe
+      // drop-in that closes those silent geometry holes.
+      `p/48/${stem}.dat`,
+      `UnOfficial/p/48/${stem}.dat`,
+    );
+  }
+  paths.push(
+    `parts/${stem}.dat`,
+    `p/${stem}.dat`,
+    `parts/s/${stem}.dat`,
+    `UnOfficial/parts/${stem}.dat`,
+    `UnOfficial/parts/s/${stem}.dat`,
+    `UnOfficial/p/${stem}.dat`,
+    `UnOfficial/p/48/${stem}.dat`,
+    `models/${stem}.dat`,
+  );
+  // De-duplicate while preserving first-occurrence order.
+  const seen = new Set<string>();
+  return paths.filter(p => !seen.has(p) && (seen.add(p), true));
+}
+
+async function fetchDatText(id: string): Promise<string | null> {
+  const key = normId(id);
+  if (datTextCache.has(key)) return datTextCache.get(key)!;
+  if (datInFlight.has(key)) return datInFlight.get(key)!;
+  // Already proved unreachable in THIS load — re-probing it under the same
+  // upstream throttle costs seconds and cannot succeed. Cleared per load.
+  if (transientMisses.has(key)) return null;
+
+  const stem = key.split('/').pop()!;
+  const orderedPaths = candidateRelPaths(key).map(p => `${LDRAW_BASE}/${p}`);
+
+  const promise = (async (): Promise<string | null> => {
+    // Before any cache: a name whose Studio file is in another origin frame is
+    // read as its official mould (`STUDIO_FRAME_REDIRECTS`). Ahead of the IDB
+    // lookup on purpose - an earlier session persisted Studio's text under the
+    // bare name. In-memory only, like an alias, for the same reason.
+    const redirect = studioFrameRedirect(key);
+    if (redirect) {
+      const text = await fetchDatText(redirect);
+      if (text !== null) { datTextCache.set(key, text); return text; }
+    }
+    // Persistent cache first: library .dat files are immutable in practice,
+    // so a previous session's fetch satisfies this one with zero network.
+    const persisted = await idbGetDat(key);
+    if (persisted !== undefined) {
+      datTextCache.set(key, persisted);
+      return persisted;
+    }
+    let expectMiss = false;
+
+    // Batched lookup next: one aggregated request resolves ~a dozen parts'
+    // whole candidate lists in a single round-trip (measured on prod: the
+    // per-path probing below took 4+ minutes for a cold UCS Falcon — 429
+    // parts × up to 8 candidate paths × retries). The endpoint checks the
+    // unofficial mirror per name itself, so UnOfficial/ variants and the
+    // /models/ last-resort are stripped from the submitted list.
+    {
+      const rels = orderedPaths
+        .map(p => p.slice(LDRAW_BASE.length + 1))
+        .filter(rel => !/^(unofficial|models)\//i.test(rel));
+      const batched = await batchLookup(rels);
+      if (batched) {
+        for (const rel of rels) {
+          const text = batched.get(rel);
+          if (text !== undefined) {
+            datTextCache.set(key, text);
+            idbPutDat(key, text);
+            return text;
+          }
+        }
+        // Authoritative R2-mirror miss for every candidate (the batch checks
+        // official+unofficial per name). Per-path probing below only matters
+        // for upstream-new parts — probe each candidate ONCE, no retry
+        // backoff: 404s are the expected outcome now, and the 3-attempt
+        // storm made each genuinely-missing part cost up to ~24 requests
+        // (measured: ~33 missing parts stretched a Falcon cold load by
+        // minutes all by themselves).
+        expectMiss = true;
+      }
+    }
+
+    // Distinguish a DEFINITIVE miss (every candidate path returned a real HTTP
+    // response, all non-OK → part truly absent) from a TRANSIENT failure
+    // (a fetch threw: timeout / network error / server overload). Only a
+    // definitive miss is cached as null permanently. Transient failures are
+    // retried per-path with backoff and, if still unresolved, left UNCACHED
+    // so a later reference (or reload) can try again. This prevents a load
+    // spike (e.g. many models at once) or a flaky network from permanently
+    // dropping a part — the previous code cached null on the FIRST failure,
+    // which turned transient timeouts into permanently missing pieces.
+    let sawTransient = false;
+    if (expectMiss) {
+      // Authoritative mirror miss: 404s are the expected outcome, so probe
+      // every candidate ONCE and in PARALLEL (upstream-new parts only) —
+      // sequential 3-attempt probing cost up to ~24 requests / ~30 s per
+      // genuinely-missing part and single-handedly stretched cold loads of
+      // sets with a few dozen unmirrored names by minutes.
+      const results = await Promise.all(orderedPaths.map(async path => {
+        try {
+          const r = await fetch(path, { signal: AbortSignal.timeout(8000) });
+          if (r.ok) return await r.text();
+          return (r.status === 404 || r.status === 410) ? null : 'transient';
+        } catch {
+          return 'transient';
+        }
+      }));
+      for (const res of results) {
+        if (res !== null && res !== 'transient') {
+          datTextCache.set(key, res);
+          idbPutDat(key, res);
+          return res;
+        }
+        if (res === 'transient') sawTransient = true;
+      }
+      // Alias fallback runs even when a probe was transient: under the
+      // parallel volley a single upstream-throttle 503 among 8 candidates
+      // otherwise skipped the fallback entirely, and every mecabricks
+      // decoration variant stayed "missing" on burst-heavy cold loads.
+      for (const alias of partAliasCandidates(stem)) {
+        const aliasText = await fetchDatText(alias);
+        if (aliasText !== null) {
+          substitutedDatNames.set(key, alias);
+          // In-memory only, NOT idbPutDat: persisting the substitute under the
+          // requested name would short-circuit this branch next session, and
+          // the "drawn from a near variant" note would silently stop appearing
+          // on a warm load. The alias itself is cached under its own name, so
+          // re-deriving it costs one probe volley per substituted name.
+          datTextCache.set(key, aliasText);
+          return aliasText;
+        }
+      }
+      if (!sawTransient) {
+        const lsSeg = synthesizeLsSegment(stem);
+        if (lsSeg !== null) {
+          console.info(`[ldraw] synthesized LSynth segment placeholder for ${stem}.dat`);
+          datTextCache.set(key, lsSeg);
+          return lsSeg;
+        }
+        datTextCache.set(key, null);
+        unresolvedDatNames.add(key);
+      } else {
+        // Unreachable THIS load, not absent. Remembered per-load (never
+        // cached as a null) so nothing re-walks this ladder again before the
+        // next load — see `transientMisses`.
+        transientMisses.add(key);
+        console.warn(`[ldraw] ${key}.dat unreachable this load (every candidate path failed `
+          + 'transiently — upstream throttle); it will be retried on the next load');
+      }
+      return null;
+    }
+    for (const path of orderedPaths) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const r = await fetch(path, { signal: AbortSignal.timeout(8000) });
+          if (r.ok) {
+            const text = await r.text();
+            datTextCache.set(key, text);
+            idbPutDat(key, text);
+            return text;
+          }
+          if (r.status === 404 || r.status === 410) {
+            break; // definitive miss on this path — next path, no retry
+          }
+          // 429/5xx = upstream throttling or outage, NOT "part absent". A cold
+          // big-set load bursts hundreds of fetches and upstream rate-limits;
+          // treating those as definitive misses recorded thousands of real
+          // parts as permanently missing on prod (2026-08-17). Retry with
+          // backoff and never let this path contribute to a cached null.
+          sawTransient = true;
+          if (attempt < 2) await new Promise(res => setTimeout(res, 400 * (attempt + 1)));
+        } catch {
+          sawTransient = true; // timeout / network error — retry this path
+          if (attempt < 2) await new Promise(res => setTimeout(res, 200 * (attempt + 1)));
+        }
+      }
+    }
+    if (!sawTransient) {
+      // LSynth segment parts (ls10, ls50, ls51 …) are NOT in the LDraw
+      // library — they ship with the LSynth tool. Files authored with LSynth
+      // reference them externally with matrices that STRETCH a unit-height
+      // segment along the hose path (verified: 8010 Darth Vader places 181
+      // LS50/LS51 segments this way — all previously rendered as missing).
+      // Synthesize the standard segment shape: a cylinder spanning y∈[0,1]
+      // (ls10.dat's convention), radius ~4 LDU — the placement matrix does
+      // the rest. Approximate but restores whole hoses that were invisible.
+      const lsSeg = synthesizeLsSegment(stem);
+      if (lsSeg !== null) {
+        console.info(`[ldraw] synthesized LSynth segment placeholder for ${stem}.dat`);
+        datTextCache.set(key, lsSeg);
+        return lsSeg;
+      }
+      datTextCache.set(key, null); // definitive miss only
+      unresolvedDatNames.add(key);
+    }
+    // Alias fallback regardless of transients (see volley path).
+    for (const alias of partAliasCandidates(stem)) {
+      const aliasText = await fetchDatText(alias);
+      if (aliasText !== null) {
+        substitutedDatNames.set(key, alias);
+        datTextCache.set(key, aliasText); // in-memory only — see the note above
+        unresolvedDatNames.delete(key);
+        return aliasText;
+      }
+    }
+    if (sawTransient) {
+      transientMisses.add(key);
+      console.warn(`[ldraw] ${key}.dat unreachable this load (every candidate path failed `
+        + 'transiently — upstream throttle); it will be retried on the next load');
+    }
+    return null;
+  })();
+
+  datInFlight.set(key, promise);
+  const result = await promise;
+  datInFlight.delete(key);
+  return result;
+}
+
+/**
+ * Resolve part geometry recursively, returning local-space triangles+edges.
+ * Color-16 (inherit) goes in `tris`/`edges`; explicit colors route to
+ * `colorTris`/`colorEdges` so multi-colored sub-parts (printed tiles, etc.)
+ * render with their actual colors instead of the parent's.
+ */
+export async function resolvePartGeometry(
+  id: string,
+  depth = 0,
+  invertWinding = false,
+): Promise<PartGeom> {
+  const EMPTY: PartGeom = { tris: [], edges: [], colorTris: new Map(), colorEdges: new Map() };
+  if (depth > 20) return EMPTY;
+  const key = normId(id);
+
+  if (partGeomCache.has(key)) return partGeomCache.get(key)!;
+  if (geomInFlight.has(key)) return geomInFlight.get(key)!;
+
+  const promise = (async (): Promise<PartGeom> => {
+    const text = await fetchDatText(key);
+    if (!text) return EMPTY;
+    if (partGeomCache.size > MAX_CACHE_ENTRIES) {
+      const it = partGeomCache.keys();
+      for (let i = 0; i < 1000; i++) {
+        const k = it.next();
+        if (k.done) break;
+        partGeomCache.delete(k.value);
+      }
+    }
+
+    const geom: PartGeom = { tris: [], edges: [], colorTris: new Map(), colorEdges: new Map() };
+    partGeomCache.set(key, geom);
+
+    const subPromises: Promise<void>[] = [];
+    let bfcCCW = true;
+    let invertNext = false;
+
+    // TEXMAP state. Either null (no active texmap), or carries plane+image.
+    // mode='block': textured until END. mode='next': textured for one !:-line.
+    // fallback=true means subsequent non-prefixed lines are textureless backups.
+    let texmap: {
+      type: 'planar'; p1: Vec3; uAxis: Vec3; vAxis: Vec3;
+      uLenSq: number; vLenSq: number; image: string;
+      mode: 'block' | 'next'; fallback: boolean;
+    } | null = null;
+
+    // !DATA accumulator. While inDataImage is set, !: lines are base64
+    // continuations of that image, not textured-geometry refs.
+    let inDataImage: string | null = null;
+    let dataBuf: string[] = [];
+    const commitData = () => {
+      if (inDataImage && dataBuf.length) {
+        partTextureUrls.set(
+          inDataImage.toLowerCase(),
+          `data:image/png;base64,${dataBuf.join('')}`,
+        );
+      }
+      inDataImage = null;
+      dataBuf = [];
+    };
+
+    for (const rawLine of text.split('\n')) {
+      const line = rawLine.trim();
+      if (!line) continue;
+
+      // ── !DATA block: collect base64 ────────────────────────────────────
+      const dataMatch = line.match(/^0\s+!DATA\s+(.+)$/i);
+      if (dataMatch) {
+        commitData();
+        inDataImage = dataMatch[1]!.trim();
+        continue;
+      }
+      if (inDataImage) {
+        const m = line.match(/^0\s+!:\s+(.*)$/i);
+        if (m) { dataBuf.push(m[1]!); continue; }
+        // Anything else terminates the data block
+        commitData();
+      }
+
+      // ── !TEXMAP control lines ──────────────────────────────────────────
+      const startMatch = line.match(/^0\s+!TEXMAP\s+(START|NEXT)\s+PLANAR\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+(\S+)/i);
+      if (startMatch) {
+        const p1: Vec3 = [+startMatch[2]!, +startMatch[3]!, +startMatch[4]!];
+        const p2: Vec3 = [+startMatch[5]!, +startMatch[6]!, +startMatch[7]!];
+        const p3: Vec3 = [+startMatch[8]!, +startMatch[9]!, +startMatch[10]!];
+        const uAxis: Vec3 = [p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]];
+        const vAxis: Vec3 = [p3[0] - p1[0], p3[1] - p1[1], p3[2] - p1[2]];
+        texmap = {
+          type: 'planar', p1, uAxis, vAxis,
+          uLenSq: uAxis[0] ** 2 + uAxis[1] ** 2 + uAxis[2] ** 2,
+          vLenSq: vAxis[0] ** 2 + vAxis[1] ** 2 + vAxis[2] ** 2,
+          image: startMatch[11]!.toLowerCase().replace(/^.*[/\\]/, ''),
+          mode: startMatch[1]!.toUpperCase() === 'NEXT' ? 'next' : 'block',
+          fallback: false,
+        };
+        continue;
+      }
+      if (/^0\s+!TEXMAP\s+FALLBACK/i.test(line)) {
+        if (texmap) texmap.fallback = true;
+        continue;
+      }
+      if (/^0\s+!TEXMAP\s+END/i.test(line)) {
+        texmap = null;
+        continue;
+      }
+
+      // ── In a !TEXMAP block, `0 !:` prefix means "render with active
+      //    texture"; non-prefixed lines render as normal geometry (no
+      //    texture) per the LDraw spec. After !TEXMAP FALLBACK, geometry
+      //    should only render when textures are unsupported — but since
+      //    we DO support textures, we drop fallback geometry to avoid
+      //    double-rendering the same sub-part twice.
+      let isTextured = false;
+      let lineToParse = line;
+      if (texmap) {
+        const texGeo = line.match(/^0\s+!:\s+(.*)$/i);
+        if (texGeo) {
+          isTextured = true;
+          lineToParse = texGeo[1]!;
+        } else if (texmap.fallback) {
+          // Skip fallback geometry — we already rendered the textured version.
+          const t0 = line.split(/\s+/)[0];
+          if (t0 === '1' || t0 === '2' || t0 === '3' || t0 === '4' || t0 === '5') continue;
+        }
+        // Otherwise (non-prefixed, no FALLBACK seen yet): fall through to
+        // the normal parser so the geometry renders as untextured fill.
+      }
+
+      const tok = lineToParse.split(/\s+/);
+
+      if (tok[0] === '0' && tok[1] === 'BFC') {
+        const cmd = tok.slice(2).join(' ').toUpperCase();
+        if (cmd.includes('CERTIFY')) {
+          bfcCCW = !cmd.includes('CW') || cmd.includes('CCW');
+        }
+        if (cmd === 'INVERTNEXT') invertNext = true;
+        if (cmd === 'CW') bfcCCW = false;
+        if (cmd === 'CCW') bfcCCW = true;
+        continue;
+      }
+
+      if (tok[0] === '0' && tok[1] === '!COLOUR') {
+        const codeIdx = tok.indexOf('CODE');
+        const valIdx = tok.indexOf('VALUE');
+        const alphaIdx = tok.indexOf('ALPHA');
+        if (codeIdx > 0 && valIdx > 0 && tok[codeIdx + 1] && tok[valIdx + 1]) {
+          const cid = parseInt(tok[codeIdx + 1]!, 10);
+          const rgb = tok[valIdx + 1]!;
+          if (!isNaN(cid) && rgb.startsWith('#')) {
+            const { LDRAW_COLOR_RGB } = await import('@engine/ldraw-colors.js');
+            if (!(cid in LDRAW_COLOR_RGB)) {
+              (LDRAW_COLOR_RGB as Record<number, string>)[cid] = rgb;
+            }
+            if (alphaIdx > 0 && tok[alphaIdx + 1]) {
+              const alpha = parseInt(tok[alphaIdx + 1]!, 10);
+              if (alpha < 200) inlineTransparentColors.add(cid);
+            }
+          }
+        }
+        continue;
+      }
+
+      if (tok[0] === '2' && tok.length >= 8) {
+        const edgeColor = parseInt(tok[1]!, 10);
+        const edge: Edge = [
+          [+tok[2]!, +tok[3]!, +tok[4]!],
+          [+tok[5]!, +tok[6]!, +tok[7]!],
+        ];
+        if (edgeColor !== 24 && edgeColor !== 16 && !isNaN(edgeColor)) {
+          const ce = geom.colorEdges.get(edgeColor) ?? (() => {
+            const a: Edge[] = []; geom.colorEdges.set(edgeColor, a); return a;
+          })();
+          ce.push(edge);
+        } else {
+          geom.edges.push(edge);
+        }
+      } else if (tok[0] === '5' && tok.length >= 14) {
+        const edge: Edge = [
+          [+tok[2]!, +tok[3]!, +tok[4]!],
+          [+tok[5]!, +tok[6]!, +tok[7]!],
+        ];
+        geom.edges.push(edge);
+      } else if (tok[0] === '3' && tok.length >= 11) {
+        const triColor = parseInt(tok[1]!, 10);
+        const x0 = +tok[2]!, y0 = +tok[3]!, z0 = +tok[4]!;
+        const x1 = +tok[5]!, y1 = +tok[6]!, z1 = +tok[7]!;
+        const x2 = +tok[8]!, y2 = +tok[9]!, z2 = +tok[10]!;
+        if (isNaN(x0 + y0 + z0 + x1 + y1 + z1 + x2 + y2 + z2)) continue;
+        const v0: Vec3 = [x0, y0, z0];
+        const v1: Vec3 = [x1, y1, z1];
+        const v2: Vec3 = [x2, y2, z2];
+        const shouldInvert = invertWinding !== !bfcCCW;
+        const tri: Triangle = shouldInvert ? [v0, v2, v1] : [v0, v1, v2];
+        if (isTextured && texmap) {
+          if (!geom.texTris) geom.texTris = new Map();
+          let bucket = geom.texTris.get(texmap.image);
+          if (!bucket) { bucket = []; geom.texTris.set(texmap.image, bucket); }
+          bucket.push({
+            v: tri,
+            uv: [planarUV(tri[0], texmap), planarUV(tri[1], texmap), planarUV(tri[2], texmap)],
+            color: triColor,
+          });
+          if (texmap.mode === 'next') texmap = null;
+        } else if (triColor !== 16 && triColor !== 24 && !isNaN(triColor)) {
+          const ct = geom.colorTris.get(triColor) ?? (() => {
+            const a: Triangle[] = []; geom.colorTris.set(triColor, a); return a;
+          })();
+          ct.push(tri);
+        } else {
+          geom.tris.push(tri);
+        }
+      } else if (tok[0] === '4' && tok.length >= 14) {
+        const quadColor = parseInt(tok[1]!, 10);
+        const q = tok.slice(2, 14).map(t => +t!);
+        if (q.some(isNaN)) continue;
+        const v0: Vec3 = [q[0]!, q[1]!, q[2]!];
+        const v1: Vec3 = [q[3]!, q[4]!, q[5]!];
+        const v2: Vec3 = [q[6]!, q[7]!, q[8]!];
+        const v3: Vec3 = [q[9]!, q[10]!, q[11]!];
+        const shouldInvert = invertWinding !== !bfcCCW;
+        const t1: Triangle = shouldInvert ? [v0, v2, v1] : [v0, v1, v2];
+        const t2: Triangle = shouldInvert ? [v0, v3, v2] : [v0, v2, v3];
+        if (isTextured && texmap) {
+          if (!geom.texTris) geom.texTris = new Map();
+          let bucket = geom.texTris.get(texmap.image);
+          if (!bucket) { bucket = []; geom.texTris.set(texmap.image, bucket); }
+          bucket.push({
+            v: t1,
+            uv: [planarUV(t1[0], texmap), planarUV(t1[1], texmap), planarUV(t1[2], texmap)],
+            color: quadColor,
+          });
+          bucket.push({
+            v: t2,
+            uv: [planarUV(t2[0], texmap), planarUV(t2[1], texmap), planarUV(t2[2], texmap)],
+            color: quadColor,
+          });
+          if (texmap.mode === 'next') texmap = null;
+        } else if (quadColor !== 16 && quadColor !== 24 && !isNaN(quadColor)) {
+          const ct = geom.colorTris.get(quadColor) ?? (() => {
+            const a: Triangle[] = []; geom.colorTris.set(quadColor, a); return a;
+          })();
+          ct.push(t1, t2);
+        } else {
+          geom.tris.push(t1, t2);
+        }
+      } else if (tok[0] === '1' && tok.length >= 15 && depth < 19) {
+        const subColor = parseInt(tok[1]!, 10);
+        const tx = +tok[2]!, ty = +tok[3]!, tz = +tok[4]!;
+        if (isNaN(tx + ty + tz)) continue;
+        const R = [
+          +tok[5]!, +tok[6]!, +tok[7]!,
+          +tok[8]!, +tok[9]!, +tok[10]!,
+          +tok[11]!, +tok[12]!, +tok[13]!,
+        ];
+        if (R.some(isNaN)) continue;
+        const T: Vec3 = [tx, ty, tz];
+        const subId = tok.slice(14).join(' ').trim();
+        if (!subId) continue;
+
+        const det = R[0]! * (R[4]! * R[8]! - R[5]! * R[7]!)
+                  - R[1]! * (R[3]! * R[8]! - R[5]! * R[6]!)
+                  + R[2]! * (R[3]! * R[7]! - R[4]! * R[6]!);
+        const childInvert = invertWinding !== (det < 0) !== invertNext;
+        invertNext = false;
+
+        // Record the reverse edge BEFORE resolving: this parent is about to
+        // flatten the child's triangles into itself, so a later change to the
+        // child's definition must invalidate this parent too.
+        const childKey = normId(subId);
+        let parents = geomDependents.get(childKey);
+        if (!parents) { parents = new Set(); geomDependents.set(childKey, parents); }
+        parents.add(key);
+        let children = geomDependencies.get(key);
+        if (!children) { children = new Set(); geomDependencies.set(key, children); }
+        children.add(childKey);
+
+        subPromises.push(
+          resolvePartGeometry(subId, depth + 1, childInvert).then(sub => {
+            const targetTris = (subColor !== 16 && subColor !== 24)
+              ? (geom.colorTris.get(subColor) ?? (() => {
+                  const a: Triangle[] = []; geom.colorTris.set(subColor, a); return a;
+                })())
+              : geom.tris;
+            const targetEdges = (subColor !== 16 && subColor !== 24)
+              ? (geom.colorEdges.get(subColor) ?? (() => {
+                  const a: Edge[] = []; geom.colorEdges.set(subColor, a); return a;
+                })())
+              : geom.edges;
+
+            for (const [sv0, sv1, sv2] of sub.tris) {
+              targetTris.push([applyMat(sv0, R, T), applyMat(sv1, R, T), applyMat(sv2, R, T)]);
+            }
+            for (const [ev0, ev1] of sub.edges) {
+              targetEdges.push([applyMat(ev0, R, T), applyMat(ev1, R, T)]);
+            }
+            for (const [cid, ctris] of sub.colorTris) {
+              const target = geom.colorTris.get(cid) ?? (() => {
+                const a: Triangle[] = []; geom.colorTris.set(cid, a); return a;
+              })();
+              for (const [sv0, sv1, sv2] of ctris) {
+                target.push([applyMat(sv0, R, T), applyMat(sv1, R, T), applyMat(sv2, R, T)]);
+              }
+            }
+            for (const [cid, cedges] of sub.colorEdges) {
+              const target = geom.colorEdges.get(cid) ?? (() => {
+                const a: Edge[] = []; geom.colorEdges.set(cid, a); return a;
+              })();
+              for (const [ev0, ev1] of cedges) {
+                target.push([applyMat(ev0, R, T), applyMat(ev1, R, T)]);
+              }
+            }
+            // Propagate sub-part textured triangles into parent. UVs are
+            // image-space and DON'T transform; only the vertex positions do.
+            if (sub.texTris) {
+              if (!geom.texTris) geom.texTris = new Map();
+              for (const [image, sTris] of sub.texTris) {
+                let bucket = geom.texTris.get(image);
+                if (!bucket) { bucket = []; geom.texTris.set(image, bucket); }
+                for (const t of sTris) {
+                  bucket.push({
+                    v: [applyMat(t.v[0], R, T), applyMat(t.v[1], R, T), applyMat(t.v[2], R, T)],
+                    uv: t.uv,
+                    color: t.color,
+                  });
+                }
+              }
+            }
+          }),
+        );
+      }
+      // NEXT-mode texmap covers exactly one geometry line — release it after
+      // any geometry line was processed under the textured context.
+      if (isTextured && texmap?.mode === 'next') texmap = null;
+    }
+    // Commit any trailing !DATA block that wasn't terminated by another directive.
+    commitData();
+
+    await Promise.allSettled(subPromises);
+    return geom;
+  })();
+
+  geomInFlight.set(key, promise);
+  const result = await promise;
+  geomInFlight.delete(key);
+  return result;
+}
+
+/**
+ * Skip non-visual primitives. Currently only the `logo` text stamps —
+ * they're 1×1mm "LEGO" embossings that don't render at typical zoom and
+ * cost ~50 tris each.
+ *
+ * LSynth virtual segment parts (lsXX.dat) used to be filtered here but
+ * many of them have real .dat geometry in the library (cylinder
+ * sections, hose segments). Letting them through allows hose-heavy
+ * Technic models to render their flexible parts as their normal
+ * triangle geometry. Unrecognized lsXX names just 404 silently.
+ */
+export function isLDrawPrimitive(part: string): boolean {
+  const bare = part.replace(/\.dat$/i, '').toLowerCase().replace(/^.*[/\\]/, '');
+  if (bare.startsWith('logo')) return true;
+  return false;
+}

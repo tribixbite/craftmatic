@@ -1,0 +1,2301 @@
+import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type FineReachColumns, type GridDims, type LaneWalk, type QuarterTurn, type ReachTarget, type SizeCarve, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
+import { carvesAt, encodeSizeCarve, encodeTurnedCarve, planSizeCarve, sizeCarveAt, type ModelBox, type ShippedCarves } from './collider-carve.js';
+import { WalkWorld, tickPlayer, type PlayerState } from './addon-walk.js';
+import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
+import { IDENTITY, boneTransforms, cubeCorners, drawnCubeBox } from './bedrock-geometry-faces.js';
+import type { BoxBlocks } from './cockpit-seat.js';
+import { BOARD, type BoardPoint } from './bedrock-vehicle.js';
+
+declare const world: any;
+declare const system: any;
+declare const StructureSaveMode: any;
+declare const BlockPermutation: any;
+declare const BlockVolume: any;
+declare const ActionFormData: any;
+declare const ModalFormData: any;
+
+export type PlacementRotation = 0 | 90 | 180 | 270;
+
+export interface PlacementActor {
+  typeId: string;
+  label: string;
+  x: number; y: number; z: number;
+  yaw?: number;
+  /** Spawn only while the selected wand size is below this percentage. */
+  maxSizeExclusive?: number;
+  /** Runtime-door candidate whose successful installation may replace this actor. */
+  doorCandidateIndex?: number;
+  /** The 100% structure already contains the measured vanilla replacement. */
+  hideAt100?: boolean;
+  /** Index of another actor this one rides once both are spawned (a figure found sitting on a seat). */
+  rideOf?: number;
+  /** Measured track route index; the coaster runtime owns motion after placement. */
+  coasterRouteIndex?: number;
+  /** This car's place in its route's train (0 = lead); written so the order is deterministic, not first-seen. */
+  coasterCarIndex?: number;
+  /** A pinball part (console, ball, flipper); the pinball runtime groups them by the placement frame written here. */
+  pinball?: boolean;
+  /**
+   * An interactive part's index in `scripts/interactives.js`'s items
+   * (bedrock-interactives.ts): the placement writes it with the anchor, turn
+   * and size, and the interactives runtime lays the doorway from them.
+   */
+  interactive?: number;
+  /**
+   * A ride's index in `scripts/rides.js` (bedrock-rides.ts), on its seat and a
+   * lift's car. The seat also carries its path (and a lift's floor exits) in
+   * model grid coordinates; the placement writes them turned and sized into
+   * the world, so the runtime only follows world points.
+   */
+  ride?: number;
+  ridePath?: Array<[number, number, number]>;
+  rideExits?: Array<[number, number, number]>;
+}
+
+/**
+ * In-game size steps (percent of the exported size). Every entity in the pack
+ * carries one component group per step (`withSizeGroups`), so the wand can
+ * spawn a whole placement at ½× or 2× without re-exporting; the block
+ * structure follows only when the pack ships its collider grid (`colliders`).
+ */
+export const SIZE_STEPS: readonly number[] = [25, 50, 75, 100, 150, 200, 300, 400];
+/** `craftmatic:size_<pct>` is both the component group and the event that selects it. */
+export const SIZE_EVENT_PREFIX = 'craftmatic:size_';
+
+/** Invisible-collider grid shipped for scripted re-tiling at another size. */
+export interface PlacementColliders {
+  width: number; height: number; length: number;
+  /** The collider block id and its two sixteenth states (bedrock-building-shell.ts). */
+  block: string; loState: string; hiState: string;
+  /** Run-length cells, x-major `(x*height + y)*length + z` — see `encodeColliderRuns`. */
+  runs: string;
+  /** Cells that are not colliders (doors, lights); they stay blocks only at 100 %. */
+  keptCells: number;
+  /** Invisible steps per size and turn (bedrock-collider-scale.ts); absent when the feature is off or no size needed one. */
+  treads?: PlacementTreads;
+  /**
+   * The per-size carve (collider-carve.ts, SCALE-06): per whole size step and turn, every laid block cut to the
+   * drawn geometry inside it, applied by the runtime after the scaled cells and before the treads; turn 0 whole,
+   * the other turns as their edits against it (`ShippedCarves`). Absent on packs built before it and where
+   * nothing changed.
+   */
+  carves?: ShippedCarves;
+}
+
+/**
+ * The tread plans a brick-shell pack ships: for every size step above 100 %
+ * and every quarter turn, the FINAL collider pair of each world block a tread
+ * run changes (`encodeTreadPlan`), set by the runtime after its re-lay. Only
+ * keys with at least one block are present; 100 % never has one.
+ */
+export interface PlacementTreads {
+  /** `${sizePct}:${rotation}` → encoded blocks. */
+  plans: Record<string, string>;
+  /** Blocks per key, for the wand's messages. */
+  counts: Record<string, number>;
+}
+
+/** What the planner found, per size and turn, for the pack's own diagnostics. */
+export interface PlacementTreadReport {
+  rule: string;
+  plans: Array<Omit<TreadPlan, 'blocks' | 'guardBlocks' | 'before' | 'after'> & { blocks: number; before: TreadReachSummary; after: TreadReachSummary }>;
+}
+
+/** A walk's result with its highest surface in blocks at 100 %, comparable across sizes. */
+export interface TreadReachSummary {
+  surfaces: number; columns: number;
+  highestBlocks: number;
+}
+
+/**
+ * The measured size at which a player can actually walk through this model
+ * (`recommendAccessScale` in bedrock-scene-actors.ts), carried into the pack so
+ * the wand can name it.
+ *
+ * It is a RECOMMENDATION and nothing else: the wand labels that step, quotes
+ * the reason and never changes the size by itself. `reason` is carried WHOLE —
+ * where the measurement found a tension (a size that opens the doors but puts
+ * the stairs past the player's jump) the sentence says so, and truncating it to
+ * a number would throw away the half the user needs.
+ */
+export interface PlacementAccess {
+  /** The size step (100…400) the measurement recommends; absent when no step makes the model walkable. */
+  sizePct?: number;
+  /** The measurement's own sentence, for the wand menu and the placement confirmation. */
+  reason: string;
+}
+
+/**
+ * How the runtime turns an OLD whole-model building shell, still standing in
+ * a saved world, into the lattice chunks a newer pack draws it with
+ * (`splitStaticShell`, bedrock-building-shell.ts). The old entity type stays
+ * defined with no geometry; when one loads, the runtime spawns every chunk at
+ * `location + scale · R(yaw) · offset`, gives it the old actor's yaw, size
+ * step, label and tags (so the tag-based Undo retires it), and removes the
+ * old actor. `offset` is the chunk's `offsetBlocks`: blocks at 100 % in the
+ * world frame at yaw 0.
+ */
+export interface ShellMigration {
+  /** The old whole-model shell's entity type (`craftmatic:b_<set>_shell`). */
+  legacyTypeId: string;
+  chunks: Array<{ typeId: string; offset: [number, number, number] }>;
+}
+
+export interface PlacementPackSpec {
+  stem: string;
+  label: string;
+  width: number; height: number; length: number;
+  tiles: PlacementTile[];
+  actors?: PlacementActor[];
+  /** Old whole-model shells this pack migrates into chunks on load (`ShellMigration`). */
+  shellMigrations?: ShellMigration[];
+  /** Enable controls supplied by the playable DeLorean runtime. */
+  vehicleControls?: boolean;
+  /** Sparse non-air model points used to make rotation obvious in preview (drawn only when no ghost entity ships). */
+  previewPoints?: Array<{ x: number; y: number; z: number }>;
+  /** Translucent ghost entity of the whole placement (bedrock-preview-entity.ts); spawned at the pin, turned with the rotation. */
+  preview?: { typeId: string };
+  /** The collider grid behind the structure tiles, for placement at another size. Absent: the blocks are fixed at 100 %. */
+  colliders?: PlacementColliders;
+  /** Existing invisible-seat entity type, enabling an explicit user-marked brick chair. */
+  manualSeatTypeId?: string;
+  /** Semantic LDraw leaves preserved for a usable vanilla door after resizing. */
+  runtimeDoorCandidates?: Array<{ x: number; y: number; z: number; requiredSize: number; lower: { id: string; states: Record<string, string | number | boolean> }; upper: { id: string; states: Record<string, string | number | boolean> } }>;
+  /** A measured, export-time interaction warning shown in the Brick Wand. */
+  interactionNote?: string;
+  /** The measured walk-through size and its reason, named (never applied) by the wand. */
+  access?: PlacementAccess;
+  /**
+   * Invisible steps where a scaled-up rise the model's own figures could climb
+   * has grown past the player's jump (bedrock-collider-scale.ts). Default on;
+   * `false` ships the bare collider grid. Needs `colliders`.
+   */
+  treads?: boolean;
+  /** Model points that should be reachable on foot (a boarding platform), reported per size in the tread diagnostics. */
+  reachTargets?: ReachTarget[];
+  /**
+   * The cells closed doorways fill, `[x, y, z, lo, hi]` in the 100 % grid
+   * (bedrock-interactives.ts `blocking`): the tread planner restores a climb
+   * to a doorway's threshold from EITHER side even when the other side
+   * already reaches it (`planColliderTreads` `doorCells`).
+   */
+  doorCells?: ReadonlyArray<readonly (number | undefined)[]>;
+  /**
+   * The export's fine reach walk per source column (bedrock-collider-scale.ts `fineReachColumns`): a rise the
+   * 1-block grid reads over the jump is restored where the fine walk stood on its top at 100 % (SCALE-06).
+   */
+  fineReach?: FineReachColumns;
+  /**
+   * Treads already planned from `colliders`, `reachTargets`, `doorCells` and `fineReach` by `withColliderTreadsAsync`
+   * (the async export path); when absent `buildPlacementPackAssets` plans them synchronously.
+   */
+  plannedTreads?: ColliderTreadsResult;
+  /**
+   * Ticks each tile's ticking area stays alive after its `structure load`, and
+   * ticks the last area is held after the final piece. A ticking area removed
+   * the moment the command returns can unload the chunk before its block
+   * updates reach the client, which read as "nothing appeared until I came back".
+   */
+  settleTicks?: number;
+  finalHoldTicks?: number;
+}
+
+export interface PlacementPackAssets {
+  itemId: string;
+  shortAlias: string;
+  script: string;
+  files: Array<{ name: string; data: Uint8Array }>;
+  /** The tread planner's findings (also written as `craftmatic-treads.json`); absent for a pack without colliders or with `treads: false`. */
+  treads?: PlacementTreadReport;
+}
+
+export interface PlacementTile {
+  identifier: string;
+  dx: number; dy: number; dz: number;
+  width: number; height: number; length: number;
+  nonAir: number;
+}
+
+export interface RotatedTilePlacement extends PlacementTile {
+  width: number;
+  length: number;
+}
+
+/** Short deterministic command name; the full per-model alias also remains available. */
+export function placementAlias(stem: string): string {
+  if (/76252/.test(stem)) return 'b76252';
+  if (/8855/.test(stem)) return 'b8855';
+  let hash = 0x811c9dc5;
+  for (const ch of `craftmatic.brickwand:${stem}`) hash = Math.imul((hash ^ ch.charCodeAt(0)) >>> 0, 0x01000193) >>> 0;
+  return `b_${hash.toString(16).padStart(8, '0').slice(0, 6)}`;
+}
+
+export function rotatedSize(width: number, height: number, length: number, rotation: PlacementRotation) {
+  return rotation % 180 ? { width: length, height, length: width } : { width, height, length };
+}
+
+/** Position a separately rotated tile inside the model's normalized rotated bounds. */
+export function rotateTilePlacement(
+  tile: PlacementTile, modelWidth: number, modelLength: number, rotation: PlacementRotation,
+): RotatedTilePlacement {
+  if (rotation === 90) return { ...tile, dx: modelLength - tile.dz - tile.length, dz: tile.dx, width: tile.length, length: tile.width };
+  if (rotation === 180) return { ...tile, dx: modelWidth - tile.dx - tile.width, dz: modelLength - tile.dz - tile.length };
+  if (rotation === 270) return { ...tile, dx: tile.dz, dz: modelWidth - tile.dx - tile.width, width: tile.length, length: tile.width };
+  return { ...tile };
+}
+
+/** Rotate an entity/component point with the same normalized transform as the blocks. */
+export function rotatePlacementPoint(
+  point: { x: number; y: number; z: number }, width: number, length: number, rotation: PlacementRotation,
+) {
+  if (rotation === 90) return { x: length - point.z, y: point.y, z: point.x };
+  if (rotation === 180) return { x: width - point.x, y: point.y, z: length - point.z };
+  if (rotation === 270) return { x: point.z, y: point.y, z: width - point.x };
+  return { ...point };
+}
+
+// ─── Culling bounds ──────────────────────────────────────────────────────────
+
+/** A model's extent in BLOCKS, relative to the entity's own position, at 100 %. */
+export interface ModelExtentBlocks {
+  min: readonly [number, number, number];
+  max: readonly [number, number, number];
+}
+
+/** The three `visible_bounds_*` fields of a geometry description (blocks). */
+export interface VisibleBounds {
+  visible_bounds_width: number;
+  visible_bounds_height: number;
+  visible_bounds_offset: [number, number, number];
+}
+
+const ceil2 = (v: number): number => Math.ceil(v * 100) / 100;
+
+/**
+ * The culling box a geometry must declare so the model never vanishes at any
+ * in-game size step.
+ *
+ * Bedrock frustum-culls an entity against the box declared in its GEOMETRY
+ * description: `visible_bounds_width` (used for BOTH horizontal axes),
+ * `visible_bounds_height` and `visible_bounds_offset`, all in blocks, centred
+ * on the entity's position plus the offset. The box is baked at build time and
+ * `minecraft:scale` is documented as a "visual size multiplier" only - it does
+ * not resize the box. `withSizeGroups` offers 25 %…400 %, so a geometry sized
+ * for 100 % renders up to FOUR TIMES outside its own culling box and the whole
+ * entity pops out of view the moment that small box leaves the frustum, which
+ * is what "entire sets disappear when the camera is tilted, especially with
+ * scaled up placements" describes.
+ *
+ * Mojang author their own geometries the same way: `slime.geo.json` is a
+ * single 8-unit (half-block) cube and declares `visible_bounds_width: 5`,
+ * `visible_bounds_height: 2`, `offset [0, 1, 0]` - a box sized for the LARGEST
+ * scale its render controller applies (variant 4), not for the model as
+ * authored. `ender_dragon.geo.json` sets `visible_bounds_width: 14` for a body
+ * reaching x = −7, i.e. twice the largest distance from the origin, confirming
+ * the width is a radius about the entity position rather than a footprint.
+ *
+ * So the box has to cover the union of `f × extent` over every size step. An
+ * over-large box only means the entity is drawn while slightly off screen
+ * (cheap); a too-small one makes it vanish, which is the bug.
+ *
+ * @param extent Model AABB in blocks relative to the entity position, at 100 %.
+ * @param padBlocks Slack at 100 % for geometry that can reach past that AABB
+ *   (a rotated bone's cuboids are authored unrotated at the pivot), scaled with
+ *   the model.
+ */
+export function visibleBoundsForSizeSteps(extent: ModelExtentBlocks, padBlocks = 0): VisibleBounds {
+  const fMin = Math.min(...SIZE_STEPS) / 100, fMax = Math.max(...SIZE_STEPS) / 100;
+  // f × [a, b] for every f in [fMin, fMax] stays inside this interval: a
+  // negative bound reaches furthest at fMax, a positive one at fMin.
+  const span = (a: number, b: number): [number, number] => [Math.min(fMin * a, fMax * a), Math.max(fMin * b, fMax * b)];
+  const pad = Math.max(0, padBlocks);
+  const [x0, x1] = span(extent.min[0] - pad, extent.max[0] + pad);
+  const [y0, y1] = span(extent.min[1] - pad, extent.max[1] + pad);
+  const [z0, z1] = span(extent.min[2] - pad, extent.max[2] + pad);
+  // One width serves +X, −X, +Z and −Z, so it is twice the furthest horizontal
+  // reach from the entity position; the height gets its own offset instead.
+  const radius = Math.max(Math.abs(x0), Math.abs(x1), Math.abs(z0), Math.abs(z1));
+  // Round the offset FIRST, then size the height around the rounded value: a
+  // height rounded independently can end up a few thousandths short of the
+  // shifted centre and clip the model it was computed from.
+  const offsetY = Math.round((y0 + y1) / 2 * 100) / 100;
+  return {
+    visible_bounds_width: Math.max(1, ceil2(radius * 2)),
+    visible_bounds_height: Math.max(1, ceil2(2 * Math.max(Math.abs(y0 - offsetY), Math.abs(y1 - offsetY)))),
+    visible_bounds_offset: [0, offsetY, 0],
+  };
+}
+
+// ─── Size groups ─────────────────────────────────────────────────────────────
+
+const round3 = (v: number): number => Math.round(v * 1000) / 1000;
+
+/**
+ * Bedrock validates `third_person_camera_radius` against [1, 64] and rejects
+ * the whole entity definition when one value falls outside it - and ONE bad
+ * definition takes the pack's entity with it.
+ *
+ * Scaling a seat by the size factor overflows that ceiling on its own:
+ * `chaseRadius` caps a base radius at 30, so anything above 21.3 breaks at
+ * 300 %. Measured on a device (Bedrock 1.26.51.1): The Milano 76286 has a base
+ * radius of 30, its `craftmatic:size_300`/`size_400` groups asked for 90.0 and
+ * 120.0, and the world load logged the session's only two `[error]` lines.
+ * Clamping loses nothing a player can see - past ~64 blocks the chase camera is
+ * already further out than the render distance the vehicle is visible at.
+ */
+const CAMERA_RADIUS_MIN = 1;
+const CAMERA_RADIUS_MAX = 64;
+const clampCameraRadius = (v: number): number =>
+  Math.min(CAMERA_RADIUS_MAX, Math.max(CAMERA_RADIUS_MIN, v));
+
+/**
+ * A `minecraft:rideable` component as the size group whose `minecraft:scale`
+ * is `scale` ships it.
+ *
+ * **Bedrock multiplies a seat's `position` by the entity's `minecraft:scale`;
+ * the rider's eye offset over the seat (1.12) is not scaled** (SEAT-01, Saga
+ * round 30k, 2026-10-07: 76286's `size_200` group declared the seat at
+ * (0, 10.28, 7.2) - the 100 % seat already scaled - and the device read the
+ * rider's eye at (0, 21.68, 14.4) = 2 x seat + 1.12, six blocks over the hull
+ * and fourteen ahead; at 100 % the same pack read (0, 5.7, 3.6) = seat
+ * (0, 4.58, 3.6) + 1.12. `output/device-round-2026-10-07k/saga/notes.md`
+ * item 8, `r28-mil200-side-zoom.jpg`, `r29-grid.jpg`; the 25-150 % groups
+ * were never ridden on a device, and the documentation says only that the
+ * scale "sets the entity's visual size".) So a seat is declared in the
+ * entity's UNSCALED frame: the world offset the device realises is
+ * `declared x scale`, and the declared value is the wanted world offset
+ * divided by the scale.
+ *
+ * Wanted world offset at `scale`: by default the authored seat scaled about
+ * the origin with the model (`position x scale`), so the declared seat is
+ * simply the authored one at every step; a vehicle passes `seatAt`
+ * (cockpit-seat.ts `seatPositionAt`: the rider's EYE stays on the scaled
+ * driver's eye, so the unscaled eye offset is taken out before the scale),
+ * and its result is divided by `scale` on the way into the JSON.
+ *
+ * # TODO(seat-camera-radius): whether `third_person_camera_radius` is scaled
+ * by the device as the seat is was not measured (the rounds ride the script
+ * chase camera); it is still written scaled and clamped.
+ */
+function rideableAtSize(rideable: Record<string, unknown>, scale: number, seatAt?: SeatAtSize): Record<string, unknown> {
+  const declare = (position: [number, number, number]): [number, number, number] => {
+    if (!seatAt) return position;
+    const world = seatAt(position, scale);
+    return [round3(world[0] / scale), round3(world[1] / scale), round3(world[2] / scale)];
+  };
+  const seatAtSize = (seat: Record<string, unknown>): Record<string, unknown> => ({
+    ...seat,
+    ...(Array.isArray(seat.position) ? { position: declare(seat.position as [number, number, number]) } : {}),
+    ...(typeof seat.third_person_camera_radius === 'number'
+      ? { third_person_camera_radius: clampCameraRadius(round3(seat.third_person_camera_radius * scale)) }
+      : {}),
+  });
+  const seats = rideable.seats;
+  return {
+    ...rideable,
+    seats: Array.isArray(seats) ? seats.map(s => seatAtSize(s as Record<string, unknown>)) : seats && typeof seats === 'object' ? seatAtSize(seats as Record<string, unknown>) : seats,
+  };
+}
+
+/**
+ * The world offset of a seat the device realises from a size group: the
+ * declared position times the group's `minecraft:scale` (the rule above).
+ * The simulator's entity model applies the same fact (quirk
+ * `seat-scales-with-entity`); exported so a test can state it once.
+ */
+export function seatWorldOffset(declared: readonly [number, number, number], scale: number): [number, number, number] {
+  return [declared[0] * scale, declared[1] * scale, declared[2] * scale];
+}
+
+/**
+ * The collision box the device realises from a size group: the declared
+ * `minecraft:collision_box` times the group's `minecraft:scale` (COL-03,
+ * SEAT-01; Saga round 30l, 2026-10-07: 76286's `size_200` group declared
+ * 7 x 5 - the 100 % box 3.5 x 2.5 already doubled - and one-block volume
+ * tests found the realised box 14 wide and 10 tall, `r21-hitbox-x-chat.jpg`,
+ * `r21-hitbox-chat2.jpg`). The same rule as the seat (`seatWorldOffset`); the
+ * simulator's entity model applies it (quirk `collision-box-scales-with-entity`).
+ */
+export function collisionWorldBox(declared: { width: number; height: number }, scale: number): { width: number; height: number } {
+  return { width: declared.width * scale, height: declared.height * scale };
+}
+
+/**
+ * One `minecraft:custom_hit_test` box: a square footprint `width` wide,
+ * `height` tall, centred on `pivot` (blocks from the entity origin, world
+ * axes). Structurally the interactives' `HitBox` (bedrock-interactives.ts).
+ */
+export interface HitTestBox { width: number; height: number; pivot: [number, number, number] }
+
+/**
+ * The tap / interact box of a rideable whose drawn hull reaches `extent`
+ * blocks from its origin: ONE square as wide as the hull's longest horizontal
+ * reach either way, as tall as the hull, over `[bottom, bottom + height]`.
+ *
+ * Why a square, and why the longest axis: Bedrock keeps a hit-test box
+ * world-aligned (quirk `custom-hit-test-pick`; docs/bedrock-interactivity.md
+ * "yaw 0, turned and scaled by its root bone"), so no set of boxes can follow
+ * a hull that turns - a driven vehicle turns every tick, a placed one sits at
+ * a quarter turn. A square of the longest reach covers the whole hull at every
+ * quarter turn; what it costs is reach past the shorter side (76286 at 100 %:
+ * 30 wide, 16 long - 7 blocks of air fore and aft), where a tap meant for
+ * something standing in that air picks the vehicle instead. Until 2026-10-11
+ * the only pick target was the `minecraft:collision_box` (VEH-17, Pixel 30m:
+ * 76286 at 200 % showed no Mount prompt at its nose, 15.5 blocks out, only
+ * ~3 blocks from the hull centre).
+ * # TODO(hit-test-footprint): a hull much longer than wide (a ship) would do
+ * better as a row of squares swapped by heading; unmeasured whether the
+ * device turns a box with its entity after all (the interactives never turn).
+ */
+export function hullHitBox(extent: { halfWidth: number; halfLength: number; height: number }, bottom = 0): HitTestBox {
+  const side = 2 * Math.max(extent.halfWidth, extent.halfLength);
+  return { width: round3(Math.max(0.2, side)), height: round3(Math.max(0.2, extent.height)), pivot: [0, round3(bottom + extent.height / 2), 0] };
+}
+
+/**
+ * `hullHitBox` of a compiled entity's extent (`sizeBlocks`: width across,
+ * length nose-to-tail, render frame), whose origin is the floor centre
+ * (`originLdu`: the bounds' middle x/z at the floor).
+ */
+export function sizeHitBox(size: { width: number; height: number; length: number }): HitTestBox {
+  return hullHitBox({ halfWidth: size.width / 2, halfLength: size.length / 2, height: size.height });
+}
+
+/**
+ * `hullHitBox` of a shipped geometry (`.geo.json` value: every mesh, bone and
+ * cube, read through `drawnCubeBox` so an inflated cube counts its drawn
+ * box), in blocks about the entity origin; the farthest horizontal reach from
+ * the origin either way sets the square, so an off-centre body is still
+ * covered at every turn. `undefined` for a geometry with no cube.
+ */
+export function geometryHitBox(geometry: unknown): HitTestBox | undefined {
+  const meshes = (geometry as { 'minecraft:geometry'?: Array<{ bones?: Array<{ cubes?: Array<{ origin: readonly number[]; size: readonly number[]; inflate?: unknown }> }> }> } | undefined)?.['minecraft:geometry'] ?? [];
+  let reach = 0, bottom = Infinity, top = -Infinity, cubes = 0;
+  for (const mesh of meshes) for (const bone of mesh.bones ?? []) for (const cube of bone.cubes ?? []) {
+    const d = drawnCubeBox(cube);
+    cubes++;
+    for (const axis of [0, 2] as const) reach = Math.max(reach, Math.abs(d.origin[axis]), Math.abs(d.origin[axis] + d.size[axis]));
+    bottom = Math.min(bottom, d.origin[1]); top = Math.max(top, d.origin[1] + d.size[1]);
+  }
+  if (!cubes) return undefined;
+  return hullHitBox({ halfWidth: reach / 16, halfLength: reach / 16, height: (top - bottom) / 16 }, bottom / 16);
+}
+
+/**
+ * Every cube a shipped geometry (`.geo.json` value) DRAWS, as an axis-aligned box in blocks at 100 % in the
+ * ENTITY frame at yaw 0 - the rideable seat's frame: +z the nose, the JSON z mirrored, as `drawnBoxes`
+ * (sim/adapters/craftmatic/drawn.ts) places it. Bone and cube rotations are applied (`boneTransforms`,
+ * `cubeCorners`); a turned cube is its corners' bounds. Read through `drawnCubeBox` (an inflated cube counts
+ * its drawn box). What a rider below 100 % sits on is read from these (VEH-18, cockpit-seat.ts `roofMap`):
+ * the compiler's part boxes are not the drawn vehicle (60221's passenger seat read a surface 0.76 over
+ * anything drawn there, round 30zb).
+ */
+export function geometryEntityBoxes(geometry: unknown): BoxBlocks[] {
+  type Cube = { origin: readonly number[]; size: readonly number[]; inflate?: unknown; rotation?: [number, number, number]; pivot?: [number, number, number] };
+  type Bone = { name: string; pivot?: [number, number, number]; rotation?: [number, number, number]; parent?: string; cubes?: Cube[] };
+  const meshes = (geometry as { 'minecraft:geometry'?: Array<{ bones?: Bone[] }> } | undefined)?.['minecraft:geometry'] ?? [];
+  const out: BoxBlocks[] = [];
+  for (const mesh of meshes) {
+    const bones = mesh.bones ?? [];
+    const transforms = boneTransforms(bones.map(b => ({ name: b.name, pivot: b.pivot ?? [0, 0, 0], ...(b.rotation ? { rotation: b.rotation } : {}), ...(b.parent ? { parent: b.parent } : {}) })));
+    for (const bone of bones) for (const cube of bone.cubes ?? []) {
+      const d = drawnCubeBox(cube);
+      const corners = cubeCorners({ bone: bone.name, origin: d.origin, size: d.size, ...(cube.rotation && cube.pivot ? { rotation: cube.rotation, pivot: cube.pivot } : {}) }, transforms.get(bone.name) ?? IDENTITY);
+      const xs = corners.map(p => p[0] / 16), ys = corners.map(p => p[1] / 16), zs = corners.map(p => (p[2] === 0 ? 0 : -p[2] / 16));
+      out.push({ min: [Math.min(...xs), Math.min(...ys), Math.min(...zs)], max: [Math.max(...xs), Math.max(...ys), Math.max(...zs)] });
+    }
+  }
+  return out;
+}
+
+/**
+ * `hullHitBox` boxes as a size group whose `minecraft:scale` is `scale` ships them: at the realised (world) size,
+ * see `withSizeGroups`; with `maxHalf`, no wider than a square `2 x maxHalf` (a scripted vehicle's, `BOARD`).
+ */
+export function hitTestAtSize(boxes: readonly HitTestBox[], scale: number, maxHalf = Infinity): HitTestBox[] {
+  return boxes.map(b => ({ width: round3(Math.min(b.width * scale, 2 * maxHalf)), height: round3(b.height * scale), pivot: [round3(b.pivot[0] * scale), round3(b.pivot[1] * scale), round3(b.pivot[2] * scale)] }));
+}
+
+/**
+ * The drawn extremities of a shipped geometry (`.geo.json` value), in blocks at 100 % in the ENTITY frame at yaw 0
+ * (+z the nose, +x the side; the JSON frame is the entity frame mirrored in z, as `drawnBoxes` places it): for each
+ * horizontal direction, the point of the cube reaching farthest that way - on that face, at the cube's middle across. Read through `drawnCubeBox` (an inflated cube counts its drawn box) and unrotated, as
+ * `geometryHitBox`. Two extremities closer than a block are one. Where a scripted vehicle's board points stand
+ * (bedrock-vehicle.ts `BOARD`, VEH-17).
+ *
+ * Each point also carries `along`: what is drawn between the root and the tip along its axis, sampled every
+ * `BOARD.ALONG_STEP_BLOCKS` from the root - the span ACROSS the axis, `[lo, hi]`, of every cube covering that
+ * distance, or null where nothing is drawn - so the runtime can stand columns under both edges of a wing or a long
+ * hull between the root and the tip (`boardPointPlaces`).
+ */
+export function boardPointsOf(geometry: unknown): BoardPoint[] {
+  const meshes = (geometry as { 'minecraft:geometry'?: Array<{ bones?: Array<{ cubes?: Array<{ origin: readonly number[]; size: readonly number[]; inflate?: unknown }> }> }> } | undefined)?.['minecraft:geometry'] ?? [];
+  // Each direction: [dx, dz] in the entity frame.
+  const dirs: Array<[number, number]> = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+  const best: Array<{ reach: number; p: BoardPoint } | undefined> = dirs.map(() => undefined);
+  // Every cube in the entity frame (blocks), kept for the `along` profiles.
+  const boxes: Array<{ x0: number; x1: number; z0: number; z1: number }> = [];
+  for (const mesh of meshes) for (const bone of mesh.bones ?? []) for (const cube of bone.cubes ?? []) {
+    const d = drawnCubeBox(cube);
+    // Entity frame: x as drawn, z mirrored; sixteenths to blocks.
+    const x0 = d.origin[0] / 16, x1 = (d.origin[0] + d.size[0]) / 16;
+    const z0 = -(d.origin[2] + d.size[2]) / 16, z1 = -d.origin[2] / 16;
+    boxes.push({ x0, x1, z0, z1 });
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+    dirs.forEach(([dx, dz], i) => {
+      const reach = dx > 0 ? x1 : dx < 0 ? -x0 : dz > 0 ? z1 : -z0;
+      if (reach > (best[i]?.reach ?? 0)) best[i] = { reach, p: { x: round3(dx ? dx * reach : cx), z: round3(dz ? dz * reach : cz), dx, dz } };
+    });
+  }
+  const out: BoardPoint[] = [];
+  for (const b of best) {
+    if (!b || out.some(o => Math.hypot(o.x - b.p.x, o.z - b.p.z) < 1)) continue;
+    const { dx, dz } = b.p, along: Array<readonly [number, number] | null> = [];
+    for (let s = 0; s <= b.reach + 1e-9; s += BOARD.ALONG_STEP_BLOCKS) {
+      // The cubes covering distance s along this direction (on its own side of the root), and their span across.
+      let lo = Infinity, hi = -Infinity;
+      for (const q of boxes) {
+        const a0 = dx > 0 ? q.x0 : dx < 0 ? -q.x1 : dz > 0 ? q.z0 : -q.z1;
+        const a1 = dx > 0 ? q.x1 : dx < 0 ? -q.x0 : dz > 0 ? q.z1 : -q.z0;
+        if (s < a0 || s > a1) continue;
+        const c0 = dx ? q.z0 : q.x0, c1 = dx ? q.z1 : q.x1;
+        lo = Math.min(lo, c0); hi = Math.max(hi, c1);
+      }
+      along.push(lo <= hi ? [round3(lo), round3(hi)] : null);
+    }
+    out.push({ ...b.p, along });
+  }
+  return out;
+}
+
+
+/**
+ * How an entity follows the wand's size steps.
+ *
+ * `playerSized` marks a FIGURE, or a seat whose rider is one. The rule
+ * (2026-09-21, verbatim): "when scaling a model it should never result in the
+ * minifigs becoming giants - the minifigs should be capped to always be the
+ * same size as a player". A minifig at 100 % IS player height by the one
+ * shared scale (lego-scale.ts: 96 LDU = 1.8 blocks, 2.03 with hair on the
+ * device), so its scale, collision box and any rider offset follow the step
+ * only BELOW 100 % (`figureSizeFactor`); at 150-400 % they keep the 100 %
+ * values and a 400 % building is walked by player-sized figures. For the
+ * invisible seat the offset is where a player-sized rider's origin sits under
+ * the pan (-0.3), not a measurement inside the model, so it is capped the
+ * same way.
+ */
+export interface SizeGroupOptions {
+  playerSized?: boolean;
+  /** A seat's WORLD offset at wand factor `f` (a vehicle's rider seat, cockpit-seat.ts); default: the authored seat scaled about the origin. */
+  seatAt?: SeatAtSize;
+  /**
+   * The entity's `minecraft:custom_hit_test` boxes at 100 % (a rideable's
+   * drawn hull, `hullHitBox`): every group then declares them at that
+   * group's REALISED size, because a hit-test box is NOT multiplied by
+   * `minecraft:scale` the way a seat and the collision box are (quirk
+   * `custom-hit-test-pick`: vanilla hoglin.json declares its baby's
+   * collision box "0.85/0.5" - pre-divided by its 0.5 scale - and its hit
+   * test at the baby's own 1.0 x 0.85, half the adult's 2.0 x 1.75).
+   */
+  hitTest?: readonly HitTestBox[];
+  /** Half the widest `hitTest` square at any size, blocks (a scripted vehicle's: `BOARD.HULL_HIT_HALF_MAX_BLOCKS`; default unbounded). */
+  hitTestMaxHalf?: number;
+}
+
+/**
+ * Where a seat authored at `position` (100 %) goes at wand factor `f`, as a
+ * WORLD offset from the entity (what the device realises, not what the JSON
+ * declares: `rideableAtSize` divides it by the group's scale).
+ */
+export type SeatAtSize = (position: [number, number, number], f: number) => [number, number, number];
+
+/** The size factor a player-sized entity takes at wand factor `f`: never above 1. */
+export const figureSizeFactor = (f: number): number => Math.min(1, f);
+
+/**
+ * Give an entity definition one component group per size step, each setting
+ * `minecraft:scale`, its collision box and (for a mount) its
+ * `minecraft:rideable`, the box and every seat declared in the entity's
+ * UNSCALED frame - `minecraft:scale` scales a seat position and the collision
+ * box itself (measured, see `rideableAtSize` and `collisionWorldBox`; until
+ * 2026-10-07 both were written pre-scaled and the device scaled them again:
+ * 76286's rider at 200 % sat six blocks over the hull, round 30k, and its box
+ * was 14 x 10 for a wanted 7 x 5, round 30l). The box is still written in
+ * every group (the same value): removing a group removes its components even
+ * where the base declares them. The `craftmatic:size_<pct>` event selects one step and drops the
+ * others; `craftmatic:size_100` drops them all. Groups and events the
+ * definition already has (an aircraft's descend group) are kept.
+ *
+ * A `playerSized` entity (see `SizeGroupOptions`) still carries every group,
+ * so the runtime's one `triggerEvent(size_<pct>)` per actor works unchanged,
+ * but the groups above 100 % hold the 100 % values. A rideable's tap boxes
+ * (`hitTest`) go the OTHER way - written at each group's realised size - and
+ * the base `components` must carry the 100 % boxes too (`hullHitBox`).
+ */
+export function withSizeGroups(
+  behavior: unknown,
+  collision: { width: number; height: number },
+  rideable?: Record<string, unknown>,
+  options: SizeGroupOptions = {},
+): unknown {
+  const b = behavior as { 'minecraft:entity': Record<string, unknown> };
+  const e = b['minecraft:entity'];
+  const groups: Record<string, unknown> = { ...((e.component_groups as Record<string, unknown> | undefined) ?? {}) };
+  const events: Record<string, unknown> = { ...((e.events as Record<string, unknown> | undefined) ?? {}) };
+  // Every step, 100 % included, is a group holding that step's values.
+  // Removing a component group removes its components outright, even ones the
+  // base `components` also declare (measured, see the add-on guide): a
+  // `size_100` that only removed the others took the vehicle's
+  // `minecraft:rideable` with them, and the X-wing sized 150 % -> 100 % on the
+  // Saga (2026-09-26) answered "The selected entity is not rideable."
+  const names = SIZE_STEPS.map(p => `${SIZE_EVENT_PREFIX}${p}`);
+  for (const pct of SIZE_STEPS) {
+    const name = `${SIZE_EVENT_PREFIX}${pct}`;
+    const f = pct / 100;
+    // The group's own scale: a player-sized entity never grows past 1.
+    const scale = options.playerSized ? figureSizeFactor(f) : f;
+    groups[name] = {
+      'minecraft:scale': { value: scale },
+      // Declared UNSCALED: the device realises `declared x scale` (collisionWorldBox, Saga 30l).
+      'minecraft:collision_box': { width: round3(collision.width), height: round3(collision.height) },
+      ...(rideable ? { 'minecraft:rideable': rideableAtSize(rideable, scale, options.seatAt) } : {}),
+      // Declared at the REALISED size: a hit-test box is not scaled by `minecraft:scale` (`SizeGroupOptions.hitTest`).
+      ...(options.hitTest?.length ? { 'minecraft:custom_hit_test': { hitboxes: hitTestAtSize(options.hitTest, scale, options.hitTestMaxHalf) } } : {}),
+    };
+    events[name] = { remove: { component_groups: names.filter(n => n !== name) }, add: { component_groups: [name] } };
+  }
+  return { ...b, 'minecraft:entity': { ...e, component_groups: groups, events } };
+}
+
+// ─── Collider runs ───────────────────────────────────────────────────────────
+
+/** The pair codec lives with the scaled grid (bedrock-collider-scale.ts); re-exported so callers keep one import. */
+export { colliderPairIndex, colliderPairOf };
+
+/**
+ * Run-length code: `[valueChar][countChar]` pairs, count 1..200 as char
+ * 40+n−1. The value is 0 for air, else `v·136 + pair` - the collider pair
+ * index (1..136, `colliderPairIndex`) of a cell whose clearance form is
+ * variant `v` (collider-form.ts; 0 = the full-footprint collider, so a pack
+ * without clearance encodes exactly as before) - as char 40+value.
+ */
+const RUN_BASE = 40, RUN_MAX = 200;
+/** Collider pairs per variant in a run value. */
+export const RUN_PAIRS = 136;
+/** A run value's variant and pair (value > 0). */
+export const runValueOf = (value: number): { v: number; lo: number; hi: number } => {
+  const v = Math.floor((value - 1) / RUN_PAIRS);
+  const [lo, hi] = colliderPairOf(value - v * RUN_PAIRS);
+  return { v, lo, hi };
+};
+
+/**
+ * Encode a grid of collider states (`craftmatic:collider[lo=…,hi=…]`, or a
+ * clearance form `craftmatic:collider_<kind><shape>[lo=…,hi=…]`) as runs over
+ * `(x*height + y)*length + z`. Anything that is not a collider - air, or a
+ * scene block such as a door - is 0. Pure and small enough to ship inside the
+ * pack's script config (a 60×40×60 castle is a few KB after the air runs).
+ */
+export function encodeColliderRuns(
+  grid: { width: number; height: number; length: number; get(x: number, y: number, z: number): string },
+  block: string,
+): { runs: string; colliders: number; keptCells: number } {
+  const re = new RegExp(`^(${block.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:_[a-z]\\d+)?)\\[lo=(\\d+),hi=(\\d+)\\]$`);
+  let out = '', prev = -1, count = 0, colliders = 0, keptCells = 0;
+  const flush = (): void => {
+    while (count > 0) {
+      const n = Math.min(RUN_MAX, count);
+      out += String.fromCharCode(RUN_BASE + prev) + String.fromCharCode(RUN_BASE + n - 1);
+      count -= n;
+    }
+  };
+  for (let x = 0; x < grid.width; x++) for (let y = 0; y < grid.height; y++) for (let z = 0; z < grid.length; z++) {
+    const state = grid.get(x, y, z);
+    let v = 0;
+    const m = re.exec(state);
+    if (m) {
+      const variant = Math.max(0, COLLIDER_KIT.variantOf(m[1]!));
+      v = variant * RUN_PAIRS + colliderPairIndex(Number(m[2]), Number(m[3])); colliders++;
+    }
+    else if (state !== 'minecraft:air') keptCells++;
+    if (v === prev) { count++; continue; }
+    flush();
+    prev = v; count = 1;
+  }
+  flush();
+  return { runs: out, colliders, keptCells };
+}
+
+/** Decode runs back to a flat array of run values (0 = air; a full cell's value is its pair index). Exported for tests. */
+export function decodeColliderRuns(runs: string): Uint16Array {
+  const cells: number[] = [];
+  for (let k = 0; k + 1 < runs.length; k += 2) {
+    const v = runs.charCodeAt(k) - RUN_BASE, n = runs.charCodeAt(k + 1) - RUN_BASE + 1;
+    for (let j = 0; j < n; j++) cells.push(v);
+  }
+  return Uint16Array.from(cells);
+}
+
+/** The solid cells of a shipped collider grid, decoded from its runs. */
+export function colliderSourceCells(c: Pick<PlacementColliders, 'width' | 'height' | 'length' | 'runs'>): SourceCell[] {
+  const cells = decodeColliderRuns(c.runs);
+  const out: SourceCell[] = [];
+  for (let i = 0; i < cells.length; i++) {
+    const v = cells[i]!;
+    if (v === 0) continue;
+    const cell = runValueOf(v);
+    out.push({ z: i % c.length, y: Math.floor(i / c.length) % c.height, x: Math.floor(i / (c.length * c.height)), lo: cell.lo, hi: cell.hi, ...(cell.v ? { v: cell.v } : {}) });
+  }
+  return out;
+}
+
+/**
+ * Tread plan code: 7 chars per block - x, y, z as two base-200 digits each
+ * (char 40 + digit, high digit first) and the collider pair index as one
+ * char (40 + index). Coordinates are world blocks from the pin at that size
+ * and turn (up to 39,999, far past a 400 % footprint).
+ */
+const TREAD_DIGIT_BASE = 200;
+export function encodeTreadPlan(blocks: readonly TreadBlock[]): string {
+  const digits = (v: number): string => {
+    if (v < 0 || v >= TREAD_DIGIT_BASE * TREAD_DIGIT_BASE) throw new Error(`tread coordinate out of range: ${v}`);
+    return String.fromCharCode(RUN_BASE + Math.floor(v / TREAD_DIGIT_BASE)) + String.fromCharCode(RUN_BASE + v % TREAD_DIGIT_BASE);
+  };
+  return blocks.map(b => `${digits(b.x)}${digits(b.y)}${digits(b.z)}${String.fromCharCode(RUN_BASE + colliderPairIndex(b.lo, b.hi))}`).join('');
+}
+
+/** Inverse of `encodeTreadPlan`. */
+export function decodeTreadPlan(plan: string): TreadBlock[] {
+  const out: TreadBlock[] = [];
+  for (let k = 0; k + 6 < plan.length; k += 7) {
+    const v = (o: number): number => (plan.charCodeAt(k + o) - RUN_BASE) * TREAD_DIGIT_BASE + plan.charCodeAt(k + o + 1) - RUN_BASE;
+    const [lo, hi] = colliderPairOf(plan.charCodeAt(k + 6) - RUN_BASE);
+    out.push({ x: v(0), y: v(2), z: v(4), lo, hi });
+  }
+  return out;
+}
+
+/** The planner's rule in one sentence, carried in the pack's diagnostics beside the counts. */
+export const TREAD_RULE = 'An invisible step is laid only where a rise between two standable surfaces exceeds the player\'s 1.25-block jump at the chosen size while being within that jump in the 100 % grid (a rise the model\'s own figures climb) or, where that 1-block grid reads a stud-stepped climb as a cliff, onto a top the export\'s fine reach walk stood on at 100 %, laid back over floor the player already reaches, in half-block hops where the floor allows and the fewest jump-height hops otherwise, keeping full standing headroom; a run that would make any previously reachable surface unreachable is reverted, so reachability only grows. A straight climb (a hill or a stair) whose riser exceeds the 1.2-block auto-jump also gets one, in auto-jump hops, kept only where the per-tick walker with auto-jump then climbs it and no other straight walk into its columns gets shorter. Above 100 %, where a surface the player reaches meets a fall of more than 4 blocks, the column it would fall into gets an invisible rail 1.5 blocks tall (on the footprint\'s border a surface these steps made reachable is capped instead; the model\'s own border edge is left open), read over the full cells and again over the clearance forms, never in a doorway and never cutting off a surface reached before.';
+
+/** The colliders with their tread plans attached, and the per-plan report (`withColliderTreads`). */
+export interface ColliderTreadsResult { colliders: PlacementColliders; report: PlacementTreadReport }
+
+/**
+ * One tread planning job: the planner's inputs, prepared once, and a `plan(pct, r)` step that adds one size
+ * and turn's plan to the result. Shared by the sync and async entry points so they cannot drift.
+ */
+/**
+ * What the per-size carve is cut to (collider-carve.ts): the drawn boxes the 100 % grid was built from, in model
+ * blocks at 100 % (`ModelBox`), and the source cells that are invisible on purpose (`planSizeCarve`'s `protect`).
+ */
+export interface CarveSource { boxes: readonly ModelBox[]; protect?: ReadonlySet<string> }
+
+function colliderTreadsJob(colliders: PlacementColliders, targets: readonly ReachTarget[], doorCells: ReadonlyArray<readonly (number | undefined)[]>, fineReach?: FineReachColumns, carveSource?: CarveSource): { plan: (pct: number, r: QuarterTurn) => void; result: () => ColliderTreadsResult } {
+  // Planned over the grid as it was BEFORE clearance: every clearance form
+  // (collider-form.ts) read as the full cell over its vertical extent. A tread
+  // only ever fills a column the planner found standable and clear, and its
+  // never-block check then holds in a world at least as blocked as the one the
+  // pack lays - a form only adds room. Planning on the forms themselves opens
+  // columns at 300-400 % that the planner's fast path then fails to verify, and
+  // its slow path took 10261 from 70 s to 190 s to export (2026-09-25).
+  const cells = colliderSourceCells(colliders).map(c => {
+    if (!c.v) return c;
+    const boxes = COLLIDER_KIT.formBoxes(c.v, c.lo, c.hi);
+    return { x: c.x, y: c.y, z: c.z, lo: Math.min(...boxes.map(b => b[2])), hi: Math.max(...boxes.map(b => b[3])) };
+  });
+  const dims = { width: colliders.width, height: colliders.height, length: colliders.length };
+  // The lane pass judges its runs physically, over the shipped FORMS (not the full-cell reading above).
+  const formCells = colliderSourceCells(colliders);
+  const plans: Record<string, string> = {}, counts: Record<string, number> = {};
+  const carvesPlanned = new Map<string, SizeCarve>();
+  const report: PlacementTreadReport = { rule: TREAD_RULE, plans: [] };
+  const blocksAt100 = (t16: number, f: number): number => Math.round(t16 / 16 / f * 100) / 100;
+  return {
+    plan(pct, r) {
+      // The carve first (over the shipped forms, as the runtime lays them); the treads are planned over it.
+      const carve = carveSource && carvesAt(pct) ? planSizeCarve(formCells, dims, pct, r, carveSource.boxes, carveSource.protect) : undefined;
+      if (carve?.size) carvesPlanned.set(`${pct}:${r}`, carve);
+      const plan = planColliderTreads(cells, dims, pct, r, targets, doorCells, { walk: colliderLaneWalk(formCells, dims, pct, r, carve), cells: formCells }, fineReach, carve);
+      const f = pct / 100;
+      const { blocks, guardBlocks: _guardBlocks, before, after, ...rest } = plan;
+      report.plans.push({ ...rest, blocks: blocks.length, before: { surfaces: before.surfaces, columns: before.columns, highestBlocks: blocksAt100(before.highest16, f) }, after: { surfaces: after.surfaces, columns: after.columns, highestBlocks: blocksAt100(after.highest16, f) } });
+      if (!blocks.length) return;
+      const key = `${pct}:${r}`;
+      plans[key] = encodeTreadPlan(blocks);
+      counts[key] = blocks.length;
+    },
+    result: () => ({
+      colliders: {
+        ...colliders,
+        ...(Object.keys(plans).length ? { treads: { plans, counts } } : {}),
+        ...(carvesPlanned.size ? { carves: shippedCarves(carvesPlanned, dims) } : {}),
+      },
+      report,
+    }),
+  };
+}
+
+/**
+ * The planned carves as a pack ships them (`ShippedCarves`): turn 0 whole, every other turn as its edits against
+ * turn 0 turned. Built after every turn is planned, so the planning order does not matter.
+ */
+function shippedCarves(planned: ReadonlyMap<string, SizeCarve>, dims: { width: number; length: number }): ShippedCarves {
+  const plans: Record<string, string> = {}, turned: Record<string, string> = {}, counts: Record<string, number> = {};
+  for (const [key, carve] of planned) {
+    const [pct, r] = key.split(':').map(Number) as [number, number];
+    counts[key] = carve.size;
+    if (r === 0) plans[key] = encodeSizeCarve(carve);
+    else turned[key] = encodeTurnedCarve(planned.get(`${pct}:0`), carve, pct, r, dims);
+  }
+  return { plans, ...(Object.keys(turned).length ? { turned } : {}), counts };
+}
+
+/** Every planned size step (above 100 %) and quarter turn, in planning order. */
+function treadPlanSteps(): Array<[number, QuarterTurn]> {
+  return SIZE_STEPS.filter(pct => pct > 100).flatMap(pct => QUARTER_TURNS.map(r => [pct, r] as [number, QuarterTurn]));
+}
+
+/**
+ * Plan treads for every size step above 100 % and every quarter turn, and
+ * attach the encoded plans to the shipped colliders. 100 % is never planned:
+ * the tiles carry the grid verbatim and the planner is empty there by
+ * construction (asserted in test/bedrock-collider-treads.test.ts).
+ */
+export function withColliderTreads(colliders: PlacementColliders, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], fineReach?: FineReachColumns, carveSource?: CarveSource): ColliderTreadsResult {
+  const job = colliderTreadsJob(colliders, targets, doorCells, fineReach, carveSource);
+  for (const [pct, r] of treadPlanSteps()) job.plan(pct, r);
+  return job.result();
+}
+
+/**
+ * `withColliderTreads`, yielding to the event loop between plans. One large set's 16 plans run for minutes
+ * since the lane and guard passes (10261: ~180 s); in one synchronous stretch that starved the vitest
+ * worker's RPC ("Timeout calling onTaskUpdate", 2026-10-08) and would freeze a page's main thread the same
+ * way. The async export path (`buildPlayableAddon`) plans here and hands the result to
+ * `buildPlacementPackAssets` as `spec.plannedTreads`.
+ */
+export async function withColliderTreadsAsync(colliders: PlacementColliders, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], fineReach?: FineReachColumns, carveSource?: CarveSource): Promise<ColliderTreadsResult> {
+  const job = colliderTreadsJob(colliders, targets, doorCells, fineReach, carveSource);
+  for (const [pct, r] of treadPlanSteps()) {
+    job.plan(pct, r);
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+  }
+  return job.result();
+}
+
+/**
+ * Ticks a lane walk may take per block of its limit, and over them: the walk makes ~0.216 blocks a tick, and an
+ * auto-jump's climb (a tick's decision, the arc) costs it ~6 more per riser - a riser every block at most.
+ */
+const LANE_TICKS_PER_BLOCK = 12, LANE_TICKS_EXTRA = 20;
+
+/**
+ * The tread planner's lane check (`LaneWalk`, bedrock-collider-scale.ts): the walk preview's per-tick player,
+ * AUTO-JUMP on and nothing pressed, walking straight over the colliders as the runtime lays them at this size
+ * and turn - every clearance form as itself - with the treads it is handed laid over them (as the runtime lays
+ * a tread: the row's block replaced). One world per size and turn; each call re-lays only the treads.
+ */
+export function colliderLaneWalk(formCells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, carve?: SizeCarve): LaneWalk {
+  let world: WalkWorld | undefined;
+  /** The treads laid in the world now, `"x,row,z"` -> `"lo,hi"`: each call re-lays only what changed. */
+  const laid = new Map<string, string>();
+  let lastList: readonly TreadBlock[] | undefined;
+  const relay = (w: WalkWorld, treads: readonly TreadBlock[]): void => {
+    const want = new Map<string, string>(treads.map(b => [`${b.x},${b.y},${b.z}`, `${b.lo},${b.hi}`]));
+    const changes = new Map<string, readonly number[] | null>();
+    for (const [k, v] of want) if (laid.get(k) !== v) changes.set(k, v.split(',').map(Number));
+    for (const k of laid.keys()) if (!want.has(k)) changes.set(k, null);
+    if (!changes.size) return;
+    w.patchOverlayBlocks(changes);
+    for (const [k, v] of changes) { if (v) laid.set(k, v.join(',')); else laid.delete(k); }
+  };
+  return (treads, from, dir, limit) => {
+    world ??= new WalkWorld({ cells: formCells, dims, sizePct, rotation, treads: [], ...(carve ? { carve } : {}) });
+    // The same list as the last call (the planner hands back its cached array between changes): nothing to re-lay.
+    if (treads !== lastList) relay(world, treads);
+    lastList = treads;
+    let s: PlayerState = { x: from.x, y: from.y, z: from.z, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 };
+    // The start is a column's floor as the grid reads it (a form's whole cell), so the body may first fall onto
+    // the form's real top: the highest it STOOD counts from its first landing.
+    let best = 0, top = -Infinity;
+    const ticks = Math.ceil(limit * LANE_TICKS_PER_BLOCK) + LANE_TICKS_EXTRA;
+    for (let t = 0; t < ticks; t++) {
+      s = tickPlayer(world, s, { move: dir, jump: false, sneak: false, autoJump: true }).state;
+      if (s.onGround) top = Math.max(top, s.y);
+      // Fell off the lane (a block under the highest it stood): the walk ends there.
+      if (s.y < top - 1) break;
+      best = Math.max(best, (s.x - from.x) * dir.x + (s.z - from.z) * dir.z);
+      if (best >= limit) return limit;
+    }
+    return best;
+  };
+}
+
+/** The shipped carve for a size and turn (collider-carve.ts), or undefined when the pack carries none there. */
+export function carveFor(colliders: PlacementColliders, sizePct: number, rotation: QuarterTurn): SizeCarve | undefined {
+  return sizeCarveAt(colliders.carves, sizePct, rotation, colliders, COLLIDER_KIT.turnForm);
+}
+
+/** Blocks a tread plan changes, for a size and turn, from the shipped colliders. */
+export function treadBlocksFor(colliders: PlacementColliders, sizePct: number, rotation: QuarterTurn): TreadBlock[] {
+  const plan = colliders.treads?.plans[`${sizePct}:${rotation}`];
+  return plan ? decodeTreadPlan(plan) : [];
+}
+
+const enc = new TextEncoder();
+const text = (value: string) => enc.encode(value.endsWith('\n') ? value : `${value}\n`);
+
+// Serialized into each generated pack. Keep this function plain JavaScript so
+// its toString() output is a valid Bedrock script module after TS transpilation.
+function placementRuntime(config: any, openVehicleControls: ((player: any) => Promise<void>) | undefined, kit: ColliderFormKit, carveAt: typeof sizeCarveAt) {
+  // Bedrock's form renderer drops a bare `%` ("100%" rendered "100" on the Pixel, 2026-09-21); the word, as playable-addon.ts's bedrockInGameText.
+  const percent = (n: any) => `${n} percent`;
+  const states = new Map(), previews = new Set(), histories = new Map(), held = new Set(), showing = new Set();
+  // Dynamic properties survive a behavior-pack script reload. Keep this small:
+  // marked chairs are explicit user intent, never inferred furniture candidates.
+  const seatStoreKey = `craftmatic:${config.id}:manual_seats`, manualSeatCap = 12;
+  let active: any;
+  const rotations = [0, 90, 180, 270];
+  const sizes: number[] = config.sizes && config.sizes.length ? config.sizes : [100];
+  const nextDoorSize = (size: number): number | undefined => {
+    const pending = (config.runtimeDoorCandidates || []).map((d: any) => d.requiredSize).filter((required: number) => required > size);
+    return pending.length ? Math.min(...pending) : undefined;
+  };
+  const sizeEvent = (pct: number) => `${config.sizeEventPrefix || 'craftmatic:size_'}${pct}`;
+  /**
+   * After a size event, a freshly spawned actor takes no tap or hold at all
+   * until it has really MOVED (quirk `size-event-pick-needs-move`, Saga and
+   * Pixel round 30zd: a 50 % McLaren refused 0/34 presses; `tp ~ ~0.01 ~`
+   * made it pickable, `tp ~ ~ ~` did not). So it is lifted SIZE_PICK_NUDGE
+   * and set back, each a tick apart, ending exactly where it was spawned.
+   * Only a RIDEABLE is nudged (what a child boards: a vehicle, a seat, a
+   * coaster car): a teleported rider leaves its seat (quirk `tp-dismounts`),
+   * so a figure seated by the later pass is never moved, and a door's own
+   * runtime moves it on its first sync.
+   */
+  const SIZE_PICK_NUDGE = 0.01; // blocks: the lift measured to work (Saga 30zd)
+  const settleSized = (entity: any): void => {
+    try { if (!entity.getComponent('minecraft:rideable')) return; } catch { return; }
+    system.runTimeout(() => {
+      try {
+        const at = entity.location, rotation = entity.getRotation();
+        entity.teleport({ x: at.x, y: at.y + SIZE_PICK_NUDGE, z: at.z }, { rotation, keepVelocity: false });
+        system.runTimeout(() => { try { entity.teleport(at, { rotation, keepVelocity: false }); } catch { /* gone */ } }, 1);
+      } catch { /* gone or unloaded */ }
+    }, 1);
+  };
+  // The measured walk-through size (bedrock-scene-actors.ts). A RECOMMENDATION:
+  // the wand names the step and quotes the whole reason; it never resizes by itself.
+  const access = config.access || null;
+  const recommendedSize: number = access && access.sizePct ? access.sizePct : 0;
+  const sizeLabel = (pct: number) => `${percent(pct)}${pct === recommendedSize ? ' (recommended)' : ''}`;
+  /** The measurement as one line for a menu body, with the reason carried whole. */
+  const walkThroughLine = (): string => !access || !access.reason ? ''
+    : `\n\n§aWalk-through: ${recommendedSize ? `${percent(recommendedSize)}` : 'no size fits'}§r — ${access.reason}`;
+  // A pack with no block structure (a vehicle, a figure) may turn in 15° steps; blocks turn by 90°.
+  const fineTurn = config.tiles.length === 0;
+  const turnStep = fineTurn ? 15 : 90;
+  const tell = (p: any, s: string) => { try { p.sendMessage(`§b[Brick Wand]§r ${s}`); } catch {} };
+  const wait = (ticks: number) => new Promise(resolve => system.runTimeout(resolve, ticks));
+  const show = async (p: any, form: any) => {
+    if (showing.has(p.id)) return { canceled: true };
+    showing.add(p.id);
+    try { return await form.show(p); }
+    catch (e: any) { tell(p, `Menu unavailable: ${e.message || e}`); return { canceled: true }; }
+    finally { showing.delete(p.id); }
+  };
+  const areaPrefix = `cm_${config.shortAlias}_${Date.now().toString(36).slice(-4)}`;
+  let areaCounter = 0, loadedAreaId: any, loadedDimension: any;
+  const unload = async () => {
+    const id = loadedAreaId, dimension = loadedDimension;
+    loadedAreaId = undefined; loadedDimension = undefined;
+    if (!id || !dimension) return;
+    try { dimension.runCommand(`tickingarea remove ${id}`); } catch {}
+    await wait(2);
+  };
+  const load = async (dimension: any, from: any, to: any) => {
+    await unload();
+    const fx = Math.floor(Math.min(from.x, to.x)), fz = Math.floor(Math.min(from.z, to.z));
+    const tx = Math.floor(Math.max(from.x, to.x)), tz = Math.floor(Math.max(from.z, to.z));
+    const range = dimension.heightRange, y = Math.max(range.min, Math.min(range.max - 1, Math.floor(from.y ?? 0)));
+    const areaId = `${areaPrefix}_${++areaCounter}`;
+    try {
+      const result = dimension.runCommand(`tickingarea add ${fx} ${y} ${fz} ${tx} ${y} ${tz} ${areaId} true`);
+      if (result?.successCount === 0) throw new Error('tickingarea command reported successCount 0');
+      loadedAreaId = areaId; loadedDimension = dimension;
+    }
+    catch (e: any) { throw new Error(`Could not preload the build area: ${e.message || e}`); }
+    await wait(2);
+    const probes = [];
+    for (let cx = Math.floor(fx / 16); cx <= Math.floor(tx / 16); cx++) for (let cz = Math.floor(fz / 16); cz <= Math.floor(tz / 16); cz++) {
+      probes.push({ x: Math.max(fx, Math.min(tx, cx * 16 + 8)), y, z: Math.max(fz, Math.min(tz, cz * 16 + 8)) });
+    }
+    let lastFailure = 'no probe result';
+    for (let elapsed = 0; elapsed <= 600; elapsed += 2) {
+      if (active?.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
+      let ready = true;
+      for (const q of probes) try {
+        if (!dimension.getBlock(q)) { ready = false; lastFailure = `${q.x},${q.y},${q.z} returned undefined`; break; }
+      } catch (e: any) {
+        ready = false; lastFailure = `${q.x},${q.y},${q.z} threw ${e?.name || 'Error'}: ${e?.message || e}`; break;
+      }
+      if (ready) return;
+      if (elapsed === 600) {
+        console.warn(`BRICK_WAND_LOAD_TIMEOUT ${areaId} ${lastFailure}`);
+        throw new Error(`Timed out waiting for the build area to load; probe ${lastFailure}. Use Undo to restore any changed area.`);
+      }
+      await wait(2);
+    }
+  };
+  const readManualSeats = (p: any) => {
+    try {
+      const saved = JSON.parse(String(p.getDynamicProperty?.(seatStoreKey) || '{}'));
+      const anchors = Array.isArray(saved.anchors) ? saved.anchors.filter((v: any) => [v.x, v.y, v.z, v.yaw].every(Number.isFinite)).slice(0, manualSeatCap) : [];
+      const entityIds = Array.isArray(saved.entityIds) ? saved.entityIds.filter((v: any) => typeof v === 'string').slice(0, manualSeatCap) : [];
+      return { anchors, entityIds };
+    } catch { return { anchors: [], entityIds: [] }; }
+  };
+  const saveManualSeats = (p: any, st: any) => {
+    try { p.setDynamicProperty?.(seatStoreKey, JSON.stringify({ anchors: (st.manualSeats || []).slice(0, manualSeatCap), entityIds: (st.manualSeatIds || []).slice(0, manualSeatCap) })); }
+    catch (e: any) { tell(p, `§eMarked seats cannot persist for this player (${e?.message || e}). They still last until this script reloads.`); }
+  };
+  // ── The Undo record survives a reload and a restart ──
+  // `histories` is this script's memory and a world reload empties it, which
+  // left agents cleaning a placement up by hand (2026-09-25). So the record
+  // (the dimension, the block snapshots, the spawned entity ids, the box it
+  // covered and the tag every spawned entity carries) is also written to the
+  // PLAYER's dynamic properties, which the world saves with the player, and
+  // the snapshots are saved into the WORLD (StructureSaveMode.World), not
+  // memory. A string property holds at most 32,767 characters, so the JSON is
+  // split over numbered keys: `<key>` = "<count>:<chunk 0>", `<key>:<i>` = chunk i.
+  const undoKey = `craftmatic:${config.id}:undo`, UNDO_CHUNK = 30000, UNDO_MAX_CHUNKS = 64;
+  const undoChunks = (p: any): number => {
+    try { const head = String(p.getDynamicProperty?.(undoKey) ?? ''); const n = Number(head.slice(0, head.indexOf(':'))); return Number.isInteger(n) && n > 0 ? Math.min(n, UNDO_MAX_CHUNKS) : 0; } catch { return 0; }
+  };
+  const clearHistory = (p: any) => {
+    const n = undoChunks(p);
+    try { p.setDynamicProperty?.(undoKey, undefined); } catch {}
+    for (let i = 1; i < n; i++) try { p.setDynamicProperty?.(`${undoKey}:${i}`, undefined); } catch {}
+  };
+  const saveHistory = (p: any, h: any) => {
+    const text = JSON.stringify({ v: 1, dimension: h.dimension, backups: h.backups, entities: h.entities, bounds: h.bounds, tag: h.tag });
+    const n = Math.max(1, Math.ceil(text.length / UNDO_CHUNK));
+    if (n > UNDO_MAX_CHUNKS) { tell(p, `§eThis placement's Undo record is too large to keep across a reload (${text.length} characters); Undo works until the world closes.`); clearHistory(p); return; }
+    try {
+      clearHistory(p);
+      p.setDynamicProperty?.(undoKey, `${n}:${text.slice(0, UNDO_CHUNK)}`);
+      for (let i = 1; i < n; i++) p.setDynamicProperty?.(`${undoKey}:${i}`, text.slice(i * UNDO_CHUNK, (i + 1) * UNDO_CHUNK));
+    } catch (e: any) { tell(p, `§eUndo cannot persist for this player (${e?.message || e}); it works until the world closes.`); }
+  };
+  const loadHistory = (p: any) => {
+    const n = undoChunks(p);
+    if (!n) return undefined;
+    try {
+      const head = String(p.getDynamicProperty?.(undoKey));
+      let text = head.slice(head.indexOf(':') + 1);
+      for (let i = 1; i < n; i++) text += String(p.getDynamicProperty?.(`${undoKey}:${i}`) ?? '');
+      const h = JSON.parse(text);
+      if (!h || h.v !== 1 || typeof h.dimension !== 'string' || !Array.isArray(h.backups) || !Array.isArray(h.entities)) return undefined;
+      return { dimension: h.dimension, backups: h.backups, entities: h.entities, bounds: h.bounds, tag: h.tag };
+    } catch { return undefined; }
+  };
+  /** This player's last placement: the script's memory, else the record a previous session saved. */
+  const historyOf = (p: any) => {
+    if (!histories.has(p.id)) { const saved = loadHistory(p); if (saved) histories.set(p.id, saved); }
+    return histories.get(p.id);
+  };
+  const setHistory = (p: any, h: any) => { histories.set(p.id, h); saveHistory(p, h); };
+  const dropHistory = (p: any) => { histories.delete(p.id); clearHistory(p); };
+  // A vehicle can leave its placement's box and then unload. `world.getEntity`
+  // cannot see it at Undo/re-place time, so remember that exact retired
+  // placement until each missing actor next loads. One world property per
+  // placement (chunked over numbered properties when necessary) avoids an
+  // ever-growing aggregate string and is deleted as soon as all of its known
+  // actor ids have been removed.
+  const retiredPrefix = `craftmatic:${config.shortAlias}:retired:`, retiredTagPrefix = `cmu_${config.shortAlias}_`;
+  const RETIRED_CHUNK = 30000, RETIRED_MAX_CHUNKS = 64;
+  const retirements = new Map<string, { ids: Set<string> }>();
+  const retiredKey = (tag: string) => `${retiredPrefix}${tag}`;
+  const retiredChunks = (key: string): number => {
+    try {
+      const head = String(world.getDynamicProperty?.(key) ?? ''), colon = head.indexOf(':'), n = Number(head.slice(0, colon));
+      return Number.isInteger(n) && n > 0 ? Math.min(n, RETIRED_MAX_CHUNKS) : 0;
+    } catch { return 0; }
+  };
+  const clearRetirement = (key: string, knownChunks?: number): boolean => {
+    if (typeof world.setDynamicProperty !== 'function') return false;
+    const n = knownChunks ?? retiredChunks(key);
+    try {
+      world.setDynamicProperty(key, undefined);
+      for (let i = 1; i < n; i++) world.setDynamicProperty(`${key}:${i}`, undefined);
+      return true;
+    } catch { return false; }
+  };
+  const loadRetirements = (): boolean => {
+    try {
+      for (const key of world.getDynamicPropertyIds?.() || []) {
+        if (!key.startsWith(retiredPrefix) || key.slice(retiredPrefix.length).includes(':')) continue;
+        try {
+          const n = retiredChunks(key);
+          if (!n) continue;
+          const head = String(world.getDynamicProperty?.(key) ?? '');
+          let text = head.slice(head.indexOf(':') + 1);
+          for (let i = 1; i < n; i++) text += String(world.getDynamicProperty?.(`${key}:${i}`) ?? '');
+          const saved = JSON.parse(text);
+          if (!saved || saved.v !== 1 || typeof saved.tag !== 'string' || !saved.tag.startsWith(retiredTagPrefix) || retiredKey(saved.tag) !== key || !Array.isArray(saved.ids)) continue;
+          const ids = new Set<string>(saved.ids.filter((id: any) => typeof id === 'string'));
+          if (ids.size) retirements.set(saved.tag, { ids });
+        } catch { /* a corrupt record retires nothing */ }
+      }
+      return true;
+    } catch (e: any) {
+      console.warn(`BRICK_WAND_RETIRED_LOAD ${e?.message || e}`);
+      return false; // the saved properties remain intact; a later script start retries
+    }
+  };
+  const persistRetirement = (tag: string, ids: Set<string>): boolean => {
+    if (!tag.startsWith(retiredTagPrefix)) return false;
+    const key = retiredKey(tag);
+    if (!ids.size) {
+      retirements.delete(tag);
+      return clearRetirement(key);
+    }
+    const r = retirements.get(tag) || { ids };
+    if (r.ids !== ids) for (const id of ids) r.ids.add(id);
+    retirements.set(tag, r);
+    if (typeof world.setDynamicProperty !== 'function') return false;
+    const text = JSON.stringify({ v: 1, tag, ids: [...r.ids] }), n = Math.max(1, Math.ceil(text.length / RETIRED_CHUNK));
+    if (n > RETIRED_MAX_CHUNKS) return false;
+    const old = retiredChunks(key);
+    try {
+      world.setDynamicProperty(key, `${n}:${text.slice(0, RETIRED_CHUNK)}`);
+      for (let i = 1; i < n; i++) world.setDynamicProperty(`${key}:${i}`, text.slice(i * RETIRED_CHUNK, (i + 1) * RETIRED_CHUNK));
+      for (let i = n; i < old; i++) world.setDynamicProperty(`${key}:${i}`, undefined);
+      return true;
+    } catch { return false; }
+  };
+  const sweepRetiredEntity = (e: any): void => {
+    for (const [tag, r] of retirements) {
+      let match = r.ids.has(e?.id);
+      if (!match) try { match = e?.hasTag?.(tag) === true; } catch {}
+      if (!match) continue;
+      const id = e.id;
+      try { e.remove(); } catch { return; }
+      if (r.ids.delete(id)) persistRetirement(tag, r.ids);
+      return;
+    }
+  };
+  /** The world property mapping an old whole-model shell actor's id to the chunk ids it was migrated into (`migrateShell`). */
+  const migratedKey = (legacyEntityId: string) => `craftmatic:${config.shortAlias}:migrated:${legacyEntityId}`;
+  const retireActors = (h: any): { missing: Set<string>; persisted: boolean } => {
+    const missing = new Set<string>();
+    // An old whole-model shell that `migrateShell` replaced is gone; its
+    // record maps to the chunk actors that stand in its place, so those are
+    // what this placement retires (by id now, by tag or id when they load).
+    const ids: any[] = [];
+    for (const id of h.entities || []) {
+      let mapped: string[] | undefined;
+      if (typeof id === 'string') try {
+        const saved = world.getDynamicProperty?.(migratedKey(id));
+        if (typeof saved === 'string') { const parsed = JSON.parse(saved); if (Array.isArray(parsed)) mapped = parsed.filter((v: any) => typeof v === 'string'); }
+      } catch {}
+      if (!mapped) { ids.push(id); continue; }
+      ids.push(...mapped);
+      try { world.setDynamicProperty(migratedKey(id), undefined); } catch {}
+    }
+    for (const id of ids) {
+      let e: any;
+      try { e = world.getEntity(id); } catch {}
+      if (e) { try { e.remove(); continue; } catch {} }
+      if (typeof id === 'string') missing.add(id);
+    }
+    // Also remove loaded actors whose ids are no longer resolvable from the
+    // saved record. Tags are unique to this one placement.
+    if (h.tag) try {
+      for (const e of world.getDimension(h.dimension).getEntities({ tags: [h.tag] }) || []) {
+        try { const id = e.id; e.remove(); missing.delete(id); } catch {}
+      }
+    } catch {}
+    const persisted = !!h.tag && (!missing.size || persistRetirement(h.tag, missing));
+    return { missing: h.tag && retirements.get(h.tag)?.ids || missing, persisted };
+  };
+  system.run(() => {
+    // World dynamic properties can reject reads during early module execution;
+    // the first scheduled turn is the earliest reliable startup point.
+    if (!loadRetirements()) return;
+    for (const [tag, r] of [...retirements]) {
+      // IDs catch a loaded actor even if another runtime stripped its tag.
+      for (const id of [...r.ids]) try { const e = world.getEntity(id); if (e) sweepRetiredEntity(e); } catch {}
+      for (const id of ['overworld', 'nether', 'the_end']) {
+        try { for (const e of world.getDimension(id).getEntities({ tags: [tag] }) || []) sweepRetiredEntity(e); } catch { /* no such dimension */ }
+      }
+    }
+  });
+  world.afterEvents.entityLoad?.subscribe((ev: any) => sweepRetiredEntity(ev.entity));
+  // ── Old whole-model shells → lattice chunks ──
+  // A pack that draws its building with locally rooted chunks (splitStaticShell,
+  // bedrock-building-shell.ts) keeps the old shell's entity type defined with
+  // no geometry, and this turns each old actor a saved world still holds into
+  // the chunks: spawned at the old root plus the chunk's offset turned by the
+  // old actor's yaw and sized by its `minecraft:scale`, carrying its yaw, size
+  // step, label and tags - the placement's tag is what Undo retires by.
+  // Idempotent: the chunk ids already spawned are listed ON the old actor
+  // (`craftmatic:shell_migrated`), so a reload between a spawn and the removal
+  // never doubles one; a chunk whose spot is not loaded yet is retried while
+  // the old actor lives. The old actor's id stays in its placement's Undo
+  // record; `retireActors` reads the chunk ids it maps to (one world property
+  // per migrated actor, `migratedKey`) and retires those instead.
+  const shellMigrationOf = new Map<string, any>();
+  for (const m of config.shellMigrations || []) shellMigrationOf.set(m.legacyTypeId, m);
+  const MIGRATED_KEY = 'craftmatic:shell_migrated', MIGRATION_RETRY_TICKS = 20, MIGRATION_RETRIES = 30;
+  /** The wand's size step nearest a read `minecraft:scale` (an old actor at 200 % reads 2). */
+  const sizeStepOf = (f: number): number => { let best = sizes[0]!; for (const s of sizes) if (Math.abs(s - f * 100) < Math.abs(best - f * 100)) best = s; return best; };
+  const migrateShell = (e: any, attempt = 0): void => {
+    let m: any, loc: any, yaw = 0, f = 1, tags: string[] = [], label: any, done: Array<string | null> = [];
+    try {
+      if (!e) return;
+      const valid = typeof e.isValid === 'function' ? e.isValid() : e.isValid !== false;
+      if (!valid) return;
+      m = shellMigrationOf.get(e.typeId);
+      if (!m) return;
+      loc = e.location; yaw = Number(e.getRotation?.()?.y) || 0;
+      const scale = e.getComponent?.('minecraft:scale');
+      if (scale && Number.isFinite(scale.value) && scale.value > 0) f = scale.value;
+      try { tags = e.getTags?.() || []; } catch {}
+      try { label = e.getDynamicProperty?.('craftmatic:label'); } catch {}
+      try { const saved = JSON.parse(String(e.getDynamicProperty?.(MIGRATED_KEY) || '[]')); if (Array.isArray(saved)) done = saved.map((v: any) => (typeof v === 'string' ? v : null)); } catch {}
+    } catch { return; } // removed under us (a retirement sweep runs first on the same load)
+    const pct = sizeStepOf(f);
+    const a = yaw * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+    let pending = 0;
+    m.chunks.forEach((chunk: any, i: number) => {
+      if (typeof done[i] === 'string') return;
+      const o = chunk.offset;
+      // Bedrock's yaw turns +X toward +Z (the sense `pointAt` turns a placement by).
+      const at = { x: loc.x + (c * o[0] - s * o[2]) * f, y: loc.y + o[1] * f, z: loc.z + (s * o[0] + c * o[2]) * f };
+      try {
+        const spawned = e.dimension.spawnEntity(chunk.typeId, at);
+        done[i] = spawned.id;
+        // Written at once: a failure after this spawn must not spawn it again.
+        try { e.setDynamicProperty(MIGRATED_KEY, JSON.stringify(done)); } catch {}
+        try { spawned.setRotation({ x: 0, y: yaw }); } catch {}
+        for (const t of tags) try { spawned.addTag?.(t); } catch {}
+        if (label !== undefined) try { spawned.setDynamicProperty('craftmatic:label', label); } catch {}
+        if (pct !== 100) try { spawned.triggerEvent(sizeEvent(pct)); } catch {}
+      } catch { pending++; }
+    });
+    if (pending) {
+      if (attempt < MIGRATION_RETRIES) system.runTimeout(() => migrateShell(e, attempt + 1), MIGRATION_RETRY_TICKS);
+      else console.warn(`BRICK_WAND_SHELL_MIGRATION ${e.typeId}: ${pending} chunk${pending === 1 ? '' : 's'} could not be spawned (unloaded?); the old actor stays and is retried on its next load`);
+      return;
+    }
+    // Every chunk stands: record the mapping for Undo, then retire the old actor.
+    if (typeof world.setDynamicProperty === 'function') try { world.setDynamicProperty(migratedKey(e.id), JSON.stringify(done.filter((v: any) => typeof v === 'string'))); } catch {}
+    try { e.remove(); } catch {}
+  };
+  if (shellMigrationOf.size) {
+    world.afterEvents.entityLoad?.subscribe((ev: any) => migrateShell(ev.entity));
+    world.afterEvents.entitySpawn?.subscribe((ev: any) => migrateShell(ev.entity));
+    // Actors already loaded when the script starts raise no entityLoad.
+    system.run(() => {
+      for (const [typeId] of shellMigrationOf) for (const id of ['overworld', 'nether', 'the_end']) {
+        try { for (const e of world.getDimension(id).getEntities({ type: typeId }) || []) migrateShell(e); } catch { /* no such dimension */ }
+      }
+    });
+  }
+  const removeManualSeatEntities = (st: any) => {
+    for (const id of st.manualSeatIds || []) try { world.getEntity(id)?.remove(); } catch {}
+    st.manualSeatIds = [];
+  };
+  const state = (p: any) => {
+    if (!states.has(p.id)) {
+      const saved = readManualSeats(p);
+      states.set(p.id, { anchor: undefined, dimension: undefined, rotation: 0, size: 100, aim: false, manualSeats: saved.anchors, manualSeatIds: saved.entityIds });
+    }
+    return states.get(p.id);
+  };
+  const factor = (s: any) => (s.size || 100) / 100;
+  // Footprint of the model turned by r: exact swaps at multiples of 90°, the
+  // bounding box of the turned rectangle in between (entity-only packs).
+  const size = (r: number) => {
+    const rr = ((r % 360) + 360) % 360;
+    if (rr % 90 === 0) return rr % 180
+      ? { width: config.length, height: config.height, length: config.width }
+      : { width: config.width, height: config.height, length: config.length };
+    const a = rr * Math.PI / 180, c = Math.abs(Math.cos(a)), s = Math.abs(Math.sin(a));
+    return { width: Math.ceil(config.width * c + config.length * s), height: config.height, length: Math.ceil(config.width * s + config.length * c) };
+  };
+  // The footprint at the chosen size, in whole blocks.
+  const dims = (st: any) => {
+    const d = size(st.rotation), f = factor(st);
+    return { width: Math.max(1, Math.ceil(d.width * f)), height: Math.max(1, Math.ceil(d.height * f)), length: Math.max(1, Math.ceil(d.length * f)) };
+  };
+  const tileAt = (t: any, r: number) => {
+    if (r === 90) return { ...t, dx: config.length - t.dz - t.length, dz: t.dx, width: t.length, length: t.width };
+    if (r === 180) return { ...t, dx: config.width - t.dx - t.width, dz: config.length - t.dz - t.length };
+    if (r === 270) return { ...t, dx: t.dz, dz: config.width - t.dx - t.width, width: t.length, length: t.width };
+    return { ...t };
+  };
+  // A model point (blocks from the model's corner) inside the turned footprint.
+  const pointAt = (v: any, r: number) => {
+    const rr = ((r % 360) + 360) % 360;
+    if (rr === 90) return { x: config.length - v.z, y: v.y, z: v.x };
+    if (rr === 180) return { x: config.width - v.x, y: v.y, z: config.length - v.z };
+    if (rr === 270) return { x: v.z, y: v.y, z: config.width - v.x };
+    if (rr === 0) return { x: v.x, y: v.y, z: v.z };
+    // Fine turn about the footprint centre, in the world's sense (yaw +90 = the 90° case above).
+    const d = size(rr), a = rr * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+    const px = v.x - config.width / 2, pz = v.z - config.length / 2;
+    return { x: d.width / 2 + px * c - pz * s, y: v.y, z: d.length / 2 + px * s + pz * c };
+  };
+  // World position of a model point for a pinned state (turned, then sized about the pin).
+  const worldPoint = (st: any, v: any) => {
+    const q = pointAt(v, st.rotation), f = factor(st);
+    return { x: st.anchor.x + q.x * f, y: st.anchor.y + q.y * f, z: st.anchor.z + q.z * f };
+  };
+  // Inverse of the exact quarter-turn mappings above. Building packs turn in
+  // quarter turns, so a marked chair stays on the same LEGO chair through a
+  // rotate/resize/re-place instead of becoming a world-fixed marker.
+  const modelPoint = (st: any, world: any) => {
+    const f = factor(st), q = { x: (world.x - st.anchor.x) / f, y: (world.y - st.anchor.y) / f, z: (world.z - st.anchor.z) / f };
+    const r = ((st.rotation % 360) + 360) % 360;
+    if (r === 90) return { x: q.z, y: q.y, z: config.length - q.x };
+    if (r === 180) return { x: config.width - q.x, y: q.y, z: config.length - q.z };
+    if (r === 270) return { x: config.width - q.z, y: q.y, z: q.x };
+    return q;
+  };
+  // The turned, sized footprint centre relative to the pin.
+  const centreOffset = (st: any) => {
+    const q = pointAt({ x: config.width / 2, y: 0, z: config.length / 2 }, st.rotation), f = factor(st);
+    return { x: q.x * f, z: q.z * f };
+  };
+  const pinCentredAt = (p: any, st: any, target: any) => {
+    const c = centreOffset(st);
+    st.anchor = { x: Math.floor(target.x - c.x), y: Math.floor(target.y), z: Math.floor(target.z - c.z) };
+    st.dimension = p.dimension.id; previews.add(p.id);
+  };
+  const blocksResizable = !config.tiles.length || !!config.colliders;
+  const summary = (st: any) => {
+    const d = dims(st);
+    const sizeNote = st.size !== 100 ? ` · ${percent(st.size)}${config.tiles.length && !config.colliders ? ' (blocks stay 100 percent)' : ''}` : '';
+    return `${d.width} × ${d.height} × ${d.length} blocks · ${st.rotation}°${sizeNote}${st.aim ? ' · following your aim' : ''}\nOrigin: ${st.anchor ? `${st.anchor.x}, ${st.anchor.y}, ${st.anchor.z} in ${st.dimension}` : 'not pinned'}`;
+  };
+  const validate = (p: any, st: any) => {
+    if (!st.anchor) throw new Error('Pin an origin, follow your aim or enter coordinates first.');
+    if (st.dimension !== p.dimension.id) throw new Error(`Origin is pinned in ${st.dimension}. Re-pin after changing dimensions.`);
+    if (st.size !== 100 && !blocksResizable) throw new Error('This pack\'s blocks were exported as coloured blocks and cannot be resized in game. Set the size back to 100 percent, or export again at another model scale.');
+    const d = dims(st), range = p.dimension.heightRange;
+    if (st.anchor.y < range.min || st.anchor.y + d.height - 1 >= range.max) throw new Error(`Build exceeds world height ${range.min}–${range.max - 1}.`);
+    return d;
+  };
+  const outline = (d: any) => {
+    const points: any[] = [], seen = new Set(), along = (axis: string, fixed: any, end: number) => {
+      const count = Math.max(2, Math.min(12, Math.ceil(end / 8) + 1));
+      for (let i = 0; i < count; i++) {
+        const point = { ...fixed, [axis]: end * i / (count - 1) }, key = `${point.x || 0}:${point.y || 0}:${point.z || 0}`;
+        if (!seen.has(key)) { seen.add(key); points.push(point); }
+      }
+    };
+    for (const y of [0, d.height]) for (const z of [0, d.length]) along('x', { y, z }, d.width);
+    for (const x of [0, d.width]) for (const z of [0, d.length]) along('y', { x, z }, d.height);
+    for (const x of [0, d.width]) for (const y of [0, d.height]) along('z', { x, y }, d.length);
+    return points;
+  };
+  // Ghost preview entity, one per player, pinned at the turned, sized footprint
+  // centre with yaw = the wand rotation and the size group applied (see
+  // bedrock-preview-entity.ts).
+  const ghosts = new Map<string, { id: string; size: number }>();
+  // Every ghost carries its player's tag, so one the id lookup misses (the id
+  // gone stale, the lookup throwing) is still found and removed by a sweep.
+  const ghostTag = (playerId: string) => `cmg_${config.shortAlias}_${String(playerId).replaceAll('-', '').slice(0, 8)}`;
+  const removeGhost = (playerId: string) => {
+    const g = ghosts.get(playerId); ghosts.delete(playerId);
+    if (!g) return;
+    try { world.getEntity(g.id)?.remove(); } catch {}
+  };
+  /** Remove the player's ghost by id AND every ghost carrying their tag in their dimension. */
+  const sweepGhost = (p: any) => {
+    removeGhost(p.id);
+    if (!config.preview) return;
+    try { for (const e of p.dimension.getEntities({ type: config.preview.typeId, tags: [ghostTag(p.id)] }) || []) { try { e.remove(); } catch {} } } catch {}
+  };
+  /**
+   * The preview ends: no ghost, no aim, nothing to redraw. Undo and putting the
+   * wand away both end it (device round 2026-09-26a: a white see-through ghost
+   * stood beside the Saga player after undoing 10261 - a preview state set
+   * before the Undo survived it, and the ghost came back the moment the Undo
+   * finished). The pin, rotation and size are kept for the next preview.
+   */
+  const endPreview = (p: any) => {
+    previews.delete(p.id);
+    const st = states.get(p.id);
+    if (st) st.aim = false;
+    sweepGhost(p);
+  };
+  const syncGhost = (p: any, st: any, visible: boolean) => {
+    if (!config.preview) return;
+    if (!visible) { removeGhost(p.id); return; }
+    const c = centreOffset(st);
+    const at = { x: st.anchor.x + c.x, y: st.anchor.y, z: st.anchor.z + c.z };
+    let ghost: any, entry = ghosts.get(p.id);
+    if (entry) { try { ghost = world.getEntity(entry.id); } catch {} }
+    if (ghost && ghost.dimension?.id !== p.dimension.id) { removeGhost(p.id); ghost = undefined; entry = undefined; }
+    if (!ghost) {
+      try { ghost = p.dimension.spawnEntity(config.preview.typeId, at); entry = { id: ghost.id, size: 100 }; ghosts.set(p.id, entry); } catch { return; }
+      try { ghost.addTag?.(ghostTag(p.id)); } catch {}
+    }
+    if (entry && entry.size !== st.size) {
+      entry.size = st.size;
+      try { ghost.triggerEvent(sizeEvent(st.size)); } catch {}
+    }
+    try { ghost.teleport(at, { rotation: { x: 0, y: st.rotation } }); }
+    catch { try { ghost.setRotation({ x: 0, y: st.rotation }); } catch {} }
+  };
+  // A ghost outliving its script (crash, reload) is swept when the pack starts.
+  if (config.preview) system.run(() => {
+    for (const id of ['overworld', 'nether', 'the_end']) {
+      let d: any; try { d = world.getDimension(id); } catch { continue; }
+      try { for (const e of d.getEntities({ type: config.preview.typeId })) e.remove(); } catch {}
+    }
+  });
+  try { world.afterEvents.playerLeave.subscribe((ev: any) => { removeGhost(ev.playerId); states.delete(ev.playerId); previews.delete(ev.playerId); }); } catch {}
+  const draw = (p: any) => {
+    const st = state(p);
+    syncGhost(p, st, previews.has(p.id) && !!st.anchor && !active && st.dimension === p.dimension.id);
+    if (!previews.has(p.id) || !st.anchor || active) return;
+    if (st.dimension !== p.dimension.id) { p.onScreenDisplay.setActionBar(`PREVIEW PAUSED · origin is in ${st.dimension} · re-pin here`); return; }
+    const d = dims(st), particles: any[] = [];
+    const worldCorner = (q: any) => ({ x: st.anchor.x + q.x, y: st.anchor.y + q.y, z: st.anchor.z + q.z });
+    const mark = (effect: string, q: any) => particles.push({ effect, point: worldCorner(q) });
+    const mode = st.aim ? 'AIMING' : 'PINNED PREVIEW';
+    p.onScreenDisplay.setActionBar(`${mode} · ${config.label} · ${d.width}×${d.height}×${d.length} · ${st.rotation}°${st.size !== 100 ? ` · ${percent(st.size)}` : ''} · §cX §aY §9Z §6MODEL -Z${st.aim ? ' · open the wand to pin' : ''}`);
+    for (const q of outline(d)) mark('minecraft:endrod', q);
+    const axisLength = 6;
+    for (let i = 0; i <= axisLength; i++) {
+      mark('minecraft:redstone_ore_dust_particle', { x: i, y: 0, z: 0 });
+      mark('minecraft:villager_happy', { x: 0, y: i, z: 0 });
+      mark('minecraft:water_splash_particle_manual', { x: 0, y: 0, z: i });
+    }
+    const front = [
+      { x: config.width / 2, y: 1, z: 0 },
+      { x: config.width / 2, y: 1, z: -1 },
+      { x: config.width / 2, y: 1, z: -2 },
+      { x: config.width / 2 - 1, y: 1, z: -1 },
+      { x: config.width / 2 + 1, y: 1, z: -1 },
+    ];
+    const f = factor(st);
+    for (const q of front) { const r = pointAt(q, st.rotation); mark('minecraft:totem_particle', { x: r.x * f, y: r.y * f, z: r.z * f }); }
+    if (!config.preview) for (const sample of config.previewPoints) { const r = pointAt(sample, st.rotation); mark('minecraft:villager_happy', { x: r.x * f, y: r.y * f, z: r.z * f }); }
+    for (const marker of particles.slice(0, 320)) try { p.dimension.spawnParticle(marker.effect, marker.point); } catch {}
+  };
+  // Aim mode: the preview follows the block the player looks at (its centre
+  // lands on the face they hit), until they pin it or turn aim off.
+  const aimTarget = (p: any) => {
+    let hit: any;
+    try { hit = p.getBlockFromViewDirection?.({ maxDistance: 96, includeLiquidBlocks: false, includePassableBlocks: false }); } catch { return undefined; }
+    const b = hit?.block?.location;
+    if (!b) return undefined;
+    const face = String(hit.face || 'Up');
+    const dx = face === 'East' ? 1 : face === 'West' ? -1 : 0, dy = face === 'Up' ? 1 : face === 'Down' ? -1 : 0, dz = face === 'South' ? 1 : face === 'North' ? -1 : 0;
+    return { x: b.x + dx + 0.5, y: b.y + dy, z: b.z + dz + 0.5 };
+  };
+  const aimTick = () => {
+    if (active) return;
+    for (const p of world.getAllPlayers().filter(Boolean)) {
+      const st = states.get(p.id);
+      if (!st || !st.aim) continue;
+      const target = aimTarget(p);
+      if (!target) { try { p.onScreenDisplay.setActionBar(`AIMING · ${config.label} · look at a block within 96 blocks (not the sky)`); } catch {} continue; }
+      pinCentredAt(p, st, target);
+      draw(p);
+    }
+  };
+  // `.filter(Boolean)` everywhere: a pack that does not declare
+  // @minecraft/server-gametest sees each GameTest simulated player as
+  // `undefined` in the player lists (placement.js threw 845 times, 2026-09-24).
+  system.runInterval(() => { for (const p of world.getAllPlayers().filter(Boolean)) draw(p); }, 12);
+  system.runInterval(aimTick, 4);
+  system.runInterval(() => {
+    const online = new Set();
+    for (const p of world.getAllPlayers().filter(Boolean)) {
+      online.add(p.id);
+      // A seated pinball player taps hotbar slots as flippers (bedrock-pinball.ts):
+      // not a wand, and the wand's held state WAITS. Standing up puts back the
+      // slot the player held when they sat down; had the seat cleared `held`,
+      // that re-selected wand opened its menu over the table (Saga, 2026-09-26).
+      if (p.hasTag?.('craftmatic_pinball')) continue;
+      let item: any;
+      try { item = p.getComponent('minecraft:inventory')?.container?.getItem(p.selectedSlotIndex); } catch {}
+      if (item?.typeId === config.itemId) {
+        if (!held.has(p.id)) { held.add(p.id); system.run(() => open(p).catch((e: any) => tell(p, e.message || String(e)))); }
+      } else if (held.has(p.id)) {
+        // The wand put away (another slot, dropped, cleared): the preview goes with it.
+        held.delete(p.id);
+        endPreview(p);
+      }
+    }
+    for (const id of held) if (!online.has(id)) held.delete(id);
+  }, 5);
+  async function edit(p: any): Promise<any> {
+    const st = state(p), a = st.anchor || { x: Math.floor(p.location.x), y: Math.floor(p.location.y), z: Math.floor(p.location.z) };
+    const r = await show(p, new ModalFormData().title(`${config.label} · Coordinates`).textField('X', '0', { defaultValue: String(a.x) }).textField('Y', '64', { defaultValue: String(a.y) }).textField('Z', '0', { defaultValue: String(a.z) }));
+    if (r.canceled) return menu(p);
+    const values = r.formValues.map((v: any) => Number(v));
+    if (!values.every((v: number) => Number.isSafeInteger(v) && Math.abs(v) < 30000000)) { tell(p, 'Use whole-number world coordinates.'); return edit(p); }
+    st.anchor = { x: values[0], y: values[1], z: values[2] }; st.dimension = p.dimension.id; st.aim = false; previews.add(p.id); return menu(p);
+  }
+  async function confirmPlace(p: any): Promise<any> {
+    const st = state(p); try { validate(p, st); } catch (e: any) { tell(p, e.message); return menu(p); }
+    const scripted = st.size !== 100 && config.tiles.length && config.colliders;
+    // The measured walk-through size is stated here too, whenever the chosen
+    // size is not it — the last moment at which changing it costs nothing.
+    const walkNote = recommendedSize && st.size !== recommendedSize ? `\n\nWalk-through size is ${percent(recommendedSize)}, not ${percent(st.size)}: ${access.reason}` : '';
+    const r = await show(p, new ActionFormData().title(`Place ${config.label}?`).body(`${summary(st)}\n\nBlocks in this area will be replaced.${scripted ? `\nAt ${percent(st.size)} the invisible walkable blocks are re-laid to size; the ${config.colliders.keptCells} visible block${config.colliders.keptCells === 1 ? '' : 's'} (doors, lights) of the 100 percent export are left out.${stepsNote(st)}` : ''}${walkNote}`).button('Place now').button('Back'));
+    if (!r.canceled && r.selection === 0) return place(p);
+    return menu(p);
+  }
+  async function lighting(p: any): Promise<any> {
+    const r = await show(p, new ActionFormData().title(`${config.label} · Lighting`).body('Night vision changes only your view. It does not place lights or change the build.').button('Enable night vision · 10 min').button('Disable night vision').button('Back'));
+    if (r.canceled || r.selection === 2) return menu(p);
+    try {
+      if (r.selection === 0) { p.addEffect('minecraft:night_vision', 12000, { showParticles: false }); return tell(p, 'Night vision enabled for 10 minutes.'); }
+      if (r.selection === 1) { p.removeEffect('minecraft:night_vision'); return tell(p, 'Night vision disabled.'); }
+    } catch (e: any) { return tell(p, `Could not change night vision: ${e.message || e}`); }
+  }
+  // Colliders re-laid at another size: each exported cell covers a `factor`-wide
+  // block range; its sixteenth heights are re-cut per world block row, and a
+  // block two cells share (size < 100 %) keeps the lowest lo and highest hi.
+  const pairOf = (index: number) => {
+    let n = 1;
+    for (let l = 0; l < 16; l++) { const span = 16 - l; if (index < n + span) return [l, l + 1 + (index - n)]; n += span; }
+    return [0, 16];
+  };
+  /**
+   * The world columns one grid cell owns along an axis at scale `f`.
+   *
+   * At `f` >= 1 a column belongs to the cell when its CENTRE falls inside the
+   * cell's scaled span, so a wall lands on the nearest block instead of being
+   * dilated outward by up to a whole block. "Any overlap" used to claim both
+   * neighbours of every fractional boundary: at 150 % the wall beside a doorway
+   * claimed the doorway's own first column and the player walked into a wall
+   * with nothing drawn on it. The ranges still tile the footprint exactly (cell
+   * i ends where cell i+1 begins), so no wall can develop a hole.
+   *
+   * Below 100 % a cell is NARROWER than a block and several cells share one, so
+   * every column a cell touches must stay solid - a centre test would drop
+   * cells and leave holes to fall through.
+   */
+  const cellColumns = (i: number, f: number) => {
+    const a = i * f, b = (i + 1) * f;
+    if (f < 1) return [Math.floor(a), Math.max(Math.floor(a), Math.ceil(b) - 1)];
+    return [Math.ceil(a - 0.5), Math.max(Math.ceil(a - 0.5), Math.ceil(b - 0.5) - 1)];
+  };
+  /**
+   * Remove this pack's colliders from a world box, in `fill`-sized pieces.
+   *
+   * `fillBlocks` takes a BlockVolume INSTANCE (a plain `{from, to}` object is
+   * rejected by the native binding) and is capped at 32768 blocks per call like
+   * `/fill`, so the box is walked in 32-cubes. The `blockFilter` is what keeps
+   * this safe: only `craftmatic:collider` is removed, never the player's own
+   * world inside the footprint.
+   */
+  const clearColliders = (dim: any, from: any, to: any) => {
+    // Every collider form (collider-form.ts), never anything else.
+    const step = 32, types = kit.VARIANTS.map((d: any) => d.id);
+    let failures = 0;
+    for (let x = from.x; x <= to.x; x += step) for (let y = from.y; y <= to.y; y += step) for (let z = from.z; z <= to.z; z += step) {
+      const a = { x, y, z }, bb = { x: Math.min(to.x, x + step - 1), y: Math.min(to.y, y + step - 1), z: Math.min(to.z, z + step - 1) };
+      try { dim.fillBlocks(new BlockVolume(a, bb), 'minecraft:air', { blockFilter: { includeTypes: types } }); }
+      catch (e: any) { failures++; if (failures === 1) console.warn(`BRICK_WAND_CLEAR_FAILED ${a.x},${a.y},${a.z} ${e && e.message ? e.message : e}`); }
+    }
+    return failures;
+  };
+  /**
+   * A footprint split into boxes small enough for ONE ticking area (48 × 48
+   * horizontally is 9 chunks; a bigger `tickingarea add` is refused and `load`
+   * then fails the whole placement).
+   */
+  const placementBoxes = (width: number, height: number, length: number) => {
+    const box = 48, out: any[] = [];
+    for (let bx = 0; bx < width; bx += box) for (let by = 0; by < height; by += 320) for (let bz = 0; bz < length; bz += box) {
+      out.push({ x0: bx, y0: by, z0: bz, x1: Math.min(width, bx + box) - 1, y1: Math.min(height, by + 320) - 1, z1: Math.min(length, bz + box) - 1 });
+    }
+    return out;
+  };
+  /**
+   * The clearance-form cells of the shipped grid as world blocks at 100 %
+   * turned `r`, with the form each takes there: `[wx, wy, wz, form]` from the
+   * anchor. Memoised per turn (a set has a few thousand form cells).
+   */
+  const turnedFormsCache = new Map<number, any[]>();
+  const turnedForms = (r: number): any[] => {
+    const cached = turnedFormsCache.get(r);
+    if (cached) return cached;
+    const out: any[] = [];
+    const c = config.colliders, runs: string = c ? c.runs : '';
+    let cell = 0;
+    for (let k = 0; k + 1 < runs.length; k += 2) {
+      const value = runs.charCodeAt(k) - 40, n = runs.charCodeAt(k + 1) - 40 + 1;
+      const cv = value > 0 ? Math.floor((value - 1) / 136) : 0;
+      if (cv === 0) { cell += n; continue; }
+      const [lo, hi] = pairOf(value - cv * 136);
+      for (let j = 0; j < n; j++, cell++) {
+        const z = cell % c.length, y = Math.floor(cell / c.length) % c.height, x = Math.floor(cell / (c.length * c.height));
+        const at = new Map<string, any[]>();
+        kit.cellPieces(x, y, z, cv, lo, hi, c, 1, r, (wx: number, wy: number, wz: number, box: any) => {
+          const key = `${wx},${wy},${wz}`;
+          const list = at.get(key);
+          if (list) list.push(box); else at.set(key, [box]);
+        });
+        for (const [key, list] of at) {
+          const form = kit.cover(list);
+          if (form) out.push([...key.split(',').map(Number), form]);
+        }
+      }
+    }
+    turnedFormsCache.set(r, out);
+    return out;
+  };
+  async function placeColliders(st: any, dim: any, backups: any[], progress: (what: string) => void, key: string, stale?: any) {
+    const c = config.colliders, f = factor(st), r = st.rotation, d = dims(st);
+    const cellAt = (x: number, z: number) => r === 90 ? { x: c.length - 1 - z, z: x } : r === 180 ? { x: c.width - 1 - x, z: c.length - 1 - z } : r === 270 ? { x: z, z: c.width - 1 - x } : { x, z };
+    // A PREVIOUS placement's colliders are invisible; left standing they are
+    // exactly the "invisible wall" a player hits after cycling the size up or
+    // down. A smaller re-lay does not even reach the bigger one's footprint, so
+    // sweep the box the previous one covered before laying this one. Only this
+    // pack's collider block is removed (blockFilter), and undo still restores
+    // the boxes THIS placement backs up - the swept cells were our own debris.
+    if (stale && stale.dimension === dim.id) {
+      const old = placementBoxes(stale.to.x - stale.from.x + 1, stale.to.y - stale.from.y + 1, stale.to.z - stale.from.z + 1);
+      for (let si = 0; si < old.length; si++) {
+        if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
+        progress(`clearing the previous placement ${si + 1}/${old.length}`);
+        const b = old[si];
+        const from = { x: stale.from.x + b.x0, y: stale.from.y + b.y0, z: stale.from.z + b.z0 };
+        const to = { x: stale.from.x + b.x1, y: stale.from.y + b.y1, z: stale.from.z + b.z1 };
+        await load(dim, from, to);
+        clearColliders(dim, from, to);
+      }
+    }
+    const boxes = placementBoxes(d.width, d.height, d.length);
+    const runs: string = c.runs;
+    // Invisible steps for THIS size and turn (bedrock-collider-scale.ts): the
+    // final pair of every block a tread run changes, 7 chars per block (x, y,
+    // z as two base-200 digits each, then the pair index). Set after the
+    // re-lay of each box so a tread wins over the cell it stands on.
+    const treadPlan: string = (c.treads && c.treads.plans && c.treads.plans[`${st.size}:${r}`]) || '';
+    // The per-size carve for THIS size and turn (collider-carve.ts `sizeCarveAt`, serialised beside the kit):
+    // world block "x,y,z" -> the form it takes instead of the scaled cells' (null: air).
+    const carve: Map<string, any> = carveAt(c.carves, st.size, r, c, kit.turnForm) || new Map();
+    let placed = 0, steps = 0;
+    for (let bi = 0; bi < boxes.length; bi++) {
+      const b = boxes[bi];
+      if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
+      progress(`re-laying walkable blocks ${bi + 1}/${boxes.length}`);
+      const from = { x: st.anchor.x + b.x0, y: st.anchor.y + b.y0, z: st.anchor.z + b.z0 }, to = { x: st.anchor.x + b.x1, y: st.anchor.y + b.y1, z: st.anchor.z + b.z1 };
+      await load(dim, from, to);
+      const name = `craftmatic:${key}_c${bi}`;
+      world.structureManager.createFromWorld(name, dim, from, to, { includeEntities: false, saveMode: StructureSaveMode.World });
+      backups.push({ name, from });
+      // Clear the box first: a smaller re-lay must not leave the old size behind.
+      clearColliders(dim, from, to);
+      // Cells this pass wrote. Merging is only right BETWEEN cells of this
+      // re-lay (below 100 % several share a block, and at a fractional size two
+      // cell rows share a world row); merging with whatever the world already
+      // held would union a stale placement back in. Each cell's pieces come
+      // from the collider form kit (`cellPieces`: the turned cell, the columns
+      // it owns, the rows its span crosses, a clearance form's own boxes), and
+      // a block takes the form covering every piece it received (`cover`).
+      const written = new Set();
+      const pieces = new Map<string, any[]>();
+      let fellBack = 0;
+      let cell = 0, budget = 0;
+      for (let k = 0; k + 1 < runs.length; k += 2) {
+        const value = runs.charCodeAt(k) - 40, n = runs.charCodeAt(k + 1) - 40 + 1;
+        if (value === 0) { cell += n; continue; }
+        const cv = Math.floor((value - 1) / 136);
+        const [lo, hi] = pairOf(value - cv * 136);
+        for (let j = 0; j < n; j++, cell++) {
+          const z = cell % c.length, y = Math.floor(cell / c.length) % c.height, x = Math.floor(cell / (c.length * c.height));
+          const rc = cellAt(x, z);
+          const [x0, x1] = cellColumns(rc.x, f);
+          const [z0, z1] = cellColumns(rc.z, f);
+          if (x1 < b.x0 || x0 > b.x1 || z1 < b.z0 || z0 > b.z1) continue;
+          kit.cellPieces(x, y, z, cv, lo, hi, c, f, r, (wx: number, wy: number, wz: number, box: any) => {
+            if (wx < b.x0 || wx > b.x1 || wy < b.y0 || wy > b.y1 || wz < b.z0 || wz > b.z1) return;
+            const key = `${wx},${wy},${wz}`;
+            const list = pieces.get(key);
+            if (list) list.push(box); else pieces.set(key, [box]);
+          });
+          if (++budget % 2000 === 0) {
+            if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
+            await wait(1);
+          }
+        }
+      }
+      for (const [key, list] of pieces) {
+        let form = kit.cover(list);
+        if (!form) continue;
+        // The carve cuts the block to the drawn geometry at this size, or leaves it air.
+        if (carve.has(key)) { form = carve.get(key); if (!form) continue; }
+        const [wx, wy, wz] = key.split(',').map(Number);
+        const pos = { x: st.anchor.x + wx, y: st.anchor.y + wy, z: st.anchor.z + wz };
+        let block: any;
+        try { block = dim.getBlock(pos); } catch {}
+        if (!block) continue;
+        try { if (!kit.lay(block, form, c.loState, c.hiState, (id: string, st: any) => BlockPermutation.resolve(id, st))) fellBack++; written.add(`${pos.x},${pos.y},${pos.z}`); placed++; } catch {}
+        if (++budget % 400 === 0) {
+          if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
+          await wait(1);
+        }
+      }
+      if (fellBack) console.warn(`BRICK_WAND_FORM_FALLBACK ${fellBack} clearance forms laid as full colliders (their blocks are not defined in this world: is an older pack higher in the stack?)`);
+      for (let k = 0; k + 6 < treadPlan.length; k += 7) {
+        const digits = (o: number) => (treadPlan.charCodeAt(k + o) - 40) * 200 + treadPlan.charCodeAt(k + o + 1) - 40;
+        const tx = digits(0), ty = digits(2), tz = digits(4);
+        if (tx < b.x0 || tx > b.x1 || ty < b.y0 || ty > b.y1 || tz < b.z0 || tz > b.z1) continue;
+        const [tl, th] = pairOf(treadPlan.charCodeAt(k + 6) - 40);
+        const pos = { x: st.anchor.x + tx, y: st.anchor.y + ty, z: st.anchor.z + tz };
+        let block: any;
+        try { block = dim.getBlock(pos); } catch {}
+        if (!block) continue;
+        try { block.setPermutation(BlockPermutation.resolve(c.block, { [c.loState]: tl, [c.hiState]: th })); written.add(`${pos.x},${pos.y},${pos.z}`); steps++; } catch {}
+        if (++budget % 400 === 0) {
+          if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
+          await wait(1);
+        }
+      }
+      await wait(config.settleTicks);
+    }
+    return { placed, steps };
+  }
+  // Invisible steps the pack adds at a size and turn (0 at 100 %, or when the model needs none).
+  const stepsAt = (st: any): number => (config.colliders && config.colliders.treads && config.colliders.treads.counts && config.colliders.treads.counts[`${st.size}:${st.rotation}`]) || 0;
+  const stepsNote = (st: any): string => {
+    const n = stepsAt(st);
+    return n ? ` ${n} invisible step${n === 1 ? '' : 's'} ${n === 1 ? 'is' : 'are'} added where the LEGO risers grew past a player's jump - the model's own stairs and ledges, climbable at 100 percent; nothing that was walkable is blocked.` : '';
+  };
+  async function place(p: any) {
+    if (active) return tell(p, 'Another placement is running.');
+    const st = { ...state(p), anchor: { ...state(p).anchor } }, dim = p.dimension;
+    validate(p, st); active = { player: p.id, cancelled: false }; previews.delete(p.id); state(p).aim = false;
+    const key = `${config.id}_${p.id.replaceAll('-', '').slice(0, 8)}_${Date.now().toString(36)}`, backups: any[] = [], entities: string[] = [], failedActors: string[] = [], spawned: any[] = [];
+    // Every entity this placement spawns carries this tag, so an Undo after a
+    // reload finds them by tag in whatever chunks it loads, not only by an id.
+    const tag = `cmu_${config.shortAlias}_${p.id.replaceAll('-', '').slice(0, 8)}_${Date.now().toString(36)}`;
+    // The world box this placement covers, remembered so the NEXT one can clear
+    // the colliders it leaves behind (they are invisible; see placeColliders).
+    const dPlace = dims(st);
+    const bounds = { dimension: dim.id, from: { ...st.anchor }, to: { x: st.anchor.x + dPlace.width - 1, y: st.anchor.y + dPlace.height - 1, z: st.anchor.z + dPlace.length - 1 } };
+    const previous = historyOf(p);
+    sweepGhost(p);
+    const scripted = st.size !== 100 && config.tiles.length > 0;
+    // Live progress on the action bar (the chat log scrolls away); one chat
+    // line at the start and one at the end.
+    const total = (scripted ? 1 : config.tiles.length) + config.actors.length, settle = config.settleTicks, hold = config.finalHoldTicks;
+    const progress = (done: number, what: string) => {
+      const n = 12, k = Math.max(0, Math.min(n, Math.round(done / Math.max(1, total) * n)));
+      try { p.onScreenDisplay.setActionBar(`§b[Brick Wand]§r ${'▰'.repeat(k)}§8${'▱'.repeat(n - k)}§r ${percent(Math.round(done / Math.max(1, total) * 100))} · ${what}`); } catch {}
+    };
+    const pieces = `${scripted ? 'the walkable blocks' : `${config.tiles.length} structure piece${config.tiles.length === 1 ? '' : 's'}`}${config.actors.length ? ` and ${config.actors.length} entit${config.actors.length === 1 ? 'y' : 'ies'}` : ''}${st.size !== 100 ? ` at ${percent(st.size)}` : ''}`;
+    tell(p, `Placing ${config.label}: ${pieces}. Watch the bar above the hotbar.`);
+    let stepsAdded = 0;
+    try {
+      if (scripted) {
+        const laid = await placeColliders(st, dim, backups, what => progress(0, what), key, previous && previous.bounds);
+        stepsAdded = laid.steps;
+        progress(1, `${laid.placed} walkable blocks laid${laid.steps ? `, ${laid.steps} invisible steps added` : ''}`);
+      } else for (let i = 0; i < config.tiles.length; i++) {
+        if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
+        const t = tileAt(config.tiles[i], st.rotation), from = { x: st.anchor.x + t.dx, y: st.anchor.y + t.dy, z: st.anchor.z + t.dz }, to = { x: from.x + t.width - 1, y: from.y + t.height - 1, z: from.z + t.length - 1 }, name = `craftmatic:${key}_${i}`;
+        progress(i, `loading area for piece ${i + 1}/${config.tiles.length}`);
+        await load(dim, from, to);
+        if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
+        world.structureManager.createFromWorld(name, dim, from, to, { includeEntities: false, saveMode: StructureSaveMode.World });
+        backups.push({ name, from });
+        // A failed `structure load` (unknown structure, bad rotation) reports
+        // successCount 0 without throwing; treated as success it placed nothing
+        // and reported 100 %.
+        const loadResult = await dim.runCommand(`structure load ${t.identifier} ${from.x} ${from.y} ${from.z} ${st.rotation}_degrees none`);
+        if (loadResult && loadResult.successCount === 0) throw new Error(`structure ${t.identifier} could not be loaded (piece ${i + 1}/${config.tiles.length}). Is the behavior pack's structures folder intact?`);
+        // A structure turned by `structure load` moves each block but keeps its
+        // states, and a clearance form's shape is part of its id (a wall pulled
+        // back to its west side would stay west after a quarter turn). So each
+        // form block of this piece is re-set, while the piece's area is loaded,
+        // to the form the turn gives it - `cellPieces`, the arithmetic of every
+        // other size. Only this pack's collider blocks are touched.
+        // Unturned it is the same pass, as a check: a form block the world does
+        // not know (an older pack's definitions winning) arrives as air or an
+        // unknown block, and is laid as the full collider instead - never a hole.
+        if (config.colliders) {
+          let fellBack = 0;
+          for (const [wx, wy, wz, form] of turnedForms(st.rotation)) {
+            const pos = { x: st.anchor.x + wx, y: st.anchor.y + wy, z: st.anchor.z + wz };
+            if (pos.x < from.x || pos.x > to.x || pos.y < from.y || pos.y > to.y || pos.z < from.z || pos.z > to.z) continue;
+            try {
+              const block = dim.getBlock(pos);
+              if (!block) continue;
+              const ours = kit.variantOf(block.typeId) >= 0;
+              if (!ours && !(block.isAir === true || block.typeId === 'minecraft:air' || block.typeId === 'minecraft:unknown')) continue;
+              if (ours && block.typeId === kit.VARIANTS[form.v].id && Number(block.permutation.getState(config.colliders.loState)) === form.lo && Number(block.permutation.getState(config.colliders.hiState)) === form.hi) continue;
+              if (!kit.lay(block, form, config.colliders.loState, config.colliders.hiState, (id: string, st2: any) => BlockPermutation.resolve(id, st2))) fellBack++;
+            } catch {}
+          }
+          if (fellBack) console.warn(`BRICK_WAND_FORM_FALLBACK ${fellBack} clearance forms laid as full colliders (their blocks are not defined in this world: is an older pack higher in the stack?)`);
+        }
+        progress(i + 1, `piece ${i + 1}/${config.tiles.length} placed`);
+        // Let the chunks tick with the area still alive so the block updates
+        // reach every client before the area (and maybe the chunk) goes away.
+        await wait(settle);
+      }
+      // Structure tiles contain the 100 percent doors. At another size they are
+      // intentionally replaced by colliders, so re-hang only semantic leaves
+      // whose measured physical height now reaches two blocks.
+      const installedDoors = new Set<number>();
+      for (const [doorIndex, door] of (scripted ? (config.runtimeDoorCandidates || []) : []).entries()) {
+        if (st.size < door.requiredSize) continue;
+        const q = worldPoint(st, door), x = Math.floor(q.x), y = Math.floor(q.y), z = Math.floor(q.z);
+        try {
+          await load(dim, { x: x - 1, z: z - 1 }, { x: x + 1, z: z + 1 });
+          // Bedrock's legacy door direction is south=0, west=1, north=2,
+          // east=3. A quarter turn adds one; apply a real Bedrock permutation
+          // instead of emitting Java's facing/half/hinge command syntax.
+          const rotateDoor = (states: any) => typeof states.direction === 'number' ? { ...states, direction: (states.direction + st.rotation / 90) % 4 } : states;
+          if (x < bounds.from.x || x > bounds.to.x || y < bounds.from.y || y + 1 > bounds.to.y || z < bounds.from.z || z > bounds.to.z)
+            throw new Error('measured door clearance falls outside the resized placement');
+          const below = dim.getBlock({ x, y: y - 1, z }), lower = dim.getBlock({ x, y, z }), upper = dim.getBlock({ x, y: y + 1, z });
+          if (!below || !lower || !upper) throw new Error('door support or clearance cells are outside the loaded placement area');
+          if (below.isAir === true || below.typeId === 'minecraft:air') throw new Error('no solid support exists below the resized opening');
+          lower.setPermutation(BlockPermutation.resolve('minecraft:air'));
+          upper.setPermutation(BlockPermutation.resolve('minecraft:air'));
+          lower.setPermutation(BlockPermutation.resolve(door.lower.id, rotateDoor(door.lower.states)));
+          upper.setPermutation(BlockPermutation.resolve(door.upper.id, rotateDoor(door.upper.states)));
+          installedDoors.add(doorIndex);
+        } catch (e: any) { tell(p, `§eDoor could not be re-hung at ${percent(st.size)} (${e?.message || e}).`); }
+      }
+      const done0 = scripted ? 1 : config.tiles.length;
+      for (let j = 0; j < config.actors.length; j++) {
+        const actor = config.actors[j];
+        // A sub-scale source door leaf remains honest LEGO geometry until its
+        // measured opening can accept a two-block vanilla door. At and above
+        // that threshold runtimeDoorCandidates takes over; do not render both.
+        const doorReplaced = scripted
+          ? actor.doorCandidateIndex !== undefined && installedDoors.has(actor.doorCandidateIndex)
+          : st.size === 100 && actor.hideAt100 === true;
+        if (actor.maxSizeExclusive !== undefined && st.size >= actor.maxSizeExclusive && doorReplaced) {
+          progress(done0 + j + 1, `${actor.label} replaced by interactive blocks`);
+          continue;
+        }
+        if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
+        const q = worldPoint(st, actor);
+        progress(done0 + j, `spawning ${actor.label}`);
+        await load(dim, { x: q.x - 1, z: q.z - 1 }, { x: q.x + 1, z: q.z + 1 });
+        if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
+        // One entity that fails to spawn (a type the content log rejected)
+        // must not stop the rest: the Pixel round of 2026-09-16 lost every
+        // vehicle placement to its first figure NPC.
+        try {
+          // A figure must stand ON the floor where the source put it - not inside
+          // a wall it can never path out of, not sunk into a floor plate, and not
+          // inside the world block under the pin. The figure is player-sized at
+          // every step at or above 100 % (its body never scales up), while the
+          // floors and walls around it do, so the check is geometric rather than
+          // a cell rule: the body [feet, feet + height) is raised to the top of
+          // whatever collision span it overlaps, repeatedly, until it is clear.
+          // A floor plate (0..3/16 at 100 %, 0..12/16 at 400 %) lifts the feet by
+          // its own thickness only; a wall lifts past itself; a ceiling slab over
+          // the head is left alone unless the body actually reaches it. If the
+          // lift would exceed three cells (three blocks × the size factor) the
+          // figure stays where the source put it (round b lifted one onto the
+          // roof by treating "any collider" as a wall - that is why the budget).
+          let spawnY = q.y;
+          if (config.colliders && /_fig[0-9]+$/.test(actor.typeId)) {
+            const bx = Math.floor(q.x), bz = Math.floor(q.z), f = factor(st);
+            const bodyHeight = 1.8 * Math.min(1, f), budget = 3 * f;
+            // The collision span [bottom, top] of the block in world row `y`, or null for air.
+            const spanAt = (y: number) => {
+              try {
+                const b = dim.getBlock({ x: bx, y, z: bz });
+                if (!b) return null;
+                const v = kit.variantOf(b.typeId);
+                if (v >= 0) {
+                  const lo = Number(b.permutation.getState(config.colliders.loState)), hi = Number(b.permutation.getState(config.colliders.hiState));
+                  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [y, y + 1];
+                  // A clearance form's vertical extent (collider-form.ts); a full collider's is lo..hi.
+                  const boxes = kit.formBoxes(v, lo, hi);
+                  return [y + Math.min(...boxes.map((q: any) => q[2])) / 16, y + Math.max(...boxes.map((q: any) => q[3])) / 16];
+                }
+                if (b.isAir === true || b.isLiquid === true || b.typeId === 'minecraft:air') return null;
+                return [y, y + 1];
+              } catch { return null; }
+            };
+            let feet = q.y;
+            for (let guard = 0; guard < 64; guard++) {
+              let lifted = false;
+              for (let y = Math.floor(feet); y <= Math.floor(feet + bodyHeight - 1e-9); y++) {
+                const s = spanAt(y);
+                // The body overlaps a span when the span starts below the head and ends above the feet.
+                if (s && s[0] < feet + bodyHeight - 1e-9 && s[1] > feet + 1e-9) { feet = s[1]; lifted = true; break; }
+              }
+              if (!lifted) break;
+            }
+            if (feet - q.y <= budget + 1e-9) spawnY = feet;
+          }
+          const entity = dim.spawnEntity(actor.typeId, { x: q.x, y: spawnY, z: q.z });
+          // No placed entity carries a name tag. Bedrock draws a looked-at entity's
+          // tag at a fixed world size, so near the model it ran across the whole
+          // screen ("Hogsmeade Village Collectors Edition 76457", the user's shots of
+          // round 30i), and every figure, door and car showed "<label> figure 3" over
+          // it; a rider looking ahead through a loop had "Track 1 Car 2" across the
+          // view (Saga, 2026-09-26). The label stays readable to scripts as a
+          // dynamic property (the control screen's form title, vehicle status).
+          try { entity.setDynamicProperty('craftmatic:label', actor.label); } catch {}
+          // A moving part keeps yaw 0: its rig's root turns it (the interactives
+          // runtime sets the turn), so its world-aligned tap boxes stay true.
+          entity.setRotation({ x: 0, y: actor.interactive !== undefined ? 0 : (actor.yaw || 0) + st.rotation }); entities.push(entity.id); spawned[j] = entity;
+          try { entity.addTag?.(tag); } catch {}
+          if (/_fig[0-9]+$/.test(actor.typeId)) {
+            // The figure's home record (bedrock-figure-life.ts FigureHome): where it
+            // stands, the placement's world box, the pin plane and the size, so
+            // scripts/figures.js keeps it on this model, on this floor, and can
+            // re-adopt it after a reload. A source-seated figure stays seated.
+            try {
+              entity.setDynamicProperty('craftmatic:fig', JSON.stringify({ home: [q.x, spawnY, q.z], area: [bounds.from.x, bounds.from.z, bounds.to.x + 1, bounds.to.z + 1], ground: st.anchor.y, f: factor(st), mode: actor.rideOf !== undefined ? 'seated' : 'roam' }));
+            } catch {}
+            // A source-seated figure is seated by the pass after every actor is out; until then its
+            // seat may not exist (10261 spawns its kiosk figure long before the seat), so the figure
+            // runtime must not retake or report it (bedrock-figure-life.ts FIGURE_SEATING_PROPERTY).
+            if (actor.rideOf !== undefined) try { entity.setDynamicProperty('craftmatic:fig_seating', Date.now()); } catch {}
+          }
+          if (actor.coasterRouteIndex !== undefined) {
+            // Store the transformed model origin, not the cart's start point.
+            // Route samples use the same rotation/scale as every shell actor.
+            entity.setDynamicProperty('craftmatic:coaster_origin', worldPoint(st, { x: 0, y: 0, z: 0 }));
+            entity.setDynamicProperty('craftmatic:coaster_rotation', st.rotation);
+            entity.setDynamicProperty('craftmatic:coaster_scale', factor(st));
+            entity.setDynamicProperty('craftmatic:coaster_route', actor.coasterRouteIndex);
+            // A train's car order: the runtime honours a written index and only
+            // assigns one itself when this is absent (bedrock-coaster.ts).
+            if (actor.coasterCarIndex !== undefined) entity.setDynamicProperty('craftmatic:coaster_car', actor.coasterCarIndex);
+          }
+          if (actor.pinball) {
+            // The same transformed model origin the coaster stores; the pinball
+            // runtime maps the table's plane into the world with it (bedrock-pinball.ts).
+            entity.setDynamicProperty('craftmatic:pinball_origin', worldPoint(st, { x: 0, y: 0, z: 0 }));
+            entity.setDynamicProperty('craftmatic:pinball_rotation', st.rotation);
+            entity.setDynamicProperty('craftmatic:pinball_scale', factor(st));
+          }
+          if (actor.interactive !== undefined) {
+            // A door, window or turnable (bedrock-interactives.ts): its runtime
+            // maps the doorway's collider cells with the placement's own anchor,
+            // turn and size, and lays the closed state on its next sync pass.
+            entity.setDynamicProperty('craftmatic:ix', actor.interactive);
+            entity.setDynamicProperty('craftmatic:ix_anchor', { x: st.anchor.x, y: st.anchor.y, z: st.anchor.z });
+            entity.setDynamicProperty('craftmatic:ix_rotation', st.rotation);
+            entity.setDynamicProperty('craftmatic:ix_scale', factor(st));
+          }
+          if (actor.ride !== undefined) {
+            // A slide or lift (bedrock-rides.ts): its path and exits in WORLD points at this turn and size.
+            try {
+              entity.setDynamicProperty('craftmatic:ride', actor.ride);
+              entity.setDynamicProperty('craftmatic:ride_scale', factor(st));
+              const toWorld = (pts: any) => JSON.stringify((pts || []).map((v: any) => { const w = worldPoint(st, { x: v[0], y: v[1], z: v[2] }); return { x: w.x, y: w.y, z: w.z }; }));
+              if (actor.ridePath) entity.setDynamicProperty('craftmatic:ride_path', toWorld(actor.ridePath));
+              if (actor.rideExits) entity.setDynamicProperty('craftmatic:ride_exits', toWorld(actor.rideExits));
+            } catch {}
+          }
+          if (st.size !== 100) { try { entity.triggerEvent(sizeEvent(st.size)); settleSized(entity); } catch (e: any) { tell(p, `§e${actor.label} could not take size ${percent(st.size)} (${e && e.message ? e.message : e}); it stands at 100 percent.`); } }
+          progress(done0 + j + 1, `${actor.label} placed`);
+        } catch (e: any) {
+          failedActors.push(actor.label);
+          tell(p, `§e${actor.label} could not be spawned (${e && e.message ? e.message : e}); continuing.`);
+          progress(done0 + j + 1, `${actor.label} skipped`);
+        }
+        await wait(settle);
+      }
+      // Brick-built chairs have no reliable LDraw mould signature. A player can
+      // explicitly mark the sitting surface; model-local anchors follow the
+      // normal rotation/size transform and are recorded for Undo.
+      removeManualSeatEntities(st);
+      for (const [k, seat] of (st.manualSeats || []).entries()) {
+        if (!config.manualSeatTypeId) break;
+        const q = worldPoint(st, seat);
+        try {
+          if (config.colliders) {
+            const block = dim.getBlock({ x: Math.floor(q.x), y: Math.floor(q.y), z: Math.floor(q.z) });
+            if (block && kit.variantOf(block.typeId) >= 0) {
+              const lo = Number(block.permutation.getState(config.colliders.loState)), hi = Number(block.permutation.getState(config.colliders.hiState));
+              if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi - lo >= 12) tell(p, `§eMarked seat ${k + 1} is inside a wall-height collider; stand on the chair surface and mark it again.`);
+            }
+          }
+          const entity = dim.spawnEntity(config.manualSeatTypeId, q);
+          entity.nameTag = `Marked seat ${k + 1}`;
+          entity.setRotation({ x: 0, y: (seat.yaw || 0) + st.rotation });
+          if (st.size !== 100) { entity.triggerEvent(sizeEvent(st.size)); settleSized(entity); }
+          entities.push(entity.id);
+          try { entity.addTag?.(tag); } catch {}
+          st.manualSeatIds.push(entity.id);
+        } catch (e: any) { failedActors.push(`marked seat ${k + 1}`); tell(p, `§eMarked seat ${k + 1} could not be spawned (${e?.message || e}).`); }
+        await wait(settle);
+      }
+      saveManualSeats(p, st);
+      // A figure the source seated on a chair rides that chair's seat entity (its sit pose plays while riding).
+      // `addRider` can refuse in the spawn tick (the Pixel refused the orbit's companion
+      // seat at placement, 2026-09-29, and the ride runtime seated the same figure seconds
+      // later): it is retried `SEAT_RETRIES` times, `SEAT_RETRY_TICKS` apart, the +2-tick
+      // retry scripts/flyer.js gives a summoned cloud, and only then reported. A seat that
+      // carries a ride (`actor.ride`: an orbit's) is adopted by scripts/rides.js, which
+      // puts its own figure back on whenever it is off, so a refusal there says nothing.
+      const SEAT_RETRIES = 2, SEAT_RETRY_TICKS = 2;
+      /** The seating pass is done with this figure: the figure runtime may retake its seat from now on. */
+      const seatingDone = (figure: any): void => { try { figure.setDynamicProperty('craftmatic:fig_seating', undefined); } catch {} };
+      for (let j = 0; j < config.actors.length; j++) {
+        const actor = config.actors[j];
+        if (actor.rideOf === undefined || !spawned[j]) continue;
+        if (!spawned[actor.rideOf]) { seatingDone(spawned[j]); continue; }
+        const seatEntity = spawned[actor.rideOf], figure = spawned[j];
+        const adopted = config.actors[actor.rideOf].ride !== undefined;
+        let failure = '';
+        const board = (): boolean => {
+          try {
+            const seat = seatEntity.getComponent('minecraft:rideable');
+            if (seat && seat.addRider(figure) === true) return true;
+            failure = seat ? 'the seat refused it' : 'the seat is not rideable';
+          } catch (e: any) { failure = e && e.message ? e.message : String(e); }
+          return false;
+        };
+        let tries = 0;
+        const attempt = (): void => {
+          if (board()) { seatingDone(figure); return; }
+          if (tries++ < SEAT_RETRIES) { system.runTimeout(attempt, SEAT_RETRY_TICKS); return; }
+          seatingDone(figure);
+          if (!adopted) tell(p, `§e${actor.label} could not take its seat (${failure}, ${tries} tries); it stands instead.`);
+        };
+        attempt();
+      }
+      // Replacing a placement must retire its old actors too; otherwise every
+      // re-place duplicated figures, mould seats and user-marked brick chairs.
+      if (previous) {
+        const retired = retireActors(previous);
+        if (retired.missing.size && !retired.persisted) tell(p, `§e${retired.missing.size} old entit${retired.missing.size === 1 ? 'y is' : 'ies are'} unloaded and deferred cleanup could not be saved across a reload.`);
+        for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
+      }
+      setHistory(p, { dimension: dim.id, backups, entities, bounds, tag });
+      progress(total, 'done');
+      await wait(hold);
+      const stepsDone = stepsAdded ? ` ${stepsAdded} invisible step${stepsAdded === 1 ? '' : 's'} added where its risers grew past a jump.` : '';
+      tell(p, failedActors.length ? `§aPlaced ${config.label} (${failedActors.length} entit${failedActors.length === 1 ? 'y' : 'ies'} could not be spawned).${stepsDone} Use the Brick Wand to undo.` : `§aPlaced ${config.label}.${stepsDone} Use the Brick Wand to undo.`);
+    } catch (e: any) {
+      if (backups.length || entities.length) {
+        if (previous) for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
+        setHistory(p, { dimension: dim.id, backups, entities, bounds, tag });
+      }
+      // A stopped placement seats nobody: its figures' seating marks go, so their runtime retakes as usual.
+      for (const s of spawned) try { s?.setDynamicProperty('craftmatic:fig_seating', undefined); } catch {}
+      tell(p, `§cPlacement stopped: ${e.message || e}`);
+    }
+    finally { await unload(); active = undefined; }
+  }
+  async function undo(p: any) {
+    if (active) return tell(p, 'Wait for placement to finish or cancel it first.');
+    const h = historyOf(p); if (!h) return tell(p, 'Nothing to undo.');
+    // An Undo ends any preview: without this a ghost shown before it came back when it finished.
+    endPreview(p);
+    active = { player: p.id, cancelled: false };
+    try {
+      const dim = world.getDimension(h.dimension);
+      // Entities first, by id where they are loaded; the rest are found by the
+      // placement's tag as each area loads below (a reload leaves the chunks
+      // unloaded until then, and world.getEntity sees only loaded ones).
+      const retired = retireActors(h), missing = retired.missing;
+      const sweep = () => {
+        if (!h.tag || !missing.size) return;
+        let found: any[] = [];
+        try { found = dim.getEntities({ tags: [h.tag] }) || []; } catch {}
+        for (const e of found) sweepRetiredEntity(e);
+      };
+      // This pack's colliders anywhere in the placement's box go first: a moving part lays its closed doorway
+      // into cells no snapshot covers (at 100 % only the structure tiles are snapshotted, and 31141's upper
+      // Door 5 lies above its tiles - Undo left its 3 collider blocks, simulator triage 2026-09-30). The
+      // snapshots restored next bring back whatever stood inside them before, colliders included; only
+      // collider forms are cleared (`clearColliders`), never the player's world.
+      if (h.bounds && h.bounds.from && h.bounds.to) {
+        const f = h.bounds.from, t = h.bounds.to;
+        for (const box of placementBoxes(t.x - f.x + 1, t.y - f.y + 1, t.z - f.z + 1)) {
+          const from = { x: f.x + box.x0, y: f.y + box.y0, z: f.z + box.z0 }, to = { x: f.x + box.x1, y: f.y + box.y1, z: f.z + box.z1 };
+          await load(dim, from, to);
+          clearColliders(dim, from, to);
+        }
+      }
+      for (const b of h.backups) {
+        const structure = world.structureManager.get(b.name);
+        if (!structure) continue;
+        const to = { x: b.from.x + structure.size.x - 1, y: b.from.y + structure.size.y - 1, z: b.from.z + structure.size.z - 1 };
+        await load(dim, b.from, to);
+        world.structureManager.place(b.name, dim, b.from, { includeEntities: false, includeBlocks: true });
+        world.structureManager.delete(b.name);
+        sweep();
+        await wait(1);
+      }
+      // Entities outside every snapshot (an entity-only pack, or one standing
+      // past the blocks): load the placement's box a piece at a time and sweep.
+      if (missing.size && h.tag && h.bounds && h.bounds.from && h.bounds.to) {
+        const f = h.bounds.from, t = h.bounds.to;
+        for (const box of placementBoxes(t.x - f.x + 1, t.y - f.y + 1, t.z - f.z + 1)) {
+          if (!missing.size) break;
+          await load(dim, { x: f.x + box.x0, y: f.y + box.y0, z: f.z + box.z0 }, { x: f.x + box.x1, y: f.y + box.y1, z: f.z + box.z1 });
+          sweep();
+        }
+      }
+      dropHistory(p);
+      tell(p, missing.size
+        ? retired.persisted
+          ? `§aUndo complete§r (${missing.size} unloaded entit${missing.size === 1 ? 'y has' : 'ies have'} pending cleanup when ${missing.size === 1 ? 'its chunk loads' : 'their chunks load'}).`
+          : `§aUndo complete§r (${missing.size} entit${missing.size === 1 ? 'y was' : 'ies were'} not loaded, and deferred cleanup could not be saved across a reload).`
+        : '§aUndo complete.');
+    } catch (e: any) { tell(p, `Undo stopped: ${e.message || e}`); }
+    finally { await unload(); active = undefined; }
+  }
+  async function manageManualSeats(p: any, st: any) {
+    const seats = st.manualSeats || [];
+    const f = new ActionFormData().title(`${config.label} · marked seats`).body(seats.length ? 'Remove a marker if it is not on the sitting surface. Marked seats remain model-local through resize and quarter turns.' : 'No marked seats yet. Stand on a chair’s sitting surface and choose Add seat here.');
+    for (let i = 0; i < seats.length; i++) f.button(`Remove seat ${i + 1}`);
+    if (seats.length) f.button('Remove all marked seats');
+    f.button('Back');
+    const r = await show(p, f); if (r.canceled || r.selection === undefined) return;
+    if (r.selection < seats.length) seats.splice(r.selection, 1);
+    else if (seats.length && r.selection === seats.length) seats.splice(0, seats.length);
+    else return menu(p);
+    removeManualSeatEntities(st); saveManualSeats(p, st);
+    tell(p, 'Marked seat anchor removed. Re-place the build to update its seat entities.');
+    return menu(p);
+  }
+  /** Start carrying the preview to wherever the player looks (the "Follow my aim" action). */
+  function startAim(p: any, st: any): void {
+    st.aim = true;
+    previews.add(p.id);
+    const target = aimTarget(p);
+    if (target) pinCentredAt(p, st, target);
+    tell(p, 'The preview follows the block you look at. Use the wand again (or switch away and back) to open the menu: place it, pin it, rotate or resize it.');
+  }
+  /**
+   * What selecting or using the wand does. The first time - nothing pinned,
+   * no preview up, not already aiming - it goes straight to "Follow my aim":
+   * the user asked for the ghost first and the menu only once there is a
+   * placement to act on (2026-09-29). With an anchor (pinned, typed or left by
+   * the aim) or a preview showing, it opens the menu.
+   */
+  async function open(p: any): Promise<any> {
+    const st = state(p);
+    if (active?.player !== p.id && !st.anchor && !st.aim && !previews.has(p.id)) return startAim(p, st);
+    return menu(p);
+  }
+  async function menu(p: any): Promise<any> {
+    const st = state(p), running = active?.player === p.id;
+    const nextSize = sizes[(sizes.indexOf(st.size) + 1) % sizes.length];
+    const interaction = config.interactionNote ? `\n\n§eInteraction scale: ${config.interactionNote}` : '';
+    const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(st)}${interaction}${walkThroughLine()}\n\nPreview first: ${config.preview ? 'a translucent ghost of the whole build stands at the pin, turned to the chosen rotation and size, with' : 'a full-size outline and model markers stay fixed at the pinned placement;'} red/green/blue marking +X/+Y/+Z and gold the model's -Z side. "Follow my aim" moves it to wherever you look until you pin. Place is always a separate confirmation.`);
+    // One list of [label, action]: the buttons are drawn from it and the
+    // selection indexes it, so the order is changed here and nowhere else.
+    const actions: Array<[string, () => any]> = [];
+    if (running) actions.push(['Cancel placement', () => { if (active?.player === p.id) active.cancelled = true; return tell(p, 'Cancel requested.'); }]);
+    else {
+      // Plain ASCII: on both phones the "…" drew this one label in a smaller,
+      // greyer fallback font than the rest (round 2026-09-29a).
+      actions.push(['Place', () => confirmPlace(p)]);
+      actions.push([st.aim ? 'Stop following my aim' : 'Follow my aim', () => {
+        if (!st.aim) return startAim(p, st);
+        st.aim = false;
+        return tell(p, st.anchor ? 'The preview stays where it is.' : 'Aim stopped.');
+      }]);
+      // The origin is the model's corner; put the ROTATED, SIZED footprint centre on the player so a
+      // vehicle-only pack lands where they stand instead of half a model away.
+      actions.push(['Pin centred on me', () => { st.aim = false; pinCentredAt(p, st, p.location); return menu(p); }]);
+      actions.push(['Pin corner at my feet', () => { st.aim = false; st.anchor = { x: Math.floor(p.location.x), y: Math.floor(p.location.y), z: Math.floor(p.location.z) }; st.dimension = p.dimension.id; previews.add(p.id); return menu(p); }]);
+      actions.push(['Edit coordinates', () => edit(p)]);
+      actions.push([`Rotate → ${(st.rotation + turnStep) % 360}°`, () => {
+        st.rotation = fineTurn ? (st.rotation + turnStep) % 360 : rotations[(rotations.indexOf(st.rotation) + 1) % 4];
+        if (st.anchor) previews.add(p.id); return menu(p);
+      }]);
+      if (fineTurn) actions.push([`Turn back ← ${((st.rotation - turnStep) % 360 + 360) % 360}°`, () => { st.rotation = ((st.rotation - turnStep) % 360 + 360) % 360; if (st.anchor) previews.add(p.id); return menu(p); }]);
+      actions.push([`Size ${sizeLabel(st.size)} → ${sizeLabel(nextSize)}${!blocksResizable && nextSize !== 100 ? ' (entities only)' : ''}`, () => {
+        st.size = nextSize;
+        if (st.anchor) previews.add(p.id);
+        if (!blocksResizable && nextSize !== 100) tell(p, 'This pack\'s blocks were exported as coloured blocks: only the entities take the new size. Export again with brick-accurate buildings or at another model scale for the blocks to follow.');
+        // The measured reason, quoted whole, the moment the wand lands on that step.
+        if (recommendedSize && nextSize === recommendedSize) tell(p, `${percent(nextSize)} is the measured walk-through size: ${access.reason}`);
+        return menu(p);
+      }]);
+      const recommendedDoorSize = nextDoorSize(st.size);
+      if (recommendedDoorSize) actions.push([`Use next door size ${percent(recommendedDoorSize)}`, () => { st.size = recommendedDoorSize; if (st.anchor) previews.add(p.id); return tell(p, `Door size set to ${percent(recommendedDoorSize)}. Eligible leaves at or below this threshold become interactive; larger measured leaves remain source geometry.`); }]);
+      actions.push(['View preview in world', () => { try { validate(p, st); } catch (e: any) { tell(p, e.message); return menu(p); } previews.add(p.id); return tell(p, config.preview ? "The ghost stands at the pin, turned to the chosen rotation and size, while you hold the wand. Putting the wand away hides it; select the wand again to rotate, resize or place." : "Full-size preview fixed at the pin while you hold the wand. Red/green/blue mark +X/+Y/+Z; gold marks the model's -Z side. Putting the wand away hides it; select the wand again to rotate or place."); }]);
+      actions.push(['Hide preview', () => { endPreview(p); return tell(p, 'Preview hidden.'); }]);
+      actions.push(['Undo last placement', () => undo(p)]);
+      actions.push(['Lighting / night vision', () => lighting(p)]);
+      if (config.manualSeatTypeId) {
+        actions.push([`Add seat here (${(st.manualSeats || []).length}/${manualSeatCap})`, () => {
+          try {
+            validate(p, st);
+            const at = modelPoint(st, p.location);
+            if (at.x < 0 || at.x > config.width || at.y < 0 || at.y > config.height || at.z < 0 || at.z > config.length) throw new Error('Stand on the chair seat inside the pinned build before marking it.');
+            if ((st.manualSeats || []).length >= manualSeatCap) throw new Error(`You can mark up to ${manualSeatCap} seats. Use Manage marked seats to remove one first.`);
+            if ((st.manualSeats || []).some((seat: any) => Math.abs(seat.x - at.x) < .25 && Math.abs(seat.y - at.y) < .25 && Math.abs(seat.z - at.z) < .25)) throw new Error('That chair surface is already marked.');
+            st.manualSeats = [...(st.manualSeats || []), { x: at.x, y: at.y, z: at.z, yaw: (p.getRotation?.().y || 0) - st.rotation }];
+            saveManualSeats(p, st);
+            return tell(p, 'Seat marked at your feet. Stand on the chair’s sitting surface; it will rotate, resize and be removed with this placement.');
+          } catch (e: any) { tell(p, e.message || String(e)); return menu(p); }
+        }]);
+        actions.push(['Manage marked seats', () => manageManualSeats(p, st)]);
+      }
+      if (config.vehicleControls && openVehicleControls) actions.push(['DeLorean controls', () => openVehicleControls(p)]);
+    }
+    for (const [label] of actions) f.button(label);
+    const r = await show(p, f); if (r.canceled || r.selection === undefined) return;
+    return actions[r.selection]?.[1]();
+  }
+  world.afterEvents.itemUse.subscribe((ev: any) => { if (ev.itemStack.typeId === config.itemId) system.run(() => open(ev.source).catch((e: any) => tell(ev.source, e.message || String(e)))); });
+  console.warn(`BRICK_WAND_READY ${config.id}`);
+}
+
+export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPackAssets {
+  const id = spec.stem.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'model';
+  const itemId = `craftmatic:${id}_brick_wand`;
+  const shortAlias = placementAlias(spec.stem);
+  // Invisible steps are planned from the shipped grid here, so a brick-shell
+  // pack carries them without the pipeline knowing (bedrock-collider-scale.ts).
+  const treads = spec.colliders && spec.treads !== false
+    ? spec.plannedTreads ?? withColliderTreads(spec.colliders, spec.reachTargets ?? [], spec.doorCells ?? [], spec.fineReach)
+    : undefined;
+  const config = { id, shortAlias, vehicleControls: spec.vehicleControls === true, label: spec.label, itemId, width: spec.width, height: spec.height, length: spec.length, tiles: spec.tiles, actors: spec.actors ?? [], previewPoints: (spec.previewPoints ?? []).slice(0, 120),
+    preview: spec.preview ?? null, colliders: treads ? treads.colliders : spec.colliders ?? null, interactionNote: spec.interactionNote ?? '', access: spec.access ?? null, manualSeatTypeId: spec.manualSeatTypeId ?? '', runtimeDoorCandidates: spec.runtimeDoorCandidates ?? [], sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40,
+    // Last, so a reader keying on the older fields' order (a test's regex) reads unchanged.
+    shellMigrations: spec.shellMigrations ?? [] };
+  const controlsImport = spec.vehicleControls ? 'import { showTimeMachineControls } from "./time-machine.js";\n' : '';
+  const script = `${controlsImport}import { world, system, StructureSaveMode, BlockPermutation, BlockVolume } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG, ${spec.vehicleControls ? "showTimeMachineControls" : "undefined"}, (${colliderFormKit.toString()})(), ${sizeCarveAt.toString()});\n`;
+  const item = {
+    format_version: '1.21.30',
+    'minecraft:item': {
+      description: { identifier: itemId, menu_category: { category: 'items' } },
+      components: {
+        'minecraft:icon': 'brick',
+        'minecraft:display_name': { value: `${spec.label} BrickWand` },
+        'minecraft:max_stack_size': 1,
+      },
+    },
+  };
+  const grant = `give @s ${itemId} 1\ntellraw @s ${JSON.stringify({ rawtext: [{ text: `§b[BrickWand]§r Select ${spec.label} BrickWand in your hotbar: the ghost preview follows wherever you look. Use the wand again (or switch away and back) for the menu - Place is at the top; pin, rotate and size it there.` }] })}\n`;
+  return {
+    itemId, shortAlias, script,
+    files: [
+      { name: `items/${id}_brick_wand.json`, data: text(JSON.stringify(item, null, 2)) },
+      { name: 'scripts/placement.js', data: text(script) },
+      { name: `functions/${shortAlias}.mcfunction`, data: text(grant) },
+      { name: `functions/craftmatic/${id}.mcfunction`, data: text(grant) },
+      // The planner's findings, inspectable from the pack: counts per size and
+      // turn, what could not be restored and why, and the walk before/after.
+      ...(treads ? [{ name: 'craftmatic-treads.json', data: text(JSON.stringify(treads.report, null, 1)) }] : []),
+    ],
+    ...(treads ? { treads: treads.report } : {}),
+  };
+}

@@ -1,0 +1,2014 @@
+/**
+ * In-game automated tests for a built Craftmatic add-on, on Minecraft Bedrock's
+ * GameTest framework (`@minecraft/server-gametest`, "Beta APIs" experiment).
+ *
+ * WHY: device QA was adb taps + screenshots, which cannot see a 0.3 s flipper
+ * pulse and cannot tell "the door did not open" from "the tap missed". A
+ * GameTest runs INSIDE the game on the phone, drives a simulated player through
+ * the same server-side paths a real one uses (placement, `playerInteractWith
+ * Entity`, collision), asserts on world state, and writes its verdicts to the
+ * content log, which adb can pull. See docs/testing-guide.md, "In-game
+ * automated tests (GameTest)".
+ *
+ * Output is ONE test variant of the model's add-on, bound to a dedicated
+ * world that has Beta APIs on: the model's behaviour pack with new uuids and a
+ * build-time version, `@minecraft/server-gametest` 1.0.0-beta declared (the
+ * only version 1.26.5x ships; Mojang's creator-tools pack pairs it with a
+ * stable server the same way), a `craftmatic_gt:place` scriptevent hook
+ * injected into `scripts/placement.js` (a test drives the pack's OWN
+ * `place()`; a simulated player cannot answer the Brick Wand's forms), and
+ * the tests themselves in `scripts/gametest.js` with their arena
+ * `.mcstructure`. The resource pack ships unchanged.
+ *
+ * The tests MUST live in the model's own pack. Measured on the Pixel
+ * (1.26.51, runs 2-3): a simulated player is `undefined` in
+ * `world.getAllPlayers()` of every OTHER pack - even one that declares
+ * server-gametest - and that pack's `playerInteractWithEntity` /
+ * `entityHitEntity` handlers never toggled a door the simulated player
+ * interacted with. A player handle belongs to the script context that
+ * spawned it.
+ *
+ * TODO: move the hook into the placement runtime itself (playable-addon.ts)
+ * so the shipped pack and the tested pack differ only in the added files.
+ *
+ * Expectations come from the offline passability walk
+ * (`engine/interactive-walk.ts`): a doorway it calls OK must be blocked closed
+ * and walkable open on the device; SEALED must not be walkable either way. So
+ * every device result is also a check of the offline harness.
+ */
+
+import { BlockGrid } from '@craft/schem/types.js';
+import { colliderFormKit, type ColliderFormKit } from './collider-form.js';
+import { encodeMcstructureTile } from './mcstructure-encode.js';
+import { deterministicUuid } from './mcpack.js';
+import { FLIGHT_INPUT_EVENT } from './bedrock-vehicle.js';
+
+/** Namespace of every GameTest id, scriptevent and structure this module emits. */
+export const GT_NAMESPACE = 'craftmatic_gt';
+/** The tag `/gametest runset` is given. */
+export const GT_TAG = 'craftmatic_gt';
+/** Scriptevent the injected placement hook listens to. */
+export const GT_PLACE_EVENT = `${GT_NAMESPACE}:place`;
+/** Scriptevent the hook answers with once `place()` settles. */
+export const GT_PLACED_EVENT = `${GT_NAMESPACE}:placed`;
+/** Blocks of arena floor around the model's footprint. */
+export const GT_MARGIN = 3;
+/** The only `@minecraft/server-gametest` module version Minecraft 1.26.5x ships. */
+export const GT_GAMETEST_VERSION = '1.0.0-beta';
+/** Largest arena one `.mcstructure` may carry (a structure block's save limit). */
+export const GT_MAX_ARENA = { x: 64, y: 384, z: 64 } as const;
+
+export interface Vec3 { x: number; y: number; z: number }
+
+/** Walk outcome the offline harness predicts, per direction. */
+export type WalkOutcome = 'passed' | 'blocked' | 'sealed' | 'partial' | 'fell' | 'no-approach';
+
+/** One doorway the device should walk, in model-local block coordinates (turn 0, 100 %). */
+export interface GametestDoorway {
+  label: string;
+  /** Entity type of the leaf (`craftmatic:<id>_door_<n>`). */
+  typeId: string;
+  /** Leaf actor position in model-local coordinates (to pick the right entity). */
+  actor: Vec3;
+  /** Feet position on the approach side and the far side, from the offline walk. */
+  start: Vec3;
+  end: Vec3;
+  /**
+   * The offline walk's route between them (column centres, feet height), which
+   * the device walker follows leg by leg. Walked straight from start to end, a
+   * route that turns along a stoop walks off its edge: 42670's Door 4 walker
+   * fell to the arena floor closed and open (Pixel 2026-09-25) where the
+   * offline walk, following its route, passed.
+   */
+  via?: Vec3[];
+  /** Offline predictions (`interactive-walk.ts`) for the same start/end. */
+  expectClosed: WalkOutcome;
+  expectOpen: WalkOutcome;
+  /** Offline verdict (OK, SEALED, …) — reported beside the device verdict. */
+  offlineVerdict: string;
+  /** The arena window it is tested in (`arenaWindows`), 0 for a model that fits one arena. */
+  window?: number;
+}
+
+/**
+ * A moving part the device toggles by a hit (`attackEntity`, the route that
+ * reaches `entityHitEntity`): a window, cupboard, hatch, lever or turnable,
+ * or a door with no doorway walk. `from` is a standing spot the offline tap
+ * audit (`test/_ix-tap-audit.ts`) accepted, so the runtime's line-of-sight
+ * test lets the tap through there.
+ */
+export interface GametestPart {
+  label: string;
+  typeId: string;
+  kind: string;
+  /** Actor position, model-local (turn 0, 100 %). */
+  actor: Vec3;
+  /** Feet position to tap from, model-local. */
+  from: Vec3;
+  /** The item's open angle (signed), or a turnable's step: what one tap sets or adds. */
+  openAngle: number;
+  window?: number;
+}
+
+/** A seat the device mounts with `interactWithEntity` (the engine's rideable, no script). */
+export interface GametestSeat {
+  label: string;
+  typeId: string;
+  /** Seat actor position, model-local. */
+  at: Vec3;
+  window?: number;
+  /** A figure the source sat here rides it (`rideOf`): the test checks the figure is seated, not that a player can sit. */
+  occupied?: boolean;
+}
+
+/**
+ * A rideable vehicle the device drives (`vehicle_<id>_<n>`): spawned in the
+ * vehicle arena (`buildVehicleArena`) rather than placed with the model, so
+ * every car, boat and plane is driven over the same measured course.
+ */
+export interface GametestVehicle {
+  label: string;
+  typeId: string;
+  /** `hover`: a hover craft (family `hover`), driven over the land lane AND the pool; `flyer`: a canon mount's cloud (family `flyer`), a native hover mount that must hold its height hands off. */
+  kind: 'car' | 'boat' | 'plane' | 'hover' | 'flyer';
+  /** `minecraft:rideable.seat_count`. */
+  seats: number;
+  /** Shipped geometry size in blocks (for the spawn clearance). */
+  size: { width: number; height: number; length: number };
+  /** Moved by the pack's scripted-vehicle runtime (a fixed wing, a boat): the test drives it through that runtime's input hook. */
+  scripted?: boolean;
+}
+
+/**
+ * A driven train (`train_<id>_<n>`): the model is placed with its own
+ * placement code (the train stands on its own railway track in it), a
+ * simulated player boards a car and the train is driven through the rail
+ * runtime's stick hook (`CoasterRuntimeConfig.inputEvent`, the same
+ * `FLIGHT_INPUT_EVENT` the scripted vehicles take).
+ */
+export interface GametestTrain {
+  label: string;
+  /** Route index in `scripts/coaster.js` CONFIG. */
+  route: number;
+  /** Entity types of this route's cars. */
+  carTypes: string[];
+  closed: boolean;
+  /** Route length, model blocks (the arc `craftmatic:coaster_distance` runs over). */
+  length: number;
+  /** A car's placement position, model-local (to find the train after placement). */
+  at: Vec3;
+  window?: number;
+}
+
+/**
+ * A canon flyer mount's companion (`flyer_<id>`, engine/bedrock-flyer.ts,
+ * engine/set-canon.ts): the model is placed with its own placement code; the
+ * companion's seat must be found orbiting with its figure aboard and its
+ * cloud alongside; a simulated player taps the figure and must be aboard a
+ * NEW cloud beside it, flies it forward, holds Jump (the climb is recorded,
+ * not judged: a simulated Jump never climbed the rotor either, 2026-09-25),
+ * must not sink hands off, is carried off by a second cloud swept through it
+ * (a HOP, bedrock-ride-hop.ts: aboard the second, the first left where it was),
+ * gets off (the cloud must stay), summons more than
+ * the cap (the count must not pass it), and every empty cloud must fade after
+ * `despawnTicks` while the companion keeps its own.
+ */
+export interface GametestFlyer {
+  label: string;
+  figureType: string;
+  cloudType: string;
+  seatType: string;
+  carType: string;
+  /** The companion figure actor's model-local position. */
+  figureActor: Vec3;
+  despawnTicks: number;
+  cap: number;
+  cooldownTicks: number;
+}
+
+/** The vehicle arena: 64 x 64 over one structure, land on the low-z half, a pool on the high-z half. */
+export const GT_VEHICLE_ARENA = { x: 64, y: 10, z: 64 } as const;
+/**
+ * Where things are in the vehicle arena, relative to its smooth-stone floor
+ * layer (`floorY`): the land is stone up to +3 (its top face at +4); the pool
+ * holds water in +1..+2 (its surface a block under the land, so a boat meets a
+ * real shore); lane A is flat, lane B has a half-slab and then a full-block
+ * step across it.
+ */
+export const GT_VEHICLE_LAYOUT = {
+  landTop: 4, waterTop: 3, poolZ0: 34,
+  laneA: { z: 8 }, laneB: { z0: 18, z1: 26, slabX: 30, stepX: 44 },
+  boat: { x: 14, z: 50 },
+} as const;
+
+/** The vehicle arena structure (see `GT_VEHICLE_LAYOUT`). */
+export function buildVehicleArena(): Uint8Array {
+  const { x: w, y: h, z: l } = GT_VEHICLE_ARENA;
+  const L = GT_VEHICLE_LAYOUT;
+  const grid = new BlockGrid(w, h, l);
+  for (let x = 0; x < w; x++) for (let z = 0; z < l; z++) {
+    grid.set(x, 0, z, 'minecraft:smooth_stone');
+    if (z < L.poolZ0) for (let y = 1; y < L.landTop; y++) grid.set(x, y, z, 'minecraft:stone');
+    else for (let y = 1; y < L.waterTop; y++) grid.set(x, y, z, 'minecraft:water');
+  }
+  for (let z = L.laneB.z0; z <= L.laneB.z1; z++) {
+    grid.set(L.laneB.slabX, L.landTop, z, 'minecraft:smooth_stone_slab[type=bottom]');
+    for (let x = L.laneB.stepX; x < w; x++) grid.set(x, L.landTop, z, 'minecraft:stone');
+  }
+  const tile = { name: 'vehicles', x: 0, y: 0, z: 0, width: w, height: h, length: l, ix: 0, iy: 0, iz: 0, nonAir: w * l * 3 };
+  const encoded = encodeMcstructureTile(grid, tile);
+  if (encoded.unmapped.length) throw new Error(`vehicle arena blocks without a Bedrock mapping: ${encoded.unmapped.join(', ')}`);
+  return encoded.bytes;
+}
+
+/** One sample of a driven vehicle, relative to where its phase started, in the phase's own forward frame. */
+export interface VehicleSample { t: number; along: number; side: number; dy: number; yaw: number; speed?: number; ground?: boolean; water?: boolean }
+
+/**
+ * What one driving phase did: how far and how fast along the heading it
+ * started with, how far it slid sideways, how much it turned and climbed.
+ * Speeds are blocks per second from the position deltas (a ridden vehicle is
+ * client-authoritative for a real player, so `getVelocity` cannot be trusted).
+ * Pure, so the unit tests and the device share it.
+ */
+export function summariseVehiclePhase(samples: VehicleSample[], ticksPerSample: number): {
+  along: number; side: number; dy: number; minDy: number; maxDy: number; yawChange: number; maxSpeed: number; meanSpeed: number; endSpeed: number;
+} {
+  const r2 = (v: number): number => Math.round(v * 100) / 100;
+  if (!samples.length) return { along: 0, side: 0, dy: 0, minDy: 0, maxDy: 0, yawChange: 0, maxSpeed: 0, meanSpeed: 0, endSpeed: 0 };
+  const last = samples[samples.length - 1]!;
+  let maxSpeed = 0, path = 0, endSpeed = 0, minDy = Infinity, maxDy = -Infinity, turned = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const s = samples[i]!;
+    minDy = Math.min(minDy, s.dy); maxDy = Math.max(maxDy, s.dy);
+    if (i === 0) continue;
+    const p = samples[i - 1]!;
+    const step = Math.hypot(s.along - p.along, s.side - p.side);
+    path += step;
+    const v = step * 20 / Math.max(1, s.t - p.t);
+    maxSpeed = Math.max(maxSpeed, v);
+    endSpeed = v;
+    // Unwrapped yaw change (a turn through the ±180 seam is not a 360 jump).
+    let d = s.yaw - p.yaw;
+    while (d > 180) d -= 360;
+    while (d < -180) d += 360;
+    turned += d;
+  }
+  const span = Math.max(1, last.t - samples[0]!.t);
+  void ticksPerSample;
+  return { along: r2(last.along), side: r2(last.side), dy: r2(last.dy), minDy: r2(minDy), maxDy: r2(maxDy), yawChange: Math.round(turned), maxSpeed: r2(maxSpeed), meanSpeed: r2(path * 20 / span), endSpeed: r2(endSpeed) };
+}
+
+export interface GametestPlan {
+  /** Placement CONFIG id (`downtown_41732`), used for names. */
+  modelId: string;
+  label: string;
+  dims: { width: number; height: number; length: number };
+  /** Entity types the placement spawns (to wait for the placement to land). */
+  actorTypes: string[];
+  /** Actor property holding a moving part's angle (`craftmatic:angle`). */
+  angleProperty: string;
+  doorways: GametestDoorway[];
+  /** Optional `host:port` for a `/script debugger connect` probe after the run. */
+  debuggerTarget?: string | undefined;
+  /** A pinball machine's runtime types (`scripts/pinball.js` CONFIG), when the pack has one. */
+  pinball?: GametestPinball | undefined;
+  /** Moving parts to toggle by a hit, and seats to mount. */
+  parts?: GametestPart[] | undefined;
+  seats?: GametestSeat[] | undefined;
+  /** Model-local x ranges tested one arena at a time (`arenaWindows`); absent: the whole model fits one. */
+  windows?: Array<{ x0: number; x1: number }> | undefined;
+  /** The set's minifig NPCs, for the roaming test (`figures_<id>`); absent or empty: no test. */
+  figures?: GametestFigure[] | undefined;
+  /** The pack's collider block, so the roaming test can tell a wall from a floor plate. */
+  colliders?: { block: string; loState: string; hiState: string } | undefined;
+  /** How long the roaming test watches the figures, in ticks (default `GT_FIGURE_TICKS`). */
+  figureTicks?: number | undefined;
+  /**
+   * The model's arena is wider than one structure (`arenaExceeds`): the
+   * structure is capped at `GT_MAX_ARENA` and the roaming test lays the rest
+   * of the floor itself, and cleans it up. Only that test is registered then
+   * (a smoke or doors arena beside it could sit on the overflow).
+   */
+  oversized?: boolean | undefined;
+  /** Rideable vehicles to drive in the vehicle arena (`vehicle_<id>_<n>`); absent or empty: no test. */
+  vehicles?: GametestVehicle[] | undefined;
+  /** Only the vehicle and train tests are registered (`--only=vehicles`): the model's own tests are left out of the run. */
+  vehiclesOnly?: boolean | undefined;
+  /** Only the figures test is registered (`--only=figures`): a long watch without the doors and seats tests beside it. */
+  figuresOnly?: boolean | undefined;
+  /**
+   * The walk-cycle probe (`gait_<id>`, `--gait-probe`): one figure of this
+   * type, its BP entity patched with `gaitProbeController`, is pushed in a
+   * straight line at each speed (blocks per tick) and every whole unit of
+   * `query.modified_distance_moved` it crosses is counted against the
+   * distance it covered: the units-per-block the walk animation's phase rate
+   * (`MINIFIG_GAIT`) is derived from.
+   */
+  gaitProbe?: { typeId: string; speeds: number[] } | undefined;
+  /**
+   * The pack's Minifig Creator figure type (`creator_<id>`): one is spawned as
+   * a wand draft, then released as the wand releases it, and must stand still
+   * while it is a draft and walk (scripts/figures.js) once it is not.
+   */
+  creatorFigure?: string | undefined;
+  /**
+   * The Minifig Creator wand's operations (`creator_wand_<id>`): the
+   * `globalThis` key the wand runtime publishes them under
+   * (`MINIFIG_WAND_API_GLOBAL`), the player dynamic property its saved
+   * figures live in, and how many parts each slot's library holds. A
+   * simulated player cannot answer a form, so the test calls the same
+   * functions the form buttons call.
+   */
+  creatorWand?: { api: string; savedKey: string; slotSizes: Record<string, number> } | undefined;
+  /** Driven trains on the model's own railway track (`train_<id>_<n>`); absent or empty: no test. */
+  trains?: GametestTrain[] | undefined;
+  /** A canon flyer mount's companion (`flyer_<id>`); absent: no test. */
+  flyer?: GametestFlyer | undefined;
+}
+
+/** The server-side animation controller the gait probe adds to one figure's BP entity. */
+export const GAIT_PROBE_CONTROLLER_ID = 'controller.animation.craftmatic.gait_probe';
+/** The script event the probe's controller sends on every whole unit of `query.modified_distance_moved`. */
+export const GAIT_PROBE_EVENT = 'craftmatic_gt:gait';
+/**
+ * Two states flipping on the parity of `floor(query.modified_distance_moved)`;
+ * each entry runs `/scriptevent`, which the probe test pairs with the
+ * entity's position. A behaviour-pack controller evaluates on the server.
+ */
+export function gaitProbeController(): unknown {
+  const state = (parity: number, other: string): unknown => ({
+    transitions: [{ [other]: `math.mod(math.floor(query.modified_distance_moved), 2) != ${parity}` }],
+    on_entry: [`/scriptevent ${GAIT_PROBE_EVENT} u`],
+  });
+  // `query.modified_move_speed` in steps of 1/GAIT_SPEED_STEPS: a chain of
+  // states, each stepping to its neighbour while the value is past its edge
+  // (one step a tick, so a steady value is reached within a few ticks), and
+  // each entry reports its bucket.
+  const speedStates: Record<string, unknown> = {};
+  for (let k = 0; k <= GAIT_SPEED_BUCKETS; k++) {
+    const transitions: unknown[] = [];
+    if (k < GAIT_SPEED_BUCKETS) transitions.push({ [`s${k + 1}`]: `query.modified_move_speed >= ${(k + 1) / GAIT_SPEED_STEPS}` });
+    if (k > 0) transitions.push({ [`s${k - 1}`]: `query.modified_move_speed < ${k / GAIT_SPEED_STEPS}` });
+    speedStates[`s${k}`] = { transitions, on_entry: [`/scriptevent ${GAIT_PROBE_SPEED_EVENT} ${k}`] };
+  }
+  return { format_version: '1.10.0', animation_controllers: {
+    [GAIT_PROBE_CONTROLLER_ID]: { initial_state: 'even', states: { even: state(0, 'odd'), odd: state(1, 'even') } },
+    [GAIT_PROBE_SPEED_CONTROLLER_ID]: { initial_state: 's0', states: speedStates },
+  } };
+}
+
+/** The probe's second controller: `query.modified_move_speed` in buckets of 1/GAIT_SPEED_STEPS. */
+export const GAIT_PROBE_SPEED_CONTROLLER_ID = 'controller.animation.craftmatic.gait_probe_speed';
+/** Its script event; the message is the bucket index. */
+export const GAIT_PROBE_SPEED_EVENT = 'craftmatic_gt:gaitspeed';
+/** Buckets per unit of `query.modified_move_speed`, and the highest bucket (values up to 1.5). */
+export const GAIT_SPEED_STEPS = 40;
+export const GAIT_SPEED_BUCKETS = 60;
+
+/** A copy of a BP entity definition that also runs the gait probe controller. */
+export function withGaitProbe(entity: any): any {
+  const e = JSON.parse(JSON.stringify(entity));
+  const d = e['minecraft:entity'].description;
+  d.animations = { ...(d.animations ?? {}), cm_gait: GAIT_PROBE_CONTROLLER_ID, cm_gait_speed: GAIT_PROBE_SPEED_CONTROLLER_ID };
+  d.scripts = { ...(d.scripts ?? {}), animate: [...(d.scripts?.animate ?? []), 'cm_gait', 'cm_gait_speed'] };
+  return e;
+}
+
+/**
+ * The model-local x ranges the tests run in: one arena holds at most
+ * `GT_MAX_ARENA.x - 2 * GT_MARGIN` blocks of model, so a wider model (76457,
+ * 77092) is tested in windows, each placing the model shifted so that window
+ * lies over the arena floor (the rest stands on the world beside it).
+ */
+export function arenaWindows(dims: GametestPlan['dims']): Array<{ x0: number; x1: number }> {
+  const span = GT_MAX_ARENA.x - 2 * GT_MARGIN;
+  if (dims.width <= span) return [{ x0: 0, x1: dims.width }];
+  const out: Array<{ x0: number; x1: number }> = [];
+  for (let x0 = 0; x0 < dims.width; x0 += span - 8) {
+    out.push({ x0, x1: Math.min(dims.width, x0 + span) });
+    if (x0 + span >= dims.width) break;
+  }
+  return out;
+}
+
+/** The window a model-local x is tested in: the first whose middle part holds it (4 blocks of slack each side). */
+export function windowOf(windows: ReadonlyArray<{ x0: number; x1: number }>, x: number): number {
+  const i = windows.findIndex((w, k) => x >= w.x0 + (k ? 4 : 0) && x < w.x1 - (k < windows.length - 1 ? 4 : 0));
+  return i >= 0 ? i : windows.length - 1;
+}
+
+/** One minifig NPC the roaming test follows. */
+export interface GametestFigure {
+  label: string;
+  /** Entity type (`craftmatic:<id>_fig<n>` or `craftmatic:f_<id>_fig<n>`); one type per figure. */
+  typeId: string;
+  /** Spawn point in model-local blocks (turn 0, 100 %). */
+  actor: Vec3;
+  /** The source seated it on a chair (`rideOf`): it should stay seated, not roam. */
+  seated: boolean;
+}
+
+/** Default length of the roaming test's watch: 60 s. */
+export const GT_FIGURE_TICKS = 1200;
+/** Ticks between two position samples of every figure. */
+export const GT_FIGURE_SAMPLE_TICKS = 20;
+/** How far outside the model's footprint a figure may stand before it counts as "left the model". */
+export const GT_FIGURE_AREA_MARGIN = 1;
+
+/** One position sample of a figure, world blocks, and whether it was riding a seat then. */
+export interface FigureSample extends Vec3 { riding?: boolean; clipping?: boolean }
+
+/** What one figure did over the watch (`judgeFigureTrack`). */
+export interface FigureTrackVerdict {
+  samples: number;
+  /** Horizontal distance walked, summed over samples (blocks). */
+  pathLength: number;
+  /** Largest horizontal distance from the first sample (blocks). */
+  maxExcursion: number;
+  /** Samples STANDING (not riding) outside the footprint plus `GT_FIGURE_AREA_MARGIN`. */
+  outsideSamples: number;
+  /** Lowest feet height relative to the model's ground (the pin plane). */
+  minAboveGround: number;
+  /** Fell below the model's ground (more than half a block under the pin plane). */
+  belowGround: boolean;
+  /** Ended more than 1.5 blocks under where it started (fell off a floor). */
+  droppedStorey: boolean;
+  /** Samples whose body overlapped a collider taller than a step (furniture or a wall). */
+  clippingSamples: number;
+  ridingSamples: number;
+  /** A roamer that sat on a seat and later stood up again (a riding sample, then a standing one). */
+  satAndStood: boolean;
+  /** Walked at least 2 blocks in the watch. */
+  moved: boolean;
+  endInsideWall: boolean;
+}
+
+/**
+ * Judge one figure's watch. The home area is the model's footprint (model
+ * blocks from the anchor) plus `GT_FIGURE_AREA_MARGIN`; "below the floor" is
+ * under the pin plane the model stands on. Pure, so it is unit-tested here and
+ * serialised into the device runtime unchanged.
+ */
+export function judgeFigureTrack(track: FigureSample[], area: { min: Vec3; max: Vec3 }, groundY: number, endInsideWall: boolean, margin: number): FigureTrackVerdict {
+  let pathLength = 0, maxExcursion = 0, outsideSamples = 0, clippingSamples = 0, ridingSamples = 0, minY = Infinity, satAndStood = false;
+  const first = track[0];
+  for (let i = 0; i < track.length; i++) {
+    const s = track[i]!;
+    if (i > 0) { const p = track[i - 1]!; pathLength += Math.sqrt((s.x - p.x) ** 2 + (s.z - p.z) ** 2); }
+    if (first) maxExcursion = Math.max(maxExcursion, Math.sqrt((s.x - first.x) ** 2 + (s.z - first.z) ** 2));
+    // A figure RIDING is where its mount takes it (a flyer companion on its orbit runs outside the model by design;
+    // the simulator's offline run of `figures_dragonball` counted it, 2026-10-08): only a standing sample counts.
+    if (!s.riding && (s.x < area.min.x - margin || s.x > area.max.x + margin || s.z < area.min.z - margin || s.z > area.max.z + margin)) outsideSamples++;
+    if (s.clipping) clippingSamples++;
+    if (s.riding) ridingSamples++;
+    if (i > 0 && track[i - 1]!.riding && !s.riding) satAndStood = true;
+    minY = Math.min(minY, s.y);
+  }
+  const last = track[track.length - 1];
+  const r2 = (v: number): number => Math.round(v * 100) / 100;
+  return {
+    samples: track.length, pathLength: r2(pathLength), maxExcursion: r2(maxExcursion), outsideSamples,
+    minAboveGround: r2(Number.isFinite(minY) ? minY - groundY : 0),
+    belowGround: Number.isFinite(minY) && minY < groundY - 0.5,
+    droppedStorey: !!first && !!last && last.y < first.y - 1.5,
+    clippingSamples, ridingSamples, satAndStood, moved: pathLength >= 2,
+    // A figure still SITTING at the end (a roamer that borrowed a seat) sits in the seat's collider cells by
+    // design; only a standing one inside a wall is a fault (60380 figure 3, 910004 figure 7, 2026-10-17).
+    endInsideWall: endInsideWall && !last?.riding,
+  };
+}
+
+/** World boxes `[x0, x1, y0, y1, z0, z1]` (blocks) of the block at (bx, by, bz); [] for air, undefined when unloaded. */
+export type WorldBoxesAt = (bx: number, by: number, bz: number) => ReadonlyArray<readonly number[]> | undefined;
+
+/**
+ * Does a figure standing with its feet at `at` overlap anything that rises more than a step over its feet
+ * (furniture, a counter, a wall), and is any of it a WALL (at least 12/16 tall)? The body is a minifig's 0.6-wide
+ * column judged from 0.6 to 1.6 over the feet. Boxes are the block's REAL collision boxes (`boxesAt`): the
+ * runtime reads a collider through the pack's kit, every one of its 43 form ids, because reading any id but
+ * `craftmatic:collider` as a whole cube put 76417's figures 6 and 11 "inside a wall" while they stood on
+ * floor forms one sixteenth tall (`collider_w5` / `collider_w1` lo 0 hi 1, 2026-10-17). Pure, so it is
+ * unit-tested here and serialised into the device runtime unchanged.
+ */
+export function figureBodyCheck(boxesAt: WorldBoxesAt, at: Vec3): { clipping: boolean; wall: boolean } {
+  const HALF = 0.3, BAND_LO = 0.6, BAND_HI = 1.6, WALL = 0.75;
+  const x0 = at.x - HALF, x1 = at.x + HALF, z0 = at.z - HALF, z1 = at.z + HALF, y0 = at.y + BAND_LO, y1 = at.y + BAND_HI;
+  let clipping = false, wall = false;
+  for (let bx = Math.floor(x0); bx <= Math.floor(x1); bx++) for (let bz = Math.floor(z0); bz <= Math.floor(z1); bz++) {
+    for (let by = Math.floor(at.y); by <= Math.floor(y1); by++) {
+      for (const w of boxesAt(bx, by, bz) ?? []) {
+        if (!(w[1]! > x0 && w[0]! < x1 && w[5]! > z0 && w[4]! < z1 && w[3]! > y0 && w[2]! < y1)) continue;
+        clipping = true;
+        if (w[3]! - w[2]! >= WALL) wall = true;
+      }
+    }
+  }
+  return { clipping, wall };
+}
+
+export interface GametestPinball {
+  /** The rideable seat pad the player sits on to play. */
+  consoleType: string;
+  /** Tap-zone entities spawned in front of a seated player. */
+  buttonType: string;
+  /** Flipper entities, left then right; each carries the flip actor property. */
+  flipperTypes: string[];
+  /** Actor property holding a flipper's angle. */
+  flipProperty: string;
+  /** Tag the runtime gives a seated player. */
+  seatedTag: string;
+  /** Hotbar slot a seated player is parked on; a lower slot is the left flipper, a higher the right. */
+  parkSlot: number;
+  /** The plunger's tap target, the plunger (its pull property) and the ball (its plane-offset property), when the pack has them. */
+  plungerButtonType?: string | undefined;
+  plungerType?: string | undefined;
+  pullProperty?: string | undefined;
+  ballType?: string | undefined;
+  ballUProperty?: string | undefined;
+  /** The cabinet flipper buttons (pressed in while their flipper is up) and their press property. */
+  cabinetButtonTypes?: { left?: string | undefined; right?: string | undefined } | undefined;
+  pressProperty?: string | undefined;
+}
+
+// ─── The placement hook (test variant only) ────────────────────────────────
+
+/** The line in `placement.js` the hook is inserted before (inside `placementRuntime`). */
+const PLACEMENT_ANCHOR = '  world.afterEvents.itemUse.subscribe((ev) => {';
+
+/**
+ * Hook source. Runs inside `placementRuntime`'s closure, so `state`, `place`
+ * and `histories` are the pack's own. Message: JSON `{ player, x, y, z,
+ * rotation?, size? }`; the player is found by NAME so the sender may be any
+ * pack (`system.sendScriptEvent` has no source entity).
+ */
+const PLACEMENT_HOOK = `  system.afterEvents.scriptEventReceive.subscribe((ev) => {
+    if (ev.id !== "${GT_PLACE_EVENT}") return;
+    let a;
+    try { a = JSON.parse(ev.message); } catch (e) { console.warn("CMGT_HOOK bad message " + ev.message); return; }
+    // Measured on the Pixel (run 2): even with server-gametest declared, a simulated player
+    // is not found by name from this pack. place() only needs a player for its dimension,
+    // messages and undo history, so fall back to a real player and say which was used.
+    const all = world.getAllPlayers(), real = all.filter(Boolean);
+    const src = ev.sourceEntity && ev.sourceEntity.typeId === "minecraft:player" ? ev.sourceEntity : undefined;
+    const p = src || real.find((x) => x.name === a.player) || real[0];
+    console.warn("CMGT_HOOK " + JSON.stringify({ requested: a.player, players: all.length, undefinedPlayers: all.length - real.length, names: real.map((x) => x.name), using: p ? p.name : null }));
+    if (!p) return;
+    const st = state(p);
+    st.anchor = { x: a.x, y: a.y, z: a.z }; st.dimension = p.dimension.id; st.rotation = a.rotation || 0; st.size = a.size || 100; st.aim = false;
+    system.run(() => place(p).then(() => {
+      const h = histories.get(p.id);
+      system.sendScriptEvent("${GT_PLACED_EVENT}", JSON.stringify({ player: a.player, placedFor: p.name, entities: h ? h.entities.length : -1 }));
+    }, (e) => system.sendScriptEvent("${GT_PLACED_EVENT}", JSON.stringify({ player: a.player, error: String(e && e.message || e) }))));
+  }, { namespaces: ["${GT_NAMESPACE}"] });
+  console.warn("CMGT_HOOK_READY " + config.id);
+`;
+
+/**
+ * Insert the placement hook. Throws when the anchor line is missing or not
+ * unique, so a change to the placement runtime cannot silently produce a test
+ * pack whose tests can never place anything.
+ */
+export function patchPlacementForGametest(placementJs: string): string {
+  const first = placementJs.indexOf(PLACEMENT_ANCHOR);
+  if (first < 0) throw new Error('placement.js: itemUse anchor not found; the placement runtime changed shape');
+  if (placementJs.indexOf(PLACEMENT_ANCHOR, first + 1) >= 0) throw new Error('placement.js: itemUse anchor is not unique');
+  // The closure names the hook calls; a rename in the runtime must fail here, not on the phone.
+  for (const pattern of [/\bstate = \(p\) =>/, /\basync function place\(p\)/, /\bhistories\.set\(/]) {
+    if (!pattern.test(placementJs)) throw new Error(`placement.js: ${pattern} not found; the hook would not bind`);
+  }
+  return placementJs.slice(0, first) + PLACEMENT_HOOK + placementJs.slice(first);
+}
+
+// ─── Manifests ──────────────────────────────────────────────────────────────
+
+interface Manifest {
+  format_version: number;
+  header: { name: string; description?: string; uuid: string; version: number[]; min_engine_version?: number[] };
+  modules: Array<{ type: string; uuid: string; version: number[]; language?: string; entry?: string }>;
+  dependencies?: Array<{ uuid?: string; module_name?: string; version: number[] | string }>;
+}
+
+/**
+ * The model BP's manifest with new header/module uuids derived from the old
+ * ones, so the variant can sit beside the shipped pack on one device without
+ * a uuid clash. Dependencies (its RP, the script modules) are unchanged.
+ */
+export function variantManifest(manifest: Manifest, version: number[] = manifest.header.version): Manifest {
+  const renew = (uuid: string): string => deterministicUuid(`${GT_NAMESPACE}.variant:${uuid}`);
+  const deps = (manifest.dependencies ?? []).filter(d => d.module_name !== '@minecraft/server-gametest');
+  return {
+    ...manifest,
+    // A new version per build: an import of an already-installed uuid+version is a no-op.
+    header: { ...manifest.header, name: `${manifest.header.name} [GameTest]`, uuid: renew(manifest.header.uuid), version },
+    modules: manifest.modules.map(m => ({ ...m, uuid: renew(m.uuid), version })),
+    // Measured on the Pixel (1.26.51, 2026-09-24): in a pack WITHOUT this module,
+    // `world.getAllPlayers()` / `getPlayers()` return `undefined` in place of every
+    // simulated player, so the placement runtime's per-tick loops threw on `p.id`
+    // and the hook could not find the test's player by name.
+    dependencies: [...deps, { module_name: '@minecraft/server-gametest', version: GT_GAMETEST_VERSION }],
+  };
+}
+
+// ─── Arena structure ────────────────────────────────────────────────────────
+
+/** Arena size: the model's box plus `GT_MARGIN` each side, one floor layer and headroom. */
+export function arenaSize(dims: GametestPlan['dims']): Vec3 {
+  // The full size: a model wider than one structure (`arenaExceeds`) gets a capped structure
+  // (`buildArenaStructure` with `overflow`) and is tested in x-windows (`arenaWindows`).
+  return { x: dims.width + 2 * GT_MARGIN, y: dims.height + 3, z: dims.length + 2 * GT_MARGIN };
+}
+
+/** Is the model's arena larger than one structure can carry? */
+export function arenaExceeds(dims: GametestPlan['dims']): boolean {
+  const size = arenaSize(dims);
+  return size.x > GT_MAX_ARENA.x || size.z > GT_MAX_ARENA.z || size.y > GT_MAX_ARENA.y;
+}
+
+/**
+ * The arena: smooth stone at y = 0, explicit air above (so the structure
+ * clears whatever the test area held). The model is placed with its anchor at
+ * relative (GT_MARGIN, 1, GT_MARGIN). A model too large for one structure is
+ * refused unless `overflow` is set; then the structure is capped at
+ * `GT_MAX_ARENA` and the test lays the remaining floor (`GametestPlan.oversized`).
+ */
+export function buildArenaStructure(dims: GametestPlan['dims'], options: { overflow?: boolean } = {}): Uint8Array {
+  const full = arenaSize(dims);
+  if (arenaExceeds(dims) && !options.overflow) {
+    // TODO: tile large models over several test structures instead of laying the overflow floor at run time.
+    throw new Error(`arena ${full.x}x${full.y}x${full.z} exceeds one structure (${GT_MAX_ARENA.x}x${GT_MAX_ARENA.y}x${GT_MAX_ARENA.z})`);
+  }
+  const size = { x: Math.min(full.x, GT_MAX_ARENA.x), y: Math.min(full.y, GT_MAX_ARENA.y), z: Math.min(full.z, GT_MAX_ARENA.z) };
+  const grid = new BlockGrid(size.x, size.y, size.z);
+  for (let x = 0; x < size.x; x++) for (let z = 0; z < size.z; z++) grid.set(x, 0, z, 'minecraft:smooth_stone');
+  const tile = { name: 'arena', x: 0, y: 0, z: 0, width: size.x, height: size.y, length: size.z, ix: 0, iy: 0, iz: 0, nonAir: size.x * size.z };
+  const encoded = encodeMcstructureTile(grid, tile);
+  if (encoded.unmapped.length) throw new Error(`arena blocks without a Bedrock mapping: ${encoded.unmapped.join(', ')}`);
+  return encoded.bytes;
+}
+
+// ─── Walk judgement (shared by the runtime and the unit tests) ──────────────
+
+/**
+ * Where a walker ended relative to its start->end line: `passed` at 75 % or
+ * more of the way, `blocked` under 50 %, otherwise `partial`; `fell` when it
+ * ended more than a block below both ends (run 4: 41732's Door 3 "walked
+ * through" by dropping 3.25 blocks off the far side - the drop that makes the
+ * offline walk call it SEALED).
+ */
+export function judgeWalk(start: Vec3, end: Vec3, at: Vec3): { outcome: 'passed' | 'blocked' | 'partial' | 'fell'; progress: number } {
+  const dx = end.x - start.x, dz = end.z - start.z, len2 = dx * dx + dz * dz;
+  const progress = len2 > 0 ? ((at.x - start.x) * dx + (at.z - start.z) * dz) / len2 : 0;
+  const rounded = Math.round(progress * 100) / 100;
+  // Through the doorway and on (three quarters of the way to the far spot) is through, even if
+  // the walker then stepped off a drop beyond it (10326 Door 2, a ONE-WAY doorway, Pixel 2026-09-25b).
+  if (progress < 0.75 && at.y < Math.min(start.y, end.y) - 1) return { outcome: 'fell', progress: rounded };
+  return { outcome: progress >= 0.75 ? 'passed' : progress < 0.5 ? 'blocked' : 'partial', progress: rounded };
+}
+
+/** Does a device outcome satisfy an offline prediction? `sealed` means "not walkable". */
+export function outcomeMatches(expected: WalkOutcome, device: string): boolean {
+  if (expected === 'passed') return device === 'passed';
+  if (expected === 'no-approach') return true;
+  return device !== 'passed';
+}
+
+// ─── The GameTest runtime (serialised with .toString()) ─────────────────────
+
+/** Modules the runtime is handed, so it references nothing outside itself. */
+interface RuntimeModules { mc: any; gt: any }
+
+/**
+ * Registered in the GameTest pack. Everything it reports is one content-log
+ * line `CMGT <TAG> <json>` via `console.warn` (the level the content log keeps
+ * by default), then ~16 KiB of padding so the block-buffered log flushes.
+ */
+export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena: Vec3, margin: number, judge: typeof judgeWalk, matches: typeof outcomeMatches, judgeFigure?: typeof judgeFigureTrack, vehicleKit?: { summarise: typeof summariseVehiclePhase; layout: typeof GT_VEHICLE_LAYOUT; inputEvent: string }, figureBody?: typeof figureBodyCheck, kit?: ColliderFormKit): void {
+  const { mc, gt } = mods;
+  // `--only=vehicles`: none of the model's own tests, so a vehicle run is short and cannot collide with them.
+  if (plan.vehiclesOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, figures: [], flyer: undefined };
+  if (plan.figuresOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, vehicles: [], trains: [], flyer: undefined };
+  if (plan.vehiclesOnly) plan = { ...plan, gaitProbe: undefined, creatorFigure: undefined, creatorWand: undefined };
+  const { world, system } = mc;
+  const NS = 'craftmatic_gt';
+  /** Ticks a doorway walk gives each leg of the offline route (`GametestDoorway.via`) before moving on. */
+  const LEG_TICKS = 30;
+  /** `GAIT_PROBE_EVENT` (the runtime is serialised: it cannot import it). */
+  const gaitEvent = `${NS}:gait`;
+  const log = (tag: string, data: unknown): void => { console.warn(`CMGT ${tag} ${JSON.stringify(data)}`); };
+  const flush = (): void => { const pad = 'x'.repeat(1000); for (let i = 0; i < 18; i++) console.warn(`CMGT_PAD ${i} ${pad}`); };
+  const placedReplies = new Map<string, any>();
+  system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
+    if (ev.id === `${NS}:placed`) { try { const m = JSON.parse(ev.message); placedReplies.set(m.player, m); } catch { /* malformed */ } }
+    if (ev.id === `${NS}:run`) runAll(ev.sourceEntity);
+    if (ev.id === `${NS}:probe`) void probe(ev.message);
+  }, { namespaces: [NS] });
+
+  /** Entity-interaction events a simulated player caused, as this pack's own handlers see them. */
+  const events = { interact: 0, hit: 0 };
+  const isSim = (p: any): boolean => !!p && String(p.name).startsWith('cmgt_');
+  world.afterEvents.playerInteractWithEntity.subscribe((ev: any) => { if (isSim(ev.player)) events.interact++; });
+  world.afterEvents.entityHitEntity.subscribe((ev: any) => { if (isSim(ev.damagingEntity)) events.hit++; });
+
+  const round = (v: any): Vec3 => ({ x: Math.round(v.x * 100) / 100, y: Math.round(v.y * 100) / 100, z: Math.round(v.z * 100) / 100 });
+  const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
+  const dist2 = (a: Vec3, b: Vec3): number => (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
+  const gameMode = mc.GameMode.Survival ?? mc.GameMode.survival;
+
+  /**
+   * Where the arena floor landed, in test-relative y. Measured on the Pixel
+   * (2026-09-24): relative y = 0 read AIR, so the structure's layer 0 is not
+   * simply relative 0 - find the smooth stone instead of assuming.
+   */
+  const floorY = (test: any, x: number, z: number): { y: number; column: string[] } => {
+    const column: string[] = [];
+    let y = 0, found = false;
+    for (let ry = -3; ry <= 3; ry++) {
+      let id = '?';
+      try { id = test.getBlock({ x, y: ry, z })?.typeId ?? 'none'; } catch (err) { id = `error:${String(err)}`; }
+      column.push(`${ry}:${id.replace('minecraft:', '')}`);
+      if (!found && id === 'minecraft:smooth_stone') { y = ry; found = true; }
+    }
+    return { y: found ? y : 0, column };
+  };
+
+  const oversized = !!plan.oversized;
+  if (oversized) log('OVERSIZED', { model: plan.modelId, arena, note: 'only the figures test runs; it lays the floor past the structure itself' });
+
+  /** Smoke: the framework runs, a simulated player spawns on the arena floor and walks 4 blocks. */
+  if (!oversized && !plan.vehiclesOnly && !plan.figuresOnly) gt.registerAsync(NS, 'smoke', async (test: any) => {
+    const f = floorY(test, 2, 2);
+    const sim = test.spawnSimulatedPlayer({ x: 2, y: f.y + 1, z: 2 }, 'cmgt_smoke', gameMode);
+    await test.idle(10);
+    const from = { ...sim.location };
+    // SimulatedPlayer movement takes TEST-RELATIVE coordinates (run 2: a world
+    // target sent the walker to origin + target).
+    const targetRel = { x: 6.5, y: f.y + 1, z: 2.5 };
+    const target = test.worldLocation(targetRel);
+    sim.moveToLocation(targetRel);
+    const track: Vec3[] = [];
+    for (let i = 0; i < 6; i++) { await test.idle(10); track.push(round(sim.location)); }
+    const to = { ...sim.location };
+    const moved = Math.sqrt((from.x - to.x) ** 2 + (from.z - to.z) ** 2);
+    log('SMOKE', { floorY: f.y, column: f.column, from: round(from), target: round(target), track, movedHorizontally: Math.round(moved * 100) / 100, direction: String(test.getTestDirection()) });
+    flush();
+    if (moved < 2) test.fail(`simulated player moved only ${moved.toFixed(2)} blocks`); else test.succeed();
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(300).tag(NS);
+
+  /**
+   * Place the model at 100 %, turn 0, with the pack's own placement code (the
+   * injected hook), for a simulated player spawned in the arena. Returns
+   * undefined (after failing the test) when the placement did not land.
+   */
+  /**
+   * One placement at a time, in this pack's own order: the doors, parts and
+   * figures tests start together, and three tests hammering the placement
+   * runtime starved the figures test of 60380 and 76269 through all its
+   * retries (Pixel, 2026-09-25). A test waits its turn here instead.
+   */
+  let placing: Promise<unknown> = Promise.resolve();
+  const placeModel = (test: any, testName: string, shiftX = 0): Promise<{ sim: any; anchor: Vec3; dim: any } | undefined> => {
+    const turn = placing.then(() => placeModelNow(test, testName, shiftX));
+    placing = turn.catch(() => undefined);
+    return turn;
+  };
+  const placeModelNow = async (test: any, testName: string, shiftX: number): Promise<{ sim: any; anchor: Vec3; dim: any } | undefined> => {
+    const name = `cmgt_${Math.floor(Math.random() * 1e6)}`;
+    const f = floorY(test, margin, margin);
+    // A window past the first: the model is placed shifted -x so that window lies over the arena.
+    const anchor = test.worldBlockLocation({ x: margin - shiftX, y: f.y + 1, z: margin });
+    const sim = test.spawnSimulatedPlayer({ x: 1, y: f.y + 1, z: 1 }, name, gameMode);
+    log('ARENA', { test: testName, model: plan.modelId, anchor, floorY: f.y, column: f.column, arena, direction: String(test.getTestDirection()), player: name });
+    await test.idle(5);
+    let reply: any;
+    // The placement runtime runs one placement at a time and answers a second
+    // one at once with nothing placed (entities -1: "Another placement is
+    // running"), which is what a doors and a figures test starting together
+    // get (Pixel, 2026-09-25). Ask again until it takes.
+    for (let attempt = 0; attempt < 12; attempt++) {
+      placedReplies.delete(name);
+      system.sendScriptEvent(`${NS}:place`, JSON.stringify({ player: name, x: anchor.x, y: anchor.y, z: anchor.z, rotation: 0, size: 100 }));
+      reply = undefined;
+      for (let t = 0; t < 1200 && !reply; t += 10) { await test.idle(10); reply = placedReplies.get(name); }
+      if (!reply || reply.error || reply.entities !== -1) break;
+      log('PLACE_RETRY', { test: testName, attempt });
+      await test.idle(100);
+    }
+    const dim = test.getDimension();
+    const spawned = dim.getEntities({ location: add(anchor, { x: plan.dims.width / 2, y: plan.dims.height / 2, z: plan.dims.length / 2 }), maxDistance: Math.max(plan.dims.width, plan.dims.length, plan.dims.height) + 4 }).filter((e: any) => plan.actorTypes.includes(e.typeId));
+    log('PLACED', { test: testName, reply: reply ?? 'timeout', actorsFound: spawned.length, actorsExpected: plan.actorTypes.length });
+    if (!reply || reply.error) { flush(); test.fail(`placement did not complete: ${reply ? reply.error : 'no reply in 1200 ticks'}`); return undefined; }
+    // Still refused after every retry: nothing was placed, so nothing below could be judged.
+    if (reply.entities === -1) { flush(); test.fail('placement kept answering "another placement is running": nothing placed'); return undefined; }
+    return { sim, anchor, dim };
+  };
+  const nearest = (dim: any, type: string, at: Vec3, maxDistance: number): any =>
+    dim.getEntities({ type, location: at, maxDistance }).sort((a: any, b: any) => dist2(a.location, at) - dist2(b.location, at))[0];
+
+  // The plan's arena windows (`arenaWindows`) and each item's window (`windowOf`), computed by the plan builder.
+  const windows: Array<{ x0: number; x1: number }> = plan.windows?.length ? plan.windows : [{ x0: 0, x1: plan.dims.width }];
+  const windowIndexOf = (item: { window?: number }): number => item.window ?? 0;
+  const suffix = (w: number): string => (windows.length > 1 ? `_w${w}` : '');
+  const angleOf = (e: any): unknown => { try { return e.getProperty(plan.angleProperty); } catch (err) { return `error: ${String(err)}`; } };
+
+  /** Doors: place the model with its own placement code, then walk every doorway closed and open. */
+  for (let w = 0; w < windows.length; w++) {
+  const doorways = plan.doorways.filter(d => windowIndexOf(d) === w);
+  // An oversized model tested in windows runs its doors per window; one without windows only runs the figures test.
+  if (doorways.length && (!oversized || windows.length > 1)) gt.registerAsync(NS, `doors_${plan.modelId}${suffix(w)}`, async (test: any) => {
+    const placed = await placeModel(test, 'doors', windows[w]!.x0);
+    if (!placed) return;
+    const { sim, anchor, dim } = placed;
+    await test.idle(40); // two interactives sync passes: closed doorways get their colliders
+
+    const walk = async (startW: Vec3, endW: Vec3, viaW: Vec3[] = []): Promise<{ outcome: string; progress: number; at: Vec3 }> => {
+      sim.teleport(startW, { facingLocation: viaW[0] ?? endW });
+      await test.idle(4);
+      // Leg by leg along the offline route (`via`), then on to the end; a leg gives up after
+      // `LEG_TICKS` (a closed leaf stops the walker at the first leg past it).
+      for (const p of viaW) {
+        sim.moveToLocation(test.relativeLocation(p)); // relative, like every SimulatedPlayer move
+        // A leg that rises past the auto-step is a jump (the offline walk jumps when a move is
+        // clipped; 42670's Door 4 sits 1.25 blocks over the ground in front of it).
+        const rises = p.y - sim.location.y > 0.6;
+        for (let t = 0; t < LEG_TICKS; t += 2) {
+          await test.idle(2);
+          if (Math.hypot(sim.location.x - p.x, sim.location.z - p.z) < 0.35) break;
+          if (rises && t % 8 === 2 && p.y - sim.location.y > 0.6) sim.jump();
+        }
+      }
+      sim.moveToLocation(test.relativeLocation(endW));
+      await test.idle(60);
+      sim.stopMoving();
+      const at = { ...sim.location };
+      const j = judge(startW, endW, at);
+      return { outcome: j.outcome, progress: j.progress, at: round(at) };
+    };
+    const results: any[] = [];
+    for (const d of doorways) {
+      const leafAt = add(anchor, d.actor);
+      const leaf = nearest(dim, d.typeId, leafAt, 4);
+      const startW = add(anchor, d.start), endW = add(anchor, d.end), viaW = (d.via ?? []).map(p => add(anchor, p));
+      const row: any = { label: d.label, offline: d.offlineVerdict, expectClosed: d.expectClosed, expectOpen: d.expectOpen };
+      if (!leaf) { row.error = 'leaf entity not found'; results.push(row); log('DOOR', row); continue; }
+      try {
+        const face = async (): Promise<void> => { sim.teleport(startW, { facingLocation: leaf.location }); await test.idle(4); sim.lookAtEntity(leaf); };
+        // A double door's leaves share cells and move together (run 4: opening Door 2
+        // opened Door 4). Close a leaf that starts open, so every doorway starts closed.
+        const initial = angleOf(leaf);
+        if (initial !== 0) { await face(); sim.attackEntity(leaf); await test.idle(20); row.resetFrom = initial; }
+        row.angleClosed = angleOf(leaf);
+        row.closed = await walk(startW, endW, viaW);
+        await face();
+        const before = { ...events };
+        row.interactReturned = sim.interactWithEntity(leaf);
+        await test.idle(20);
+        row.angleAfterInteract = angleOf(leaf);
+        row.interactEvents = events.interact - before.interact;
+        if (row.angleAfterInteract === row.angleClosed) {
+          // The interact did not toggle it: try the other route the runtime listens to (a hit).
+          row.attackReturned = sim.attackEntity(leaf);
+          await test.idle(20);
+          row.angleAfterAttack = angleOf(leaf);
+          row.hitEvents = events.hit - before.hit;
+        }
+        row.open = await walk(startW, endW, viaW);
+        try { const why = leaf.getDynamicProperty('craftmatic:ix_refused'); if (why) row.refused = why; } catch { /* older pack */ }
+        row.pass = matches(d.expectClosed, row.closed.outcome) && matches(d.expectOpen, row.open.outcome);
+        // Leave it closed for the next doorway (its partner may be next).
+        if (angleOf(leaf) !== 0) { await face(); sim.attackEntity(leaf); await test.idle(20); }
+      } catch (err) {
+        row.error = String(err && (err as Error).message || err);
+        row.pass = false;
+      }
+      results.push(row);
+      log('DOOR', row);
+    }
+    const failed = results.filter(r => !r.pass);
+    log('SUMMARY', { model: plan.modelId, doorways: results.length, asPredicted: results.length - failed.length, differ: failed.map(r => r.label) });
+    flush();
+    if (failed.length) test.fail(`${failed.length}/${results.length} doorways differ from the offline walk: ${failed.map(r => r.label).join(', ')}`);
+    else test.succeed();
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3000 + doorways.length * (400 + 2 * LEG_TICKS * Math.max(0, ...doorways.map(d => d.via?.length ?? 0)))).tag(NS);
+
+  /**
+   * Parts and seats: every moving part without a doorway walk is hit twice
+   * from a spot the offline tap audit accepted - a door-like part must read
+   * its open angle, then 0; a turnable two steps - and every seat is mounted
+   * with `interactWithEntity` (run 1 on 11374 seated a player this way) and
+   * left again.
+   */
+  const parts = (plan.parts ?? []).filter(p => windowIndexOf(p) === w);
+  const seats = (plan.seats ?? []).filter(s => windowIndexOf(s) === w);
+  if (parts.length || seats.length) gt.registerAsync(NS, `parts_${plan.modelId}${suffix(w)}`, async (test: any) => {
+    const placed = await placeModel(test, 'parts', windows[w]!.x0);
+    if (!placed) return;
+    const { sim, anchor, dim } = placed;
+    await test.idle(40);
+    const near = (a: unknown, b: number): boolean => typeof a === 'number' && Math.abs(a - b) < 0.5;
+    const results: any[] = [];
+    for (const p of parts) {
+      const row: any = { label: p.label, kind: p.kind, openAngle: p.openAngle };
+      const e = nearest(dim, p.typeId, add(anchor, p.actor), 4);
+      if (!e) { row.error = 'entity not found'; row.pass = false; results.push(row); log('PART', row); continue; }
+      try {
+        sim.teleport(add(anchor, p.from), { facingLocation: e.location });
+        await test.idle(4);
+        sim.lookAtEntity(e);
+        const before = { ...events };
+        const a0 = angleOf(e);
+        row.hit1 = sim.attackEntity(e);
+        await test.idle(20);
+        const a1 = angleOf(e);
+        // After the first hit too: did the part's swing (or the ledge) move the tester before the second?
+        row.stoodAt1 = round({ x: sim.location.x - anchor.x, y: sim.location.y - anchor.y, z: sim.location.z - anchor.z });
+        row.hit2 = sim.attackEntity(e);
+        await test.idle(20);
+        const a2 = angleOf(e);
+        row.angles = [a0, a1, a2];
+        // Where the simulated player actually stood (model-local): on the Pixel 31141's Window 2
+        // tester fell 2.8 blocks off its ledge spot and hit from the floor below (2026-09-26).
+        const standAt = { x: sim.location.x - anchor.x, y: sim.location.y - anchor.y, z: sim.location.z - anchor.z };
+        row.stoodAt = round(standAt);
+        row.offSpot = Math.round(Math.hypot(standAt.x - p.from.x, standAt.y - p.from.y, standAt.z - p.from.z) * 100) / 100;
+        // Why the runtime refused a hit, when it did (`refuse` in scripts/interactives.js).
+        try { const why = e.getDynamicProperty('craftmatic:ix_refused'); if (why) row.refused = why; } catch { /* older pack */ }
+        row.hitEvents = events.hit - before.hit;
+        row.pass = p.kind === 'turnable'
+          ? typeof a0 === 'number' && near(a1, a0 + p.openAngle) && near(a2, a0 + 2 * p.openAngle)
+          : near(a0, 0) && near(a1, p.openAngle) && near(a2, 0);
+      } catch (err) { row.error = String(err && (err as Error).message || err); row.pass = false; }
+      results.push(row);
+      log('PART', row);
+    }
+    for (const s of seats) {
+      const row: any = { label: s.label, kind: 'seat' };
+      const seat = nearest(dim, s.typeId, add(anchor, s.at), 1.5);
+      if (!seat) { row.error = 'seat entity not found'; row.pass = false; results.push(row); log('SEAT', row); continue; }
+      const riders = (): string[] => { try { return (seat.getComponent('minecraft:rideable')?.getRiders?.() ?? []).map((r: any) => r?.name ?? r?.typeId ?? 'undefined'); } catch (err) { return [`error: ${String(err)}`]; } };
+      try {
+        if (s.occupied) {
+          // A figure the source sat here rides it (10261's seat): it must still be seated.
+          row.occupied = true;
+          row.riders = riders();
+          row.pass = row.riders.some((r: string) => r !== sim.name && r !== 'undefined');
+        } else {
+          sim.teleport(add(seat.location, { x: 0, y: 0.1, z: 0 }), { facingLocation: seat.location });
+          await test.idle(4);
+          sim.lookAtEntity(seat);
+          row.interactReturned = sim.interactWithEntity(seat);
+          await test.idle(20);
+          row.riders = riders();
+          row.pass = row.riders.includes(sim.name);
+          try { seat.getComponent('minecraft:rideable')?.ejectRiders?.(); } catch { /* nothing to eject */ }
+          await test.idle(10);
+        }
+      } catch (err) { row.error = String(err && (err as Error).message || err); row.pass = false; }
+      results.push(row);
+      log('SEAT', row);
+    }
+    const failed = results.filter(r => !r.pass);
+    log('PARTS_SUMMARY', { model: plan.modelId, window: w, parts: parts.length, seats: seats.length, passed: results.length - failed.length, failed: failed.map(r => r.label) });
+    flush();
+    if (failed.length) test.fail(`${failed.length}/${results.length} parts or seats failed: ${failed.map(r => r.label).join(', ')}`);
+    else test.succeed();
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(2000 + parts.length * 120 + seats.length * 80).tag(NS);
+  }
+
+  /**
+   * Pinball: sit on the machine's seat pad, then press each flipper the way the
+   * phone does it (a hotbar slot left / right of the parked one), then by a hit
+   * on a tap zone, sampling both flippers' angle property every tick - the
+   * 0.3 s pulse that screenshots missed.
+   */
+  const pb = plan.pinball;
+  if (pb && !oversized) gt.registerAsync(NS, `pinball_${plan.modelId}`, async (test: any) => {
+    const placed = await placeModel(test, 'pinball');
+    if (!placed) return;
+    const { sim, anchor, dim } = placed;
+    await test.idle(20);
+    const row: any = {};
+    const centre = add(anchor, { x: plan.dims.width / 2, y: 0, z: plan.dims.length / 2 });
+    const seat = nearest(dim, pb.consoleType, centre, 40);
+    const flippers = pb.flipperTypes.map(t => nearest(dim, t, centre, 40));
+    row.found = { seat: !!seat, flippers: flippers.map(f => !!f) };
+    if (!seat || flippers.some(f => !f)) { log('PINBALL', row); flush(); test.fail('pinball parts missing'); return; }
+    const riders = (): string[] => { try { return (seat.getComponent('minecraft:rideable')?.getRiders?.() ?? []).map((r: any) => r?.name ?? r?.typeId ?? 'undefined'); } catch (err) { return [`error: ${String(err)}`]; } };
+    const flipAngles = (): unknown[] => flippers.map(f => { try { return f.getProperty(pb.flipProperty); } catch (err) { return `error: ${String(err)}`; } });
+
+    // A held item: something in the selected slot before sitting. The runtime
+    // must park the hotbar on an EMPTY slot (the free camera draws what the
+    // seated player holds; invisibility does not hide it).
+    const inv = (() => { try { return sim.getComponent('minecraft:inventory')?.container; } catch { return undefined; } })();
+    try { inv?.setItem(4, new mc.ItemStack('minecraft:stick', 1)); sim.selectedSlotIndex = 4; } catch (err) { row.giveError = String(err); }
+    const heldType = (): string => { try { return inv?.getItem(sim.selectedSlotIndex)?.typeId ?? 'none'; } catch (err) { return `error: ${String(err)}`; } };
+    row.heldBefore = heldType();
+    // Seat: the interaction a phone tap-and-hold makes, then the component call as a fallback.
+    sim.teleport(add(seat.location, { x: 0, y: 0, z: 1.2 }), { facingLocation: seat.location });
+    await test.idle(4);
+    sim.lookAtEntity(seat);
+    row.interactReturned = sim.interactWithEntity(seat);
+    await test.idle(20);
+    row.ridersAfterInteract = riders();
+    if (!row.ridersAfterInteract.includes(sim.name)) {
+      try { row.addRiderReturned = seat.getComponent('minecraft:rideable').addRider(sim); } catch (err) { row.addRiderReturned = `error: ${String(err)}`; }
+      await test.idle(20);
+      row.ridersAfterAddRider = riders();
+    }
+    // The runtime tags a seated player and parks the hotbar; the seat lifts over several ticks.
+    let t = 0;
+    for (; t < 200; t += 5) { if (sim.hasTag(pb.seatedTag) && sim.selectedSlotIndex !== 4) break; await test.idle(5); }
+    row.seated = { tagged: sim.hasTag(pb.seatedTag), slot: sim.selectedSlotIndex, ticks: t };
+    await test.idle(40);
+    const park = sim.selectedSlotIndex;
+    row.heldSeated = heldType();
+    const heldOk = row.heldBefore === 'minecraft:stick' && row.heldSeated === 'none';
+    row.restAngles = flipAngles();
+
+    const pulse = async (label: string, act: () => unknown, extra?: () => unknown): Promise<any> => {
+      const rest = flipAngles();
+      const out: any = { label, rest, returned: act(), samples: [] as unknown[] };
+      // The same tick as the tap: the runtime raises the flipper inside the event.
+      out.sameTick = flipAngles();
+      out.extra = [] as unknown[];
+      for (let i = 0; i < 16; i++) { await test.idle(1); out.samples.push(flipAngles()); if (extra) out.extra.push(extra()); }
+      out.slotAfter = sim.selectedSlotIndex;
+      // Largest move of each flipper from rest over the 16 ticks.
+      out.maxMove = flippers.map((_, k) => Math.round(Math.max(0, ...out.samples.map((sm: any) => Math.abs(Number(sm[k]) - Number(rest[k])) || 0))));
+      await test.idle(20);
+      return out;
+    };
+    row.left = park > 0 ? await pulse('slot left', () => { sim.selectedSlotIndex = park - 1; return sim.selectedSlotIndex; }) : undefined;
+    row.right = park < 8 ? await pulse('slot right', () => { sim.selectedSlotIndex = park + 1; return sim.selectedSlotIndex; }) : undefined;
+    // Each flipper target: a hit must move exactly its own flipper.
+    const targets = dim.getEntities({ type: pb.buttonType, location: sim.location, maxDistance: 12 });
+    row.targetsFound = targets.length;
+    row.targetHits = [];
+    const cabinet = [pb.cabinetButtonTypes?.left, pb.cabinetButtonTypes?.right].map(t => (t ? nearest(dim, t, centre, 40) : undefined));
+    row.cabinetButtonsFound = cabinet.map(b => !!b);
+    const pressOf = (): number[] => cabinet.map(b => { try { return Number(b?.getProperty(pb.pressProperty)); } catch { return NaN; } });
+    row.targetPress = [];
+    row.targetSameTick = [];
+    for (const t of targets) {
+      const r = await pulse('target hit', () => sim.attackEntity(t), pressOf);
+      // The most each cabinet button was pressed in over the pulse.
+      row.targetPress.push([0, 1].map(k => Math.max(0, ...r.extra.map((pr: number[]) => Number(pr[k]) || 0))));
+      row.targetHits.push(r.maxMove);
+      row.targetSameTick.push(r.sameTick);
+    }
+    // Each hit pressed exactly one cabinet button in.
+    const pressOk = !pb.cabinetButtonTypes || row.targetPress.filter((pr: number[]) => pr.filter(v => v > 0.5).length === 1).length === targets.length;
+    const moved = (r: any, k: number): boolean => !!r && r.maxMove[k] > 5;
+    const targetsOk = targets.length === 2 && [0, 1].every(k => row.targetHits.filter((mv: number[]) => mv[k]! > 5 && mv[1 - k]! <= 5).length === 1);
+    // The plunger: hit its target (take hold), wait, hit again (let go); the
+    // plunger's pull must rise and the ball must leave up the table (-u).
+    let plungerOk = true;
+    if (pb.plungerType && pb.ballType) {
+      // The drag pull: turn the (simulated) player's pitch down a little each
+      // tick, as a finger dragged down the screen does, then hold still.
+      const plunger = nearest(dim, pb.plungerType, centre, 40);
+      const ball = nearest(dim, pb.ballType, centre, 40);
+      const prop = (e: any, k: string | undefined): number => { try { return Number(e?.getProperty(k)); } catch { return NaN; } };
+      row.plunger = { plungerFound: !!plunger, ballFound: !!ball, pull: [] as number[], ballU: [] as number[], pitch: [] as number[] };
+      if (plunger && ball) {
+        let p0 = 0;
+        try { p0 = Number(sim.getRotation().x); } catch {}
+        for (let k = 1; k <= 8; k++) {
+          try { sim.setRotation({ x: p0 + 4 * k, y: sim.getRotation().y }); } catch (err) { row.plunger.rotError = String(err); }
+          await test.idle(1);
+          row.plunger.pull.push(Math.round(prop(plunger, pb.pullProperty) * 100) / 100);
+          try { row.plunger.pitch.push(Math.round(Number(sim.getRotation().x) * 10) / 10); } catch {}
+        }
+        for (let i = 0; i < 25; i++) { await test.idle(1); row.plunger.ballU.push(Math.round(prop(ball, pb.ballUProperty))); }
+        const maxPull = Math.max(0, ...row.plunger.pull.filter(Number.isFinite));
+        const minU = Math.min(0, ...row.plunger.ballU.filter(Number.isFinite));
+        row.plunger.maxPull = maxPull; row.plunger.minBallU = minU;
+        plungerOk = maxPull > 0.3 && minU < -50;
+      } else plungerOk = false;
+    }
+    row.targetsOk = targetsOk; row.plungerOk = plungerOk; row.heldOk = heldOk; row.pressOk = pressOk;
+    const slotsOk = (!row.left || moved(row.left, 0)) && (!row.right || moved(row.right, 1)) && (!!row.left || !!row.right);
+    try { inv?.setItem(4, undefined); } catch {}
+    row.pass = slotsOk && targetsOk && plungerOk && heldOk && pressOk;
+    log('PINBALL', row);
+    flush();
+    if (row.pass) test.succeed(); else test.fail(`pinball: slots ${slotsOk}, targets ${targetsOk}, plunger ${plungerOk}, held ${heldOk}, press ${pressOk}`);
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3000).tag(NS);
+
+  /**
+   * Figures: place the model, find every minifig NPC it spawned, then sample
+   * each one's position (and whether it rides a seat, and whether its body is
+   * inside a collider taller than a step) every `GT_FIGURE_SAMPLE_TICKS` for
+   * the watch. Fails when a figure leaves the footprint, falls under the pin
+   * plane, ends inside a wall, or when fewer than half the roaming figures
+   * walked 2 blocks.
+   */
+  const figs = plan.figures ?? [];
+  const watchTicks = plan.figureTicks ?? 1200;
+  if (figs.length && judgeFigure) gt.registerAsync(NS, `figures_${plan.modelId}`, async (test: any) => {
+    // An oversized model: lay the floor (and clear the air) past the capped structure first.
+    const overflowBoxes: Array<{ floor: any[]; air: any[] }> = [];
+    if (oversized) {
+      const f0 = floorY(test, margin, margin).y;
+      const cap = { x: 64, z: 64 };
+      const boxes: Array<[number, number, number, number]> = [];
+      if (arena.x > cap.x) boxes.push([cap.x, arena.x - 1, 0, Math.min(arena.z, cap.z) - 1]);
+      if (arena.z > cap.z) boxes.push([0, arena.x - 1, cap.z, arena.z - 1]);
+      for (const [x0, x1, z0, z1] of boxes) {
+        const floor = [test.worldBlockLocation({ x: x0, y: f0, z: z0 }), test.worldBlockLocation({ x: x1, y: f0, z: z1 })];
+        const air = [test.worldBlockLocation({ x: x0, y: f0 + 1, z: z0 }), test.worldBlockLocation({ x: x1, y: f0 + arena.y, z: z1 })];
+        overflowBoxes.push({ floor, air });
+        try {
+          const d = test.getDimension();
+          d.fillBlocks(new mc.BlockVolume(air[0], air[1]), 'minecraft:air');
+          d.fillBlocks(new mc.BlockVolume(floor[0], floor[1]), 'minecraft:smooth_stone');
+        } catch (err) { log('OVERFLOW', { error: String(err && (err as Error).message || err) }); }
+      }
+      log('OVERFLOW', { boxes: overflowBoxes });
+    }
+    const placed = await placeModel(test, 'figures');
+    if (!placed) return;
+    const { sim, anchor, dim } = placed;
+    // Out of the way: in a corner of the arena, so it neither blocks nor lures a figure much.
+    try { sim.teleport(test.worldLocation({ x: 0.5, y: 2, z: 0.5 })); } catch { /* stays */ }
+    await test.idle(40);
+    const col = plan.colliders;
+    /** The block's world collision boxes: a collider's FORM boxes through the kit (any of its ids), a whole box for any other solid block, [] for air or liquid, undefined when unreadable. */
+    const boxesAt = (bx: number, by: number, bz: number): number[][] | undefined => {
+      let b: any;
+      try { b = dim.getBlock({ x: bx, y: by, z: bz }); } catch { return undefined; }
+      if (!b) return undefined;
+      if (b.isAir === true || b.isLiquid === true || b.typeId === 'minecraft:air') return [];
+      const v = col && kit ? kit.variantOf(b.typeId) : -1;
+      if (v >= 0) {
+        const lo = Number(b.permutation.getState(col!.loState)), hi = Number(b.permutation.getState(col!.hiState));
+        if (Number.isFinite(lo) && Number.isFinite(hi)) return kit!.formBoxes(v, lo, hi).map(w => [bx + w[0]! / 16, bx + w[1]! / 16, by + w[2]! / 16, by + w[3]! / 16, bz + w[4]! / 16, bz + w[5]! / 16]);
+      }
+      return [[bx, bx + 1, by, by + 1, bz, bz + 1]];
+    };
+    const bodyCheck = (at: Vec3): { clipping: boolean; wall: boolean } => figureBody ? figureBody(boxesAt, at) : { clipping: false, wall: false };
+    const centre = add(anchor, { x: plan.dims.width / 2, y: 0, z: plan.dims.length / 2 });
+    const reach = Math.max(plan.dims.width, plan.dims.length) + 6;
+    const tracked = figs.map(f => {
+      const want = add(anchor, f.actor);
+      const e = dim.getEntities({ type: f.typeId, location: centre, maxDistance: reach }).sort((a: any, b: any) => dist2(a.location, want) - dist2(b.location, want))[0];
+      return { f, e, track: [] as any[] };
+    });
+    log('FIGURES_FOUND', { model: plan.modelId, expected: figs.length, found: tracked.filter(t => t.e).length, missing: tracked.filter(t => !t.e).map(t => t.f.label) });
+    const riding = (e: any): boolean => { try { return !!e.getComponent('minecraft:riding'); } catch { return false; } };
+    for (let t = 0; t <= watchTicks; t += 20) {
+      for (const tr of tracked) {
+        if (!tr.e) continue;
+        let loc: any;
+        try { loc = tr.e.location; } catch { continue; } // removed or unloaded
+        const c = bodyCheck(loc);
+        tr.track.push({ ...round(loc), riding: riding(tr.e), clipping: c.clipping });
+      }
+      if (t < watchTicks) await test.idle(20);
+    }
+    const area = { min: anchor, max: add(anchor, { x: plan.dims.width, y: plan.dims.height, z: plan.dims.length }) };
+    const rows = tracked.map(tr => {
+      if (!tr.e || !tr.track.length) return { label: tr.f.label, seated: tr.f.seated, error: 'not found' } as any;
+      const last = tr.track[tr.track.length - 1];
+      const v = judgeFigure(tr.track, area, anchor.y, bodyCheck(last).wall, 1);
+      // Relative to the anchor so a row reads in model blocks.
+      const rel = (p: Vec3): Vec3 => round({ x: p.x - anchor.x, y: p.y - anchor.y, z: p.z - anchor.z });
+      // Where the pack put it against where it was first seen (40 ticks later): a fall at placement.
+      const spawnDrop = Math.round((anchor.y + tr.f.actor.y - tr.track[0].y) * 100) / 100;
+      return { label: tr.f.label, seated: tr.f.seated, start: rel(tr.track[0]), end: rel(last), spawnDrop, ...v,
+        path: tr.track.filter((_: any, i: number) => i % 6 === 0).map((p: any) => [Math.round((p.x - anchor.x) * 10) / 10, Math.round((p.y - anchor.y) * 10) / 10, Math.round((p.z - anchor.z) * 10) / 10]) };
+    });
+    for (const r of rows) log('FIGURE', r);
+    const found = rows.filter(r => !r.error);
+    const roamers = found.filter(r => !r.seated);
+    const bad = (k: string): string[] => found.filter(r => r[k]).map(r => r.label);
+    const summary = {
+      model: plan.modelId, figures: figs.length, found: found.length, roamers: roamers.length,
+      moved: roamers.filter(r => r.moved).length, still: roamers.filter(r => !r.moved).map(r => r.label),
+      leftArea: found.filter(r => r.outsideSamples > 0).map(r => r.label), belowGround: bad('belowGround'),
+      droppedStorey: bad('droppedStorey'),
+      // A seated figure sits in its bench's collider cells by design; only a standing one inside a wall is a fault.
+      endInsideWall: roamers.filter(r => r.endInsideWall && r.ridingSamples < r.samples).map(r => r.label),
+      clipping: found.filter(r => r.clippingSamples > 0).map(r => `${r.label}:${r.clippingSamples}`),
+      seatedStayed: found.filter(r => r.seated && r.ridingSamples === r.samples).length, seatedInSet: found.filter(r => r.seated).length,
+      satDown: roamers.filter(r => r.ridingSamples > 0).map(r => r.label),
+      satAndStood: roamers.filter(r => r.satAndStood).map(r => r.label),
+      // Standing figures that dropped more than a step between spawning and the first sample.
+      fellAtSpawn: roamers.filter(r => r.spawnDrop > 0.6).map(r => `${r.label}:${r.spawnDrop}`),
+      meanPath: roamers.length ? Math.round(roamers.reduce((s, r) => s + r.pathLength, 0) / roamers.length * 10) / 10 : 0,
+      watchTicks,
+    };
+    log('FIGURE_SUMMARY', summary);
+    flush();
+    // Leave nothing past the structure for the next run (GameTest clears only its own box).
+    if (oversized) {
+      try {
+        for (const e of dim.getEntities({ location: centre, maxDistance: reach + 4 })) if (plan.actorTypes.includes(e.typeId)) { try { e.remove(); } catch { /* gone */ } }
+        for (const b of overflowBoxes) dim.fillBlocks(new mc.BlockVolume(b.air[0], b.air[1]), 'minecraft:air');
+      } catch (err) { log('OVERFLOW', { cleanupError: String(err && (err as Error).message || err) }); }
+    }
+    const problems: string[] = [];
+    if (found.length < figs.length) problems.push(`${figs.length - found.length} figure(s) not found`);
+    if (summary.leftArea.length) problems.push(`left the model: ${summary.leftArea.join(', ')}`);
+    if (summary.belowGround.length) problems.push(`fell below the floor: ${summary.belowGround.join(', ')}`);
+    if (summary.endInsideWall.length) problems.push(`inside a wall: ${summary.endInsideWall.join(', ')}`);
+    if (roamers.length && summary.moved * 2 < roamers.length) problems.push(`only ${summary.moved}/${roamers.length} roaming figures moved`);
+    if (problems.length) test.fail(problems.join('; ')); else test.succeed();
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(5400 + watchTicks).tag(NS);
+
+  /**
+   * The Minifig Creator's figure: spawned as a draft (the wand's
+   * `craftmatic:draft`), watched for 100 ticks, released (draft off +
+   * `craftmatic:release`, what the wand's Place does), then watched for the
+   * figures test's length. A draft must not move; a released figure must walk
+   * at least 2 blocks and stay within the walker's radius of where it was let go.
+   */
+  const creatorType = plan.creatorFigure;
+  if (creatorType) gt.registerAsync(NS, `creator_${plan.modelId}`, async (test: any) => {
+    const f0 = floorY(test, margin, margin).y;
+    const dim = test.getDimension();
+    const at = test.worldLocation({ x: margin + 5.5, y: f0 + 1, z: margin + 5.5 });
+    const e = dim.spawnEntity(creatorType, at);
+    try { e.setProperty('craftmatic:draft', true); } catch (err) { log('CREATOR', { error: String(err) }); }
+    const path = (track: any[]): number => track.reduce((sum: number, p: any, i: number) => i ? sum + Math.hypot(p.x - track[i - 1].x, p.z - track[i - 1].z) : 0, 0);
+    const held: any[] = [];
+    for (let t = 0; t <= 100; t += 10) { held.push({ ...e.location }); if (t < 100) await test.idle(10); }
+    const released = { ...e.location };
+    try { e.setProperty('craftmatic:draft', false); e.triggerEvent('craftmatic:release'); } catch (err) { log('CREATOR', { error: String(err) }); }
+    const walk: any[] = [];
+    const ticks = plan.figureTicks ?? 1200;
+    for (let t = 0; t <= ticks; t += 20) { try { walk.push({ ...e.location }); } catch { break; } if (t < ticks) await test.idle(20); }
+    const r2 = (v: number): number => Math.round(v * 100) / 100;
+    const heldPath = r2(path(held)), walkPath = r2(path(walk));
+    const maxExcursion = r2(Math.max(...walk.map(p => Math.hypot(p.x - released.x, p.z - released.z))));
+    const minY = r2(Math.min(...walk.map(p => p.y)) - released.y);
+    let home: unknown = null;
+    try { home = JSON.parse(String(e.getDynamicProperty('craftmatic:fig'))); } catch { /* none written */ }
+    log('CREATOR', { model: plan.modelId, typeId: creatorType, heldPath, walkPath, maxExcursion, minY, home });
+    flush();
+    try { e.remove(); } catch { /* gone */ }
+    const problems: string[] = [];
+    if (heldPath > 0.2) problems.push(`the draft moved ${heldPath} blocks`);
+    if (walkPath < 2) problems.push(`the released figure walked only ${walkPath} blocks`);
+    if (maxExcursion > 8) problems.push(`it strayed ${maxExcursion} blocks from where it was released`);
+    if (minY < -0.6) problems.push(`it dropped ${-minY} blocks`);
+    if (problems.length) test.fail(problems.join('; ')); else test.succeed();
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(2000 + (plan.figureTicks ?? 1200)).tag(NS);
+
+  /**
+   * The Minifig Creator WAND, through the operations its form buttons call
+   * (`bedrock-minifig-wand.ts`, published on `globalThis`): a simulated
+   * player's draft appears beside it and holds still; part, colour, pose and
+   * name edits land; a figure code and a saved figure round-trip; Undo puts
+   * a look back; a figure placed to stand still stays, one placed to walk
+   * walks; picking one up holds it; removing it and undoing brings it back as
+   * it was. A world reload is not scriptable here (the host test covers the
+   * reload sweep) and neither is a real seat (the arena has none).
+   */
+  const wandPlan = plan.creatorWand;
+  if (creatorType && wandPlan) gt.registerAsync(NS, `creator_wand_${plan.modelId}`, async (test: any) => {
+    const api = (globalThis as any)[wandPlan.api];
+    if (!api) { log('CREATOR_WAND', { model: plan.modelId, error: 'no wand API on globalThis' }); flush(); test.fail('the wand published no API'); return; }
+    const f0 = floorY(test, margin, margin).y;
+    const sim = test.spawnSimulatedPlayer({ x: margin + 4, y: f0 + 1, z: margin + 4 }, `cmgt_wand${Math.floor(Math.random() * 1e6)}`, gameMode);
+    await test.idle(10);
+    const results: Record<string, unknown> = {};
+    const problems: string[] = [];
+    const check = (name: string, ok: boolean, detail: unknown): void => { results[name] = ok ? 'ok' : detail; if (!ok) problems.push(`${name}: ${JSON.stringify(detail)}`); };
+    const step = async (name: string, fn: () => Promise<void> | void): Promise<void> => {
+      try { await fn(); } catch (err) { check(name, false, `threw ${String(err)}`); }
+    };
+    const path = (track: any[]): number => track.reduce((sum: number, p: any, i: number) => i ? sum + Math.hypot(p.x - track[i - 1].x, p.z - track[i - 1].z) : 0, 0);
+    const watch = async (e: any, ticks: number): Promise<number> => {
+      const track: any[] = [];
+      for (let t = 0; t <= ticks; t += 10) { try { track.push({ ...e.location }); } catch { break; } if (t < ticks) await test.idle(10); }
+      return Math.round(path(track) * 100) / 100;
+    };
+    const live = (e: any): boolean => { try { return !!e && e.isValid !== false && !!world.getEntity(e.id); } catch { return false; } };
+    // A slot with a real second part to switch to (the starter library: heads, hair, held items).
+    const slot = Object.keys(wandPlan.slotSizes).find(s => wandPlan.slotSizes[s]! >= 2) ?? 'torso';
+    let draft: any, placed: any;
+    await step('draft', () => {
+      draft = api.draft(sim);
+      const d = Math.hypot(draft.location.x - sim.location.x, draft.location.z - sim.location.z);
+      check('draft', draft.typeId === creatorType && draft.getProperty('craftmatic:draft') === true && d > 1.1 && d < 5, { typeId: draft.typeId, distance: Math.round(d * 100) / 100 });
+    });
+    if (!draft) { log('CREATOR_WAND', { model: plan.modelId, results }); flush(); test.fail(problems.join('; ')); return; }
+    await step('edits', () => {
+      api.setPart(sim, slot, 1); api.setColour(sim, slot, 1); api.setPose(sim, 1); api.setName(sim, 'GT Knight');
+      const got = { part: draft.getProperty(`craftmatic:${slot}`), colour: draft.getProperty(`craftmatic:c_${slot}`), pose: draft.getProperty('craftmatic:pose'), name: draft.nameTag };
+      check('edits', got.part === 1 && got.colour === 1 && got.pose === 1 && got.name === 'GT Knight', got);
+    });
+    await step('draftHolds', async () => { const moved = await watch(draft, 60); check('draftHolds', moved <= 0.2, { moved }); });
+    await step('code', () => {
+      const code = api.code(sim);
+      api.setPart(sim, slot, 0);
+      api.applyCode(sim, code);
+      check('code', draft.getProperty(`craftmatic:${slot}`) === 1 && code.startsWith('mf1|m|'), { code, part: draft.getProperty(`craftmatic:${slot}`) });
+    });
+    await step('saveLoad', () => {
+      sim.setDynamicProperty(wandPlan.savedKey, undefined);
+      const before = api.saved(sim).length;
+      const saved = api.save(sim, 'GT Saved');
+      api.setPart(sim, slot, 0);
+      const loaded = api.load(sim, before);
+      const part = draft.getProperty(`craftmatic:${slot}`);
+      api.deleteSaved(sim, before);
+      const afterDelete = api.saved(sim).length;
+      api.undo(sim); // the delete
+      const restored = api.saved(sim).length;
+      api.deleteSaved(sim, before);
+      check('saveLoad', saved && loaded && part === 1 && afterDelete === before && restored === before + 1, { saved, loaded, part, before, afterDelete, restored });
+    });
+    await step('undo', () => {
+      api.setColour(sim, slot, 0);
+      const label = api.undo(sim);
+      check('undo', draft.getProperty(`craftmatic:c_${slot}`) === 1, { label, colour: draft.getProperty(`craftmatic:c_${slot}`) });
+    });
+    await step('placeStay', async () => {
+      placed = api.place(sim, 'here', 'stay');
+      const moved = await watch(placed, 100);
+      check('placeStay', !!placed && placed.getProperty('craftmatic:draft') === false && placed.getDynamicProperty('craftmatic:mf_mode') === 'stay' && moved <= 0.2, { moved, mode: placed?.getDynamicProperty('craftmatic:mf_mode') });
+    });
+    await step('undoPlace', () => {
+      const label = api.undo(sim);
+      const s = api.state(sim);
+      check('undoPlace', placed.getProperty('craftmatic:draft') === true && s.draft === placed.id && !s.editing, { label, state: s });
+    });
+    await step('placeWalk', async () => {
+      api.setPose(sim, 0);
+      placed = api.place(sim, 'here', 'walk');
+      const moved = await watch(placed, 600);
+      check('placeWalk', !!placed && moved >= 2, { moved });
+    });
+    await step('pickUp', async () => {
+      const ok = api.pickUp(sim, placed);
+      const moved = await watch(placed, 60);
+      const s = api.state(sim);
+      check('pickUp', ok && placed.getProperty('craftmatic:draft') === true && s.editing && moved <= 0.3, { ok, moved, state: s });
+    });
+    let removedId = '', removedName = '';
+    await step('remove', () => {
+      removedId = placed.id; removedName = placed.nameTag;
+      const ok = api.remove(sim);
+      check('remove', ok && !live(placed), { ok, alive: live(placed) });
+    });
+    await step('undoRemove', () => {
+      api.undo(sim);
+      const back = [...test.getDimension().getEntities({ type: creatorType })].find((e: any) => e.id !== removedId && e.getProperty('craftmatic:draft') === false && e.nameTag === removedName);
+      check('undoRemove', !!back && back.getProperty(`craftmatic:${slot}`) === 1, { found: !!back, part: back?.getProperty(`craftmatic:${slot}`) });
+    });
+    log('CREATOR_WAND', { model: plan.modelId, slot, results });
+    flush();
+    for (const e of [...test.getDimension().getEntities({ type: creatorType })]) { try { e.remove(); } catch { /* gone */ } }
+    try { sim.setDynamicProperty(wandPlan.savedKey, undefined); } catch { /* not stored */ }
+    if (problems.length) test.fail(problems.join('; ')); else test.succeed();
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3000).tag(NS);
+
+  /**
+   * The walk-cycle probe: how many units of `query.modified_distance_moved`
+   * a figure covers per block at a figure's walking speeds. One figure is
+   * spawned on the empty arena floor (a `seated` home so scripts/figures.js
+   * leaves it alone), pushed along +x / -x by velocity exactly as the
+   * walker pushes it, and every unit its controller reports is counted.
+   */
+  const gaitPlan = plan.gaitProbe;
+  if (gaitPlan) gt.registerAsync(NS, `gait_${plan.modelId}`, async (test: any) => {
+    const f0 = floorY(test, margin, margin).y;
+    const dim = test.getDimension();
+    const lane = Math.max(4, Math.min(arena.x - 2 * margin - 2, 14));
+    const start = test.worldLocation({ x: margin + 1, y: f0 + 1, z: margin + 2.5 });
+    const e = dim.spawnEntity(gaitPlan.typeId, start);
+    try { e.setDynamicProperty('craftmatic:fig', JSON.stringify({ home: [start.x, start.y, start.z], area: [start.x - 1, start.z - 1, start.x + lane + 1, start.z + 1], ground: start.y, f: 1, mode: 'seated' })); } catch { /* the runtime then adopts it as a roamer */ }
+    const units: Array<{ t: number }> = [];
+    /** The last `query.modified_move_speed` bucket the speed controller entered. */
+    let speedBucket = 0;
+    const sub = system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
+      if (ev.sourceEntity?.id !== e.id) return;
+      if (ev.id === gaitEvent) units.push({ t: system.currentTick });
+      else if (ev.id === `${NS}:gaitspeed`) speedBucket = Number(ev.message);
+    }, { namespaces: [NS] });
+    await test.idle(20);
+    const rows: any[] = [];
+    let dir = 1;
+    // Back and forth along the lane until GAIT_BLOCKS are covered at each speed:
+    // a count of whole units is +-1 per pass, so the error shrinks with the distance.
+    const GAIT_BLOCKS = 24;
+    for (const speed of gaitPlan.speeds) {
+      let blocks = 0, seen = 0, ticksPushed = 0;
+      /** Buckets read in the second half of every pass (the steady walk), as a histogram. */
+      const moveSpeed: Record<number, number> = {};
+      for (let pass = 0; pass < 16 && blocks < GAIT_BLOCKS; pass++) {
+        const ticks = Math.round(lane / speed);
+        const from = { ...e.location }, t0 = system.currentTick, n0 = units.length;
+        for (let t = 0; t < ticks; t++) {
+          try { const v = e.getVelocity(); e.applyImpulse({ x: dir * speed - v.x, y: 0, z: -v.z }); } catch { break; }
+          await test.idle(1);
+          if (t >= ticks / 2) moveSpeed[speedBucket] = (moveSpeed[speedBucket] ?? 0) + 1;
+        }
+        const to = { ...e.location }, t1 = system.currentTick;
+        try { const v = e.getVelocity(); e.applyImpulse({ x: -v.x, y: 0, z: -v.z }); } catch { /* gone */ }
+        await test.idle(20);
+        // Units reached while it was pushed (the stop's slide after t1 is left out).
+        seen += units.slice(n0).filter(u => u.t <= t1).length;
+        blocks += Math.hypot(to.x - from.x, to.z - from.z);
+        ticksPushed += t1 - t0;
+        dir = -dir;
+      }
+      // modified_move_speed while walking steadily: bucket k is [k/40, (k+1)/40).
+      const modifiedMoveSpeed = Object.fromEntries(Object.entries(moveSpeed).map(([k, n]) => [(Number(k) / 40).toFixed(3), n]));
+      rows.push({ speed, ticks: ticksPushed, blocks: Math.round(blocks * 100) / 100, measuredSpeed: Math.round(blocks / Math.max(1, ticksPushed) * 1e4) / 1e4, units: seen, unitsPerBlock: blocks > 0 ? Math.round(seen / blocks * 1000) / 1000 : null, modifiedMoveSpeed });
+    }
+    try { system.afterEvents.scriptEventReceive.unsubscribe(sub); } catch { /* older API */ }
+    try { e.remove(); } catch { /* gone */ }
+    log('GAIT', { model: plan.modelId, typeId: gaitPlan.typeId, rows });
+    flush();
+    if (rows.every(r => !r.units)) test.fail('the gait controller reported no distance units (query.modified_distance_moved not evaluated on the server?)');
+    else test.succeed();
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(12000).tag(NS);
+
+  /**
+   * Vehicles: spawn each rideable type in the vehicle arena, seat a simulated
+   * player (the engine's rideable, as a tap does), and drive it through
+   * phases, sampling the vehicle every 2 ticks: settle (a boat's float and
+   * bob, a plane's hover), forward, coast, reverse, a held turn, the class's
+   * own Jump (a car's dash, a plane's climb, BACK + Jump descend, then hands
+   * off), a car over lane B's slab and step, a boat run at the shore, and a
+   * second rider. Every phase is one `CMGT VEHICLE_PHASE` line in the
+   * phase's own forward frame (`summariseVehiclePhase`); the verdict is
+   * `CMGT VEHICLE`.
+   */
+  const vehicles = vehicleKit ? plan.vehicles ?? [] : [];
+  vehicles.forEach((v, n) => gt.registerAsync(NS, `vehicle_${plan.modelId}_${n + 1}`, async (test: any) => {
+    const L = vehicleKit!.layout;
+    const f = floorY(test, 2, 2);
+    const dim = test.getDimension();
+    const boat = v.kind === 'boat';
+    const spawnRel = boat
+      ? { x: L.boat.x + 0.5, y: f.y + L.waterTop, z: L.boat.z + 0.5 }
+      : { x: 6 + Math.ceil(v.size.length / 2), y: f.y + L.landTop, z: L.laneA.z + 0.5 };
+    const toW = (rel: Vec3): Vec3 => test.worldLocation(rel);
+    /** World yaw of a test-relative direction (Bedrock: yaw 0 faces +Z, forward = (-sin, cos)). */
+    const yawOf = (fromRel: Vec3, toRel: Vec3): number => { const a = toW(fromRel), b = toW(toRel); return Math.atan2(-(b.x - a.x), b.z - a.z) * 180 / Math.PI; };
+    const row: any = { label: v.label, type: v.typeId, kind: v.kind, scripted: !!v.scripted, floorY: f.y, phases: {} };
+    let veh: any;
+    try { veh = dim.spawnEntity(v.typeId, toW(spawnRel)); } catch (err) { row.error = `spawn: ${String(err)}`; log('VEHICLE', row); flush(); test.fail(row.error); return; }
+    const yaw0 = yawOf(spawnRel, { ...spawnRel, x: spawnRel.x + 10 });
+    try { veh.setRotation({ x: 0, y: yaw0 }); } catch { /* keeps its spawn yaw */ }
+    const sim = test.spawnSimulatedPlayer({ x: spawnRel.x, y: f.y + L.landTop, z: boat ? L.poolZ0 - 2 : spawnRel.z - 3 }, `cmgt_drv${n}`, gameMode);
+    const riders = (): string[] => { try { return (veh.getComponent('minecraft:rideable')?.getRiders?.() ?? []).map((r: any) => r?.name ?? r?.typeId ?? 'undefined'); } catch (err) { return [`error: ${String(err)}`]; } };
+    await test.idle(10);
+    // Mount: the interaction a tap makes, then the component call if it did not seat.
+    sim.teleport(add(veh.location, { x: 0, y: 0.2, z: 0 }), { facingLocation: veh.location });
+    await test.idle(4);
+    try { sim.lookAtEntity(veh); } catch { /* not required */ }
+    row.interactReturned = sim.interactWithEntity(veh);
+    await test.idle(10);
+    row.ridersAfterInteract = riders();
+    if (!row.ridersAfterInteract.includes(sim.name)) {
+      try { row.addRiderReturned = veh.getComponent('minecraft:rideable').addRider(sim); } catch (err) { row.addRiderReturned = `error: ${String(err)}`; }
+      await test.idle(10);
+    }
+    row.riders = riders();
+    row.mounted = row.riders.includes(sim.name);
+    if (!row.mounted) { log('VEHICLE', row); flush(); try { veh.remove(); } catch { /* gone */ } test.fail('the simulated player could not board'); return; }
+    // Point the rider along the course: a native mount drives where its RIDER faces. Measured
+    // 2026-09-25: lookAtLocation left the rider at yaw -180 (the car drove across the course),
+    // so the yaw is set directly.
+    const aim = (yaw = yaw0): void => { try { sim.setRotation({ x: 0, y: yaw }); } catch (err) { row.aimError = String(err); } };
+    aim();
+    await test.idle(10);
+
+    /**
+     * A scripted vehicle (fixed wing, boat) is driven through its runtime's
+     * input hook: measured on the Pixel (2026-09-25), a simulated player's
+     * stick never reaches `inputInfo` (every sample 0, 0). A native one (a
+     * car) is driven by the simulated player itself.
+     */
+    const drive = (x: number, y: number, jump: boolean, ticks: number): void => {
+      if (v.scripted) system.sendScriptEvent(vehicleKit!.inputEvent, JSON.stringify({ id: veh.id, x, y, jump, ticks }));
+      else if (x || y) sim.moveRelative(x, y);
+    };
+    const yawNow = (e: any): number => { try { return Math.round(e.getRotation().y * 10) / 10; } catch { return NaN; } };
+    /**
+     * Run one phase: `act(tick)` every tick, a sample every 2; summarised in
+     * the heading the phase started with. `until(sample)` ends it early. A
+     * vehicle that stops being readable (it flew out of the simulated area:
+     * the Milano on the Pixel, 2026-09-25, "Entity being invalid") ends the
+     * phase and every later one, and the verdict fails `staysInReach`.
+     */
+    const phase = async (name: string, ticks: number, act: (t: number) => void, until?: (s: VehicleSample) => boolean): Promise<any> => {
+      let origin: any;
+      try { origin = { ...veh.location }; } catch (err) { row.lost = row.lost ?? { phase: name, error: String(err) }; }
+      if (row.lost) { log('VEHICLE_PHASE', { vehicle: v.label, phase: name, skipped: `vehicle lost in ${row.lost.phase}` }); return {}; }
+      const yaw = yawNow(veh) || 0;
+      const riderYaw = yawNow(sim);
+      const rad = yaw * Math.PI / 180, fx = -Math.sin(rad), fz = Math.cos(rad);
+      const samples: VehicleSample[] = [];
+      const extra: any = {};
+      for (let t = 0; t <= ticks; t++) {
+        if (t < ticks) { try { act(t); } catch (err) { extra.actError = String(err); } }
+        if (t % 2 === 0) {
+          let loc: any, ground: boolean | undefined, water: boolean | undefined;
+          try { loc = veh.location; } catch (err) { row.lost = { phase: name, tick: t, error: String(err) }; break; }
+          try { ground = veh.isOnGround; water = veh.isInWater; } catch { /* older API */ }
+          const dx = loc.x - origin.x, dz = loc.z - origin.z;
+          const sample: VehicleSample = { t, along: Math.round((dx * fx + dz * fz) * 100) / 100, side: Math.round((dx * fz - dz * fx) * 100) / 100, dy: Math.round((loc.y - origin.y) * 100) / 100, yaw: yawNow(veh), ground, water };
+          samples.push(sample);
+          if (until && until(sample)) { extra.endedAt = t; break; }
+        }
+        if (t < ticks) await test.idle(1);
+      }
+      const s = vehicleKit!.summarise(samples, 2);
+      const last = samples[samples.length - 1];
+      // Where it actually went: a native mount follows its RIDER's yaw, which need not be the body's.
+      const travelYaw = last && Math.hypot(last.along, last.side) > 0.5 ? Math.round(yaw + Math.atan2(-last.side, last.along) * 180 / Math.PI) : null;
+      const out = { ...s, ticks, startYaw: Math.round(yaw), riderYaw, travelYaw, riders: riders().length, track: samples.filter((_, i) => i % 5 === 0).map(p => [p.t, p.along, p.side, p.dy, p.yaw, p.ground ? 1 : 0, p.water ? 1 : 0]), ...extra };
+      row.phases[name] = { ...s, travelYaw };
+      log('VEHICLE_PHASE', { vehicle: v.label, phase: name, ...out });
+      return out;
+    };
+    const stop = (): void => { try { sim.stopMoving(); } catch { /* idle */ } };
+    /** Back to the course start, heading +x, rider re-aimed. */
+    const reset = async (rel: Vec3 = spawnRel, yaw = yaw0): Promise<void> => {
+      stop();
+      try { veh.teleport(toW(rel), { rotation: { x: 0, y: yaw } }); } catch (err) { row.resetError = String(err); }
+      await test.idle(6);
+      aim(yaw);
+      await test.idle(14);
+    };
+    const checks: Record<string, boolean> = { mounted: row.mounted };
+    const dist = (p: any): number => Math.hypot(p?.along ?? 0, p?.side ?? 0);
+    /**
+     * The swept footprint and its response (bedrock-vehicle.ts `sweepFootprint`,
+     * `resolveMove`): a 6-block log post stands ahead of the vehicle, off its
+     * centre line by most of its half width - where the old centre-line probes
+     * never looked (a wingtip, a wide hull, a car's corner went through trees
+     * and piers). The vehicle must never pass THROUGH it: it stops at it, or
+     * (since 2026-09-30, "never stuck") steps sideways round it far enough that
+     * its side clears the post, or a ship lifts over it (`clearsPost`). The post
+     * is removed (the pool refilled) after.
+     */
+    const postPhase = async (startRel: Vec3, yaw: number, water: boolean): Promise<void> => {
+      const halfW = Math.max(0.3, v.size.width / 2), halfL = v.size.length / 2;
+      const offset = Math.max(0, Math.min(halfW - 0.35, halfW * 0.85));
+      const postX = Math.floor(startRel.x + halfL + 5), postZ = Math.floor(startRel.z + offset);
+      const baseY = water ? f.y + 1 : f.y + L.landTop;
+      const cells: Vec3[] = [];
+      for (let dy = 0; dy < 6; dy++) cells.push({ x: postX, y: baseY + dy, z: postZ });
+      for (const p of cells) { try { test.setBlockType('minecraft:oak_log', p); } catch (err) { row.postError = String(err); } }
+      await reset(startRel, yaw);
+      await phase('post', 80, (t) => { if (t === 0) drive(0, 0.6, false, 80); });
+      const clearAlong = Math.round((postX - startRel.x - halfL) * 100) / 100;
+      // The sidestep that clears the post (a positive `side` is to the vehicle's right, -z heading +x): its +z edge
+      // under the post's -z face, or its -z edge past the post's +z face.
+      const clearRight = Math.round((startRel.z + halfW - postZ) * 100) / 100, clearLeft = Math.round((postZ + 1 - (startRel.z - halfW)) * 100) / 100;
+      row.post = { x: postX, z: postZ, offset: Math.round(offset * 100) / 100, clearAlong, clearRight, clearLeft };
+      for (const p of cells) { try { test.setBlockType(water && p.y < f.y + L.waterTop ? 'minecraft:water' : 'minecraft:air', p); } catch { /* left */ } }
+      const ph = row.phases.post ?? {};
+      const along = ph.along ?? 0, side = ph.side ?? 0;
+      // It moved toward the post and stopped with its leading edge at it (half a block of slack for the tick it stopped on) ...
+      const stopped = along > 1 && along < clearAlong + 0.5;
+      // ... or passed it stepped clear to one side, or (a ship) over its top.
+      const passed = along >= clearAlong + 0.5 && (side >= clearRight - 0.05 || -side >= clearLeft - 0.05 || (ph.maxDy ?? 0) >= 6 - 0.05);
+      row.post.how = stopped ? 'stopped' : passed ? 'round' : 'through';
+      checks.clearsPost = stopped || passed;
+    };
+
+    await phase('settle', 40, () => {});
+    if (v.kind === 'plane' && v.scripted) {
+      // Spaceship controls (bedrock-vehicle.ts `flightStep`, 2026-09-30): Jump straight up, a hover with
+      // hands off, forward, straight back, a turn on the spot, then back + Jump straight down to the
+      // ground. It stays within a few blocks of the arena throughout (the old flight model's circuit
+      // took the Milano 110 blocks out, where it stopped being readable, Pixel 2026-09-25).
+      await phase('up', 40, (t) => { if (t === 0) drive(0, 0, true, 40); });
+      await phase('hover', 40, () => {});
+      await phase('forward', 40, (t) => { if (t === 0) drive(0, 1, false, 40); });
+      await phase('stop', 30, () => {});
+      await phase('backward', 40, (t) => { if (t === 0) drive(0, -1, false, 40); });
+      await phase('turn_in_place', 40, (t) => { if (t === 0) drive(-1, 0, false, 40); });
+      await phase('down', 120, (t) => { if (t === 0) drive(0, -1, true, 120); });
+      const ph = row.phases;
+      checks.goesStraightUp = (ph.up?.dy ?? 0) > 4 && dist(ph.up) < 0.5;
+      checks.hovers = Math.abs(ph.hover?.dy ?? 9) < 0.3 && dist(ph.hover) < 0.5;
+      checks.forwardMoves = (ph.forward?.along ?? 0) > 5;
+      checks.stopsHandsOff = (ph.stop?.endSpeed ?? 9) < 0.5;
+      checks.reverseMoves = (ph.backward?.along ?? 0) < -2;
+      checks.turnsInPlace = (ph.turn_in_place?.yawChange ?? 0) > 30 && dist(ph.turn_in_place) < 0.5;
+      checks.goesStraightDown = (ph.down?.dy ?? 0) < -3;
+      // A wingtip on the ground run.
+      await postPhase(spawnRel, yaw0, false);
+    } else if (v.kind === 'boat' && v.scripted) {
+      await phase('ahead', 80, (t) => { if (t === 0) drive(0, 1, false, 80); });
+      await phase('coast', 40, () => {});
+      await reset();
+      await phase('rudder_right', 60, (t) => { if (t === 0) drive(-1, 1, false, 60); });
+      await reset();
+      await phase('astern', 40, (t) => { if (t === 0) drive(0, -1, false, 40); });
+      await reset();
+      await phase('boost', 60, (t) => { if (t === 0) drive(0, 1, true, 60); });
+      // Toward the shore (-z) from the middle of the pool: it must stop at the waterline, not climb out.
+      await reset({ x: L.boat.x + 0.5, y: f.y + L.waterTop, z: L.poolZ0 + 8.5 }, yawOf(spawnRel, { ...spawnRel, z: spawnRel.z - 10 }));
+      await phase('shore', 120, (t) => { if (t === 0) drive(0, 1, false, 120); });
+      await phase('back_off', 40, (t) => { if (t === 0) drive(0, -1, false, 40); });
+      const ph = row.phases;
+      checks.floats = Math.abs(ph.settle?.dy ?? 9) < 0.3;
+      checks.aheadMoves = (ph.ahead?.along ?? 0) > 8;
+      checks.coasts = (ph.coast?.along ?? 0) > 0.5;
+      checks.turnsRight = (ph.rudder_right?.yawChange ?? 0) > 30;
+      checks.astern = (ph.astern?.along ?? 0) < -0.5;
+      checks.boosts = (ph.boost?.maxSpeed ?? 0) > (ph.ahead?.maxSpeed ?? 0) + 1;
+      checks.beaches = (ph.shore?.maxDy ?? 9) < 0.5 && (ph.shore?.endSpeed ?? 9) < 0.5;
+      checks.backsOff = (ph.back_off?.along ?? 0) < -0.3;
+      // A pier post alongside the hull.
+      await postPhase(spawnRel, yaw0, true);
+    } else if (v.kind === 'hover' && v.scripted) {
+      // A hover craft: the car's course, then off the land and over the pool.
+      await phase('ahead', 60, (t) => { if (t === 0) drive(0, 1, false, 60); });
+      await phase('coast', 40, () => {});
+      await reset();
+      await phase('reverse', 40, (t) => { if (t === 0) drive(0, -1, false, 40); });
+      await reset();
+      await phase('turn_right', 60, (t) => { if (t === 0) drive(-1, 1, false, 60); });
+      await reset();
+      await phase('boost', 40, (t) => { if (t === 0) drive(0, 1, true, 40); });
+      await postPhase(spawnRel, yaw0, false);
+      // Toward the pool (+z) from the land's edge: it floats down a block onto the water and keeps going.
+      const shoreRel = { x: spawnRel.x, y: f.y + L.landTop, z: L.poolZ0 - 1.5 - Math.ceil(v.size.length / 2) };
+      await reset(shoreRel, yawOf(shoreRel, { ...shoreRel, z: shoreRel.z + 10 }));
+      await phase('over_water', 100, (t) => { if (t === 0) drive(0, 0.6, false, 100); });
+      const ph = row.phases;
+      checks.forwardMoves = (ph.ahead?.along ?? 0) > 6 && Math.abs(ph.ahead?.side ?? 9) < 0.5;
+      checks.coasts = (ph.coast?.along ?? 0) > 1;
+      checks.reverseMoves = (ph.reverse?.along ?? 0) < -0.5;
+      checks.turnsRight = (ph.turn_right?.yawChange ?? 0) > 20;
+      checks.boosts = (ph.boost?.maxSpeed ?? 0) > (ph.ahead?.maxSpeed ?? 0) + 1;
+      // Over the water: a block lower (the pool's surface is under the land's), never sunk, still moving.
+      checks.floatsOverWater = (ph.over_water?.along ?? 0) > 6 && (ph.over_water?.minDy ?? -9) > -1.6;
+    } else if (v.kind === 'car' && v.scripted) {
+      // A scripted car, through the input hook: ahead, coast, brake-to-reverse, a right turn, lane B's slab and step, a boost.
+      await phase('ahead', 60, (t) => { if (t === 0) drive(0, 1, false, 60); });
+      await phase('coast', 40, () => {});
+      await reset();
+      await phase('reverse', 40, (t) => { if (t === 0) drive(0, -1, false, 40); });
+      await reset();
+      await phase('turn_right', 60, (t) => { if (t === 0) drive(-1, 1, false, 60); });
+      await reset();
+      await phase('boost', 40, (t) => { if (t === 0) drive(0, 1, true, 40); });
+      const laneRel = { x: 6 + Math.ceil(v.size.length / 2), y: f.y + L.landTop, z: (L.laneB.z0 + L.laneB.z1) / 2 + 0.5 };
+      await reset(laneRel);
+      await phase('steps', 100, (t) => { if (t === 0) drive(0, 0.6, false, 100); });
+      const ph = row.phases;
+      checks.forwardMoves = (ph.ahead?.along ?? 0) > 8 && Math.abs(ph.ahead?.side ?? 9) < 0.5;
+      checks.coasts = (ph.coast?.along ?? 0) > 1;
+      checks.reverseMoves = (ph.reverse?.along ?? 0) < -0.5;
+      checks.turnsRight = (ph.turn_right?.yawChange ?? 0) > 30;
+      checks.boosts = (ph.boost?.maxSpeed ?? 0) > (ph.ahead?.maxSpeed ?? 0) + 1;
+      checks.climbsStep = (ph.steps?.maxDy ?? 0) >= 0.9;
+      // A tree at the car's corner.
+      await postPhase(spawnRel, yaw0, false);
+    } else {
+      // A native mount (a car, a rotorcraft): the simulated player drives it.
+      await phase('forward', 60, () => drive(0, 1, false, 1));
+      stop();
+      await phase('coast', 40, () => {});
+      await reset();
+      await phase('reverse', 40, () => drive(0, -1, false, 1));
+      stop();
+      await phase('stop_after_reverse', 20, () => {});
+      await reset();
+      await phase('turn_left', 60, (t) => { drive(0, 1, false, 1); if (t % 2 === 0) sim.rotateBody(-6); });
+      stop();
+      await phase('turn_stop', 20, () => {});
+      await reset();
+      if (v.kind === 'car') {
+        row.jumpReturned = [] as unknown[];
+        await phase('dash', 40, (t) => { drive(0, 1, false, 1); if (t < 20) { const r = sim.jump(); if (t % 10 === 0) row.jumpReturned.push(r); } });
+        stop();
+        // Lane B: the slab, then the full step, driven along the rider's own heading.
+        const laneRel = { x: 6 + Math.ceil(v.size.length / 2), y: f.y + L.landTop, z: (L.laneB.z0 + L.laneB.z1) / 2 + 0.5 };
+        await reset(laneRel);
+        await test.idle(4);
+        await phase('steps', 120, () => drive(0, 1, false, 1));
+        stop();
+        checks.climbsStep = (row.phases.steps?.maxDy ?? 0) >= 0.9;
+      }
+      const ph = row.phases;
+      checks.forwardMoves = dist(ph.forward) > 3;
+      checks.reverseMoves = dist(ph.reverse) > 0.5 && ph.reverse.travelYaw !== null && ph.forward?.travelYaw !== null
+        // Reversing goes the OTHER way to forward: the two travel headings at least 120 degrees apart.
+        && Math.abs(((ph.reverse.travelYaw - ph.forward.travelYaw + 540) % 360) - 180) > 120;
+      checks.turns = Math.abs(ph.turn_left?.yawChange ?? 0) > 30;
+      // A flyer (a canon mount's cloud) has no gravity: hands off, it hovers where it is.
+      if (v.kind === 'flyer') checks.holdsAltitude = (ph.coast?.minDy ?? -9) > -0.5;
+    }
+    // A second rider, where the vehicle has a second seat.
+    if (v.seats > 1 && !row.lost) {
+      const sim2 = test.spawnSimulatedPlayer({ x: spawnRel.x, y: f.y + L.landTop, z: boat ? L.poolZ0 - 2 : spawnRel.z - 3 }, `cmgt_pas${n}`, gameMode);
+      await test.idle(4);
+      sim2.teleport(add(veh.location, { x: 0, y: 0.2, z: 0 }), { facingLocation: veh.location });
+      await test.idle(4);
+      row.passengerInteract = sim2.interactWithEntity(veh);
+      await test.idle(10);
+      row.ridersWithPassenger = riders();
+      checks.secondRider = row.ridersWithPassenger.length >= 2;
+    }
+    try { veh.getComponent('minecraft:rideable')?.ejectRiders?.(); } catch { /* none */ }
+    await test.idle(4);
+    row.ridersAfterEject = riders();
+    try { veh.remove(); } catch { /* gone */ }
+    // A vehicle that stopped being readable (out of the simulated area) fails here, naming the phase.
+    checks.staysInReach = !row.lost;
+    row.checks = checks;
+    row.pass = Object.values(checks).every(Boolean);
+    log('VEHICLE', row);
+    flush();
+    if (row.pass) test.succeed(); else test.fail(`vehicle ${v.label}: ${Object.entries(checks).filter(([, ok]) => !ok).map(([k]) => k).join(', ')}`);
+  }).structureName(`${NS}:vehicles_${plan.modelId}`).maxTicks(4000).tag(NS));
+
+  /**
+   * A canon flyer mount's companion (`GametestFlyer`): the orbit, the summon,
+   * a short flight, the dismount, the cap and the fade. One `CMGT FLYER` row.
+   */
+  const fl = plan.flyer;
+  if (fl) gt.registerAsync(NS, `flyer_${plan.modelId}`, async (test: any) => {
+    const placed = await placeModel(test, 'flyer');
+    if (!placed) return;
+    const { sim, anchor, dim } = placed;
+    const checks: Record<string, boolean> = {};
+    const row: any = { label: fl.label, checks };
+    const centre = add(anchor, { x: plan.dims.width / 2, y: 0, z: plan.dims.length / 2 });
+    const reach = Math.max(plan.dims.width, plan.dims.length) * 2 + 32;
+    const find = (type: string, near: Vec3 = centre, r = reach): any[] => { try { return dim.getEntities({ type, location: near, maxDistance: r }); } catch { return []; } };
+    const ridersOf = (e: any): any[] => { try { return e.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch { return []; } };
+    const loc = (e: any): Vec3 | undefined => { try { return { ...e.location }; } catch { return undefined; } };
+    const dist = (a: Vec3 | undefined, b: Vec3 | undefined): number => a && b ? Math.sqrt(dist2(a, b)) : NaN;
+    await test.idle(40);
+    const seat = find(fl.seatType)[0], figure = find(fl.figureType)[0], car = find(fl.carType)[0];
+    row.found = { seat: !!seat, figure: !!figure, car: !!car };
+    checks.companionPlaced = !!seat && !!figure && !!car;
+    if (!checks.companionPlaced) { log('FLYER', row); flush(); test.fail('the companion seat, figure or cloud was not placed'); return; }
+    // The orbit: the seat moves, the figure rides it, the cloud keeps its offset from the seat.
+    const s0 = loc(seat)!, c0 = loc(car)!;
+    await test.idle(60);
+    const s1 = loc(seat), c1 = loc(car);
+    row.orbit = { moved: Math.round(dist(s0, s1) * 100) / 100, offsetDrift: c1 && s1 ? Math.round(Math.abs(dist(c1, s1) - dist(c0, s0)) * 100) / 100 : null, riders: ridersOf(seat).map((r: any) => r.typeId) };
+    checks.orbits = dist(s0, s1) > 1;
+    checks.figureRidesSeat = ridersOf(seat).some((r: any) => r.typeId === fl.figureType);
+    checks.cloudFollows = row.orbit.offsetDrift !== null && row.orbit.offsetDrift < 0.5;
+    /** Stand beside the (flying) figure and tap it; the summoned cloud mounts the player before they fall far. */
+    const summon = async (): Promise<any> => {
+      const at = loc(figure);
+      if (!at) return undefined;
+      sim.teleport(add(at, { x: 0, y: 0.5, z: 1 }), { facingLocation: at });
+      await test.idle(2);
+      try { sim.lookAtEntity(figure); } catch { /* not required */ }
+      let mine: any;
+      try { sim.interactWithEntity(figure); } catch (err) { row.interactError = String(err); }
+      await test.idle(8);
+      mine = find(fl.cloudType, loc(sim), 8).find((c: any) => ridersOf(c).some((r: any) => r.name === sim.name));
+      if (!mine) {
+        try { sim.attackEntity(figure); } catch { /* the hit path */ }
+        await test.idle(8);
+        mine = find(fl.cloudType, loc(sim), 8).find((c: any) => ridersOf(c).some((r: any) => r.name === sim.name));
+        if (mine) row.viaHit = true;
+      }
+      return mine;
+    };
+    const cloud = await summon();
+    checks.summoned = !!cloud;
+    if (cloud) {
+      const p0 = loc(cloud)!;
+      await test.idle(10);
+      // Forward along the rider's look for 2 s, then the climb (recorded) and the hold (judged).
+      try { sim.moveRelative(0, 1); } catch { /* idle */ }
+      await test.idle(40);
+      try { sim.stopMoving(); } catch { /* idle */ }
+      const p1 = loc(cloud)!;
+      row.forward = Math.round(Math.hypot(p1.x - p0.x, p1.z - p0.z) * 100) / 100;
+      checks.flies = row.forward > 2;
+      const y0 = p1.y;
+      for (let t = 0; t < 40; t++) { try { sim.jump(); } catch { /* no jump */ } await test.idle(1); }
+      row.climb = Math.round((loc(cloud)!.y - y0) * 100) / 100;
+      const hy = loc(cloud)!.y;
+      await test.idle(40);
+      row.hold = Math.round((loc(cloud)!.y - hy) * 100) / 100;
+      checks.holdsAltitude = row.hold > -0.5;
+      // HOP (bedrock-ride-hop.ts): a second cloud swept through this one at 10 blocks/s takes the rider aboard; the
+      // first stays where it was left. Device-unproven: the seat addRider picks after an eject, and whether a
+      // simulated player is handled like a player by the hop runtime.
+      const here = loc(cloud)!;
+      let other: any;
+      try { other = dim.spawnEntity(fl.cloudType, add(here, { x: 6, y: 0, z: 0 })); } catch (err) { row.hopSpawnError = String(err); }
+      if (other) {
+        await test.idle(4);
+        let on = false;
+        for (let i = 0; i <= 24 && !on; i++) {
+          try { other.teleport(add(here, { x: 6 - i * 0.5, y: 0, z: 0 })); } catch { break; }
+          await test.idle(1);
+          on = ridersOf(other).some((r: any) => r.name === sim.name);
+        }
+        await test.idle(10);
+        row.hop = { boarded: on, firstMoved: Math.round(dist(loc(cloud), here) * 100) / 100 };
+        checks.hops = on && dist(loc(cloud), here) < 0.5;
+        // Back onto the first cloud for the rest of the test (the dismount check below reads it).
+        if (on) { try { other.getComponent('minecraft:rideable')?.ejectRider?.(sim); cloud.getComponent('minecraft:rideable')?.addRider?.(sim); } catch { /* stays */ } }
+        try { other.remove(); } catch { /* gone */ }
+        await test.idle(4);
+      }
+      const where = loc(cloud)!;
+      try { cloud.getComponent('minecraft:rideable')?.ejectRiders?.(); } catch { /* none */ }
+      await test.idle(20);
+      checks.staysAfterDismount = find(fl.cloudType, where, 4).length >= 1;
+    }
+    // Summon again and again, past the cap: at most `cap` clouds ever exist.
+    let summons = 0;
+    for (let i = 0; i < fl.cap + 2; i++) {
+      const mine = await summon();
+      if (mine) { summons++; try { mine.getComponent('minecraft:rideable')?.ejectRiders?.(); } catch { /* none */ } }
+      await test.idle(fl.cooldownTicks + 4);
+    }
+    row.summons = summons;
+    row.cloudsAfterCap = find(fl.cloudType).length;
+    checks.capHolds = summons >= fl.cap && row.cloudsAfterCap <= fl.cap && row.cloudsAfterCap >= 1;
+    // Away from them all: every empty cloud fades, the companion keeps its own.
+    try { sim.teleport(test.worldLocation({ x: 0.5, y: 2, z: 0.5 })); } catch { /* stays */ }
+    await test.idle(fl.despawnTicks + 60);
+    row.cloudsAfterFade = find(fl.cloudType).length;
+    checks.emptyFades = row.cloudsAfterFade === 0;
+    checks.companionKeepsCloud = ridersOf(seat).some((r: any) => r.typeId === fl.figureType) && find(fl.carType).length === 1;
+    row.pass = Object.values(checks).every(Boolean);
+    log('FLYER', row);
+    flush();
+    if (row.pass) test.succeed(); else test.fail(`flyer ${fl.label}: ${Object.entries(checks).filter(([, ok]) => !ok).map(([k]) => k).join(', ')}`);
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(fl.despawnTicks + 3000).tag(NS);
+
+  /**
+   * Trains: place the model (its train stands on its own railway track), seat
+   * a simulated player in the train's lead car and drive it through the rail
+   * runtime's stick hook (a simulated player's stick never reaches
+   * `inputInfo`). Phases, read off the cars' `craftmatic:coaster_distance` /
+   * `_speed` dynamic properties every 2 ticks: parked (no stick: it must not
+   * creep), forward (full stick), brake (stick back until it stops), reverse
+   * (stick back from rest: the other way), and for an open line a run to the
+   * buffer stop (it must stop on the line, not run off it). One `CMGT
+   * TRAIN_PHASE` line per phase, the verdict `CMGT TRAIN`.
+   */
+  const trainList = vehicleKit ? plan.trains ?? [] : [];
+  // A model wider than one structure (4559's circuit is 64 wide) still runs its
+  // train: the placement stands partly on the flat world beside the arena, and
+  // the train only needs its own track, which the placement lays.
+  trainList.forEach((tr, n) => {
+    gt.registerAsync(NS, `train_${plan.modelId}_${n + 1}`, async (test: any) => {
+      const placed = await placeModel(test, `train${n + 1}`, windows[windowIndexOf(tr)]!.x0);
+      if (!placed) return;
+      const { sim, anchor, dim } = placed;
+      await test.idle(40);
+      const row: any = { label: tr.label, route: tr.route, closed: tr.closed, length: tr.length, phases: {} };
+      const near = add(anchor, tr.at);
+      let cars: any[] = [];
+      for (const type of tr.carTypes) { try { cars.push(...dim.getEntities({ type, location: near, maxDistance: Math.max(plan.dims.width, plan.dims.length) + 4 })); } catch { /* none */ } }
+      cars = cars.filter((c: any) => { try { return Number(c.getDynamicProperty('craftmatic:coaster_route')) === tr.route; } catch { return false; } });
+      row.cars = cars.length;
+      if (!cars.length) { log('TRAIN', row); flush(); test.fail('no car of the train found after placement'); return; }
+      const lead = cars[0];
+      const read = (): { d: number; v: number; dir: number } => {
+        try { return { d: Number(lead.getDynamicProperty('craftmatic:coaster_distance')), v: Number(lead.getDynamicProperty('craftmatic:coaster_speed')), dir: Number(lead.getDynamicProperty('craftmatic:coaster_direction')) }; }
+        catch { return { d: NaN, v: NaN, dir: NaN }; }
+      };
+      // Board the lead car as a tap does (the rideable's own interaction), else through the component.
+      sim.teleport(add(lead.location, { x: 0, y: 0.3, z: 0 }), { facingLocation: lead.location });
+      await test.idle(4);
+      try { sim.lookAtEntity(lead); } catch { /* not required */ }
+      row.interactReturned = sim.interactWithEntity(lead);
+      await test.idle(10);
+      const riders = (): number => { try { return lead.getComponent('minecraft:rideable')?.getRiders?.().length ?? 0; } catch { return 0; } };
+      if (!riders()) { try { row.addRiderReturned = lead.getComponent('minecraft:rideable').addRider(sim); } catch (err) { row.addRiderReturned = `error: ${String(err)}`; } await test.idle(10); }
+      row.mounted = riders() > 0;
+      const stick = (y: number, ticks: number): void => { system.sendScriptEvent(vehicleKit!.inputEvent, JSON.stringify({ id: lead.id, y, ticks })); };
+      /** Signed arc advance between two distances (a circuit wraps at its length). */
+      const advance = (a: number, b: number): number => { let d = b - a; if (tr.closed && tr.length > 0) { d = ((d % tr.length) + tr.length) % tr.length; if (d > tr.length / 2) d -= tr.length; } return d; };
+      const phase = async (name: string, ticks: number, act: (t: number) => void): Promise<any> => {
+        const start = read();
+        let travelled = 0, maxSpeed = 0, prev = start.d, stoppedAt = -1, moving = false;
+        const track: number[][] = [];
+        for (let t = 0; t <= ticks; t++) {
+          if (t < ticks) act(t);
+          if (t % 2 === 0) {
+            const s = read();
+            if (Number.isFinite(s.d) && Number.isFinite(prev)) travelled += advance(prev, s.d);
+            prev = s.d;
+            if (Number.isFinite(s.v)) {
+              maxSpeed = Math.max(maxSpeed, s.v);
+              // The FIRST time it comes to rest after moving (it may go on the other way after).
+              if (s.v > 0.05) moving = true; else if ((moving || t === 0) && stoppedAt < 0 && t > 0) stoppedAt = t;
+            }
+            if (t % 10 === 0) track.push([t, Math.round(s.d * 100) / 100, Math.round(s.v * 100) / 100, s.dir]);
+          }
+          if (t < ticks) await test.idle(1);
+        }
+        const end = read();
+        const out = { travelled: Math.round(travelled * 100) / 100, maxSpeed: Math.round(maxSpeed * 100) / 100, endSpeed: Math.round(end.v * 100) / 100, stoppedAt, startDir: start.dir, endDir: end.dir, riders: riders() };
+        row.phases[name] = out;
+        log('TRAIN_PHASE', { train: tr.label, phase: name, ...out, track });
+        return out;
+      };
+      await phase('parked', 40, () => {});
+      // 2 s of full stick: about 6 blocks at the rail's 3 blocks/s² - short of a
+      // buffer from the platform. A train placed against its buffer goes the other way.
+      let push = 1;
+      let forward = await phase('forward', 40, (t) => { if (t === 0) stick(push, 40); });
+      if (Math.abs(forward.travelled) < 0.5) { push = -1; forward = await phase('forward_other', 40, (t) => { if (t === 0) stick(push, 40); }); row.phases.forward = forward; }
+      await phase('brake', 60, (t) => { if (t === 0) stick(-push, 60); });
+      await phase('reverse', 60, (t) => { if (t === 0) stick(-push, 60); });
+      await phase('coast', 40, (t) => { if (t === 0) stick(0, 40); });
+      if (!tr.closed) await phase('to_buffer', 400, (t) => { if (t === 0) stick(push, 400); });
+      const ph = row.phases;
+      const checks: Record<string, boolean> = {
+        mounted: row.mounted,
+        parks: Math.abs(ph.parked.travelled) < 0.05,
+        drives: Math.abs(ph.forward.travelled) > 3 && ph.forward.maxSpeed > 4,
+        // Stick back against the motion: it comes to rest (before it may go on the other way).
+        brakesToStop: ph.brake.stoppedAt >= 0,
+        // On the held stick back from rest it goes the other way.
+        reverses: Math.sign(ph.reverse.travelled) === -Math.sign(ph.forward.travelled) && Math.abs(ph.reverse.travelled) > 0.5,
+      };
+      // An open line: it runs to the buffer and stops there, on the line (the arc inside its ends).
+      if (!tr.closed) { const s = read(); checks.stopsAtBuffer = ph.to_buffer.endSpeed < 0.05 && ph.to_buffer.stoppedAt >= 0 && s.d > 0 && s.d < tr.length; }
+      try { lead.getComponent('minecraft:rideable')?.ejectRiders?.(); } catch { /* none */ }
+      row.checks = checks;
+      row.pass = Object.values(checks).every(Boolean);
+      log('TRAIN', row);
+      flush();
+      if (row.pass) test.succeed(); else test.fail(`train ${tr.label}: ${Object.entries(checks).filter(([, ok]) => !ok).map(([k]) => k).join(', ')}`);
+    }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3600).tag(NS);
+  });
+
+  /** Creator-tooling probe: which /script subcommands a script may run on this device. */
+  async function probe(target: string | undefined): Promise<void> {
+    // Run 5 measured every /script subcommand at successCount 0 from the dimension;
+    // try each from the dimension AND as the real player.
+    const dim = world.getDimension('overworld');
+    const player = world.getPlayers().filter(Boolean).find((p: any) => !String(p.name).startsWith('cmgt_'));
+    const tryCmd = (cmd: string): void => {
+      for (const [source, runner] of [['dimension', dim], ['player', player]] as const) {
+        if (!runner) continue;
+        try { const r = runner.runCommand(cmd); log('PROBE', { cmd, source, successCount: r?.successCount }); }
+        catch (err) { log('PROBE', { cmd, source, error: String(err && (err as Error).message || err) }); }
+      }
+    };
+    tryCmd('script profiler start');
+    await new Promise<void>(res => system.runTimeout(() => res(), 100));
+    tryCmd('script profiler stop');
+    tryCmd('script diagnostics startcapture');
+    await new Promise<void>(res => system.runTimeout(() => res(), 100));
+    tryCmd('script diagnostics stopcapture');
+    const t = (target || plan.debuggerTarget || '').trim();
+    if (t) tryCmd(`script debugger connect ${t.replace(':', ' ')}`);
+    flush();
+  }
+
+  /** Run every test once: clear old test areas, then `runset` as the real player. */
+  function runAll(player: any): void {
+    const p = player ?? world.getPlayers().find((x: any) => !String(x.name).startsWith('cmgt_'));
+    if (!p) { log('RUN', { error: 'no real player online' }); return; }
+    for (const cmd of ['gametest clearall', `gametest runset ${NS}`]) {
+      try { const r = p.runCommand(cmd); log('RUN', { cmd, successCount: r?.successCount }); }
+      catch (err) { log('RUN', { cmd, error: String(err && (err as Error).message || err) }); }
+    }
+  }
+
+  let started = false;
+  if (vehicles.length || trainList.length) log('VEHICLES_READY', { model: plan.modelId, vehicles: vehicles.map(v => `${v.kind}:${v.typeId}`), trains: trainList.map(t => t.label) });
+  world.afterEvents.playerSpawn.subscribe((ev: any) => {
+    if (started || !ev.initialSpawn || String(ev.player.name).startsWith('cmgt_')) return;
+    started = true;
+    // Let chunks, packs and the interactives runtime settle before the first run.
+    system.runTimeout(() => { runAll(ev.player); system.runTimeout(() => void probe(undefined), 2400 + plan.doorways.length * 500); }, 200);
+  });
+  log('READY', { model: plan.modelId, doorways: plan.doorways.length, arena });
+}
+
+/** `scripts/main.js` of the GameTest pack. */
+export function gametestScript(plan: GametestPlan): string {
+  const arena = arenaSize(plan.dims);
+  return `import * as mc from "@minecraft/server";\nimport * as gt from "@minecraft/server-gametest";\n`
+    + `const PLAN = ${JSON.stringify(plan)};\n`
+    + `(${gametestRuntime.toString()})({ mc, gt }, PLAN, ${JSON.stringify(arena)}, ${GT_MARGIN}, ${judgeWalk.toString()}, ${outcomeMatches.toString()}, ${judgeFigureTrack.toString()}, { summarise: ${summariseVehiclePhase.toString()}, layout: ${JSON.stringify(GT_VEHICLE_LAYOUT)}, inputEvent: ${JSON.stringify(FLIGHT_INPUT_EVENT)} }, ${figureBodyCheck.toString()}, (${colliderFormKit.toString()})());\n`;
+}
+
+/** `scripts/main.js` of the variant: the model's entry plus the tests (import declarations hoist). */
+export function withGametestImport(mainJs: string): string {
+  if (mainJs.includes('./gametest.js')) return mainJs;
+  return `${mainJs.replace(/\s*$/, '')}\nimport "./gametest.js";\n`;
+}
+
+/** Files the test variant ADDS to the model's behaviour pack, relative to its folder. */
+export function gametestVariantFiles(plan: GametestPlan): Array<{ name: string; data: Uint8Array }> {
+  const enc = new TextEncoder();
+  return [
+    { name: 'scripts/gametest.js', data: enc.encode(gametestScript(plan)) },
+    { name: `structures/${GT_NAMESPACE}/arena_${plan.modelId}.mcstructure`, data: buildArenaStructure(plan.dims, { overflow: !!plan.oversized }) },
+    ...(plan.vehicles?.length ? [{ name: `structures/${GT_NAMESPACE}/vehicles_${plan.modelId}.mcstructure`, data: buildVehicleArena() }] : []),
+  ];
+}

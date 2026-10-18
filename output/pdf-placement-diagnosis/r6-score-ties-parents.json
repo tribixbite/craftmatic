@@ -1,0 +1,171 @@
+{
+  "runs": [
+    {
+      "run": "output\\pdf-placement-beam\\40377-r6-parents-chain",
+      "rows": [
+        {
+          "page": 16,
+          "retained": 36,
+          "best": 0.6372338224690584,
+          "within_0": 4,
+          "within_1e-12": 4,
+          "within_1e-09": 4,
+          "within_1e-06": 4,
+          "within_0.0001": 4,
+          "tied_at_the_top": 4,
+          "distinct_tied_models": 4
+        },
+        {
+          "page": 17,
+          "retained": 36,
+          "best": 0.5780034952011921,
+          "within_0": 4,
+          "within_1e-12": 4,
+          "within_1e-09": 4,
+          "within_1e-06": 4,
+          "within_0.0001": 4,
+          "tied_at_the_top": 4,
+          "distinct_tied_models": 4
+        },
+        {
+          "page": 18,
+          "retained": 24,
+          "best": 0.5357490227060575,
+          "within_0": 4,
+          "within_1e-12": 4,
+          "within_1e-09": 4,
+          "within_1e-06": 4,
+          "within_0.0001": 4,
+          "tied_at_the_top": 4,
+          "distinct_tied_models": 4
+        },
+        {
+          "page": 19,
+          "retained": 45,
+          "best": 0.5245855326837143,
+          "within_0": 3,
+          "within_1e-12": 3,
+          "within_1e-09": 3,
+          "within_1e-06": 3,
+          "within_0.0001": 3,
+          "tied_at_the_top": 3,
+          "distinct_tied_models": 3
+        },
+        {
+          "page": 22,
+          "retained": 42,
+          "best": 0.2528512410174161,
+          "within_0": 2,
+          "within_1e-12": 2,
+          "within_1e-09": 2,
+          "within_1e-06": 2,
+          "within_0.0001": 2,
+          "tied_at_the_top": 2,
+          "distinct_tied_models": 2
+        },
+        {
+          "page": 23,
+          "retained": 38,
+          "best": 0.307561691148708,
+          "within_0": 1,
+          "within_1e-12": 1,
+          "within_1e-09": 1,
+          "within_1e-06": 1,
+          "within_0.0001": 1,
+          "tied_at_the_top": 1,
+          "distinct_tied_models": 1
+        },
+        {
+          "page": 24,
+          "retained": 39,
+          "best": 0.29275817616842104,
+          "within_0": 1,
+          "within_1e-12": 1,
+          "within_1e-09": 1,
+          "within_1e-06": 1,
+          "within_0.0001": 1,
+          "tied_at_the_top": 1,
+          "distinct_tied_models": 1
+        },
+        {
+          "page": 25,
+          "retained": 39,
+          "best": 0.29755857851220596,
+          "within_0": 2,
+          "within_1e-12": 2,
+          "within_1e-09": 2,
+          "within_1e-06": 2,
+          "within_0.0001": 2,
+          "tied_at_the_top": 2,
+          "distinct_tied_models": 2
+        },
+        {
+          "page": 28,
+          "retained": 42,
+          "best": 0.2936288358782173,
+          "within_0": 2,
+          "within_1e-12": 2,
+          "within_1e-09": 2,
+          "within_1e-06": 2,
+          "within_0.0001": 2,
+          "tied_at_the_top": 2,
+          "distinct_tied_models": 2
+        },
+        {
+          "page": 29,
+          "retained": 38,
+          "best": 0.2942056926819243,
+          "within_0": 1,
+          "within_1e-12": 1,
+          "within_1e-09": 1,
+          "within_1e-06": 1,
+          "within_0.0001": 2,
+          "tied_at_the_top": 1,
+          "distinct_tied_models": 1
+        },
+        {
+          "page": 30,
+          "retained": 38,
+          "best": 0.2960338309047711,
+          "within_0": 1,
+          "within_1e-12": 1,
+          "within_1e-09": 1,
+          "within_1e-06": 1,
+          "within_0.0001": 1,
+          "tied_at_the_top": 1,
+          "distinct_tied_models": 1
+        },
+        {
+          "page": 26,
+          "retained": 12,
+          "best": 0.24384088444029695,
+          "within_0": 12,
+          "within_1e-12": 12,
+          "within_1e-09": 12,
+          "within_1e-06": 12,
+          "within_0.0001": 12,
+          "tied_at_the_top": 12,
+          "distinct_tied_models": 12
+        }
+      ],
+      "pages": 12,
+      "pages_with_an_exact_tie": 8,
+      "pages_with_distinct_tied_models": 8,
+      "max_distinct_tied_models": 12,
+      "pages_tied_within_1e_9": 8,
+      "pages_tied_within_1e_4": 9
+    }
+  ],
+  "epsilons": [
+    0.0,
+    1e-12,
+    1e-09,
+    1e-06,
+    0.0001
+  ],
+  "truth_used": false,
+  "runtime_vlm_calls": 0,
+  "certified": false,
+  "scope": "Reads the image scores each run recorded for its retained assemblies. No reference model and no rendering.",
+  "limitations": "Equal scores are necessary for a coin flip, not sufficient: two tied assemblies can be the same placement written twice. The counts are of retained assemblies, so a tie the search never retained is invisible here."
+}

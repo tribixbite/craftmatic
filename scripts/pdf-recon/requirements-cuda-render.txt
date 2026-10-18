@@ -1,0 +1,5 @@
+# Install into a workspace target; do not replace the existing Python stack.
+# Requires the existing NVIDIA driver and CUDA 12 toolkit. CuPy 14 requires
+# NumPy 2 and does not import with this repository's current NumPy ABI.
+cupy-cuda12x==13.6.0
+fastrlock==0.8.3

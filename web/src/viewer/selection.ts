@@ -45,7 +45,10 @@ export function enableSelection(
   viewer: ViewerState,
   groundY = 0,
 ): { promise: Promise<SelectionBounds | null>; cancel: () => void } {
-  const { scene, camera, renderer, grid } = viewer;
+  const { scene, camera, renderer } = viewer;
+  // Selection crops a voxel grid; the mesh viewer (object3d mode) has none.
+  if (!viewer.grid) throw new Error('enableSelection requires a block-grid viewer');
+  const grid = viewer.grid;
   const canvas = renderer.domElement;
 
   const halfW = grid.width / 2;
@@ -65,15 +68,6 @@ export function enableSelection(
 
   let resolve: (value: SelectionBounds | null) => void;
   const promise = new Promise<SelectionBounds | null>((r) => { resolve = r; });
-
-  /** Convert a pointer/touch event to normalized device coords */
-  function getNDC(e: MouseEvent | Touch): THREE.Vector2 {
-    const rect = canvas.getBoundingClientRect();
-    return new THREE.Vector2(
-      ((e.clientX - rect.left) / rect.width) * 2 - 1,
-      -((e.clientY - rect.top) / rect.height) * 2 + 1,
-    );
-  }
 
   /** Raycast to ground plane, return world XZ intersection or null */
   function raycastGround(ndc: THREE.Vector2): THREE.Vector3 | null {

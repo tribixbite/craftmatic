@@ -21,9 +21,7 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { geocodeAddress } from '@ui/shared-geocode.js';
 import { captureTileMeshes } from '@engine/tile-capture.js';
-import {
-  getStreetViewApiKey, hasStreetViewApiKey,
-} from '@ui/import-streetview.js';
+import { getStreetViewApiKey } from '@ui/import-streetview.js';
 import { exportSchem, encodeSchemBytes } from '@viewer/exporter.js';
 import type { AnalysisResult } from '@craft/pipeline/capture/analysis-types.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
@@ -76,14 +74,6 @@ function updateRefPreview(container: HTMLElement | null, svFiles: File[], satFil
     thumb.title = file.name;
     container.appendChild(thumb);
   }
-}
-
-/**
- * Process user-uploaded SV images through the same Canvas2D color pipeline.
- * Returns blob URLs suitable for analyzeStreetViewBrowser().
- */
-async function processUserSvUploads(files: File[]): Promise<string[]> {
-  return files.map(f => URL.createObjectURL(f));
 }
 
 // ─── API Key ────────────────────────────────────────────────────────────────
@@ -483,7 +473,6 @@ async function runVoxelizePipeline(
   // Progressive LOD refinement: ramp errorTarget from 20 → target over 200 frames.
   // First 50 frames at coarse LOD loads the hierarchy quickly. Remaining 150
   // frames progressively demand higher-detail tiles as the hierarchy settles.
-  let sawDownloads = false;
   for (let i = 0; i < 200; i++) {
     // Progressive refinement: hold coarse for first 50 frames, then linear ramp
     if (tiles && i >= 50) {
@@ -491,13 +480,11 @@ async function runVoxelizePipeline(
       tiles.errorTarget = 20 - t * (20 - targetErrorTarget);
     }
     renderForLoading();
-    const st = tiles.stats;
-    const d = (st as Record<string, number>).downloading ?? 0;
-    const p = (st as Record<string, number>).parsing ?? 0;
-    const l = (st as Record<string, number>).loaded ?? 0;
-    const q = (st as Record<string, number>).queued ?? 0;
-    const f = (st as Record<string, number>).failed ?? 0;
-    if (d > 0 || p > 0 || l > 0) sawDownloads = true;
+    const st = (tiles as unknown as { stats: Record<string, number> }).stats;
+    const d = st.downloading ?? 0;
+    const p = st.parsing ?? 0;
+    const l = st.loaded ?? 0;
+    const f = st.failed ?? 0;
     if (i % 10 === 0) {
       setStatus(`Loading 3D tiles... (${d} downloading, ${p} parsing, ${l} loaded${f > 0 ? `, ${f} failed` : ''}, LOD ${tiles.errorTarget.toFixed(1)})`, 'info');
     }
@@ -531,7 +518,6 @@ async function runVoxelizePipeline(
 
   // 4 cardinal directions: +X (E), -X (W), +Z (S), -Z (N)
   const dirOffsets: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-  const dirNames = ['East', 'West', 'South', 'North'];
 
   setStatus(`Loading facade detail (${dirOffsets.length}×${sliceHeights.length} cameras)...`, 'info');
   await new Promise(r => setTimeout(r, 50));
@@ -569,9 +555,9 @@ async function runVoxelizePipeline(
       }
     }
 
-    const st2 = tiles.stats;
+    const st2 = (tiles as unknown as { stats: Record<string, number> }).stats;
     setStatus(
-      `Facade LOD: slice ${si + 1}/${sliceHeights.length} at ${sliceY.toFixed(0)}m (${(st2 as Record<string, number>).loaded ?? 0} tiles)`,
+      `Facade LOD: slice ${si + 1}/${sliceHeights.length} at ${sliceY.toFixed(0)}m (${st2.loaded ?? 0} tiles)`,
       'info',
     );
   }
@@ -601,7 +587,7 @@ async function runVoxelizePipeline(
         totalVertices += ((c.geometry as THREE.BufferGeometry)?.attributes?.position?.count ?? 0);
       }
     });
-    const s = tiles.stats;
+    const s = (tiles as unknown as { stats: Record<string, number> }).stats;
     console.log(`[tiles] pre-capture: ${totalMeshes} meshes, ${totalVertices} verts, loaded=${s.loaded}, failed=${(s as Record<string, number>).failed ?? 0}`);
 
     const captureResult = await captureTileMeshes(tiles, center, radiusMeters, {
@@ -616,7 +602,7 @@ async function runVoxelizePipeline(
 
     // Log post-capture stats
     if (tiles) {
-      const s2 = tiles.stats;
+      const s2 = (tiles as unknown as { stats: Record<string, number> }).stats;
       console.log('[tiles] post-capture stats:', JSON.stringify({
         downloading: s2.downloading, parsing: s2.parsing, failed: s2.failed,
         loaded: s2.loaded, visible: s2.visible,
@@ -669,6 +655,8 @@ async function runVoxelizePipeline(
       // User-uploaded reference images are currently NOT wired into the new
       // pipeline — auto-captured SV + satellite dominate the palette. Noted
       // as follow-up (user overrides → inject into fetchers).
+      // TODO: route userSvFiles/userSatFile into createBrowserFetchers() as
+      // reference-image overrides so the upload UI affects the build again.
       console.warn('[tiles] user-uploaded SV/satellite photos are ignored by the new pipeline — auto-capture used instead');
     }
 
@@ -723,8 +711,8 @@ async function runVoxelizePipeline(
     });
 
     const nonAir = finalGrid.countNonAir();
-    (window as Record<string, unknown>).__lastTilesGrid = finalGrid;
-    (window as Record<string, unknown>).__lastPipelineReport = result.report;
+    (window as unknown as Record<string, unknown>).__lastTilesGrid = finalGrid;
+    (window as unknown as Record<string, unknown>).__lastPipelineReport = result.report;
     console.log('[tiles] palette:', [...finalGrid.palette].join(', '));
 
     const objective = result.report.objective;
@@ -923,7 +911,7 @@ async function batchVoxelize(
         try {
           const resp = await fetch(`http://localhost:3456/save/${encodeURIComponent(filename)}`, {
             method: 'POST',
-            body: bytes,
+            body: bytes as unknown as BodyInit,
           });
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           console.log(`[batch] ${key}: ${grid.width}x${grid.height}x${grid.length} → ${filename} (${bytes.byteLength} bytes)`);
@@ -955,4 +943,4 @@ async function batchVoxelize(
 }
 
 // Expose batch function on window for console access
-(window as Record<string, unknown>).batchVoxelize = batchVoxelize;
+(window as unknown as Record<string, unknown>).batchVoxelize = batchVoxelize;

@@ -1,0 +1,6594 @@
+{
+  "symmetry_table": {
+    "level": "vertex",
+    "parts": {
+      "11476": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\11476-full-symmetry.json"
+      },
+      "15068": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\15068-full-symmetry.json"
+      },
+      "15571": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\15571-full-symmetry.json"
+      },
+      "22885": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\22885-full-symmetry.json"
+      },
+      "2420": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\2420-full-symmetry.json"
+      },
+      "2431": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\2431-full-symmetry.json"
+      },
+      "25269": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\25269-full-symmetry.json"
+      },
+      "3003": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3003-full-symmetry.json"
+      },
+      "3005": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3005-full-symmetry.json"
+      },
+      "3010": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3010-full-symmetry.json"
+      },
+      "3010py3": {
+        "order": 1,
+        "printed": true,
+        "proof": null
+      },
+      "3020": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3020-full-symmetry.json"
+      },
+      "3023b": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3023b-full-symmetry.json"
+      },
+      "3031": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3031-full-symmetry.json"
+      },
+      "3069b": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3069b-full-symmetry.json"
+      },
+      "3245cpzc": {
+        "order": 1,
+        "printed": false,
+        "proof": null
+      },
+      "3623": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3623-full-symmetry.json"
+      },
+      "3710": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3710-full-symmetry.json"
+      },
+      "3941": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3941-full-symmetry.json"
+      },
+      "3958": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3958-full-symmetry.json"
+      },
+      "4032a": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\4032a-full-symmetry.json"
+      },
+      "41740": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\41740-full-symmetry.json"
+      },
+      "43722": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\43722-full-symmetry.json"
+      },
+      "43723": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\43723-full-symmetry.json"
+      },
+      "60474": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\60474-full-symmetry.json"
+      },
+      "60478": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\60478-full-symmetry.json"
+      },
+      "6091": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\6091-full-symmetry.json"
+      },
+      "61252": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\61252-full-symmetry.json"
+      },
+      "85984": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\85984-full-symmetry.json"
+      },
+      "87079": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\87079-full-symmetry.json"
+      },
+      "92593": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\92593-full-symmetry.json"
+      },
+      "98138pz0": {
+        "order": 1,
+        "printed": true,
+        "proof": null
+      },
+      "99780": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\99780-full-symmetry.json"
+      }
+    },
+    "unproven": [
+      "3010py3",
+      "3245cpzc",
+      "98138pz0"
+    ],
+    "protocol": "Proper cube rotations recorded by placement_verify_part_symmetries; vertex level compares universal CAD vertex sets, triangle level compares full colored triangle sets; printed moulds keep identity only",
+    "limitations": "Embossed stud logo orientation and triangle tessellation are outside the vertex level. A part with no saved proof is treated as having no symmetry, which understates equivalence rather than overstating it."
+  },
+  "scope": "Independent OMR evaluation only. Authoritative filename aliases and declared unprinted structural symmetries reported separately from raw strict score. No evaluation chooses runtime output.",
+  "run": "output\\pdf-placement-beam\\40377-r5-p20-subset\\construction",
+  "aliases": {
+    "3023": "3023b"
+  },
+  "alias_provenance": {
+    "3010py3.dat": {
+      "sha256": "2ec03f011ac0ed5c4b2090320df9d06ba9d00423b666f9a214889b9f4d2cbb76",
+      "bricklink_aliases": [
+        "3010pb291"
+      ],
+      "alias_evidence": "LDraw part !KEYWORDS header",
+      "canonical_upstream_url": "https://library.ldraw.org/library/official/parts/3010py3.dat"
+    },
+    "3245cpzc.dat": {
+      "sha256": "c818252533f3766bf07c7f0540609aa14f89e3882ad4c8a58192b4e113e93b17",
+      "bricklink_aliases": [
+        "3245cpb117"
+      ],
+      "alias_evidence": "LDraw part !KEYWORDS header",
+      "canonical_upstream_url": "https://library.ldraw.org/library/official/parts/3245cpzc.dat"
+    },
+    "98138pz0.dat": {
+      "sha256": "f98e0e255025aad41ad98b0cfdd52fb7948c5f4d6b981f40f5448400ef9f22b5",
+      "bricklink_aliases": [
+        "98138pb072"
+      ],
+      "alias_evidence": "LDraw part !KEYWORDS header",
+      "canonical_upstream_url": "https://library.ldraw.org/library/official/parts/98138pz0.dat"
+    }
+  },
+  "rename_provenance": {
+    "old_bounds": [
+      [
+        -20.0,
+        -4.0,
+        -10.0
+      ],
+      [
+        20.0,
+        8.0,
+        10.0
+      ]
+    ],
+    "new_bounds": [
+      [
+        -20.0,
+        -4.0,
+        -10.0
+      ],
+      [
+        20.0,
+        8.0,
+        10.0
+      ]
+    ],
+    "same_bounds": true,
+    "new_full_triangle_yaw180_invariant": true,
+    "rename_lines": [
+      "0 !HISTORY 2023-05-26 [OrionP] Moved from 3023.dat"
+    ],
+    "file": "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\UnOfficial\\parts\\3023b.dat",
+    "sha256": "2eae37fb7bc308b3f051e7ea1fa3825cd3dea0676c6953c4f0b96068c438871f",
+    "truth_used": false
+  },
+  "selected": {
+    "file": "beam_00.ldr",
+    "strict": {
+      "matched": 1,
+      "truth_parts": 90,
+      "recon_parts": 5,
+      "coverage": 0.011111111111111112,
+      "precision": 0.2,
+      "inventory_coverage": 0.03333333333333333,
+      "inventory_precision": 0.6,
+      "pos_tolerance_ldu": 1.0,
+      "rotation_tolerance": 0.0001,
+      "allows_mirror": false,
+      "alignment": {
+        "rotation": [
+          [
+            -1.8369702e-16,
+            0.0,
+            -1.0
+          ],
+          [
+            1.0,
+            0.0,
+            -1.8369702e-16
+          ],
+          [
+            0.0,
+            -1.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          -10.0,
+          -82.0,
+          -68.0
+        ]
+      },
+      "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+    },
+    "canonical_alias": {
+      "matched": 1,
+      "truth_parts": 90,
+      "recon_parts": 5,
+      "coverage": 0.011111111111111112,
+      "precision": 0.2,
+      "inventory_coverage": 0.05555555555555555,
+      "inventory_precision": 1.0,
+      "pos_tolerance_ldu": 1.0,
+      "rotation_tolerance": 0.0001,
+      "allows_mirror": false,
+      "alignment": {
+        "rotation": [
+          [
+            0.0,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          -30.0,
+          -24.0,
+          0.0
+        ]
+      },
+      "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+    },
+    "canonical_structural_yaw": {
+      "matched": 1,
+      "recon_parts": 5,
+      "truth_parts": 90,
+      "precision": 0.2,
+      "coverage": 0.011111111111111112,
+      "matched_pairs": [
+        [
+          0,
+          13
+        ]
+      ],
+      "alignment": {
+        "rotation": [
+          [
+            0.0,
+            0.0,
+            -1.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          -30.0,
+          -24.0,
+          0.0
+        ]
+      },
+      "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+      "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+      "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+    },
+    "legacy_hand_listed_yaw": {
+      "matched": 1,
+      "recon_parts": 5,
+      "truth_parts": 90,
+      "precision": 0.2,
+      "coverage": 0.011111111111111112,
+      "matched_pairs": [
+        [
+          0,
+          13
+        ]
+      ],
+      "alignment": {
+        "rotation": [
+          [
+            0.0,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          -30.0,
+          -24.0,
+          0.0
+        ]
+      },
+      "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+      "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+      "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+    }
+  },
+  "oracle_best_strict": {
+    "file": "beam_16.ldr",
+    "strict": {
+      "matched": 2,
+      "truth_parts": 90,
+      "recon_parts": 5,
+      "coverage": 0.022222222222222223,
+      "precision": 0.4,
+      "inventory_coverage": 0.03333333333333333,
+      "inventory_precision": 0.6,
+      "pos_tolerance_ldu": 1.0,
+      "rotation_tolerance": 0.0001,
+      "allows_mirror": false,
+      "alignment": {
+        "rotation": [
+          [
+            1.0,
+            0.0,
+            -6.123234e-17
+          ],
+          [
+            6.123234e-17,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            -1.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          10.0,
+          -62.0,
+          -60.0
+        ]
+      },
+      "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+    },
+    "canonical_alias": {
+      "matched": 3,
+      "truth_parts": 90,
+      "recon_parts": 5,
+      "coverage": 0.03333333333333333,
+      "precision": 0.6,
+      "inventory_coverage": 0.05555555555555555,
+      "inventory_precision": 1.0,
+      "pos_tolerance_ldu": 1.0,
+      "rotation_tolerance": 0.0001,
+      "allows_mirror": false,
+      "alignment": {
+        "rotation": [
+          [
+            -1.0,
+            0.0,
+            3.6739404e-16
+          ],
+          [
+            -3.6739404e-16,
+            0.0,
+            -1.0
+          ],
+          [
+            0.0,
+            -1.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          -9.999999999999993,
+          -102.0,
+          -60.0
+        ]
+      },
+      "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+    },
+    "canonical_structural_yaw": {
+      "matched": 3,
+      "recon_parts": 5,
+      "truth_parts": 90,
+      "precision": 0.6,
+      "coverage": 0.03333333333333333,
+      "matched_pairs": [
+        [
+          2,
+          59
+        ],
+        [
+          3,
+          60
+        ],
+        [
+          4,
+          61
+        ]
+      ],
+      "alignment": {
+        "rotation": [
+          [
+            1.0,
+            0.0,
+            -3.6739404e-16
+          ],
+          [
+            3.6739404e-16,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            -1.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          9.999999999999993,
+          -62.0,
+          -60.0
+        ]
+      },
+      "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+      "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+      "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+    },
+    "legacy_hand_listed_yaw": {
+      "matched": 3,
+      "recon_parts": 5,
+      "truth_parts": 90,
+      "precision": 0.6,
+      "coverage": 0.03333333333333333,
+      "matched_pairs": [
+        [
+          2,
+          59
+        ],
+        [
+          3,
+          61
+        ],
+        [
+          4,
+          60
+        ]
+      ],
+      "alignment": {
+        "rotation": [
+          [
+            -1.0,
+            0.0,
+            3.6739404e-16
+          ],
+          [
+            -3.6739404e-16,
+            0.0,
+            -1.0
+          ],
+          [
+            0.0,
+            -1.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          -9.999999999999993,
+          -102.0,
+          -60.0
+        ]
+      },
+      "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+      "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+      "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+    }
+  },
+  "oracle_best_structural": {
+    "file": "beam_16.ldr",
+    "strict": {
+      "matched": 2,
+      "truth_parts": 90,
+      "recon_parts": 5,
+      "coverage": 0.022222222222222223,
+      "precision": 0.4,
+      "inventory_coverage": 0.03333333333333333,
+      "inventory_precision": 0.6,
+      "pos_tolerance_ldu": 1.0,
+      "rotation_tolerance": 0.0001,
+      "allows_mirror": false,
+      "alignment": {
+        "rotation": [
+          [
+            1.0,
+            0.0,
+            -6.123234e-17
+          ],
+          [
+            6.123234e-17,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            -1.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          10.0,
+          -62.0,
+          -60.0
+        ]
+      },
+      "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+    },
+    "canonical_alias": {
+      "matched": 3,
+      "truth_parts": 90,
+      "recon_parts": 5,
+      "coverage": 0.03333333333333333,
+      "precision": 0.6,
+      "inventory_coverage": 0.05555555555555555,
+      "inventory_precision": 1.0,
+      "pos_tolerance_ldu": 1.0,
+      "rotation_tolerance": 0.0001,
+      "allows_mirror": false,
+      "alignment": {
+        "rotation": [
+          [
+            -1.0,
+            0.0,
+            3.6739404e-16
+          ],
+          [
+            -3.6739404e-16,
+            0.0,
+            -1.0
+          ],
+          [
+            0.0,
+            -1.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          -9.999999999999993,
+          -102.0,
+          -60.0
+        ]
+      },
+      "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+    },
+    "canonical_structural_yaw": {
+      "matched": 3,
+      "recon_parts": 5,
+      "truth_parts": 90,
+      "precision": 0.6,
+      "coverage": 0.03333333333333333,
+      "matched_pairs": [
+        [
+          2,
+          59
+        ],
+        [
+          3,
+          60
+        ],
+        [
+          4,
+          61
+        ]
+      ],
+      "alignment": {
+        "rotation": [
+          [
+            1.0,
+            0.0,
+            -3.6739404e-16
+          ],
+          [
+            3.6739404e-16,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            -1.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          9.999999999999993,
+          -62.0,
+          -60.0
+        ]
+      },
+      "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+      "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+      "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+    },
+    "legacy_hand_listed_yaw": {
+      "matched": 3,
+      "recon_parts": 5,
+      "truth_parts": 90,
+      "precision": 0.6,
+      "coverage": 0.03333333333333333,
+      "matched_pairs": [
+        [
+          2,
+          59
+        ],
+        [
+          3,
+          61
+        ],
+        [
+          4,
+          60
+        ]
+      ],
+      "alignment": {
+        "rotation": [
+          [
+            -1.0,
+            0.0,
+            3.6739404e-16
+          ],
+          [
+            -3.6739404e-16,
+            0.0,
+            -1.0
+          ],
+          [
+            0.0,
+            -1.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          -9.999999999999993,
+          -102.0,
+          -60.0
+        ]
+      },
+      "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+      "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+      "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+    }
+  },
+  "beams": [
+    {
+      "file": "beam_00.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.8369702e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              1.0,
+              0.0,
+              -1.8369702e-16
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_01.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              6.123234e-17,
+              0.0,
+              1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              6.123234e-17
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_02.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.8369702e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              1.0,
+              0.0,
+              -1.8369702e-16
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_03.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              6.123234e-17,
+              0.0,
+              1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              6.123234e-17
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_04.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              6.123234e-17,
+              0.0,
+              1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              6.123234e-17
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_05.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.8369702e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              1.0,
+              0.0,
+              -1.8369702e-16
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_06.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              6.123234e-17,
+              0.0,
+              1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              6.123234e-17
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_07.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.8369702e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              1.0,
+              0.0,
+              -1.8369702e-16
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_08.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.8369702e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              1.0,
+              0.0,
+              -1.8369702e-16
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              3.6739404e-16
+            ],
+            [
+              -3.6739404e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999993,
+            -102.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -3.6739404e-16
+            ],
+            [
+              3.6739404e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999993,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              3.6739404e-16
+            ],
+            [
+              -3.6739404e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999993,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_09.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.8369702e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              1.0,
+              0.0,
+              -1.8369702e-16
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999995,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              2.4492936e-16
+            ],
+            [
+              -2.4492936e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999995,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999995,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_10.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              6.123234e-17,
+              0.0,
+              1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              6.123234e-17
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              3.6739404e-16
+            ],
+            [
+              -3.6739404e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999993,
+            -102.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -3.6739404e-16
+            ],
+            [
+              3.6739404e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999993,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              3.6739404e-16
+            ],
+            [
+              -3.6739404e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999993,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_11.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              6.123234e-17,
+              0.0,
+              1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              6.123234e-17
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999995,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              2.4492936e-16
+            ],
+            [
+              -2.4492936e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999995,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999995,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_12.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              6.123234e-17,
+              0.0,
+              1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              6.123234e-17
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999995,
+            -102.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              2.4492936e-16
+            ],
+            [
+              -2.4492936e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999995,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999995,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_13.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              6.123234e-17,
+              0.0,
+              1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              6.123234e-17
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              1.2246468e-16
+            ],
+            [
+              -1.2246468e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999998,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -1.2246468e-16
+            ],
+            [
+              1.2246468e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999998,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              1.2246468e-16
+            ],
+            [
+              -1.2246468e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999998,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_14.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.8369702e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              1.0,
+              0.0,
+              -1.8369702e-16
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999995,
+            -102.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              2.4492936e-16
+            ],
+            [
+              -2.4492936e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999995,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999995,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_15.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.8369702e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              1.0,
+              0.0,
+              -1.8369702e-16
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -82.0,
+            -68.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              1.2246468e-16
+            ],
+            [
+              -1.2246468e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999998,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -1.2246468e-16
+            ],
+            [
+              1.2246468e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999998,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 2,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.4,
+        "coverage": 0.022222222222222223,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              1.2246468e-16
+            ],
+            [
+              -1.2246468e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999998,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_16.ldr",
+      "strict": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -6.123234e-17
+            ],
+            [
+              6.123234e-17,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 3,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.03333333333333333,
+        "precision": 0.6,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              3.6739404e-16
+            ],
+            [
+              -3.6739404e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999993,
+            -102.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            60
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -3.6739404e-16
+            ],
+            [
+              3.6739404e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999993,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            61
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              3.6739404e-16
+            ],
+            [
+              -3.6739404e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999993,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_17.ldr",
+      "strict": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -6.123234e-17
+            ],
+            [
+              6.123234e-17,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 3,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.03333333333333333,
+        "precision": 0.6,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999995,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            61
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              2.4492936e-16
+            ],
+            [
+              -2.4492936e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999995,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            60
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999995,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_18.ldr",
+      "strict": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -6.123234e-17
+            ],
+            [
+              6.123234e-17,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 3,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.03333333333333333,
+        "precision": 0.6,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              3.6739404e-16
+            ],
+            [
+              -3.6739404e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999993,
+            -102.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            60
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -3.6739404e-16
+            ],
+            [
+              3.6739404e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999993,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            61
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              3.6739404e-16
+            ],
+            [
+              -3.6739404e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999993,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_19.ldr",
+      "strict": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -6.123234e-17
+            ],
+            [
+              6.123234e-17,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 3,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.03333333333333333,
+        "precision": 0.6,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999995,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            61
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              2.4492936e-16
+            ],
+            [
+              -2.4492936e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999995,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            60
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999995,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_20.ldr",
+      "strict": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              2.4492936e-16
+            ],
+            [
+              -2.4492936e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999996,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 3,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.03333333333333333,
+        "precision": 0.6,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999995,
+            -102.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            60
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              2.4492936e-16
+            ],
+            [
+              -2.4492936e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999995,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            61
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999995,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_21.ldr",
+      "strict": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              2.4492936e-16
+            ],
+            [
+              -2.4492936e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999996,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 3,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.03333333333333333,
+        "precision": 0.6,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              1.2246468e-16
+            ],
+            [
+              -1.2246468e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999998,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            61
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -1.2246468e-16
+            ],
+            [
+              1.2246468e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999998,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            60
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              1.2246468e-16
+            ],
+            [
+              -1.2246468e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999998,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_22.ldr",
+      "strict": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              2.4492936e-16
+            ],
+            [
+              -2.4492936e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999996,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 3,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.03333333333333333,
+        "precision": 0.6,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999995,
+            -102.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            60
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              2.4492936e-16
+            ],
+            [
+              -2.4492936e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999995,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            61
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -2.4492936e-16
+            ],
+            [
+              2.4492936e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999995,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_23.ldr",
+      "strict": {
+        "matched": 2,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.022222222222222223,
+        "precision": 0.4,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              2.4492936e-16
+            ],
+            [
+              -2.4492936e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999996,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 3,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.03333333333333333,
+        "precision": 0.6,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              1.2246468e-16
+            ],
+            [
+              -1.2246468e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999998,
+            -62.0,
+            -60.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            61
+          ],
+          [
+            4,
+            60
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              1.0,
+              0.0,
+              -1.2246468e-16
+            ],
+            [
+              1.2246468e-16,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999998,
+            -102.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 3,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.6,
+        "coverage": 0.03333333333333333,
+        "matched_pairs": [
+          [
+            2,
+            59
+          ],
+          [
+            3,
+            60
+          ],
+          [
+            4,
+            61
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              -1.0,
+              0.0,
+              1.2246468e-16
+            ],
+            [
+              -1.2246468e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            9.999999999999998,
+            -62.0,
+            -60.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_24.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.8369702e-16,
+              0.0,
+              1.0
+            ],
+            [
+              1.0,
+              0.0,
+              1.8369702e-16
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -10.000000000000002,
+            -72.0,
+            -72.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_25.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.8369702e-16,
+              0.0,
+              1.0
+            ],
+            [
+              1.0,
+              0.0,
+              1.8369702e-16
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -10.000000000000002,
+            -72.0,
+            -72.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_26.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              6.123234e-17,
+              0.0,
+              -1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              -6.123234e-17
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -92.0,
+            -72.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_27.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              6.123234e-17,
+              0.0,
+              -1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              -6.123234e-17
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -92.0,
+            -72.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_28.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.8369702e-16,
+              0.0,
+              1.0
+            ],
+            [
+              1.0,
+              0.0,
+              1.8369702e-16
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999998,
+            -92.0,
+            -72.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_29.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              -1.8369702e-16,
+              0.0,
+              1.0
+            ],
+            [
+              1.0,
+              0.0,
+              1.8369702e-16
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999998,
+            -92.0,
+            -72.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_30.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              6.123234e-17,
+              0.0,
+              -1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              -6.123234e-17
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -72.0,
+            -72.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_31.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              6.123234e-17,
+              0.0,
+              -1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              -6.123234e-17
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            10.0,
+            -72.0,
+            -72.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_32.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.2246468e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              -1.2246468e-16
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999998,
+            -92.0,
+            -64.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_33.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.2246468e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              -1.2246468e-16
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999998,
+            -92.0,
+            -64.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_34.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.2246468e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              -1.2246468e-16
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999998,
+            -92.0,
+            -64.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    },
+    {
+      "file": "beam_35.ldr",
+      "strict": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.03333333333333333,
+        "inventory_precision": 0.6,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              1.2246468e-16,
+              0.0,
+              -1.0
+            ],
+            [
+              -1.0,
+              0.0,
+              -1.2246468e-16
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -9.999999999999998,
+            -92.0,
+            -64.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 1,
+        "truth_parts": 90,
+        "recon_parts": 5,
+        "coverage": 0.011111111111111112,
+        "precision": 0.2,
+        "inventory_coverage": 0.05555555555555555,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 1,
+        "recon_parts": 5,
+        "truth_parts": 90,
+        "precision": 0.2,
+        "coverage": 0.011111111111111112,
+        "matched_pairs": [
+          [
+            0,
+            13
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            -30.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    }
+  ],
+  "truth_path": "C:/git/clego/lego_sets/OMR/40377-1.mpd"
+}

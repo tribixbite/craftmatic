@@ -1,0 +1,462 @@
+/**
+ * Head faces as a TEXTURE on the front of the head.
+ *
+ * A face print is ink ~1 LDU across (an eye, an eyebrow, a line of a mouth).
+ * The entity compiler builds a head from cuboids at a 2 LDU grain, so a
+ * printed LDraw head's coloured triangles survive only as 2 LDU blocks: the
+ * print reads as a smudge of the right colours (10261's sunglasses head,
+ * `output/faces-0924/shots/route3-10261-fig2-face.png`). Here the print is
+ * rasterised instead, face-on, at `FACE_PX_PER_LDU`, and drawn on ONE thin
+ * decal cube proud of the head's front, textured through an alpha-tested
+ * atlas: the head's own cuboids stay plain, and the ink is as sharp as the
+ * LDraw artwork.
+ *
+ * Two sources fill the same slot:
+ *   - a printed LDraw head (`rasterizeHeadFace`): exact artwork, offline, CC BY;
+ *   - face ART seeded by the caller (`seedFaceArt`), keyed by the head's
+ *     BrickLink print id (`3626pb3484`), which a converted source carries as
+ *     `0 !CRAFTMATIC HEAD_PRINT <id>` before the plain head
+ *     (`ParsedBrick.headPrint`). Nothing seeds it in the browser; an offline
+ *     build can (`scripts/_playable_ref.ts --faces=<dir>`), which is how a head
+ *     no library draws still gets its own face. See docs/bedrock-addon-guide.md.
+ *
+ * Image convention: an RGBA image of the head seen FACE-ON from its front
+ * (LDraw −Z): column → LDraw +X, row → LDraw +Y (down), alpha 0 = no ink (the
+ * head shows through). `rect` is the head-local LDU rectangle it spans.
+ */
+import type { LdrawPartMesh, Vec3 } from './ldraw-part-geometry.js';
+import { resolveLdrawEntityMaterial } from './ldraw-entity-materials.js';
+import { classifyMiniDollPart } from './minifig-rig.js';
+
+/** Texels per LDU of face. A minifig head is 26 LDU wide: 104 texels. */
+export const FACE_PX_PER_LDU = 4;
+/** Supersampling per axis when rasterising a printed head (2 = four samples per texel). */
+const SUPERSAMPLE = 2;
+
+export interface FaceImage {
+  width: number;
+  height: number;
+  /** Row-major RGBA, row 0 at the top (LDraw −Y). */
+  rgba: Uint8Array;
+  /** Head-local LDU rectangle on the front plane: x0 → column 0, y0 → row 0. */
+  rect: { x0: number; x1: number; y0: number; y1: number };
+}
+
+/** Face art as supplied (a photo-derived decal): covers the head's BODY, top of stud-neck to chin. */
+export interface FaceArt {
+  width: number;
+  height: number;
+  rgba: Uint8Array;
+}
+
+// ─── Rasterising a printed head ──────────────────────────────────────────────
+
+interface Raster {
+  w: number; h: number;
+  /** Nearest depth per sample (LDraw z; smaller = nearer the viewer at −Z). */
+  depth: Float32Array;
+  /** Colour id of the nearest triangle per sample; -1 = empty. */
+  color: Int32Array;
+}
+
+/**
+ * Z-buffer the mesh as seen face-on from −Z, over `rect` at `pxPerLdu`.
+ * Only what the viewer would SEE wins a sample, so a dual-sided head's back
+ * print never bleeds through to the front.
+ */
+function rasterize(mesh: LdrawPartMesh, rect: FaceImage['rect'], pxPerLdu: number): Raster {
+  const w = Math.max(1, Math.round((rect.x1 - rect.x0) * pxPerLdu));
+  const h = Math.max(1, Math.round((rect.y1 - rect.y0) * pxPerLdu));
+  const depth = new Float32Array(w * h).fill(Infinity);
+  const color = new Int32Array(w * h).fill(-1);
+  const toPx = (x: number): number => (x - rect.x0) * pxPerLdu;
+  const toPy = (y: number): number => (y - rect.y0) * pxPerLdu;
+  for (const t of mesh.triangles) {
+    const ax = toPx(t.a[0]), ay = toPy(t.a[1]);
+    const bx = toPx(t.b[0]), by = toPy(t.b[1]);
+    const cx = toPx(t.c[0]), cy = toPy(t.c[1]);
+    const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    if (Math.abs(area) < 1e-9) continue; // edge-on to the viewer: covers nothing
+    const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx))), maxX = Math.min(w - 1, Math.ceil(Math.max(ax, bx, cx)));
+    const minY = Math.max(0, Math.floor(Math.min(ay, by, cy))), maxY = Math.min(h - 1, Math.ceil(Math.max(ay, by, cy)));
+    for (let py = minY; py <= maxY; py++) {
+      for (let px = minX; px <= maxX; px++) {
+        const sx = px + 0.5, sy = py + 0.5;
+        const w0 = ((bx - sx) * (cy - sy) - (by - sy) * (cx - sx)) / area;
+        const w1 = ((cx - sx) * (ay - sy) - (cy - sy) * (ax - sx)) / area;
+        const w2 = 1 - w0 - w1;
+        if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue;
+        const z = w0 * t.a[2] + w1 * t.b[2] + w2 * t.c[2];
+        const i = py * w + px;
+        // Coplanar print and surface triangles never overlap in a printed LDraw
+        // part, so a strict nearer-wins test is enough; a hair of tolerance keeps
+        // the FIRST writer on exact ties.
+        if (z < depth[i]! - 1e-4) { depth[i] = z; color[i] = t.color; }
+      }
+    }
+  }
+  return { w, h, depth, color };
+}
+
+/**
+ * The head's BODY rectangle, face-on: the rows at least 80 % as wide as the
+ * widest (which drops the stud on top and the neck below) and their X span.
+ * The same rule crops a photo's head to its body, so the two line up.
+ */
+export function headBodyRect(mesh: LdrawPartMesh): FaceImage['rect'] {
+  const b = mesh.bounds;
+  const full = { x0: b.min[0], x1: b.max[0], y0: b.min[1], y1: b.max[1] };
+  const r = rasterize(mesh, full, 2);
+  const widths: Array<{ lo: number; hi: number } | null> = [];
+  for (let y = 0; y < r.h; y++) {
+    let lo = -1, hi = -1;
+    for (let x = 0; x < r.w; x++) if (r.color[y * r.w + x]! !== -1) { if (lo < 0) lo = x; hi = x; }
+    widths.push(lo < 0 ? null : { lo, hi });
+  }
+  const widest = Math.max(0, ...widths.map(s => (s ? s.hi - s.lo + 1 : 0)));
+  const rows = widths.map((s, y) => (s && s.hi - s.lo + 1 >= 0.8 * widest ? y : -1)).filter(y => y >= 0);
+  if (!rows.length) return full;
+  const lo = Math.min(...rows.map(y => widths[y]!.lo)), hi = Math.max(...rows.map(y => widths[y]!.hi));
+  return {
+    x0: full.x0 + lo / 2, x1: full.x0 + (hi + 1) / 2,
+    y0: full.y0 + rows[0]! / 2, y1: full.y0 + (rows[rows.length - 1]! + 1) / 2,
+  };
+}
+
+/**
+ * The print of a printed head as seen face-on: every sample whose nearest
+ * triangle carries an explicit colour is ink, colour 16 (the head's own
+ * colour) is transparent. Null when nothing on the front is printed.
+ */
+export function rasterizeHeadFace(mesh: LdrawPartMesh): FaceImage | null {
+  if (!mesh.triangles.some(t => t.color !== 16)) return null;
+  const b = mesh.bounds;
+  const rect = { x0: b.min[0], x1: b.max[0], y0: b.min[1], y1: b.max[1] };
+  const r = rasterize(mesh, rect, FACE_PX_PER_LDU * SUPERSAMPLE);
+  const width = Math.max(1, Math.floor(r.w / SUPERSAMPLE)), height = Math.max(1, Math.floor(r.h / SUPERSAMPLE));
+  const rgba = new Uint8Array(width * height * 4);
+  let ink = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let n = 0, sr = 0, sg = 0, sb = 0;
+      for (let dy = 0; dy < SUPERSAMPLE; dy++) {
+        for (let dx = 0; dx < SUPERSAMPLE; dx++) {
+          const c = r.color[(y * SUPERSAMPLE + dy) * r.w + x * SUPERSAMPLE + dx]!;
+          if (c === -1 || c === 16 || c === 24) continue;
+          const [cr, cg, cb] = resolveLdrawEntityMaterial(c).rgb;
+          sr += cr; sg += cg; sb += cb; n++;
+        }
+      }
+      // A texel is ink when at least half its samples are; its colour is the
+      // mean of those samples (alpha-TESTED, so there is no partial alpha).
+      if (n * 2 < SUPERSAMPLE * SUPERSAMPLE) continue;
+      const o = (y * width + x) * 4;
+      rgba[o] = Math.round(sr / n); rgba[o + 1] = Math.round(sg / n); rgba[o + 2] = Math.round(sb / n); rgba[o + 3] = 255;
+      ink++;
+    }
+  }
+  return ink ? { width, height, rgba, rect } : null;
+}
+
+// ─── Face art supplied by the caller ─────────────────────────────────────────
+
+const faceArt = new Map<string, FaceArt>();
+
+/** Register face art by print id (`3626pb3484`; `3626cpb3484`, `.dat` and case are the same key). */
+export function seedFaceArt(entries: Iterable<[string, FaceArt]>): number {
+  let n = 0;
+  for (const [part, art] of entries) {
+    if (art.rgba.length !== art.width * art.height * 4) throw new Error(`face art ${part}: ${art.rgba.length} bytes for ${art.width}x${art.height}`);
+    faceArt.set(faceKey(part), art);
+    n++;
+  }
+  return n;
+}
+
+/** Drop every seeded face (tests). */
+export function clearFaceArt(): void { faceArt.clear(); }
+
+/**
+ * One key per print: BrickLink numbers a head print once across moulds, so
+ * `3626pb3484`, `3626cpb3484(.dat)` and `3626bpb3484` are the same face.
+ */
+export const faceKey = (part: string): string => {
+  const stem = part.toLowerCase().replace(/\\/g, '/').replace(/^.*\//, '').replace(/\.dat$/, '');
+  const m = /^(?:3626[bc]?|28621)(pb?)([0-9a-z]+)$/.exec(stem);
+  return m ? `3626${m[1]}${m[2]}` : stem;
+};
+
+/** A mini-doll head (the female 92198 or male 92240 mould, printed or not), by its description. */
+export const isDollHead = (part: string, mesh: LdrawPartMesh): boolean => classifyMiniDollPart(part, mesh.description) === 'doll_head';
+
+/**
+ * The rectangle a head's face ART spans: a minifig head's BODY (`headBodyRect`,
+ * stud and neck dropped), a mini-doll head's whole FRONT. A doll head narrows
+ * to its chin, so the 80 %-width rows stop at 75 % of its height and the mouth
+ * (measured at 82 %, `_doll_face_measure.ts`) fell outside - and the doll art
+ * (`scripts/doll_face_art.py`) is made over the whole front for that reason.
+ */
+export function faceArtRect(part: string, mesh: LdrawPartMesh): FaceImage['rect'] {
+  if (!isDollHead(part, mesh)) return headBodyRect(mesh);
+  const b = mesh.bounds;
+  return { x0: b.min[0], x1: b.max[0], y0: b.min[1], y1: b.max[1] };
+}
+
+/**
+ * Face art for this head, by its print id (`headPrint`) and else by its part
+ * name (the 2026-09-24 identity names, `3626cpb3484.dat`), resampled onto the
+ * head's face-art rectangle (`faceArtRect`) at `FACE_PX_PER_LDU`; null when
+ * none was seeded.
+ */
+export function faceArtImage(part: string, mesh: LdrawPartMesh, headPrint?: string): FaceImage | null {
+  const art = (headPrint ? faceArt.get(faceKey(headPrint)) : undefined) ?? faceArt.get(faceKey(part));
+  if (!art) return null;
+  const rect = faceArtRect(part, mesh);
+  const width = Math.max(1, Math.round((rect.x1 - rect.x0) * FACE_PX_PER_LDU));
+  const height = Math.max(1, Math.round((rect.y1 - rect.y0) * FACE_PX_PER_LDU));
+  const rgba = new Uint8Array(width * height * 4);
+  // A doll's art (`scripts/doll_face_art.py`) is already cut to its print
+  // against a fitted, SHADED skin; what is left is all ink, so the most common
+  // opaque colour is a feature (an iris, a brow), not skin, and dropping it
+  // punched holes through the eyes - the mottle a user would see.
+  const skin = isDollHead(part, mesh) ? null : photoSkinColour(art);
+  for (let y = 0; y < height; y++) {
+    const sy = Math.min(art.height - 1, Math.floor(((y + 0.5) / height) * art.height));
+    for (let x = 0; x < width; x++) {
+      const sx = Math.min(art.width - 1, Math.floor(((x + 0.5) / width) * art.width));
+      const s = (sy * art.width + sx) * 4, o = (y * width + x) * 4;
+      // Alpha-tested: the art's own alpha decides ink, at the half-way mark.
+      if (art.rgba[s + 3]! < 128) continue;
+      // The photo's own SKIN is not ink: the head's swatch shows through there.
+      if (skin && Math.hypot(art.rgba[s]! - skin[0], art.rgba[s + 1]! - skin[1], art.rgba[s + 2]! - skin[2]) < PHOTO_SKIN_TOLERANCE) continue;
+      rgba[o] = art.rgba[s]!; rgba[o + 1] = art.rgba[s + 1]!; rgba[o + 2] = art.rgba[s + 2]!; rgba[o + 3] = 255;
+    }
+  }
+  return { width, height, rgba, rect };
+}
+
+// ─── The default mini-doll face ──────────────────────────────────────────────
+
+/**
+ * Where a mini-doll print puts its features, as fractions of the head's whole
+ * front (`faceArtRect`): the medians of 38 LDraw doll prints (`92198p*`,
+ * `92240p*`) measured by `scripts/_doll_face_measure.ts` - eyes 0.22 of the
+ * width either side of the centre at 0.48 of the height, the mouth at 0.82.
+ * Shapes (sclera, iris, lash line, brow, smile) follow those prints' common
+ * drawing, sized inside the measured eye blob (0.28 x 0.19, lashes included)
+ * and mouth (0.31 x 0.12).
+ */
+export const MINIDOLL_DEFAULT_FACE = {
+  eyeDx: 0.22, eyeY: 0.48, browY: 0.36, mouthY: 0.81,
+  scleraRx: 0.095, scleraRy: 0.07, irisR: 0.062, pupilR: 0.028, browHalf: 0.1, mouthHalf: 0.085,
+  /** Dark brown iris, near-black lash and brow, rose lips - the commonest doll-print colours. */
+  iris: [92, 58, 34] as const, lash: [27, 27, 27] as const, brow: [59, 35, 20] as const, lips: [184, 70, 79] as const, white: [250, 250, 250] as const,
+} as const;
+
+/**
+ * The DEFAULT face of a plain mini-doll head (no LDraw print and no seeded
+ * art): drawn as a texture over the head's whole front, in the proportions of
+ * the real prints (`MINIDOLL_DEFAULT_FACE`), so a doll whose print no source
+ * names still looks like a doll rather than a minifig face scaled onto it. It
+ * is a DEFAULT, reported as such (`faceTextures.default`), never presented as
+ * the doll's own face.
+ */
+export function defaultDollFace(part: string, mesh: LdrawPartMesh): FaceImage {
+  const rect = faceArtRect(part, mesh);
+  const W = Math.max(1, Math.round((rect.x1 - rect.x0) * FACE_PX_PER_LDU));
+  const H = Math.max(1, Math.round((rect.y1 - rect.y0) * FACE_PX_PER_LDU));
+  const rgba = new Uint8Array(W * H * 4);
+  const F = MINIDOLL_DEFAULT_FACE;
+  const put = (x: number, y: number, c: readonly [number, number, number]): void => {
+    const xi = Math.round(x), yi = Math.round(y);
+    if (xi < 0 || yi < 0 || xi >= W || yi >= H) return;
+    const o = (yi * W + xi) * 4;
+    rgba[o] = c[0]; rgba[o + 1] = c[1]; rgba[o + 2] = c[2]; rgba[o + 3] = 255;
+  };
+  const ellipse = (cx: number, cy: number, rx: number, ry: number, c: readonly [number, number, number]): void => {
+    for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++)
+      for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++)
+        if (((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy) / ry) ** 2 <= 1) put(x, y, c);
+  };
+  /** A stroke along a parametric curve, `thick` texels wide. */
+  const stroke = (at: (t: number) => [number, number], thick: number, c: readonly [number, number, number]): void => {
+    for (let i = 0; i <= 64; i++) {
+      const [x, y] = at(i / 64);
+      for (let dy = -thick / 2; dy < thick / 2; dy += 0.5) for (let dx = -thick / 2; dx < thick / 2; dx += 0.5) put(x + dx, y + dy, c);
+    }
+  };
+  for (const side of [-1, 1] as const) {
+    const cx = W * (0.5 + side * F.eyeDx), cy = H * F.eyeY;
+    const rx = W * F.scleraRx, ry = H * F.scleraRy;
+    ellipse(cx, cy, rx, ry, F.white);
+    ellipse(cx, cy + ry * 0.15, W * F.irisR, W * F.irisR, F.iris);
+    ellipse(cx, cy + ry * 0.15, W * F.pupilR, W * F.pupilR, F.lash);
+    ellipse(cx - side * W * 0.022, cy - ry * 0.25, Math.max(0.8, W * 0.012), Math.max(0.8, W * 0.012), F.white);
+    // Upper lash line: the top of the sclera, flicked outward at the far corner.
+    stroke(t => {
+      const a = Math.PI * (1 + t);
+      return [cx + rx * 1.05 * Math.cos(a), cy + ry * 1.05 * Math.sin(a)];
+    }, 2, F.lash);
+    stroke(t => [cx + side * rx * (1 + 0.35 * t), cy - ry * (0.2 + 0.5 * t)], 1.5, F.lash);
+    // Brow: a shallow arch over the eye.
+    stroke(t => {
+      const u = t * 2 - 1;
+      return [cx + u * W * F.browHalf, H * F.browY - (1 - u * u) * H * 0.025];
+    }, 2, F.brow);
+  }
+  // Mouth: a closed smile.
+  stroke(t => {
+    const u = t * 2 - 1;
+    return [W * 0.5 + u * W * F.mouthHalf, H * F.mouthY + (1 - u * u) * H * 0.03];
+  }, 2, F.lips);
+  return { width: W, height: H, rgba, rect };
+}
+
+/**
+ * RGB distance within which a face-art texel counts as the photo's skin and is
+ * dropped. The art is a cut-out of a BrickLink photograph: its skin is lit,
+ * shaded and never the head's swatch colour, and its mask is ragged, so it
+ * used to draw a mottle of photo-skin and swatch-skin across the face (the
+ * user's "horrific facial features", Pixel 2026-09-25). 56 keeps the ink -
+ * eyebrows, pupils, lips, freckles, the white eye highlights - and drops the
+ * cheek shading measured on 76457's seeded art.
+ */
+export const PHOTO_SKIN_TOLERANCE = 56;
+
+/** Fewer opaque texels than this is drawn art (a glyph), not a photo: kept whole. */
+const PHOTO_MIN_TEXELS = 64;
+
+/**
+ * The photo's skin: the most common colour of the opaque texels (quantised to
+ * 16 levels a channel), averaged over that bucket. Null when under a quarter
+ * of the opaque texels share one bucket - art that is not a face on skin (a
+ * sweet, a mask), which is then kept whole.
+ */
+export function photoSkinColour(art: FaceArt): [number, number, number] | null {
+  const buckets = new Map<number, { n: number; r: number; g: number; b: number }>();
+  let opaque = 0;
+  for (let i = 0; i < art.width * art.height; i++) {
+    if (art.rgba[i * 4 + 3]! < 128) continue;
+    opaque++;
+    const r = art.rgba[i * 4]!, g = art.rgba[i * 4 + 1]!, b = art.rgba[i * 4 + 2]!;
+    const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+    const e = buckets.get(key) ?? { n: 0, r: 0, g: 0, b: 0 };
+    e.n++; e.r += r; e.g += g; e.b += b;
+    buckets.set(key, e);
+  }
+  let best: { n: number; r: number; g: number; b: number } | null = null;
+  for (const e of buckets.values()) if (!best || e.n > best.n) best = e;
+  if (!best) return null;
+  // Widen the bucket to its colour neighbourhood: shading spreads skin over several buckets.
+  let n = 0, r = 0, g = 0, b = 0;
+  const c = [best.r / best.n, best.g / best.n, best.b / best.n];
+  for (let i = 0; i < art.width * art.height; i++) {
+    if (art.rgba[i * 4 + 3]! < 128) continue;
+    const pr = art.rgba[i * 4]!, pg = art.rgba[i * 4 + 1]!, pb = art.rgba[i * 4 + 2]!;
+    if (Math.hypot(pr - c[0]!, pg - c[1]!, pb - c[2]!) < PHOTO_SKIN_TOLERANCE) { n++; r += pr; g += pg; b += pb; }
+  }
+  // A photo: enough texels to have shading, skin a real share of it, and some ink besides.
+  if (opaque < PHOTO_MIN_TEXELS || n < opaque * 0.25 || n >= opaque) return null;
+  return [r / n, g / n, b / n];
+}
+
+// ─── Orienting a face onto a Bedrock cube face ───────────────────────────────
+
+/** The cube face a decal is drawn on, by its name in the geometry JSON. */
+export type BedrockFaceName = 'north' | 'south' | 'east' | 'west';
+
+const dot = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const snapAxis = (v: Vec3): Vec3 | null => {
+  const i = [0, 1, 2].reduce((best, k) => (Math.abs(v[k]!) > Math.abs(v[best]!) ? k : best), 0);
+  if (Math.abs(v[i]!) < 0.99) return null;
+  const out: Vec3 = [0, 0, 0];
+  out[i] = Math.sign(v[i]!);
+  return out;
+};
+
+/**
+ * Re-lay a face image for the cube face its print looks out of.
+ *
+ * Directions are in the compiler's RENDER frame (right-handed, Y up), where
+ * the game is a proper rotation away (`world = (−x, y, −z)` at yaw 0, proven
+ * on the Pixel): a texture must therefore read UNMIRRORED from outside in
+ * this frame, with the image's right along `(−n) × up` and its down along
+ * −Y. The Bedrock codec mirrors cube X coordinates but PRESERVES face keys:
+ * render +X stays `east`, −X stays `west` (Blockbench compileCube). Thus east
+ * occupies the numeric minimum-X side in the emitted JSON, west maximum-X.
+ * Swapping their names a second time hid 10261's coaster face inside its
+ * head on Saga (2026-10-06). In numeric JSON coordinates north runs u → +X,
+ * south u → −X, east u → −Z, west u → +Z, and v → −Y on all four.
+ *
+ * `normal`, `right` and `down` are where the image's outward normal, +column
+ * and +row point in the render frame. Null when the face does not look along
+ * a horizontal axis (a figure lying down keeps its printed cuboids instead).
+ */
+export function orientFace(img: FaceImage, normal: Vec3, right: Vec3, down: Vec3): { face: BedrockFaceName; width: number; height: number; rgba: Uint8Array } | null {
+  const n = snapAxis(normal), r = snapAxis(right), d = snapAxis(down);
+  if (!n || !r || !d || n[1] !== 0) return null;
+  const up: Vec3 = [0, 1, 0];
+  const m: Vec3 = [-n[0], -n[1], -n[2]];
+  const rc: Vec3 = [m[1] * up[2] - m[2] * up[1], m[2] * up[0] - m[0] * up[2], m[0] * up[1] - m[1] * up[0]];
+  const dc: Vec3 = [0, -1, 0];
+  const face: BedrockFaceName = n[2] === -1 ? 'north' : n[2] === 1 ? 'south' : n[0] === 1 ? 'east' : 'west';
+  // Output column runs along rc, output row along dc; find each in the source.
+  const colFromCol = dot(rc, r), colFromRow = dot(rc, d);
+  const rowFromCol = dot(dc, r), rowFromRow = dot(dc, d);
+  const transposed = colFromCol === 0;
+  const W = transposed ? img.height : img.width, H = transposed ? img.width : img.height;
+  const rgba = new Uint8Array(W * H * 4);
+  for (let v = 0; v < H; v++) {
+    for (let u = 0; u < W; u++) {
+      // Source (column, row) of output (u, v): each output axis is ± one source axis.
+      let sc: number, sr: number;
+      if (!transposed) {
+        sc = colFromCol > 0 ? u : img.width - 1 - u;
+        sr = rowFromRow > 0 ? v : img.height - 1 - v;
+      } else {
+        sr = colFromRow > 0 ? u : img.height - 1 - u;
+        sc = rowFromCol > 0 ? v : img.width - 1 - v;
+      }
+      const s = (sr * img.width + sc) * 4, o = (v * W + u) * 4;
+      rgba[o] = img.rgba[s]!; rgba[o + 1] = img.rgba[s + 1]!; rgba[o + 2] = img.rgba[s + 2]!; rgba[o + 3] = img.rgba[s + 3]!;
+    }
+  }
+  return { face, width: W, height: H, rgba };
+}
+
+// ─── One atlas per entity ────────────────────────────────────────────────────
+
+export interface FaceAtlas {
+  width: number;
+  height: number;
+  rgba: Uint8Array;
+  /** Top-left texel of each input image, in input order. */
+  at: Array<[number, number]>;
+}
+
+/**
+ * Shelf-pack face images into one texture, with a transparent texel gutter so
+ * a neighbour never bleeds into a face under nearest sampling. Width is a
+ * multiple of 16; the height follows.
+ */
+export function packFaceAtlas(images: ReadonlyArray<{ width: number; height: number; rgba: Uint8Array }>): FaceAtlas {
+  const GUTTER = 1;
+  const area = images.reduce((s, im) => s + (im.width + GUTTER) * (im.height + GUTTER), 0);
+  const widest = Math.max(16, ...images.map(im => im.width + GUTTER));
+  const width = Math.ceil(Math.max(widest, Math.sqrt(area)) / 16) * 16;
+  const at: Array<[number, number]> = [];
+  let x = 0, y = 0, shelf = 0;
+  for (const im of images) {
+    if (x + im.width + GUTTER > width) { x = 0; y += shelf; shelf = 0; }
+    at.push([x, y]);
+    x += im.width + GUTTER;
+    shelf = Math.max(shelf, im.height + GUTTER);
+  }
+  const height = Math.max(16, Math.ceil((y + shelf) / 16) * 16);
+  const rgba = new Uint8Array(width * height * 4);
+  images.forEach((im, k) => {
+    const [ox, oy] = at[k]!;
+    for (let row = 0; row < im.height; row++) rgba.set(im.rgba.subarray(row * im.width * 4, (row + 1) * im.width * 4), ((oy + row) * width + ox) * 4);
+  });
+  return { width, height, rgba, at };
+}

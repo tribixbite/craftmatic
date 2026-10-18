@@ -1,8 +1,10 @@
 /**
- * Minimal ZIP reader with ZipCrypto decryption.
+ * Minimal ZIP reader with ZipCrypto + WinZip-AES decryption.
  * Parses local file headers to locate and extract a named file.
  * DEFLATE inflate uses native DecompressionStream('deflate-raw').
  */
+
+import { decryptWinzipAes } from './aes-zip';
 
 // ─── CRC32 ───────────────────────────────────────────────────────────────────
 
@@ -15,6 +17,17 @@ for (let n = 0; n < 256; n++) {
 
 function crc32byte(crc: number, byte: number): number {
   return (CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8)) >>> 0;
+}
+
+/**
+ * Standard CRC-32 (IEEE 802.3, reflected 0xEDB88320) of a whole buffer: the ZIP
+ * entry checksum and the PNG chunk checksum alike. The ONE table in the repo;
+ * PNG writers and readers import this rather than building their own.
+ */
+export function crc32(data: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (let i = 0; i < data.length; i++) crc = crc32byte(crc, data[i]);
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 // ─── ZipCrypto ───────────────────────────────────────────────────────────────
@@ -53,7 +66,7 @@ async function inflate(compressed: Uint8Array): Promise<Uint8Array> {
   const writer = ds.writable.getWriter();
   const reader = ds.readable.getReader();
 
-  writer.write(compressed);
+  writer.write(compressed as Uint8Array<ArrayBuffer>);
   writer.close();
 
   const chunks: Uint8Array[] = [];
@@ -71,9 +84,291 @@ async function inflate(compressed: Uint8Array): Promise<Uint8Array> {
   return result;
 }
 
+// ─── ZIP writer (uncomplicated: no encryption, deflate-or-stored) ────────────
+
+async function deflateRaw(data: Uint8Array): Promise<Uint8Array> {
+  const cs = new CompressionStream('deflate-raw');
+  const writer = cs.writable.getWriter();
+  const reader = cs.readable.getReader();
+
+  writer.write(data as Uint8Array<ArrayBuffer>);
+  writer.close();
+
+  const chunks: Uint8Array[] = [];
+  let totalLen = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    totalLen += value.length;
+  }
+  const result = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
+  return result;
+}
+
+export interface ZipInputFile { name: string; data: Uint8Array }
+
+export interface CreateZipOptions {
+  /**
+   * Use DEFLATE for every entry that compresses at all, even when "stored" would
+   * be a byte or two smaller.
+   *
+   * For `.mcpack` (engine/mcpack.ts): no official statement exists on which ZIP
+   * methods the Bedrock client accepts, and DEFLATE is what every pack in the
+   * wild uses, so a tiny stored `manifest.json` is a needless unknown. Costs
+   * nothing — the entries that would have been stored are ~200 bytes.
+   */
+  alwaysDeflate?: boolean;
+}
+
+/**
+ * Build a standard ZIP archive (local headers + central directory + EOCD).
+ * Entries are DEFLATE-compressed via native CompressionStream when available
+ * and smaller, otherwise stored. No encryption, no zip64 (fine for <4 GB).
+ * Round-trip-verified against this module's own reader (test/threemf-export).
+ */
+export async function createZip(
+  files: readonly ZipInputFile[],
+  options: CreateZipOptions = {},
+): Promise<Uint8Array> {
+  const enc = new TextEncoder();
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+  const DOS_TIME = 0;
+  const DOS_DATE = 0x21; // 1980-01-01 — deterministic output
+
+  for (const f of files) {
+    const nameBytes = enc.encode(f.name);
+    const crc = crc32(f.data);
+    let method = 0;
+    let payload = f.data;
+    if (typeof CompressionStream !== 'undefined') {
+      try {
+        const deflated = await deflateRaw(f.data);
+        if (options.alwaysDeflate || deflated.length < f.data.length) { method = 8; payload = deflated; }
+      } catch { /* keep stored */ }
+    }
+
+    const lh = new Uint8Array(30 + nameBytes.length);
+    const lv = new DataView(lh.buffer);
+    lv.setUint32(0, SIG_LOCAL, true);
+    lv.setUint16(4, 20, true);              // version needed
+    lv.setUint16(6, 0, true);               // flags (sizes known — no descriptor)
+    lv.setUint16(8, method, true);
+    lv.setUint16(10, DOS_TIME, true);
+    lv.setUint16(12, DOS_DATE, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, payload.length, true); // compressed size
+    lv.setUint32(22, f.data.length, true);  // uncompressed size
+    lv.setUint16(26, nameBytes.length, true);
+    lv.setUint16(28, 0, true);              // extra len
+    lh.set(nameBytes, 30);
+    localParts.push(lh, payload);
+
+    const ch = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(ch.buffer);
+    cv.setUint32(0, 0x02014b50, true);      // central dir signature
+    cv.setUint16(4, 20, true);              // version made by
+    cv.setUint16(6, 20, true);              // version needed
+    cv.setUint16(8, 0, true);               // flags
+    cv.setUint16(10, method, true);
+    cv.setUint16(12, DOS_TIME, true);
+    cv.setUint16(14, DOS_DATE, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, payload.length, true);
+    cv.setUint32(24, f.data.length, true);
+    cv.setUint16(28, nameBytes.length, true);
+    // extra(30)/comment(32)/disk(34)/int-attrs(36)/ext-attrs(38) all zero
+    cv.setUint32(42, offset, true);         // local header offset
+    ch.set(nameBytes, 46);
+    centralParts.push(ch);
+
+    offset += lh.length + payload.length;
+  }
+
+  const centralSize = centralParts.reduce((s, p) => s + p.length, 0);
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(8, files.length, true);      // entries this disk
+  ev.setUint16(10, files.length, true);     // entries total
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, offset, true);           // central dir offset
+  // comment length = 0
+
+  const out = new Uint8Array(offset + centralSize + 22);
+  let p = 0;
+  for (const part of [...localParts, ...centralParts, eocd]) { out.set(part, p); p += part.length; }
+  return out;
+}
+
 // ─── ZIP local file header parser ────────────────────────────────────────────
 
 const SIG_LOCAL = 0x04034b50;
+
+/**
+ * Find the WinZip AES extra field (header id 0x9901) within a local header's
+ * extra area and return the AES strength (1/2/3) + the real compression method.
+ */
+function parseAesExtra(
+  bytes: Uint8Array,
+  extraStart: number,
+  extraLen: number,
+): { strength: number; method: number } | null {
+  const view = new DataView(bytes.buffer, bytes.byteOffset);
+  let i = extraStart;
+  const end = extraStart + extraLen;
+  while (i + 4 <= end) {
+    const id = view.getUint16(i, true);
+    const size = view.getUint16(i + 2, true);
+    if (id === 0x9901 && size >= 7) {
+      const strength = bytes[i + 8];          // after vendorVer(2) + vendorId(2)
+      const method = view.getUint16(i + 9, true);
+      return { strength, method };
+    }
+    i += 4 + size;
+  }
+  return null;
+}
+
+interface ZipLocalEntry {
+  name: string;
+  flags: number;
+  method: number;
+  compSize: number;
+  extraStart: number;
+  extraLen: number;
+  dataStart: number;
+}
+
+/** Walk all local file headers in the ZIP buffer. */
+function* scanLocalEntries(buffer: ArrayBuffer): Generator<ZipLocalEntry> {
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+  let pos = 0;
+  while (pos + 30 < bytes.length) {
+    if (view.getUint32(pos, true) !== SIG_LOCAL) { pos++; continue; }
+
+    const flags    = view.getUint16(pos + 6,  true);
+    const method   = view.getUint16(pos + 8,  true);
+    const compSize = view.getUint32(pos + 18, true);
+    const fnLen    = view.getUint16(pos + 26, true);
+    const extraLen = view.getUint16(pos + 28, true);
+
+    const fnStart = pos + 30;
+    const name = new TextDecoder().decode(bytes.subarray(fnStart, fnStart + fnLen));
+    const extraStart = fnStart + fnLen;
+    const dataStart = extraStart + extraLen;
+
+    yield { name, flags, method, compSize, extraStart, extraLen, dataStart };
+
+    pos = dataStart + compSize;
+    // If data descriptor present (bit 3), skip 12 or 16 bytes
+    if (flags & 8) pos += (view.getUint32(pos, true) === 0x08074b50) ? 16 : 12;
+  }
+}
+
+const SIG_CENTRAL = 0x02014b50;
+const SIG_EOCD = 0x06054b50;
+
+/**
+ * Scan Central Directory entries from EOCD when available.
+ * Accurately reads compressed sizes and offsets even for streamed ZIPs with data descriptors.
+ */
+function scanCentralEntries(buffer: ArrayBuffer): ZipLocalEntry[] | null {
+  const bytes = new Uint8Array(buffer);
+  const view = new DataView(buffer);
+  const minPos = Math.max(0, bytes.length - 65557);
+  let eocdPos = -1;
+  for (let i = bytes.length - 22; i >= minPos; i--) {
+    if (view.getUint32(i, true) === SIG_EOCD) {
+      const commentLen = view.getUint16(i + 20, true);
+      if (i + 22 + commentLen === bytes.length) {
+        eocdPos = i;
+        break;
+      }
+    }
+  }
+  if (eocdPos === -1) return null;
+
+  const totalEntries = view.getUint16(eocdPos + 10, true);
+  const cdOffset = view.getUint32(eocdPos + 16, true);
+  if (cdOffset >= bytes.length) return null;
+
+  const entries: ZipLocalEntry[] = [];
+  let pos = cdOffset;
+  for (let idx = 0; idx < totalEntries && pos + 46 <= bytes.length; idx++) {
+    if (view.getUint32(pos, true) !== SIG_CENTRAL) break;
+
+    const flags = view.getUint16(pos + 8, true);
+    const method = view.getUint16(pos + 10, true);
+    const compSize = view.getUint32(pos + 20, true);
+    const fnLen = view.getUint16(pos + 28, true);
+    const extraLen = view.getUint16(pos + 30, true);
+    const commentLen = view.getUint16(pos + 32, true);
+    const localHeaderOffset = view.getUint32(pos + 42, true);
+
+    const name = new TextDecoder().decode(bytes.subarray(pos + 46, pos + 46 + fnLen));
+    pos += 46 + fnLen + extraLen + commentLen;
+
+    if (localHeaderOffset + 30 > bytes.length) continue;
+    if (view.getUint32(localHeaderOffset, true) !== SIG_LOCAL) continue;
+    const localFnLen = view.getUint16(localHeaderOffset + 26, true);
+    const localExtraLen = view.getUint16(localHeaderOffset + 28, true);
+    const extraStart = localHeaderOffset + 30 + localFnLen;
+    const dataStart = extraStart + localExtraLen;
+
+    entries.push({ name, flags, method, compSize, extraStart, extraLen: localExtraLen, dataStart });
+  }
+
+  return entries.length > 0 ? entries : null;
+}
+
+function getZipEntries(buffer: ArrayBuffer): Iterable<ZipLocalEntry> {
+  const central = scanCentralEntries(buffer);
+  return central ?? scanLocalEntries(buffer);
+}
+
+/** Decrypt (if needed) + decompress one scanned entry's payload. */
+async function readEntry(
+  buffer: ArrayBuffer,
+  entry: ZipLocalEntry,
+  password?: string,
+): Promise<ArrayBuffer> {
+  const bytes = new Uint8Array(buffer);
+  const encrypted = (entry.flags & 1) !== 0;
+  let effectiveMethod = entry.method;
+  let compressed = bytes.subarray(entry.dataStart, entry.dataStart + entry.compSize);
+
+  if (entry.method === 99) {
+    // WinZip AES — actual compression method lives in the 0x9901 extra field.
+    if (!password) throw new Error(`File "${entry.name}" is AES-encrypted but no password given`);
+    const aes = parseAesExtra(bytes, entry.extraStart, entry.extraLen);
+    if (!aes) throw new Error(`File "${entry.name}" missing AES extra field`);
+    const decrypted = await decryptWinzipAes(compressed, password, aes.strength);
+    compressed = decrypted as Uint8Array<ArrayBuffer>;
+    effectiveMethod = aes.method;
+  } else if (encrypted) {
+    if (!password) throw new Error(`File "${entry.name}" is encrypted but no password given`);
+    const decrypted = decryptData(compressed, password);
+    // skip 12-byte ZipCrypto encryption header
+    compressed = decrypted.subarray(12) as Uint8Array<ArrayBuffer>;
+  }
+
+  if (effectiveMethod === 0) return (compressed.buffer as ArrayBuffer).slice(compressed.byteOffset, compressed.byteOffset + compressed.byteLength);
+  if (effectiveMethod === 8) return (await inflate(compressed)).buffer as ArrayBuffer;
+  throw new Error(`Unsupported compression method ${effectiveMethod}`);
+}
+
+/** List the names of all local file entries in the ZIP. */
+export function listZipEntries(buffer: ArrayBuffer): string[] {
+  const names: string[] = [];
+  for (const e of getZipEntries(buffer)) names.push(e.name);
+  return names;
+}
 
 /**
  * Scan ZIP buffer for a local file entry with the given name (case-insensitive).
@@ -85,44 +380,31 @@ export async function extractFile(
   filename: string,
   password?: string,
 ): Promise<ArrayBuffer> {
-  const view = new DataView(buffer);
-  const bytes = new Uint8Array(buffer);
   const target = filename.toLowerCase();
-
-  let pos = 0;
-  while (pos + 30 < bytes.length) {
-    if (view.getUint32(pos, true) !== SIG_LOCAL) { pos++; continue; }
-
-    const flags       = view.getUint16(pos + 6,  true);
-    const method      = view.getUint16(pos + 8,  true);
-    const compSize    = view.getUint32(pos + 18, true);
-    const fnLen       = view.getUint16(pos + 26, true);
-    const extraLen    = view.getUint16(pos + 28, true);
-
-    const fnStart = pos + 30;
-    const name = new TextDecoder().decode(bytes.subarray(fnStart, fnStart + fnLen));
-    const dataStart = fnStart + fnLen + extraLen;
-
-    if (name.toLowerCase() === target) {
-      const encrypted = (flags & 1) !== 0;
-      let compressed = bytes.subarray(dataStart, dataStart + compSize);
-
-      if (encrypted) {
-        if (!password) throw new Error(`File "${filename}" is encrypted but no password given`);
-        const decrypted = decryptData(compressed, password);
-        // skip 12-byte encryption header
-        compressed = decrypted.subarray(12);
-      }
-
-      if (method === 0) return compressed.buffer.slice(compressed.byteOffset, compressed.byteOffset + compressed.byteLength);
-      if (method === 8) return (await inflate(compressed)).buffer;
-      throw new Error(`Unsupported compression method ${method}`);
-    }
-
-    pos = dataStart + compSize;
-    // If data descriptor present (bit 3), skip 12 or 16 bytes
-    if (flags & 8) pos += (view.getUint32(pos, true) === 0x08074b50) ? 16 : 12;
+  for (const entry of getZipEntries(buffer)) {
+    if (entry.name.toLowerCase() === target) return readEntry(buffer, entry, password);
   }
-
   throw new Error(`File "${filename}" not found in ZIP`);
+}
+
+/**
+ * Extract every entry whose name matches `predicate`. Entries that fail to
+ * decrypt/decompress are skipped (a malformed member shouldn't sink the rest).
+ * Returns archive name → contents.
+ */
+export async function extractMatching(
+  buffer: ArrayBuffer,
+  predicate: (name: string) => boolean,
+  password?: string,
+): Promise<Map<string, ArrayBuffer>> {
+  const out = new Map<string, ArrayBuffer>();
+  for (const entry of getZipEntries(buffer)) {
+    if (!predicate(entry.name)) continue;
+    try {
+      out.set(entry.name, await readEntry(buffer, entry, password));
+    } catch {
+      // skip unreadable member
+    }
+  }
+  return out;
 }

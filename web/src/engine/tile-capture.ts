@@ -259,14 +259,16 @@ function waitForTilesLoaded(
     const check = () => {
       try {
         const elapsed = Date.now() - startTime;
+        // `stats` exists at runtime but the 3d-tiles-renderer typings omit it.
+        const tilesStats = (tiles as unknown as { stats: Record<string, number> | null }).stats;
         if (elapsed > timeoutMs) {
-          const loaded = (tiles.stats as Record<string, number>).loaded ?? 0;
+          const loaded = tilesStats?.['loaded'] ?? 0;
           onProgress?.(`Timeout reached (${loaded} tiles loaded), using partial data`);
           resolve();
           return;
         }
 
-        const stats = tiles.stats;
+        const stats = tilesStats;
         if (!stats) {
           onProgress?.('Error: tiles.stats is null');
           resolve();

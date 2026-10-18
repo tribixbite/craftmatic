@@ -1,10 +1,23 @@
+import { handleLiveDeliveryRequest, LiveDeliverySession } from './live-delivery.js';
+
+export { LiveDeliverySession };
+
 /**
  * Cloudflare Worker: CORS proxy for LDraw model sources + BFF API.
  *
  * Routes:
  *   craftmatic.click/ldraw-omr/*         → library.ldraw.org/library/omr/*
+ *   craftmatic.click/ldraw-parts/*       → library.ldraw.org/library/{official,unofficial}/*
  *   craftmatic.click/seymouria-ldr/*     → seymouria.pl/Download/OfficialLegoSets_LDR/*
  *   craftmatic.click/bff/inventory/{num} → BrickLink Studio BFF API (server-side token)
+ *
+ * The /ldraw-parts route is what makes the 3D direct renderer work in
+ * PRODUCTION: the parts library is dev-only on the local box (served from a
+ * clego install via Vite middleware), so without this proxy the deployed app
+ * has no .dat geometry and the renderer falls back to voxelization. This
+ * proxies individual part/subpart/primitive files from the official LDraw
+ * library (falling back to the unofficial library), CORS-enabled and
+ * edge-cached, so every supported set renders with real brick geometry.
  */
 
 const SOURCES = {
@@ -63,8 +76,11 @@ async function getBffInventory(setNum) {
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
+
+    const liveDelivery = await handleLiveDeliveryRequest(request, env);
+    if (liveDelivery) return liveDelivery;
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: CORS_HEADERS });
@@ -81,6 +97,216 @@ export default {
           headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
         });
       }
+    }
+
+    // ── Model corpus (same-origin, edge-compressed) ──────────────────────────
+    // The viewer used to fetch models + the index straight from the R2 public
+    // dev domain (pub-*.r2.dev), which serves bytes UNCOMPRESSED and off-zone
+    // (extra TLS handshake, no edge cache). Serving them through this worker
+    // puts them on the zone: Cloudflare gzip/brotli-compresses text responses
+    // (a 2.4 MB index → ~0.5 MB; .ldr models ~4-5x smaller) and edge-caches
+    // hits. Model keys are case-SENSITIVE exact relpaths under models/.
+    if ((request.method === 'GET' || request.method === 'HEAD') && env?.MODELS) {
+      let key = null, ctype = 'text/plain; charset=utf-8', ttl = 3600;
+      if (url.pathname === '/lego-models-index.json') {
+        key = 'lego-models-index.json';
+        ctype = 'application/json';
+        ttl = 300; // index updates on every corpus sync
+      } else if (url.pathname.startsWith('/lego-models/')) {
+        const rest = decodeURIComponent(url.pathname.slice('/lego-models/'.length)).replace(/\.\./g, '');
+        if (rest) {
+          key = `models/${rest}`;
+          if (/\.(io|lxf|bin)$/i.test(rest)) ctype = 'application/octet-stream';
+        }
+      }
+      if (key) {
+        try {
+          const obj = await env.MODELS.get(key);
+          if (obj) {
+            return new Response(request.method === 'HEAD' ? null : obj.body, {
+              status: 200,
+              headers: {
+                ...CORS_HEADERS,
+                'Cache-Control': `public, max-age=${ttl}`,
+                'Content-Type': ctype,
+              },
+            });
+          }
+        } catch { /* R2 hiccup — fall through to 404 */ }
+        return new Response(null, {
+          status: 404,
+          headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=60' },
+        });
+      }
+    }
+
+    // ── Deployed parts-library revision ──────────────────────────────────────
+    // `{ rev, generated, files }`, written into R2 as `ldraw/_rev.json` by
+    // scripts/sync-ldraw-r2.mjs after a COMPLETE successful sync. `rev` is a
+    // content hash of the mirrored file set (not the run time), so a weekly
+    // no-op sync does not move it.
+    //
+    // The browser's persistent .dat cache keys its identity off this value
+    // (web/src/viewer/ldraw/parts.ts): a corrected part used to stay stale in a
+    // warm browser forever, because the cache entry is keyed only by part name.
+    // A 404 here is a SUPPORTED answer — the client treats an unknown revision
+    // as "keep the cache", never as "the library changed".
+    if (url.pathname === '/ldraw-parts/_rev' && (request.method === 'GET' || request.method === 'HEAD')) {
+      if (env?.MODELS) {
+        try {
+          const obj = await env.MODELS.get('ldraw/_rev.json');
+          if (obj) {
+            return new Response(request.method === 'HEAD' ? null : obj.body, {
+              status: 200,
+              headers: {
+                ...CORS_HEADERS,
+                'Content-Type': 'application/json',
+                // Short TTL: this is the signal that says "re-download the
+                // library", so it must not be pinned behind a week-long cache.
+                'Cache-Control': 'public, max-age=300',
+              },
+            });
+          }
+        } catch { /* R2 hiccup — 404 below, client keeps its cache */ }
+      }
+      return new Response(null, {
+        status: 404,
+        headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=60' },
+      });
+    }
+
+    // ── Batched parts multi-get ──────────────────────────────────────────────
+    // A cold big-set load needs hundreds of small .dat files; fetching them
+    // one-by-one is round-trip-bound even over H2. The client aggregates
+    // pending part fetches and asks for up to ~48 R2 keys at once here; the
+    // JSON response compresses well at the edge. R2-only — names the mirror
+    // doesn't have come back in `missing` and the client falls back to the
+    // per-file route (which still knows the upstream library).
+    if (url.pathname === '/ldraw-parts/_batch' && request.method === 'GET' && env?.MODELS) {
+      const files = (url.searchParams.get('files') || '')
+        .split(',').map(s => s.trim().replace(/\.\./g, '')).filter(Boolean).slice(0, 64);
+      const found = {};
+      const missing = [];
+      await Promise.all(files.map(async rest => {
+        const unof = rest.match(/^unofficial\/(.*)$/i);
+        const keys = unof
+          ? [`ldraw/unofficial/${unof[1]}`.toLowerCase()]
+          : [`ldraw/${rest}`.toLowerCase(), `ldraw/unofficial/${rest}`.toLowerCase()];
+        for (const k of keys) {
+          try {
+            const obj = await env.MODELS.get(k);
+            if (obj) { found[rest] = await obj.text(); return; }
+          } catch { /* hiccup — treat as missing; client falls back */ }
+        }
+        missing.push(rest);
+      }));
+      return new Response(JSON.stringify({ found, missing }), {
+        status: 200,
+        headers: {
+          ...CORS_HEADERS,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=604800',
+        },
+      });
+    }
+
+    // ── LDraw parts library proxy (official → unofficial fallback) ───────────
+    // The client probes several candidate paths per part (parts/, p/,
+    // parts/s/, p/48/, UnOfficial/...). We relay each to the matching upstream
+    // library dir. Hits are edge-cached for a week; genuine 404s briefly.
+    //
+    // CRITICAL caching rule (prod incident 2026-08-17): a cold big-set load
+    // bursts hundreds of part fetches; upstream rate-limiting then returns
+    // errors, and blanket `cacheTtl + cacheEverything` EDGE-CACHED those
+    // failures for a week — thousands of real parts "missing" until the cache
+    // aged out. cacheTtlByStatus long-caches ONLY successes, and upstream
+    // throttle/5xx responses are relayed as 503 no-store (NOT converted to a
+    // cacheable 404) so the client retries instead of recording a miss.
+    if (url.pathname.startsWith('/ldraw-parts/') && (request.method === 'GET' || request.method === 'HEAD')) {
+      // Decode before building the R2 key: the library ships p/box3#8p.dat,
+      // whose `#` the client must send as %23 or the URL ends at a fragment.
+      // Left encoded, the key lookup misses an object that IS mirrored — the
+      // same break already fixed on /lego-models/. Malformed escapes fall back
+      // to the raw path rather than throwing a 500.
+      let rest = url.pathname.slice('/ldraw-parts/'.length).replace(/\.\./g, '');
+      try { rest = decodeURIComponent(rest); } catch { /* keep as-is */ }
+      let libs = ['official', 'unofficial'];
+      const unof = rest.match(/^unofficial\/(.*)$/i);
+      if (unof) { rest = unof[1]; libs = ['unofficial']; }
+      // R2-FIRST: the library is mirrored into the corpus bucket under
+      // ldraw/<relpath> (scripts/sync-ldraw-r2.mjs). Self-hosted reads can't
+      // be rate-limited; upstream below is only the fallback for unsynced
+      // keys. Bare paths check the official mirror; UnOfficial/-prefixed
+      // requests check the unofficial mirror key.
+      if (rest && env?.MODELS) {
+        // Keys are synced LOWERCASED (R2 is case-sensitive; the client's
+        // normId() lowercases every request, LDraw filenames are lowercase
+        // by convention). Bare paths check the official mirror THEN the
+        // unofficial mirror (mirroring the upstream fallback order) so
+        // unofficial-only parts are still served without touching upstream.
+        const r2Keys = unof
+          ? [`ldraw/unofficial/${rest}`.toLowerCase()]
+          : [`ldraw/${rest}`.toLowerCase(), `ldraw/unofficial/${rest}`.toLowerCase()];
+        for (const r2Key of r2Keys) {
+          try {
+            const obj = await env.MODELS.get(r2Key);
+            if (obj) {
+              return new Response(request.method === 'HEAD' ? null : obj.body, {
+                status: 200,
+                headers: {
+                  ...CORS_HEADERS,
+                  'Cache-Control': 'public, max-age=604800, immutable',
+                  'Content-Type': 'text/plain; charset=utf-8',
+                },
+              });
+            }
+          } catch { /* R2 hiccup — fall through */ }
+        }
+      }
+      if (rest) {
+        let sawTransient = false;
+        for (const lib of libs) {
+          // One in-worker retry after a beat: upstream throttling is bursty
+          // (per-second), so a brief wait often clears it without bouncing
+          // the failure all the way back to the client.
+          let r;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            // Re-encode per segment for the upstream URL — `rest` is decoded
+            // now, and a raw `#` would truncate the request at the fragment.
+            r = await fetch(`https://library.ldraw.org/library/${lib}/${rest.split('/').map(encodeURIComponent).join('/')}`, {
+              method: 'GET',
+              headers: { 'User-Agent': 'craftmatic-proxy/1.0' },
+              cf: {
+                cacheEverything: true,
+                cacheTtlByStatus: { '200-299': 604800, '404': 300, '400-499': 0, '500-599': 0 },
+              },
+            });
+            if (r.ok || r.status === 404 || r.status === 410) break;
+            if (attempt === 0) await new Promise(res => setTimeout(res, 600));
+          }
+          if (r.ok) {
+            return new Response(request.method === 'HEAD' ? null : r.body, {
+              status: 200,
+              headers: {
+                ...CORS_HEADERS,
+                'Cache-Control': 'public, max-age=604800, immutable',
+                'Content-Type': 'text/plain; charset=utf-8',
+              },
+            });
+          }
+          if (r.status !== 404 && r.status !== 410) sawTransient = true;
+        }
+        if (sawTransient) {
+          return new Response(null, {
+            status: 503,
+            headers: { ...CORS_HEADERS, 'Cache-Control': 'no-store', 'Retry-After': '2' },
+          });
+        }
+      }
+      return new Response(null, {
+        status: 404,
+        headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=600' },
+      });
     }
 
     // ── LDraw / Seymouria CORS proxy ─────────────────────────────────────────

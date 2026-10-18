@@ -130,7 +130,7 @@ async function decodePngBrowser(
   g: Required<BrowserImageGlobals>,
 ): Promise<DecodedTexture | null> {
   try {
-    const blob = new Blob([bytes], { type: 'image/png' });
+    const blob = new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'image/png' });
     const bitmap = await g.createImageBitmap(blob);
     const canvas = new g.OffscreenCanvas(bitmap.width, bitmap.height);
     const ctx = canvas.getContext('2d');

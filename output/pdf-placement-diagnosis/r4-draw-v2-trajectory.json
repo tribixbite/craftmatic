@@ -1,0 +1,37 @@
+{
+  "run": "output\\pdf-placement-beam\\40377-r4-draw-v2",
+  "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "status": "completed_requested_pages_uncertified",
+  "rows": [
+    {
+      "page": 18,
+      "status": "placed",
+      "score": 0.48851709777088614,
+      "withheld": [],
+      "emitted": 52,
+      "strict": 26,
+      "canonical": 32,
+      "structural": 48,
+      "truth_parts": 90,
+      "precision": 0.9230769230769231,
+      "coverage": 0.5333333333333333,
+      "legacy_structural": 45
+    },
+    {
+      "page": 19,
+      "status": "placed",
+      "score": 0.4814495239533998,
+      "withheld": [],
+      "emitted": 58,
+      "strict": 26,
+      "canonical": 32,
+      "structural": 48,
+      "truth_parts": 90,
+      "precision": 0.8275862068965517,
+      "coverage": 0.5333333333333333,
+      "legacy_structural": 45
+    }
+  ],
+  "scope": "Evaluation-only, executed after the run; the reference model chooses nothing at runtime.",
+  "limitations": "Structural equivalence uses derived universal-CAD symmetry proofs; coverage is whole-model placement agreement, not certification."
+}

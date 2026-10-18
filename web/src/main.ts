@@ -7,11 +7,14 @@ import './style.css';
 import * as THREE from 'three';
 import { BlockGrid } from '@craft/schem/types.js';
 import { createViewer, createMeshViewer, applyCutaway, type ViewerState } from '@viewer/scene.js';
+import { createLegoViewer, ACCURATE_Y_SCALE } from '@viewer/lego-scene.js';
 import { enableSelection } from '@viewer/selection.js';
 import { cropToAABB } from '@craft/pipeline/capture/mesh-utils.js';
 import type { AnalysisResult } from '@craft/pipeline/capture/analysis-types.js';
 import { trimGrid } from '@craft/gen/gen-utils.js';
-import { exportGLB, exportSTL, exportOBJ, exportSchem, exportLitematic, exportHTML, exportThreeJSON } from '@viewer/exporter.js';
+import { exportGLB, exportSTL, exportOBJ, exportHTML, exportThreeJSON, exportLayerGuide } from '@viewer/exporter.js';
+import { runMinecraftExport } from '@ui/schem-export.js';
+import { mountSchemSettings, getSchemSettings } from '@ui/schem-settings-panel.js';
 import { initGenerator, type GeneratorConfig } from '@ui/generator.js';
 import { initImport, type PropertyData } from '@ui/import.js';
 import { initUpload, type MeshUploadResult } from '@ui/upload.js';
@@ -22,11 +25,60 @@ import { initTiles, type TilesResultMeta } from '@ui/tiles.js';
 import { initLego } from '@ui/lego.js';
 import { initReview } from '@ui/review.js';
 
+// ─── Global error boundary ───────────────────────────────────────────────────
+// An uncaught throw / rejection used to leave the app in whatever half-state
+// it crashed in (stranded loading overlay, dead panel) — and on some mobile
+// browsers escalates to the OS "this page failed to load" interstitial. Show
+// a small dismissable in-app banner with a reload action instead, and keep a
+// breadcrumb in localStorage for the next session. Throttled so an error
+// loop can't spam banners.
+let lastErrorBannerAt = 0;
+function showErrorBanner(msg: string): void {
+  const now = Date.now();
+  if (now - lastErrorBannerAt < 5000) return;
+  lastErrorBannerAt = now;
+  try {
+    localStorage.setItem('craftmatic-last-error', JSON.stringify({ t: new Date().toISOString(), msg: msg.slice(0, 500) }));
+  } catch { /* storage unavailable */ }
+  let el = document.getElementById('global-error-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'global-error-banner';
+    el.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;'
+      + 'background:#2a1215;border:1px solid #a33;color:#fbb;padding:10px 14px;border-radius:8px;'
+      + 'font:13px system-ui;display:flex;gap:10px;align-items:center;max-width:min(92vw,560px);box-shadow:0 4px 16px rgba(0,0,0,0.5)';
+    const txt = document.createElement('span');
+    txt.id = 'global-error-banner-text';
+    txt.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    const reload = document.createElement('button');
+    reload.textContent = 'Reload';
+    reload.style.cssText = 'background:#7c3aed;color:#fff;border:0;border-radius:5px;padding:4px 12px;cursor:pointer;font:12px system-ui';
+    reload.onclick = () => location.reload();
+    const close = document.createElement('button');
+    close.textContent = '✕';
+    close.style.cssText = 'background:none;border:0;color:#fbb;cursor:pointer;font-size:14px';
+    close.onclick = () => el?.remove();
+    el.append(txt, reload, close);
+    document.body.appendChild(el);
+  }
+  const txt = document.getElementById('global-error-banner-text');
+  if (txt) txt.textContent = `Something went wrong: ${msg}`;
+}
+window.addEventListener('error', e => {
+  if (e.message) showErrorBanner(e.message);
+});
+window.addEventListener('unhandledrejection', e => {
+  const r = e.reason;
+  showErrorBanner(r instanceof Error ? r.message : String(r ?? 'unknown error'));
+});
+
 // ─── State ───────────────────────────────────────────────────────────────────
 
 let activeViewer: ViewerState | null = null;
 let activeGrid: BlockGrid | null = null;
 let inlineViewer: ViewerState | null = null;
+/** When set, the current inline/full viewer uses LEGO proportions (ACCURATE_Y_SCALE or 1.0 cubic). */
+let activeLegoYScale: number | null = null;
 /** Base filename (no extension) for exports — derived from address or generator config */
 let exportBasename = 'craftmatic';
 
@@ -94,7 +146,7 @@ function showError(message: string): void {
 
 // ─── Inline Viewer (embedded in tab panels) ──────────────────────────────────
 
-function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
+function showInlineViewer(container: HTMLElement, grid: BlockGrid, legoYScale?: number): void {
   // Dispose previous inline viewer
   if (inlineViewer) {
     inlineViewer.dispose();
@@ -123,13 +175,23 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
         <svg class="download-chevron" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="download-menu download-menu-up" id="inline-dl-menu" hidden>
-        <button class="download-item" data-format="schem">.schem<span class="download-desc">Minecraft</span></button>
+        <button class="download-item" data-format="live">Send to Minecraft<span class="download-desc">Bedrock · experimental Planner delivery</span></button>
+        <button class="download-item" data-format="mcaddon">Bedrock Add-On (.mcaddon)<span class="download-desc">Controls detected or selected components</span></button>
+        <button class="download-item" data-format="mcpack">Bedrock Structure (.mcpack)<span class="download-desc">Static build</span></button>
+        <button class="download-item" data-format="schem">Java Schematic (.schem)<span class="download-desc">WorldEdit</span></button>
         <button class="download-item" data-format="litematic">.litematic<span class="download-desc">Litematica</span></button>
+        <button class="download-item" data-format="display">Java Display Entities (.mcfunction)<span class="download-desc">1.19.4+ command function</span></button>
         <button class="download-item" data-format="stl">STL<span class="download-desc">3D print</span></button>
         <button class="download-item" data-format="glb">GLB<span class="download-desc">glTF</span></button>
         <button class="download-item" data-format="obj">OBJ<span class="download-desc">Universal</span></button>
         <button class="download-item" data-format="three">Three.js JSON<span class="download-desc">Scene</span></button>
         <button class="download-item" data-format="html">HTML<span class="download-desc">Standalone</span></button>
+        <button class="download-item" data-format="layer-guide">Layer Guide<span class="download-desc">Print to PDF</span></button>
+        <label class="download-option">Interactive vehicle
+          <select data-export-vehicle title="Choose how the Bedrock add-on should make this model move">
+            <option value="auto">Detect vehicle components</option><option value="car">Car (whole model)</option><option value="plane">Plane (whole model)</option><option value="static">Structure only</option>
+          </select>
+        </label>
       </div>
     </div>
     <button class="btn btn-secondary btn-sm" id="inline-expand" title="Expand to full viewer">
@@ -161,13 +223,26 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid): void {
     () => grid,
   );
 
+  // Minecraft export settings (shared with the LEGO tab). The source is an
+  // already-voxelized grid, so the resolution row renders disabled.
+  const mcSettingsHost = document.createElement('span');
+  mcSettingsHost.style.display = 'inline-flex';
+  controlsDiv.insertBefore(mcSettingsHost, controlsDiv.querySelector('#inline-expand'));
+  mountSchemSettings(mcSettingsHost, { resolutionApplicable: false, key: 'inline-viewer' });
+
   // Expand button → opens full viewer overlay
   controlsDiv.querySelector('#inline-expand')!.addEventListener('click', () => {
     openFullViewer(grid);
   });
 
   // Create and mount 3D viewer (may fail without WebGL — controls still work)
-  inlineViewer = createViewer(container, grid);
+  // For very large models (>80K blocks), skip LEGO stud rendering to avoid freezing.
+  activeLegoYScale = legoYScale ?? null;
+  const blockCount = grid.countNonAir();
+  const useLego = legoYScale !== undefined && blockCount < 80_000;
+  inlineViewer = useLego
+    ? createLegoViewer(container, grid, { yScale: legoYScale })
+    : createViewer(container, grid);
 }
 
 // ─── Full Viewer Overlay ─────────────────────────────────────────────────────
@@ -207,7 +282,9 @@ function openFullViewer(grid: BlockGrid): void {
   overlayDownloadMenu.hidden = false;
   overlayDownloadDropdown.classList.add('open');
 
-  activeViewer = createViewer(viewerCanvas, grid);
+  activeViewer = activeLegoYScale !== null
+    ? createLegoViewer(viewerCanvas, grid, { yScale: activeLegoYScale })
+    : createViewer(viewerCanvas, grid);
 }
 
 function closeFullViewer(): void {
@@ -277,13 +354,27 @@ function wireDownloadDropdown(
 
       try {
         switch (format) {
+          // Minecraft exports run through the SHARED export module (S4) — the
+          // same worker + encoders the LEGO tab uses, with the same ⚙ settings
+          // (block-mapping profile, interior light fill). The source here is
+          // already a BlockGrid (an uploaded/generated schematic), so the
+          // pipeline skips voxelization and just encodes it.
           case 'schem':
-            if (!grid) return;
-            exportSchem(grid, `${exportBasename}.schem`);
-            break;
           case 'litematic':
+          case 'display':
+          // Bedrock: the same shared module, encoding the grid as a behavior
+          // pack of .mcstructure files instead of a single Java NBT file.
+          case 'mcpack':
+          case 'mcaddon':
+          case 'live':
             if (!grid) return;
-            exportLitematic(grid, `${exportBasename}.litematic`);
+            await runMinecraftExport({
+              source: { kind: 'grid', grid },
+              format,
+              basename: exportBasename,
+              settings: getSchemSettings(),
+              vehicleMode: (menuEl.querySelector<HTMLSelectElement>('[data-export-vehicle]')?.value ?? 'auto') as 'auto' | 'car' | 'plane' | 'boat' | 'static',
+            });
             break;
           case 'stl':
             if (!viewer) return;
@@ -311,6 +402,10 @@ function wireDownloadDropdown(
             if (!viewer) return;
             exportHTML(viewer, `${exportBasename}.html`);
             break;
+          case 'layer-guide':
+            if (!grid) return;
+            exportLayerGuide(grid, exportBasename, `${exportBasename}-layer-guide.html`);
+            break;
         }
       } catch (err) {
         console.error(`${format} export failed:`, err);
@@ -330,6 +425,15 @@ wireDownloadDropdown(
   () => activeGrid,
   true, // always open in overlay
 );
+
+// Same ⚙ settings next to the overlay viewer's download menu.
+{
+  const dd = document.getElementById('download-dropdown');
+  const host = document.createElement('span');
+  host.style.display = 'inline-flex';
+  dd?.parentElement?.insertBefore(host, dd.nextSibling);
+  if (dd) mountSchemSettings(host, { resolutionApplicable: false, key: 'overlay-viewer' });
+}
 
 // Close non-overlay dropdowns on outside click; overlay dropdown stays open
 document.addEventListener('click', () => {
@@ -412,9 +516,6 @@ const fileInput = document.getElementById('file-input') as HTMLInputElement;
 const uploadInfo = document.getElementById('upload-info')!;
 const uploadViewer = document.getElementById('upload-viewer')!;
 
-/** Stored mesh result for deferred voxelization */
-let uploadedMesh: MeshUploadResult | null = null;
-
 initUpload(uploadZone, fileInput, uploadInfo, (result) => {
   const filename = result.type === 'mesh' ? result.result.filename : result.filename;
   exportBasename = filename.replace(/\.[^.]+$/, '') || 'upload';
@@ -422,7 +523,6 @@ initUpload(uploadZone, fileInput, uploadInfo, (result) => {
   if (result.type === 'schematic') {
     // Schematic files → block viewer (same as before)
     showLoading('Rendering schematic...');
-    uploadedMesh = null;
     requestAnimationFrame(() => setTimeout(() => {
       try {
         showInlineViewer(uploadViewer, result.grid);
@@ -438,7 +538,6 @@ initUpload(uploadZone, fileInput, uploadInfo, (result) => {
     }, 0));
   } else {
     // Mesh files → render Object3D immediately, optional voxelization
-    uploadedMesh = result.result;
     try {
       showMeshInlineViewer(uploadViewer, result.result);
     } catch (err) {
@@ -874,12 +973,12 @@ function showTilesSelectionBanner(
 const legoControls = document.getElementById('lego-controls')!;
 const legoViewer = document.getElementById('lego-viewer')!;
 
-initLego(legoControls, legoViewer, (grid: BlockGrid, label: string) => {
+initLego(legoControls, legoViewer, (grid: BlockGrid, label: string, isCubic: boolean) => {
   exportBasename = slugify(label) || 'lego-set';
   showLoading('Building 3D view...');
   requestAnimationFrame(() => setTimeout(() => {
     try {
-      showInlineViewer(legoViewer, grid);
+      showInlineViewer(legoViewer, grid, isCubic ? 1.0 : ACCURATE_Y_SCALE);
     } catch (err) {
       console.warn('3D viewer failed:', err);
       const fallback = document.createElement('div');

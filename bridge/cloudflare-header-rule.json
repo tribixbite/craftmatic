@@ -1,0 +1,15 @@
+{
+  "ref": "craftmatic_ws_connection_case",
+  "description": "Preserve Bedrock WebSocket Connection token capitalization",
+  "expression": "(http.host eq \"craftmatic.click\" and starts_with(http.request.uri.path, \"/connect/\") and http.response.code eq 101)",
+  "action": "rewrite",
+  "action_parameters": {
+    "headers": {
+      "Connection": {
+        "operation": "set",
+        "value": "Upgrade"
+      }
+    }
+  },
+  "enabled": true
+}

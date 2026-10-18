@@ -1,0 +1,27 @@
+name: Prod Smoke
+
+# Catches "the deployed app renders nothing" (e.g. the /ldraw-parts Worker
+# route silently missing — a real historic prod gap). Runs after each deploy,
+# daily, and on demand.
+on:
+  workflow_run:
+    workflows: ["Deploy to GitHub Pages + Cloudflare Worker"]
+    types: [completed]
+  schedule:
+    - cron: '17 9 * * *'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    # On workflow_run, only bother when the deploy actually succeeded.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun run test test/prod-smoke.test.ts
+        env:
+          PROD_SMOKE: '1'

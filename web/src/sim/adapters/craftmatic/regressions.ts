@@ -1,0 +1,622 @@
+/**
+ * The REGRESSION SET: device bugs found on the phones on 2026-09-29, each a
+ * named scenario with its evidence, run on the pack the device ran (it must
+ * reproduce) and on a pack built from the current tree (it must pass - or,
+ * where the fault is the MODEL's geometry, reproduce and be attributed to the
+ * model). A case the simulator cannot reproduce says which engine behaviour is
+ * missing; the scenarios are never tuned to the answer.
+ */
+
+import type { Scenario, Step } from '../../scenario/types.js';
+import { CORE_HANDLERS, type ScenarioResult } from '../../scenario/runner.js';
+import type { RegressionRow } from '../../scenario/report.js';
+import type { CraftmaticPack } from './pack-facts.js';
+import { CRAFTMATIC_ALLOWED_LINES } from './child-play.js';
+import { doorwayFindings, placedOf, tapPoseOf } from './play.js';
+import { scriptedVehicleTypes, type CourseRow } from './vehicle-course.js';
+import { WORLD_REGRESSIONS } from './regressions-world.js';
+import { ROUND_30M_REGRESSIONS } from './regressions-30m.js';
+import { teleport } from '../../script-host/facades.js';
+import { lookAt, tap } from '../../input/touch.js';
+import { PIXEL_VIEWPORT, tapScreen } from '../../input/screen.js';
+import { swipeMount } from './input-probe.js';
+import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
+import { REACH_GUARD_DROP16 } from '../../../engine/bedrock-collider-scale.js';
+import type { Vec3 } from '../../core/vec.js';
+
+/** What the current tree's pack should do. */
+export type Expectation = 'pass' | 'reproduce-as-model';
+
+/** One regression case. */
+export interface RegressionCase {
+  id: string;
+  title: string;
+  /** Where the device saw it (round folder, tracker section, commit). */
+  evidence: string;
+  /** The pack the device ran, absolute path. */
+  oldPack: string;
+  /** The stem of the current tree's pack (`<dir>/<stem>.mcaddon`). */
+  newStem: string;
+  expectNew: Expectation;
+  scenario(pack: CraftmaticPack): Scenario;
+  /**
+   * Whether a result shows the fault, with the evidence line. `untested`: the run could not put the device's
+   * conditions in place (no legal pose matching the recorded one), so a clean result proves nothing.
+   */
+  judge(result: ScenarioResult, pack: CraftmaticPack): { reproduced: boolean; attribution?: 'model' | 'pack'; evidence: string; untested?: string };
+  /** Why the simulator cannot reproduce it, when that is known up front (a missing engine behaviour). */
+  limits?: string;
+  /**
+   * The old pack is KNOWN not to reproduce in the simulator (`limits` says why). Its verdict is then
+   * KNOWN-UNREPRODUCED - listed on its own, not failing the run by itself - provided the current tree's pack
+   * passes the same scenario; a new-pack failure is still a FAIL.
+   */
+  knownUnreproduced?: boolean;
+  /**
+   * The defect is still OPEN on the device (the round that last saw it, e.g. `round 30m`): no fix has shipped, so the
+   * current pack is EXPECTED to reproduce too. Its verdict is then OPEN - listed apart, not failing the run - provided
+   * the old pack reproduces (an open case must still show the device bug, or it guards nothing). When the current pack
+   * stops reproducing, the verdict is OK with a reminder to drop `open`.
+   */
+  open?: string;
+}
+
+/** One side's outcome as the CLI hands it to the verdict (an error when the pack could not be run). */
+export type RegressionSide = RegressionRow['old'];
+
+/** A case's verdict and how it counts: `failing` cases exit the run 1; `known` and `open` ones are listed apart. */
+export interface RegressionVerdict { verdict: string; failing: boolean; notTested: boolean; known: boolean; open?: boolean }
+
+/**
+ * The verdict of one regression case from its two sides (pure, so the rules are unit-tested):
+ *   - NOT TESTED: a side could not run, a side's judge said the conditions were not met, or the old pack did not
+ *     reproduce and the case does not know why - fails the run (an unproven case is never a pass);
+ *   - KNOWN-UNREPRODUCED: the old pack does not reproduce for a reason the case records (`knownUnreproduced`) and the
+ *     new pack passes the scenario - does not fail the run, and is listed apart;
+ *   - OPEN: the case is an open device defect (`open`), the old pack reproduced and the current one still does - does
+ *     not fail the run, and is listed apart (a fix turns it OK, with a reminder to drop `open`);
+ *   - OK / FAIL: the old pack reproduced and the new one met (or missed) `expectNew`; a known-unreproduced case
+ *     whose new pack fails is a FAIL too.
+ */
+export function regressionVerdict(c: Pick<RegressionCase, 'expectNew' | 'limits' | 'knownUnreproduced' | 'open'>, oldR: RegressionSide, newR: RegressionSide): RegressionVerdict {
+  if ('error' in oldR || 'error' in newR) {
+    const why = [['old', oldR] as const, ['new', newR] as const].flatMap(([side, r]) => ('error' in r ? [`${side}: ${r.error}`] : []));
+    return { verdict: `NOT TESTED (${why.join('; ')})`, failing: true, notTested: true, known: false };
+  }
+  const o = oldR, n = newR;
+  if (n.untested) return { verdict: `NOT TESTED (new: ${n.untested})`, failing: true, notTested: true, known: false };
+  const newOk = c.expectNew === 'pass' ? n.status === 'pass' && !n.reproduced : n.reproduced && n.attribution === 'model';
+  if (!o.reproduced) {
+    if (c.knownUnreproduced && newOk) return { verdict: `KNOWN-UNREPRODUCED (${c.limits ?? 'not reproduced on the old pack'}; the current pack passes the scenario)`, failing: false, notTested: false, known: true };
+    if (c.knownUnreproduced) return { verdict: 'FAIL (the current pack fails a case the old pack does not reproduce)', failing: true, notTested: false, known: false };
+    return { verdict: `NOT TESTED (not reproduced on the old pack${o.untested ? `: ${o.untested}` : ''}${c.limits ? `; ${c.limits}` : ''})`, failing: true, notTested: true, known: false };
+  }
+  if (c.open) {
+    return newOk ? { verdict: `OK (the current pack no longer reproduces: drop \`open\` (${c.open}) from the case)`, failing: false, notTested: false, known: false }
+      : { verdict: `OPEN (${c.open}: reproduced on both packs; no fix yet)`, failing: false, notTested: false, known: false, open: true };
+  }
+  return newOk ? { verdict: 'OK', failing: false, notTested: false, known: false } : { verdict: 'FAIL', failing: true, notTested: false, known: false };
+}
+
+const ROUND = 'C:/git/craftmatic/output';
+const allow = [...CRAFTMATIC_ALLOWED_LINES];
+const place: Step[] = [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }];
+const rideIndex = (pack: CraftmaticPack, kind: string): number => pack.rides?.rides.find(r => r.kind === kind)?.index ?? -1;
+const doorIndex = (pack: CraftmaticPack, label: string): number => pack.interactives?.items.findIndex(it => it.label === label) ?? -1;
+const r3 = (v: number): number => Math.round(v * 1000) / 1000;
+const violated = (r: ScenarioResult, invariant: string, text?: RegExp): string | undefined => {
+  const v = r.violations.find(x => x.invariant === invariant && (!text || text.test(x.message)));
+  return v ? `${v.invariant}: ${v.message}` : undefined;
+};
+
+/** One replayed tap from inside 76417's Gate 1 (`gate1-throwout-76417`), anchor-relative. */
+interface GateThrowout { pose: 'device' | 'deeper'; before: Vec3; end: Vec3; wasOpen: boolean; nowOpen: boolean; refusal: string; /** What the stray screen tap picked (the gate, when the crosshair is on it). */ picked: string }
+
+/** The lines a driven vehicle's HUD prints (the course's own allowance). */
+const vehicleAllow = [...allow, /CAR|HOVER|FLY|PLANE|BOAT|mph|Hotbar slot 9/];
+/** The pack's scripted ship type (the first `plane` in `scripts/vehicles.js`), or '-' so the step reports the miss. */
+const shipType = (pack: CraftmaticPack): string => scriptedVehicleTypes(pack).find(t => t.mode === 'plane')?.typeId ?? '-';
+
+/** The 2026-09-29 regression set. */
+export const REGRESSIONS: RegressionCase[] = [
+  {
+    id: 'gabby-slide-on-rails', title: '10788 slide: the rider rides on the side rails, 30 LDU over the bed',
+    evidence: 'TASKS-BEDROCK-ADDON.md "User report 2026-09-29" (round 29b); add-on guide "The user\'s report and the play round"; fix 377850a5',
+    oldPack: `${ROUND}/device-round-2026-09-29b/packs-f37227ad/10788-gabbys-dollhouse.mcaddon`, newStem: '10788-gabbys-dollhouse', expectNew: 'pass',
+    // 29b's rides.js boards only by the vanilla interact (the device used /ride): a hold.
+    scenario: pack => ({ name: 'gabby-slide-on-rails', steps: [...place, { kind: 'rideSlide', index: rideIndex(pack, 'slide'), board: 'hold' }], allowLines: allow }),
+    judge: r => { const v = violated(r, 'slide-rides-in-chute'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /over the drawn chute/.test(n)) ?? 'no slide note') }; },
+  },
+  {
+    id: 'gabby-lift-cap', title: '10788 lift: the "car" is the shaft\'s back-wall cap and never carries the rider past the floors',
+    evidence: 'TASKS-BEDROCK-ADDON.md "User report 2026-09-29"; add-on guide "The lift\'s car was the wrong assembly" (stops a third of a block low); rec/lift10788_a-big-1-8.jpg; fix 377850a5',
+    oldPack: `${ROUND}/device-round-2026-09-29b/packs-f37227ad/10788-gabbys-dollhouse.mcaddon`, newStem: '10788-gabbys-dollhouse', expectNew: 'pass',
+    scenario: pack => ({ name: 'gabby-lift-cap', steps: [...place, { kind: 'rideLift', index: rideIndex(pack, 'lift'), trips: 3, board: 'hold', on: 'car' }], allowLines: allow }),
+    // Set down inside the floor (the device's "stops a third of a block low") shows as the player
+    // left inside a collider. Until the x mirror of block collision boxes was measured (quirk
+    // block-collision-x-mirrored, 2026-09-30) the simulator read the old pack's ceiling forms on the
+    // wrong half and saw a 1.71-block drop instead; read as the device reads them, the set-down is
+    // inside `collider_c2` / `collider_w2` on every trip and the drop is under a block.
+    judge: r => { const v = violated(r, 'rider-set-down') ?? violated(r, 'lift-car-in-model') ?? violated(r, 'tap-boards-ride') ?? violated(r, 'player-not-in-solid'); return { reproduced: !!v, evidence: v ?? r.notes.filter(n => /lift/.test(n)).join(' / ') }; },
+  },
+  {
+    id: 'gabby-car-overhang', title: '10797 car driven under an overhang falls through the world (Saga: y -104)',
+    evidence: 'TASKS-BEDROCK-ADDON.md "User report 2026-09-29"; `C:/git/craftmatic/.claude/worktrees/agent-a743597866bba6650/output/gabby-play-0929/rec/car10797_drive-frames/f001-f012.jpg` and `saga/s42-s46`; transcript `C:/Users/wills/.claude/projects/C--git-craftmatic/134edabc-3baa-4b8d-b18e-4fe662d1ba37/subagents/agent-a743597866bba6650.jsonl` lines 1110-1188; host test "drives a low car under an overhang" (377850a5)',
+    oldPack: `${ROUND}/device-round-2026-09-29b/packs-f37227ad/10797-gabbys-party-room.mcaddon`, newStem: '10797-gabbys-party-room', expectNew: 'pass',
+    // Device HUD coordinates and the pack's actor point imply the horizontal anchor (6985,7012): the car's
+    // local x/z (1.5,5) becomes (6986.5,7017), displayed as 6986,7017 in f001. The vertical anchor is
+    // not inferred: that HUD is the mounted PLAYER, whose position differs from the car root by its seat.
+    // Translation and a quarter-turn do not change the collision on flat ground, so the simulator uses
+    // its normal ground placement and replays from that same fixed pack-local actor point. The Saga's
+    // swipes were full forward for 3 s, release 0.3 s, then (110 right,142 forward) for 2.5 s.
+    // The diagonal exceeds the straight swipe's 172-pixel radius, so this maps it to a unit vector;
+    // an unclamped 110/172,142/172 replay was also tried and likewise did not reproduce the fall.
+    // The 3 s hold is 60 ideal ticks. A 10-tick hold, which matches the device's observed +1 Z
+    // displacement under load, also stayed supported; cadence remains an explicit limitation below.
+    scenario: pack => ({
+      name: 'gabby-car-overhang',
+      description: 'Replay the Saga route from the archived pack\'s car actor through its own 31x6x9 collider structure',
+      evidence: 'Saga f001-f012: 6986,-60,7017 -> 6986,-61,7018 -> 6986,-63,7018 -> 6990,-63,7020 -> 6992,-63,7022; car later at 6992,-104,7021',
+      start: { x: 7000.5, y: -60, z: 7000.5 },
+      steps: [
+        ...place,
+        { kind: 'hold', target: { type: pack.vehicleTypes[0] ?? '-', label: pack.vehicleTypes[0] ?? '-' } },
+        {
+          kind: 'expect', label: 'record the archived-route start', check: ctx => {
+            const v = ctx.find({ type: pack.vehicleTypes[0] ?? '-' });
+            if (!v) return 'the archived route has no car entity';
+            ctx.note(`archived 10797 route started at ${JSON.stringify({ x: r3(v.location.x), y: r3(v.location.y), z: r3(v.location.z) })}; vehicle yaw ${r3(v.rotation.y)}, rider yaw ${r3(ctx.player.rotation.y)}`);
+            // A mounted Bedrock stick is relative to the vehicle's forward axis. The generic hold
+            // approaches from the side and leaves the simulated rider looking back at that approach.
+            ctx.player.rotation.y = v.rotation.y;
+            return undefined;
+          },
+        },
+        { kind: 'drive', hold: { forward: 1, strafe: 0, ticks: 60 }, label: 'recorded 3 s forward swipe' },
+        {
+          kind: 'expect', label: 'record the first archived-route phase', check: ctx => {
+            const v = ctx.find({ type: pack.vehicleTypes[0] ?? '-' });
+            if (!v) return 'the archived route lost its car after the forward phase';
+            ctx.note(`archived 10797 forward phase ended at ${JSON.stringify({ x: r3(v.location.x), y: r3(v.location.y), z: r3(v.location.z) })}; vehicle yaw ${r3(v.rotation.y)}`);
+            return undefined;
+          },
+        },
+        { kind: 'wait', ticks: 6, label: 'recorded 0.3 s stick release' },
+        { kind: 'drive', hold: { forward: 142 / Math.hypot(110, 142), strafe: 110 / Math.hypot(110, 142), ticks: 50 }, label: 'recorded 2.5 s forward-right swipe' },
+        {
+          kind: 'expect', label: 'record the diagonal archived-route phase', check: ctx => {
+            const v = ctx.find({ type: pack.vehicleTypes[0] ?? '-' });
+            if (!v) return 'the archived route lost its car after the diagonal phase';
+            ctx.note(`archived 10797 diagonal phase ended at ${JSON.stringify({ x: r3(v.location.x), y: r3(v.location.y), z: r3(v.location.z) })}; vehicle yaw ${r3(v.rotation.y)}`);
+            return undefined;
+          },
+        },
+        { kind: 'wait', ticks: 120, label: 'let the unsupported car finish falling' },
+        {
+          kind: 'expect', label: 'record the archived-route endpoint', check: ctx => {
+            const v = ctx.find({ type: pack.vehicleTypes[0] ?? '-' });
+            if (!v) return 'the archived route lost its car entity';
+            ctx.note(`archived 10797 route ended at ${JSON.stringify({ x: r3(v.location.x), y: r3(v.location.y), z: r3(v.location.z) })}`);
+            return undefined;
+          },
+        },
+        // The host test's overhang (test/bedrock-vehicle.test.ts "drives a low car under an overhang"), laid in
+        // front of the car and driven under: the geometry that pins the fix. The old pack does not fall here
+        // either, but the CURRENT pack must not - the coverage the route replay alone does not give.
+        { kind: 'driveUnderFixture', type: pack.vehicleTypes[0] ?? '-' },
+      ],
+      allowLines: allow,
+    }),
+    judge: r => { const v = violated(r, 'nothing-below-ground'); return { reproduced: !!v, evidence: v ?? (r.notes.filter(n => /archived 10797 (route|forward|diagonal)|fixture/.test(n)).join(' / ') || 'the archived route and the fixture produced no below-ground violation') }; },
+    limits: 'the archived pack replay uses the recovered route, but the simulator does not reproduce the Saga fall; the native mounted-player pose and native tick cadence under device load were not recorded',
+    knownUnreproduced: true,
+  },
+  {
+    id: 'gabby-car-eye', title: '10797 car: the driver\'s eye is inside the bodywork (0 of 15 forward rays clear)',
+    evidence: 'add-on guide "A doll car\'s guessed seat put the eye in its bodywork" (Saga 29b, `forwardView`); fix 377850a5',
+    oldPack: `${ROUND}/device-round-2026-09-29b/packs-f37227ad/10797-gabbys-party-room.mcaddon`, newStem: '10797-gabbys-party-room', expectNew: 'pass',
+    scenario: pack => ({ name: 'gabby-car-eye', steps: [...place, { kind: 'driveVehicle', type: pack.vehicleTypes[0] ?? '-', ticks: 100 }], allowLines: allow }),
+    judge: r => { const v = violated(r, 'driver-sees-ahead'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /horizon ahead/.test(n)) ?? 'the driver sees the horizon ahead') }; },
+  },
+  {
+    id: 'cockpit-occluded-42639', title: '42639 car: the cockpit view (hotbar 9) is two thirds the car\'s own teal body',
+    evidence: 'TASKS-BEDROCK-ADDON.md round 30f; `output/device-round-2026-09-30f/pixel/47b-47e` + `_notes.txt` "2 DRIVER VIEWS"; add-on guide "The driver\'s eye sees the road ahead"; fix 9759f0bf',
+    oldPack: `${ROUND}/device-round-2026-09-30f/packs-dc699e3e/42639-andreas-modern-mansion.mcaddon`, newStem: '42639-andreas-modern-mansion', expectNew: 'pass',
+    scenario: pack => ({ name: 'cockpit-occluded-42639', steps: [...place, { kind: 'driveVehicle', type: pack.vehicleTypes[0] ?? '-', ticks: 100 }], allowLines: allow }),
+    judge: r => { const v = violated(r, 'driver-sees-ahead'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /horizon ahead/.test(n)) ?? 'the driver sees the horizon ahead') }; },
+  },
+  {
+    id: 'cockpit-side-panel-42639', title: '42639 car (30g): road and horizon visible, but a teal side panel covers the left ~35 % of the cockpit view',
+    evidence: 'TASKS-BEDROCK-ADDON.md round 30g; `output/device-round-2026-09-30g/saga/s70-42639-cockpit.jpg` + `_notes.txt` "COCKPIT VIEWS"; add-on guide "The view to either side"',
+    oldPack: `${ROUND}/device-round-2026-09-30g/packs-c73c545a/42639-andreas-modern-mansion.mcaddon`, newStem: '42639-andreas-modern-mansion', expectNew: 'pass',
+    scenario: pack => ({ name: 'cockpit-side-panel-42639', steps: [...place, { kind: 'driveVehicle', type: pack.vehicleTypes[0] ?? '-', ticks: 100 }], allowLines: allow }),
+    judge: r => { const v = violated(r, 'driver-sees-ahead'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /horizon ahead/.test(n)) ?? 'the driver sees out') }; },
+  },
+  {
+    id: 'cockpit-in-hull-76286', title: '76286 Milano (30g): the cockpit view is the inside of the hull, no horizon',
+    evidence: 'TASKS-BEDROCK-ADDON.md round 30g; `output/device-round-2026-09-30g/saga/s74-76286-cockpit.jpg` + `_notes.txt` "COCKPIT VIEWS"; add-on guide "When no eye in the cabin sees ahead"',
+    oldPack: `${ROUND}/device-round-2026-09-30g/packs-c73c545a/76286-the-milano-spaceship.mcaddon`, newStem: '76286-the-milano-spaceship', expectNew: 'pass',
+    scenario: pack => ({ name: 'cockpit-in-hull-76286', steps: [...place, { kind: 'driveVehicle', type: pack.vehicleTypes[0] ?? '-', ticks: 100 }], allowLines: allow }),
+    judge: r => { const v = violated(r, 'driver-sees-ahead'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /horizon ahead/.test(n)) ?? 'the driver sees out') }; },
+  },
+  {
+    id: 'gabby-slide-tap', title: '10788 slide (29c): a tap on the slide\'s seat boards nothing',
+    evidence: 'TASKS-BEDROCK-ADDON.md "Round 2026-09-29c" (Pixel, three taps); add-on guide "The slide\'s seat could not be boarded by a tap"; fix 16d4bc82',
+    oldPack: `${ROUND}/device-round-2026-09-29c/packs-e2c21112/10788-gabbys-dollhouse.mcaddon`, newStem: '10788-gabbys-dollhouse', expectNew: 'pass',
+    scenario: pack => ({ name: 'gabby-slide-tap', steps: [...place, { kind: 'rideSlide', index: rideIndex(pack, 'slide'), board: 'tap' }], allowLines: allow }),
+    judge: r => { const v = violated(r, 'tap-boards-ride'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /slide/.test(n)) ?? 'boarded') }; },
+  },
+  {
+    id: 'nimbus-sneak-fall', title: 'Nimbus: sneaking off the cloud at altitude drops the player to the ground',
+    evidence: 'TASKS-BEDROCK-ADDON.md "New-set onboarding + 11390" (Saga: 229 blocks from ALT 169); physics spec §4.6; fix a754a7de',
+    oldPack: `${ROUND}/nimbus-main-0929/nimbus-fixture.mcaddon`, newStem: 'nimbus-fixture', expectNew: 'pass',
+    scenario: () => ({ name: 'nimbus-sneak-fall', steps: [...place, { kind: 'flyMount', climbTicks: 60, flyTicks: 40 }], allowLines: allow }),
+    judge: r => { const v = violated(r, 'no-unprotected-fall'); return { reproduced: !!v, evidence: v ?? 'landed under slow falling' }; },
+  },
+  {
+    id: 'nimbus-hint-overwritten', title: 'Nimbus: the summon\'s action-bar hint is overwritten by the driver HUD within 4 ticks',
+    evidence: 'TASKS-BEDROCK-ADDON.md "New-set onboarding + 11390" (fix a754a7de: the ride hint for the first 60 ticks); CLAUDE.md scope note (vehicle-driver.js overwrote flyer.js)',
+    oldPack: `${ROUND}/nimbus-main-0929/nimbus-fixture.mcaddon`, newStem: 'nimbus-fixture', expectNew: 'pass',
+    scenario: () => ({ name: 'nimbus-hint-overwritten', steps: [...place, { kind: 'flyMount', climbTicks: 20, flyTicks: 10 }], allowLines: allow }),
+    judge: r => { const v = violated(r, 'actionbar-not-stolen', /replaced scripts\/flyer\.js's/); return { reproduced: !!v, evidence: v ?? 'the hint stood at least a second' }; },
+  },
+  {
+    id: 'nimbus-spin-30l', title: 'Nimbus (30l): one swipe at rest sets the cloud spinning at 6.5 degrees a tick with no input, until a swipe the other way (FIG-08)',
+    evidence: '`output/device-round-2026-10-07l/saga/notes.md` item 6, ContentLog-30l-live.txt CMVT 22:01:28-22:02:02, `rec/r30l-nim100-drag.mp4`, `frames/nim200-spin-sheet.jpg`; quirks `hover-turn-chase` (the controller chases the look by 0.144 of the offset a tick) and `rider-yaw-lag` (the seat carries the look round with the mount, so the offset never closes); fix 2026-10-08: vehicle-driver.js steers by the drag (`nativeSteerStep`)',
+    oldPack: `${ROUND}/device-round-2026-10-07l/packs-77a9f172/nimbus-fixture.mcaddon`, newStem: 'nimbus-fixture', expectNew: 'pass',
+    // A REAL drag since 2026-10-08 (input/drag.ts, routed by the control scheme): the Saga's 400-px swipe over 16 ticks.
+    scenario: pack => ({ name: 'nimbus-spin-30l', steps: [...place, { kind: 'expect', label: 'swipe', check: async ctx => { await swipeMount(ctx, pack, { dxPx: 400, ticks: 16, watchTicks: 100 }); return undefined; } }], allowLines: allow }),
+    judge: r => {
+      const v = violated(r, 'mount-steer-stops');
+      const d = r.state['dragMount'] as { turned?: number; lookTurned?: number; lastSecondRatePerTick?: number; lookOffset?: number; byDrag?: boolean } | undefined;
+      if (!d) return { reproduced: false, evidence: 'no swipe was made', untested: 'the cloud was not summoned or the swipe not made' };
+      if (!d.byDrag) return { reproduced: false, evidence: 'the look was set, not dragged', untested: 'the swipe did not go through the drag input' };
+      return { reproduced: !!v, evidence: v ?? `the view turned ${d.lookTurned} degrees, the body ${d.turned}, and the cloud stopped (${d.lastSecondRatePerTick} degrees/tick over the last second; the look ${d.lookOffset} off the heading)` };
+    },
+  },
+  {
+    id: 'door1-10326', title: '10326 Door 1: walking in from the porch drops the player 2.25 blocks at the door plane',
+    evidence: 'TASKS-BEDROCK-ADDON.md "Round 2026-09-29c" defect (A) (Saga: ends at y -59.75); docs/bedrock-interactivity.md "The doorway\'s floor, a floor\'s top, and the device\'s line" (the model\'s: the door hangs 2.6 over the plate, the porch was a teleport into the air); merge c4c34b1c',
+    oldPack: `${ROUND}/device-round-2026-09-29d/packs-3abc14f7/10326-natural-history-museum.mcaddon`, newStem: '10326-natural-history-museum',
+    // The user kept the invisible 1-block ledge at the doorway's level (2026-09-30:
+    // "always prefer unlocking exploration and interactivity"). On the round's source
+    // (IOModel2V2 10326-noprint.ldr, what the device runs) the doorway's own lines pass,
+    // but the porch line still drops 2.625: the door hangs 2.6 over the base plate with
+    // nothing drawn in front (the model's). The `.io` source reads no HOLE at all.
+    // Since the access steps (2026-09-30, docs/bedrock-interactivity.md "Access steps")
+    // the grid was widened 6 blocks in front of the museum and an invisible half-block
+    // stair ran straight out of each leaf column down to the ground (round 30g, device
+    // PASS). The door was never up there: Studio's `60616.dat` stub puts the leaf's
+    // origin at its foot, so every plain-60616 leaf drew a door height over its own
+    // ground-floor frame ("The museum's back doors", same doc). Read as `60616a`
+    // (STUDIO_FRAME_REDIRECTS, 2026-09-30) Door 1 stands in its frame on the plate;
+    // no stair is laid, the margin is dropped, and the porch line walks straight in.
+    expectNew: 'pass',
+    scenario: pack => ({ name: 'door1-10326', steps: [...place, { kind: 'doorwayLines', only: [doorIndex(pack, 'Door 1')] }], allowLines: allow }),
+    judge: r => doorJudge(r, 'Door 1', 'HOLE'),
+  },
+  {
+    id: 'door3-tap-10326', title: '10326 Door 3: a tap from 1.9 blocks with the leaf in plain view is refused "behind a wall"',
+    evidence: 'TASKS-BEDROCK-ADDON.md "Round 2026-09-30h"; `output/device-round-2026-09-30h/saga/s26-door3-tap.jpg` + `_notes.txt` ("NEW DEFECT CANDIDATE"); docs/bedrock-interactivity.md "Taps through walls"',
+    oldPack: `${ROUND}/device-round-2026-09-30h/packs-59fb347c/10326-natural-history-museum.mcaddon`, newStem: '10326-natural-history-museum', expectNew: 'pass',
+    // The Saga's spot exactly (corner pinned at 5380,-60,5380): feet 5384.6,-59.8,5382.4, looking at the leaf's
+    // centre 5386.5,-58.8,5382.35. The spot is inside the collider band (`collider_w10`, z 2..2.75 over y 1..2)
+    // that a tilted handrail's bounding box leaves at head height; the device let the player stand there
+    // (its Position read 5384,-60,5382), and every line of sight started inside it.
+    // The pose is replayed EXACTLY: the notes give the /tp echo to a tenth of a block, not only a HUD cell. It lies
+    // inside cell (4,0,2)'s floor collider (0..14/16) in the 30h pack and in every pack since, so no legal spot of
+    // that cell is at its height. Until 2026-10-07 the case asked for floor-level spots within 2/16 of 0.2 - none
+    // exist in any pack - and read NOT TESTED on every current pack, while the device tapped the door open from
+    // that corridor at the next two rounds (Saga 30i from 5384.50,-59.12,5382.30, 2.0 blocks; Pixel 30j from
+    // 7705.0,-59.12,7702.3). A teleport into a floor is the device's own pose here, so the player-in-solid
+    // invariant is not run for this case (every other core invariant is).
+    scenario: () => ({ name: 'door3-tap-10326', invariants: ['no-unprotected-fall', 'nothing-below-ground', 'actionbar-not-stolen'], steps: [...place, { kind: 'tapPartFrom', label: 'Door 3', feet: { x: 4.6, y: 0.2, z: 2.4 }, at: { x: 6.5, y: 1.2, z: 2.35 } }], allowLines: allow }),
+    judge: r => {
+      const v = violated(r, 'tap-in-plain-view'), pose = tapPoseOf(r.state, 'Door 3');
+      if (v) return { reproduced: true, evidence: v };
+      const evidence = r.notes.find(n => /Door 3: the tap/.test(n)) ?? 'no tap note';
+      return pose?.untested ? { reproduced: false, evidence, untested: pose.untested } : { reproduced: false, evidence };
+    },
+  },
+  {
+    id: 'door3-sneak-10326', title: '10326 Door 3: open by tap, but a SNEAKING player walking in stops 0.24 before the leaf ("Something is standing in the door 3")',
+    evidence: 'output/device-round-2026-10-07j/pixel/notes.md item 6 (shots 72*, cm30j-doors.mp4); the HUD sneak button is lit from 66-chalet100-seatD on (a seat\'s "Sneak" left the toggle on); docs/bedrock-interactivity.md "A sunken sill"',
+    oldPack: `${ROUND}/device-round-2026-10-07j/packs-f200ddc7/10326-natural-history-museum.mcaddon`, newStem: '10326-natural-history-museum', expectNew: 'pass',
+    // The Pixel's pose exactly (corner pinned at 7700,-60,7700): feet 7705.0,-59.12,7702.3, tap the leaf open, then
+    // hold the stick toward +x with sneak ON. On f200ddc7 the device stopped at x 7706.27-7706.28 on every line:
+    // the corridor's floor (14/16) ends at the frame's sill (3/16), and the sneak guard never steps off a 0.69 drop.
+    // A walking player crosses (Saga 30i reached 7.70 on the same pack data); the sneaking line must reach the WC.
+    scenario: () => ({
+      name: 'door3-sneak-10326', allowLines: allow, steps: [...place,
+        { kind: 'tapPartFrom', label: 'Door 3', feet: { x: 5.0, y: 0.875, z: 2.3 }, at: { x: 6.58, y: 1.46, z: 2.36 } },
+        { kind: 'expect', label: 'sneak-walk', check: async ctx => {
+          const a = placedOf(ctx).corner;
+          ctx.sim.controls.set(ctx.player.id, { sneak: true });
+          await CORE_HANDLERS['walkLine']!({ kind: 'walkLine', label: 'Door 3 sneaking +x', from: { x: a.x + 5.0, y: a.y + 0.885, z: a.z + 2.3 }, to: { x: a.x + 7.4, y: a.y + 0.885, z: a.z + 2.3 }, arriveWithin: 0.3, maxTicks: 160 }, ctx);
+          ctx.sim.controls.set(ctx.player.id, { sneak: false });
+          const w = ctx.state['lastWalk'] as { end: { x: number; y: number; z: number } } | undefined;
+          ctx.note(`Door 3 sneaking +x: ended at ${w ? `${r3(w.end.x - a.x)},${r3(w.end.y - a.y)},${r3(w.end.z - a.z)}` : '?'} (anchor-relative)`);
+          return undefined;
+        } },
+      ],
+    }),
+    judge: r => {
+      const tap = violated(r, 'tap-in-plain-view'), walk = violated(r, 'walk-arrives', /Door 3 sneaking/);
+      const note = r.notes.find(n => /Door 3 sneaking/.test(n)) ?? 'no walk note';
+      // The tap must open it on both packs (the device opened it): a refused tap means the walk proved nothing.
+      if (tap) return { reproduced: false, evidence: `${tap}; ${note}`, untested: 'the tap did not open Door 3, so the walk ran into a closed door' };
+      return { reproduced: !!walk, evidence: walk ? `${walk}; ${note}` : note };
+    },
+  },
+  {
+    id: 'door3-910004', title: '910004 Door 3: walking out stops one cell before the doorway on a collider at head height',
+    evidence: 'TASKS-BEDROCK-ADDON.md "Round 2026-09-29c" defect (B) (collider_w6 at head height in the approach cell); docs/bedrock-interactivity.md (the model\'s: 1.25-1.75 blocks of headroom inside); merge c4c34b1c',
+    oldPack: `${ROUND}/device-round-2026-09-29d/packs-3abc14f7/910004-winter-chalet.mcaddon`, newStem: '910004-winter-chalet', expectNew: 'reproduce-as-model',
+    scenario: pack => ({ name: 'door3-910004', steps: [...place, { kind: 'doorwayLines', only: [doorIndex(pack, 'Door 3')] }], allowLines: allow }),
+    judge: r => doorJudge(r, 'Door 3', 'STOP'),
+  },
+  {
+    id: 'gate1-invisible-floor-76417', title: '76417 Gate 1: opens onto an invisible floor over a 17-block drop; walking on, the player falls to the grass',
+    evidence: 'TASKS-BEDROCK-ADDON.md "Round 2026-09-30i"; `output/device-round-2026-09-30i/saga/_notes.txt` (s41-s46: stands at 5393.56,-43.12,5381.44 = corner + 13.56,16.88,1.44 over nothing drawn; walking on, ends on the grass at y -60); docs/bedrock-interactivity.md "Yaw-turned parts" and "A doorway over a drop"',
+    oldPack: `${ROUND}/device-round-2026-09-30i/packs-fd91cf23/76417-gringotts-wizarding-bank-collectors-edition.mcaddon`, newStem: '76417-gringotts-wizarding-bank-collectors-edition', expectNew: 'pass',
+    // The Saga's standing spot exactly (corner pinned at 5380,-60,5380), then the gate's own lines: the old pack stands
+    // the player on the bounding box of shell bone r321 (a baseplate turned 45 degrees about the vertical); the new
+    // one has no floor there and must not let a line through the gate fall (a guard over the model's drop).
+    scenario: pack => ({ name: 'gate1-invisible-floor-76417', steps: [...place, { kind: 'standOver', label: 'Gate 1 outside', feet: { x: 13.56, y: 16.88, z: 1.44 } }, { kind: 'doorwayLines', only: [doorIndex(pack, 'Gate 1')] }], allowLines: allow }),
+    judge: r => {
+      const v = violated(r, 'invisible-floor');
+      if (v) return { reproduced: true, attribution: 'pack', evidence: v };
+      const hole = doorJudge(r, 'Gate 1', 'HOLE');
+      return hole.reproduced ? { ...hole, evidence: `the gate's lines fall: ${hole.evidence}` } : { reproduced: false, evidence: `${r.notes.find(n => /^Gate 1 outside|\] Gate 1 outside/.test(n)) ?? 'no standing note'}; ${hole.evidence}` };
+    },
+  },
+  {
+    id: 'retake-no-seat-10261', title: '10261: a spurious FIGURE_RETAKE_NO_SEAT during the placement, before the seats exist',
+    evidence: 'TASKS-BEDROCK-ADDON.md "Round 2026-09-29c" defect (D); fix db994f40 (seated figures wait for the placement\'s seating pass, `craftmatic:fig_seating`)',
+    oldPack: `${ROUND}/device-round-2026-09-29d/packs-3abc14f7/10261-roller-coaster.mcaddon`, newStem: '10261-roller-coaster', expectNew: 'pass',
+    scenario: () => ({ name: 'retake-no-seat-10261', steps: [...place, { kind: 'figuresLive', ticks: 3000 }], allowLines: allow }),
+    judge: r => { const v = violated(r, 'no-unexpected-line', /FIGURE_RETAKE_NO_SEAT/); return { reproduced: !!v, evidence: v ?? 'no FIGURE_RETAKE_NO_SEAT line' }; },
+  },
+  // ─── Round 30s (Pixel, 2026-10-14, packs-4f093bde): a tap on a coaster car boards nothing ───
+  {
+    id: 'coaster-car-tap-10261-30s', title: '10261 (30s): a TAP on a parked coaster car boards nothing - only a held press or the Ride button mounts (COAST-02 "tap to mount")',
+    evidence: 'Pixel round 30s (`output/device-round-2026-10-14s/pixel/`, shots 37-*, 42-*, 47-*): a tap at screen centre on the car standing in the station boarded 0 of 3; a hold boarded 2 of 2 (44-*, 48-*) and the Ride button 1 of 1 (38-*); the coaster runtime had no `entityHitEntity` handler, while a tap on touch is a HIT (quirk `tap-is-hit`)',
+    oldPack: `${ROUND}/device-round-2026-10-14s/packs-4f093bde/10261-roller-coaster.mcaddon`, newStem: '10261-roller-coaster', expectNew: 'pass',
+    scenario: () => ({
+      name: 'coaster-car-tap-10261-30s', allowLines: allow, steps: [...place,
+        { kind: 'expect', label: 'tap-boards-car', check: async ctx => {
+          const p = ctx.player;
+          // Every ride car carries the coaster family and a seat; the lift platform and counterweight have no seat.
+          const cars = [...ctx.sim.engine.entities.values()].filter(e => e.valid && !e.isPlayer && e.families().includes('craftmatic_coaster') && e.rideable());
+          if (!cars.length) return 'no coaster car';
+          const car = cars.find(e => !e.riderList().some(r => r.isPlayer)) ?? cars[0]!;
+          // The hit is handed to the car as the device's tap delivers it; the player stays where the placement left
+          // it (a pose beside the car stands inside the station's colliders).
+          lookAt(p, car.location);
+          ctx.sim.engine.emit('entityHitEntity', { damagingEntity: p, hitEntity: car });
+          await ctx.run(4);
+          ctx.note(`coaster tap: ${car.typeId} ${p.ridingOn === car ? 'boarded' : `not boarded (riding ${p.ridingOn?.typeId ?? 'nothing'})`}`);
+          return undefined;
+        } },
+      ],
+    }),
+    judge: r => {
+      const note = r.notes.find(n => /coaster tap:/.test(n));
+      return { reproduced: !note || !/ boarded$/.test(note), evidence: note ?? 'no tap note' };
+    },
+  },
+  // ─── Round 30zd (Saga + Pixel, 2026-10-15, packs-224001b3): a fresh sub-100 % car takes no tap ───
+  {
+    id: 'fresh-car-tap-50-30zd', title: '42172 McLaren placed at 50 %: no tap or hold boards it (no pick, no event) until it has been ridden once - a sized rideable is not picked until it has moved (VEH-18)',
+    evidence: 'Saga `output/device-round-2026-10-14zd/saga/notes.md` (0 of 20 presses on three fresh 50 / 25 % cars, 17 of 17 after one `/ride` or `tp ~ ~0.01 ~`, `tp ~ ~ ~` 0 of 2); Pixel `.../pixel/notes.md` B (0 of 13 on two fresh 50 % cars, seated from the same spot after a ride); quirk `size-event-pick-needs-move`; fix `settleSized` (bedrock-placement-pack.ts)',
+    oldPack: `${ROUND}/device-round-2026-10-14zd/packs-224001b3/42172-mclaren-p1.mcaddon`, newStem: '42172-mclaren-p1', expectNew: 'pass',
+    scenario: () => ({
+      name: 'fresh-car-tap-50-30zd', allowLines: vehicleAllow, steps: [{ kind: 'place', size: 50, rotation: 0 }, { kind: 'wait', ticks: 40 },
+        { kind: 'expect', label: 'fresh-car-tap', check: async ctx => {
+          const p = ctx.player;
+          const car = [...ctx.sim.engine.entities.values()].find(e => e.valid && !e.isPlayer && e.rideable() && e.scale() < 1);
+          if (!car) return 'no sized car';
+          // The device's standpoint: on the ground 2 blocks beside the car, the finger on its drawn body.
+          teleport(ctx.sim.host, p, { x: car.location.x, y: car.location.y, z: car.location.z - 2 });
+          await ctx.run(2);
+          const r = tap(ctx.sim.engine, p, car);
+          await ctx.run(4);
+          ctx.note(`fresh car tap: ${r.entity === car ? 'picked' : `not picked (${r.blockedBy ?? r.entity?.typeId ?? 'nothing'})`}, ${p.ridingOn === car ? 'boarded' : 'not boarded'}`);
+          return undefined;
+        } },
+      ],
+    }),
+    judge: r => {
+      const note = r.notes.find(n => /fresh car tap:/.test(n));
+      return { reproduced: !note || !/, boarded$/.test(note), evidence: note ?? 'no tap note' };
+    },
+  },
+  // ─── Round 30j (Saga, 2026-10-07, packs-f200ddc7): the X-wing's collision responses ───
+  {
+    id: 'xwing-slides-along-hill-30j', title: '7140 X-wing flown into a 2-high hill 19 degrees off square slides sideways along it and never lifts over (VEH-08)',
+    evidence: '`output/device-round-2026-10-07j/saga/notes.md` + `ContentLog-30j-live.txt` CMVT 15:19:25-31 (deflect, x 8037->8075 at z 8129), 15:21:04-09 (deflect 50 blocks along the hill at z 8171), 15:22:15-17 (along a 10-high wall); no `climb`, no `[LIFTING OVER]`; the sim\'s course met every wall square-on (both halves block) and passed 8/8',
+    oldPack: `${ROUND}/device-round-2026-10-07j/packs-f200ddc7/7140-xwing-fighter.mcaddon`, newStem: '7140-xwing-fighter', expectNew: 'pass',
+    // The course's `oblique` lane: the device's hill, met at its angle, long toward the side a sidestep runs to.
+    scenario: pack => ({ name: 'xwing-slides-along-hill-30j', steps: [{ kind: 'stuckCourse', type: shipType(pack), obstacles: ['oblique'] }], allowLines: vehicleAllow }),
+    // The device's hill ended after 50 blocks and so does the lane's: a ship that got past by running along the
+    // face to its end (`ship-slides-along`) reproduces the finding as much as one that never got past.
+    judge: r => {
+      const row = ((r.state['course'] as CourseRow[] | undefined) ?? []).find(x => x.obstacle === 'oblique');
+      if (!row) return { reproduced: false, evidence: 'no oblique course row' };
+      const slid = violated(r, 'ship-slides-along');
+      const evidence = `oblique hill: ${row.passed ? `passed in ${row.ticks} ticks` : `STOP after ${row.ticks} ticks`}, rose ${row.rose}, slid ${row.side} across, ${row.stuckTicks} stuck${slid ? ` (${slid})` : ''}`;
+      return { reproduced: !row.passed || !!slid, evidence };
+    },
+  },
+  {
+    id: 'xwing-turn-climbs-post-30j', title: '7140 X-wing turning on the spot with its tail against a post rises 4-6 blocks to the post\'s top',
+    evidence: '`output/device-round-2026-10-07j/saga/ContentLog-30j-live.txt` CMVT 15:17:11 (y -53.92 -> -48.72, `how: rise`, stick x -0.86, y 0.01) and 15:22:49 (y -56 -> -50 against the 10-high wall); notes.md',
+    oldPack: `${ROUND}/device-round-2026-10-07j/packs-f200ddc7/7140-xwing-fighter.mcaddon`, newStem: '7140-xwing-fighter', expectNew: 'pass',
+    scenario: pack => ({ name: 'xwing-turn-climbs-post-30j', steps: [{ kind: 'turnAgainstPost', type: shipType(pack) }], allowLines: vehicleAllow }),
+    judge: r => { const v = violated(r, 'ship-turn-climbs'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /tail against a post/.test(n)) ?? 'no turn note') }; },
+  },
+  {
+    id: 'milano-seat-200-30k', title: '76286 Milano at 200 %: the rider sits six blocks over the hull and fourteen ahead - the size group\'s seat was written pre-scaled and the device scales it again (SEAT-01)',
+    evidence: '`output/device-round-2026-10-07k/saga/notes.md` item 8; `r27-strip.jpg` (100 %: eye (0, 5.7, 3.6) in the front cabin), `r28-mil200-side-zoom.jpg`, `r28-strip.jpg` (200 %: eye (0, 21.68, 14.4) = 2 x the declared (0, 10.28, 7.2) + 1.12), `r29-grid.jpg` + `s105-strip.jpg` (the same through the wand); quirk `seat-scales-with-entity`; fix `rideableAtSize` (bedrock-placement-pack.ts)',
+    oldPack: `${ROUND}/device-round-2026-10-07k/packs-78e06246/76286-the-milano-spaceship.mcaddon`, newStem: '76286-the-milano-spaceship', expectNew: 'pass',
+    // The JSON at every size first (the 200-400 % groups), then the device's own test: placed at 200 % by the
+    // wand and mounted, the seat the engine realises (declared x scale) against the drawn hull.
+    scenario: pack => ({ name: 'milano-seat-200-30k', steps: [{ kind: 'seatsEverySize' }, { kind: 'place', size: 200, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'driveVehicle', type: shipType(pack), ticks: 20, overhangs: 0 }], allowLines: vehicleAllow }),
+    judge: r => { const v = violated(r, 'seat-on-vehicle'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /the rider's seat .* is (inside|on) the hull/.test(n)) ?? 'no seat note') }; },
+  },
+  {
+    id: 'xwing-parks-on-rider-30j', title: '7140 X-wing: sneak off in the air and the empty ship sinks and parks ON the child standing under it',
+    evidence: '`output/device-round-2026-10-07j/saga/s77-xwing-dismounted-air.jpg`, `s78-xwing-floating.jpg`, `s79-xwing-parked.jpg`; CMVT 15:28:07-11 (rider false, vy -3, y -46 -> -58 straight down to the ground at -60)',
+    oldPack: `${ROUND}/device-round-2026-10-07j/packs-f200ddc7/7140-xwing-fighter.mcaddon`, newStem: '7140-xwing-fighter', expectNew: 'pass',
+    scenario: pack => ({ name: 'xwing-parks-on-rider-30j', steps: [{ kind: 'parkOverRider', type: shipType(pack) }], allowLines: vehicleAllow }),
+    judge: r => { const v = violated(r, 'ship-parks-on-player'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /after a sneak off/.test(n)) ?? 'no park note') }; },
+  },
+  // ─── Round 30l (Saga + Pixel, 2026-10-07, packs-77a9f172): the size groups' box, and getting off a big ship ───
+  {
+    id: 'milano-box-200-30l', title: '76286 Milano at 200 %: the collision box is 14 x 10 for a wanted 7 x 5 - the size group\'s box was written pre-scaled and the device scales it again (COL-03)',
+    evidence: '`output/device-round-2026-10-07l/saga/notes.md` item 3 (`r21-hitbox-x-chat.jpg`, `r21-hitbox-chat2.jpg`, 22:21-22:24): one-block volume tests on the 200 % placement hit at x +6.9 / -7.8, z +6.9, y +9.4 and missed at x +7.5, z +7.5, y +10.6, for a `craftmatic:size_200` group declaring 7 x 5 under `minecraft:scale` 2; quirk `collision-box-scales-with-entity`; fix `withSizeGroups` (bedrock-placement-pack.ts)',
+    oldPack: `${ROUND}/device-round-2026-10-07l/packs-77a9f172/76286-the-milano-spaceship.mcaddon`, newStem: '76286-the-milano-spaceship', expectNew: 'pass',
+    // Every sized entity's box at every step, as the device realises it (declared x scale), against the 100 % box scaled once.
+    scenario: () => ({ name: 'milano-box-200-30l', steps: [{ kind: 'seatsEverySize' }], allowLines: vehicleAllow }),
+    judge: r => {
+      const v = r.violations.find(x => x.invariant === 'collision-box-scale' && /_plane at 200 %/.test(x.message)) ?? r.violations.find(x => x.invariant === 'collision-box-scale');
+      return { reproduced: !!v, evidence: v ? `${v.invariant}: ${v.message}` : (r.notes.find(n => /collision boxes at every size/.test(n)) ?? 'no box note') };
+    },
+  },
+  {
+    id: 'milano-dismount-200-30l', title: '76286 Milano at 200 % on the ground: getting off drops the player ~9 blocks from the seat inside the hull (SEAT-05)',
+    evidence: '`output/device-round-2026-10-07l/pixel/notes.md` item 5 (`62b`): dismount from the 200 % ship drops the player ~9 blocks to the ground under it (8636,-51 -> -60,6222); scripted vehicles\' set-down was not egress-checked like scenery seats; quirk `dismount-near-seat`; fix `vehicleEgress` (bedrock-vehicle.ts) in `scripts/vehicles.js`',
+    oldPack: `${ROUND}/device-round-2026-10-07l/packs-77a9f172/76286-the-milano-spaceship.mcaddon`, newStem: '76286-the-milano-spaceship', expectNew: 'pass',
+    // The ship on the flat ground at 100, 200 and 400 %, the child seated, the device's sneak.
+    scenario: pack => ({ name: 'milano-dismount-200-30l', steps: [{ kind: 'dismountEverySize', type: shipType(pack), sizes: [100, 200, 400] }], allowLines: vehicleAllow }),
+    judge: r => {
+      const fell = violated(r, 'no-unprotected-fall'), inside = violated(r, 'dismount-in-hull');
+      const notes = r.notes.filter(n => /after a sneak/.test(n)).join('; ') || 'no dismount note';
+      return { reproduced: !!fell || !!inside, evidence: `${[fell, inside].filter(Boolean).join('; ')}${fell || inside ? '; ' : ''}${notes}` };
+    },
+  },
+  // ─── Round 30k (Pixel, 2026-10-07, packs-78e06246): Gate 1 throws the player out over the drop ───
+  {
+    id: 'gate1-throwout-76417', title: '76417 Gate 1 (30k): a tap closing the gate on a player standing just inside it steps the player OUT over the 17-block drop (COL-01, DOOR-01)',
+    evidence: '`output/device-round-2026-10-07k/pixel/notes.md` item 3 "DEFECT gate-eject" (shots 43e-gate-fall-frames.jpg, 44d-gatefall-frames.jpg, rec/cm30k-gatefall.mp4): standing at 7511.70,-43.0,7153.30 (pin 7500,-60,7150) with the gate open, the player is moved to ~7513,-44,7151 and lands at 7513.33,-60,7151.67; the gate is closed afterwards. The frame before the fall shows the touch marker of `_pixel_cmd.sh`\'s chat-Exit tap (raw 45,39) landing on the world and the leaf swinging shut ("Open / close" hint): a tap closed it, and the step-out took the outside',
+    oldPack: `${ROUND}/device-round-2026-10-07k/packs-78e06246/76417-gringotts-wizarding-bank-collectors-edition.mcaddon`, newStem: '76417-gringotts-wizarding-bank-collectors-edition', expectNew: 'pass',
+    // The Pixel's poses exactly: open from 10.5,17.5,4.5 (anchor-relative) looking at the leaf, then stand at
+    // 11.70,17.1,3.30 (the `/tp` of 44ab) and tap the gate again - a touch hit on the part, as the stray Exit tap was.
+    // The new pack must either refuse to close (nowhere safe to step out to) or step the player onto a FLOOR.
+    // Both device poses overlap static colliders in every pack (the tap spot the f5 wall at 10,17,4, the doorway spot
+    // the full cell at 11,17,3): the device let a `/tp` stand there, so player-in-solid is not run for this case.
+    scenario: () => ({
+      name: 'gate1-throwout-76417', allowLines: allow, invariants: ['no-unprotected-fall', 'nothing-below-ground', 'actionbar-not-stolen'], steps: [...place,
+        { kind: 'tapPartFrom', label: 'Gate 1', feet: { x: 10.5, y: 17.5, z: 4.5 }, at: { x: 10.84, y: 18.4, z: 2.17 } },
+        { kind: 'expect', label: 'tap-close-in-doorway', check: async ctx => {
+          const a = placedOf(ctx).corner, p = ctx.player;
+          const part = [...ctx.sim.engine.entities.values()].find(e => e.valid && /_gate_1$/.test(e.typeId));
+          if (!part) return 'no Gate 1 entity';
+          const rel = (v: Vec3): Vec3 => ({ x: r3(v.x - a.x), y: r3(v.y - a.y), z: r3(v.z - a.z) });
+          const isOpen = (): boolean => part.dynamic.get(IX_KEYS.open) === true;
+          const rows: GateThrowout[] = [];
+          // The device's coordinates are float32: 7511.70 / 7153.30 are 7511.7002 / 7153.2998, so the body's +x face
+          // touches the wall at x 12 and its -z face reaches 0.0002 into the doorway's z 2..3 cells (which is what
+          // made the device's step-out act). In doubles 11.7 / 3.3 land a hair the other way; the pose keeps the device's
+          // side. The second pose stands a tenth of a block further in (a child who walked on), the same spot otherwise.
+          for (const [name, z] of [['device', 3.2998], ['deeper', 3.2]] as const) {
+            if (!isOpen()) {
+              // Reopen from the device's tap spot, as the first step did.
+              teleport(ctx.sim.host, p, { x: a.x + 10.5, y: a.y + 17.5, z: a.z + 4.5 });
+              await ctx.run(4);
+              lookAt(p, { x: a.x + 10.84, y: a.y + 18.4, z: a.z + 2.17 });
+              ctx.sim.engine.emit('entityHitEntity', { damagingEntity: p, hitEntity: part });
+              await ctx.run(10);
+              if (!isOpen()) { ctx.note(`Gate 1 (${name}): could not reopen it`); continue; }
+              await ctx.run(6);
+            }
+            // The device's facing too (`/tp ... 180 10`): the stray tap acts along the crosshair from this look.
+            teleport(ctx.sim.host, p, { x: a.x + 11.6995, y: a.y + 17.1, z: a.z + z }, { rotation: { x: 10, y: 180 } });
+            // Tapped at once: the simulator's push out of blocks (quirk `teleport-into-floor`) would walk the body off the
+            // pose within a second, while the device stood there ~20 s (the spot overlaps the static collider at 11,17,3).
+            await ctx.run(1);
+            const before = p.location;
+            // The stray tap itself, since 2026-10-08: `_pixel_cmd.sh`'s Exit corner, raw (45, 39) on the Pixel's screen.
+            // With Split Controls (the phones' crosshair) a tap anywhere outside the HUD acts at the crosshair (quirk
+            // `touch-screen-pick`), so it is the screen centre's pick - not a hit the case hands to the part.
+            const tapped = tapScreen(ctx.sim.engine, p, { x: 45, y: 39 }, PIXEL_VIEWPORT, ctx.sim.host.playerState(p).camera);
+            await ctx.run(80);
+            const row: GateThrowout = { pose: name, before: rel(before), end: rel(p.location), wasOpen: true, nowOpen: isOpen(), refusal: String(part.dynamic.get('craftmatic:ix_refused') ?? '-'), picked: tapped.entity?.typeId ?? tapped.blockedBy ?? 'nothing' };
+            rows.push(row);
+            ctx.note(`Gate 1 tapped from inside the doorway (${name}; the screen tap at (45, 39) picked ${row.picked}): open -> ${row.nowOpen ? 'open' : 'closed'}; player ${JSON.stringify(row.before)} -> ${JSON.stringify(row.end)} (anchor-relative); refusal ${row.refusal}`);
+            await ctx.run(6);
+          }
+          ctx.state['gate1Throwout'] = rows;
+          return undefined;
+        } },
+      ],
+    }),
+    judge: r => {
+      const rows = (r.state['gate1Throwout'] as GateThrowout[] | undefined) ?? [];
+      const notes = r.notes.filter(n => /Gate 1 tapped from inside|Gate 1 \(/.test(n)).join('; ') || 'no tap note';
+      if (!rows.some(t => t.pose === 'device')) return { reproduced: false, evidence: notes, untested: 'the device pose was not replayed with the gate open' };
+      // A stray tap that did not reach the gate from the device's pose and look did not replay the device's touch.
+      if (!rows.some(t => t.pose === 'device' && /_gate_1$/.test(t.picked))) return { reproduced: false, evidence: notes, untested: 'the screen tap from the device pose did not pick Gate 1' };
+      const fall = violated(r, 'no-unprotected-fall');
+      // Dropped more than a step below where it stood (17 blocks on the device) = thrown out over the drop.
+      const dropped = rows.some(t => t.end.y < t.before.y - 3);
+      return { reproduced: !!fall || dropped, attribution: 'pack', evidence: `${fall ? `${fall}; ` : ''}${notes}` };
+    },
+  },
+  // ─── Round 30l (Pixel, 2026-10-07, packs-77a9f172): the lane pass leads a child off the lift top ───
+  {
+    id: 'lift-top-fall-10261', title: '10261 at 200 % (30l): the lane pass makes the lift hill climbable with auto-jump; walking on past the top, the player walks off the model\'s east end and falls 43 blocks (COL-01, IX-04)',
+    evidence: '`output/device-round-2026-10-07l/pixel/notes.md` item 2 (pin 7300,-60,5800, turn 0): lanes z+4.6 and z+5.0 climb to the top at ~22 s with auto-jump only, then go straight off the east end at x ~7381 (pin x+81) and fall to the ground at 7396/7400,-60 (`frames-lift-z5.0/edge-montage.jpg`, `33-lift-z*-pos`); before the lane pass the edge was out of reach on foot',
+    oldPack: `${ROUND}/device-round-2026-10-07l/packs-77a9f172/10261-roller-coaster.mcaddon`, newStem: '10261-roller-coaster', expectNew: 'pass',
+    // The Pixel's walk: from the lift's foot (pin + 15.6, 4.5, lane) the stick held toward +x with AUTO-JUMP on (adb drives one
+    // finger, as a child on touch does) and nothing pressed, on to x 100 past the model's end (86 wide at 200 %). A fall of more
+    // than 4 blocks (bedrock-collider-scale.ts `REACH_GUARD_DROP16`) off an edge is the fault; the new pack must stop the walk at
+    // the edge - and must still climb to the top, or the clean result proves nothing.
+    scenario: () => ({
+      name: 'lift-top-fall-10261', allowLines: allow, steps: [{ kind: 'place', size: 200, rotation: 0 }, { kind: 'wait', ticks: 40 },
+        { kind: 'expect', label: 'auto-jump walk over the lift top', check: async ctx => {
+          const a = placedOf(ctx).corner;
+          const rows: LiftWalk[] = [];
+          for (const lane of [4.6, 5.0]) {
+            await CORE_HANDLERS['walkLine']!({ kind: 'walkLine', label: `lift lane z+${lane.toFixed(1)}`, autoJump: true, maxFall: LIFT_SAFE_FALL, maxTicks: 1200, from: { x: a.x + 15.6, y: a.y + 5, z: a.z + lane }, to: { x: a.x + 100, y: a.y + 5, z: a.z + lane } }, ctx);
+            const w = ctx.state['lastWalk'] as { end: Vec3; fall: number; fallFrom?: Vec3; highest: number } | undefined;
+            if (!w) continue;
+            const row: LiftWalk = { lane, top: r3(w.highest - a.y), fall: r3(w.fall), from: w.fallFrom ? { x: r3(w.fallFrom.x - a.x), y: r3(w.fallFrom.y - a.y), z: r3(w.fallFrom.z - a.z) } : null, end: { x: r3(w.end.x - a.x), y: r3(w.end.y - a.y), z: r3(w.end.z - a.z) } };
+            rows.push(row);
+            ctx.note(`lift lane z+${lane.toFixed(1)} (auto-jump): highest feet y ${row.top}, deepest fall ${row.fall}${row.from ? ` from ${JSON.stringify(row.from)}` : ''}, ended ${JSON.stringify(row.end)} (anchor-relative)`);
+          }
+          ctx.state['liftWalks'] = rows;
+          return undefined;
+        } },
+      ],
+    }),
+    judge: r => {
+      const rows = (r.state['liftWalks'] as LiftWalk[] | undefined) ?? [];
+      const notes = r.notes.filter(n => /lift lane/.test(n)).join('; ') || 'no walk note';
+      // The fall is only possible from the top (42 blocks up at 200 %): a walk that never got there tested nothing.
+      if (!rows.length || rows.every(w => w.top < LIFT_TOP_Y)) return { reproduced: false, evidence: notes, untested: `no lane climbed to the lift top (feet y ${LIFT_TOP_Y}+)` };
+      const fall = violated(r, 'walk-no-deep-fall');
+      return { reproduced: !!fall, attribution: 'pack', evidence: `${fall ? `${fall}; ` : ''}${notes}` };
+    },
+  },
+  // The world's cases (water, bodies): regressions-world.ts.
+  ...WORLD_REGRESSIONS,
+  // Round 30m's open device defects: regressions-30m.ts.
+  ...ROUND_30M_REGRESSIONS,
+];
+
+/** One auto-jump walk of `lift-top-fall-10261`, anchor-relative. */
+interface LiftWalk { lane: number; top: number; fall: number; from: Vec3 | null; end: Vec3 }
+/** The deepest fall the lift walk may take (blocks): the reach guards' limit (`REACH_GUARD_DROP16` / 16). */
+const LIFT_SAFE_FALL = REACH_GUARD_DROP16 / 16;
+/** Feet this high (blocks over the pin at 200 %) are on the lift's top section (the Pixel stood at 42.0). */
+const LIFT_TOP_Y = 40;
+
+
+/** A doorway case: reproduced when the door's device lines found the fault kind; attributed as the lines said. */
+function doorJudge(r: ScenarioResult, label: string, kind: 'HOLE' | 'STOP'): { reproduced: boolean; attribution?: 'model' | 'pack'; evidence: string } {
+  const findings = (r.state ? doorwayFindings(r.state) : []).filter(f => f.where.startsWith(`${label} `) && f.kind === kind);
+  if (!findings.length) return { reproduced: false, evidence: `no ${kind} on ${label}'s lines` };
+  const model = findings.every(f => f.model);
+  return { reproduced: true, attribution: model ? 'model' : 'pack', evidence: findings.map(f => `${f.where}: ${f.kind}${typeof f['drop'] === 'number' ? ` ${f['drop']} down` : ''} (${f.model ? 'the model\'s' : 'the pack\'s'})`).join('; ') };
+}

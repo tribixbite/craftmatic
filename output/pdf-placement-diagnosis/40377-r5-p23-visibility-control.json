@@ -1,0 +1,67 @@
+{
+  "run": "output\\pdf-placement-beam\\40377-r5-contain-v1",
+  "part": "3031",
+  "color": 15,
+  "reference_model": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "reference_body_parts": 89,
+  "transform": [
+    -18.0,
+    -96.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    -1.0,
+    -1.0,
+    0.0,
+    0.0
+  ],
+  "rows": [
+    {
+      "page": 23,
+      "status": "measured",
+      "painted_pixels": 523,
+      "painted_against_complete_reference": 75,
+      "body_only_native_score": 0.3535613059293316,
+      "body_plus_pose_native_score": 0.354027512803714,
+      "body_parts": 60,
+      "body_source": "output\\pdf-placement-beam\\40377-r5-contain-v1\\page-022\\placement\\model.ldr",
+      "target_pixels": 58519,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "px_per_ldu": 1.691648280160689
+    },
+    {
+      "page": 24,
+      "status": "measured",
+      "painted_pixels": 528,
+      "painted_against_complete_reference": 76,
+      "body_only_native_score": 0.3727311826999474,
+      "body_plus_pose_native_score": 0.37380312012034245,
+      "body_parts": 61,
+      "body_source": "output\\pdf-placement-beam\\40377-r5-contain-v1\\page-023\\placement\\model.ldr",
+      "target_pixels": 59485,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "px_per_ldu": 1.7085647629622958
+    },
+    {
+      "page": 25,
+      "status": "measured",
+      "painted_pixels": 528,
+      "painted_against_complete_reference": 76,
+      "body_only_native_score": 0.37491842134497916,
+      "body_plus_pose_native_score": 0.37673898312380405,
+      "body_parts": 63,
+      "body_source": "output\\pdf-placement-beam\\40377-r5-contain-v1\\page-024\\placement\\model.ldr",
+      "target_pixels": 61901,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "px_per_ldu": 1.7085647629622958
+    }
+  ],
+  "scope": "Evaluation-only. The pose comes from the reference model and is used to ask what the booklet shows, never to select anything.",
+  "limitations": "Painted pixels are measured against each page's own emitted body, which carries whatever error that page inherited, and at that page's own accepted registration. A page the run did not place has no registration to measure at."
+}

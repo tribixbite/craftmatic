@@ -1,0 +1,37 @@
+{
+  "active": false,
+  "pass": 3,
+  "max_passes": 50,
+  "phase": "grade",
+  "selected_models": [
+    "42049-1",
+    "1472-1",
+    "6545-1",
+    "60067-1",
+    "10030-1",
+    "8855-1"
+  ],
+  "scores": {
+    "42049-1": 9,
+    "1472-1": 0,
+    "6545-1": 9,
+    "60067-1": 9,
+    "10030-1": 9,
+    "8855-1": 9
+  },
+  "issues": [
+    "42049-1: Colours are simplified",
+    "42049-1: Minor voxelization artifacts",
+    "6545-1: Colours are simplified",
+    "6545-1: Glass parts appear checkered",
+    "60067-1: Colours are simplified",
+    "60067-1: Some details are blocky",
+    "10030-1: Simplified details",
+    "10030-1: Colour inaccuracies",
+    "8855-1: Colours simplified",
+    "8855-1: Minor voxel artifacts"
+  ],
+  "passing_count": 5,
+  "pass_threshold": 5,
+  "score_threshold": 9
+}

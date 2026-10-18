@@ -99,10 +99,14 @@ function createRng(r: number, g: number, b: number): () => number {
 }
 
 /** Load real texture PNGs from textures/blocks/ via Vite glob import */
-const textureImages: Record<string, string> = import.meta.glob(
+const textureImages: Record<string, string> = (
+  import.meta as unknown as {
+    glob(pattern: string, opts: object): Record<string, string>;
+  }
+).glob(
   '../../../textures/blocks/*.png',
   { eager: true, import: 'default', query: '?url' },
-) as Record<string, string>;
+);
 
 /** Normalize glob paths to texture names */
 const textureUrlMap = new Map<string, string>();
@@ -220,18 +224,9 @@ function makeProceduralTexture(r: number, g: number, b: number, blockName: strin
       }
     }
   } else if (name.includes('glass')) {
+    // Uniform translucent tint — no grid-line border so adjacent glass blocks
+    // appear as one continuous transparent surface (avoids internal grid lines).
     for (let i = 0; i < d.length; i += 4) d[i+3] = 180;
-    for (let x = 0; x < size; x++) {
-      for (let y = 0; y < size; y++) {
-        const idx = (y * size + x) * 4;
-        if (x <= 1 || y <= 1) {
-          d[idx] = Math.min(255, d[idx] + 50);
-          d[idx+1] = Math.min(255, d[idx+1] + 50);
-          d[idx+2] = Math.min(255, d[idx+2] + 50);
-          d[idx+3] = 220;
-        }
-      }
-    }
   } else if (name.includes('wool') || name.includes('carpet') || name.includes('concrete')) {
     for (let i = 0; i < d.length; i += 4) {
       const n = (rand() - 0.5) * 8;
@@ -399,19 +394,23 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
   }
   const groups = new Map<string, BlockEntry[]>();
 
+  // For large grids (>1M cells), skip the isFullyOccluded check — the per-cell
+  // iteration through 93% air blocks is the bottleneck, not the occlusion test.
+  const totalCells = width * height * length;
+  const skipOcclusion = totalCells > 1_000_000;
+
   for (let y = 0; y < height; y++) {
     for (let z = 0; z < length; z++) {
       for (let x = 0; x < width; x++) {
         const bs = grid.get(x, y, z);
         if (isAir(bs)) continue;
-        if (isFullyOccluded(grid, x, y, z)) continue;
+        if (!skipOcclusion && isFullyOccluded(grid, x, y, z)) continue;
 
         const color = getBlockColor(bs);
         if (!color) continue;
 
         const name = getBlockName(bs);
         const kind = getGeometryKind(name);
-        // Group by color + name + geometry kind
         const key = `${color[0]},${color[1]},${color[2]}:${name}:${kind}`;
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key)!.push({ x, y, z, color, name, blockState: bs });
@@ -462,7 +461,7 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
       // Apply rotation for directional blocks (doors, panes)
       if (kind === 'door' || kind === 'pane') {
         const facing = getFacing(e.blockState);
-        const angle = facingToAngle(facing);
+        const angle = facingToAngle(facing ?? null);
         rotMatrix.makeRotationY(angle);
         matrix.identity();
         matrix.multiply(rotMatrix);
@@ -478,6 +477,10 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
     }
 
     mesh.instanceMatrix.needsUpdate = true;
+    // Required for correct frustum culling on InstancedMesh — without this,
+    // Three.js uses the base geometry bounding sphere (centered at origin),
+    // which prevents proper view-frustum culling of off-screen block groups.
+    mesh.computeBoundingSphere();
     mesh.userData.yPositions = yPositions;
     mesh.userData.originalMatrices = originals;
     scene.add(mesh);

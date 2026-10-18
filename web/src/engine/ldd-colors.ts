@@ -7,6 +7,8 @@
  * Primary `type=""` entries used; `type="from_lego"` fills gaps.
  */
 
+import { LDCONFIG_LEGOID } from './ldconfig-colors.generated.js';
+
 const LDD_TO_LDRAW: Record<number, number> = {
   // ── Solid colours ──────────────────────────────────────────────────────────
   1:   15,  // White
@@ -164,7 +166,11 @@ const LDD_TO_LDRAW: Record<number, number> = {
   // (most already in solid section above by LDD ID)
 };
 
-/** Map a LDD material ID to the nearest LDraw color code. Falls back to Light Bluish Gray (71). */
+/**
+ * Map a LDD material ID to the nearest LDraw color code: the hand-kept table,
+ * then LDConfig's own LEGOID cross-reference (45 ids the table lacked, e.g.
+ * 431 Bright Blue Violet and the 2026 Warm Pink), then Light Bluish Gray (71).
+ */
 export function lddToLDraw(materialId: number): number {
-  return LDD_TO_LDRAW[materialId] ?? 71;
+  return LDD_TO_LDRAW[materialId] ?? LDCONFIG_LEGOID[materialId] ?? 71;
 }

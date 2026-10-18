@@ -1,0 +1,479 @@
+/**
+ * The wand's in-game size, aim-follow preview and fine turning
+ * (bedrock-placement-pack.ts), driven through the serialized runtime exactly as
+ * bedrock-placement-runtime.test.ts drives the planner.
+ */
+import { describe, expect, it } from 'vitest';
+import {
+  SIZE_EVENT_PREFIX, SIZE_STEPS, buildPlacementPackAssets, colliderPairIndex, colliderPairOf, collisionWorldBox, decodeColliderRuns, encodeColliderRuns, geometryHitBox, hitTestAtSize, hullHitBox, seatWorldOffset, sizeHitBox, withSizeGroups,
+} from '../web/src/engine/bedrock-placement-pack.js';
+import { RIDER_EYE_ABOVE_SEAT, seatPositionAt } from '../web/src/engine/cockpit-seat.js';
+import { BlockGrid } from '@craft/schem/types.js';
+import { host } from './_placement-host.js';
+
+describe('withSizeGroups', () => {
+  it('clamps a scaled camera radius to the range Bedrock accepts', () => {
+    // Measured on a device (Bedrock 1.26.51.1): The Milano 76286 has a base
+    // radius of 30, so its 300 %/400 % groups asked for 90 and 120, and the
+    // world load logged two [error] lines and rejected the entity. Any base
+    // above 21.3 overflows the [1, 64] range at 300 %.
+    const base = { format_version: '1.26.30', 'minecraft:entity': {
+      description: { identifier: 'craftmatic:plane' }, components: {} } };
+    const rideable = { seat_count: 1, family_types: ['player'],
+      seats: { position: [0, 1, 0], third_person_camera_radius: 30 } };
+    const out = withSizeGroups(base, { width: 4, height: 2 }, rideable) as {
+      'minecraft:entity': { component_groups: Record<string, Record<string, unknown>> } };
+    const groups = out['minecraft:entity'].component_groups;
+    const radiusOf = (pct: number): number => {
+      const r = groups[`craftmatic:size_${pct}`]!['minecraft:rideable'] as
+        { seats: { third_person_camera_radius: number } };
+      return r.seats.third_person_camera_radius;
+    };
+    for (const pct of SIZE_STEPS.filter(p => p !== 100)) {
+      expect(radiusOf(pct)).toBeGreaterThanOrEqual(1);
+      expect(radiusOf(pct)).toBeLessThanOrEqual(64);
+    }
+    expect(radiusOf(300)).toBe(64);   // 90 clamped
+    expect(radiusOf(400)).toBe(64);   // 120 clamped
+    expect(radiusOf(50)).toBe(15);    // untouched below the ceiling
+  });
+
+  it('adds one group per step with scale and collision box, keeping existing groups; every seat is declared in the unscaled frame because Bedrock scales it with minecraft:scale (SEAT-01, Saga 30k), and so is the collision box (COL-03, Saga 30l)', () => {
+    const base = { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:x' },
+      component_groups: { 'craftmatic:descending': { 'minecraft:vertical_movement_action': { vertical_velocity: -.5 } } },
+      events: { 'craftmatic:descend_on': { add: { component_groups: ['craftmatic:descending'] } } },
+      components: { 'minecraft:collision_box': { width: 2, height: 1.5 } } } };
+    const rideable = { seat_count: 2, seats: [{ position: [0.5, 1, -2], third_person_camera_radius: 8 }, { position: [-0.5, 1, -2] }] };
+    const out = withSizeGroups(base, { width: 2, height: 1.5 }, rideable) as any;
+    const e = out['minecraft:entity'];
+    expect(e.component_groups['craftmatic:descending']).toBeDefined();
+    expect(e.events['craftmatic:descend_on']).toBeDefined();
+    // The seat keeps its authored position at every step: the device multiplies it by the group's
+    // scale (76286 at 200 %, written pre-scaled, seated the rider at 2 x 2 x the 100 % offset, six
+    // blocks over the hull). The camera radius is still written scaled (TODO(seat-camera-radius)).
+    expect(e.component_groups['craftmatic:size_50']).toEqual({
+      'minecraft:scale': { value: 0.5 }, 'minecraft:collision_box': { width: 2, height: 1.5 },
+      'minecraft:rideable': { seat_count: 2, seats: [{ position: [0.5, 1, -2], third_person_camera_radius: 4 }, { position: [-0.5, 1, -2] }] },
+    });
+    for (const pct of SIZE_STEPS) {
+      const g = e.component_groups[`craftmatic:size_${pct}`];
+      const seats = g['minecraft:rideable'].seats;
+      expect(seatWorldOffset(seats[0].position, pct / 100)).toEqual([0.5 * pct / 100, pct / 100, -2 * pct / 100]);
+      // The box too: declared as at 100 %, realised x scale (76286 at 200 % declared 7 x 5 pre-scaled and the
+      // device's volume tests found 14 x 10, Saga 30l r21).
+      expect(g['minecraft:collision_box']).toEqual({ width: 2, height: 1.5 });
+      expect(collisionWorldBox(g['minecraft:collision_box'], g['minecraft:scale'].value)).toEqual({ width: 2 * pct / 100, height: 1.5 * pct / 100 });
+    }
+    // 100 % is a group too: removing a group removes its components even where the
+    // base declares them, so a size_100 that only removed the others left a vehicle
+    // with no rideable (Saga 2026-09-26: "The selected entity is not rideable").
+    expect(e.component_groups['craftmatic:size_100']).toEqual({
+      'minecraft:scale': { value: 1 }, 'minecraft:collision_box': { width: 2, height: 1.5 },
+      'minecraft:rideable': { seat_count: 2, seats: [{ position: [0.5, 1, -2], third_person_camera_radius: 8 }, { position: [-0.5, 1, -2] }] },
+    });
+    expect(e.events['craftmatic:size_200']).toEqual({
+      remove: { component_groups: SIZE_STEPS.filter(p => p !== 200).map(p => `craftmatic:size_${p}`) },
+      add: { component_groups: ['craftmatic:size_200'] },
+    });
+    expect(e.events['craftmatic:size_100']).toEqual({
+      remove: { component_groups: SIZE_STEPS.filter(p => p !== 100).map(p => `craftmatic:size_${p}`) },
+      add: { component_groups: ['craftmatic:size_100'] },
+    });
+    // A single-seat rideable (an object, not an array) is declared the same way: the authored seat.
+    const single = withSizeGroups(base, { width: 1, height: 1 }, { seats: { position: [0, -0.3, 0] } }) as any;
+    expect(single['minecraft:entity'].component_groups['craftmatic:size_400']['minecraft:rideable']).toEqual({ seats: { position: [0, -0.3, 0] } });
+  });
+
+  it('declares a vehicle seat (seatAt) as the wanted world offset divided by the group scale, so the device-scaled seat keeps the rider\'s eye on the scaled driver\'s eye at every size (SEAT-01)', () => {
+    const base = { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:car' }, components: {} } };
+    // 76286's seat as shipped at 100 % (Saga 30k: eye (0, 5.7, 3.6) = seat + 1.12, in the front cabin).
+    const seat: [number, number, number] = [0, 4.58, 3.6];
+    const out = withSizeGroups(base, { width: 3.5, height: 2.5 }, { seat_count: 1, seats: { position: seat } }, { seatAt: seatPositionAt }) as any;
+    const groups = out['minecraft:entity'].component_groups;
+    for (const pct of SIZE_STEPS) {
+      const f = pct / 100;
+      const declared = groups[`craftmatic:size_${pct}`]['minecraft:rideable'].seats.position as [number, number, number];
+      const world = seatWorldOffset(declared, f);
+      const wanted = seatPositionAt(seat, f);
+      expect(world[0]).toBeCloseTo(wanted[0], 2);
+      expect(world[1]).toBeCloseTo(wanted[1], 2);
+      expect(world[2]).toBeCloseTo(wanted[2], 2);
+      // The eye the device realises is the 100 % eye scaled: at 200 % (0, 11.4, 7.2), not the (0, 21.68, 14.4) the Saga read.
+      expect(world[1] + RIDER_EYE_ABOVE_SEAT).toBeCloseTo((seat[1] + RIDER_EYE_ABOVE_SEAT) * f, 2);
+      expect(world[2]).toBeCloseTo(seat[2] * f, 2);
+    }
+    expect(groups['craftmatic:size_200']['minecraft:rideable'].seats.position).toEqual([0, 5.14, 3.6]);
+    expect(groups['craftmatic:size_100']['minecraft:rideable'].seats.position).toEqual([0, 4.58, 3.6]);
+  });
+
+  it('a player-sized seat keeps its authored offset at every step: the group never scales past 1 and the device applies that scale (seatBehavior\'s -0.3 under the pan)', () => {
+    const base = { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:seat' }, components: {} } };
+    const out = withSizeGroups(base, { width: 0.5, height: 0.5 }, { seat_count: 1, seats: { position: [0, -0.3, 0] } }, { playerSized: true }) as any;
+    const groups = out['minecraft:entity'].component_groups;
+    for (const pct of SIZE_STEPS) {
+      const g = groups[`craftmatic:size_${pct}`];
+      expect(g['minecraft:scale'].value).toBe(Math.min(1, pct / 100));
+      expect(g['minecraft:rideable'].seats.position).toEqual([0, -0.3, 0]);
+    }
+  });
+});
+
+describe('hit-test boxes: the tap / interact target over a rideable\'s drawn hull (VEH-17)', () => {
+  it('hullHitBox is one square of the longest horizontal reach either way, as tall as the hull, centred over its bottom', () => {
+    // 76286 at 100 %: 30 wide, 16 long, 8.96 tall, origin at the floor centre -> a 30 square, 8.96 tall, pivot at mid height.
+    expect(sizeHitBox({ width: 30, height: 8.96, length: 16 })).toEqual({ width: 30, height: 8.96, pivot: [0, 4.48, 0] });
+    // A long hull: the length sets the square (it turns while driven; the box never turns).
+    expect(sizeHitBox({ width: 2, height: 1.5, length: 6 })).toEqual({ width: 6, height: 1.5, pivot: [0, 0.75, 0] });
+    // A body under the origin (a coaster car's wheels) keeps its bottom: the pivot is over the drawn middle.
+    expect(hullHitBox({ halfWidth: 0.5, halfLength: 1.5, height: 2.5 }, -0.7)).toEqual({ width: 3, height: 2.5, pivot: [0, 0.55, 0] });
+    // Never a sliver: a 0.1-block part still gets a 0.2 box.
+    expect(hullHitBox({ halfWidth: 0.05, halfLength: 0.05, height: 0.1 })).toEqual({ width: 0.2, height: 0.2, pivot: [0, 0.05, 0] });
+  });
+  it('geometryHitBox reads a shipped geometry\'s drawn cubes (inflate included), the farthest reach from the origin either way', () => {
+    const geometry = { 'minecraft:geometry': [{ bones: [
+      { cubes: [{ origin: [-8, 0, -4], size: [16, 8, 8] }, { origin: [-9, -2, 2], size: [2, 2, 2] }] },
+      // Declared 2 larger with inflate -1: the drawn box is [4, 10, 4]..[12, 12, 6], the reach 12 (not the declared 13).
+      { cubes: [{ origin: [3, 9, 3], size: [10, 4, 4], inflate: -1 }] },
+    ] }] };
+    expect(geometryHitBox(geometry)).toEqual({ width: 1.5, height: 0.875, pivot: [0, 0.313, 0] });
+    expect(geometryHitBox({ 'minecraft:geometry': [{ bones: [{ cubes: [] }] }] })).toBeUndefined();
+    expect(geometryHitBox(undefined)).toBeUndefined();
+  });
+  it('withSizeGroups writes the boxes at each group\'s REALISED size (a hit-test box is not scaled by minecraft:scale: vanilla hoglin.json), a player-sized entity never past 1', () => {
+    const base = { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:x' }, components: {} } };
+    const hit = [{ width: 30, height: 8.96, pivot: [0, 4.48, 0] as [number, number, number] }];
+    const out = withSizeGroups(base, { width: 3.5, height: 2.5 }, { seat_count: 1, seats: { position: [0, 4.58, 3.6] } }, { hitTest: hit }) as any;
+    const g = out['minecraft:entity'].component_groups;
+    for (const pct of SIZE_STEPS) {
+      const f = pct / 100;
+      expect(g[`craftmatic:size_${pct}`]['minecraft:custom_hit_test'].hitboxes).toEqual(hitTestAtSize(hit, f));
+      expect(g[`craftmatic:size_${pct}`]['minecraft:custom_hit_test'].hitboxes[0].width).toBeCloseTo(30 * f, 3);
+      expect(g[`craftmatic:size_${pct}`]['minecraft:custom_hit_test'].hitboxes[0].pivot[1]).toBeCloseTo(4.48 * f, 3);
+      // The seat and the collision box go the other way: declared unscaled, the device multiplies them.
+      expect(g[`craftmatic:size_${pct}`]['minecraft:collision_box']).toEqual({ width: 3.5, height: 2.5 });
+      expect(g[`craftmatic:size_${pct}`]['minecraft:rideable'].seats.position).toEqual([0, 4.58, 3.6]);
+    }
+    // No `hitTest`: no box in any group (the base's, if any, is the pack's own business).
+    const plain = withSizeGroups(base, { width: 1, height: 1 }) as any;
+    expect(plain['minecraft:entity'].component_groups['craftmatic:size_200']['minecraft:custom_hit_test']).toBeUndefined();
+    // A player-sized entity (a figure, an invisible seat) keeps the 100 % box from 100 % up.
+    const capped = withSizeGroups(base, { width: 0.6, height: 1.8 }, undefined, { playerSized: true, hitTest: [{ width: 0.6, height: 1.8, pivot: [0, 0.9, 0] }] }) as any;
+    expect(capped['minecraft:entity'].component_groups['craftmatic:size_400']['minecraft:custom_hit_test'].hitboxes).toEqual([{ width: 0.6, height: 1.8, pivot: [0, 0.9, 0] }]);
+    expect(capped['minecraft:entity'].component_groups['craftmatic:size_50']['minecraft:custom_hit_test'].hitboxes).toEqual([{ width: 0.3, height: 0.9, pivot: [0, 0.45, 0] }]);
+  });
+});
+
+describe('collider runs', () => {
+  it('pair index round-trips every lo < hi', () => {
+    const seen = new Set<number>();
+    for (let lo = 0; lo < 16; lo++) for (let hi = lo + 1; hi <= 16; hi++) {
+      const i = colliderPairIndex(lo, hi);
+      expect(seen.has(i)).toBe(false); seen.add(i);
+      expect(colliderPairOf(i)).toEqual([lo, hi]);
+    }
+    expect(seen.size).toBe(136);
+    expect(Math.min(...seen)).toBe(1);
+    expect(Math.max(...seen)).toBe(136);
+  });
+
+  it('encodes a grid as runs that decode to the same cells, doors counted as kept', () => {
+    const g = new BlockGrid(3, 2, 2);
+    g.set(0, 0, 0, 'craftmatic:collider[lo=0,hi=16]');
+    g.set(0, 1, 0, 'craftmatic:collider[lo=0,hi=3]');
+    g.set(1, 0, 1, 'minecraft:wooden_door[direction=1]');
+    g.set(2, 1, 1, 'craftmatic:collider[lo=15,hi=16]');
+    const r = encodeColliderRuns(g, 'craftmatic:collider');
+    expect(r.colliders).toBe(3);
+    expect(r.keptCells).toBe(1);
+    const cells = decodeColliderRuns(r.runs);
+    expect(cells.length).toBe(12);
+    const at = (x: number, y: number, z: number) => cells[(x * 2 + y) * 2 + z]!;
+    expect(colliderPairOf(at(0, 0, 0))).toEqual([0, 16]);
+    expect(colliderPairOf(at(0, 1, 0))).toEqual([0, 3]);
+    expect(at(1, 0, 1)).toBe(0);
+    expect(colliderPairOf(at(2, 1, 1))).toEqual([15, 16]);
+    // A run longer than 200 cells splits without loss.
+    const big = new BlockGrid(30, 10, 10);
+    for (let x = 0; x < 30; x++) for (let y = 0; y < 10; y++) for (let z = 0; z < 10; z++) big.set(x, y, z, 'craftmatic:collider[lo=0,hi=16]');
+    const rb = encodeColliderRuns(big, 'craftmatic:collider');
+    expect(decodeColliderRuns(rb.runs).length).toBe(3000);
+    expect(rb.runs.length).toBe(2 * 15);
+  });
+});
+
+describe('wand runtime: size, aim and turning', () => {
+  const tile = { identifier: 'craftmatic:t0', dx: 0, dy: 0, dz: 0, width: 4, height: 2, length: 2, nonAir: 4 };
+
+  it('cycles the size, scales actor positions about the pin, fires the size event and re-lays colliders at 200 %', async () => {
+    // A 4×2×2 collider grid: a floor plate (lo 0, hi 4) under a full block.
+    const g = new BlockGrid(4, 2, 2);
+    for (let x = 0; x < 4; x++) for (let z = 0; z < 2; z++) { g.set(x, 0, z, 'craftmatic:collider[lo=0,hi=4]'); g.set(x, 1, z, 'craftmatic:collider[lo=0,hi=16]'); }
+    const runs = encodeColliderRuns(g, 'craftmatic:collider');
+    const h = host({ stem: 'sized', label: 'Sized', width: 4, height: 2, length: 2, tiles: [tile],
+      actors: [{ typeId: 'craftmatic:fig', label: 'Figure', x: 1, y: 2, z: 1, yaw: 45 }],
+      colliders: { width: 4, height: 2, length: 2, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs.runs, keptCells: 0 },
+      settleTicks: 1, finalHoldTicks: 1 });
+    expect(h.assets.script).toContain('"sizes":[25,50,75,100,150,200,300,400]');
+    expect(h.assets.script).toContain('import { world, system, StructureSaveMode, BlockPermutation, BlockVolume }');
+    // Pin the corner at the feet, then cycle Size → 150 → 200.
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await h.open({ action: 'Size' }, { canceled: true });
+    await h.open({ action: 'Size' }, { canceled: true });
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 200 percent → 300 percent'))).toBe(true);
+    // Place at 200 %: no structure command; colliders re-laid over the 8×4×4 footprint.
+    await h.open({ action: 'Place' }, { selection: 0 });
+    await h.flush(2000);
+    expect(h.commands.filter(c => c.startsWith('structure load'))).toHaveLength(0);
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Placed Sized.'));
+    // The floor plate (0..4/16 of a cell) at 2× covers half of the bottom world row: lo 0, hi 8.
+    const plate = h.set.filter(s => s.pos.y === 64);
+    expect(plate.length).toBe(8 * 4);
+    expect(plate.every(s => s.states['craftmatic:lo'] === 0 && s.states['craftmatic:hi'] === 8)).toBe(true);
+    // The full block above spans two world rows, both full.
+    expect(h.set.filter(s => s.pos.y === 66 && s.states['craftmatic:hi'] === 16)).toHaveLength(32);
+    expect(h.set.filter(s => s.pos.y === 67 && s.states['craftmatic:hi'] === 16)).toHaveLength(32);
+    expect(h.set.some(s => s.pos.y === 65)).toBe(false);
+    // The figure stands at twice its model offset from the pin, with the size event fired.
+    const fig = h.spawned.find(s => s.typeId === 'craftmatic:fig')!;
+    expect(fig.at).toEqual({ x: 102, y: 68, z: 202 });
+    expect(fig.entity.events).toEqual(['craftmatic:size_200']);
+    expect(fig.entity.setRotation).toHaveBeenCalledWith({ x: 0, y: 45 });
+  });
+
+  it('shows the exact leaf at 100%, swaps to a measured door at 300%, then restores the leaf at 100%', async () => {
+    const g = new BlockGrid(4, 3, 2);
+    for (let x = 0; x < 4; x++) for (let z = 0; z < 2; z++) for (let y = 0; y < 3; y++) g.set(x, y, z, 'craftmatic:collider[lo=0,hi=16]');
+    const runs = encodeColliderRuns(g, 'craftmatic:collider');
+    const h = host({ stem: 'runtime-door', label: 'Runtime door', width: 4, height: 3, length: 2, tiles: [tile],
+      actors: [{ typeId: 'craftmatic:runtime_door_leaf_1', label: 'Runtime door leaf', x: 1, y: 2, z: 1, maxSizeExclusive: 300, doorCandidateIndex: 0, hideAt100: false }],
+      colliders: { width: 4, height: 3, length: 2, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs.runs, keptCells: 0 },
+      runtimeDoorCandidates: [{ x: 1, y: 1.8, z: 1, requiredSize: 300, lower: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: false } }, upper: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: true } } }], settleTicks: 1, finalHoldTicks: 1 });
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    expect(h.buttons.at(-1)).toContain('Use next door size 300 percent');
+    await h.open({ action: 'Place' }, { selection: 0 });
+    await h.flush(2000);
+    const baseLeaf = h.spawned.find(s => s.typeId === 'craftmatic:runtime_door_leaf_1')!;
+    expect(baseLeaf.at).toEqual({ x: 101, y: 66, z: 201 });
+    expect(h.set.filter(s => s.states?.upper_block_bit !== undefined)).toHaveLength(0);
+    await h.open({ action: 'Rotate' }, { canceled: true }); // 90°: direction must turn with the model.
+    for (let i = 0; i < 3; i++) await h.open({ action: 'Size' }, { canceled: true }); // 100 → 300
+    await h.open({ action: 'Use next door size' });
+    h.blocks.set('103,63,203', { typeId: 'minecraft:stone', isAir: false, permutation: { getState: () => undefined }, setPermutation() {} });
+    await h.open({ action: 'Place' }, { selection: 0 });
+    await h.flush(2000);
+    expect(h.spawned.filter(s => s.typeId === 'craftmatic:runtime_door_leaf_1')).toHaveLength(1);
+    expect(baseLeaf.entity.remove).toHaveBeenCalledOnce();
+    expect(h.set.filter(s => s.states?.upper_block_bit === false)).toHaveLength(1);
+    expect(h.set.filter(s => s.states?.upper_block_bit === true)).toHaveLength(1);
+    expect(h.set.find(s => s.states?.upper_block_bit === false)?.states.direction).toBe(1);
+    expect(h.set.find(s => s.states?.upper_block_bit === false)?.pos.y).toBe(69); // 64 + floor(1.8 × 3), never 64 + floor(1.8) × 3.
+    // cycle 300 → 400 → 25 → 50 → 75 → 100 and place once more; the
+    // original-size candidate must still be hung exactly once, not duplicated.
+    for (let i = 0; i < 5; i++) await h.open({ action: 'Size' }, { canceled: true });
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 100 percent'))).toBe(true);
+    await h.open({ action: 'Place' }, { selection: 0 });
+    await h.flush(2000);
+    // At 100% this genuinely short source leaf is again below the two-block
+    // clearance, so it does not leave a second, stale vanilla door behind.
+    expect(h.set.filter(s => s.states?.upper_block_bit === false)).toHaveLength(1);
+    const restoredLeaf = h.spawned.filter(s => s.typeId === 'craftmatic:runtime_door_leaf_1').at(-1)!;
+    expect(restoredLeaf).not.toBe(baseLeaf);
+    expect(restoredLeaf.at).toEqual({ x: 101, y: 66, z: 201 });
+    expect(restoredLeaf.entity.events).toEqual([]);
+  });
+
+  it('chooses the smallest pending door threshold and refuses an unsupported resized opening', async () => {
+    const g = new BlockGrid(3, 3, 3);
+    for (let x = 0; x < 3; x++) for (let z = 0; z < 3; z++) for (let y = 0; y < 3; y++) g.set(x, y, z, 'craftmatic:collider[lo=0,hi=16]');
+    const runs = encodeColliderRuns(g, 'craftmatic:collider');
+    const door = (requiredSize: number) => ({ x: 1, y: 0, z: 1, requiredSize, lower: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: false } }, upper: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: true } } });
+    const h = host({ stem: 'door-order', label: 'Door order', width: 3, height: 3, length: 3, tiles: [tile],
+      actors: [{ typeId: 'craftmatic:door_order_leaf', label: 'Fallback leaf', x: 1, y: 2, z: 1, maxSizeExclusive: 150, doorCandidateIndex: 1, hideAt100: false }],
+      colliders: { width: 3, height: 3, length: 3, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs.runs, keptCells: 0 },
+      runtimeDoorCandidates: [door(300), door(150)], settleTicks: 1, finalHoldTicks: 1 });
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    expect(h.buttons.at(-1)).toContain('Use next door size 150 percent');
+    await h.open({ action: 'Use next door size' });
+    await h.open({ action: 'Place' }, { selection: 0 });
+    await h.flush(1000);
+    expect(h.set.some(s => s.states?.upper_block_bit !== undefined)).toBe(false);
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('no solid support exists below the resized opening'));
+    const fallback = h.spawned.find(s => s.typeId === 'craftmatic:door_order_leaf')!;
+    expect(fallback.entity.events).toEqual(['craftmatic:size_150']);
+  });
+
+  it('persists one explicit marked chair anchor, follows a 400% quarter turn, and removes it through the management action', async () => {
+    const chairGrid = new BlockGrid(4, 3, 2), chairRuns = encodeColliderRuns(chairGrid, 'craftmatic:collider');
+    const h = host({ stem: 'marked-chair', label: 'Marked chair', width: 4, height: 3, length: 2, tiles: [tile],
+      colliders: { width: 4, height: 3, length: 2, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: chairRuns.runs, keptCells: 0 },
+      manualSeatTypeId: 'craftmatic:marked_chair_manual_seat', settleTicks: 1, finalHoldTicks: 1 });
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    h.player.location = { x: 101, y: 65, z: 201 };
+    await h.open({ action: 'Add seat here' });
+    expect([...h.playerProperties.values()].join('')).toContain('anchors');
+    await h.open({ action: 'Rotate' }, { canceled: true }); // 90°
+    for (let i = 0; i < 4; i++) await h.open({ action: 'Size' }, { canceled: true }); // 100 → 400
+    await h.open({ action: 'Place' }, { selection: 0 });
+    await h.flush(1000);
+    const seat = h.spawned.find(s => s.typeId === 'craftmatic:marked_chair_manual_seat')!;
+    expect(seat.at).toEqual({ x: 104, y: 68, z: 204 });
+    expect(seat.entity.events).toEqual(['craftmatic:size_400']);
+    // The same model-local anchor is rejected, then Manage removes both the
+    // persisted anchor and its live entity rather than leaving a stale seat.
+    h.player.location = { x: 104, y: 68, z: 204 };
+    await h.open({ action: 'Add seat here' });
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('already marked'));
+    await h.open({ action: 'Manage marked seats' }, { selection: 0 }, { canceled: true });
+    // (Only the marked-seat store: the Undo record, also on the player, holds coordinates by design.)
+    expect([...h.playerProperties.entries()].filter(([k]) => k.endsWith(':manual_seats')).map(([, v]) => v).join('')).not.toContain('"x"');
+  });
+
+  it('lifts a figure spawned inside a full collider cell to the first clear cell, and says so when the aim finds no block', async () => {
+    const g = new BlockGrid(2, 3, 2);
+    for (let x = 0; x < 2; x++) for (let z = 0; z < 2; z++) { g.set(x, 0, z, 'craftmatic:collider[lo=0,hi=16]'); g.set(x, 1, z, 'craftmatic:collider[lo=0,hi=16]'); }
+    const runs = encodeColliderRuns(g, 'craftmatic:collider');
+    const h = host({ stem: 'lifted', label: 'Lifted', width: 2, height: 3, length: 2, tiles: [{ ...tile, width: 2, height: 3, length: 2 }],
+      actors: [{ typeId: 'craftmatic:lifted_fig1', label: 'Figure', x: 0.5, y: 0, z: 0.5 }],
+      colliders: { width: 2, height: 3, length: 2, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs.runs, keptCells: 0 },
+      settleTicks: 1, finalHoldTicks: 1 });
+    // The world has a FLOOR plate collider (0..3/16) at the pin's y - not a wall - and a full
+    // wall collider at y+1 and y+2 where the figure's head would be; y+3/y+4 are clear.
+    const collider = (lo: number, hi: number) => ({ typeId: 'craftmatic:collider', permutation: { getState: (k: string) => (k === 'craftmatic:hi' ? hi : lo) }, setPermutation() {} });
+    h.blocks.set('100,64,200', collider(0, 3));
+    h.blocks.set('100,65,200', collider(0, 16));
+    h.blocks.set('100,66,200', collider(0, 16));
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await h.open({ action: 'Place' }, { selection: 0 });
+    await h.flush(600);
+    const fig = h.spawned.find(s => s.typeId === 'craftmatic:lifted_fig1')!;
+    expect(fig.at.y).toBe(67);
+    // Aim with nothing in view: the action bar says why instead of silently doing nothing.
+    h.setHit(undefined);
+    await h.open({ action: 'Follow my aim' });
+    h.intervals.get(4)!();
+    expect(h.actionBars.at(-1)).toMatch(/look at a block/);
+  });
+
+  it('refuses a resized placement of coloured blocks and says why', async () => {
+    const h = host({ stem: 'blocks', label: 'Blocks', width: 4, height: 2, length: 2, tiles: [tile], actors: [] });
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await h.open({ action: 'Size' }, { canceled: true });
+    expect(h.buttons.at(-1)!.some(l => l.includes('(entities only)'))).toBe(true);
+    await h.open({ action: 'Place' }, { canceled: true });
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('cannot be resized in game'));
+    expect(h.commands).toHaveLength(0);
+  });
+
+  it('follows the aimed block until pinned, and the ghost takes the size', async () => {
+    const h = host({ stem: 'aimed', label: 'Aimed', width: 4, height: 2, length: 2, tiles: [tile], actors: [], preview: { typeId: 'craftmatic:aimed_preview' } });
+    h.setHit({ block: { location: { x: 10, y: 70, z: 20 } }, face: 'Up' });
+    // A fresh wand's first use goes straight to following the aim - no menu.
+    const menus = h.buttons.length;
+    await h.use();
+    expect(h.buttons.length).toBe(menus);
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('follows the block you look at'));
+    const aim = h.intervals.get(4)!, draw = h.intervals.get(12)!;
+    aim(); draw();
+    // Footprint centre (2, 1) lands on the top face of the hit block: anchor = floor(10.5−2, 71, 20.5−1) = (8, 71, 19), centre (10, 71, 20).
+    const ghost = h.spawned.find(s => s.typeId === 'craftmatic:aimed_preview')!;
+    expect(ghost.entity.teleport).toHaveBeenLastCalledWith({ x: 10, y: 71, z: 20 }, { rotation: { x: 0, y: 0 } });
+    expect(h.actionBars.some(s => s.startsWith('AIMING'))).toBe(true);
+    // Look elsewhere: it follows; hit the east face: it lands beside the block.
+    h.setHit({ block: { location: { x: 30, y: 70, z: 20 } }, face: 'East' });
+    aim();
+    expect(ghost.entity.teleport).toHaveBeenLastCalledWith({ x: 31, y: 70, z: 20 }, { rotation: { x: 0, y: 0 } });
+    // Size → 150 % (the first step after 100): the ghost gets the event and the centre offset grows with it.
+    await h.open({ action: 'Size' }, { canceled: true });
+    aim(); draw();
+    expect(ghost.entity.events).toEqual(['craftmatic:size_150']);
+    // Pin centred on me stops following.
+    h.player.location = { x: 0, y: 64, z: 0 };
+    await h.open({ action: 'Pin centred on me' }, { canceled: true });
+    h.setHit({ block: { location: { x: 90, y: 70, z: 90 } }, face: 'Up' });
+    aim(); draw();
+    // At 150 % the centre offset is (3, 1.5): anchor floor(−3, 64, −1.5) = (−3, 64, −2), centre (0, 64, −0.5).
+    expect(ghost.entity.teleport).toHaveBeenLastCalledWith({ x: 0, y: 64, z: -0.5 }, { rotation: { x: 0, y: 0 } });
+    expect(h.actionBars.at(-1)).toMatch(/^PINNED PREVIEW/);
+    expect(h.actionBars.at(-1)).toContain('150 percent');
+  });
+
+  it('lifts a sized RIDEABLE 0.01 and sets it back after its size event, and never moves a figure (quirk size-event-pick-needs-move, round 30zd)', async () => {
+    // A fresh 50 % McLaren took no tap or hold on either phone until it had really moved (`tp ~ ~0.01 ~`); `tp ~ ~ ~` did not.
+    const sized = (identifier: string, rideable: boolean): string => {
+      const groups: Record<string, unknown> = {}, events: Record<string, unknown> = {};
+      for (const pct of SIZE_STEPS) {
+        groups[`${SIZE_EVENT_PREFIX}${pct}`] = { 'minecraft:scale': { value: pct / 100 } };
+        events[`${SIZE_EVENT_PREFIX}${pct}`] = { add: { component_groups: [`${SIZE_EVENT_PREFIX}${pct}`] } };
+      }
+      const components = rideable ? { 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: { position: [0, 0.5, 0] } } } : {};
+      return JSON.stringify({ format_version: '1.26.30', 'minecraft:entity': { description: { identifier, is_spawnable: true, is_summonable: true }, components, component_groups: groups, events } });
+    };
+    const h = host({ stem: 'nudged', label: 'Nudged', width: 4, height: 2, length: 2, tiles: [],
+      actors: [{ typeId: 'craftmatic:car', label: 'Car', x: 2, y: 0, z: 1, yaw: 0 }, { typeId: 'craftmatic:fig', label: 'Figure', x: 1, y: 0, z: 1, yaw: 0 }],
+      settleTicks: 1, finalHoldTicks: 1 },
+    { definitions: { 'craftmatic:car': sized('craftmatic:car', true), 'craftmatic:fig': sized('craftmatic:fig', false) } });
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    for (let i = 0; i < 6; i++) await h.open({ action: 'Size' }, { canceled: true });   // 100 → 150 → 200 → 300 → 400 → 25 → 50
+    await h.open({ action: 'Place' }, { selection: 0 });
+    await h.flush(2000);
+    const car = h.spawned.find(s => s.typeId === 'craftmatic:car')!, fig = h.spawned.find(s => s.typeId === 'craftmatic:fig')!;
+    expect(car.entity.events).toEqual(['craftmatic:size_50']);
+    const at = car.at;
+    expect(car.entity.teleport.mock.calls.map((c: any[]) => c[0])).toEqual([{ x: at.x, y: at.y + 0.01, z: at.z }, at]);
+    expect((car as any).sim.location).toEqual(at);
+    expect((car as any).sim.pickable()).toBe(true);
+    expect(fig.entity.events).toEqual(['craftmatic:size_50']);
+    expect(fig.entity.teleport).not.toHaveBeenCalled();
+  });
+
+  it('an entity-only pack turns in 15° steps both ways and places the actor on the turned footprint', async () => {
+    const h = host({ stem: 'turned', label: 'Turned', width: 4, height: 2, length: 2, tiles: [],
+      actors: [{ typeId: 'craftmatic:car', label: 'Car', x: 4, y: 0, z: 1, yaw: 0 }], settleTicks: 1, finalHoldTicks: 1 });
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await h.open({ action: 'Rotate' }, { canceled: true });   // 0 → 15
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Rotate → 30°'))).toBe(true);
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Turn back ← 0°'))).toBe(true);
+    await h.open({ action: 'Turn back' }, { canceled: true });  // 15 → 0
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Rotate → 15°'))).toBe(true);
+    await h.open({ action: 'Turn back' }, { canceled: true });  // 0 → 345
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Rotate → 0°'))).toBe(true);
+    await h.open({ action: 'Rotate' }, { canceled: true });   // 345 → 0
+    await h.open({ action: 'Rotate' }, { canceled: true });   // 0 → 15
+    await h.open({ action: 'Place' }, { selection: 0 });
+    await h.flush(2000);
+    const car = h.spawned.find(s => s.typeId === 'craftmatic:car')!;
+    expect(car.entity.setRotation).toHaveBeenCalledWith({ x: 0, y: 15 });
+    // The point (4, 1) on a 4×2 footprint turned 15° about its centre (2, 1): x = W'/2 + 2cos15, z = L'/2 + 2sin15.
+    const a = 15 * Math.PI / 180, w = Math.ceil(4 * Math.cos(a) + 2 * Math.sin(a)), l = Math.ceil(4 * Math.sin(a) + 2 * Math.cos(a));
+    expect(car.at.x).toBeCloseTo(100 + w / 2 + 2 * Math.cos(a), 5);
+    expect(car.at.z).toBeCloseTo(200 + l / 2 + 2 * Math.sin(a), 5);
+  });
+
+  it('names the measured walk-through step in the Size button and quotes its reason, without changing the size', async () => {
+    const reason = 'Door leaves are 1.5x1.8 blocks at 100 %; 150 % makes them 2.2x2.7 (a player needs 1x2; 1/1 clear it). But at 150 % a player reaches only 40 % of the model height; the choice is between the doors and the stairs.';
+    const h = host({ stem: 'walkable', label: 'Walkable', width: 4, height: 2, length: 2, tiles: [tile], actors: [],
+      access: { sizePct: 150, reason }, settleTicks: 1, finalHoldTicks: 1 });
+    // The step is NAMED, not applied: the wand still opens at 100 %.
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    const first = h.buttons.at(-1)!;
+    expect(first.some(l => l.startsWith('Size 100 percent → 150 percent (recommended)'))).toBe(true);
+    // The whole reason is in the wand's body, never cut down to the number.
+    expect(h.assets.script).toContain(JSON.stringify(reason));
+    // Cycling onto it says why, quoting the measurement.
+    await h.open({ action: 'Size' }, { canceled: true });
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining(reason));
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 150 percent (recommended) → 200 percent'))).toBe(true);
+    // Past it again the marker moves with the step, and the size itself is
+    // whatever the user chose — the recommendation never overrides it.
+    await h.open({ action: 'Size' }, { canceled: true });   // 150 → 200
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 200 percent → 300 percent'))).toBe(true);
+    expect(h.buttons.at(-1)!.some(l => /recommended/.test(l))).toBe(false);
+  });
+
+  it('says nothing about a walk-through size when the export measured none', async () => {
+    const h = host({ stem: 'unmeasured', label: 'Unmeasured', width: 4, height: 2, length: 2, tiles: [tile], actors: [] });
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 100 percent → 150 percent'))).toBe(true);
+    expect(h.buttons.at(-1)!.some(l => /recommended/.test(l))).toBe(false);
+  });
+});

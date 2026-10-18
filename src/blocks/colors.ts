@@ -155,14 +155,24 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:lime_stained_glass': [127, 204, 25],
   'minecraft:lime_stained_glass_pane': [127, 204, 25],
 
-  // Concrete
-  'minecraft:white_concrete': [207, 213, 214],
-  'minecraft:light_gray_concrete': [125, 125, 115],
-  'minecraft:gray_concrete': [54, 57, 61],
-  'minecraft:black_concrete': [8, 10, 15],
-  'minecraft:blue_concrete': [45, 47, 143],
-  'minecraft:cyan_concrete': [21, 119, 136],
-  'minecraft:light_blue_concrete': [36, 137, 199],
+  // Concrete — LEGO-accurate palette (values tuned to match LEGO plastic colours)
+  'minecraft:white_concrete':      [242, 243, 243], // LEGO White      #F2F3F2
+  'minecraft:light_gray_concrete': [160, 165, 169], // LEGO Lt Bluish  #A0A5A9
+  'minecraft:gray_concrete':       [89,  93,  96],  // LEGO Dark Blish #595D60
+  'minecraft:black_concrete':      [33,  33,  33],  // LEGO Black      #212121
+  'minecraft:blue_concrete':       [0,   87,  166], // LEGO Blue       #0057A6
+  'minecraft:cyan_concrete':       [0,   167, 186], // LEGO Cyan/Azure #00A7BA
+  'minecraft:light_blue_concrete': [105, 196, 221], // LEGO Lt Blue    #69C4DD
+  'minecraft:yellow_concrete':     [242, 205, 55],  // LEGO Yellow     #F2CD37
+  'minecraft:lime_concrete':       [88,  183, 45],  // LEGO Lime       #58B72D
+  'minecraft:green_concrete':      [35,  120, 65],  // LEGO Green      #237841
+  'minecraft:orange_concrete':     [254, 138, 24],  // LEGO Orange     #FE8A18
+  'minecraft:red_concrete':        [201, 26,  9],   // LEGO Red        #C91A09
+  'minecraft:pink_concrete':       [252, 151, 172], // LEGO Pink       #FC97AC
+  'minecraft:magenta_concrete':    [167, 48,  157], // LEGO Magenta    #A7309D
+  'minecraft:purple_concrete':     [100, 32,  156], // LEGO Purple     #64209C
+  'minecraft:brown_concrete':      [88,  42,  18],  // LEGO Brown      #582A12
+  'minecraft:sandstone':           [216, 200, 141], // LEGO Tan/Sand   #D8C88D
 
   // Lighting
   'minecraft:lantern': [210, 170, 80],
@@ -182,6 +192,7 @@ const BLOCK_COLORS: Record<string, RGB> = {
 
   // Metal
   'minecraft:iron_bars': [160, 160, 160],
+  'minecraft:ladder': [143, 110, 63],
   'minecraft:iron_block': [222, 222, 222],
   'minecraft:iron_door': [195, 195, 195],
   'minecraft:iron_trapdoor': [190, 190, 190],
@@ -341,7 +352,6 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:dark_prismarine_slab': [64, 108, 88],
 
   // Sandstone variants
-  'minecraft:sandstone': [216, 203, 155],
   'minecraft:sandstone_stairs': [216, 203, 155],
   'minecraft:sandstone_slab': [216, 203, 155],
   'minecraft:sandstone_wall': [210, 197, 149],
@@ -431,6 +441,32 @@ const BLOCK_COLORS: Record<string, RGB> = {
   'minecraft:armor_stand': [160, 130, 95],
   'minecraft:stonecutter': [130, 130, 130],
   'minecraft:carved_pumpkin': [198, 118, 24],
+
+  // ── Materials the "Textured + shapes" export profile can emit ─────────────
+  // (web/src/engine/textured-palette.ts). Every candidate in that profile MUST
+  // have a colour here, or a re-imported export renders it through the hash
+  // fallback — i.e. a random colour — in the Upload tab's 3D view. The ones
+  // above already covered most families; these are the gaps.
+  // Values are average sRGB of the vanilla 1.20 texture, consistent with the
+  // neighbouring entries in this table.
+  'minecraft:diorite': [188, 188, 188],
+  'minecraft:polished_diorite': [192, 193, 195],
+  'minecraft:granite': [149, 103, 83],
+  'minecraft:polished_granite': [154, 107, 86],
+  'minecraft:cobbled_deepslate': [77, 77, 80],
+  'minecraft:cut_sandstone': [216, 203, 155],
+  'minecraft:cut_red_sandstone': [181, 98, 31],
+  'minecraft:red_nether_bricks': [69, 3, 5],
+  'minecraft:jungle_planks': [160, 115, 80],
+  'minecraft:mangrove_planks': [115, 54, 44],
+  'minecraft:cherry_planks': [226, 168, 158],
+  'minecraft:bamboo_planks': [193, 154, 72],
+  // Waxed copper, so the colour a model is designed in is the colour it stays —
+  // unwaxed copper oxidizes in-world and would drift off the LEGO hue it matched.
+  'minecraft:waxed_cut_copper': [192, 108, 78],
+  'minecraft:waxed_exposed_cut_copper': [150, 117, 85],
+  'minecraft:waxed_weathered_cut_copper': [105, 141, 103],
+  'minecraft:waxed_oxidized_cut_copper': [81, 164, 134],
 };
 
 /** Blocks considered "furniture" — drawn with a marker in detailed view */
@@ -479,6 +515,31 @@ export function knownColorBlockIds(): readonly string[] {
 }
 
 /**
+ * Shape suffixes whose colour comes from the underlying material block.
+ * `_pane` is here for the semantic-element pass (part-elements.ts): it emits
+ * all 16 `<colour>_stained_glass_pane` ids and only a handful are listed above.
+ */
+const SHAPE_SUFFIXES = ['_slab', '_stairs', '_wall', '_fence', '_pane', '_trapdoor', '_button', '_pressure_plate'];
+
+/**
+ * For a partial-shape id, the id of the material block whose colour it shares —
+ * or null when `base` is not a shape id or the material isn't in the table.
+ * `minecraft:oak_slab` → `minecraft:oak_planks`; `minecraft:brick_slab` →
+ * `minecraft:bricks`.
+ */
+function shapeMaterialId(base: string): string | null {
+  for (const suffix of SHAPE_SUFFIXES) {
+    if (!base.endsWith(suffix)) continue;
+    const stem = base.slice(0, -suffix.length);
+    for (const candidate of [stem, `${stem}s`, `${stem}_planks`, `${stem}_block`]) {
+      if (candidate in BLOCK_COLORS) return candidate;
+    }
+    return null;
+  }
+  return null;
+}
+
+/**
  * Look up color for a block state with prefix/property fallback.
  * Returns null for air blocks.
  */
@@ -489,6 +550,16 @@ export function getBlockColor(blockState: string): RGB | null {
 
   // Exact match
   if (base in BLOCK_COLORS) return BLOCK_COLORS[base];
+
+  // Partial-shape ids inherit their MATERIAL's colour. The block-shape export
+  // passes emit `minecraft:sandstone_slab[type=bottom]` etc.; without this a
+  // shape whose id isn't listed above (there are ~90 slab/stair ids and this
+  // table is hand-written) fell through to the hash fallback and re-imported as
+  // a random colour in the Upload tab's 3D view. The ladder covers vanilla's
+  // material-naming: `sandstone_slab`→sandstone, `stone_brick_slab`→stone_bricks,
+  // `oak_slab`→oak_planks, `quartz_slab`→quartz_block.
+  const material = shapeMaterialId(base);
+  if (material) return BLOCK_COLORS[material];
 
   // Prefix matching for variants (e.g. "minecraft:potted_" matches any potted plant)
   for (const [prefix, color] of Object.entries(BLOCK_COLORS)) {

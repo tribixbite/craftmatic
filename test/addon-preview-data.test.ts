@@ -1,0 +1,518 @@
+/**
+ * The add-on walk's data layer (web/src/ui/addon-preview-data.ts): reading a
+ * built `.mcaddon` back, the legend counts, the laid grid at a size (checked
+ * against the engine's own ScaledColliderGrid), the reach overlay and the
+ * highlight state. The real-pack cases run against the QA packs in
+ * output/bedrock-entity-qa/ and skip when they are absent.
+ */
+import { describe, it, expect } from 'vitest';
+import { existsSync, readFileSync } from 'node:fs';
+import {
+  buildAddonPreviewModel, classifyAddonEntity, columnBoxes, compileMolang, defaultLegendState, entityCollisionFromSources, entitySpawnsAt, evaluateClientAnimations, extractJsonAfter,
+  initializeClientAnimations, laidColliderBlocks, legendCounts, loadAddonPreviewModel, pinballPlanePoint, pinballRuntimeWorldPoint, placedDirection, placedPoint,
+  reachOverlay, readAddonPreviewFiles, readClientAnimations, recommendedSize, toggleLegend, treadBlocksAt,
+  type AddonPreviewModel, type MolangEnv,
+} from '../web/src/ui/addon-preview-data.js';
+import { ScaledColliderGrid, type SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
+import { encodeColliderRuns, encodeTreadPlan } from '../web/src/engine/bedrock-placement-pack.js';
+import type { PinballMap } from '../web/src/engine/bedrock-pinball.js';
+import { createZip } from '../web/src/engine/zip-utils.js';
+import { encodePngRgba } from '../web/src/engine/lego-resource-pack.js';
+
+const PACK_10303 = 'output/bedrock-entity-qa/10303-owncars.mcaddon';
+const PACK_10261 = 'output/bedrock-entity-qa/10261-owncars.mcaddon';
+const havePacks = existsSync(PACK_10303) && existsSync(PACK_10261);
+const PACK_PINBALL = 'output/pinball-11374/packs/11374-wip.mcaddon';
+const havePinballPack = existsSync(PACK_PINBALL);
+
+const readPack = (path: string): ArrayBuffer => {
+  const b = readFileSync(path);
+  return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
+};
+
+describe('extractJsonAfter', () => {
+  it('takes the balanced literal after the marker, braces inside strings included', () => {
+    const src = 'import x;\nconst CONFIG = {"a":"}{][","b":[1,{"c":"\\"}"}],"d":{"e":1}};\nconst other = {"z":1};';
+    expect(extractJsonAfter(src, 'const CONFIG')).toEqual({ a: '}{][', b: [1, { c: '"}' }], d: { e: 1 } });
+    expect(extractJsonAfter(src, 'const other')).toEqual({ z: 1 });
+    expect(extractJsonAfter(src, 'const missing')).toBeUndefined();
+  });
+});
+
+describe('readAddonPreviewFiles material assets', () => {
+  it('extracts the RP manifest, texture set and actual uniform MER bytes', async () => {
+    const mer = new Uint8Array([31, 17, 219, 255]);
+    const pack = await createZip([
+      { name: 'X_BP/scripts/placement.js', data: new TextEncoder().encode('const CONFIG = {"id":"x","width":1,"height":1,"length":1,"actors":[]};') },
+      { name: 'X_RP/manifest.json', data: new TextEncoder().encode(JSON.stringify({ modules: [{ type: 'resources' }], capabilities: ['pbr'] })) },
+      { name: 'X_RP/textures/entity/s.texture_set.json', data: new TextEncoder().encode(JSON.stringify({ 'minecraft:texture_set': { metalness_emissive_roughness: 'physically_authored_values' } })) },
+      { name: 'X_RP/textures/entity/physically_authored_values.png', data: encodePngRgba(1, 1, mer) },
+    ]);
+    const files = await readAddonPreviewFiles(pack.buffer.slice(pack.byteOffset, pack.byteOffset + pack.byteLength) as ArrayBuffer);
+    expect(files.appearanceSources?.has('X_RP/manifest.json')).toBe(true);
+    expect(files.appearancePbr?.enabled).toBe(true);
+    expect(files.appearancePbr?.byTexture.get('textures/entity/s')).toEqual({
+      metalness: 31 / 255, emissive: 17 / 255, roughness: 219 / 255, source: 'texture-set-mer-png',
+    });
+  });
+});
+
+describe('entityCollisionFromSources', () => {
+  const entityFile = (identifier: string, components: Record<string, unknown>): string =>
+    JSON.stringify({ format_version: '1.26.30', 'minecraft:entity': { description: { identifier }, components } });
+
+  it('keeps only entities the pack marks has_collision: true, with their collision_box', () => {
+    const sources = new Map<string, string>([
+      ['BP/entities/figure.json', entityFile('craftmatic:f_x_fig1', { 'minecraft:physics': { has_collision: true }, 'minecraft:collision_box': { width: 0.6, height: 1.8 } })],
+      // A ride car: has_collision false, exactly bedrock-coaster.ts's carBehavior — must not appear.
+      ['BP/entities/car.json', entityFile('craftmatic:c_x_coaster_vehicle_1', { 'minecraft:physics': { has_collision: false }, 'minecraft:collision_box': { width: 1.375, height: 0.9 } })],
+      // No physics component at all: absent, not defaulted to blocking.
+      ['BP/entities/screen.json', entityFile('craftmatic:s_x_screen', { 'minecraft:collision_box': { width: 1, height: 1 } })],
+    ]);
+    const out = entityCollisionFromSources(sources);
+    expect(out.size).toBe(1);
+    expect(out.get('craftmatic:f_x_fig1')).toEqual({ width: 0.6, height: 1.8 });
+    expect(out.has('craftmatic:c_x_coaster_vehicle_1')).toBe(false);
+    expect(out.has('craftmatic:s_x_screen')).toBe(false);
+  });
+
+  it('is not confused by unrelated or malformed JSON', () => {
+    const out = entityCollisionFromSources(new Map([['x.json', '{not json'], ['y.json', '{}'], ['z.json', '[]']]));
+    expect(out.size).toBe(0);
+  });
+});
+
+describe('classifyAddonEntity', () => {
+  const roles = { 'craftmatic:c_x_coaster_lift_1': 'platform', 'craftmatic:c_x_coaster_counterweight_1': 'counterweight', 'craftmatic:c_x_coaster_vehicle_1': 'car' };
+  it('reads the suffix and the coaster role table', () => {
+    expect(classifyAddonEntity('craftmatic:b_10303_shell', {}, roles)).toBe('shell');
+    expect(classifyAddonEntity('craftmatic:f_10303_fig3', {}, roles)).toBe('figure');
+    expect(classifyAddonEntity('craftmatic:colosseum_fig1', {}, roles)).toBe('figure');
+    expect(classifyAddonEntity('craftmatic:s_10261_seat', {}, roles)).toBe('seat');
+    expect(classifyAddonEntity('craftmatic:chalet_door_leaf_2', {}, roles)).toBe('door');
+    expect(classifyAddonEntity('craftmatic:c_x_coaster_lift_1', {}, roles)).toBe('lift');
+    expect(classifyAddonEntity('craftmatic:c_x_coaster_counterweight_1', {}, roles)).toBe('counterweight');
+    expect(classifyAddonEntity('craftmatic:c_x_coaster_vehicle_1', { coasterRouteIndex: 0 }, roles)).toBe('car');
+    expect(classifyAddonEntity('craftmatic:c_x_coaster_cart', {}, {})).toBe('car');
+    expect(classifyAddonEntity('craftmatic:v_42110_car', {}, {})).toBe('vehicle');
+    expect(classifyAddonEntity('craftmatic:s_x_screen', {}, {})).toBe('screen');
+  });
+});
+
+/** A 4×3×4 grid: a floor slab, a one-block step, and a three-block wall. */
+function synthetic(): { cells: SourceCell[]; dims: { width: number; height: number; length: number } } {
+  const dims = { width: 4, height: 4, length: 4 };
+  const cells: SourceCell[] = [];
+  for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) cells.push({ x, y: 0, z, lo: 0, hi: 16 }); // floor, full block
+  cells.push({ x: 1, y: 1, z: 1, lo: 0, hi: 8 }); // a half step on the floor
+  for (let y = 1; y < 4; y++) cells.push({ x: 3, y, z: 3, lo: 0, hi: 16 }); // a wall column, tops out of reach
+  return { cells, dims };
+}
+
+function syntheticModel(): AddonPreviewModel {
+  const { cells, dims } = synthetic();
+  const grid = new Map<string, string>();
+  for (const c of cells) grid.set(`${c.x},${c.y},${c.z}`, `craftmatic:collider[lo=${c.lo},hi=${c.hi}]`);
+  const { runs, keptCells } = encodeColliderRuns({ ...dims, get: (x, y, z) => grid.get(`${x},${y},${z}`) ?? 'minecraft:air' }, 'craftmatic:collider');
+  const placement = `const CONFIG = ${JSON.stringify({
+    id: 'synthetic', label: 'Synthetic', ...dims,
+    actors: [
+      { typeId: 'craftmatic:b_synthetic_shell', label: 'Synthetic bricks', x: 2, y: 5, z: 2, yaw: 0 },
+      { typeId: 'craftmatic:f_synthetic_fig1', label: 'figure 1', x: 0.5, y: 1, z: 0.5, yaw: 90 },
+      { typeId: 'craftmatic:f_synthetic_fig2', label: 'figure 2', x: 2.5, y: 1, z: 2.5, yaw: 0, rideOf: 3 },
+      { typeId: 'craftmatic:s_synthetic_seat', label: 'Seat (4079)', x: 2.5, y: 1.2, z: 2.5, yaw: 0 },
+      { typeId: 'craftmatic:synthetic_door_leaf_1', label: 'door leaf', x: 1, y: 1, z: 3, yaw: 0, maxSizeExclusive: 200, doorCandidateIndex: 0 },
+    ],
+    colliders: { ...dims, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs, keptCells,
+      treads: { plans: { '200:0': encodeTreadPlan([{ x: 5, y: 2, z: 5, lo: 0, hi: 8 }]) }, counts: { '200:0': 1 } } },
+    runtimeDoorCandidates: [{ x: 1, y: 1, z: 3, requiredSize: 200, lower: { id: 'minecraft:wooden_door', states: {} }, upper: { id: 'minecraft:wooden_door', states: {} } }],
+    access: { sizePct: 150, reason: 'measured on the synthetic set.' },
+    sizes: [25, 50, 75, 100, 150, 200, 300, 400],
+  })};\n`;
+  const coaster = `const CONFIG = ${JSON.stringify({
+    typeId: 'craftmatic:c_synthetic_coaster_cart',
+    routes: [{ label: 'Track 1', path: { points: [[0, 1, 0], [3, 1, 0], [3, 1, 3]], closed: false, length: 6 }, station: { start: 0, end: 2, stop: 1, point: [1, 1, 0] } }],
+    types: { 'craftmatic:c_synthetic_coaster_cart': { role: 'car', riders: 0, wheelbase: 1.5, seat: [0, 0.3, 0] } },
+  })};\n`;
+  return buildAddonPreviewModel({ placementScript: placement, coasterScript: coaster });
+}
+
+describe('buildAddonPreviewModel (synthetic pack)', () => {
+  const model = syntheticModel();
+  it('reads dims, cells, actors, doors, routes and the access record', () => {
+    expect(model.dims).toEqual({ width: 4, height: 4, length: 4 });
+    expect(model.cells).toHaveLength(16 + 1 + 3);
+    expect(model.entities.map(e => e.kind)).toEqual(['shell', 'figure', 'figure', 'seat', 'door']);
+    expect(model.doorCandidates).toEqual([{ x: 1, y: 1, z: 3, requiredSize: 200 }]);
+    expect(model.routes).toHaveLength(1);
+    expect(model.routes[0]!.cumulative).toEqual([0, 3, 6]); // computed: the script carried none
+    expect(model.routes[0]!.station?.stop).toBe(1);
+    expect(recommendedSize(model)).toEqual({ sizePct: 150, reason: 'measured on the synthetic set.' });
+    expect(model.notes.some(n => /diagnostics/.test(n))).toBe(true); // said, not dropped
+    // The coaster preview's wheelbase/seat, read back from coaster.js's own types (not re-derived).
+    expect(model.coasterTypes['craftmatic:c_synthetic_coaster_cart']).toEqual({ role: 'car', riders: 0, wheelbase: 1.5, seat: [0, 0.3, 0] });
+    expect(model.entityCollision.size).toBe(0); // no BP entities/*.json in this fixture
+  });
+  it('counts the legend per row', () => {
+    const c = legendCounts(model, 100, 0);
+    expect(c.figure).toBe(2);
+    expect(c.detail.figure).toBe('1 seated');
+    expect(c.seat).toBe(1);
+    expect(c.door).toBe(2); // the leaf and the vanilla candidate
+    expect(c.track).toBe(1);
+    expect(c.vehicle).toBe(0);
+    expect(c.collider).toBe(20);
+    expect(c.tread).toBe(0);
+    expect(legendCounts(model, 200, 0).tread).toBe(1);
+    expect(legendCounts(model, 200, 90).tread).toBe(0);
+  });
+  it('retires the door leaf at the size its candidate hangs', () => {
+    const leaf = model.entities.find(e => e.kind === 'door')!;
+    expect(entitySpawnsAt(leaf, 150)).toBe(true);
+    expect(entitySpawnsAt(leaf, 200)).toBe(false);
+  });
+});
+
+describe('laidColliderBlocks', () => {
+  const { cells, dims } = synthetic();
+  it('is the source grid itself at 100 %', () => {
+    const { blocks, dims: laid } = laidColliderBlocks(cells, dims, 100, 0);
+    expect(laid).toEqual(dims);
+    expect(blocks).toHaveLength(cells.length);
+    const step = blocks.find(b => b.x === 1 && b.y === 1 && b.z === 1)!;
+    expect([step.lo, step.hi]).toEqual([0, 8]);
+  });
+  it.each([[150, 0], [200, 90], [300, 180], [400, 270]] as const)('matches the engine\'s ScaledColliderGrid at %i %% turn %i', (pct, r) => {
+    const { blocks } = laidColliderBlocks(cells, dims, pct, r);
+    const expected = new ScaledColliderGrid(cells, dims, pct / 100, r).allBlocks();
+    const mine = new Map(blocks.map(b => [`${b.x},${b.y},${b.z}`, [b.lo, b.hi]]));
+    expect(mine.size).toBe(expected.size);
+    for (const [k, v] of expected) expect(mine.get(k), k).toEqual(v);
+  });
+  it('shares blocks between cells below 100 % with min lo / max hi', () => {
+    const { blocks, dims: laid } = laidColliderBlocks(cells, dims, 50, 0);
+    expect(laid).toEqual({ width: 2, height: 2, length: 2 });
+    // The floor's 16 cells become 4 blocks of half height; the half step (1,1,1) lands in row 0 of block (0,0,0) and lifts its hi to 12; the wall's base lifts (1,0,1) to 16.
+    const floor = blocks.filter(b => b.y === 0);
+    expect(floor).toHaveLength(4);
+    expect(floor.map(b => [b.x, b.z, b.lo, b.hi])).toEqual([[0, 0, 0, 12], [0, 1, 0, 8], [1, 0, 0, 8], [1, 1, 0, 16]]);
+    // The three-block wall (y 1..3 at 100 %) covers rows 0..1 at 50 %.
+    const wall = blocks.filter(b => b.x === 1 && b.z === 1);
+    expect(wall.map(b => [b.y, b.lo, b.hi])).toEqual([[0, 0, 16], [1, 0, 16]]);
+  });
+  it('lets a tread replace the block it lands on', () => {
+    const { blocks } = laidColliderBlocks(cells, dims, 200, 0, [{ x: 2, y: 2, z: 2, lo: 0, hi: 8 }, { x: 99, y: 0, z: 0, lo: 0, hi: 8 }]);
+    const t = blocks.filter(b => b.tread);
+    expect(t).toEqual([{ x: 2, y: 2, z: 2, lo: 0, hi: 8, tread: true }]); // the out-of-footprint one is dropped
+  });
+});
+
+describe('columnBoxes', () => {
+  it('merges full blocks stacked in a column and keeps partial blocks and treads apart', () => {
+    const boxes = columnBoxes([
+      { x: 0, y: 0, z: 0, lo: 0, hi: 16, tread: false }, { x: 0, y: 1, z: 0, lo: 0, hi: 16, tread: false }, { x: 0, y: 2, z: 0, lo: 0, hi: 8, tread: false },
+      { x: 0, y: 4, z: 0, lo: 0, hi: 16, tread: false }, { x: 0, y: 5, z: 0, lo: 0, hi: 16, tread: true },
+      { x: 1, y: 0, z: 0, lo: 8, hi: 16, tread: false }, { x: 1, y: 1, z: 0, lo: 0, hi: 16, tread: false },
+    ]);
+    expect(boxes).toEqual([
+      { x: 0, z: 0, y0: 0, y1: 2, tread: false }, { x: 0, z: 0, y0: 2, y1: 2.5, tread: false },
+      { x: 0, z: 0, y0: 4, y1: 5, tread: false }, { x: 0, z: 0, y0: 5, y1: 6, tread: true },
+      { x: 1, z: 0, y0: 0.5, y1: 2, tread: false }, // a full block on a partial one that reaches 16 joins it
+    ]);
+  });
+});
+
+describe('reachOverlay', () => {
+  const { cells, dims } = synthetic();
+  it('marks the floor and the half step reached and the wall top unreached at 100 %', () => {
+    const r = reachOverlay(cells, dims, 100, 0)!;
+    expect(r).not.toBeNull();
+    const at = (x: number, z: number, t: number) => r.surfaces.find(s => s.x === x && s.z === z && s.t === t);
+    expect(at(0, 0, 16)?.reached).toBe(true);
+    expect(at(1, 1, 24)?.reached).toBe(true); // the half step: floor 16 + 8
+    expect(at(3, 3, 64)?.reached).toBe(false); // three blocks up from the floor: past a jump
+    expect(r.unreachedSurfaces).toBe(1);
+    expect(r.reachedColumns).toBe(15); // the wall column's floor top has no headroom
+    expect(r.highestBlocks).toBe(1.5);
+  });
+  it('is null below 100 %, where the scaled grid does not apply', () => {
+    expect(reachOverlay(cells, dims, 75, 0)).toBeNull();
+  });
+  it('lets a tread restore a rise the size broke', () => {
+    // At 200 % the floor slab is a two-block cliff from the ground: nothing on it is reached bare.
+    const bare = reachOverlay(cells, dims, 200, 0)!;
+    expect(bare.reachedSurfaces).toBe(0);
+    // One tread cutting the corner block down to a jump's height (20/16) opens the whole floor.
+    const with1 = reachOverlay(cells, dims, 200, 0, [{ x: 0, y: 1, z: 0, lo: 0, hi: 4 }])!;
+    expect(with1.surfaces.some(s => s.x === 0 && s.z === 0 && s.t === 20 && s.reached)).toBe(true);
+    expect(with1.reachedSurfaces).toBe(60); // 56 floor tops with headroom + the 4 step tops; the 4 wall tops stay out of reach
+    expect(with1.unreachedSurfaces).toBe(4);
+  });
+});
+
+describe('legend state and placement', () => {
+  it('toggles without mutating', () => {
+    const a = defaultLegendState();
+    const b = toggleLegend(a, 'door', 'highlight');
+    expect(a.door.highlight).toBe(false);
+    expect(b.door.highlight).toBe(true);
+    expect(b.door.show).toBe(true);
+    expect(toggleLegend(b, 'door', 'show').door).toEqual({ show: false, highlight: true });
+  });
+  it('places a model point as the wand does: turn, then scale', () => {
+    const dims = { width: 10, height: 5, length: 4 };
+    expect(placedPoint({ x: 1, y: 2, z: 3 }, dims, 200, 0)).toEqual({ x: 2, y: 4, z: 6 });
+    expect(placedPoint({ x: 1, y: 2, z: 3 }, dims, 100, 90)).toEqual({ x: 1, y: 2, z: 1 });
+    expect(placedPoint({ x: 1, y: 2, z: 3 }, dims, 100, 180)).toEqual({ x: 9, y: 2, z: 1 });
+  });
+});
+
+describe.skipIf(!havePacks)('real QA packs', () => {
+  it('10303 Loop Coaster: 8 figures, 5 ride entities (3 cars, a platform and its counterweight), one open track with a station and a lift', async () => {
+    const m = await loadAddonPreviewModel(readPack(PACK_10303));
+    expect(m.dims).toEqual({ width: 42, height: 44, length: 21 });
+    expect(m.cells.length).toBeGreaterThan(4000);
+    const c = legendCounts(m, 150, 0);
+    expect(c.figure).toBe(8);
+    expect(c.seat).toBe(0);
+    expect(c.door).toBe(0);
+    expect(c.track).toBe(1);
+    expect(c.vehicle).toBe(5);
+    expect(c.detail.vehicle).toBe('3 cars, 1 platform, 1 counterweight');
+    expect(c.collider).toBe(m.cells.length);
+    expect(c.tread).toBe(m.colliders!.treads!.counts['150:0']);
+    expect(c.tread).toBeGreaterThan(0);
+    const route = m.routes[0]!;
+    expect(route.closed).toBe(false);
+    expect(route.points.length).toBeGreaterThan(1000);
+    expect(route.station?.stop).toBeCloseTo(20.29, 1);
+    expect(route.lift?.travel[1]).toBeCloseTo(35.34, 2);
+    expect(route.lift?.counterweightPoint).toBeDefined();
+    expect(recommendedSize(m)?.sizePct).toBe(150);
+    expect(m.accessDetail?.doorway?.count).toBe(149);
+    expect(m.provenance?.source?.hash).toBe('df3b47c3c9f2');
+    expect(m.treadReport?.plans.length).toBe(16);
+    // Its laid grid at the recommended size matches the engine's, and the walk reaches something on it.
+    const laid = laidColliderBlocks(m.cells, m.dims, 150, 0, treadBlocksAt(m, 150, 0));
+    const expected = new ScaledColliderGrid(m.cells, m.dims, 1.5, 0).allBlocks();
+    const treadKeys = new Set(treadBlocksAt(m, 150, 0).map(t => `${t.x},${t.y},${t.z}`));
+    let checked = 0;
+    for (const b of laid.blocks) {
+      if (treadKeys.has(`${b.x},${b.y},${b.z}`)) continue;
+      expect(expected.get(`${b.x},${b.y},${b.z}`), `${b.x},${b.y},${b.z}`).toEqual([b.lo, b.hi]);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(10000);
+    const r = reachOverlay(m.cells, m.dims, 150, 0, treadBlocksAt(m, 150, 0))!;
+    expect(r.reachedSurfaces).toBeGreaterThan(0);
+    expect(r.unreachedSurfaces).toBeGreaterThan(0);
+  }, 60000);
+
+  it('10261 Roller Coaster: 8 figures (one seated), one seat, 3 cars on a closed circuit, no lift', async () => {
+    const m = await loadAddonPreviewModel(readPack(PACK_10261));
+    expect(m.dims).toEqual({ width: 42, height: 25, length: 22 });
+    const c = legendCounts(m, 100, 0);
+    expect(c.figure).toBe(8);
+    expect(c.detail.figure).toBe('1 seated');
+    expect(c.seat).toBe(1);
+    expect(c.door).toBe(0);
+    expect(c.track).toBe(1);
+    expect(c.vehicle).toBe(3);
+    expect(c.detail.vehicle).toBe('3 cars');
+    expect(c.tread).toBe(0);
+    expect(legendCounts(m, 150, 0).tread).toBe(50);
+    const route = m.routes[0]!;
+    expect(route.closed).toBe(true);
+    expect(route.length).toBeCloseTo(244.7, 0);
+    expect(route.lift).toBeUndefined();
+    expect(route.chain).toBeDefined();
+    expect(recommendedSize(m)?.sizePct).toBe(100);
+    const seat = m.entities.find(e => e.kind === 'seat')!;
+    const rider = m.entities.find(e => e.kind === 'figure' && e.rideOf !== undefined)!;
+    expect(m.entities[rider.rideOf!]).toBe(seat);
+  }, 60000);
+});
+
+describe('pinball world mapping', () => {
+  // The same table `test/bedrock-pinball.test.ts` uses: 1 LDU = 0.01 model
+  // blocks, u along +z, w along +x, h up.
+  const map: PinballMap = { p0: [0, 0, 0], u: [0, 0, 0.01], w: [0.01, 0, 0], n: [0, 0.01, 0] };
+
+  it('pinballPlanePoint: plane (u, w, h) -> model point, p0 + u*U + w*W + h*N', () => {
+    expect(pinballPlanePoint(map, 600, 370, 24)).toEqual({ x: 3.7, y: 0.24, z: 6 });
+    expect(pinballPlanePoint({ p0: [1, 2, 3], u: [0, 0, 1], w: [1, 0, 0], n: [0, 1, 0] }, 5, 7, 9)).toEqual({ x: 1 + 7, y: 2 + 9, z: 3 + 5 });
+  });
+
+  it('pinballRuntimeWorldPoint reproduces the runtime\'s own toWorld(planePoint(...) + offset), byte for byte', () => {
+    // bedrock-pinball.test.ts: serve (u 600, w 370, h 24) -> model (3.70, 0.24
+    // - 0.1, 6.00) + origin (100, 64, 200), rotation 0, scale 1 -> (103.7, 64.14, 206.0).
+    const p = pinballRuntimeWorldPoint(map, 600, 370, 24, [0, -0.1, 0], { x: 100, y: 64, z: 200 }, 0, 1);
+    expect(p.x).toBeCloseTo(103.7, 5);
+    expect(p.y).toBeCloseTo(64.14, 5);
+    expect(p.z).toBeCloseTo(206.0, 5);
+  });
+
+  it('pinballRuntimeWorldPoint applies an arbitrary placement rotation and scale the same way the runtime does', () => {
+    // A 90-degree placement turn sends +x to +z and +z to -x (toWorld's own
+    // cos/sin form), then scales, then translates by the origin.
+    const p = pinballRuntimeWorldPoint(map, 0, 100, 0, [0, 0, 0], { x: 10, y: 0, z: 20 }, 90, 2);
+    // plane point at (u=0, w=100, h=0) is (x=1, y=0, z=0); rotated 90 -> (x=0, z=1); scaled x2 -> (0, 0, 2); + origin.
+    expect(p.x).toBeCloseTo(10, 9);
+    expect(p.y).toBeCloseTo(0, 9);
+    expect(p.z).toBeCloseTo(22, 9);
+  });
+});
+
+describe('placedDirection', () => {
+  it('rotates a direction the way rotatePlacementPoint rotates a point, without the corner-preserving translation a turn adds for points', () => {
+    const dims = { width: 20, height: 5, length: 30 };
+    const cases: Array<[0 | 90 | 180 | 270, { x: number; y: number; z: number }]> = [
+      [0, { x: 1, y: 0, z: 0 }], [90, { x: 0, y: 0, z: 1 }], [180, { x: -1, y: 0, z: 0 }], [270, { x: 0, y: 0, z: -1 }],
+    ];
+    for (const [rotation, expected] of cases) {
+      const d = placedDirection({ x: 1, y: 0, z: 0 }, dims, 100, rotation);
+      expect(d.x).toBeCloseTo(expected.x, 9);
+      expect(d.y).toBeCloseTo(expected.y, 9);
+      expect(d.z).toBeCloseTo(expected.z, 9);
+    }
+  });
+
+  it('scales with size, same as placedPoint', () => {
+    const dims = { width: 20, height: 5, length: 30 };
+    expect(placedDirection({ x: 2, y: 0, z: 0 }, dims, 150, 0)).toEqual({ x: 3, y: 0, z: 0 });
+  });
+});
+
+// ─── Client animations: the pack's own Molang ────────────────────────────────
+
+/** An environment over fixed properties and queries, with its own variables. */
+function env(props: Record<string, number | boolean>, queries: Record<string, number> = {}): MolangEnv & { unknowns: string[] } {
+  const unknowns: string[] = [];
+  return { property: n => props[n], query: (n, args) => (n === 'movement_direction' ? [0.6, 0, 0.8][args[0] ?? 0] : queries[n]), vars: new Map(), unknown: n => unknowns.push(n), unknowns };
+}
+
+describe('compileMolang', () => {
+  it('reads properties, the math library in degrees, comparisons and ternaries as Molang does', () => {
+    const e = env({ 'craftmatic:rider': 1, 'craftmatic:occupied': false, 'craftmatic:track_pitch': -12.5 });
+    expect(compileMolang("query.property('craftmatic:track_pitch')")(e)).toBe(-12.5);
+    expect(compileMolang("-query.property('craftmatic:track_pitch')")(e)).toBe(12.5);
+    expect(compileMolang("query.property('craftmatic:rider') == 1 && !query.property('craftmatic:occupied') ? 1.0 : 0.0")(e)).toBe(1);
+    expect(compileMolang("query.property('craftmatic:rider') == 0 && !query.property('craftmatic:occupied') ? 1.0 : 0.0")(e)).toBe(0);
+    expect(compileMolang('math.cos(90)')(e)).toBeCloseTo(0, 12);
+    expect(compileMolang('math.clamp(5, -2, 2) + math.lerp(0, 10, 0.25)')(e)).toBe(4.5);
+    expect(compileMolang('math.atan2(1, 1)')(e)).toBeCloseTo(45, 9);
+    expect(compileMolang('(1 + 2) * 3 - 4 / 2')(e)).toBe(7);
+    expect(compileMolang('1 / 0')(e)).toBe(0);
+    expect(compileMolang("query.property('missing')")(e)).toBe(0);
+  });
+  it('runs statement lists over variables, as a pre_animation script does, and answers queries with arguments', () => {
+    const e = env({ 'craftmatic:angle': 90 }, { delta_time: 0.05 });
+    const ease = compileMolang("v.ix_angle = v.ix_angle + math.clamp(q.property('craftmatic:angle') - v.ix_angle, -q.delta_time * 225, q.delta_time * 225);");
+    expect(ease(e)).toBeCloseTo(11.25, 9);
+    expect(e.vars.get('ix_angle')).toBeCloseTo(11.25, 9);
+    for (let i = 0; i < 20; i++) ease(e);
+    expect(e.vars.get('ix_angle')).toBe(90);
+    expect(compileMolang('-v.ix_angle')(e)).toBe(-90);
+    expect(compileMolang('q.movement_direction(2) * 10')(e)).toBeCloseTo(8, 9);
+    expect(compileMolang('v.a = 1; v.b = v.a + 1; v.b * 2')(e)).toBe(4);
+  });
+  it('reports a query it has no answer for, once, and reads it as 0', () => {
+    const e = env({});
+    expect(compileMolang('q.head_bob_phase * 3')(e)).toBe(0);
+    expect(e.unknowns).toEqual(['head_bob_phase']);
+    expect(() => compileMolang('math.nonsense(1)')).toThrow(/unknown math/);
+    expect(() => compileMolang('q.property(')).toThrow();
+  });
+});
+
+describe('readClientAnimations', () => {
+  const entity = (typeId: string, animations: Record<string, string>, scripts: Record<string, unknown>): string =>
+    JSON.stringify({ format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: typeId, animations, scripts } } });
+  const clips = JSON.stringify({ format_version: '1.8.0', animations: {
+    'animation.x.track': { loop: true, bones: { track_pitch: { position: ["query.property('craftmatic:body_x')", 0, "query.property('craftmatic:body_z')"], rotation: ["query.property('craftmatic:track_pitch')", 0, 0] }, rider_0: { scale: "query.property('craftmatic:rider') == 0 && !query.property('craftmatic:occupied') ? 1.0 : 0.0" } } },
+    'animation.x.walk': { loop: true, bones: { leg_right: { rotation: ['math.cos(query.modified_distance_moved * 10) * 35 * query.is_moving', 0, 0] } } },
+    'animation.x.sit': { loop: true, bones: { leg_right: { rotation: [-90, 0, 0] } } },
+    'animation.x.turn': { loop: true, bones: { ix_spin: { rotation: [0, '-v.ix_angle', 0] } } },
+  } });
+  const sources = new Map([
+    ['RP/entity/car.entity.json', entity('craftmatic:car', { track: 'animation.x.track' }, { animate: ['track'] })],
+    ['RP/entity/fig.entity.json', entity('craftmatic:fig', { walk: 'animation.x.walk', sit: 'animation.x.sit' }, { animate: [{ walk: '!query.is_riding' }, { sit: 'query.is_riding' }] })],
+    ['RP/entity/door.entity.json', entity('craftmatic:door', { turn: 'animation.x.turn' }, { initialize: ["v.ix_angle = q.property('craftmatic:angle');"], pre_animation: ["v.ix_angle = v.ix_angle + math.clamp(q.property('craftmatic:angle') - v.ix_angle, -q.delta_time * 225, q.delta_time * 225);"], animate: ['turn'] })],
+    ['RP/entity/bad.entity.json', entity('craftmatic:bad', { gone: 'animation.x.missing' }, { animate: ['gone'] })],
+  ]);
+  const notes: string[] = [];
+  const sets = readClientAnimations(sources, new Map([['RP/animations/x.animation.json', clips]]), notes);
+
+  it('compiles each type\'s clips with their conditions, and notes a clip the pack does not ship', () => {
+    expect([...sets.keys()].sort()).toEqual(['craftmatic:car', 'craftmatic:door', 'craftmatic:fig']);
+    expect(sets.get('craftmatic:fig')!.clips.map(c => c.name)).toEqual(['walk', 'sit']);
+    expect(notes).toEqual(['craftmatic:bad animates "gone" but the pack ships no such clip (animation.x.missing).']);
+  });
+  it('a coaster car: the track_pitch bone turns and moves by the properties, a rider bone scales to 0 when another rider is chosen', () => {
+    const poses = evaluateClientAnimations(sets.get('craftmatic:car')!, env({ 'craftmatic:track_pitch': -20, 'craftmatic:body_x': 1.5, 'craftmatic:body_z': -3, 'craftmatic:rider': 1, 'craftmatic:occupied': false }));
+    expect(poses.get('track_pitch')).toEqual({ rotation: [-20, 0, 0], position: [1.5, 0, -3], scale: [1, 1, 1] });
+    expect(poses.get('rider_0')!.scale).toEqual([0, 0, 0]);
+  });
+  it('a figure: the walk clip swings the leg while moving and the sit clip replaces it while riding', () => {
+    const fig = sets.get('craftmatic:fig')!;
+    const walking = evaluateClientAnimations(fig, env({}, { is_riding: 0, is_moving: 1, modified_distance_moved: 0 }));
+    expect(walking.get('leg_right')!.rotation[0]).toBeCloseTo(35, 9);
+    const still = evaluateClientAnimations(fig, env({}, { is_riding: 0, is_moving: 0, modified_distance_moved: 0 }));
+    expect(still.get('leg_right')!.rotation[0]).toBe(0);
+    const seated = evaluateClientAnimations(fig, env({}, { is_riding: 1, is_moving: 0, modified_distance_moved: 0 }));
+    expect(seated.get('leg_right')!.rotation).toEqual([-90, 0, 0]);
+  });
+  it('a door: initialize sets the eased angle, pre_animation eases it toward the property at the clip\'s rate', () => {
+    const door = sets.get('craftmatic:door')!;
+    const e = env({ 'craftmatic:angle': 0 }, { delta_time: 0.05 });
+    initializeClientAnimations(door, e);
+    expect(evaluateClientAnimations(door, e).get('ix_spin')!.rotation[1]).toBe(0);
+    (e as { property: MolangEnv['property'] }).property = () => 90;
+    expect(evaluateClientAnimations(door, e).get('ix_spin')!.rotation[1]).toBeCloseTo(-11.25, 9);
+    for (let i = 0; i < 10; i++) evaluateClientAnimations(door, e);
+    expect(evaluateClientAnimations(door, e).get('ix_spin')!.rotation[1]).toBe(-90);
+  });
+});
+
+describe.skipIf(!havePacks)('client animations of the QA packs', () => {
+  it('10261: every coaster car plays its track clip and every figure its walk/sit clips', async () => {
+    const m = await loadAddonPreviewModel(readPack(PACK_10261));
+    const car = m.entities.find(e => e.kind === 'car')!;
+    const set = m.animations.get(car.typeId);
+    expect(set, car.typeId).toBeDefined();
+    expect(set!.clips.some(c => c.bones.has('track_pitch'))).toBe(true);
+    const fig = m.entities.find(e => e.kind === 'figure')!;
+    expect(m.animations.get(fig.typeId)!.clips.map(c => c.name).sort()).toEqual(['look', 'sit', 'walk']);
+  }, 60000);
+});
+
+describe.skipIf(!havePinballPack)('pinball CONFIG (real pack)', () => {
+  it('parses scripts/pinball.js and classifies the console (seat-like), ball and flippers', async () => {
+    const m = await loadAddonPreviewModel(readPack(PACK_PINBALL));
+    expect(m.pinball).not.toBeNull();
+    const pb = m.pinball!;
+    expect(pb.flipperTypes.length).toBe(2);
+    expect(pb.sim.flippers.length).toBe(2);
+    expect(typeof pb.ballH).toBe('number');
+    expect(pb.map.p0.length).toBe(3);
+
+    const consoleEntity = m.entities.find(e => e.typeId === pb.consoleType);
+    const ball = m.entities.find(e => e.typeId === pb.ballType);
+    const flippers = pb.flipperTypes.map(t => m.entities.find(e => e.typeId === t));
+
+    expect(consoleEntity).toBeTruthy();
+    expect(consoleEntity!.kind).toBe('seat');
+    expect(consoleEntity!.pinball).toBe(true);
+    expect(consoleEntity!.label).toMatch(/play pinball/i);
+
+    expect(ball).toBeTruthy();
+    expect(ball!.pinball).toBe(true);
+
+    expect(flippers.every(f => !!f)).toBe(true);
+    expect(flippers.every(f => f!.pinball)).toBe(true);
+    // Never classified as a seat/door/figure/etc — they render as real
+    // geometry regardless of `kind` and need no legend row of their own.
+    expect(flippers.every(f => f!.kind === 'other')).toBe(true);
+    expect(ball!.kind).toBe('other');
+  });
+});

@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0a0a14">
+  <title>Craftmatic — LEGO → Minecraft Showcase</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a14;
+      --surface: rgba(10, 10, 22, 0.82);
+      --border: rgba(255,255,255,0.08);
+      --accent: #F2CD37;
+      --accent-dim: rgba(242, 205, 55, 0.15);
+      --text: #e4e4ef;
+      --muted: #6b6b88;
+      --font: 'Inter', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Viewer fills entire screen ── */
+    #viewer-root {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+    }
+
+    /* ── Top-left brand ── */
+    #brand {
+      position: fixed;
+      top: 20px;
+      left: 24px;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+    #brand svg { opacity: 0.9; }
+    #brand-text {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      opacity: 0.85;
+      color: var(--text);
+    }
+    #brand-sub {
+      font-size: 11px;
+      font-weight: 400;
+      opacity: 0.45;
+      color: var(--text);
+      margin-top: 1px;
+    }
+
+    /* ── Top-right hint ── */
+    #orbit-hint {
+      position: fixed;
+      top: 20px;
+      right: 24px;
+      z-index: 20;
+      font-size: 12px;
+      color: var(--muted);
+      pointer-events: none;
+      letter-spacing: 0.02em;
+    }
+
+    /* ── Bottom UI bar ── */
+    #bottom-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 20;
+      padding: 0 24px 24px;
+      background: linear-gradient(to top, rgba(10,10,20,0.95) 0%, rgba(10,10,20,0.6) 80%, transparent 100%);
+    }
+
+    #bar-inner {
+      max-width: 860px;
+      margin: 0 auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      backdrop-filter: blur(24px) saturate(1.5);
+      -webkit-backdrop-filter: blur(24px) saturate(1.5);
+      padding: 18px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* Model info row */
+    #model-info {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    #model-title {
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.2;
+      color: var(--text);
+    }
+    #model-meta {
+      display: flex;
+      gap: 14px;
+      margin-top: 5px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    #model-meta span { display: flex; align-items: center; gap: 4px; }
+
+    /* Stats chips */
+    #model-stats {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .stat-chip {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      text-align: center;
+      min-width: 70px;
+    }
+    .stat-chip .val {
+      font-size: 15px;
+      font-weight: 600;
+      font-family: var(--mono);
+      color: var(--accent);
+      display: block;
+    }
+    .stat-chip .lbl {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-top: 1px;
+      display: block;
+    }
+
+    /* Controls row */
+    #controls-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    /* Model picker buttons */
+    #model-picker {
+      display: flex;
+      gap: 6px;
+      flex: 1;
+      flex-wrap: wrap;
+    }
+
+    .model-btn {
+      font-family: var(--font);
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .model-btn:hover {
+      background: rgba(255,255,255,0.08);
+      color: var(--text);
+      border-color: rgba(255,255,255,0.16);
+    }
+    .model-btn.active {
+      background: var(--accent-dim);
+      color: var(--accent);
+      border-color: rgba(242, 205, 55, 0.35);
+    }
+
+    /* Scale toggle */
+    #scale-toggle {
+      display: flex;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .scale-btn {
+      font-family: var(--font);
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 12px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .scale-btn.active {
+      background: rgba(255,255,255,0.08);
+      color: var(--text);
+    }
+
+    /* ── Loading overlay ── */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      transition: opacity 0.4s ease;
+    }
+    #loading-overlay.fade-out {
+      opacity: 0;
+      pointer-events: none;
+    }
+    #loading-overlay.hidden { display: none; }
+
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 3px solid rgba(242, 205, 55, 0.15);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #loading-label {
+      font-size: 14px;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+    #loading-model-name {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    /* ── Error banner ── */
+    #error-banner {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 40;
+      background: rgba(200, 40, 40, 0.9);
+      color: #fff;
+      border-radius: 10px;
+      padding: 12px 20px;
+      font-size: 13px;
+      display: none;
+      max-width: 500px;
+      text-align: center;
+    }
+
+    /* Responsive: compact on small screens */
+    @media (max-width: 600px) {
+      #bar-inner { padding: 14px 16px; gap: 12px; }
+      #model-title { font-size: 16px; }
+      #model-stats { display: none; }
+      #orbit-hint { display: none; }
+      .model-btn { font-size: 11px; padding: 5px 9px; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Three.js render target -->
+  <div id="viewer-root"></div>
+
+  <!-- Brand -->
+  <div id="brand">
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#F2CD37" stroke-width="2">
+      <rect x="2" y="7" width="20" height="14" rx="2"/>
+      <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+      <circle cx="8" cy="4" r="1" fill="#F2CD37" stroke="none"/>
+      <circle cx="12" cy="4" r="1" fill="#F2CD37" stroke="none"/>
+      <circle cx="16" cy="4" r="1" fill="#F2CD37" stroke="none"/>
+    </svg>
+    <div>
+      <div id="brand-text">Craftmatic</div>
+      <div id="brand-sub">LEGO → Minecraft</div>
+    </div>
+  </div>
+
+  <!-- Orbit hint -->
+  <div id="orbit-hint">Drag · Scroll · Right-drag</div>
+
+  <!-- Error banner -->
+  <div id="error-banner"></div>
+
+  <!-- Bottom UI -->
+  <div id="bottom-bar">
+    <div id="bar-inner">
+      <div id="model-info">
+        <div>
+          <div id="model-title">Loading…</div>
+          <div id="model-meta">
+            <span id="meta-set">—</span>
+            <span id="meta-year">—</span>
+            <span id="meta-pieces">—</span>
+          </div>
+        </div>
+        <div id="model-stats">
+          <div class="stat-chip">
+            <span class="val" id="stat-blocks">—</span>
+            <span class="lbl">Blocks</span>
+          </div>
+          <div class="stat-chip">
+            <span class="val" id="stat-dims">—</span>
+            <span class="lbl">Dimensions</span>
+          </div>
+          <div class="stat-chip">
+            <span class="val" id="stat-score">—</span>
+            <span class="lbl">Quality</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="controls-row">
+        <div id="model-picker"></div>
+        <div id="scale-toggle">
+          <button class="scale-btn active" data-scale="cubic">Cubic</button>
+          <button class="scale-btn" data-scale="accurate">Accurate</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading screen -->
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <div id="loading-model-name">Craftmatic</div>
+    <div id="loading-label">Fetching LDraw model…</div>
+  </div>
+
+  <script type="module" src="/src/showcase.ts"></script>
+</body>
+</html>

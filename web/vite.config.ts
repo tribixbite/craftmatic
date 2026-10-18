@@ -1,14 +1,47 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
+import { existsSync, createReadStream, readFileSync } from 'node:fs';
+import { computePipelineStamp } from '../scripts/pipeline-stamp.ts';
+import { pipelineStampText, unstampedPipeline, type PipelineStamp } from './src/engine/pipeline-version.ts';
+
+// Path to clego's reconstructed LDR files (dev only)
+const CLEGO_RECONSTRUCTED = 'C:/git/clego/lego_sets/Reconstructed';
+const CLEGO_LDR = 'C:/git/clego/lego_sets/LDR';
+// Root of ALL clego model sources (OMR/, LDR/, IO/, LXF/, Reconstructed/, …).
+// Served at /lego-models/ for the unified best-model index (dev only).
+const CLEGO_MODELS_ROOT = 'C:/git/clego/lego_sets';
+// Path to LDraw parts library (dev only — served at /ldraw-parts for geometry-accurate mode)
+const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
 
 /** Build-time version string: v2026.02.20 */
 const appVersion = `v${new Date().toISOString().slice(0, 10).replace(/-/g, '.')}`;
+
+/**
+ * Export-pipeline provenance stamp, injected as `__PIPELINE_STAMP__` and read
+ * by `src/engine/pipeline-version.ts` (the browser has no git and no files,
+ * so this is the only place it can come from). Computed once per build/dev
+ * start from the import closure of the pack builders + git; see
+ * `scripts/pipeline-stamp.ts`. A failure here must never break the build —
+ * the engine then reports the pack as `unstamped`, which is the truth.
+ */
+const pipelineStamp = ((): PipelineStamp => {
+  try {
+    const { closure: _closure, ...stamp } = computePipelineStamp();
+    console.log(`[pipeline-stamp] ${pipelineStampText(stamp)} — hash ${stamp.hash}, ${stamp.files} files${stamp.dirty ? `, dirty: ${stamp.dirtyFiles.join(', ')}` : ''}${stamp.shallow ? ', shallow clone' : ''}`);
+    return stamp;
+  } catch (err) {
+    const reason = `stamp computation failed at build: ${err instanceof Error ? err.message : String(err)}`;
+    console.warn(`[pipeline-stamp] ${reason}`);
+    return unstampedPipeline(reason);
+  }
+})();
 
 export default defineConfig({
   root: resolve(__dirname),
   base: './',
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
+    __PIPELINE_STAMP__: JSON.stringify(pipelineStamp),
   },
   build: {
     outDir: 'dist',
@@ -25,6 +58,12 @@ export default defineConfig({
       },
     },
   },
+  // Workers are all constructed with { type: 'module' }; the rollup default
+  // ('iife') cannot code-split, which the export worker's dependency graph
+  // requires (ldraw-geometry has a CLI-only dynamic `import('node:fs')`).
+  worker: {
+    format: 'es',
+  },
   resolve: {
     alias: {
       '@engine': resolve(__dirname, 'src/engine'),
@@ -34,6 +73,219 @@ export default defineConfig({
       '@craft': resolve(__dirname, '../src'),
     },
   },
+  plugins: [
+    {
+      name: 'serve-ldraw-parts',
+      configureServer(server) {
+        // FORCE_UPSTREAM: set true to bypass the local clego library and serve
+        // ALL parts from library.ldraw.org — mirrors exactly what the deployed
+        // CF Worker does, so production part coverage can be verified in dev.
+        const FORCE_UPSTREAM = false;
+        // In-memory cache of upstream fetches (path → Buffer|null). null = a
+        // confirmed upstream 404, so we don't re-hit it.
+        //
+        // CRITICAL: only cache null on a DEFINITIVE miss (every upstream lib
+        // returned a real HTTP response, none ok). A thrown fetch (timeout /
+        // throttling during a big model's load burst) must NOT be cached —
+        // that turned transient failures into permanently missing parts
+        // (73111 etc. exist upstream but rendered as silent holes in dev).
+        // Mirrors the browser-side fetchDatText transient/definitive split.
+        const upstreamCache = new Map<string, Buffer | null>();
+        // Cap concurrent upstream fetches so a 200-part burst doesn't get
+        // throttled/refused by library.ldraw.org.
+        const MAX_UPSTREAM = 6;
+        let upstreamActive = 0;
+        const upstreamQueue: (() => void)[] = [];
+        const acquire = () => new Promise<void>(res => {
+          if (upstreamActive < MAX_UPSTREAM) { upstreamActive++; res(); }
+          else upstreamQueue.push(() => { upstreamActive++; res(); });
+        });
+        const release = () => { upstreamActive--; upstreamQueue.shift()?.(); };
+
+        // The local clego library is a frozen Studio snapshot (LDraw release
+        // 207: 12k official parts vs upstream's 24k), so every mould released
+        // since 2020 misses locally and lands here. Ask the PROD worker first —
+        // it serves the R2 mirror, which the weekly sync keeps current, and it
+        // has no rate limit; library.ldraw.org throttles bursts hard and was
+        // the source of the "part exists but renders missing" class. Upstream
+        // stays as the second tier so dev still works if prod is mid-deploy.
+        const MIRROR = 'https://craftmatic.click/ldraw-parts';
+
+        const fetchUpstream = async (urlPath: string): Promise<Buffer | null> => {
+          if (upstreamCache.has(urlPath)) return upstreamCache.get(urlPath)!;
+          let rest = urlPath;
+          let libs = ['official', 'unofficial'];
+          const unof = rest.match(/^unofficial\/(.*)$/i);
+          if (unof) { rest = unof[1]; libs = ['unofficial']; }
+          await acquire();
+          try {
+            let sawTransient = false;
+            try {
+              const r = await fetch(`${MIRROR}/${urlPath}`, { signal: AbortSignal.timeout(10000) });
+              if (r.ok) {
+                const buf = Buffer.from(await r.arrayBuffer());
+                upstreamCache.set(urlPath, buf);
+                return buf;
+              }
+              // A 404 from the mirror is NOT definitive: the worker itself
+              // falls back upstream, but only for keys it recognises, so keep
+              // probing library.ldraw.org below before caching a miss.
+            } catch {
+              sawTransient = true;
+            }
+            for (const lib of libs) {
+              for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                  const r = await fetch(`https://library.ldraw.org/library/${lib}/${rest}`, {
+                    signal: AbortSignal.timeout(10000),
+                  });
+                  if (r.ok) {
+                    const buf = Buffer.from(await r.arrayBuffer());
+                    upstreamCache.set(urlPath, buf);
+                    return buf;
+                  }
+                  break; // real HTTP response (404 etc.) — next lib, no retry
+                } catch {
+                  sawTransient = true;
+                  if (attempt < 2) await new Promise(res => setTimeout(res, 250 * (attempt + 1)));
+                }
+              }
+            }
+            if (!sawTransient) upstreamCache.set(urlPath, null); // definitive miss only
+            return null;
+          } finally {
+            release();
+          }
+        };
+
+        server.middlewares.use('/ldraw-parts', (req, res, next) => {
+          const urlPath = (req.url ?? '').replace(/^\//, '').replace(/\.\./g, '');
+          if (!urlPath) { next(); return; }
+          // Deployed-library revision, mirroring the prod worker's
+          // /ldraw-parts/_rev (parts.ts keys its persistent .dat cache off it).
+          // Dev's effective library is a MIX — the frozen local clego snapshot
+          // plus per-miss fallbacks to the prod mirror and upstream — so there
+          // is no honest content revision to report. A CONSTANT stamp is the
+          // truthful answer: it never claims the library changed, which is
+          // exactly right for a tree nobody syncs. Bump it by hand if you edit
+          // LDRAW_ROOT and need dev browsers to drop their cached parts.
+          if (urlPath.startsWith('_rev')) {
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Cache-Control', 'no-store');
+            res.end(JSON.stringify({
+              rev: 'dev-local-1',
+              generated: null,
+              source: 'vite middleware (local clego library + mirror fallback)',
+              note: 'constant by design — dev has no synced library revision',
+            }));
+            return;
+          }
+          // Batched multi-get, mirroring the prod worker's /ldraw-parts/_batch:
+          // ?files=parts/3001.dat,p/4-4cyli.dat,… → {found:{name:text}, missing:[…]}.
+          // Local-file only (no upstream) — misses fall back to per-file probing
+          // client-side, exactly like prod's R2-only batch semantics.
+          if (urlPath.startsWith('_batch')) {
+            const q = new URL(req.url ?? '', 'http://x').searchParams.get('files') ?? '';
+            const found: Record<string, string> = {};
+            const missing: string[] = [];
+            for (const name of q.split(',').map(s => s.trim()).filter(Boolean).slice(0, 64)) {
+              const rel = name.replace(/\.\./g, '').replace(/^unofficial\//i, 'UnOfficial/');
+              const candidates = [`${LDRAW_ROOT}/${rel}`, `${LDRAW_ROOT}/UnOfficial/${rel}`];
+              let hit = false;
+              for (const c of candidates) {
+                if (existsSync(c)) {
+                  try {
+                    found[name] = readFileSync(c, 'utf-8');
+                    hit = true;
+                  } catch { /* unreadable — treat as missing */ }
+                  break;
+                }
+              }
+              if (!hit) missing.push(name);
+            }
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Cache-Control', 'no-store');
+            res.end(JSON.stringify({ found, missing }));
+            return;
+          }
+          const localPath = `${LDRAW_ROOT}/${urlPath}`;
+          const haveLocal = !FORCE_UPSTREAM && existsSync(LDRAW_ROOT) && existsSync(localPath);
+          if (haveLocal) {
+            res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            createReadStream(localPath).pipe(res);
+            return;
+          }
+          // Local miss → fall back to the official/unofficial LDraw library
+          // (same upstream the production Worker proxies).
+          void fetchUpstream(urlPath).then(buf => {
+            if (!buf) { res.statusCode = 404; res.end(); return; }
+            res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            res.end(req.method === 'HEAD' ? undefined : buf);
+          });
+        });
+      },
+    },
+    {
+      name: 'serve-clego-ldr',
+      configureServer(server) {
+        server.middlewares.use('/lego-sets', (req, res, next) => {
+          if (!existsSync(CLEGO_LDR)) { next(); return; }
+          const filename = decodeURIComponent((req.url ?? '').replace(/^\//, '')).replace(/\.\./g, '');
+          if (!filename) { next(); return; }
+          const filePath = `${CLEGO_LDR}/${filename}`;
+          if (!existsSync(filePath)) { res.statusCode = 404; res.end(); return; }
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+          createReadStream(filePath).pipe(res);
+        });
+      },
+    },
+    {
+      // Unified model root: serves ANY file below C:/git/clego/lego_sets
+      // (e.g. /lego-models/OMR/10001-1.mpd, /lego-models/LDR/10001%20Metro%20Liner.ldr).
+      // Paths come from the unified index (web/public/lego-models-index.json).
+      name: 'serve-clego-models',
+      configureServer(server) {
+        server.middlewares.use('/lego-models', (req, res, next) => {
+          if (!existsSync(CLEGO_MODELS_ROOT)) { next(); return; }
+          // Decode URL-encoded names (spaces, '#'…), strip query, block traversal.
+          // decodeURIComponent throws URIError on malformed %-sequences → 400,
+          // not an unhandled middleware exception.
+          let rel: string;
+          try {
+            rel = decodeURIComponent((req.url ?? '').split('?')[0]!.replace(/^\//, '')).replace(/\.\./g, '');
+          } catch {
+            res.statusCode = 400; res.end(); return;
+          }
+          if (!rel) { next(); return; }
+          const filePath = `${CLEGO_MODELS_ROOT}/${rel}`;
+          if (!existsSync(filePath)) { res.statusCode = 404; res.end(); return; }
+          // .io / .lxf are ZIP archives — must be served binary, not text.
+          const isBinary = /\.(io|lxf|bin|zip)$/i.test(rel);
+          res.setHeader('Content-Type', isBinary ? 'application/octet-stream' : 'text/plain; charset=utf-8');
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+          createReadStream(filePath).pipe(res);
+        });
+      },
+    },
+    {
+      name: 'serve-clego-reconstructed',
+      configureServer(server) {
+        server.middlewares.use('/lego-reconstructed', (req, res, next) => {
+          if (!existsSync(CLEGO_RECONSTRUCTED)) { next(); return; }
+          const filename = (req.url ?? '').replace(/^\//, '').replace(/\.\./g, '');
+          if (!filename) { next(); return; }
+          const filePath = `${CLEGO_RECONSTRUCTED}/${filename}`;
+          if (!existsSync(filePath)) { res.statusCode = 404; res.end(); return; }
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+          createReadStream(filePath).pipe(res);
+        });
+      },
+    },
+  ],
   server: {
     port: 4000,
     open: true,

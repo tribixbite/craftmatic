@@ -1,0 +1,2397 @@
+{
+  "symmetry_table": {
+    "level": "vertex",
+    "parts": {
+      "11476": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\11476-full-symmetry.json"
+      },
+      "15068": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\15068-full-symmetry.json"
+      },
+      "15571": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\15571-full-symmetry.json"
+      },
+      "22885": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\22885-full-symmetry.json"
+      },
+      "2420": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\2420-full-symmetry.json"
+      },
+      "2431": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\2431-full-symmetry.json"
+      },
+      "25269": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\25269-full-symmetry.json"
+      },
+      "3003": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3003-full-symmetry.json"
+      },
+      "3005": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3005-full-symmetry.json"
+      },
+      "3010": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3010-full-symmetry.json"
+      },
+      "3010py3": {
+        "order": 1,
+        "printed": true,
+        "proof": null
+      },
+      "3020": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3020-full-symmetry.json"
+      },
+      "3023b": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3023b-full-symmetry.json"
+      },
+      "3031": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3031-full-symmetry.json"
+      },
+      "3069b": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3069b-full-symmetry.json"
+      },
+      "3245cpzc": {
+        "order": 1,
+        "printed": false,
+        "proof": null
+      },
+      "3623": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3623-full-symmetry.json"
+      },
+      "3710": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3710-full-symmetry.json"
+      },
+      "3941": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3941-full-symmetry.json"
+      },
+      "3958": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\3958-full-symmetry.json"
+      },
+      "4032a": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\4032a-full-symmetry.json"
+      },
+      "41740": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\41740-full-symmetry.json"
+      },
+      "43722": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\43722-full-symmetry.json"
+      },
+      "43723": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\43723-full-symmetry.json"
+      },
+      "60474": {
+        "order": 4,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\60474-full-symmetry.json"
+      },
+      "60478": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\60478-full-symmetry.json"
+      },
+      "6091": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\6091-full-symmetry.json"
+      },
+      "61252": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\61252-full-symmetry.json"
+      },
+      "85984": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\85984-full-symmetry.json"
+      },
+      "87079": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\87079-full-symmetry.json"
+      },
+      "92593": {
+        "order": 2,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\92593-full-symmetry.json"
+      },
+      "98138pz0": {
+        "order": 1,
+        "printed": true,
+        "proof": null
+      },
+      "99780": {
+        "order": 1,
+        "printed": false,
+        "proof": "output\\pdf-placement-diagnosis\\99780-full-symmetry.json"
+      }
+    },
+    "unproven": [
+      "3010py3",
+      "3245cpzc",
+      "98138pz0"
+    ],
+    "protocol": "Proper cube rotations recorded by placement_verify_part_symmetries; vertex level compares universal CAD vertex sets, triangle level compares full colored triangle sets; printed moulds keep identity only",
+    "limitations": "Embossed stud logo orientation and triangle tessellation are outside the vertex level. A part with no saved proof is treated as having no symmetry, which understates equivalence rather than overstating it."
+  },
+  "scope": "Independent OMR evaluation only. Authoritative filename aliases and declared unprinted structural symmetries reported separately from raw strict score. No evaluation chooses runtime output.",
+  "run": "output\\pdf-placement-beam\\40377-r6-retain-p19\\page-019\\placement",
+  "aliases": {
+    "3023": "3023b",
+    "3010pb291": "3010py3",
+    "3245cpb117": "3245cpzc"
+  },
+  "alias_provenance": {
+    "3010py3.dat": {
+      "sha256": "2ec03f011ac0ed5c4b2090320df9d06ba9d00423b666f9a214889b9f4d2cbb76",
+      "bricklink_aliases": [
+        "3010pb291"
+      ],
+      "alias_evidence": "LDraw part !KEYWORDS header",
+      "canonical_upstream_url": "https://library.ldraw.org/library/official/parts/3010py3.dat"
+    },
+    "3245cpzc.dat": {
+      "sha256": "c818252533f3766bf07c7f0540609aa14f89e3882ad4c8a58192b4e113e93b17",
+      "bricklink_aliases": [
+        "3245cpb117"
+      ],
+      "alias_evidence": "LDraw part !KEYWORDS header",
+      "canonical_upstream_url": "https://library.ldraw.org/library/official/parts/3245cpzc.dat"
+    },
+    "98138pz0.dat": {
+      "sha256": "f98e0e255025aad41ad98b0cfdd52fb7948c5f4d6b981f40f5448400ef9f22b5",
+      "bricklink_aliases": [
+        "98138pb072"
+      ],
+      "alias_evidence": "LDraw part !KEYWORDS header",
+      "canonical_upstream_url": "https://library.ldraw.org/library/official/parts/98138pz0.dat"
+    }
+  },
+  "rename_provenance": {
+    "old_bounds": [
+      [
+        -20.0,
+        -4.0,
+        -10.0
+      ],
+      [
+        20.0,
+        8.0,
+        10.0
+      ]
+    ],
+    "new_bounds": [
+      [
+        -20.0,
+        -4.0,
+        -10.0
+      ],
+      [
+        20.0,
+        8.0,
+        10.0
+      ]
+    ],
+    "same_bounds": true,
+    "new_full_triangle_yaw180_invariant": true,
+    "rename_lines": [
+      "0 !HISTORY 2023-05-26 [OrionP] Moved from 3023.dat"
+    ],
+    "file": "C:\\git\\clego\\extracted\\studio_release\\app\\ldraw\\UnOfficial\\parts\\3023b.dat",
+    "sha256": "2eae37fb7bc308b3f051e7ea1fa3825cd3dea0676c6953c4f0b96068c438871f",
+    "truth_used": false
+  },
+  "selected": {
+    "file": "model.ldr",
+    "strict": {
+      "matched": 28,
+      "truth_parts": 90,
+      "recon_parts": 58,
+      "coverage": 0.3111111111111111,
+      "precision": 0.4827586206896552,
+      "inventory_coverage": 0.5555555555555556,
+      "inventory_precision": 0.8620689655172413,
+      "pos_tolerance_ldu": 1.0,
+      "rotation_tolerance": 0.0001,
+      "allows_mirror": false,
+      "alignment": {
+        "rotation": [
+          [
+            0.0,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          0.0,
+          -16.0,
+          30.0
+        ]
+      },
+      "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+    },
+    "canonical_alias": {
+      "matched": 34,
+      "truth_parts": 90,
+      "recon_parts": 58,
+      "coverage": 0.37777777777777777,
+      "precision": 0.5862068965517241,
+      "inventory_coverage": 0.6444444444444445,
+      "inventory_precision": 1.0,
+      "pos_tolerance_ldu": 1.0,
+      "rotation_tolerance": 0.0001,
+      "allows_mirror": false,
+      "alignment": {
+        "rotation": [
+          [
+            0.0,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          0.0,
+          -16.0,
+          30.0
+        ]
+      },
+      "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+    },
+    "canonical_structural_yaw": {
+      "matched": 50,
+      "recon_parts": 58,
+      "truth_parts": 90,
+      "precision": 0.8620689655172413,
+      "coverage": 0.5555555555555556,
+      "matched_pairs": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          5
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          5,
+          4
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          7,
+          7
+        ],
+        [
+          8,
+          8
+        ],
+        [
+          9,
+          9
+        ],
+        [
+          10,
+          10
+        ],
+        [
+          11,
+          11
+        ],
+        [
+          12,
+          12
+        ],
+        [
+          13,
+          15
+        ],
+        [
+          14,
+          16
+        ],
+        [
+          15,
+          13
+        ],
+        [
+          16,
+          14
+        ],
+        [
+          17,
+          17
+        ],
+        [
+          18,
+          20
+        ],
+        [
+          19,
+          21
+        ],
+        [
+          20,
+          18
+        ],
+        [
+          21,
+          19
+        ],
+        [
+          22,
+          24
+        ],
+        [
+          23,
+          25
+        ],
+        [
+          24,
+          22
+        ],
+        [
+          25,
+          23
+        ],
+        [
+          26,
+          26
+        ],
+        [
+          27,
+          27
+        ],
+        [
+          28,
+          28
+        ],
+        [
+          29,
+          29
+        ],
+        [
+          30,
+          30
+        ],
+        [
+          31,
+          31
+        ],
+        [
+          32,
+          35
+        ],
+        [
+          33,
+          34
+        ],
+        [
+          34,
+          33
+        ],
+        [
+          35,
+          36
+        ],
+        [
+          37,
+          37
+        ],
+        [
+          38,
+          38
+        ],
+        [
+          39,
+          39
+        ],
+        [
+          40,
+          40
+        ],
+        [
+          41,
+          41
+        ],
+        [
+          42,
+          45
+        ],
+        [
+          43,
+          44
+        ],
+        [
+          45,
+          46
+        ],
+        [
+          46,
+          47
+        ],
+        [
+          48,
+          48
+        ],
+        [
+          49,
+          49
+        ],
+        [
+          50,
+          50
+        ],
+        [
+          51,
+          51
+        ],
+        [
+          54,
+          54
+        ]
+      ],
+      "alignment": {
+        "rotation": [
+          [
+            0.0,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          0.0,
+          -16.0,
+          30.0
+        ]
+      },
+      "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+      "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+      "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+    },
+    "legacy_hand_listed_yaw": {
+      "matched": 47,
+      "recon_parts": 58,
+      "truth_parts": 90,
+      "precision": 0.8103448275862069,
+      "coverage": 0.5222222222222223,
+      "matched_pairs": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          5
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          5,
+          4
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          7,
+          7
+        ],
+        [
+          8,
+          8
+        ],
+        [
+          9,
+          9
+        ],
+        [
+          10,
+          10
+        ],
+        [
+          11,
+          11
+        ],
+        [
+          12,
+          12
+        ],
+        [
+          13,
+          15
+        ],
+        [
+          14,
+          16
+        ],
+        [
+          15,
+          13
+        ],
+        [
+          16,
+          14
+        ],
+        [
+          17,
+          17
+        ],
+        [
+          18,
+          20
+        ],
+        [
+          19,
+          21
+        ],
+        [
+          20,
+          18
+        ],
+        [
+          21,
+          19
+        ],
+        [
+          22,
+          24
+        ],
+        [
+          23,
+          25
+        ],
+        [
+          24,
+          22
+        ],
+        [
+          25,
+          23
+        ],
+        [
+          26,
+          26
+        ],
+        [
+          27,
+          27
+        ],
+        [
+          28,
+          28
+        ],
+        [
+          29,
+          29
+        ],
+        [
+          30,
+          30
+        ],
+        [
+          31,
+          31
+        ],
+        [
+          32,
+          35
+        ],
+        [
+          33,
+          34
+        ],
+        [
+          34,
+          33
+        ],
+        [
+          35,
+          36
+        ],
+        [
+          37,
+          37
+        ],
+        [
+          38,
+          38
+        ],
+        [
+          39,
+          39
+        ],
+        [
+          40,
+          40
+        ],
+        [
+          41,
+          41
+        ],
+        [
+          42,
+          45
+        ],
+        [
+          43,
+          44
+        ],
+        [
+          45,
+          46
+        ],
+        [
+          46,
+          47
+        ],
+        [
+          51,
+          51
+        ],
+        [
+          54,
+          54
+        ]
+      ],
+      "alignment": {
+        "rotation": [
+          [
+            0.0,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          0.0,
+          -16.0,
+          30.0
+        ]
+      },
+      "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+      "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+      "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+    }
+  },
+  "oracle_best_strict": {
+    "file": "model.ldr",
+    "strict": {
+      "matched": 28,
+      "truth_parts": 90,
+      "recon_parts": 58,
+      "coverage": 0.3111111111111111,
+      "precision": 0.4827586206896552,
+      "inventory_coverage": 0.5555555555555556,
+      "inventory_precision": 0.8620689655172413,
+      "pos_tolerance_ldu": 1.0,
+      "rotation_tolerance": 0.0001,
+      "allows_mirror": false,
+      "alignment": {
+        "rotation": [
+          [
+            0.0,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          0.0,
+          -16.0,
+          30.0
+        ]
+      },
+      "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+    },
+    "canonical_alias": {
+      "matched": 34,
+      "truth_parts": 90,
+      "recon_parts": 58,
+      "coverage": 0.37777777777777777,
+      "precision": 0.5862068965517241,
+      "inventory_coverage": 0.6444444444444445,
+      "inventory_precision": 1.0,
+      "pos_tolerance_ldu": 1.0,
+      "rotation_tolerance": 0.0001,
+      "allows_mirror": false,
+      "alignment": {
+        "rotation": [
+          [
+            0.0,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          0.0,
+          -16.0,
+          30.0
+        ]
+      },
+      "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+    },
+    "canonical_structural_yaw": {
+      "matched": 50,
+      "recon_parts": 58,
+      "truth_parts": 90,
+      "precision": 0.8620689655172413,
+      "coverage": 0.5555555555555556,
+      "matched_pairs": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          5
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          5,
+          4
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          7,
+          7
+        ],
+        [
+          8,
+          8
+        ],
+        [
+          9,
+          9
+        ],
+        [
+          10,
+          10
+        ],
+        [
+          11,
+          11
+        ],
+        [
+          12,
+          12
+        ],
+        [
+          13,
+          15
+        ],
+        [
+          14,
+          16
+        ],
+        [
+          15,
+          13
+        ],
+        [
+          16,
+          14
+        ],
+        [
+          17,
+          17
+        ],
+        [
+          18,
+          20
+        ],
+        [
+          19,
+          21
+        ],
+        [
+          20,
+          18
+        ],
+        [
+          21,
+          19
+        ],
+        [
+          22,
+          24
+        ],
+        [
+          23,
+          25
+        ],
+        [
+          24,
+          22
+        ],
+        [
+          25,
+          23
+        ],
+        [
+          26,
+          26
+        ],
+        [
+          27,
+          27
+        ],
+        [
+          28,
+          28
+        ],
+        [
+          29,
+          29
+        ],
+        [
+          30,
+          30
+        ],
+        [
+          31,
+          31
+        ],
+        [
+          32,
+          35
+        ],
+        [
+          33,
+          34
+        ],
+        [
+          34,
+          33
+        ],
+        [
+          35,
+          36
+        ],
+        [
+          37,
+          37
+        ],
+        [
+          38,
+          38
+        ],
+        [
+          39,
+          39
+        ],
+        [
+          40,
+          40
+        ],
+        [
+          41,
+          41
+        ],
+        [
+          42,
+          45
+        ],
+        [
+          43,
+          44
+        ],
+        [
+          45,
+          46
+        ],
+        [
+          46,
+          47
+        ],
+        [
+          48,
+          48
+        ],
+        [
+          49,
+          49
+        ],
+        [
+          50,
+          50
+        ],
+        [
+          51,
+          51
+        ],
+        [
+          54,
+          54
+        ]
+      ],
+      "alignment": {
+        "rotation": [
+          [
+            0.0,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          0.0,
+          -16.0,
+          30.0
+        ]
+      },
+      "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+      "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+      "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+    },
+    "legacy_hand_listed_yaw": {
+      "matched": 47,
+      "recon_parts": 58,
+      "truth_parts": 90,
+      "precision": 0.8103448275862069,
+      "coverage": 0.5222222222222223,
+      "matched_pairs": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          5
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          5,
+          4
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          7,
+          7
+        ],
+        [
+          8,
+          8
+        ],
+        [
+          9,
+          9
+        ],
+        [
+          10,
+          10
+        ],
+        [
+          11,
+          11
+        ],
+        [
+          12,
+          12
+        ],
+        [
+          13,
+          15
+        ],
+        [
+          14,
+          16
+        ],
+        [
+          15,
+          13
+        ],
+        [
+          16,
+          14
+        ],
+        [
+          17,
+          17
+        ],
+        [
+          18,
+          20
+        ],
+        [
+          19,
+          21
+        ],
+        [
+          20,
+          18
+        ],
+        [
+          21,
+          19
+        ],
+        [
+          22,
+          24
+        ],
+        [
+          23,
+          25
+        ],
+        [
+          24,
+          22
+        ],
+        [
+          25,
+          23
+        ],
+        [
+          26,
+          26
+        ],
+        [
+          27,
+          27
+        ],
+        [
+          28,
+          28
+        ],
+        [
+          29,
+          29
+        ],
+        [
+          30,
+          30
+        ],
+        [
+          31,
+          31
+        ],
+        [
+          32,
+          35
+        ],
+        [
+          33,
+          34
+        ],
+        [
+          34,
+          33
+        ],
+        [
+          35,
+          36
+        ],
+        [
+          37,
+          37
+        ],
+        [
+          38,
+          38
+        ],
+        [
+          39,
+          39
+        ],
+        [
+          40,
+          40
+        ],
+        [
+          41,
+          41
+        ],
+        [
+          42,
+          45
+        ],
+        [
+          43,
+          44
+        ],
+        [
+          45,
+          46
+        ],
+        [
+          46,
+          47
+        ],
+        [
+          51,
+          51
+        ],
+        [
+          54,
+          54
+        ]
+      ],
+      "alignment": {
+        "rotation": [
+          [
+            0.0,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          0.0,
+          -16.0,
+          30.0
+        ]
+      },
+      "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+      "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+      "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+    }
+  },
+  "oracle_best_structural": {
+    "file": "model.ldr",
+    "strict": {
+      "matched": 28,
+      "truth_parts": 90,
+      "recon_parts": 58,
+      "coverage": 0.3111111111111111,
+      "precision": 0.4827586206896552,
+      "inventory_coverage": 0.5555555555555556,
+      "inventory_precision": 0.8620689655172413,
+      "pos_tolerance_ldu": 1.0,
+      "rotation_tolerance": 0.0001,
+      "allows_mirror": false,
+      "alignment": {
+        "rotation": [
+          [
+            0.0,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          0.0,
+          -16.0,
+          30.0
+        ]
+      },
+      "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+    },
+    "canonical_alias": {
+      "matched": 34,
+      "truth_parts": 90,
+      "recon_parts": 58,
+      "coverage": 0.37777777777777777,
+      "precision": 0.5862068965517241,
+      "inventory_coverage": 0.6444444444444445,
+      "inventory_precision": 1.0,
+      "pos_tolerance_ldu": 1.0,
+      "rotation_tolerance": 0.0001,
+      "allows_mirror": false,
+      "alignment": {
+        "rotation": [
+          [
+            0.0,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          0.0,
+          -16.0,
+          30.0
+        ]
+      },
+      "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+    },
+    "canonical_structural_yaw": {
+      "matched": 50,
+      "recon_parts": 58,
+      "truth_parts": 90,
+      "precision": 0.8620689655172413,
+      "coverage": 0.5555555555555556,
+      "matched_pairs": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          5
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          5,
+          4
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          7,
+          7
+        ],
+        [
+          8,
+          8
+        ],
+        [
+          9,
+          9
+        ],
+        [
+          10,
+          10
+        ],
+        [
+          11,
+          11
+        ],
+        [
+          12,
+          12
+        ],
+        [
+          13,
+          15
+        ],
+        [
+          14,
+          16
+        ],
+        [
+          15,
+          13
+        ],
+        [
+          16,
+          14
+        ],
+        [
+          17,
+          17
+        ],
+        [
+          18,
+          20
+        ],
+        [
+          19,
+          21
+        ],
+        [
+          20,
+          18
+        ],
+        [
+          21,
+          19
+        ],
+        [
+          22,
+          24
+        ],
+        [
+          23,
+          25
+        ],
+        [
+          24,
+          22
+        ],
+        [
+          25,
+          23
+        ],
+        [
+          26,
+          26
+        ],
+        [
+          27,
+          27
+        ],
+        [
+          28,
+          28
+        ],
+        [
+          29,
+          29
+        ],
+        [
+          30,
+          30
+        ],
+        [
+          31,
+          31
+        ],
+        [
+          32,
+          35
+        ],
+        [
+          33,
+          34
+        ],
+        [
+          34,
+          33
+        ],
+        [
+          35,
+          36
+        ],
+        [
+          37,
+          37
+        ],
+        [
+          38,
+          38
+        ],
+        [
+          39,
+          39
+        ],
+        [
+          40,
+          40
+        ],
+        [
+          41,
+          41
+        ],
+        [
+          42,
+          45
+        ],
+        [
+          43,
+          44
+        ],
+        [
+          45,
+          46
+        ],
+        [
+          46,
+          47
+        ],
+        [
+          48,
+          48
+        ],
+        [
+          49,
+          49
+        ],
+        [
+          50,
+          50
+        ],
+        [
+          51,
+          51
+        ],
+        [
+          54,
+          54
+        ]
+      ],
+      "alignment": {
+        "rotation": [
+          [
+            0.0,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          0.0,
+          -16.0,
+          30.0
+        ]
+      },
+      "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+      "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+      "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+    },
+    "legacy_hand_listed_yaw": {
+      "matched": 47,
+      "recon_parts": 58,
+      "truth_parts": 90,
+      "precision": 0.8103448275862069,
+      "coverage": 0.5222222222222223,
+      "matched_pairs": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          5
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          5,
+          4
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          7,
+          7
+        ],
+        [
+          8,
+          8
+        ],
+        [
+          9,
+          9
+        ],
+        [
+          10,
+          10
+        ],
+        [
+          11,
+          11
+        ],
+        [
+          12,
+          12
+        ],
+        [
+          13,
+          15
+        ],
+        [
+          14,
+          16
+        ],
+        [
+          15,
+          13
+        ],
+        [
+          16,
+          14
+        ],
+        [
+          17,
+          17
+        ],
+        [
+          18,
+          20
+        ],
+        [
+          19,
+          21
+        ],
+        [
+          20,
+          18
+        ],
+        [
+          21,
+          19
+        ],
+        [
+          22,
+          24
+        ],
+        [
+          23,
+          25
+        ],
+        [
+          24,
+          22
+        ],
+        [
+          25,
+          23
+        ],
+        [
+          26,
+          26
+        ],
+        [
+          27,
+          27
+        ],
+        [
+          28,
+          28
+        ],
+        [
+          29,
+          29
+        ],
+        [
+          30,
+          30
+        ],
+        [
+          31,
+          31
+        ],
+        [
+          32,
+          35
+        ],
+        [
+          33,
+          34
+        ],
+        [
+          34,
+          33
+        ],
+        [
+          35,
+          36
+        ],
+        [
+          37,
+          37
+        ],
+        [
+          38,
+          38
+        ],
+        [
+          39,
+          39
+        ],
+        [
+          40,
+          40
+        ],
+        [
+          41,
+          41
+        ],
+        [
+          42,
+          45
+        ],
+        [
+          43,
+          44
+        ],
+        [
+          45,
+          46
+        ],
+        [
+          46,
+          47
+        ],
+        [
+          51,
+          51
+        ],
+        [
+          54,
+          54
+        ]
+      ],
+      "alignment": {
+        "rotation": [
+          [
+            0.0,
+            0.0,
+            1.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "translation": [
+          0.0,
+          -16.0,
+          30.0
+        ]
+      },
+      "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+      "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+      "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+    }
+  },
+  "beams": [
+    {
+      "file": "model.ldr",
+      "strict": {
+        "matched": 28,
+        "truth_parts": 90,
+        "recon_parts": 58,
+        "coverage": 0.3111111111111111,
+        "precision": 0.4827586206896552,
+        "inventory_coverage": 0.5555555555555556,
+        "inventory_precision": 0.8620689655172413,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            0.0,
+            -16.0,
+            30.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_alias": {
+        "matched": 34,
+        "truth_parts": 90,
+        "recon_parts": 58,
+        "coverage": 0.37777777777777777,
+        "precision": 0.5862068965517241,
+        "inventory_coverage": 0.6444444444444445,
+        "inventory_precision": 1.0,
+        "pos_tolerance_ldu": 1.0,
+        "rotation_tolerance": 0.0001,
+        "allows_mirror": false,
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            0.0,
+            -16.0,
+            30.0
+          ]
+        },
+        "limitations": "Strict frame equivalence; part symmetries not quotiented; top 128 alignment hypotheses"
+      },
+      "canonical_structural_yaw": {
+        "matched": 50,
+        "recon_parts": 58,
+        "truth_parts": 90,
+        "precision": 0.8620689655172413,
+        "coverage": 0.5555555555555556,
+        "matched_pairs": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            3,
+            5
+          ],
+          [
+            4,
+            3
+          ],
+          [
+            5,
+            4
+          ],
+          [
+            6,
+            6
+          ],
+          [
+            7,
+            7
+          ],
+          [
+            8,
+            8
+          ],
+          [
+            9,
+            9
+          ],
+          [
+            10,
+            10
+          ],
+          [
+            11,
+            11
+          ],
+          [
+            12,
+            12
+          ],
+          [
+            13,
+            15
+          ],
+          [
+            14,
+            16
+          ],
+          [
+            15,
+            13
+          ],
+          [
+            16,
+            14
+          ],
+          [
+            17,
+            17
+          ],
+          [
+            18,
+            20
+          ],
+          [
+            19,
+            21
+          ],
+          [
+            20,
+            18
+          ],
+          [
+            21,
+            19
+          ],
+          [
+            22,
+            24
+          ],
+          [
+            23,
+            25
+          ],
+          [
+            24,
+            22
+          ],
+          [
+            25,
+            23
+          ],
+          [
+            26,
+            26
+          ],
+          [
+            27,
+            27
+          ],
+          [
+            28,
+            28
+          ],
+          [
+            29,
+            29
+          ],
+          [
+            30,
+            30
+          ],
+          [
+            31,
+            31
+          ],
+          [
+            32,
+            35
+          ],
+          [
+            33,
+            34
+          ],
+          [
+            34,
+            33
+          ],
+          [
+            35,
+            36
+          ],
+          [
+            37,
+            37
+          ],
+          [
+            38,
+            38
+          ],
+          [
+            39,
+            39
+          ],
+          [
+            40,
+            40
+          ],
+          [
+            41,
+            41
+          ],
+          [
+            42,
+            45
+          ],
+          [
+            43,
+            44
+          ],
+          [
+            45,
+            46
+          ],
+          [
+            46,
+            47
+          ],
+          [
+            48,
+            48
+          ],
+          [
+            49,
+            49
+          ],
+          [
+            50,
+            50
+          ],
+          [
+            51,
+            51
+          ],
+          [
+            54,
+            54
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            0.0,
+            -16.0,
+            30.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      },
+      "legacy_hand_listed_yaw": {
+        "matched": 47,
+        "recon_parts": 58,
+        "truth_parts": 90,
+        "precision": 0.8103448275862069,
+        "coverage": 0.5222222222222223,
+        "matched_pairs": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            3,
+            5
+          ],
+          [
+            4,
+            3
+          ],
+          [
+            5,
+            4
+          ],
+          [
+            6,
+            6
+          ],
+          [
+            7,
+            7
+          ],
+          [
+            8,
+            8
+          ],
+          [
+            9,
+            9
+          ],
+          [
+            10,
+            10
+          ],
+          [
+            11,
+            11
+          ],
+          [
+            12,
+            12
+          ],
+          [
+            13,
+            15
+          ],
+          [
+            14,
+            16
+          ],
+          [
+            15,
+            13
+          ],
+          [
+            16,
+            14
+          ],
+          [
+            17,
+            17
+          ],
+          [
+            18,
+            20
+          ],
+          [
+            19,
+            21
+          ],
+          [
+            20,
+            18
+          ],
+          [
+            21,
+            19
+          ],
+          [
+            22,
+            24
+          ],
+          [
+            23,
+            25
+          ],
+          [
+            24,
+            22
+          ],
+          [
+            25,
+            23
+          ],
+          [
+            26,
+            26
+          ],
+          [
+            27,
+            27
+          ],
+          [
+            28,
+            28
+          ],
+          [
+            29,
+            29
+          ],
+          [
+            30,
+            30
+          ],
+          [
+            31,
+            31
+          ],
+          [
+            32,
+            35
+          ],
+          [
+            33,
+            34
+          ],
+          [
+            34,
+            33
+          ],
+          [
+            35,
+            36
+          ],
+          [
+            37,
+            37
+          ],
+          [
+            38,
+            38
+          ],
+          [
+            39,
+            39
+          ],
+          [
+            40,
+            40
+          ],
+          [
+            41,
+            41
+          ],
+          [
+            42,
+            45
+          ],
+          [
+            43,
+            44
+          ],
+          [
+            45,
+            46
+          ],
+          [
+            46,
+            47
+          ],
+          [
+            51,
+            51
+          ],
+          [
+            54,
+            54
+          ]
+        ],
+        "alignment": {
+          "rotation": [
+            [
+              0.0,
+              0.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "translation": [
+            0.0,
+            -16.0,
+            30.0
+          ]
+        },
+        "symmetry_source": "placement_part_symmetry_table (saved universal-CAD proofs) unless the legacy hand list is requested",
+        "symmetry_evidence": "output/pdf-placement-diagnosis/<part>-full-symmetry.json, produced by placement_verify_part_symmetries",
+        "limitations": "Structural universal-CAD equivalence; embossed logos not evaluated; no symmetry granted to printed parts."
+      }
+    }
+  ],
+  "truth_path": "C:/git/clego/lego_sets/OMR/40377-1.mpd"
+}

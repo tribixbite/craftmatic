@@ -1,0 +1,664 @@
+{
+  "fixture": "40377",
+  "page": 18,
+  "base": "output/pdf-placement-beam/40377-r4-draw-v1/page-017/placement/model.ldr",
+  "placement": "output\\pdf-placement-beam\\40377-r4-draw-v2\\page-018\\placement",
+  "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "retained": 36,
+  "reference_equivalent_retained": 8,
+  "selected": {
+    "rank": 0,
+    "view": 0,
+    "native_score": 0.48851709777088614,
+    "added_in_reference_frame": [
+      [
+        "3031",
+        15,
+        [
+          0.0,
+          -112.0,
+          -44.0
+        ]
+      ]
+    ],
+    "reference_equivalent": false
+  },
+  "best_reference_equivalent": {
+    "rank": 4,
+    "view": 0,
+    "native_score": 0.48731242492731913,
+    "added_in_reference_frame": [
+      [
+        "3031",
+        15,
+        [
+          -0.0,
+          -112.0,
+          -48.0
+        ]
+      ]
+    ],
+    "reference_equivalent": true
+  },
+  "margin": 0.0012046728435670118,
+  "candidates": [
+    {
+      "rank": 0,
+      "view": 0,
+      "native_score": 0.48851709777088614,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -112.0,
+            -44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 1,
+      "view": 0,
+      "native_score": 0.48851709777088614,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -112.0,
+            -44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 2,
+      "view": 0,
+      "native_score": 0.48851709777088614,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -112.0,
+            -44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 3,
+      "view": 0,
+      "native_score": 0.48851709777088614,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -112.0,
+            -44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 4,
+      "view": 0,
+      "native_score": 0.48731242492731913,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -0.0,
+            -112.0,
+            -48.0
+          ]
+        ]
+      ],
+      "reference_equivalent": true
+    },
+    {
+      "rank": 5,
+      "view": 0,
+      "native_score": 0.48731242492731913,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -0.0,
+            -112.0,
+            -48.0
+          ]
+        ]
+      ],
+      "reference_equivalent": true
+    },
+    {
+      "rank": 6,
+      "view": 0,
+      "native_score": 0.48731242492731913,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -112.0,
+            -48.0
+          ]
+        ]
+      ],
+      "reference_equivalent": true
+    },
+    {
+      "rank": 7,
+      "view": 0,
+      "native_score": 0.48731242492731913,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -112.0,
+            -48.0
+          ]
+        ]
+      ],
+      "reference_equivalent": true
+    },
+    {
+      "rank": 8,
+      "view": 0,
+      "native_score": 0.47403287105695274,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -0.0,
+            -132.0,
+            -48.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 9,
+      "view": 0,
+      "native_score": 0.47403287105695274,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -0.0,
+            -132.0,
+            -48.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 10,
+      "view": 0,
+      "native_score": 0.47403287105695274,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -0.0,
+            -132.0,
+            -48.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 11,
+      "view": 0,
+      "native_score": 0.47403287105695274,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -132.0,
+            -48.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 12,
+      "view": 1,
+      "native_score": 0.30090580618947993,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -44.0,
+            -112.0,
+            40.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 13,
+      "view": 1,
+      "native_score": 0.30090580618947993,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -44.0,
+            -112.0,
+            40.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 14,
+      "view": 1,
+      "native_score": 0.30090580618947993,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -44.0,
+            -112.0,
+            40.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 15,
+      "view": 1,
+      "native_score": 0.30090580618947993,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -44.0,
+            -112.0,
+            40.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 16,
+      "view": 1,
+      "native_score": 0.30019255223860053,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -48.0,
+            -112.0,
+            40.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 17,
+      "view": 1,
+      "native_score": 0.30019255223860053,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -48.0,
+            -112.0,
+            40.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 18,
+      "view": 1,
+      "native_score": 0.30019255223860053,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -48.0,
+            -112.0,
+            40.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 19,
+      "view": 1,
+      "native_score": 0.30019255223860053,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -48.0,
+            -112.0,
+            40.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 20,
+      "view": 2,
+      "native_score": 0.29251347526192156,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -132.0,
+            -44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 21,
+      "view": 2,
+      "native_score": 0.29251347526192156,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -132.0,
+            -44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 22,
+      "view": 2,
+      "native_score": 0.29251347526192156,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -132.0,
+            -44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 23,
+      "view": 2,
+      "native_score": 0.29251347526192156,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -132.0,
+            -44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 24,
+      "view": 2,
+      "native_score": 0.2919215866487231,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -112.0,
+            -44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 25,
+      "view": 2,
+      "native_score": 0.2919215866487231,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -112.0,
+            -44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 26,
+      "view": 2,
+      "native_score": 0.2919215866487231,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -112.0,
+            -44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 27,
+      "view": 2,
+      "native_score": 0.2919215866487231,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -112.0,
+            -44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 28,
+      "view": 1,
+      "native_score": 0.29009007164504197,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -40.0,
+            -112.0,
+            44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 29,
+      "view": 1,
+      "native_score": 0.29009007164504197,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -40.0,
+            -112.0,
+            44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 30,
+      "view": 1,
+      "native_score": 0.29009007164504197,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -40.0,
+            -112.0,
+            44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 31,
+      "view": 1,
+      "native_score": 0.29009007164504197,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -40.0,
+            -112.0,
+            44.0
+          ]
+        ]
+      ],
+      "reference_equivalent": false
+    },
+    {
+      "rank": 32,
+      "view": 2,
+      "native_score": 0.287016642167461,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -0.0,
+            -112.0,
+            -48.0
+          ]
+        ]
+      ],
+      "reference_equivalent": true
+    },
+    {
+      "rank": 33,
+      "view": 2,
+      "native_score": 0.287016642167461,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            -0.0,
+            -112.0,
+            -48.0
+          ]
+        ]
+      ],
+      "reference_equivalent": true
+    },
+    {
+      "rank": 34,
+      "view": 2,
+      "native_score": 0.287016642167461,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -112.0,
+            -48.0
+          ]
+        ]
+      ],
+      "reference_equivalent": true
+    },
+    {
+      "rank": 35,
+      "view": 2,
+      "native_score": 0.287016642167461,
+      "added_in_reference_frame": [
+        [
+          "3031",
+          15,
+          [
+            0.0,
+            -112.0,
+            -48.0
+          ]
+        ]
+      ],
+      "reference_equivalent": true
+    }
+  ],
+  "finding": "Under drawing-to-drawing registration page 18 registers and its search returns a sane neighbourhood: every candidate on the propagated view puts the 4x4 plate within 20 LDU of the reference, while both body-template views put it on the wrong face of the model entirely. The reference-equivalent assembly is retained at rank 4 and loses by 0.0012 of native score - 0.488517 against 0.487312 - to a pose 4 LDU shallower in z. Bank recall is 2 of 2, so this is selection, not generation, and the margin is a quarter of one per cent.",
+  "scope": "Evaluation-only; the reference model is read after the run and chooses nothing at runtime.",
+  "limitations": "One page of one fixture. A margin this small is not evidence that the scorer is nearly right in general, only that this particular pair is nearly indistinguishable under a whole-drawing objective.",
+  "truth_used": false,
+  "runtime_vlm_calls": 0,
+  "certified": false
+}

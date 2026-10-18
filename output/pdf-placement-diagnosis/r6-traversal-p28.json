@@ -1,0 +1,84 @@
+{
+  "run": "output\\pdf-placement-beam\\40377-r5-contain-v1",
+  "page": 28,
+  "view": 2,
+  "truth": "C:/git/clego/lego_sets/OMR/40377-1.mpd",
+  "mask_source": "whole_scene",
+  "screened_placements": 4847,
+  "reference_targets": 3,
+  "located_reference_poses": 2,
+  "rows": [
+    {
+      "kind": "reference",
+      "truth_index": 78,
+      "placement": 621,
+      "painted": 3159.0,
+      "agreement": 2228.0,
+      "rate": 0.7052864830642609,
+      "count_rank": 114,
+      "rate_rank": 96
+    },
+    {
+      "kind": "reference",
+      "truth_index": 79,
+      "placement": 1964,
+      "painted": 4148.0,
+      "agreement": 3095.0,
+      "rate": 0.746142719382835,
+      "count_rank": 3,
+      "rate_rank": 54
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 623,
+      "painted": 3160.0,
+      "agreement": 2250.0,
+      "rate": 0.7120253164556962,
+      "count_rank": 102,
+      "rate_rank": 88
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 625,
+      "painted": 3160.0,
+      "agreement": 2250.0,
+      "rate": 0.7120253164556962,
+      "count_rank": 103,
+      "rate_rank": 89
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 1964,
+      "painted": 4148.0,
+      "agreement": 3095.0,
+      "rate": 0.746142719382835,
+      "count_rank": 3,
+      "rate_rank": 54
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 1965,
+      "painted": 4148.0,
+      "agreement": 3095.0,
+      "rate": 0.746142719382835,
+      "count_rank": 4,
+      "rate_rank": 55
+    },
+    {
+      "kind": "selected_by_the_run",
+      "placement": 2853,
+      "painted": 1623.0,
+      "agreement": 1038.0,
+      "rate": 0.6395563770794824,
+      "count_rank": 979,
+      "rate_rank": 172
+    }
+  ],
+  "median_count_rank": 58.5,
+  "median_rate_rank": 75.0,
+  "truth_used_at_runtime": false,
+  "runtime_vlm_calls": 0,
+  "certified": false,
+  "scope": "Evaluation-only. The bank, screen and camera are the run's own; the reference model supplies the poses to locate and selects nothing. No runtime code is changed by this measurement.",
+  "limitations": "Ranks are over the screened bank for this page and view only. A better rank is a necessary condition for the traversal to reach a pose, not a proof that the search would then keep it, because the traversal is over combinations and this ranks single placements."
+}

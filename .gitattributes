@@ -1,0 +1,32 @@
+# Line endings are a property of THIS REPOSITORY, not of whoever checked it out.
+#
+# Before this file the repo carried 1,091 LF, 252 CRLF and 14 MIXED-ending
+# files, because `core.autocrlf` is per-machine (it was `false` here) and every
+# editor and script wrote whatever it liked. Mixed files are the expensive ones:
+# a normal edit rewrites the whole file's endings, so a six-line change lands as
+# a 500-line diff and the real change becomes unreviewable. Worse, the usual
+# repair tools cause it — `sed -i` under MSYS, Python's `write_text`, and
+# editors that normalise on save all convert a whole mixed file silently.
+#
+# `text=auto eol=lf` makes git normalise to LF in the index on add and check out
+# LF on every platform, so the state above cannot recur regardless of local
+# config. Windows tooling reads LF fine; nothing here needs CRLF.
+#
+# The repo was renormalised in one commit alongside this file, verified by
+# `git diff --ignore-cr-at-eol` coming back empty against the previous tree —
+# i.e. endings changed and content did not.
+* text=auto eol=lf
+
+# Binary types, declared explicitly rather than left to content sniffing: a
+# false "text" verdict on any of these would corrupt the file on checkout.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.webp binary
+*.gif  binary
+*.ico  binary
+*.zip  binary
+*.mcpack  binary
+*.mcaddon binary
+*.io      binary
+*.lxf     binary

@@ -1,0 +1,306 @@
+{
+  "run": "output\\pdf-placement-beam\\40377-r4-reach-v3\\page-028\\placement",
+  "registry": "output\\pdf-placement-beam\\40377-r4-reach-v3\\page-028\\registry-00.json",
+  "view": 0,
+  "body_only_native_score": 0.32041284287929556,
+  "mask_source": "whole_scene",
+  "screened_placements": 3408,
+  "quotas": {
+    "3623:1": 1,
+    "3710:1": 1,
+    "61252:1": 1
+  },
+  "natively_scored": 18,
+  "rows": [
+    {
+      "placement": 1367,
+      "translation": [
+        40.0,
+        -168.0,
+        3.552713678800501e-15
+      ],
+      "coarse_score": 0.1815674679321106,
+      "coarse_rank": 1,
+      "native_score": 0.33929081118364257,
+      "native_rank_within_sample": 1,
+      "local_score": 0.16739980934985066,
+      "local_rank_within_sample": 10,
+      "drawn_pixels_the_addition_paints": 4048,
+      "requested": true
+    },
+    {
+      "placement": 1368,
+      "translation": [
+        40.0,
+        -168.0,
+        3.552713678800501e-15
+      ],
+      "coarse_score": 0.1815674679321106,
+      "coarse_rank": 2,
+      "native_score": 0.33929081118364257,
+      "native_rank_within_sample": 2,
+      "local_score": 0.16739980934985066,
+      "local_rank_within_sample": 11,
+      "drawn_pixels_the_addition_paints": 4048,
+      "requested": true
+    },
+    {
+      "placement": 1361,
+      "translation": [
+        19.999999999999996,
+        -168.0,
+        0.0
+      ],
+      "coarse_score": 0.17908163586217937,
+      "coarse_rank": 3,
+      "native_score": 0.33754377330663465,
+      "native_rank_within_sample": 3,
+      "local_score": 0.21252423577778623,
+      "local_rank_within_sample": 3,
+      "drawn_pixels_the_addition_paints": 4035,
+      "requested": false
+    },
+    {
+      "placement": 1362,
+      "translation": [
+        20.0,
+        -168.0,
+        0.0
+      ],
+      "coarse_score": 0.17908163586217937,
+      "coarse_rank": 4,
+      "native_score": 0.33754377330663465,
+      "native_rank_within_sample": 4,
+      "local_score": 0.21252423577778623,
+      "local_rank_within_sample": 4,
+      "drawn_pixels_the_addition_paints": 4035,
+      "requested": false
+    },
+    {
+      "placement": 558,
+      "translation": [
+        39.99999999999999,
+        -168.0,
+        10.000000000000004
+      ],
+      "coarse_score": 0.1749732411708821,
+      "coarse_rank": 5,
+      "native_score": 0.33396777060258115,
+      "native_rank_within_sample": 7,
+      "local_score": 0.16262141936452162,
+      "local_rank_within_sample": 12,
+      "drawn_pixels_the_addition_paints": 3088,
+      "requested": false
+    },
+    {
+      "placement": 562,
+      "translation": [
+        40.0,
+        -168.0,
+        10.000000000000004
+      ],
+      "coarse_score": 0.1749732411708821,
+      "coarse_rank": 6,
+      "native_score": 0.33396777060258115,
+      "native_rank_within_sample": 8,
+      "local_score": 0.16262141936452162,
+      "local_rank_within_sample": 13,
+      "drawn_pixels_the_addition_paints": 3088,
+      "requested": false
+    },
+    {
+      "placement": 560,
+      "translation": [
+        40.0,
+        -168.0,
+        -9.999999999999996
+      ],
+      "coarse_score": 0.17380576451562485,
+      "coarse_rank": 7,
+      "native_score": 0.3347245849590155,
+      "native_rank_within_sample": 5,
+      "local_score": 0.15753813929954494,
+      "local_rank_within_sample": 14,
+      "drawn_pixels_the_addition_paints": 3085,
+      "requested": false
+    },
+    {
+      "placement": 561,
+      "translation": [
+        40.0,
+        -168.0,
+        -9.999999999999996
+      ],
+      "coarse_score": 0.17380576451562485,
+      "coarse_rank": 8,
+      "native_score": 0.3347245849590155,
+      "native_rank_within_sample": 6,
+      "local_score": 0.15753813929954494,
+      "local_rank_within_sample": 15,
+      "drawn_pixels_the_addition_paints": 3085,
+      "requested": false
+    },
+    {
+      "placement": 1359,
+      "translation": [
+        19.999999999999993,
+        -168.0,
+        20.0
+      ],
+      "coarse_score": 0.17348562575060206,
+      "coarse_rank": 9,
+      "native_score": 0.3335223328274892,
+      "native_rank_within_sample": 9,
+      "local_score": 0.1540029543880944,
+      "local_rank_within_sample": 16,
+      "drawn_pixels_the_addition_paints": 4036,
+      "requested": false
+    },
+    {
+      "placement": 1363,
+      "translation": [
+        19.999999999999996,
+        -168.0,
+        20.0
+      ],
+      "coarse_score": 0.17348562575060206,
+      "coarse_rank": 10,
+      "native_score": 0.3335223328274892,
+      "native_rank_within_sample": 10,
+      "local_score": 0.1540029543880944,
+      "local_rank_within_sample": 17,
+      "drawn_pixels_the_addition_paints": 4036,
+      "requested": false
+    },
+    {
+      "placement": 552,
+      "translation": [
+        19.999999999999996,
+        -168.0,
+        10.0
+      ],
+      "coarse_score": 0.1730702320624536,
+      "coarse_rank": 11,
+      "native_score": 0.332480164312669,
+      "native_rank_within_sample": 11,
+      "local_score": 0.20790062985773802,
+      "local_rank_within_sample": 5,
+      "drawn_pixels_the_addition_paints": 3076,
+      "requested": true
+    },
+    {
+      "placement": 556,
+      "translation": [
+        19.999999999999996,
+        -168.0,
+        10.0
+      ],
+      "coarse_score": 0.1730702320624536,
+      "coarse_rank": 12,
+      "native_score": 0.332480164312669,
+      "native_rank_within_sample": 12,
+      "local_score": 0.20790062985773802,
+      "local_rank_within_sample": 6,
+      "drawn_pixels_the_addition_paints": 3076,
+      "requested": true
+    },
+    {
+      "placement": 1890,
+      "translation": [
+        20.0,
+        -168.0,
+        10.0
+      ],
+      "coarse_score": 0.16158089080628674,
+      "coarse_rank": 33,
+      "native_score": 0.32639798901775646,
+      "native_rank_within_sample": 15,
+      "local_score": 0.19595194698565327,
+      "local_rank_within_sample": 8,
+      "drawn_pixels_the_addition_paints": 1521,
+      "requested": true
+    },
+    {
+      "placement": 1888,
+      "translation": [
+        20.0,
+        -168.0,
+        10.0
+      ],
+      "coarse_score": 0.16105740709892546,
+      "coarse_rank": 40,
+      "native_score": 0.32597763892550813,
+      "native_rank_within_sample": 16,
+      "local_score": 0.1971847251406402,
+      "local_rank_within_sample": 7,
+      "drawn_pixels_the_addition_paints": 1395,
+      "requested": true
+    },
+    {
+      "placement": 1860,
+      "translation": [
+        20.000000000000004,
+        -168.0,
+        -30.0
+      ],
+      "coarse_score": 0.1604331942275391,
+      "coarse_rank": 41,
+      "native_score": 0.3275417598302601,
+      "native_rank_within_sample": 13,
+      "local_score": 0.2424618910690296,
+      "local_rank_within_sample": 1,
+      "drawn_pixels_the_addition_paints": 1389,
+      "requested": true
+    },
+    {
+      "placement": 1889,
+      "translation": [
+        20.0,
+        -168.0,
+        10.0
+      ],
+      "coarse_score": 0.15973234559564098,
+      "coarse_rank": 48,
+      "native_score": 0.3253640716447797,
+      "native_rank_within_sample": 17,
+      "local_score": 0.19369589339776508,
+      "local_rank_within_sample": 9,
+      "drawn_pixels_the_addition_paints": 1257,
+      "requested": true
+    },
+    {
+      "placement": 1861,
+      "translation": [
+        20.000000000000004,
+        -168.0,
+        -30.0
+      ],
+      "coarse_score": 0.1592518619918843,
+      "coarse_rank": 52,
+      "native_score": 0.32726758960386537,
+      "native_rank_within_sample": 14,
+      "local_score": 0.23843849200225356,
+      "local_rank_within_sample": 2,
+      "drawn_pixels_the_addition_paints": 1261,
+      "requested": true
+    },
+    {
+      "placement": 1887,
+      "translation": [
+        20.0,
+        -168.0,
+        10.0
+      ],
+      "coarse_score": 0.15809385970393786,
+      "coarse_rank": 63,
+      "native_score": 0.32393196023769705,
+      "native_rank_within_sample": 18,
+      "local_score": 0.1214891993143138,
+      "local_rank_within_sample": 18,
+      "drawn_pixels_the_addition_paints": 1491,
+      "requested": true
+    }
+  ],
+  "scope": "Evaluation-only diagnostic executed after the run.",
+  "limitations": "Native ranks are within the sampled subset only, not over the whole bank; the reference model selects which poses to locate and nothing else."
+}

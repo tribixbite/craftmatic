@@ -1,0 +1,1713 @@
+{
+  "run": "output\\pdf-placement-beam\\41624-r4-window-v1",
+  "truth": "C:/git/clego/lego_sets/OMR/41624-1.mpd",
+  "allocation_run": "output\\pdf-placement-diagnosis\\41624-bridged-allocation-p2to8",
+  "truth_parts": 109,
+  "emitted": 22,
+  "correct": 5,
+  "coverage": 0.045871559633027525,
+  "precision": 0.22727272727272727,
+  "global_alignment": {
+    "rotation": [
+      [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        1.0,
+        0.0,
+        0.0
+      ]
+    ],
+    "translation": [
+      0.0,
+      -56.0,
+      0.0
+    ]
+  },
+  "classes": {
+    "mis_selected": 10,
+    "unreachable": 18,
+    "out_of_scope": 75,
+    "visibility_limited": 1
+  },
+  "bank_visibility_cross_tab": {
+    "bank=True visible=True": 10,
+    "bank=False visible=True": 13,
+    "bank=False visible=False": 5,
+    "bank=True visible=False": 1
+  },
+  "visibility_ratio": 0.25,
+  "absolute_visibility_floor": 200,
+  "correctly_placed_control": [
+    {
+      "page": 4,
+      "part": "3005",
+      "color": 4,
+      "present_in_bank": true,
+      "painted_against_complete_reference": 0,
+      "painted_against_our_body": 647
+    },
+    {
+      "page": 4,
+      "part": "3004",
+      "color": 2,
+      "present_in_bank": true,
+      "painted_against_complete_reference": 0,
+      "painted_against_our_body": 1493
+    }
+  ],
+  "correctly_placed_painted": [
+    647,
+    1493
+  ],
+  "complete_reference_control": {
+    "painted": [
+      0,
+      0
+    ],
+    "applicable": false,
+    "body_fraction_of_model": [
+      0.027522935779816515,
+      0.05504587155963303,
+      0.08256880733944955,
+      0.11926605504587157,
+      0.13761467889908258,
+      0.1651376146788991
+    ],
+    "note": "A correctly placed reference instance must itself paint a usable area against the complete reference model for that measurement to separate anything. Where it does not, the finished model buries every addition at the page's own camera and the control is reported as inapplicable."
+  },
+  "pages": [
+    {
+      "page": 3,
+      "status": "placed",
+      "reference_targets": 3,
+      "present_in_bank": 3,
+      "selected_painted": [
+        203,
+        1344,
+        1231
+      ],
+      "base_parts": 3,
+      "additions": [
+        [
+          "2780",
+          0
+        ],
+        [
+          "3700",
+          4
+        ],
+        [
+          "3700",
+          4
+        ]
+      ],
+      "target_pixels": 7123,
+      "mask_source": "whole_scene",
+      "registration_source": "body_template",
+      "bank_poses": 8192
+    },
+    {
+      "page": 4,
+      "status": "placed",
+      "reference_targets": 4,
+      "present_in_bank": 3,
+      "selected_painted": [
+        1493,
+        647,
+        37
+      ],
+      "base_parts": 6,
+      "additions": [
+        [
+          "3004",
+          2
+        ],
+        [
+          "3005",
+          4
+        ],
+        [
+          "3005",
+          4
+        ]
+      ],
+      "target_pixels": 7524,
+      "mask_source": "largest_component",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 2048
+    },
+    {
+      "page": 5,
+      "status": "placed",
+      "reference_targets": 10,
+      "present_in_bank": 4,
+      "selected_painted": [
+        2223,
+        2067,
+        2403,
+        1734
+      ],
+      "base_parts": 9,
+      "additions": [
+        [
+          "22885",
+          71
+        ],
+        [
+          "22885",
+          71
+        ],
+        [
+          "3010",
+          0
+        ],
+        [
+          "3010pzt",
+          4
+        ]
+      ],
+      "target_pixels": 11222,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 8192
+    },
+    {
+      "page": 6,
+      "status": "placed",
+      "reference_targets": 3,
+      "present_in_bank": 2,
+      "selected_painted": [
+        2958,
+        1409
+      ],
+      "base_parts": 13,
+      "additions": [
+        [
+          "3010",
+          0
+        ],
+        [
+          "3941",
+          14
+        ]
+      ],
+      "target_pixels": 11596,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 8192
+    },
+    {
+      "page": 7,
+      "status": "placed",
+      "reference_targets": 6,
+      "present_in_bank": 1,
+      "selected_painted": [
+        3286,
+        1009,
+        1777
+      ],
+      "base_parts": 15,
+      "additions": [
+        [
+          "3020",
+          0
+        ],
+        [
+          "33909",
+          0
+        ],
+        [
+          "33909",
+          0
+        ]
+      ],
+      "target_pixels": 12371,
+      "mask_source": "whole_scene",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 8192
+    },
+    {
+      "page": 8,
+      "status": "placed",
+      "reference_targets": 7,
+      "present_in_bank": 1,
+      "selected_painted": [
+        322,
+        1015,
+        549,
+        226
+      ],
+      "base_parts": 18,
+      "additions": [
+        [
+          "3023b",
+          0
+        ],
+        [
+          "3023b",
+          0
+        ],
+        [
+          "3023b",
+          0
+        ],
+        [
+          "3023b",
+          0
+        ]
+      ],
+      "target_pixels": 12166,
+      "mask_source": "largest_component",
+      "registration_source": "drawing_to_drawing",
+      "bank_poses": 1632
+    }
+  ],
+  "rows": [
+    {
+      "truth_index": 3,
+      "part": "3700",
+      "color": 4,
+      "reference_position": [
+        0.0,
+        -80.0,
+        30.0
+      ],
+      "page": 3,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_our_body": 1511,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1344,
+      "evidence_share_of_drawing": 0.21212972062333288,
+      "pages_allocating": [
+        3
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 4,
+      "part": "2780",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -70.0,
+        20.0
+      ],
+      "page": 3,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_our_body": 552,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1344,
+      "evidence_share_of_drawing": 0.07749543731573776,
+      "pages_allocating": [
+        3
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 5,
+      "part": "3700",
+      "color": 4,
+      "reference_position": [
+        0.0,
+        -80.0,
+        10.0
+      ],
+      "page": 3,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_our_body": 1449,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1344,
+      "evidence_share_of_drawing": 0.20342552295381158,
+      "pages_allocating": [
+        3
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 6,
+      "part": "3005",
+      "color": 4,
+      "reference_position": [
+        -30.0,
+        -80.0,
+        30.0
+      ],
+      "page": 4,
+      "present_in_bank": true,
+      "bank_hits": 4,
+      "painted_against_our_body": 553,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1493,
+      "evidence_share_of_drawing": 0.07349813928761297,
+      "pages_allocating": [
+        4
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 9,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        -30.0,
+        -104.0,
+        0.0
+      ],
+      "page": 5,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_our_body": 1729,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2403,
+      "evidence_share_of_drawing": 0.15407235786847265,
+      "pages_allocating": [
+        5
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 10,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        30.0,
+        -104.0,
+        0.0
+      ],
+      "page": 5,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_our_body": 2020,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2403,
+      "evidence_share_of_drawing": 0.18000356442701837,
+      "pages_allocating": [
+        5
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 11,
+      "part": "3010",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -104.0,
+        30.0
+      ],
+      "page": 6,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_our_body": 1619,
+      "painted_against_complete_reference": 53,
+      "rival_painted": 2958,
+      "evidence_share_of_drawing": 0.13961710934805105,
+      "pages_allocating": [
+        5,
+        6
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 12,
+      "part": "3010pzt",
+      "color": 4,
+      "reference_position": [
+        0.0,
+        -80.0,
+        -30.0
+      ],
+      "page": 5,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_our_body": 2922,
+      "painted_against_complete_reference": 1735,
+      "rival_painted": 2403,
+      "evidence_share_of_drawing": 0.2603813936909642,
+      "pages_allocating": [
+        5
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 13,
+      "part": "3010",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -104.0,
+        -30.0
+      ],
+      "page": 6,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 2982,
+      "painted_against_complete_reference": 968,
+      "rival_painted": 2958,
+      "evidence_share_of_drawing": 0.25715764056571233,
+      "pages_allocating": [
+        5,
+        6
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 14,
+      "part": "3941",
+      "color": 14,
+      "reference_position": [
+        0.0,
+        -104.0,
+        0.0
+      ],
+      "page": 6,
+      "present_in_bank": true,
+      "bank_hits": 4,
+      "painted_against_our_body": 1498,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2958,
+      "evidence_share_of_drawing": 0.129182476716109,
+      "pages_allocating": [
+        6
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 15,
+      "part": "3020",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -112.0,
+        20.0
+      ],
+      "page": 7,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 2346,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 3286,
+      "evidence_share_of_drawing": 0.18963705440142267,
+      "pages_allocating": [
+        7
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 16,
+      "part": "33909",
+      "color": 0,
+      "reference_position": [
+        -20.0,
+        -112.0,
+        -20.0
+      ],
+      "page": 7,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 1780,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 3286,
+      "evidence_share_of_drawing": 0.14388489208633093,
+      "pages_allocating": [
+        7
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 17,
+      "part": "33909",
+      "color": 0,
+      "reference_position": [
+        20.0,
+        -112.0,
+        -20.0
+      ],
+      "page": 7,
+      "present_in_bank": true,
+      "bank_hits": 1,
+      "painted_against_our_body": 1784,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 3286,
+      "evidence_share_of_drawing": 0.14420822892248,
+      "pages_allocating": [
+        7
+      ],
+      "primary_class": "mis_selected"
+    },
+    {
+      "truth_index": 18,
+      "part": "3023b",
+      "color": 0,
+      "reference_position": [
+        -48.0,
+        -84.0,
+        -10.0
+      ],
+      "page": 8,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 413,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1015,
+      "evidence_share_of_drawing": 0.03394706559263521,
+      "pages_allocating": [
+        8
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 19,
+      "part": "3023b",
+      "color": 0,
+      "reference_position": [
+        -48.0,
+        -84.0,
+        10.0
+      ],
+      "page": 8,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 254,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1015,
+      "evidence_share_of_drawing": 0.020877856320894294,
+      "pages_allocating": [
+        8
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 20,
+      "part": "3023b",
+      "color": 0,
+      "reference_position": [
+        48.0,
+        -84.0,
+        -10.0
+      ],
+      "page": 8,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 244,
+      "painted_against_complete_reference": 301,
+      "rival_painted": 1015,
+      "evidence_share_of_drawing": 0.020055893473614993,
+      "pages_allocating": [
+        8
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 21,
+      "part": "3023b",
+      "color": 0,
+      "reference_position": [
+        48.0,
+        -84.0,
+        10.0
+      ],
+      "page": 8,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 258,
+      "painted_against_complete_reference": 58,
+      "rival_painted": 1015,
+      "evidence_share_of_drawing": 0.021206641459806018,
+      "pages_allocating": [
+        8
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 22,
+      "part": "3069b",
+      "color": 0,
+      "reference_position": [
+        -56.0,
+        -94.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 23,
+      "part": "3069b",
+      "color": 0,
+      "reference_position": [
+        56.0,
+        -94.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 24,
+      "part": "11476",
+      "color": 15,
+      "reference_position": [
+        56.0,
+        -74.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 25,
+      "part": "11476",
+      "color": 15,
+      "reference_position": [
+        -56.0,
+        -74.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 26,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        0.0,
+        -152.0,
+        30.0
+      ],
+      "page": 5,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 238,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2403,
+      "evidence_share_of_drawing": 0.021208340759222954,
+      "pages_allocating": [
+        5
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 27,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        30.0,
+        -152.0,
+        20.0
+      ],
+      "page": 5,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 946,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2403,
+      "evidence_share_of_drawing": 0.0842986989841383,
+      "pages_allocating": [
+        5
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 28,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        -30.0,
+        -152.0,
+        20.0
+      ],
+      "page": 5,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 115,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2403,
+      "evidence_share_of_drawing": 0.010247727677775797,
+      "pages_allocating": [
+        5
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 29,
+      "part": "3023b",
+      "color": 19,
+      "reference_position": [
+        0.0,
+        -120.0,
+        10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 30,
+      "part": "3023b",
+      "color": 19,
+      "reference_position": [
+        0.0,
+        -152.0,
+        10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 31,
+      "part": "3004",
+      "color": 2,
+      "reference_position": [
+        0.0,
+        -144.0,
+        10.0
+      ],
+      "page": 4,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 1585,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1493,
+      "evidence_share_of_drawing": 0.21065922381711855,
+      "pages_allocating": [
+        4
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 32,
+      "part": "32952",
+      "color": 4,
+      "reference_position": [
+        -10.0,
+        -152.0,
+        -10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 33,
+      "part": "32952",
+      "color": 4,
+      "reference_position": [
+        10.0,
+        -152.0,
+        -10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 34,
+      "part": "99780",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -120.0,
+        -30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 35,
+      "part": "3023b",
+      "color": 19,
+      "reference_position": [
+        0.0,
+        -128.0,
+        -30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 36,
+      "part": "11211",
+      "color": 72,
+      "reference_position": [
+        0.0,
+        -152.0,
+        -30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 37,
+      "part": "3022",
+      "color": 25,
+      "reference_position": [
+        -28.0,
+        -132.0,
+        -20.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 38,
+      "part": "3022",
+      "color": 25,
+      "reference_position": [
+        28.0,
+        -132.0,
+        -20.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 39,
+      "part": "33909",
+      "color": 0,
+      "reference_position": [
+        36.0,
+        -132.0,
+        -20.0
+      ],
+      "page": 7,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 1327,
+      "painted_against_complete_reference": 4,
+      "rival_painted": 3286,
+      "evidence_share_of_drawing": 0.10726699539245009,
+      "pages_allocating": [
+        7
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 40,
+      "part": "33909",
+      "color": 0,
+      "reference_position": [
+        -36.0,
+        -132.0,
+        -20.0
+      ],
+      "page": 7,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 622,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 3286,
+      "evidence_share_of_drawing": 0.050278878021178565,
+      "pages_allocating": [
+        7
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 41,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        -20.0,
+        -192.0,
+        30.0
+      ],
+      "page": 5,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2403,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        5
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 42,
+      "part": "22885",
+      "color": 71,
+      "reference_position": [
+        20.0,
+        -192.0,
+        30.0
+      ],
+      "page": 5,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 2403,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        5
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 43,
+      "part": "99206",
+      "color": 15,
+      "reference_position": [
+        -30.0,
+        -168.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 44,
+      "part": "99206",
+      "color": 15,
+      "reference_position": [
+        30.0,
+        -168.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 45,
+      "part": "4032a",
+      "color": 72,
+      "reference_position": [
+        0.0,
+        -168.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 46,
+      "part": "3003",
+      "color": 29,
+      "reference_position": [
+        0.0,
+        -192.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 47,
+      "part": "6231",
+      "color": 0,
+      "reference_position": [
+        30.0,
+        -192.0,
+        10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 48,
+      "part": "6231",
+      "color": 0,
+      "reference_position": [
+        -30.0,
+        -192.0,
+        10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 49,
+      "part": "2420",
+      "color": 0,
+      "reference_position": [
+        10.0,
+        -200.0,
+        30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 50,
+      "part": "2420",
+      "color": 0,
+      "reference_position": [
+        -10.0,
+        -200.0,
+        30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 51,
+      "part": "3710",
+      "color": 71,
+      "reference_position": [
+        0.0,
+        -160.0,
+        -30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 52,
+      "part": "3710",
+      "color": 71,
+      "reference_position": [
+        0.0,
+        -168.0,
+        -30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 53,
+      "part": "11211",
+      "color": 72,
+      "reference_position": [
+        -30.0,
+        -192.0,
+        -20.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 54,
+      "part": "11211",
+      "color": 72,
+      "reference_position": [
+        0.0,
+        -192.0,
+        -30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 55,
+      "part": "11211",
+      "color": 72,
+      "reference_position": [
+        30.0,
+        -192.0,
+        -20.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 56,
+      "part": "3020",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -200.0,
+        -20.0
+      ],
+      "page": 7,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 3286,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        7
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 57,
+      "part": "3021",
+      "color": 0,
+      "reference_position": [
+        -20.0,
+        -162.0,
+        -48.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 58,
+      "part": "3021",
+      "color": 0,
+      "reference_position": [
+        20.0,
+        -162.0,
+        -48.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 59,
+      "part": "3023b",
+      "color": 19,
+      "reference_position": [
+        0.0,
+        -122.0,
+        -52.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 60,
+      "part": "2431",
+      "color": 19,
+      "reference_position": [
+        0.0,
+        -162.0,
+        -56.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 61,
+      "part": "92593",
+      "color": 19,
+      "reference_position": [
+        0.0,
+        -142.0,
+        -56.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 62,
+      "part": "25269",
+      "color": 19,
+      "reference_position": [
+        30.0,
+        -182.0,
+        -56.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 63,
+      "part": "25269",
+      "color": 19,
+      "reference_position": [
+        -10.0,
+        -182.0,
+        -56.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 64,
+      "part": "25269",
+      "color": 19,
+      "reference_position": [
+        10.0,
+        -182.0,
+        -56.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 65,
+      "part": "25269",
+      "color": 19,
+      "reference_position": [
+        -30.0,
+        -182.0,
+        -56.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 66,
+      "part": "15573",
+      "color": 19,
+      "reference_position": [
+        0.0,
+        -122.0,
+        -60.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 67,
+      "part": "98138pz1",
+      "color": 0,
+      "reference_position": [
+        -30.0,
+        -142.0,
+        -64.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 68,
+      "part": "98138pz1",
+      "color": 0,
+      "reference_position": [
+        30.0,
+        -142.0,
+        -64.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 69,
+      "part": "6141",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -122.0,
+        -68.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 70,
+      "part": "6091",
+      "color": 19,
+      "reference_position": [
+        52.0,
+        -122.0,
+        -30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 71,
+      "part": "6091",
+      "color": 19,
+      "reference_position": [
+        -52.0,
+        -122.0,
+        -30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 72,
+      "part": "3024",
+      "color": 19,
+      "reference_position": [
+        -44.0,
+        -122.0,
+        -10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 73,
+      "part": "63864",
+      "color": 0,
+      "reference_position": [
+        -48.0,
+        -142.0,
+        10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 74,
+      "part": "2431",
+      "color": 0,
+      "reference_position": [
+        -48.0,
+        -152.0,
+        30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 75,
+      "part": "26603",
+      "color": 0,
+      "reference_position": [
+        -48.0,
+        -162.0,
+        -20.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 76,
+      "part": "3069b",
+      "color": 19,
+      "reference_position": [
+        -52.0,
+        -122.0,
+        -20.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 77,
+      "part": "3024",
+      "color": 19,
+      "reference_position": [
+        44.0,
+        -122.0,
+        -10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 78,
+      "part": "63864",
+      "color": 0,
+      "reference_position": [
+        48.0,
+        -142.0,
+        10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 79,
+      "part": "2431",
+      "color": 0,
+      "reference_position": [
+        48.0,
+        -152.0,
+        30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 80,
+      "part": "3069b",
+      "color": 19,
+      "reference_position": [
+        52.0,
+        -122.0,
+        -20.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 81,
+      "part": "26603",
+      "color": 0,
+      "reference_position": [
+        48.0,
+        -162.0,
+        -20.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 82,
+      "part": "3031",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -152.0,
+        48.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 83,
+      "part": "87079",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -172.0,
+        56.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 84,
+      "part": "87079",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -132.0,
+        56.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 85,
+      "part": "3020",
+      "color": 4,
+      "reference_position": [
+        0.0,
+        -48.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 86,
+      "part": "3023b",
+      "color": 0,
+      "reference_position": [
+        30.0,
+        -40.0,
+        0.0
+      ],
+      "page": 8,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 225,
+      "painted_against_complete_reference": 194,
+      "rival_painted": 1015,
+      "evidence_share_of_drawing": 0.01849416406378432,
+      "pages_allocating": [
+        8
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 87,
+      "part": "3023b",
+      "color": 0,
+      "reference_position": [
+        -30.0,
+        -40.0,
+        0.0
+      ],
+      "page": 8,
+      "present_in_bank": true,
+      "bank_hits": 2,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1015,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        8
+      ],
+      "primary_class": "visibility_limited"
+    },
+    {
+      "truth_index": 88,
+      "part": "3021",
+      "color": 191,
+      "reference_position": [
+        -30.0,
+        -24.0,
+        -10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 89,
+      "part": "3069b",
+      "color": 191,
+      "reference_position": [
+        -30.0,
+        -32.0,
+        -30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 90,
+      "part": "15573",
+      "color": 191,
+      "reference_position": [
+        -30.0,
+        -32.0,
+        -10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 91,
+      "part": "15573",
+      "color": 191,
+      "reference_position": [
+        -30.0,
+        -32.0,
+        10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 92,
+      "part": "3021",
+      "color": 191,
+      "reference_position": [
+        30.0,
+        -24.0,
+        -10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 93,
+      "part": "3069b",
+      "color": 191,
+      "reference_position": [
+        30.0,
+        -32.0,
+        -30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 94,
+      "part": "15573",
+      "color": 191,
+      "reference_position": [
+        30.0,
+        -32.0,
+        -10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 95,
+      "part": "15573",
+      "color": 191,
+      "reference_position": [
+        30.0,
+        -32.0,
+        10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 96,
+      "part": "88704",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -70.0,
+        21.25
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 97,
+      "part": "3023b",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -208.0,
+        -10.0
+      ],
+      "page": 8,
+      "present_in_bank": false,
+      "bank_hits": 0,
+      "painted_against_our_body": 0,
+      "painted_against_complete_reference": 0,
+      "rival_painted": 1015,
+      "evidence_share_of_drawing": 0.0,
+      "pages_allocating": [
+        8
+      ],
+      "primary_class": "unreachable"
+    },
+    {
+      "truth_index": 98,
+      "part": "60897",
+      "color": 0,
+      "reference_position": [
+        -10.0,
+        -208.0,
+        10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 99,
+      "part": "60897",
+      "color": 0,
+      "reference_position": [
+        10.0,
+        -208.0,
+        10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 100,
+      "part": "93273",
+      "color": 0,
+      "reference_position": [
+        -10.0,
+        -200.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 101,
+      "part": "93273",
+      "color": 0,
+      "reference_position": [
+        10.0,
+        -200.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 102,
+      "part": "6256",
+      "color": 0,
+      "reference_position": [
+        55.4916,
+        -203.9469,
+        17.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 103,
+      "part": "6256",
+      "color": 0,
+      "reference_position": [
+        -55.4558,
+        -204.2426,
+        17.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 104,
+      "part": "3958",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -8.0,
+        0.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 105,
+      "part": "2431",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -16.0,
+        -30.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 106,
+      "part": "87079",
+      "color": 0,
+      "reference_position": [
+        0.0,
+        -16.0,
+        20.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 107,
+      "part": "15573",
+      "color": 0,
+      "reference_position": [
+        -20.0,
+        -16.0,
+        -10.0
+      ],
+      "primary_class": "out_of_scope"
+    },
+    {
+      "truth_index": 108,
+      "part": "15573",
+      "color": 0,
+      "reference_position": [
+        20.0,
+        -16.0,
+        -10.0
+      ],
+      "primary_class": "out_of_scope"
+    }
+  ],
+  "scope": "Evaluation-only, executed after the run. The reference model supplies the targets, the alignment and the poses measured; none of it participates in candidate generation, scoring or selection, and nothing here is certified.",
+  "limitations": "Visibility is measured against the complete reference assembly at the page's own accepted camera and mask, so it excludes occlusion by our own errors but still depends on that camera being right. A reference instance allocated by several pages is reported at the page whose bank holds it. Reference file order is not PDF step order, so a target attributed to one page can genuinely belong to another."
+}
