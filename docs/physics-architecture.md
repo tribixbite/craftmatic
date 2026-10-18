@@ -317,7 +317,9 @@ Bedrock's touch controls default to AUTO-JUMP, and a child (and the adb
 harness, which drives one finger) climbs with it alone. `WalkInput.autoJump`
 models it: after each tick's move, on the ground and not sneaking, two
 horizontal probes at 0.51 over the feet along the box's sides reach 0.7
-blocks past the move; the nearest solid they meet is the obstacle, raised by
+blocks from the feet (Java reaches 0.7 past the move; Bedrock's shorter reach
+is MEASURED, Pixel round 30zo's probe course, `sim/quirks/autojump-course.ts`,
+9 of 9 lanes); the nearest solid they meet is the obstacle, raised by
 any solid in the block cell over its centre; when its top is more than 0.5
 and at most 1.2 over the feet, the two block cells over the head are free of
 collision, and the move is not backward against the facing (dot under
