@@ -747,12 +747,12 @@ interface CrossProbe { from: { x: number; y: number; z: number }; dir: { x: numb
  * A start on the run itself is the run's own lane, never probed (its old floor is under a tread). `g` is the
  * FORM grid the walks are judged over (the lane pass's, the cross pass's).
  */
-function crossLaneProbes(g: ScaledColliderGrid, reach: ReachResult, columns: RunEdit['columns']): CrossProbe[] {
+function crossLaneProbes(g: ScaledColliderGrid, visited: ReadonlySet<number>, columns: RunEdit['columns']): CrossProbe[] {
   const out: CrossProbe[] = [];
   for (const c of columns) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
     const sx = c.x - 2 * dx, sz = c.z - 2 * dz;
     if (columns.some(o => o.x === sx && o.z === sz)) continue;
-    const floors = g.surfaces(sx, sz).filter(t => t <= c.floor16 + AUTO_JUMP16 && reach.visited.has(g.key(sx, sz, t)));
+    const floors = g.surfaces(sx, sz).filter(t => t <= c.floor16 + AUTO_JUMP16 && visited.has(g.key(sx, sz, t)));
     if (!floors.length) continue;
     out.push({ from: { x: sx + 0.5, y: Math.max(...floors) / 16 + 0.01, z: sz + 0.5 }, dir: { x: dx, z: dz } });
   }
@@ -1025,15 +1025,36 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       return { writes, columns, treadSurfaces, to: q, landing, run: { from: p, to: q, rise100, rise: rise16 / 16, treads: m, hop16, columns: columns.map(c => ({ ...c })), ...(byFine ? { fine: true as const } : {}) } };
     };
     const hard = build(n, laid);
+    /**
+     * Whether the softened run's sides cost no straight walk in from the ground more than the jump-height run's do:
+     * the same probes as the cross pass (two columns out, `crossLaneProbes`, starting on the ground), each walked
+     * with every laid run plus one or the other. Decided HERE, as the run is laid, so every later pass plans around
+     * the run that stays: decided in the cross pass after the lane pass, 21063's 400 % climb at x 42 (to 10.0 blocks)
+     * went back to its jump-height form without the gentle lane ramp the lane pass had laid beside it in that form,
+     * and was reverted (2026-10-17). Without a lane walk (the grid-only callers) nothing judges a side: the jump's.
+     */
+    const softSideHolds = (soft: RunEdit): boolean => {
+      if (!lane) return false;
+      const probes = crossLaneProbes(g, visited, soft.columns).filter(pr => pr.from.y <= groundProbeY(f, !!carve?.size) + 1e-9);
+      if (!probes.length) return true;
+      const withSoft = laidTreadBlocks(soft), withHard = laidTreadBlocks(hard);
+      return probes.every(pr => lane.walk(withSoft, pr.from, pr.dir, LANE_CROSS) >= lane.walk(withHard, pr.from, pr.dir, LANE_CROSS) - LANE_SLACK);
+    };
     if (!gentle && laid.hop16 > AUTO_JUMP16) {
       for (let cand = n + 1; cand < floors.length; cand++) {
         if (floors[cand] !== 0 || !feasible(cand) || hopFor(cand) > AUTO_JUMP16) continue;
         const soft = layout(cand);
-        if (soft !== 'headroom') return { ...build(cand, soft), hard };
+        if (soft !== 'headroom') { const out = { ...build(cand, soft), hard }; if (softSideHolds(out)) return out; }
         break;
       }
     }
     return hard;
+  };
+  /** The tread blocks of every laid run, plus `extra` (a candidate not laid yet): what a lane walk is walked over. */
+  const laidTreadBlocks = (extra?: RunEdit): TreadBlock[] => {
+    const out = new Map<string, TreadBlock>();
+    for (const e of extra ? [...edits, extra] : edits) for (const w of e.writes) out.set(`${w.x},${w.block.row},${w.z}`, { x: w.x, y: w.block.row, z: w.z, lo: w.block.lo, hi: w.block.hi });
+    return [...out.values()];
   };
   const apply = (e: RunEdit): void => {
     for (const w of e.writes) grid.write(w.x, w.z, w.block);
@@ -1349,23 +1370,28 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       // Only walks that start on the GROUND: the way in from outside. Judged on every reached floor, the pass also
       // took the hill runs above 76419's south shore at 300 % (the straight climb there 7.25 -> 4.44 blocks), and
       // those climb more than their sides cost.
-      const probes = crossLaneProbes(fg, reach, e.columns).filter(pr => pr.from.y <= groundProbeY(f, !!carve?.size) + 1e-9);
+      const probes = crossLaneProbes(fg, reach.visited, e.columns).filter(pr => pr.from.y <= groundProbeY(f, !!carve?.size) + 1e-9);
       if (!probes.length) continue;
       const withRun = blocksOf(), withoutRun = blocksOf(e);
       const worse = probes.some(pr => lane.walk(withRun, pr.from, pr.dir, LANE_CROSS) < lane.walk(withoutRun, pr.from, pr.dir, LANE_CROSS) - LANE_SLACK);
       if (!worse) continue;
-      // A SOFTENED run (`RunEdit.hard`) that shortens a walk in goes back to the jump's hops and is judged as that:
-      // auto-jump climbs the softened one, so the walk below counts what it opens and would keep it whatever its side
-      // costs - on 21063's 300 % east edge (z 39-40) two runs walled the flank lanes the Pixel climbed (10.38 -> 2.19
-      // blocks), where their jump-height forms opened nothing auto-jump climbs and were reverted (2026-10-17).
-      // The swap keeps the never-block invariant on the full-cell grid as a revert does; where it would not, the
-      // softened run is judged as it is.
+      // A SOFTENED run (`RunEdit.hard`) is judged against its jump-height form, the run the jump rule lays. Where its
+      // side shortens a walk in MORE than that form's, it goes back to the jump's hops and is judged as that: auto-jump
+      // climbs the softened one, so the walk below counts what it opens and would keep it whatever its side costs - on
+      // 21063's 300 % east edge (z 39-40) two softened runs walled the flank lanes the Pixel climbed (10.38 -> 2.19
+      // blocks; a tread 1.31 over the plate where the jump's stood 1.19, which auto-jump climbs). Where it costs no
+      // more, it stays: judged against no run, 21063's 400 % climb at x 42 (to 10.0) went, its foot on the column where
+      // the lane pass lays a gentle ramp beside the jump form (2026-10-17). The swap keeps the never-block invariant on
+      // the full-cell grid as a revert does; where it would not, the softened run is judged as it is.
       if (e.hard) {
+        const withHard = withoutRun.concat(e.hard.writes.map(w => ({ x: w.x, y: w.block.row, z: w.z, lo: w.block.lo, hi: w.block.hi })));
+        if (!probes.some(pr => lane.walk(withRun, pr.from, pr.dir, LANE_CROSS) < lane.walk(withHard, pr.from, pr.dir, LANE_CROSS) - LANE_SLACK)) continue;
         const prior = walkScaledColliders(grid);
         revert(e); apply(e.hard); edits[i] = e.hard;
         if (neverBlocks(walkScaledColliders(grid), true, prior)) {
           allLaid = undefined; reverted = true;
           ({ fg, reach } = laidForms());
+          // Judge the jump-height form next, at this index.
           i++;
           continue;
         }
@@ -1549,7 +1575,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
         // not stop a walk it was not laid for (a tread on another lane's approach is a new riser there).
         // TODO(lane-pass-cost): the `was` walks repeat between runs that touch nothing near them; cache them per
         // probe until a run writes within its reach (~10 s per size and turn at 200-400 % on 10261, ~10,000 walks).
-        const probes = crossLaneProbes(fg, reach, e.columns);
+        const probes = crossLaneProbes(fg, reach.visited, e.columns);
         const was = probes.map(pr => walk(laidBlocks(), pr.from, pr.dir, LANE_CROSS));
         laneApply(e);
         const worse = probes.some((pr, i) => walk(laidBlocks(), pr.from, pr.dir, LANE_CROSS) < was[i]! - LANE_SLACK);

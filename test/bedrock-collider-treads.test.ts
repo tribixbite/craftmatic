@@ -288,6 +288,48 @@ describe('the rule: treads only where the 100 % grid allows the move, and only o
   });
 
   /**
+   * A platform 15/16 high (a jump at 100 %) with one column of ground round it: at 400 % a 60/16 rise with four
+   * columns of ground before it, too few for gentle hops, so the jump rule's fewest treads are two hops of 20/16 -
+   * the jump's own 1.25, which auto-jump (1.2) does not climb - where three of 15/16 fit. `onPlate`: the whole grid stands on a plate 3/16 high, so no run sets out from the ground.
+   */
+  function autoJumpPlatform(onPlate: boolean): { dims: GridDims; runs: string; top16: number } {
+    const dims = { width: 10, height: 3, length: 10 };
+    const g = new BlockGrid(dims.width, dims.height, dims.length);
+    const base = onPlate ? 3 : 0;
+    for (let x = 0; x < 10; x++) for (let z = 0; z < 10; z++) {
+      if (x >= 1 && x <= 8 && z >= 1 && z <= 8) solidTo(g, x, z, base + 15);
+      else if (base) solidTo(g, x, z, base);
+    }
+    return { dims, runs: encodeColliderRuns(g, COLLIDER_BLOCK_ID).runs, top16: base + 15 };
+  }
+  it('400 %: a run from the ground takes hops auto-jump climbs where they fit, not the jump\'s 1.25 (Pixel round 30zm, 21063\'s south edge)', () => {
+    const p = autoJumpPlatform(false);
+    const pc = colliderSourceCells({ ...p.dims, runs: p.runs });
+    const lane = { walk: colliderLaneWalk(pc, p.dims, 400, 0), cells: pc };
+    const plan = planColliderTreads(pc, p.dims, 400, 0, [], [], lane);
+    expect(plan.verified).toBe(true);
+    expect(plan.after.highest16).toBe(p.top16 * 4);
+    expect(plan.runs.length).toBeGreaterThan(0);
+    for (const r of plan.runs) expect(r.hop16, `run to ${r.to.x},${r.to.z}@${r.to.t}`).toBeLessThanOrEqual(AUTO_JUMP16);
+    // A straight walk in from the west, climbing only what auto-jump climbs, gets onto the platform.
+    expect(laneTop(pc, p.dims, plan, { x: -1, z: 18 }, { x: 1, z: 0 }, 20)).toBe(p.top16 * 4);
+    assertNeverBlocks(pc, p.dims, plan);
+    // Without a lane walk nothing judges a softened run's sides (the grid-only callers): the jump's own hops.
+    expect(planColliderTreads(pc, p.dims, 400, 0).runs.some(r => r.hop16 === JUMP16)).toBe(true);
+  });
+  it('400 %: a run whose foot is not the ground keeps the jump\'s hops (the softer ones walled 21063\'s 300 % flank lanes)', () => {
+    const p = autoJumpPlatform(true);
+    const pc = colliderSourceCells({ ...p.dims, runs: p.runs });
+    const lane = { walk: colliderLaneWalk(pc, p.dims, 400, 0), cells: pc };
+    const plan = planColliderTreads(pc, p.dims, 400, 0, [], [], lane);
+    expect(plan.verified).toBe(true);
+    const main = plan.runs.filter(r => !r.lane);
+    expect(main.length).toBeGreaterThan(0);
+    for (const r of main) expect(r.hop16, `run to ${r.to.x},${r.to.z}@${r.to.t}`).toBe(JUMP16);
+    assertNeverBlocks(pc, p.dims, plan);
+  });
+
+  /**
    * A base whose rim a player jumps onto at 100 % (12/16), reached at every
    * size by a gentle ramp on its east side: the main rule restores nothing
    * (the base is reached), and before 2026-10-07 the west, north and south
