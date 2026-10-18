@@ -179,9 +179,18 @@ The round-30m fixes on the phones:
      chest-height slab and it does not jump. Recorded in quirk `auto-jump` (evidence + gap; NOT modelled: one point does
      not say which rule Bedrock applies). PROBE: `bun scripts/_autojump_course.ts` prints a 9-lane course of
      collider forms (overhang depth 0-1, lip height 0.5-0.75, a 30zn replica) as chat commands plus the sim's verdict
-     per lane (Java rule: climbs to 0.5 deep, stops at 0.75 and a bare lip); Pixel round 30zo walks it
-     (`output/device-round-2026-10-18zo/`, brief + `pixel/notes.md`). Then model the rule and add a regression case; then decide whether the planner should
-     avoid such an overhang over a tread's approach.
+     per lane. PIXEL 30zo (`output/device-round-2026-10-18zo/pixel/notes.md`, 2/2 per lane): Java's rule matched 6/9;
+     Bedrock's lookahead is from the FEET, not past the move: 9/9, MODELLED on branch `scale06-autojump-30zo`
+     (86f8e130, NOT merged; course + device verdicts `web/src/sim/quirks/autojump-course.ts`, guard
+     `test/auto-jump.test.ts :: the Pixel 30zo course`). `_walk_line --jump=auto` with it: 300 % lane 30.5 = the
+     device (6.25 at z 33.30, was a 3-block fall); 400 % lane 31.5 ends z 89.30 at 2.13 (device z 90.30 at 1.25:
+     a walk-off landing one column short, not auto-jump; `output/scale06-1018/autojump-variant-lines.txt`). The lane
+     pass (`bedrock-placement-pack.ts` lane walk) walks with this rule, so packs change: the 24-set rebuild vs 30zn
+     (`output/scale06-1018/aj-all.txt`) changed treads + placement.js in 17 sets (10261 lane-pass runs 774 -> 741 at
+     300 %, 918 -> 877 at 400 %), yet every device-proven SCALE-06 line walks IDENTICALLY on old and new packs
+     (`aj-lines.txt`); full suite 3331/0 (`fulltest-aj.txt`); sim gates `aj-sim.txt` / `aj-regr.txt`. Then merge, and
+     a Pixel round on changed device routes (10261 200 % lift hill, 21063 lines). Then decide whether the planner should avoid such an overhang over a tread's approach.
+     The probe's walls turned the grass under them to dirt; the tester restored it (`fill ... grass_block replace dirt`).
      TODO: no unit test for the cross-pass swap itself (the flank case); `output/scale06-1017/soft-kept/` is its check.
      OPEN: the watchdog line at 300/400 % placement on the Pixel (memory during re-laying).
      OPEN (test time): test/interactive-passability.test.ts '76417: every doorway' times out at 600 s on
