@@ -7,6 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { AUTO_JUMP_MAX_RISE, AUTO_JUMP_MIN_RISE, JUMP_PEAK, tickPlayer, type Box, type PlayerState, type SolidQuery } from '../web/src/sim/physics/body.js';
+import { AUTO_JUMP_LANES, autoJumpCourseBoxes, walkAutoJumpLane } from '../web/src/sim/quirks/autojump-course.js';
 
 /** Solids as plain boxes (a flat ground under y 0 plus the given boxes). */
 function world(boxes: Box[]): SolidQuery {
@@ -69,6 +70,16 @@ describe('auto-jump (quirk auto-jump)', () => {
     expect(walk(step(1), { autoJump: true, sneak: true, ticks: 300 }).jumps).toBe(0);
     // Facing -x while the stick takes the player +x (walking backward).
     expect(walk(step(1), { autoJump: true, facing: { x: -1, z: 0 } }).jumps).toBe(0);
+  });
+
+  it('the Pixel 30zo course: every lane climbs or stops as the phone did (lookahead from the feet)', () => {
+    const boxes = autoJumpCourseBoxes();
+    const course: SolidQuery = { solidsNear: () => boxes };
+    const verdicts = AUTO_JUMP_LANES.map((lane, i) => `${lane.name} ${walkAutoJumpLane(course, i).verdict}`);
+    expect(verdicts).toEqual(AUTO_JUMP_LANES.map(lane => `${lane.name} ${lane.device}`));
+    // The course keeps both outcomes and the case that told Java's rule from Bedrock's (30zn's overhang).
+    expect(AUTO_JUMP_LANES.some(l => l.device === 'CLIMBS') && AUTO_JUMP_LANES.some(l => l.device === 'STOPS')).toBe(true);
+    expect(AUTO_JUMP_LANES.find(l => l.name === '30zn-replica')?.device).toBe('STOPS');
   });
 });
 
