@@ -360,6 +360,8 @@ export class ScaledColliderGrid {
   private colKey(x: number, z: number): number { return (x + 1) * (this.length + 2) + (z + 1); }
   /** A surface's identity: its column and its top. */
   key(x: number, z: number, t: number): number { return this.colKey(x, z) * this.keyT + t; }
+  /** How many keys `key` can give: every column of the footprint and its ring, every top. */
+  get keySpace(): number { return (this.width + 2) * (this.length + 2) * this.keyT; }
   /** Column index and top from a surface key. */
   unkey(key: number): { x: number; z: number; t: number } {
     const t = key % this.keyT, col = (key - t) / this.keyT;
@@ -546,9 +548,47 @@ class AutoJumpGrid extends ScaledColliderGrid {
 
 // ─── The reach walk ──────────────────────────────────────────────────────────
 
+/** A read-only set of surface keys: what a walk reached (`SurfaceKeys`, or a plain `Set`). */
+export interface SurfaceSet extends Iterable<number> {
+  has(key: number): boolean;
+  readonly size: number;
+}
+
+/** The most keys a walk marks in a bitmap (32 MB); a larger grid's walk keeps a `Set`. */
+const SURFACE_BITMAP_MAX_KEYS = 2 ** 28;
+
+/**
+ * The surfaces one walk reached (`ReachResult.visited`). A walk's hot path is the membership test, one per
+ * neighbouring surface: as a `Set<number>` it was 13 % of 76417's whole export (the 2026-10-17 profile,
+ * `output/figsweep-1017/prof/`), the walk itself about 60 %. Membership is one bit per key of the grid's key space
+ * (`ScaledColliderGrid.keySpace`); iteration runs over the keys in the order they were added - the order the `Set`
+ * iterated in - so every caller sees exactly what it saw before.
+ */
+export class SurfaceKeys implements SurfaceSet {
+  private readonly bits: Uint32Array;
+  private readonly order: number[] = [];
+  constructor(keySpace: number) {
+    if (!(keySpace >= 0 && keySpace <= SURFACE_BITMAP_MAX_KEYS)) throw new Error(`SurfaceKeys: key space ${keySpace} out of range`);
+    this.bits = new Uint32Array(Math.ceil(keySpace / 32));
+  }
+  has(key: number): boolean {
+    const word = this.bits[key >>> 5];
+    return word !== undefined && key >= 0 && (word & (1 << (key & 31))) !== 0;
+  }
+  /** Mark `key` reached; false when it already was. */
+  add(key: number): boolean {
+    if (this.has(key)) return false;
+    this.bits[key >>> 5]! |= 1 << (key & 31);
+    this.order.push(key);
+    return true;
+  }
+  get size(): number { return this.order.length; }
+  [Symbol.iterator](): Iterator<number> { return this.order[Symbol.iterator](); }
+}
+
 export interface ReachResult {
-  /** Surface keys (`grid.key`) reached, including the ring's ground. */
-  visited: Set<number>;
+  /** Surface keys (`grid.key`) reached, including the ring's ground, in the order the walk reached them. */
+  visited: SurfaceSet;
   /** Reached surfaces inside the footprint. */
   surfaces: number;
   /** Columns inside the footprint with at least one reached surface. */
@@ -560,6 +600,9 @@ export interface ReachResult {
 /** A surface the walk stands on: a column and its top in sixteenths above the pin. */
 export interface Surface { x: number; z: number; t: number }
 
+/** The walk's four neighbours, as offsets (no array per step: the walk takes millions). */
+const WALK_DX = [1, -1, 0, 0] as const, WALK_DZ = [0, 0, 1, -1] as const;
+
 /**
  * The breadth-first walk over standable surfaces from the ring of ground
  * around the footprint, moving to a neighbouring column's surface at most one
@@ -570,10 +613,11 @@ export interface Surface { x: number; z: number; t: number }
  */
 export function walkScaledColliders(
   grid: ScaledColliderGrid,
-  onBlocked?: (from: Surface, to: Surface, push: (s: Surface) => void, visited: ReadonlySet<number>) => boolean,
+  onBlocked?: (from: Surface, to: Surface, push: (s: Surface) => void, visited: SurfaceSet) => boolean,
   maxDrop16 = Infinity,
 ): ReachResult {
-  const visited = new Set<number>();
+  const space = grid.keySpace;
+  const visited: SurfaceKeys | Set<number> = space <= SURFACE_BITMAP_MAX_KEYS ? new SurfaceKeys(space) : new Set<number>();
   const queue: Surface[] = [];
   const push = (s: Surface): void => {
     const k = grid.key(s.x, s.z, s.t);
@@ -587,7 +631,9 @@ export function walkScaledColliders(
   }
   for (let h = 0; h < queue.length; h++) {
     const s = queue[h]!;
-    for (const [nx, nz] of [[s.x + 1, s.z], [s.x - 1, s.z], [s.x, s.z + 1], [s.x, s.z - 1]] as const) {
+    // +x, -x, +z, -z, the order the walk has always taken (and so the order `visited` iterates in).
+    for (let d = 0; d < 4; d++) {
+      const nx = s.x + WALK_DX[d]!, nz = s.z + WALK_DZ[d]!;
       if (!grid.inRing(nx, nz)) continue;
       for (const t of grid.surfaces(nx, nz)) {
         if (visited.has(grid.key(nx, nz, t))) continue;
@@ -747,7 +793,7 @@ interface CrossProbe { from: { x: number; y: number; z: number }; dir: { x: numb
  * A start on the run itself is the run's own lane, never probed (its old floor is under a tread). `g` is the
  * FORM grid the walks are judged over (the lane pass's, the cross pass's).
  */
-function crossLaneProbes(g: ScaledColliderGrid, visited: ReadonlySet<number>, columns: RunEdit['columns']): CrossProbe[] {
+function crossLaneProbes(g: ScaledColliderGrid, visited: SurfaceSet, columns: RunEdit['columns']): CrossProbe[] {
   const out: CrossProbe[] = [];
   for (const c of columns) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
     const sx = c.x - 2 * dx, sz = c.z - 2 * dz;
@@ -900,7 +946,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
    * merged staircase would replace a gentle climb another column of the same
    * riser already serves, so it is refused instead.
    */
-  const planRun = (p: Surface, q: Surface, visited: ReadonlySet<number>): RunEdit | UnrestoredReason | 'no-rule' => {
+  const planRun = (p: Surface, q: Surface, visited: SurfaceSet): RunEdit | UnrestoredReason | 'no-rule' => {
     const ownerAt = edits.findIndex(e => e.to.x === p.x && e.to.z === p.z && e.to.t === p.t);
     if (ownerAt < 0) return planRunCore(p, q, visited);
     const owner = edits[ownerAt]!;
@@ -921,7 +967,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     treadAt: (x, z) => treadFloor.has(colKey(x, z)),
     taken: (x, z) => treadFloor.has(colKey(x, z)) || arrivals.has(colKey(x, z)),
   };
-  const planRunCore = (p: Surface, q: Surface, visited: ReadonlySet<number>, maxHop16 = JUMP16, on: RunGround = mainGround): RunEdit | UnrestoredReason | 'no-rule' => {
+  const planRunCore = (p: Surface, q: Surface, visited: SurfaceSet, maxHop16 = JUMP16, on: RunGround = mainGround): RunEdit | UnrestoredReason | 'no-rule' => {
     const { g } = on;
     // A tread is reached by its own run and is never a target; a column another run arrives at (its
     // `to` or its landing) is never converted, so a later run cannot break an earlier one's approach.
