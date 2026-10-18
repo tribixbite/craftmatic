@@ -360,7 +360,12 @@ export class ScaledColliderGrid {
   readonly width: number;
   readonly height: number;
   readonly length: number;
-  private readonly columns = new Map<number, Column>();
+  /**
+   * The columns read so far, by `colKey`: a dense array over the footprint and its ring (the walk reads a column per
+   * neighbouring surface, and a `Map` lookup there was 8 % of 76417's export), a `Map` for any key outside it.
+   */
+  private readonly columns: Array<Column | undefined>;
+  private readonly columnsOutside = new Map<number, Column>();
   private readonly cellsByColumn = new Map<number, SourceCell[]>();
   /** The column builds this grid shares with every other grid over the same cells, size, turn and carve. */
   private readonly shared: Map<number, SharedColumn>;
@@ -373,6 +378,7 @@ export class ScaledColliderGrid {
     const d = scaledDims(dims, f, r);
     this.width = d.width; this.height = d.height; this.length = d.length;
     this.keyT = 16 * this.height + 1;
+    this.columns = new Array<Column | undefined>((this.width + 2) * (this.length + 2));
     let byKey = sharedColumns.get(cells);
     if (!byKey) sharedColumns.set(cells, byKey = new Map());
     const buildKey = gridBuildKey(dims, f, r, carve);
@@ -407,16 +413,18 @@ export class ScaledColliderGrid {
   /** The blocks of a world column, laid exactly as `placeColliders` lays them. */
   column(x: number, z: number): Column {
     const k = this.colKey(x, z);
-    let col = this.columns.get(k);
+    // `colKey` aliases off the ring exactly as it always has (the dense slots and the Map take the same keys).
+    const dense = k >= 0 && k < this.columns.length;
+    let col = dense ? this.columns[k] : this.columnsOutside.get(k);
     if (col) return col;
     const built = this.shared.get(k);
     if (built) {
       col = { blocks: built.blocks.slice(), shared: built, ...(built.surfaces ? { surfaces: built.surfaces as number[] } : {}) };
-      this.columns.set(k, col);
+      if (dense) this.columns[k] = col; else this.columnsOutside.set(k, col);
       return col;
     }
     col = this.buildColumn(x, z);
-    this.columns.set(k, col);
+    if (dense) this.columns[k] = col; else this.columnsOutside.set(k, col);
     const fresh: SharedColumn = { blocks: Object.freeze(col.blocks.map(b => Object.freeze(b))) };
     this.shared.set(k, fresh);
     col.blocks = fresh.blocks.slice();
