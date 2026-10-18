@@ -710,6 +710,11 @@ interface RunEdit {
   /** The floor surface before the lowest tread, where the climb starts. */
   landing: Surface;
   treadSurfaces: Surface[];
+  /**
+   * The same climb with the jump's own hops, when this run SOFTENED them to auto-jump's (`planRunCore`): what the
+   * cross pass judges instead should this run's side shorten a walk in (`crossPass`).
+   */
+  hard?: RunEdit;
 }
 
 const noVisited = (r: ReachResult): Omit<ReachResult, 'visited'> => ({ surfaces: r.surfaces, columns: r.columns, highest16: r.highest16 });
@@ -992,38 +997,43 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       }
       return { hop16, tops, landing };
     };
-    let laid = layout(n);
-    if (!gentle && laid !== 'headroom' && laid.hop16 > AUTO_JUMP16) {
+    const laid = layout(n);
+    if (laid === 'headroom') return 'headroom';
+    /** The edit that lays the run of `m` treads (`at`: its layout). */
+    const build = (m: number, at: { hop16: number; tops: number[]; landing: Surface }): RunEdit => {
+      const { hop16, tops, landing } = at;
+      const writes: RunEdit['writes'] = [];
+      const columns: RunEdit['columns'] = [];
+      const treadSurfaces: Surface[] = [];
+      for (let k = 1; k <= m; k++) {
+        const { x, z } = columnAt(k - 1), top = tops[k - 1]!, floor16 = floors[k - 1]!;
+        const floorBlock = floor16 > 0 ? g.blockWithTop(x, z, floor16) : undefined;
+        const floorRow = floorBlock ? floorBlock.row : -1;
+        const topRow = (top - 1) >> 4, topHi = top - 16 * topRow;
+        const src16 = floorBlock ? floorBlock.src16 : 0;
+        const put = (row: number, lo: number, hi: number): void => { writes.push({ x, z, block: { row, lo, hi, src16 }, previous: g.blockAt(x, z, row) ?? null }); };
+        // Solid from the floor up to the tread's top: the floor block raised, full rows between, the top row cut at the tread.
+        if (floorBlock && topRow === floorRow) put(floorRow, floorBlock.lo, topHi);
+        else {
+          if (floorBlock) put(floorRow, floorBlock.lo, 16);
+          for (let row = floorRow + 1; row < topRow; row++) put(row, 0, 16);
+          put(topRow, 0, topHi);
+        }
+        columns.push({ x, z, floor16, top16: top });
+        treadSurfaces.push({ x, z, t: top });
+      }
+      return { writes, columns, treadSurfaces, to: q, landing, run: { from: p, to: q, rise100, rise: rise16 / 16, treads: m, hop16, columns: columns.map(c => ({ ...c })), ...(byFine ? { fine: true as const } : {}) } };
+    };
+    const hard = build(n, laid);
+    if (!gentle && laid.hop16 > AUTO_JUMP16) {
       for (let cand = n + 1; cand < floors.length; cand++) {
         if (floors[cand] !== 0 || !feasible(cand) || hopFor(cand) > AUTO_JUMP16) continue;
         const soft = layout(cand);
-        if (soft !== 'headroom') { n = cand; laid = soft; }
+        if (soft !== 'headroom') return { ...build(cand, soft), hard };
         break;
       }
     }
-    if (laid === 'headroom') return 'headroom';
-    const { hop16, tops, landing } = laid;
-    const writes: RunEdit['writes'] = [];
-    const columns: RunEdit['columns'] = [];
-    const treadSurfaces: Surface[] = [];
-    for (let k = 1; k <= n; k++) {
-      const { x, z } = columnAt(k - 1), top = tops[k - 1]!, floor16 = floors[k - 1]!;
-      const floorBlock = floor16 > 0 ? g.blockWithTop(x, z, floor16) : undefined;
-      const floorRow = floorBlock ? floorBlock.row : -1;
-      const topRow = (top - 1) >> 4, topHi = top - 16 * topRow;
-      const src16 = floorBlock ? floorBlock.src16 : 0;
-      const put = (row: number, lo: number, hi: number): void => { writes.push({ x, z, block: { row, lo, hi, src16 }, previous: g.blockAt(x, z, row) ?? null }); };
-      // Solid from the floor up to the tread's top: the floor block raised, full rows between, the top row cut at the tread.
-      if (floorBlock && topRow === floorRow) put(floorRow, floorBlock.lo, topHi);
-      else {
-        if (floorBlock) put(floorRow, floorBlock.lo, 16);
-        for (let row = floorRow + 1; row < topRow; row++) put(row, 0, 16);
-        put(topRow, 0, topHi);
-      }
-      columns.push({ x, z, floor16, top16: top });
-      treadSurfaces.push({ x, z, t: top });
-    }
-    return { writes, columns, treadSurfaces, to: q, landing, run: { from: p, to: q, rise100, rise: rise16 / 16, treads: n, hop16, columns: columns.map(c => ({ ...c })), ...(byFine ? { fine: true as const } : {}) } };
+    return hard;
   };
   const apply = (e: RunEdit): void => {
     for (const w of e.writes) grid.write(w.x, w.z, w.block);
@@ -1252,9 +1262,13 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
    */
   const crossPass = (): void => {
     if (!lane || !edits.some(e => e.run.fine)) return;
-    const fg = new ScaledColliderGrid(lane.cells, dims, f, rotation, carve);
-    for (const e of edits) for (const w of e.writes) fg.write(w.x, w.z, { ...w.block });
-    const reach = walkScaledColliders(fg, undefined, SAFE_DROP16);
+    /** The forms with every run laid, and the walk over them (the probes' floors); rebuilt after a run is swapped. */
+    const laidForms = (): { fg: ScaledColliderGrid; reach: ReachResult } => {
+      const fg = new ScaledColliderGrid(lane.cells, dims, f, rotation, carve);
+      for (const e of edits) for (const w of e.writes) fg.write(w.x, w.z, { ...w.block });
+      return { fg, reach: walkScaledColliders(fg, undefined, SAFE_DROP16) };
+    };
+    let { fg, reach } = laidForms();
     /**
      * The forms with EVERY run laid, climbing only what auto-jump climbs (`AutoJumpGrid`), and the walk over them:
      * the same for every run judged until one is reverted,
@@ -1340,6 +1354,23 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       const withRun = blocksOf(), withoutRun = blocksOf(e);
       const worse = probes.some(pr => lane.walk(withRun, pr.from, pr.dir, LANE_CROSS) < lane.walk(withoutRun, pr.from, pr.dir, LANE_CROSS) - LANE_SLACK);
       if (!worse) continue;
+      // A SOFTENED run (`RunEdit.hard`) that shortens a walk in goes back to the jump's hops and is judged as that:
+      // auto-jump climbs the softened one, so the walk below counts what it opens and would keep it whatever its side
+      // costs - on 21063's 300 % east edge (z 39-40) two runs walled the flank lanes the Pixel climbed (10.38 -> 2.19
+      // blocks), where their jump-height forms opened nothing auto-jump climbs and were reverted (2026-10-17).
+      // The swap keeps the never-block invariant on the full-cell grid as a revert does; where it would not, the
+      // softened run is judged as it is.
+      if (e.hard) {
+        const prior = walkScaledColliders(grid);
+        revert(e); apply(e.hard); edits[i] = e.hard;
+        if (neverBlocks(walkScaledColliders(grid), true, prior)) {
+          allLaid = undefined; reverted = true;
+          ({ fg, reach } = laidForms());
+          i++;
+          continue;
+        }
+        revert(e.hard); apply(e); edits[i] = e;
+      }
       // Kept when the walk over the FORMS loses any surface without it (bar its own tread tops; judged before the
       // gateway, which costs a walk of its own and only matters for a run that loses nothing): a climb is worth
       // its sides. Judged on the full-cell grid, a wall's rim read as a floor offered a way round that the shipped
