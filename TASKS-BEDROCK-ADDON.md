@@ -168,21 +168,17 @@ The round-30m fixes on the phones:
      (`pixel/offline-auto.txt`; the brief's numbers were `--jump=blocked`: east 9.0, 400 % 3.76); lane 30.5 6.25
      (auto 7.5 then a fall, 1.25 under). Placement 300 % ~10 s, 400 % ~16 s, 400 % fps 60, 0 errors; the watchdog
      'High memory usage' line came 3 times DURING the 300/400 % placements (none at load; Saga 30zm: none).
-     FIXED OFFLINE, NOT ON A PHONE (SCALE-06, merged from branch `scale06-autojump-hop`, `git log --grep=
-     "hops auto-jump climbs"`): at 400 % a touch player (auto-jump 1.2) could not step onto 21063's south edge
-     (tread hops of exactly 1.25). A run the jump rule lays anyway whose foot is the ground now softens its hops to
-     <= `AUTO_JUMP16` where they fit and its sides cost no walk in more than the jump form's; the cross pass judges a
-     softened run against that form (`RunEdit.hard`). Offline (`output/scale06-1017/soft-kept/{eval.txt,lanes.txt}`,
-     `soft-kept-21063-400-lanes.txt`; baseline `device-round-2026-10-16zm/packs-f1a3a130`): 400 % lane 31.5 auto-jump
-     0 -> 4.25; the three route lines, the 300 % flank 7.50/10.38 and the Pixel auto lanes 9.19/7.50/10.94 unchanged
-     (x 1.5 -z: highest 1.63 -> 1.31, same stop); fans flat or up (21063 400 % mean 2.82 -> 2.92); 21063 400 % falls >3
-     2 -> 4 (N lane 0.5 at the existing N 1.5 spot; S lane 43.5 now climbs to 9.0 and walks off the model's own east
-     edge at 8.88 - border edges of the model stay open by design). NEXT ON A PHONE: Pixel 400 % lane 31.5 from z 97.5
-     walking -z (offline auto 4.25), and the 300 % flank lanes again: ROUND 30zn, packs built from main by
-     `output/device-round-2026-10-17zn/build.sh`, brief `brief-pixel-30zn.md` (PACKS_COMMIT to fill in), then
-     sim + regressions, then a Sonnet adb subagent (`.claude/skills/bedrock-device-round.md`). Tools:
-     `bash output/scale06-1017/ground-tier.sh <out-dir>` (3 sets + eval), `scripts/_tread_run_diff.py`.
-     TODO: no unit test for the cross-pass swap itself (the flank case); the eval above is its check.
+     PIXEL 30zn PASSED the fix (packs 1f1fb9f7 from main, `output/device-round-2026-10-17zn/pixel/notes.md`; the
+     auto-jump tread hops, `git log --grep="hops auto-jump climbs"`): 21063 400 % lane 31.5 now climbs onto the south
+     edge, 0 -> 4 up (HUD log `shots/_h1-hud.jpg`: y -60 -> -56 over z 6097-6092, 2/2), 300 % lanes 9.38 / 6.25 / 10.50
+     = 30zm, 0 errors, fps 60, placement 300 % ~10 s / 400 % ~15.5 s, 3 watchdog lines during placement (= 30zm).
+     OPEN (sim quirk): past the edge the device drops to 1.25 and STOPS at z 6090.30 (2/2); offline auto-jump climbs on
+     to 3.06 at z 88.3. Geometry at x 31-32 (`output/figsweep-1017/column_at.ts <pack> 31 86 92 400`): z 90 floor 1.25;
+     z 89 a box 1.25-2.0 over z 89.0-89.5 and a slab 2.0-2.125 over the whole cell. The sim's Java `autoJumpWanted`
+     (probe at feet + 0.51) meets the 1.25-2.0 box half a block on and jumps; the device's first contact is the
+     chest-height slab and it does not jump. Add a quirk row (`web/src/sim/quirks/registry.ts`) and a regression case,
+     then decide whether the planner should avoid such an overhang over a tread's approach.
+     TODO: no unit test for the cross-pass swap itself (the flank case); `output/scale06-1017/soft-kept/` is its check.
      OPEN: the watchdog line at 300/400 % placement on the Pixel (memory during re-laying).
      OPEN (test time): test/interactive-passability.test.ts '76417: every doorway' times out at 600 s on
      main, alone, quiet machine (skipped on CI: needs the corpus). Profile (`output/figsweep-1017/prof/`,
@@ -191,7 +187,15 @@ The round-30m fixes on the phones:
      12.8 % and `surfaces`/`column` 22 %. Ideas: a reused typed visited bitmap; fewer settle re-walks.
      Not only the machine: on 2026-10-17 evening (21063 built in 85 s, normal) it still failed at 608 s inside
      the full suite (`output/scale06-1017/branch-test.log`); the same day's slow morning build took 946 s
-     against 639 s in round 30zm. The test needs a longer limit or a faster planner. A clego Claude session's pwsh
+     against 639 s in round 30zm. The test needs a longer limit or a faster planner. EXPORT TIME grew 3-10x over
+     SCALE-06 (round build logs: 76417 ~60 s before round 30zh -> 212 (fine runs) -> 612-743 (cross pass, 30zj/k);
+     10261 ~500 -> 1211 s (carve, 30zl); 10303 ~160 -> 590). IN FLIGHT, branch `scale06-walk-perf` (worktree
+     `.worktrees/carve`, NOT merged): 5337f364 a bitmap visited set + allocation-free walk steps, 5bfc20b0 grids over
+     the same cells share their column builds (`SharedColumn`; `planSizeCarve` now hands its grid a carve snapshot).
+     Shipped scripts/data byte-identical to main on 10326 and 21063 (`output/scale06-1017/perf-ab.sh`,
+     `pack_json_equal.py`); 10326 252 -> 205 s, 21063 105 -> 93 s; the 76417 doorway test alone 575 s (passes,
+     barely). Profile of 76417 on the branch: `output/scale06-1017/prof76417/`. Next: fewer rebuild+walk rounds in
+     `crossPass` (`withEveryRun` after each revert) and `guardPass` `settle`; then merge with a full `bun run test`. A clego Claude session's pwsh
      held one core the whole time (not this repo's; left alone).
      Evaluation tools: `output/scale06-1016/carve2/tools/` (`eval.sh <packs>`, `pack_diff.py`, `carve_stats.ts`).
      Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule
