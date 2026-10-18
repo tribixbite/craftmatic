@@ -177,8 +177,10 @@ The round-30m fixes on the phones:
      z 89 a box 1.25-2.0 over z 89.0-89.5 and a slab 2.0-2.125 over the whole cell. The sim's Java `autoJumpWanted`
      (probe at feet + 0.51) meets the 1.25-2.0 box half a block on and jumps; the device's first contact is the
      chest-height slab and it does not jump. Recorded in quirk `auto-jump` (evidence + gap; NOT modelled: one point does
-     not say which rule Bedrock applies). Next: probe the rule on the device (an overhang at chest height with a step
-     behind it, at several gaps), then model it and add a regression case; then decide whether the planner should
+     not say which rule Bedrock applies). PROBE: `bun scripts/_autojump_course.ts` prints a 9-lane course of
+     collider forms (overhang depth 0-1, lip height 0.5-0.75, a 30zn replica) as chat commands plus the sim's verdict
+     per lane (Java rule: climbs to 0.5 deep, stops at 0.75 and a bare lip); Pixel round 30zo walks it
+     (`output/device-round-2026-10-18zo/`, brief + `pixel/notes.md`). Then model the rule and add a regression case; then decide whether the planner should
      avoid such an overhang over a tread's approach.
      TODO: no unit test for the cross-pass swap itself (the flank case); `output/scale06-1017/soft-kept/` is its check.
      OPEN: the watchdog line at 300/400 % placement on the Pixel (memory during re-laying).
@@ -191,13 +193,15 @@ The round-30m fixes on the phones:
      the full suite (`output/scale06-1017/branch-test.log`); the same day's slow morning build took 946 s
      against 639 s in round 30zm. The test needs a longer limit or a faster planner. EXPORT TIME grew 3-10x over
      SCALE-06 (round build logs: 76417 ~60 s before round 30zh -> 212 (fine runs) -> 612-743 (cross pass, 30zj/k);
-     10261 ~500 -> 1211 s (carve, 30zl); 10303 ~160 -> 590). IN FLIGHT, branch `scale06-walk-perf` (worktree
-     `.worktrees/carve`, NOT merged): 5337f364 a bitmap visited set + allocation-free walk steps, 5bfc20b0 grids over
-     the same cells share their column builds (`SharedColumn`; `planSizeCarve` now hands its grid a carve snapshot).
-     Shipped scripts/data byte-identical to main on 10326 and 21063 (`output/scale06-1017/perf-ab.sh`,
-     `pack_json_equal.py`); 10326 252 -> 205 s, 21063 105 -> 93 s; the 76417 doorway test alone 575 s (passes,
-     barely). Profile of 76417 on the branch: `output/scale06-1017/prof76417/`. Next: fewer rebuild+walk rounds in
-     `crossPass` (`withEveryRun` after each revert) and `guardPass` `settle`; then merge with a full `bun run test`. A clego Claude session's pwsh
+     10261 ~500 -> 1211 s (carve, 30zl); 10303 ~160 -> 590). MERGED 2026-10-18 (branch `scale06-walk-perf`: a bitmap
+     visited set + allocation-free walk steps, grids over the same cells share their column builds (`SharedColumn`;
+     `planSizeCarve` hands its grid a carve snapshot), dense column array). All 24 sets ship BP scripts/data
+     byte-identical to round 30zn bar diagnostics (`output/scale06-1017/ab-all.txt`, `perf-ab.sh`,
+     `pack_json_equal.py`). Build s, 30zn log -> merged: 76417 1087 -> 816, 10326 254 -> 202, 76457 212 -> 173,
+     42639 211 -> 172, 21063 105 -> 91, 10303 835 -> 836 (untouched: its time is elsewhere), 10261 1852 (no 30zn
+     figure). Next: PROFILE 10303 and 10261 (`bun --cpu-prof`; the 76417 branch profile is
+     `output/scale06-1017/prof76417/`); then fewer rebuild+walk rounds in `crossPass` (`withEveryRun` after each
+     revert) and `guardPass` `settle` (output-changing: needs the three device lines re-walked). A clego Claude session's pwsh
      held one core the whole time (not this repo's; left alone).
      Evaluation tools: `output/scale06-1016/carve2/tools/` (`eval.sh <packs>`, `pack_diff.py`, `carve_stats.ts`).
      Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule
