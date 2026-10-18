@@ -255,7 +255,12 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   (`crossPass`, `CROSS_GATEWAY_PER_TREAD`). Judge any tread-planner change with
   the per-tick walker on EVERY device-proven route of the microscale sets (the
   three `_walk_line.ts` lines in TASKS "Start here" SCALE-06), never one route
-  and never grid reach alone.
+  and never grid reach alone. A run from the ground SOFTENS its hops to
+  auto-jump's (<= 1.2; the jump's own 1.25 stops a touch player) only where the
+  jump rule lays it anyway, and is judged against that jump form, never against
+  no run: auto-jump climbs the softened one, so the cross pass's "what it opens"
+  rule kept softened runs that walled the Pixel-proven 300 % flank (2026-10-17,
+  `RunEdit.hard`).
 - **Build packs one at a time and read `substitutedParts` / `unresolvedParts`.**
   Parallel CLI exports drew the 429 above and shipped parts as aliases or
   AABBs without failing. Without `ldraw_ref/`, point the CLI at a running dev

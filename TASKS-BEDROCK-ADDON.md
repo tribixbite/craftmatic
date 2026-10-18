@@ -168,22 +168,19 @@ The round-30m fixes on the phones:
      (`pixel/offline-auto.txt`; the brief's numbers were `--jump=blocked`: east 9.0, 400 % 3.76); lane 30.5 6.25
      (auto 7.5 then a fall, 1.25 under). Placement 300 % ~10 s, 400 % ~16 s, 400 % fps 60, 0 errors; the watchdog
      'High memory usage' line came 3 times DURING the 300/400 % placements (none at load; Saga 30zm: none).
-     OPEN (SCALE-06): at 400 % a touch player (auto-jump 1.2) cannot step onto 21063's south edge at x 31.5
-     - the TREADS there are three hops of exactly 1.25 (tops 1.25/2.50/3.75 at z 94-92, z 91 empty):
-     `planRunCore` takes the fewest treads whose hops are within the JUMP (20/16) when no gentle hop fits, and
-     auto-jump climbs 19/16. Tried (branch `scale06-autojump-hop`, NOT merged): a middle tier preferring hops
-     <= `AUTO_JUMP16` -> 400 % south edge auto 0 -> 4.25, the 200 % lawn route REACHES z 12.9, fans flat/up, BUT
-     the device-proven 300 % flank lanes 30.5/31.5 fall 7.50/10.38 -> 2.19 (`output/scale06-1017/autojump/
-     eval-compare.txt`). CAUSE found: the tier makes a NEW run feasible across the flank lane (x 31, z 38-40,
-     tops 1.56/2.25/2.25); its side stands 1.31 over the lane's floor at z 41 and stops the walk there (the
-     'run side is a wall' class); the cross pass judges only FINE runs, so it stays. Tried: the cross pass
-     judging EVERY run (branch cae1fe44, undone de196d60): flank still 2.19, the 400 % edge run reverted again,
-     76419 300 % max 16.25 -> 9.63 (the Saga-proved carve gain) - WORSE (`output/scale06-1017/autojump-cross/`).
-     IN FLIGHT: the tier only for a run whose LANDING is the ground (`floors[cand] === 0`; the flank run landed
-     on the 0.94 plate, the edge run on empty ground) - branch commit 64707336, build + eval by
-     `bash output/scale06-1017/ground-tier.sh` -> `output/scale06-1017/ground-tier/{eval.txt,lanes.txt}`;
-     compare with `autojump/eval-compare.txt` and `device-round-2026-10-16zm/pixel/offline-auto.txt`. Merge only
-     if every device-proven route holds; else judge that run's side against the ground lanes it crosses.
+     FIXED OFFLINE, NOT ON A PHONE (SCALE-06, merged from branch `scale06-autojump-hop`, `git log --grep=
+     "hops auto-jump climbs"`): at 400 % a touch player (auto-jump 1.2) could not step onto 21063's south edge
+     (tread hops of exactly 1.25). A run the jump rule lays anyway whose foot is the ground now softens its hops to
+     <= `AUTO_JUMP16` where they fit and its sides cost no walk in more than the jump form's; the cross pass judges a
+     softened run against that form (`RunEdit.hard`). Offline (`output/scale06-1017/soft-kept/{eval.txt,lanes.txt}`,
+     `soft-kept-21063-400-lanes.txt`; baseline `device-round-2026-10-16zm/packs-f1a3a130`): 400 % lane 31.5 auto-jump
+     0 -> 4.25; the three route lines, the 300 % flank 7.50/10.38 and the Pixel auto lanes 9.19/7.50/10.94 unchanged
+     (x 1.5 -z: highest 1.63 -> 1.31, same stop); fans flat or up (21063 400 % mean 2.82 -> 2.92); 21063 400 % falls >3
+     2 -> 4 (N lane 0.5 at the existing N 1.5 spot; S lane 43.5 now climbs to 9.0 and walks off the model's own east
+     edge at 8.88 - border edges of the model stay open by design). NEXT ON A PHONE: Pixel 400 % lane 31.5 from z 97.5
+     walking -z (offline auto 4.25), and the 300 % flank lanes again. Scratch tools: `output/scale06-1017/
+     {ground-tier.sh <out-dir>, run_diff.py}` (run_diff prints the tread runs one pack has and another lacks).
+     TODO: no unit test for the cross-pass swap itself (the flank case); the eval above is its check.
      OPEN: the watchdog line at 300/400 % placement on the Pixel (memory during re-laying).
      OPEN (test time): test/interactive-passability.test.ts '76417: every doorway' times out at 600 s on
      main, alone, quiet machine (skipped on CI: needs the corpus). Profile (`output/figsweep-1017/prof/`,
