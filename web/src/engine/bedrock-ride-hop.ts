@@ -68,6 +68,8 @@ export const HOP = {
   BOARD_GRACE_TICKS: 20,
   /** The mount just left is not a target for this long, ticks (5 s): a plane hovering where a coaster rider left it is not re-boarded as the car passes. */
   BACK_COOLDOWN_TICKS: 100,
+  /** Ticks between sweeps that drop a player's claim tag once it is older than `BACK_COOLDOWN_TICKS` (it then does nothing; until 2026-10-19 it stayed on the player for good, round 30zs). */
+  CLAIM_SWEEP_TICKS: 100,
   /** Mountables are looked for this far past the vehicle's own half length, blocks at 100 % (times its size). */
   SCAN_BLOCKS: 4,
   /** A slide's set-down boards a mountable whose box lies within this of the set-down point, blocks at 100 % (times the size, at least 1): a car parked at the foot. */
@@ -305,6 +307,7 @@ function hopRuntime(config: HopRuntimeConfig, makeKit: typeof hopKit, contact: t
     if (src.vacate === 'native') return;
     try { v.setDynamicProperty(config.holdProperty, true); } catch { /* gone */ }
   };
+  let sweep = 0;
   system.runInterval(() => {
     // The tick is read only once a player is found on one of THIS pack's driveables: every pack runs this interval,
     // and an unconditional `system.currentTick` read was 5 % of the scripts' busy time on the Saga (round 30zs).
@@ -366,6 +369,20 @@ function hopRuntime(config: HopRuntimeConfig, makeKit: typeof hopKit, contact: t
       recs.delete(pid);
     }
     for (const id of [...recs.keys()]) if (!present.has(id)) recs.delete(id);
+    // A claim tag past the back-hop cooldown does nothing any more: drop it, so no hop leaves a trace on a player.
+    // Every CLAIM_SWEEP_TICKS only (a tag read per player), and the tick only when a claim is found.
+    if (++sweep >= K.CLAIM_SWEEP_TICKS) {
+      sweep = 0;
+      for (const p of players) {
+        const claim = p ? kit.claimOf(p) : undefined;
+        if (!claim) continue;
+        if (Number.isNaN(now)) { try { now = Number(system.currentTick) || 0; } catch { return; } }
+        // A claim from the future was written before a world reload restarted the tick count: stale too.
+        const age = now - claim.tick;
+        if (age >= 0 && age <= K.BACK_COOLDOWN_TICKS) continue;
+        try { for (const t of p.getTags()) if (t.startsWith(config.kit.tags.claim)) p.removeTag(t); } catch { /* left */ }
+      }
+    }
   }, 1);
 }
 

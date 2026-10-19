@@ -342,4 +342,34 @@ describe('the hop runtime\'s idle cost (PIN-02)', () => {
     for (let t = 0; t < 5; t++) { try { interval(); } catch { /* the fake has no contacts to read */ } }
     expect(reads.tick).toBe(5);
   });
+
+  it('drops a claim tag past the back-hop cooldown, and one from before a reload, every CLAIM_SWEEP_TICKS (round 30zs: the tag stayed on the player for good)', () => {
+    const reads = { tick: 0 };
+    let tick = 300;
+    let interval: () => void = () => {};
+    const system = { get currentTick() { reads.tick++; return tick; }, runInterval(fn: () => void) { interval = fn; return 1; } };
+    const tagged = (tags: string[]) => ({ id: tags.join(), tags, getComponent: () => undefined, getTags() { return [...this.tags]; }, hasTag(t: string) { return this.tags.includes(t); }, removeTag(t: string) { this.tags = this.tags.filter(x => x !== t); }, location: { x: 0, y: 0, z: 0 } });
+    const old = tagged([`${HOP_TAGS.claim}5:v`, 'other']);
+    const fresh = tagged([`${HOP_TAGS.claim}290:v`]);
+    const future = tagged([`${HOP_TAGS.claim}9000:v`]);
+    const none = tagged(['other']);
+    const world = { getAllPlayers: () => [old, fresh, future, none] };
+    const body = HOP_JS.split('\n').filter(line => !line.startsWith('import ')).join('\n');
+    new Function('world', 'system', body)(world, system);
+    for (let t = 0; t < HOP.CLAIM_SWEEP_TICKS - 1; t++) interval();
+    // Between sweeps nothing is read or removed.
+    expect(reads.tick).toBe(0);
+    expect(old.tags).toContain(`${HOP_TAGS.claim}5:v`);
+    interval();
+    expect(old.tags).toEqual(['other']);
+    expect(future.tags).toEqual([]);
+    expect(fresh.tags).toEqual([`${HOP_TAGS.claim}290:v`]);
+    expect(none.tags).toEqual(['other']);
+    // One tick read for the whole sweep, not one per player.
+    expect(reads.tick).toBe(1);
+    // The fresh claim goes at the next sweep once it is past the cooldown.
+    tick = 290 + HOP.BACK_COOLDOWN_TICKS + 1;
+    for (let t = 0; t < HOP.CLAIM_SWEEP_TICKS; t++) interval();
+    expect(fresh.tags).toEqual([]);
+  });
 });
