@@ -64,6 +64,12 @@ output/*
 !output/pdf-placement-diagnosis/
 !output/pdf-universal-parts/
 !output/tiles/
+# output/tiles/ is also every local capture's renders + GLBs (1 GB+ on a dev
+# box); only the review pages and their small index/state JSON are tracked.
+output/tiles/*
+!output/tiles/*.html
+!output/tiles/grade-index.json
+!output/tiles/iterate-state.json
 
 # Pipeline state + per-slug verification reports are tracked (the Stop hook and
 # the handoff docs read them); the heavy per-slug artifacts (.glb/.schem/
@@ -75,3 +81,5 @@ output/*
 !output/pipeline/
 output/pipeline/**
 !output/pipeline/*.verification.json
+# One-off QA builds (--slug <x>-qa) are scratch, not golden state.
+output/pipeline/*-qa.verification.json
