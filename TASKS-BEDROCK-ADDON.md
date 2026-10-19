@@ -22,11 +22,18 @@ leaves the camera "locked in one location - big bug"; pinball "the same client s
   Tools: `scripts/_ride_smoothness.py <video> --window=a-b` (stalls/s, jerk; 09-29 Pixel loop ride: 1.70 stalls/s
   moving), `scripts/_sim_script_cost.ts <packs-dir>` (per-pack callback time; 26 packs idle: 111 callbacks a tick,
   13 vehicles.js + 13 vehicle-camera.js entity scans), `_coaster_cam_probe.ts --car=r0c1`.
-- IN FLIGHT round 30zq phase A (no deploy): Pixel (`brief-pixel-30zq.md`): 10303 old camera in cars 2/3 recorded,
-  drag latency, smoothness numbers; Saga (`brief-saga-30zq.md`): try to REPRODUCE the locked camera on its current
-  packs (7 dismount cases incl. reload mid-ride). Then: build `output/device-round-2026-10-18zq/build.sh` from the
-  pushed commit, sim gates, SendMessage both agents for phase B (new packs; `/script profiler` CPU profiles with all
-  packs, idle and playing pinball), record, new zip for the user.
+- Round 30zq PHASE A done (old packs). Pixel (`output/device-round-2026-10-18zq/pixel/notes.md`, `smoothness-A.txt`):
+  the loop camera is near stall-free on level track (0-0.13 stalls/s) but rough from the drop through the loops
+  (cars 2/3: 2.6-3.55 stalls/s, jerk p99 31-106, recording fps falls to ~35); in the loops ~0.5 s spells of the
+  view INSIDE car bodywork (`frames/A-car2-loops-lap1.jpg` 36.0-36.5 s dark); from car 2 the posed minifig rider of
+  the car AHEAD fills much of the view (its head at the player's eye height) - a seating question for the user, not
+  a camera one; a drag on the stopped train turned nothing. Saga (`saga/notes.md`): the locked camera NOT
+  reproduced, 11/11 dismounts give the view back (rest, 43 mph, cockpit, hover, reload mid-ride, coaster); the game
+  was frozen on arrival (force-stopped, cause unknown); `/tp @s ~ ~ ~` no longer dismounts on the Saga.
+- Packs `output/device-round-2026-10-18zq/packs-f2572fc8` (+ `creator-f2572fc8`): sim 150/0, regressions 38/0,
+  coaster-camera Pixel pass (seat lead -0.15, eye jump 0.1), Saga 1 violation: the animation 0.52 blocks AHEAD of
+  the drawn seat at 21.7 blocks/s (animLag 3.5 is the Pixel's; the Saga draws at 4 - known, smaller than loop's).
+  IN FLIGHT phase B on both phones (new packs: the same rides / dismounts, `/script profiler` idle + pinball).
 - The VEH-19 cause is NOT known (each runtime's own release clears on dismount); the sweep covers a runtime that
   lost its rider and a clear dropped mid-ease. PIN-02's remaining lag is the server tick under every pack: decide
   from the device profile which runtimes to gate (idle vehicles.js scans every pack's vehicles each tick in 13 packs).
