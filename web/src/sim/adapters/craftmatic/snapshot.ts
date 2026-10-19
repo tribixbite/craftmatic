@@ -27,6 +27,7 @@ import { boxUvFaceDrawn, type UvFloorModel } from '../../../engine/figure-holes.
 import { resolveLdrawEntityMaterial } from '../../../engine/ldraw-entity-materials.js';
 import { paintHatch, rasterize, rasterizeDetailed, type RasterPaint, type RasterQuad, type RasterResult, type RasterTexture, type V3 } from '../../render/rasterizer.js';
 import type { AddonAppearance } from './appearance.js';
+import { animatedPoses } from './drawn.js';
 import type { SimEngine } from '../../core/engine.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { viewDirection, type Vec3 } from '../../core/vec.js';
@@ -197,7 +198,9 @@ export function clientSnapshot(engine: SimEngine, appearance: AddonAppearance, p
     const s = actorLodState(entry, cullBlocks, dist3d, distHorizontal, lod);
     entities.push({ typeId: e.typeId, id: e.id, dist3d, distHorizontal, cullBlocks, ...s });
     if (s.state === 'gone') continue;
-    (s.state === 'hull' ? hull : full).push({ typeId: e.typeId, kind: 'entity', entry, at: { x: p.x, y: p.y, z: p.z }, yawDeg: p.yaw, scale: p.scale });
+    // Property-driven bones (a coaster car's pitch, roll and body offset) as the client applies them now.
+    const poses = animatedPoses(appearance.animations?.get(e.typeId), client.drawnProperties(e));
+    (s.state === 'hull' ? hull : full).push({ typeId: e.typeId, kind: 'entity', entry, at: { x: p.x, y: p.y, z: p.z }, yawDeg: p.yaw, scale: p.scale, ...(poses?.size ? { poses } : {}) });
   }
   const { actors, faces } = lodFaces(full, hull);
   const at: V3 = [eye.x + camera.dir.x, eye.y + camera.dir.y, eye.z + camera.dir.z];

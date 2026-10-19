@@ -62,6 +62,8 @@
  *                LOD hull by the drawn camera): `no-visible-hatch-near`, `no-dropped-face-in-view`
  *                per shot; `--hatch` also paints the hatch pixels magenta.
  *   --client=    the client profile every client step reports for (default pixel; coaster-camera: both).
+ *   --prop-lead= ticks the client applies actor properties (a coaster car's pitch / roll / body bones) before
+ *                the position sent with them, overriding the profile's (quirk `property-ahead-of-position`).
  *   --frames=    vehicles: `cockpitEye` judged from the DRAWN pose (always, since package B) also
  *                keeps a cockpit frame every 10 ticks there; `--lag=1.5,3,4` prints the lead this
  *                client would draw per candidate camera lag (the 30k / 30l brackets re-derived).
@@ -94,7 +96,7 @@ import { parseCmvtSamples, summarizeCost, type CostSummary } from '../web/src/si
 import { COSTED_CALLS, type TickCost } from '../web/src/sim/script-host/host.ts';
 import type { Simulation } from '../web/src/sim/core/simulation.ts';
 import { VEHICLE_TELEMETRY_EVENT } from '../web/src/engine/bedrock-vehicle.ts';
-import { attachClient, type ClientProfileName } from '../web/src/sim/client/camera.ts';
+import { attachClient, clientProfile, type ClientProfileName } from '../web/src/sim/client/camera.ts';
 import { clientInvariants } from '../web/src/sim/client/invariants.ts';
 import { clientSteps, coasterCameraScenarios, craftmaticSeatCamera, walkAwayScenarios, type ClientShot } from '../web/src/sim/adapters/craftmatic/client-steps.ts';
 import { packAppearance } from '../web/src/sim/adapters/craftmatic/drawn.ts';
@@ -120,11 +122,13 @@ const clientProfiles: ClientProfileName[] = clientFlag === 'both' ? ['pixel', 's
 const uvFloorFlag = flag('uvfloor') as UvFloorModel | undefined;
 const hatchFlag = args.includes('--hatch'), lodFlag = args.includes('--lod');
 const lagsFlag = flag('lag')?.split(',').map(Number).filter(Number.isFinite);
+/** `--prop-lead=N`: the client applies actor properties N ticks before the position (quirk `property-ahead-of-position`), overriding the profile's. */
+const propLeadFlag = flag('prop-lead') !== undefined ? Number(flag('prop-lead')) : undefined;
 /** Child-play's pictures go through the client when any device rule is asked for. */
 const clientShots = !!(uvFloorFlag || hatchFlag || lodFlag);
 const clientStepOptions = { ...(uvFloorFlag ? { uvFloor: uvFloorFlag } : {}), lod: lodFlag || mode === 'walk-away', paintHatch: hatchFlag, frames: !!framesDir, ...(lagsFlag?.length ? { lags: lagsFlag } : {}) };
 /** The run options that attach the client and its invariants to a scenario. */
-const clientRun = (profile: ClientProfileName): Pick<RunOptions, 'invariants' | 'prepare'> => ({ invariants: clientInvariants({ seatCamera: craftmaticSeatCamera() }), prepare: (sim, player) => { attachClient(sim, player, profile); } });
+const clientRun = (profile: ClientProfileName): Pick<RunOptions, 'invariants' | 'prepare'> => ({ invariants: clientInvariants({ seatCamera: craftmaticSeatCamera() }), prepare: (sim, player) => { attachClient(sim, player, propLeadFlag !== undefined && Number.isFinite(propLeadFlag) ? { ...clientProfile(profile), propertyLeadTicks: propLeadFlag } : profile); } });
 /**
  * Two run-option sets in one: both `prepare` hooks run (cost telemetry, then the client camera) and the
  * invariants concatenate; every other key is taken from whichever set has it, the second winning.
@@ -322,7 +326,7 @@ if (mode === 'hop') {
   process.exit(failed || !report.results.length ? 1 : 0);
 }
 
-if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|coaster-camera|walk-away|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>] [--runtime=pack|tree] [--client=pixel|saga|both] [--frames=<dir>] [--lag=1.5,3,4] [--uvfloor=v] [--hatch] [--lod] [--walk-away=a..b[:step]] [--size=200]'); process.exit(2); }
+if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|coaster-camera|walk-away|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>] [--runtime=pack|tree] [--client=pixel|saga|both] [--frames=<dir>] [--lag=1.5,3,4] [--prop-lead=N] [--uvfloor=v] [--hatch] [--lod] [--walk-away=a..b[:step]] [--size=200]'); process.exit(2); }
 
 // `coaster-camera` and `walk-away` (package B): the drawn camera judged every tick, per client profile.
 if (mode === 'coaster-camera' || mode === 'walk-away') {

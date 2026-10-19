@@ -440,6 +440,15 @@ export interface CoasterRiderViewConfig {
    */
   animLag: number;
   /**
+   * Ticks each car's body pose (the `track_pitch` / `track_roll` / `body_*` actor properties its bones read) is
+   * written BEHIND the pose the car's position is set to, so the drawn body turns in step with the drawn,
+   * interpolated position. A property the client applies earlier than the position it was sent with turns the body
+   * ahead of the car: through a loop the rider's eye, on the drawn seat, lands inside its own car's bodywork (Saga
+   * round 30zs). Fractional: interpolated between two ticks' poses. 0 = the pose of this tick (the behaviour until
+   * measured: probe round 30zt, `output/device-round-2026-10-19zt/proplag/`). Absent = 0.
+   */
+  bodyLag?: number;
+  /**
    * Ticks an inversion's animation is planned PAST the tick the per-tick
    * camera takes over, so it is still playing when that `setCamera` lands: an
    * animation that ended first left the player's own view (inside the car's
@@ -2269,6 +2278,26 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   const tickLag = Math.max(0, Math.min(10, Number.isFinite(camera.tickLag) ? camera.tickLag : 1.5));
   /** Poses kept per rider: enough for the longest lag either camera reads back. */
   const HISTORY = 12;
+  // Ticks each car's body pose properties trail its position (`CoasterRiderViewConfig.bodyLag`; absent = 0).
+  const BODY_LAG = Math.max(0, Math.min(HISTORY - 2, Number.isFinite(camera.bodyLag) ? Number(camera.bodyLag) : 0));
+  /**
+   * The body pose `lag` ticks behind `now` for one car, from the poses kept on its `state` (oldest first, one per
+   * tick, `now` pushed here): pitch and roll the short way round, the body offset linearly; the oldest kept pose
+   * while there is not yet enough history (a car just spawned).
+   */
+  const bodyPoseBehind = (state: any, now: { pitch: number; roll: number; body: number[] }, lag: number): { pitch: number; roll: number; body: number[] } => {
+    if (!(lag > 0)) return now;
+    const kept: Array<{ pitch: number; roll: number; body: number[] }> = state.bodyPoses || (state.bodyPoses = []);
+    kept.push(now);
+    const keep = Math.ceil(lag) + 1;
+    if (kept.length > keep) kept.splice(0, kept.length - keep);
+    const t = Math.max(0, kept.length - 1 - lag), i = Math.floor(t), j = Math.min(kept.length - 1, i + 1), f = t - i;
+    const a = kept[i]!, b = kept[j]!;
+    if (f <= 0 || i === j) return a;
+    const turn = (p: number, q: number) => p + ((((q - p) % 360) + 540) % 360 - 180) * f;
+    const wrap = (v: number) => ((v + 540) % 360) - 180;
+    return { pitch: wrap(turn(a.pitch, b.pitch)), roll: wrap(turn(a.roll, b.roll)), body: [0, 1, 2].map(k => a.body[k]! + (b.body[k]! - a.body[k]!) * f) };
+  };
   // Ticks after an inversion's hand-back over which the per-tick lag runs from
   // `animLag` to `tickLag` (`COASTER_RIDER_VIEW.handbackBlend`; see `aimRider`).
   const HANDBACK_BLEND = Math.max(1, Math.min(20, Number.isFinite(camera.handbackBlend) ? camera.handbackBlend : 4));
@@ -3339,11 +3368,13 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         // A value outside a declared actor-property range throws, which would
         // otherwise untrack the cart mid-ride; the angles are already in range.
         for (const frame of frames) {
-          frame.car.entity.setProperty('craftmatic:track_pitch', Math.max(-180, Math.min(180, frame.pitch)));
-          frame.car.entity.setProperty('craftmatic:track_roll', Math.max(-180, Math.min(180, frame.roll)));
-          frame.car.entity.setProperty('craftmatic:body_x', frame.body[0]);
-          frame.car.entity.setProperty('craftmatic:body_y', frame.body[1]);
-          frame.car.entity.setProperty('craftmatic:body_z', frame.body[2]);
+          // The body pose `bodyLag` ticks back (`CoasterRiderViewConfig.bodyLag`), from this car's recent poses.
+          const shown = bodyPoseBehind(frame.car.state, { pitch: frame.pitch, roll: frame.roll, body: frame.body }, BODY_LAG);
+          frame.car.entity.setProperty('craftmatic:track_pitch', Math.max(-180, Math.min(180, shown.pitch)));
+          frame.car.entity.setProperty('craftmatic:track_roll', Math.max(-180, Math.min(180, shown.roll)));
+          frame.car.entity.setProperty('craftmatic:body_x', shown.body[0]);
+          frame.car.entity.setProperty('craftmatic:body_y', shown.body[1]);
+          frame.car.entity.setProperty('craftmatic:body_z', shown.body[2]);
           // The set's own car: show its posed rider unless a player has the seat.
           const type = types[frame.car.entity.typeId];
           const slot = cars.slots && cars.slots[frame.car.index];

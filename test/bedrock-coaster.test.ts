@@ -536,6 +536,28 @@ describe('serialized coaster runtime', () => {
     expect(Math.min(...pitches.map(p => Math.cos(p * Math.PI / 180)))).toBeLessThan(-0.9);
   });
 
+  it('bodyLag writes each car\'s body pose properties that many ticks behind its position, interpolating fractions the short way round (Saga 30zs: the body turned ahead of the drawn car in the loops)', () => {
+    const props = (h: ReturnType<typeof rideHost>, name: string): number[] =>
+      (h.entity.setProperty.mock.calls as Array<[string, number]>).filter(([n]) => n === name).map(([, v]) => v);
+    const now = rideHost(loopRoute()), two = rideHost(loopRoute(), { camera: { bodyLag: 2 } }), half = rideHost(loopRoute(), { camera: { bodyLag: 1.5 } });
+    for (const h of [now, two, half]) h.run(400);
+    // The positions are the same in all three: only what the body shows is delayed.
+    expect(two.positions).toEqual(now.positions);
+    for (const name of ['craftmatic:track_pitch', 'craftmatic:track_roll', 'craftmatic:body_y']) {
+      const p0 = props(now, name), p2 = props(two, name), p15 = props(half, name);
+      expect(p2.length).toBe(p0.length);
+      for (let k = 2; k < p0.length; k++) expect(p2[k]).toBeCloseTo(p0[k - 2]!, 6);
+      const angle = name !== 'craftmatic:body_y';
+      for (let k = 2; k < p0.length; k++) {
+        const a = p0[k - 2]!, b = p0[k - 1]!;
+        const mid = angle ? (((a + ((((b - a) % 360) + 540) % 360 - 180) / 2) + 540) % 360) - 180 : (a + b) / 2;
+        expect(p15[k]).toBeCloseTo(mid, 6);
+      }
+    }
+    // The loop really turns the body over, so the short way round is exercised.
+    expect(Math.max(...props(now, 'craftmatic:track_pitch').map(Math.abs))).toBeGreaterThan(95);
+  });
+
   it('inverts the cart visually at a loop apex while leaving player rotation upright', () => {
     const route = loopRoute();
     const h = rideHost(route);

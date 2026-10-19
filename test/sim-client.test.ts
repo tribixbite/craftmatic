@@ -15,6 +15,7 @@ import { quirk, quirkValue } from '../web/src/sim/quirks/registry.js';
 import { COASTER_RIDER_VIEW, coasterRuntimeConfig, coasterScript, type CoasterRoute, type CoasterRiderViewConfig } from '../web/src/engine/bedrock-coaster.js';
 import { FREE_LOOK, cockpitEyeLead } from '../web/src/engine/vehicle-free-look.js';
 import { PoseHistory } from '../web/src/sim/client/draw-lag.js';
+import { boneTransforms, mul, pivotRotation } from '../web/src/engine/bedrock-geometry-faces.js';
 import { attachClient, cameraFrame, ClientView, clientProfile, drawnCameraLead, easeSteadyLagTicks, sampleAnimation, TICK_SECONDS } from '../web/src/sim/client/camera.js';
 import { CAMERA_MAX_EYE_JUMP_BLOCKS, CAMERA_MAX_TURN_DEG, cameraFrameDelta, clientInvariants, scriptMeansContinuity } from '../web/src/sim/client/invariants.js';
 import { CameraTrace } from '../web/src/sim/client/steps.js';
@@ -162,7 +163,38 @@ describe('the drawn poses', () => {
     expect(feet.y).toBeCloseTo(5 + 0.5 + quirkValue('rider-eye-above-seat', 'eyeAboveSeatBlocks') - 1.62);
     expect(client.drawnVelocity(player).x).toBeCloseTo(1, 6);
   });
+
+  it('reads an entity\'s actor properties at now - entityLag + propertyLead, held between ticks (quirk property-ahead-of-position)', async () => {
+    // The property counts the ticks; the same world read with the lead at 0 and at 2.
+    const drawnAt = async (lead: number) => {
+      const sim = new Simulation();
+      sim.loadAddon(await readAddon(await miniAddon({ 'seat.json': entityJson('x:seat', SEAT_BOX) }), 'props'));
+      const player = sim.addPlayer('P', { x: 0, y: 0, z: 0 });
+      const e = sim.engine.spawnEntity('x:seat', 'overworld', { x: 0, y: 5, z: 0 });
+      const client = attachClient(sim, player, { ...clientProfile('pixel'), propertyLeadTicks: lead });
+      for (let t = 1; t <= 12; t++) { e.properties.set('x:p', t); await sim.run(1); }
+      return { value: client.drawnProperties(e)['x:p'], lag: client.profile.entityLagTicks };
+    };
+    const inStep = await drawnAt(0), ahead = await drawnAt(2);
+    // The value of the last whole tick at or before now - lag (+ lead): applied, not interpolated (12 at now).
+    expect(inStep.value).toBe(12 - Math.ceil(inStep.lag));
+    expect(ahead.value).toBe(12 - Math.ceil(ahead.lag - 2));
+    expect(quirk('property-ahead-of-position').values).toEqual({ pixelLeadTicks: 0, sagaLeadTicks: 0 });
+  });
+
+  it('poses a bone as the add-on preview does: T(position) T(pivot) R(bind + animated) S T(-pivot)', () => {
+    const bones = [{ name: 'root', pivot: [0, 0, 0] as [number, number, number] }, { name: 'arm', parent: 'root', pivot: [0, 8, 0] as [number, number, number], rotation: [0, 0, 10] as [number, number, number] }];
+    const pose = { rotation: [30, 0, 5] as const, position: [2, -1, 4] as const, scale: [1, 2, 1] as const };
+    const posed = boneTransforms(bones, undefined, new Map([['arm', pose]])).get('arm')!;
+    const expected = mul(translate3(2, -1, 4), mul(pivotRotation([30, 0, 15], [0, 8, 0]), mul(translate3(0, 8, 0), mul([1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0], translate3(0, -8, 0)))));
+    posed.forEach((v, i) => expect(v).toBeCloseTo(expected[i]!, 9));
+    // No pose: the bind pose alone, as before.
+    const bind = boneTransforms(bones).get('arm')!;
+    pivotRotation([0, 0, 10], [0, 8, 0]).forEach((v, i) => expect(bind[i]).toBeCloseTo(v, 9));
+  });
 });
+
+const translate3 = (x: number, y: number, z: number): number[] => [1, 0, 0, x, 0, 1, 0, y, 0, 0, 1, z];
 
 describe('the camera state machine', () => {
   it('an eased per-tick camera chasing a target moving a block a tick settles exactly two blocks behind it', async () => {

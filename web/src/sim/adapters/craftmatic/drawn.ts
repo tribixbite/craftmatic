@@ -15,13 +15,41 @@ import { rayBox } from '../../core/vec.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { AHEAD, SIDES, VIEW, driverSeesOut, sideFan } from '../../../engine/cockpit-seat.js';
 import { clipParallelepiped, isAxisAligned, parallelepipedFromCorners, type Parallelepiped } from '../../../engine/oriented-box.js';
+import { evaluateClientAnimations, initializeClientAnimations, readClientAnimations, type BonePose, type ClientAnimationSet, type MolangEnv } from '../../../ui/addon-preview-data.js';
 
 /** Read an add-on's appearance (every entity type's drawn geometry). */
 export function packAppearance(addon: Addon): AddonAppearance {
   const sources = new Map<string, string>();
   const dec = new TextDecoder();
   for (const rp of resourcePacks(addon)) for (const [path, data] of rp.files) if (APPEARANCE_FILE_PATTERN.test(path)) sources.set(path, dec.decode(data));
-  return buildAddonAppearance(sources);
+  const appearance = buildAddonAppearance(sources);
+  appearance.animations = packClientAnimations(addon, appearance.notes);
+  return appearance;
+}
+
+/**
+ * Every entity type's client animations (the add-on preview's reader: `query.property`-driven bones such as a coaster
+ * car's pitch, roll, body offset and rider variants), compiled once per add-on. A clip that does not parse is noted
+ * in `notes`, never drawn still without a word.
+ */
+export function packClientAnimations(addon: Addon, notes: string[] = []): Map<string, ClientAnimationSet> {
+  const entities = new Map<string, string>(), animations = new Map<string, string>();
+  const dec = new TextDecoder();
+  for (const rp of resourcePacks(addon)) {
+    for (const [path, data] of rp.files) {
+      if (/(^|\/)entity\/[^/]+\.entity\.json$/.test(path)) entities.set(path, dec.decode(data));
+      else if (/(^|\/)animations\/[^/]+\.json$/.test(path)) animations.set(path, dec.decode(data));
+    }
+  }
+  return readClientAnimations(entities, animations, notes);
+}
+
+/** One entity's animated bone poses this frame, evaluated on the properties the client applies (`ClientView.drawnProperties`). */
+export function animatedPoses(set: ClientAnimationSet | undefined, properties: Readonly<Record<string, number | boolean | string>>): Map<string, BonePose> | undefined {
+  if (!set) return undefined;
+  const env: MolangEnv = { property: name => properties[name], query: () => undefined, vars: new Map() };
+  initializeClientAnimations(set, env);
+  return evaluateClientAnimations(set, env);
 }
 
 /**
@@ -57,8 +85,8 @@ export function drawnTopOver(d: DrawnBox, x0: number, x1: number, z0: number, z1
  * default, or with `lod: 'far'` the LOD hull a camera past its switch distance sees instead (`far` groups; the near
  * groups are not drawn there - quirk `lod-switch-camera-root`, snapshot.ts `actorLodState` decides which).
  */
-export function drawnBoxes(entry: AddonAppearanceEntry, at: Vec3, yawDeg: number, scale = 1, lod: 'near' | 'far' = 'near'): DrawnBox[] {
-  const bones = boneTransforms(entry.bones);
+export function drawnBoxes(entry: AddonAppearanceEntry, at: Vec3, yawDeg: number, scale = 1, lod: 'near' | 'far' = 'near', poses?: ReadonlyMap<string, BonePose>): DrawnBox[] {
+  const bones = boneTransforms(entry.bones, undefined, poses);
   // `yawDeg` is Bedrock's (yaw 90 faces -X). The placement matrix below is `worldFaces`' (three.js `rotation.y`
   // by the negated yaw, as `worldFaces` itself negates since 2026-09-30). Measured: at a 90-degree placement of
   // 11371 the un-negated turn put 2 % of the collider boxes near drawn geometry, the negated one as many as at 0.

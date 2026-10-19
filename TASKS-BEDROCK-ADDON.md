@@ -37,14 +37,34 @@ once the fixes below are on a phone.
   on the Saga), vehicles look their fleet up once a second (13 %), each pack's scripts share one player roster
   (`scripts/roster.js`, ~9 %). Profiles: `{pixel,saga}/profile/*.cpuprofile`; read with
   `python -I scripts/_cpuprofile_summary.py <profile>` (the burst view: busy ms per tick; median 24 ms of 50 on both
-  phones, Pixel 40/1,391 ticks over 50 ms).
-- Round 30zs IN FLIGHT (Pixel + test Saga, Sonnet agents; briefs `output/device-round-2026-10-19zs/brief-*.md`,
-  packs `packs-38fb625a` + `creator-38fb625a`, CI green on 38fb625a): rides cars 2/3 for the armed drop/loops,
-  drag incl. the stopped train, re-profiles 10303 + 11374 with the pinball played, VEH-19 spot check (Saga).
-  Results land in `{pixel,saga}/notes.md`. Sim gates on that build: default 150/150, regressions 38/38
-  (`regr.txt`); coaster-camera Pixel pass, Saga FAIL 0.51 blocks ahead at 20.9 b/s (`sim-coaster-camera.txt`) -
-  the same as the 30zq build (0.52): the Saga's entity lag 4 against the planned `animLag` 3.5, not this change.
-  After the round: record, then share ONE zip of the 26 packs (+ creator, nimbus) with sha256s.
+  phones, Pixel 40/1,391 ticks over 50 ms). 30zs on packs-38fb625a: Saga median 8.8 ms (p99 31.9, 1 of 2,959 ticks
+  over 50), Pixel 13.9 ms (p99 52.5, 19 of 1,437), both led by the roster's own per-call `currentTick` (14-17 %) and
+  `isValid` (7-9 %) and hop's `currentTick` (5 %) - fixed in 6f132587, not yet on a phone.
+- Round 30zs DONE (packs-38fb625a; `output/device-round-2026-10-19zs/{pixel,saga}/notes.md`). Arming WORKS: no
+  freeze at the drop top on either phone, the view stays in the seat and pitches down (Saga sheets
+  `saga/frames/C-drop-lap*.jpg`); Pixel shows a one-frame cut to the lift column ~0.35 s into the drop (36.16 s,
+  `pixel/frames/C-car2-drop-lap1-a.jpg`, unexplained). Drag with the train STOPPED turns the view in ~3 frames
+  (30zq: none). OPEN: in both loops, on BOTH phones, the own car's bodywork fills the view (Pixel car 2 lap 1
+  37.86-41.77 s, the dark-navy body cuts across the frame over the car's own white/cyan interior; Saga 25.6-29.4 s),
+  and the view snaps back to the own view in one step after loop 2. Smoothness over drop+loops is worse in numbers
+  (Pixel 2.8-4.6 stalls/s vs 0.7-1.3) but the view now really pitches and rolls, so the tool cannot separate it.
+  Sim gates on that build: default 150/150, regressions 38/38; coaster-camera Saga 0.51 blocks lead (as 30zq).
+- Loop bodywork, investigated offline 2026-10-19: the sim now draws the car's property-driven bones (pitch, roll,
+  `body_*` offset, rider hide: `animatedPoses`, `AuditActor.poses`, `boneTransforms` poses) on the properties the
+  client applies (`ClientView.drawnProperties`, quirk `property-ahead-of-position`, `--prop-lead=N`), and counts
+  frames with the eye inside a car's cubes (`eyeInsideCoasterCars`). With the runtime's own axis convention the sim's
+  loop frames are CLEAN (`offline/sim-lap1-anim-bones.jpg`) and the eye never enters a car at lead 0 or 3
+  (`offline/eye-lead*.txt`): timing alone does not explain it. First suspect (docs/bedrock-addon-guide.md "Not
+  device-verified"): the device applies an AXIS of the animated `body_x/y/z` position with the other sign - zero on
+  level track, large on the drop and in loops, exactly where the bodywork shows. Probe round 30zt IN FLIGHT (Pixel,
+  `output/device-round-2026-10-19zt/brief-pixel-30zt.md`, pack `proplag/proplag-v8.mcaddon`: `cal`/`caly`/`calz` read
+  each axis's sign, `move` the property lead; `proplag/analyze.py`). The runtime assumes x +1, y +1, z -1. Then fix
+  `body` in `coasterRuntime` (or set `COASTER_RIDER_VIEW.bodyLag`, mechanism in place at 0) and ride again.
+- 30zs also: the Pixel game ran OUT OF RAM (11.1/11.6 GB) and crashed in the first pinball session (26 packs bound,
+  10303 + 11374 placed); 1 Watchdog "High memory usage" line after the relaunch. Pixel taps never moved a flipper
+  (Saga: tap to flipper ~0.20-0.25 s; launch = pull the left stick back) - unverified whether the taps were on
+  target. The player kept a `craftmatic_hop:<tick>` claim tag (bedrock-ride-hop.ts `board` never clears it: TODO).
+- After the fix: build a round, ride, then share ONE zip of the 26 packs (+ creator, nimbus) with sha256s.
 - VEH-19: the lock is NOT reproduced (Saga A 11/11, B 9/9; B's `craftmatic_camera` gone ~2 s after each dismount):
   the sweep is proved on the device. Watchdog "High memory usage" appeared in B on both phones (Pixel 8, Saga 4),
   never in A, first after the 10303 placement - cause unknown. Phase A placed 10303 too (no warning), so the

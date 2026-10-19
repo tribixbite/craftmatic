@@ -66,6 +66,8 @@ export interface ClientProfile {
   easeFactor: number;
   /** `measured`: a marker run on that phone; `derived`: read back through this model from other measurements (ASSUMED until a marker run). */
   basis: 'measured' | 'derived';
+  /** Ticks an actor property reaches the screen before the position sent with it (quirk `property-ahead-of-position`). */
+  propertyLeadTicks: number;
 }
 
 /**
@@ -87,8 +89,8 @@ export interface ClientProfile {
  */
 export function clientProfile(name: ClientProfileName): ClientProfile {
   return name === 'saga'
-    ? { name, entityLagTicks: quirkValue('client-entity-lag', 'sagaTicks'), easeFactor: quirkValue('camera-ease-lag', 'sagaFactor'), basis: 'derived' }
-    : { name: 'pixel', entityLagTicks: quirkValue('client-entity-lag', 'ticks'), easeFactor: quirkValue('camera-ease-lag', 'pixelFactor'), basis: 'measured' };
+    ? { name, entityLagTicks: quirkValue('client-entity-lag', 'sagaTicks'), easeFactor: quirkValue('camera-ease-lag', 'sagaFactor'), basis: 'derived', propertyLeadTicks: quirkValue('property-ahead-of-position', 'sagaLeadTicks') }
+    : { name: 'pixel', entityLagTicks: quirkValue('client-entity-lag', 'ticks'), easeFactor: quirkValue('camera-ease-lag', 'pixelFactor'), basis: 'measured', propertyLeadTicks: quirkValue('property-ahead-of-position', 'pixelLeadTicks') };
 }
 
 /**
@@ -392,6 +394,14 @@ export class ClientView {
     }
     if (e.isPlayer) return { tick: now, x: e.location.x, y: e.location.y, z: e.location.z, yaw: e.rotation.y, pitch: e.rotation.x, scale: 1 };
     return this.poses.lagged(e, now, this.profile.entityLagTicks) ?? { tick: now, x: e.location.x, y: e.location.y, z: e.location.z, yaw: e.rotation.y, pitch: e.rotation.x, scale: e.scale() };
+  }
+
+  /**
+   * An entity's actor properties as the client applies them now: the server's of tick now - entityLag + propertyLead
+   * (quirk `property-ahead-of-position`), the live values for an entity with no recorded history yet.
+   */
+  drawnProperties(e: SimEntity): Readonly<Record<string, number | boolean | string>> {
+    return this.poses.propertiesAt(e, this.tick - this.profile.entityLagTicks + this.profile.propertyLeadTicks) ?? Object.fromEntries(e.properties);
   }
 
   /** The drawn velocity (blocks per tick) of an entity's drawn pose: the drawn mount's for a rider, the lagged history's otherwise. */

@@ -45,6 +45,7 @@ import type { AddonAppearance } from './appearance.js';
 import type { CraftmaticPack } from './pack-facts.js';
 import { clientSnapshot, NEAR_BLOCKS, type ClientSnapshotResult, type SnapshotEntity } from './snapshot.js';
 import { placedOf } from './play.js';
+import { animatedPoses, drawnBoxes, drawnReaches } from './drawn.js';
 import { CRAFTMATIC_ALLOWED_LINES, CRAFTMATIC_YIELDING_LINES, type Snapshot } from './child-play.js';
 
 /** The family every coaster car carries (`COASTER_FAMILY` of bedrock-coaster.ts; the adapter reads the pack's JSON, not the runtime). */
@@ -92,6 +93,29 @@ const pt = (p: Vec3): Vec3 => ({ x: r2(p.x), y: r2(p.y), z: r2(p.z) });
 export function hasCoasterCars(pack: CraftmaticPack): boolean {
   for (const [path, data] of pack.pack.files) if (path.startsWith('entities/') && new TextDecoder().decode(data).includes(`"${COASTER_CAR_FAMILY}"`)) return true;
   return false;
+}
+
+/**
+ * Whether the drawn camera eye is inside a drawn, opaque cube of the rider's own car or of another coaster entity, each
+ * drawn as the client draws it: its drawn pose and its property-driven bones (pitch, roll, body offset, the hidden
+ * posed rider) on the properties the client applies (quirk `property-ahead-of-position`). Only entities whose root
+ * is within `reach` blocks of the eye are drawn.
+ */
+export function eyeInsideCoasterCars(engine: InvariantContext['engine'] | StepContext['sim']['engine'], view: ClientView, appearance: AddonAppearance, player: SimEntity, reach = 6): { own: boolean; other: boolean } {
+  const eye = view.drawn(player).eye, own = player.ridingOn;
+  const probe = { x0: eye.x - 0.01, y0: eye.y - 0.01, z0: eye.z - 0.01, x1: eye.x + 0.01, y1: eye.y + 0.01, z1: eye.z + 0.01 };
+  const out = { own: false, other: false };
+  for (const e of engine.loadedEntities(player.dimension)) {
+    if (e === player || !e.families().includes(COASTER_CAR_FAMILY)) continue;
+    const entry = appearance.byType.get(e.typeId);
+    if (!entry) continue;
+    const p = view.drawnPose(e);
+    if (Math.hypot(p.x - eye.x, p.y - eye.y, p.z - eye.z) > reach * Math.max(1, p.scale)) continue;
+    const poses = animatedPoses(appearance.animations?.get(e.typeId), view.drawnProperties(e));
+    const inside = drawnBoxes(entry, { x: p.x, y: p.y, z: p.z }, p.yaw, p.scale, 'near', poses).some(d => !d.glass && drawnReaches(d, probe));
+    if (inside) { if (e === own) out.own = true; else out.other = true; }
+  }
+  return out;
 }
 
 /** The step handlers. `profile` names the client whose numbers the steps report (the client itself is attached by `prepare`, or here on first use). */
@@ -160,16 +184,25 @@ export function clientSteps(pack: CraftmaticPack, appearance: AddonAppearance, o
       const trace = new CameraTrace(view, ctx.player);
       const start = { ...car.location };
       let away = false, lapsDone = 0, t = 0;
+      // Frames the drawn eye spends inside a car's bodywork, by camera mode (Saga 30zs: its own car's, through the loops).
+      const inside = { own: new Map<string, number>(), other: new Map<string, number>() };
+      const insideTicks: number[] = [];
       for (; t < maxTicks && ctx.player.ridingOn === car && lapsDone < laps; t++) {
         await ctx.run(1);
         const row = trace.sample();
+        const hit = eyeInsideCoasterCars(ctx.sim.engine, view, appearance, ctx.player);
+        if (hit.own) { inside.own.set(row.mode, (inside.own.get(row.mode) ?? 0) + 1); insideTicks.push(t); }
+        if (hit.other) inside.other.set(row.mode, (inside.other.get(row.mode) ?? 0) + 1);
         const d = Math.hypot(car.location.x - start.x, car.location.y - start.y, car.location.z - start.z);
         if (d > 15) away = true;
         else if (away && d < 3) { away = false; lapsDone++; ctx.note(`lap ${lapsDone} at tick ${ctx.sim.engine.tick}`); }
         if (frames && trace.interesting(row)) keep(ctx, 'frames', shotOf(ctx, `lap${lapsDone + 1}-t${String(t).padStart(5, '0')}-${row.mode}`, FRAME_SIZE));
       }
       const s = trace.summary(SEAT_SPEED_FLOOR);
-      const out = { profile: view.profile.name, entityLagTicks: view.profile.entityLagTicks, laps: lapsDone, ...s, ridden: t, car: car.typeId, stillRiding: ctx.player.ridingOn === car };
+      const eyeInOwnCar = Object.fromEntries(inside.own), eyeInOtherCar = Object.fromEntries(inside.other);
+      const out = { profile: view.profile.name, entityLagTicks: view.profile.entityLagTicks, propertyLeadTicks: view.profile.propertyLeadTicks, laps: lapsDone, ...s, ridden: t, car: car.typeId, stillRiding: ctx.player.ridingOn === car, eyeInOwnCar, eyeInOtherCar };
+      const count = (m: Record<string, number>) => Object.values(m).reduce((a, b) => a + b, 0);
+      ctx.note(`eye inside bodywork (client ${view.profile.name}, property lead ${view.profile.propertyLeadTicks}): own car ${count(eyeInOwnCar)} frame(s) ${JSON.stringify(eyeInOwnCar)}, another car ${count(eyeInOtherCar)} ${JSON.stringify(eyeInOtherCar)}${insideTicks.length ? `; own-car ticks ${insideTicks.slice(0, 12).join(',')}${insideTicks.length > 12 ? '...' : ''}` : ''}`);
       ctx.state['coasterCamera'] = out;
       ctx.state['cameraTrace'] = trace.rows.map(r => ({ ...r, ...(r.lead !== undefined ? { lead: r2(r.lead) } : {}), ...(r.speed !== undefined ? { speed: r2(r.speed) } : {}), turnDeg: r2(r.turnDeg), jumpBlocks: r2(r.jumpBlocks), pitch: r2(r.pitch), yaw: r2(r.yaw) }));
       ctx.note(`coaster camera (client ${view.profile.name}, entity lag ${view.profile.entityLagTicks}): ${lapsDone} lap(s) in ${t} ticks, ${s.animations} inversion animation(s); worst turn ${r2(s.worstTurnDeg)} deg/frame, worst eye jump ${r2(s.worstJumpBlocks)} blocks, worst seat lead ${r2(s.worstLead)} blocks at tick ${s.worstLeadAt}, own-view frames while riding ${s.ownFrames}`);
