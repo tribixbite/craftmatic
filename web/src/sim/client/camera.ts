@@ -186,10 +186,20 @@ function keyed<T>(keys: readonly T[], t: number, timeOf: (k: T) => number, mix: 
 }
 
 /**
+ * The view a `playAnimation` rotation keyframe is drawn at. Keyframes are in the Z-MIRRORED frame: `x` is the
+ * NEGATED pitch (2026-09-29) and `y` is 180 - the yaw `setCamera` would take for the same view (Pixel round 30zy,
+ * camprobe `yaw`: a keyframe at 0 faced north where `setCamera` at 0 faced south, at 45 north-west against
+ * south-west; quirk `camera-keyframe-yaw-mirrored`); `z` is the roll as measured in that frame.
+ */
+export function keyframeView(rotation: { x: number; y: number; z: number }): { yaw: number; pitch: number; roll: number } {
+  return { yaw: 180 - rotation.y, pitch: -rotation.x, roll: rotation.z };
+}
+
+/**
  * The pose an animation shows `t` seconds in: the eye on the spline at the progress alpha (the
  * coaster resamples its spline to equal arc steps, so alpha by arc and by point index agree there;
  * arc is taken), the rotation keyframes' Euler angles interpolated LINEARLY (no short way round:
- * measured, a chart flip is drawn as a spin), x the NEGATED pitch, y the yaw, z the roll.
+ * measured, a chart flip is drawn as a spin), drawn through `keyframeView`.
  */
 export function sampleAnimation(anim: Pick<PlayingAnimation, 'points' | 'arcs' | 'progress' | 'rotation'>, t: number): CameraPose {
   const prog = keyed(anim.progress, t, k => k.t, (a, b, f) => ({ alpha: a.alpha + (b.alpha - a.alpha) * f, t }));
@@ -205,7 +215,7 @@ export function sampleAnimation(anim: Pick<PlayingAnimation, 'points' | 'arcs' |
     eye = { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, z: a.z + (b.z - a.z) * f };
   }
   const rot = keyed(anim.rotation, t, k => k.t, (a, b, f) => ({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, z: a.z + (b.z - a.z) * f, t }));
-  return { eye, yaw: rot?.y ?? 0, pitch: -(rot?.x ?? 0), roll: rot?.z ?? 0 };
+  return { eye, ...keyframeView(rot ?? { x: 0, y: 180, z: 0 }) };
 }
 
 /** The camera state of one player on the client. */

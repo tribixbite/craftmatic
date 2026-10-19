@@ -23,26 +23,27 @@ drop cut and the Pixel timing found below: RE-SHARE once the drop cut is fixed o
   render distance from `si:dump`: Pixel Deferred/24 -> 3.5/3.3; anything else the Saga's 5.7/4.1). The fingerprint
   is n=1 per phone: a new phone needs a camprobe/proplag run (briefs: `output/device-round-2026-10-19zv/
   brief-saga-30zv.md`, packs `output/device-round-2026-10-19zr/camprobe/`, `-19zt/proplag/`, `-19zv/sysinfo/`).
-- WHY every drop cut 35-45 degrees on both phones (round 30zu; 30zv `native-debug` lines, `{pixel,saga}/
-  native-debug.txt`): the phone draws a rider's view on the DRAWN car and REPORTS that yaw later (Pixel 8.7 ticks,
-  Saga 7.1); 4fed7295 started each animation on the reported yaw. Fixed c02fbbcc: start on the drawn car + head turn,
-  head turn read against each rider's fitted report lag (`fitReportLag`, per-tick turns). The sim client now draws
-  the own view on the drawn car (`ClientView.ownPose`).
-- ROUND 30zw (9e46b8c4, `output/device-round-2026-10-19zw/{saga,pixel}/notes.md`): the drop CUT is NOT fixed. Saga:
-  car 3 smooth (pitches down from the own view), car 2 still cuts ~90 degrees at Td+0.6-0.9 every lap (frames
-  `saga/frames/C-car2-start-lap1.jpg` 42.75 -> 42.78). Pixel: cut in cars 2 AND 3 every lap (`pixel/frames/
-  C-car2-lap1-drop30.jpg` 46.29 -> 46.32): the first animated view looks ~70-90 degrees LEFT of the track (the lift
-  tower) and swings back to the track over ~0.4 s = the start blend, so the head turn `look` it starts from is wrong
-  on the device though the sim (both clients, cars 1-3, 0 violations, `zw/sim/coaster-cars.log`) is clean. Loop
-  smears stay gone; the hull band in the loops is NOT gone (Saga car 3 halved by count, same by eye; Pixel unchanged);
-  the hand-back after loop 2 is 1-3 frames in Saga car 2, smooth in car 3. Hop tag gone by 12 s (Saga) / 6.5 s (Pixel).
-  Memory: Saga PSS 5.19 GB after rides (26 bound), Pixel MemAvailable 894 MB at the all-26 load. 0 content-log errors.
-  NOT re-shared: the zip waits for the cut.
-- PROBE 30zx RUNNING on both phones (commit 9eda695f adds a per-tick `native-debug {"what":"t"}` line: reported yaw
-  `ry`, car yaw `car`, fitted `lag`, camera state `s`): debug pack `output/device-round-2026-10-19zx/probe-9eda695f/
-  10303-loop-coaster-debug.mcaddon` (sha256 7498b348...), briefs `brief-{saga,pixel}-30zx.md`: car 2 boarded at the
-  station vs mid-lap with `/ride`, car 3, car 1; per drop the `t` lines around the arm beside 30 fps frames. Next:
-  find which of `ry` / `car` / `lag` makes `look` wrong, fix with a guard, rebuild, device round, then share the zip.
+- The own view before an animation is the DRAWN car plus the head turn (c02fbbcc; measured right by 30zy's pillars);
+  the reported yaw trails it (Pixel 8.7 ticks, Saga 7.1, fitted per rider: `fitReportLag`).
+- THE DROP CUT, CAUSE FOUND (round 30zy, 2026-10-19): a `playAnimation` keyframe's yaw is drawn MIRRORED, 180 - y
+  (Pixel camprobe v8 `cp:run yaw <Y>`, `output/device-round-2026-10-19zy/pixel-yaw/notes.md`: 0 -> 180, 45 -> 135,
+  135 -> 45, 180 -> 0, -90 -> -90; quirk `camera-keyframe-yaw-mirrored`). Yaw +-90 is its own mirror: 10303's loops
+  run along x, so every probe missed it, while each drop starts on the crest curve (car yaw ~-130..-170) and its first
+  keyframe was drawn 60-120 degrees off - looking into the model at the lift tower - in every car on both phones
+  (rounds 30zu-30zy; 30zw's "car 3 smooth" on the Saga was a misread, 30zx). Found with marker pillars (six 3x3
+  concrete pillars ~30 blocks round the crest, `output/device-round-2026-10-19zy/pillars-30.json`, read by
+  `scripts/_pillar_yaw.py`): the own view before the drop read -156, the drawn car plus the head turn (so c02fbbcc's
+  start view was right; the lag work of 30zu-30zw did not touch the cut). FIXED OFFLINE (the commit after 20e8de92): `splineAnimation` writes `y: 180 - yaw`; the sim draws keyframes through
+  `keyframeView`; the old line fails 6 guards. The loops' keyframes (-90..-101) were drawn up to ~10 degrees off too,
+  so the hull band in the loops may change: re-check it.
+- NEXT: build round 30zz from the fix commit (all 26 + creator + nimbus, `output/device-round-2026-10-19zw/build.sh`
+  pattern), sim gates, then one device round on both phones (briefs as `output/device-round-2026-10-19zw/brief-*.md`:
+  cars 2 and 3, the drop's start, the loops' bodywork, the hand-back, a drag on the level run), then RE-SHARE the zip.
+  The probe packs (`output/device-round-2026-10-19zx/probe-9eda695f`, `-19zy/probe-20e8de92`) write a content-log line
+  every tick (`native-debug`, `camera.debug`): never ship them.
+- The wand's Undo left 10303's entities (and the tower) on the Saga in 30zx after a re-placement on top of an earlier
+  one ("Nothing to undo" on the 3rd try; `output/device-round-2026-10-19zx/saga/notes.md` "Wand Undo"); a single
+  placement undid fine in 30zw/30zy. Not investigated.
 - Still open: the hull band in the loops (both phones); the hand-back snap (Saga car 2); from car 3 a posed rider's
   pink hair fills the lower right (`output/device-round-2026-10-19zu/pixel/frames/C-car3-drop-lap1-b.jpg`).
 - PIN-02: Saga busy median 8.6 ms with all 26 bound (30zs 8.8); `Entity::isValid` at roster.js:29 is the top self

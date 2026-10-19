@@ -2442,9 +2442,15 @@ Pixel, a camera animation re-issued every tick draws NO rotation (only the
 last, uninterrupted one does; with or without the experiment), but a single
 uninterrupted animation rolls: `loopsim` (a 5-block loop in front of the
 player, 2-3 s) goes up, fully upside down (grass at the top of the screen),
-down and back to level (`loopsim4-flip-zoom.jpg`). Keyframe facts: `x` is the
-NEGATED pitch (Microsoft's flyover sample agrees: `x: -55` looks down),
-`z = +90` rolls the view left, keyframes more than 0.05 s apart. So when the
+down and back to level (`loopsim4-flip-zoom.jpg`). Keyframe facts: the rotation
+is in the Z-MIRRORED frame - `x` is the NEGATED pitch (Microsoft's flyover sample
+agrees: `x: -55` looks down) and `y` is 180 - the `setCamera` yaw (Pixel round
+30zy, `output/device-round-2026-10-19zy/pixel-yaw/notes.md`: keyframe 0 faced
+north, 45 north-west, 135 south-west, 180 south, -90 east; quirk
+`camera-keyframe-yaw-mirrored`; yaw +-90 is its own mirror, so 10303's
+x-aligned loops never showed it, while every drop off its crest curve cut
+60-120 degrees in rounds 30zu-30zx) - `z = +90` rolls the view left,
+keyframes more than 0.05 s apart. So when the
 car climbs into a loop the runtime predicts the train (`planner`: the ride's
 own `integrate`/`carPose`, same order, bit-exact), finds the first inverted
 run (car up.y < -0.2, starting within 10 ticks) and its end (up.y > 0.3), and

@@ -16,7 +16,7 @@ import { COASTER_RIDER_VIEW, coasterRuntimeConfig, coasterScript, type CoasterRo
 import { FREE_LOOK, cockpitEyeLead } from '../web/src/engine/vehicle-free-look.js';
 import { PoseHistory } from '../web/src/sim/client/draw-lag.js';
 import { boneTransforms, mul, pivotRotation } from '../web/src/engine/bedrock-geometry-faces.js';
-import { attachClient, cameraFrame, ClientView, clientProfile, drawnCameraLead, easeSteadyLagTicks, sampleAnimation, TICK_SECONDS } from '../web/src/sim/client/camera.js';
+import { attachClient, cameraFrame, ClientView, clientProfile, drawnCameraLead, easeSteadyLagTicks, keyframeView, sampleAnimation, TICK_SECONDS } from '../web/src/sim/client/camera.js';
 import { CAMERA_MAX_EYE_JUMP_BLOCKS, CAMERA_MAX_TURN_DEG, cameraFrameDelta, clientInvariants, scriptMeansContinuity } from '../web/src/sim/client/invariants.js';
 import { CameraTrace } from '../web/src/sim/client/steps.js';
 import { rasterizeDetailed, type RasterQuad } from '../web/src/sim/render/rasterizer.js';
@@ -123,12 +123,27 @@ describe('the camera frame and the animation sampling', () => {
   it('interpolates Euler keyframes LINEARLY (the yaw never the short way round, the pitch continuous past 90) and the eye by arc', () => {
     const anim = { points: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 1, y: 0, z: 3 }], arcs: [0, 1, 4], progress: [{ alpha: 0, t: 0 }, { alpha: 1, t: 0.2 }], rotation: [{ x: 0, y: 170, z: 0, t: 0 }, { x: 360, y: -170, z: 0, t: 0.2 }] };
     const mid = sampleAnimation(anim, 0.1);
-    // Half way: 2 blocks along the 4-block path (past the corner), the yaw through 0 (a 340-degree swing: the chart flip the Pixel drew as a spin), the pitch -180.
+    // Half way: 2 blocks along the 4-block path (past the corner), the keyframe yaw through 0 (a 340-degree swing: the
+    // chart flip the Pixel drew as a spin), drawn mirrored at 180 - 0, the pitch -180.
     expect(mid.eye).toEqual({ x: 1, y: 0, z: 1 });
-    expect(mid.yaw).toBeCloseTo(0);
+    expect(mid.yaw).toBeCloseTo(180);
     expect(mid.pitch).toBeCloseTo(-180);
-    expect(sampleAnimation(anim, 0).yaw).toBe(170);
+    expect(sampleAnimation(anim, 0).yaw).toBe(10);
     expect(sampleAnimation(anim, 1).eye).toEqual({ x: 1, y: 0, z: 3 }); // clamped past the end
+  });
+
+  it('draws a keyframe yaw MIRRORED, 180 - y (COAST-06, Pixel round 30zy camprobe `yaw`: a keyframe at 0 faced north where setCamera at 0 faced south, at 45 north-west against south-west)', () => {
+    const still = (y: number) => ({ points: [{ x: 0, y: 0, z: 0 }, { x: 0.01, y: 0, z: 0 }], arcs: [0, 0.01], progress: [{ alpha: 0, t: 0 }, { alpha: 1, t: 2 }], rotation: [{ x: 0, y, z: 0, t: 0 }, { x: 0, y, z: 0, t: 2 }] });
+    const facing = (yaw: number) => ({ x: -Math.sin(yaw * Math.PI / 180), z: Math.cos(yaw * Math.PI / 180) });
+    // setCamera's yaw 0 faces +z (south); the keyframe at 0 faces -z (north).
+    expect(facing(sampleAnimation(still(0), 1).yaw).z).toBeCloseTo(-1, 6);
+    // 45: setCamera faces south-west (-x, +z); the keyframe north-west (-x, -z), 135 - not 225 (a plain half turn).
+    const nw = facing(sampleAnimation(still(45), 1).yaw);
+    expect(nw.x).toBeCloseTo(-Math.SQRT1_2, 6);
+    expect(nw.z).toBeCloseTo(-Math.SQRT1_2, 6);
+    // +-90 is its own mirror: why every probe along 10303's x-aligned loops missed it.
+    expect(Math.cos((sampleAnimation(still(-90), 1).yaw + 90) * Math.PI / 180)).toBeCloseTo(1, 6);
+    expect(keyframeView({ x: 30, y: 45, z: 12 })).toEqual({ yaw: 135, pitch: -30, roll: 12 });
   });
 });
 

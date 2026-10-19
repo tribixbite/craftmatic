@@ -10,6 +10,7 @@ import type { CoasterCar } from '../web/src/engine/coaster-assemblies.js';
 import { detectCoasterAssemblies } from '../web/src/engine/coaster-assemblies.js';
 import { FLYER } from '../web/src/engine/bedrock-flyer.js';
 import { quirkValue } from '../web/src/sim/quirks/registry.js';
+import { keyframeView } from '../web/src/sim/client/camera.js';
 import { HOP_TAGS } from '../web/src/engine/bedrock-ride-hop.js';
 import { CAMERA_OWNER_TAG, CAMERA_SWEEP_TICKS } from '../web/src/engine/camera-release.js';
 import { extractCoasterTrackRoutes } from '../web/src/engine/coaster-track.js';
@@ -2498,7 +2499,7 @@ describe('the rider camera follows the track', () => {
         }
         for (const key of keys) {
           const k = Math.round(key.timeSeconds / 0.05);
-          const view = rollFrame({ yaw: key.rotation.y, pitch: -key.rotation.x, roll: key.rotation.z });
+          const view = rollFrame(keyframeView(key.rotation));
           if (Math.abs(key.rotation.x) > 90) past90++;
           // Keyframe k shows the ride as it was ANIM_LAG ticks earlier (a
           // fraction read between two ticks): the client draws the cars that
@@ -2523,7 +2524,7 @@ describe('the rider camera follows the track', () => {
         expect(past90).toBeGreaterThan(0);
         // The tail ends right side up too: the hand-back's per-tick view and the
         // animation's last keyframe agree to the helix's lean.
-        expect(rollFrame({ yaw: keys.at(-1).rotation.y, pitch: -keys.at(-1).rotation.x, roll: keys.at(-1).rotation.z }).u[1]).toBeGreaterThan(0.7);
+        expect(rollFrame(keyframeView(keys.at(-1).rotation)).u[1]).toBeGreaterThan(0.7);
       }
     }
   });
@@ -2751,12 +2752,12 @@ describe('the rider camera follows the track', () => {
       // rider's view on the car it draws and reports it later (round 30zv; started from the reported yaw, 4fed7295 cut
       // 35-45 degrees at 10303's crest on both phones) - and their own pitch, no roll.
       const own = (k: number) => yawAt(yaws, play.tick + k - COASTER_RIDER_VIEW.animLag);
-      expect(Math.abs(wrapDeg(keys[0].rotation.y - own(0)))).toBeLessThan(1);
+      expect(Math.abs(wrapDeg(keyframeView(keys[0].rotation).yaw - own(0)))).toBeLessThan(1);
       expect(keys[0].rotation.x).toBeCloseTo(0, 6);
       expect(keys[0].rotation.z).toBeCloseTo(0, 6);
       // ...and ends on it, whatever chart the loop left the pitch in (a whole turn on is the same view).
       const last = keys.at(-1);
-      expect(Math.abs(wrapDeg(last.rotation.y - own(total)))).toBeLessThan(1);
+      expect(Math.abs(wrapDeg(keyframeView(last.rotation).yaw - own(total)))).toBeLessThan(1);
       expect(Math.abs(wrapDeg(last.rotation.x))).toBeLessThan(1e-6);
       expect(last.rotation.z).toBeCloseTo(0, 6);
       // One chart: no keyframe-to-keyframe jump an Euler-lerping client would draw as a spin.
@@ -2767,7 +2768,7 @@ describe('the rider camera follows the track', () => {
         expect(Math.abs(b.z - a.z)).toBeLessThan(45);
       }
       // The loop is drawn: the view passes upside down.
-      expect(keys.some(key => rollFrame({ yaw: key.rotation.y, pitch: -key.rotation.x, roll: key.rotation.z }).u[1] < -0.9)).toBe(true);
+      expect(keys.some(key => rollFrame(keyframeView(key.rotation)).u[1] < -0.9)).toBe(true);
       // Nothing touches the camera while it plays; it is cleared, back to the player's own view, where it ends.
       expect(log.filter(e => e.tick > play.tick && e.tick < play.tick + total)).toHaveLength(0);
       expect(log.filter(e => e.tick === play.tick + total && e.kind === 'clear')).toHaveLength(1);
@@ -2807,7 +2808,7 @@ describe('the rider camera follows the track', () => {
       expect(Math.abs(wrapDeg(yawAt(yaws, play.tick) - yawAt(yaws, play.tick - 20)))).toBeGreaterThan(10);
       const keys = play.args[1].animation.rotationKeyFrames as any[];
       const drawn = yawAt(yaws, play.tick - COASTER_RIDER_VIEW.animLag) + head.yaw;
-      expect(Math.abs(wrapDeg(keys[0].rotation.y - drawn)), `lag ${reportLag}`).toBeLessThan(2);
+      expect(Math.abs(wrapDeg(keyframeView(keys[0].rotation).yaw - drawn)), `lag ${reportLag}`).toBeLessThan(2);
       // Here the REPORTED yaw is well off the drawn view, so a start on it (4fed7295) would fail the line above.
       expect(Math.abs(wrapDeg(yawAt(yaws, play.tick - reportLag) + head.yaw - drawn)), `lag ${reportLag}`).toBeGreaterThan(4);
       // ...and the fitted lag is the client's.
@@ -2870,9 +2871,9 @@ describe('the rider camera follows the track', () => {
       const keys = play.args[1].animation.rotationKeyFrames as any[];
       const total = Math.round(play.args[1].totalTimeSeconds / 0.05);
       const own = (k: number) => yawAt(yaws, play.tick + k - COASTER_RIDER_VIEW.animLag) + head.yaw;
-      expect(Math.abs(wrapDeg(keys[0].rotation.y - own(0)))).toBeLessThan(1);
+      expect(Math.abs(wrapDeg(keyframeView(keys[0].rotation).yaw - own(0)))).toBeLessThan(1);
       expect(keys[0].rotation.x).toBeCloseTo(-head.pitch, 6);
-      expect(Math.abs(wrapDeg(keys.at(-1).rotation.y - own(total)))).toBeLessThan(1);
+      expect(Math.abs(wrapDeg(keyframeView(keys.at(-1).rotation).yaw - own(total)))).toBeLessThan(1);
       expect(Math.abs(wrapDeg(keys.at(-1).rotation.x + head.pitch))).toBeLessThan(1e-6);
     }
   });
@@ -3135,7 +3136,7 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
         // Both loops are in it: the view passes upside down twice, separately, and comes back to the player's own.
         let passes = 0, inverted = false;
         for (const key of keys) {
-          const now = rollFrame({ yaw: key.rotation.y, pitch: -key.rotation.x, roll: key.rotation.z }).u[1] < -0.5;
+          const now = rollFrame(keyframeView(key.rotation)).u[1] < -0.5;
           if (now && !inverted) passes++;
           inverted = now;
         }

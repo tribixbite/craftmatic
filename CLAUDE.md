@@ -353,7 +353,12 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
 - **A Bedrock camera cannot roll per tick** (Pixel, 26.51): `setCamera` takes
   yaw and a pitch within ±90 only (outside throws); roll exists only as
   `playAnimation` keyframe `rotation.z`, keyframes must be >0.05 s apart, a
-  `LinearSpline` needs 3 points, a keyframe's `x` is the NEGATED pitch, and
+  `LinearSpline` needs 3 points, **a keyframe's rotation is in the Z-MIRRORED
+  frame: `x` is the NEGATED pitch and `y` is 180 − the yaw `setCamera` would
+  take** (Pixel round 30zy, camprobe `yaw`: keyframe 0 faced north, 45
+  north-west; yaw ±90 is its own mirror, which is why every probe along
+  10303's x-aligned loops missed it and every drop off its crest curve cut
+  60-120 degrees for a week; quirk `camera-keyframe-yaw-mirrored`), and
   an animation re-issued every tick is never drawn — ONE uninterrupted
   animation does roll, so a coaster loop is sent whole, planned ahead.
   **Keyframe Euler angles are interpolated LINEARLY and `x` takes a
@@ -371,8 +376,12 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   (`clientTimings`, matched on `graphicsMode` + render distance; unknown
   clients get the Saga's, the user's phone). A rider's own view is drawn on
   the DRAWN car and only REPORTED 7-9 ticks later: start an animation from the
-  drawn car's yaw plus the head turn, never from the reported yaw (round 30zu:
-  a 35-45 degree cut at every drop).
+  drawn car's yaw plus the head turn, never from the reported yaw (round 30zy:
+  the own view read off marker pillars round 10303's crest, -156 against a
+  reported ~-178). When a camera looks wrong, MEASURE its yaw against
+  landmarks (`python -I scripts/_pillar_yaw.py`, coloured
+  pillars ~30 blocks out: the Pixel's fog hides them at 100) before
+  re-deriving lags from log lines: three rounds of lag fixes missed the mirror.
   The "Experimental Creator Camera Features" experiment changes none of this.
   **So the coaster rides the player's OWN first person on near-level track**
   (`native`, 2026-10-18) and sends only fast steep stretches as one blended

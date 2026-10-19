@@ -2571,7 +2571,11 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
    * One camera animation from a view per tick (`poses[k]`'s eye, `views[k]`'s yaw / continuous pitch / roll, k = 0
    * ..`total`, total even): the eye path as a linear spline resampled to equal arc steps (so progress means the same
    * whether the client reads alpha by arc or by point index), and a rotation keyframe every second tick (they must
-   * be more than 0.05 s apart; a keyframe's x is the NEGATED pitch, measured). Null when the eye hardly moves.
+   * be more than 0.05 s apart). A keyframe's rotation is in the Z-MIRRORED frame: x is the NEGATED pitch and y is
+   * 180 - the yaw (Pixel round 30zy, camprobe `yaw`: a keyframe at 0 faced north and at 45 north-west where
+   * `setCamera` faced south and south-west; quirk `camera-keyframe-yaw-mirrored`). Yaw +-90 is its own mirror, which
+   * is why every probe along 10303's x-aligned loops missed it and every drop off its crest curve cut 60-120
+   * degrees. The roll was measured in this frame. Null when the eye hardly moves.
    */
   const splineAnimation = (poses: any[], views: any[], total: number) => {
     const arcs = [0];
@@ -2593,7 +2597,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     const progressKeyFrames: any[] = [], rotationKeyFrames: any[] = [];
     for (let k = 0; k <= total; k += 2) {
       progressKeyFrames.push({ alpha: arcs[k] / totalArc, timeSeconds: k * 0.05 });
-      rotationKeyFrames.push({ rotation: { x: -views[k].pitch, y: views[k].yaw, z: views[k].roll }, timeSeconds: k * 0.05 });
+      rotationKeyFrames.push({ rotation: { x: -views[k].pitch, y: 180 - views[k].yaw, z: views[k].roll }, timeSeconds: k * 0.05 });
     }
     const spline = new Spline();
     spline.controlPoints = points;
