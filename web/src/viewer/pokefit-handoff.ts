@@ -6,7 +6,7 @@
  * share files, not code: craftmatic opens pokefit in a new tab and, once that tab announces
  * `{type: "pokefit:ready"}` to its opener, posts `{type: "pokefit:load", name, data: ArrayBuffer}` (the
  * GLB). pokefit accepts the message only from its trusted origins (craftmatic.click,
- * tribixbite.github.io, localhost); pokefit's side is `web/src/handoff.ts` in tribixbite/pokeball.
+ * tribixbite.github.io, localhost); pokefit's side is `web/src/handoff.ts` in tribixbite/pokefit.
  */
 
 export const POKEFIT_URL = 'https://pokefit.party/';
