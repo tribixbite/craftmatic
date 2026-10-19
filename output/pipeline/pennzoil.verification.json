@@ -1,6 +1,6 @@
 {
-  "status": "pass",
-  "lastRun": "2026-08-16T15:48:36.139Z",
+  "status": "fail-consensus",
+  "lastRun": "2026-10-19T04:02:00.930Z",
   "objective": {
     "footprintIoU": 0.9976452119309263,
     "heightErr": 0,
@@ -15,30 +15,30 @@
     "failures": []
   },
   "consensus": {
-    "status": "pass",
+    "status": "fail",
     "rounds": 1,
     "gemini": {
-      "color": 8,
-      "features": 7,
-      "massing": 9,
-      "overall": 9
+      "color": 5,
+      "features": 3,
+      "massing": 8,
+      "overall": 6
     },
     "claude": {
-      "color": 8,
-      "features": 7,
-      "massing": 9,
-      "overall": 9
+      "color": 5,
+      "features": 3,
+      "massing": 8,
+      "overall": 6
     },
     "gpt5": {
-      "color": 8,
-      "features": 7,
-      "massing": 9,
-      "overall": 9
+      "color": 5,
+      "features": 3,
+      "massing": 8,
+      "overall": 6
     },
-    "min": 7,
-    "median": 8.5,
+    "min": 3,
+    "median": 5.5,
     "spread": 0,
-    "pass": true
+    "pass": false
   },
   "provenance": {
     "fields": [
@@ -94,7 +94,10 @@
     "maxDisagreement": 0,
     "truncationSuspected": false,
     "ok": true,
-    "warnings": []
+    "verified": false,
+    "warnings": [
+      "height 151m from osm is UNVERIFIED — no independent source (OSM height/levels, Solar, Smarty) to cross-check against"
+    ]
   },
   "defectScore": {
     "defects": {
@@ -119,7 +122,7 @@
       "facadeTotal": 1032465,
       "facadeDominantShare": 0.5492709195953374,
       "facadeDominantState": "minecraft:tuff",
-      "facadeMeanLuma": 120.96172378046714,
+      "facadeMeanLuma": 122.60776061890718,
       "facadeGlassShare": 0.07791837979979951
     }
   },

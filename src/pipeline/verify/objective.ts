@@ -17,6 +17,10 @@ import { findUnknownStates } from '../../blocks/known-blocks.js';
  * Uses a pure raster sampler (200×200 grid over the bbox) — no dependency on
  * shapely or three-bvh-csg. Adequate precision for an IoU ≥ 0.85 gate.
  */
+/** Base slab for the footprint gate: the bottom max(3 m, 10 %) of the mesh. */
+const BASE_SLAB_MIN_M = 3;
+const BASE_SLAB_FRACTION = 0.1;
+
 export function footprintIoU(
   meshPositions: Float32Array,
   meshIndices: Uint32Array,
@@ -70,12 +74,24 @@ export function footprintIoU(
     }
   }
 
-  // Mesh silhouette: project triangles, rasterize any triangle hit at the cell
+  // Mesh silhouette at the BASE: an OSM footprint is the building's outline
+  // where it meets the ground, so only triangles reaching into the bottom slab
+  // count. Projecting the whole mesh charged every real overhang as footprint
+  // error — Geisel's tower tiers overhang its podium (IoU 0.46) — and forced
+  // synthesis to snap tiers back to the podium outline. A shifted building or
+  // a neighbour merged at ground level still fails, as before.
+  let meshMinY = Infinity, meshMaxY = -Infinity;
+  for (let i = 1; i < meshPositions.length; i += 3) {
+    meshMinY = Math.min(meshMinY, meshPositions[i]);
+    meshMaxY = Math.max(meshMaxY, meshPositions[i]);
+  }
+  const baseTopY = meshMinY + Math.max(BASE_SLAB_MIN_M, (meshMaxY - meshMinY) * BASE_SLAB_FRACTION);
   const meshMask = new Uint8Array(R * R);
   for (let i = 0; i < meshIndices.length; i += 3) {
     const a = meshIndices[i] * 3;
     const b = meshIndices[i + 1] * 3;
     const c = meshIndices[i + 2] * 3;
+    if (Math.min(meshPositions[a + 1], meshPositions[b + 1], meshPositions[c + 1]) > baseTopY) continue;
     rasterTriangle2D(
       meshPositions[a], meshPositions[a + 2],
       meshPositions[b], meshPositions[b + 2],

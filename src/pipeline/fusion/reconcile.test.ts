@@ -3,6 +3,7 @@ import {
   fuseEvidence,
   reconcileFootprint,
   reconcileHeight,
+  tileFootprintGroundY,
   reconcileLevels,
   reconcileRoofShape,
   reconcileWallPalette,
@@ -182,6 +183,24 @@ describe('reconcileHeight', () => {
     );
     expect(r.source).toBe('tiles');
     expect(r.value).toBeCloseTo(33, 5);
+  });
+
+  it('tileFootprintGroundY is the absolute scene Y of the ring, null without a polygon', () => {
+    const dLat = 10 / 111_111;
+    const dLon = 10 / (111_111 * Math.cos(C.lat * Math.PI / 180));
+    const polygon: LatLon[] = [
+      { lat: C.lat - dLat, lon: C.lng - dLon }, { lat: C.lat - dLat, lon: C.lng + dLon },
+      { lat: C.lat + dLat, lon: C.lng + dLon }, { lat: C.lat + dLat, lon: C.lng - dLon },
+    ];
+    const W = 60, L = 60;
+    const heightmap = new Float32Array(W * L).fill(12); // ring 12 m above the capture min
+    const tiles: TileEvidence = {
+      ...makeTiles(40),
+      heightmap, heightmapWidth: W, heightmapLength: L,
+      measuredBbox: { min: { x: -30, y: 100, z: -30 }, max: { x: 30, y: 140, z: 30 } },
+    };
+    expect(tileFootprintGroundY({ polygon, center: { lat: C.lat, lng: C.lng } }, tiles)).toBeCloseTo(112, 5);
+    expect(tileFootprintGroundY({ polygon: null, center: { lat: C.lat, lng: C.lng } }, tiles)).toBeNull();
   });
 });
 

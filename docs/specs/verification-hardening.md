@@ -4,7 +4,7 @@ Status: **in progress** — opened 2026-06-21. Last worked 2026-08-16.
 
 ---
 
-# ▶ START HERE — handoff (updated 2026-08-16)
+# ▶ START HERE — handoff (updated 2026-10-19)
 
 **Reading order for this file:** items `## 1`–`## 6` are the original roadmap
 (all DONE). Everything from *Visual QA findings 2026-07-18* onward is a
@@ -34,15 +34,20 @@ Ground truth for a build is `output/pipeline/<slug>.verification.json`, not the
 console — bun buffers child stderr into redirected logs until the process
 exits, so a running build looks silent.
 
-## Current board (all five goldens, 2026-08-16)
+## Current board (2026-10-19, `--local-tiles`, single-Gemini median-of-3)
 
-| slug | status | IoU | defect | color | features | massing | overall |
+| slug | status | IoU | color | features | massing | overall | vs 2026-08-16 |
 |---|---|---|---|---|---|---|---|
-| pennzoil | **pass** | 1.00 | 10.0 | 8 | 7 | 9 | 9 |
-| flatiron | fail-consensus | 0.98 | 10.0 | 3 | 2 | 9 | 4 |
-| geisel | fail-consensus | 1.00 | 10.0 | 1 | 0 | 1 | 0 |
-| guggenheim | fail-consensus | 0.99 | 10.0 | 1 | 0 | 0 | 0 |
-| 240-highland | fail-consensus | 1.00 | 10.0 | 1 | 0 | 0 | 0 |
+| pennzoil | fail-consensus | 1.00 | 5-6 | 3-4 | 8-9 | 6-7 | was **pass** 8/7/9/9 — geometry byte-identical (1,379,781 voxels); two re-scores 6.5 and 5.5 median. Scorer drift, most likely the Aug-25 reference-set change (5927dc5), not synthesis |
+| flatiron | fail-consensus | 0.99 | 2 | 1 | 8 | 4 | 3/2/9/4 — within run-to-run spread |
+| geisel | fail-consensus | 0.99 | 1 | 2 | 4 | 2 | 0/0/0/0 (built the wrong building, see §3) |
+| guggenheim | fail-consensus | 0.99 | 0 | 1 | 2 | 1 | 1/0/0/0 |
+| 240-highland | fail-consensus | 1.00 | — | — | — | — | not re-run (parametric path) |
+
+Re-scoring identical geometry moves a dimension by ±1-2: treat a ±1 change
+as noise. geisel/guggenheim's last scores were rendered with procedural
+textures (atlas load timed out under load average ~11) — re-score on an
+idle box before comparing colour.
 
 **The deterministic gates are saturated** — every build is IoU ≥ 0.98 and
 defect 10.0. All remaining signal is subjective, so a change that doesn't move
@@ -63,34 +68,29 @@ footprint is right and the *vertical form* is wrong.
 2. **flatiron — recolor splotch (colour 3, features 2).** Photogrammetry
    noise fragments the facade. NOTE the rejected approach below before
    starting: attack the recolor's *sampling*, not post-hoc smoothing.
-3. **geisel — height FIXED (2026-10-18); features 0 is the next target.**
-   Was: `height = 72.9m (tiles/0.95)`, `levels = 24` for a ~33m, 8-floor
-   library — tile height was `maxY − minY` of the whole capture, and Geisel
-   sits on a canyon edge, so it measured canyon floor → roof.
-   **Fix:** `footprintGroundElevation()` (`capture/heightmap.ts`) takes the
-   median heightmap cell in a 6m ring just outside the OSM footprint;
-   `reconcileHeight` measures from that ground. Offline on the cached
-   `geisel-v200.glb`: 31.7–35.1m. Live rebuild: `28.4m`, `levels = 9`.
-   Still `h_unverified` (no OSM/Solar/Smarty height to cross-check).
-   **Measure on the cached capture** (`iterate --only geisel --local-tiles`):
-   August's 72.9m came from `geisel-v200.glb`; a live capture on 2026-10-18
-   was degraded (65 meshes, only 8m of bands survived, stretched ×3.55).
-   Cached result: 31.7m, levels 11, consensus colour 1 / features 0 /
-   massing 0 (was 1/0/1 at 72.9m).
-   **Why features stays 0 — synthesis, not overlay:** the render is a flat
-   108m slab with a uniform window grid and photogrammetry patches; the
-   stepped cantilevered tower is gone because non-cantilever band rings snap
-   to the OSM outline. All 53m of bands (canyon floor up) are also squashed
-   ×0.6 into 31.7m.
-   **Rejected with data — trimming bands below the footprint ground:** made
-   the rescale ×1.01, but removed the podium. `sv-front.jpg` is shot from
-   the lower parking lot and shows that ~2-storey podium below the plaza
-   grade; Geisel is split-grade, so "ground" depends on the side. Consensus
-   unchanged (1/0/0). Next: per-side grade (or the lowest facade ring) and
-   restoring the tiered silhouette in `sliced-tiles.ts` masking.
-   **Consensus caveat:** with only a Gemini key, `build.ts` runs
-   `gemini-fanout-med3` — ONE scorer copied into the gemini/claude/gpt5
-   slots, so `spread = 0` and "three models agree" are artefacts.
+3. **geisel — it was the WRONG BUILDING (fixed 2026-10-19); silhouette restored.**
+   "9500 Gilman Dr" geocodes to UCSD's Triton admin building, 430 m from the
+   library; the nearest-OSM search then took way/1423937815 (Student Success
+   Building, `building=construction` → residential → gabled roof) and fitted
+   that 34×88 m polygon to Geisel's tiles and references. Every geisel score
+   before this date measured the wrong building.
+   **Fix:** `goldens.json` carries `"coords": "32.8811,-117.2376"` →
+   `iterate.ts` passes `build.ts --coords`, which skips geocoding. Now
+   way/159385495 "Geisel Library" (`amenity=library` → civic → flat roof).
+   **Synthesis (sliced-tiles.ts):** (a) tier rule — an upper band ring with
+   ≥25% of its area outside OSM keeps its own shape (the 1.5× area test only
+   saw cantilevers that are bigger, not differently shaped); (b) off-centre
+   fragments < 0.3× OSM are dropped instead of inflated to the full outline;
+   (c) the cantilever floor and (d) a sub-grade trim both measure from the
+   footprint ground (`tileFootprintGroundY`), so the rescale is ×1.01, not
+   ×0.6. **Gate (objective.ts):** footprint IoU uses the base slab (bottom
+   max(3 m, 10 %)) — projecting the whole mesh failed every real overhang.
+   Height 37.1 m vs 34 m published (Wikipedia: 8 floors, 110 ft).
+   **Rejected with data:** keeping smaller-than-OSM partial rings raw
+   (flatiron's partial wedge slices collapsed massing 9 → 2).
+   **Next:** colour 1 — photogrammetry recolour splotches on concrete; the
+   base plinth is a thin OSM-snapped deck (the real 2-level pedestal is lost
+   to the trim on the downhill side).
 4. **240-highland — REOPENED; my earlier "source-data-limited" call was too
    strong.** Three of its four SV panes are genuinely foliage, but
    `sv-left.jpg` is a clear facade view: cream clapboard, green shutters,

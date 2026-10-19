@@ -270,6 +270,31 @@ describe('cantilever height gate (ground-band neighbour merge)', () => {
     const mesh = await evaluateBRep(brep);
     expect(maxAbsX(mesh.positions)).toBeGreaterThan(15);
   });
+
+  it('keeps an upper TIER whose shape, not area, differs from OSM', async () => {
+    // 29×16 m slab at 12-16m: 464 m² (0.92× OSM, far below the 1.5× cantilever
+    // ratio) but 27% of it overhangs the ±11.2 m ring on −X — geisel's tower
+    // tiers over a narrower outline. Two corners sit inside OSM (anyInside),
+    // as a real tier outline does. Pre-fix it snapped to the OSM square.
+    const building = makeBox(...[BUILDING[0], BUILDING[1]] as [never, never]);
+    const tier = makeBox([-19, 12, -8], [10, 16, 8]);
+    const tiles = makeTileEvidence([building, tier], 30);
+    const brep = synthesizeSlicedTiles(makeOsmCtx(), makeOsmEv(), tiles, { voxelResolution: 6 });
+    const mesh = await evaluateBRep(brep);
+    expect(maxAbsX(mesh.positions)).toBeGreaterThan(15);
+  });
+
+  it('drops a small off-centre edge fragment instead of inflating it to OSM', async () => {
+    // ±8 m building (256 m², a raw setback ring) plus a 22 m² scrap clipping the
+    // OSM edge at 20-24m (one vertex inside, centroid outside). Pre-fix the
+    // scrap was replaced by the whole ±11.2 m outline on that band.
+    const building = makeBox([-8, 0, -8], [8, 30, 8]);
+    const scrap = makeBox([10.5, 20, -2], [16, 24, 2]);
+    const tiles = makeTileEvidence([building, scrap], 30);
+    const brep = synthesizeSlicedTiles(makeOsmCtx(), makeOsmEv(), tiles, { voxelResolution: 6 });
+    const mesh = await evaluateBRep(brep);
+    expect(maxAbsX(mesh.positions)).toBeLessThan(9);
+  });
 });
 
 describe('band-anchor snap (layer-cake belts)', () => {

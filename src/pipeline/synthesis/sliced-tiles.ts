@@ -28,6 +28,7 @@ import { projectPolygonToLocal } from './features.js';
 import { decomposePolygonByWaists } from './polygon-decompose.js';
 import { detectCurvedShape } from './curved-shape.js';
 import { douglasPeucker } from '../context/classify.js';
+import { tileFootprintGroundY } from '../fusion/reconcile.js';
 import { rgbToWallBlock, rgbToRoofOverride, roofBaseToFullBlock } from '../../gen/color-blocks.js';
 import { hexToLab, labToRgb } from '../color.js';
 import { DEFAULT_VOXEL_RESOLUTION } from '../voxel-defaults.js';
@@ -337,7 +338,16 @@ function synthesizeSlicedTilesImpl(
     // plaza shards ringed every base and guggenheim absorbed a neighbour
     // block (IoU 0.99 → 0.57, 2026-07-18). Geisel's real cantilever tiers
     // sit at ~60-80% of its height — far above this floor.
-    const cantileverMinY = minY + Math.max(8, (maxY - minY) * 0.25);
+    //
+    // The floor is measured from the ground at the footprint when it can be
+    // read: on a slope the bbox minimum is the low terrain (geisel's canyon
+    // floor, 41 m below its plaza), which put the floor under the plaza and
+    // let plaza-level debris through as overhangs.
+    const footprintGroundY = tileFootprintGroundY(ctx, tiles);
+    const cantileverBaseY = footprintGroundY !== null && footprintGroundY > minY
+      ? footprintGroundY
+      : minY;
+    const cantileverMinY = cantileverBaseY + Math.max(8, (maxY - cantileverBaseY) * 0.25);
     for (const band of bands) {
       for (const poly of band.polygons) {
         let ring: readonly LocalPoint2D[];
@@ -348,6 +358,12 @@ function synthesizeSlicedTilesImpl(
           // over the building's ground footprint (otherwise it's a
           // neighbour leaking in).
           if (!pointInPolygon(poly.centroid.x, poly.centroid.z, osmLocal)) {
+            // A SMALL fragment clipping the outline is edge debris (railings,
+            // trees, a neighbour's corner). Inflating it to the whole OSM
+            // outline turned 20 m² scraps into full-footprint slabs on every
+            // band they appeared in. Only a substantial off-centre ring — the
+            // building merged with neighbour mass — is snapped to OSM.
+            if (polygonAreaAbs(poly.points) < osmAreaForCanti * EDGE_FRAGMENT_FRACTION) continue;
             ring = osmLocal;
           } else {
             const polyArea = polygonAreaAbs(poly.points);
@@ -362,11 +378,24 @@ function synthesizeSlicedTilesImpl(
             // but don't represent real cantilevers — disable for small
             // buildings so 240-highland-style residences keep their
             // OSM-anchored silhouette.
-            const isCantilever = osmAreaForCanti > 500
-              && band.y0 >= cantileverMinY
+            const aboveCantileverFloor = osmAreaForCanti > 500 && band.y0 >= cantileverMinY;
+            const isCantilever = aboveCantileverFloor
               && polyArea >= osmAreaForCanti * 1.5
               && polyArea <= osmAreaForCanti * 3;
-            ring = isCantilever ? openRingFrom(poly) : osmLocal;
+            // Tier: an upper floor whose SHAPE differs from the footprint even
+            // though its area doesn't. Geisel's OSM polygon is the 34×88 m
+            // podium; the stepped tower above is ~square and wider across,
+            // so a tier (0.95× OSM area) overhangs one axis while sitting
+            // inside on the other. The area test above misses it, and the
+            // partial-overlap snap then turned every tier into the podium
+            // outline — a flat slab with no tower. Jitter puts ≲10-20% of a
+            // ring outside OSM; a quarter or more is real overhang.
+            const isTier = aboveCantileverFloor
+              && !isCantilever
+              && polyArea >= osmAreaForCanti * 0.3
+              && polyArea <= osmAreaForCanti * 3
+              && areaFractionOutside(poly.points, osmLocal) >= TIER_OUTSIDE_FRACTION;
+            ring = isCantilever || isTier ? openRingFrom(poly) : osmLocal;
             // Fully-inside rings are kept raw ONLY when materially smaller
             // than OSM (a real setback). Near-OSM-sized inside rings snap to
             // OSM: photogrammetry jitters each band a little inside/outside
@@ -376,7 +405,7 @@ function synthesizeSlicedTilesImpl(
             // setback "layer-cake" belts on continuous shafts (flatiron,
             // 2026-07-18). 0.85 sits between jitter (observed ≳0.9×) and
             // genuine setbacks (≲0.7× on stepped towers).
-            if (!isCantilever) {
+            if (!isCantilever && !isTier) {
               const allInside = poly.points.every(p => pointInPolygon(p.x, p.z, osmLocal));
               // Curved shapes keep EVERY fully-inside ring raw: per-band
               // radius variation IS the spiral/cone signal the helical
@@ -393,6 +422,29 @@ function synthesizeSlicedTilesImpl(
           ring = openRingFrom(poly);
         }
         masked.push({ polygon: ring, y0: band.y0, y1: band.y1 });
+      }
+    }
+  }
+
+  // Sub-grade trim: the expected height is measured from the ground at the
+  // footprint's edge (reconcileHeight), but the slices start at the capture's
+  // lowest point. On a slope everything below that grade — terrain, plaza
+  // decks, retaining walls — sits inside the footprint, snaps to the OSM
+  // outline and becomes a slab under the building; it is then squashed with
+  // the real building by the rescale below. Clip bands to the same grade so
+  // the rescale is ~1. Guarded: when less than half the expected height
+  // survives above grade, the ground read or the capture is suspect — keep
+  // the bands untouched. The per-part path already builds from OSM heights.
+  if (partPolygons.length === 0 && masked.length > 0) {
+    const groundY = tileFootprintGroundY(ctx, tiles);
+    if (groundY !== null && groundY > minY + 1) {
+      const above = masked
+        .filter(b => b.y1 > groundY)
+        .map(b => ({ ...b, y0: Math.max(b.y0, groundY) }));
+      const aboveSpan = above.length > 0 ? Math.max(...above.map(b => b.y1)) - groundY : 0;
+      if (aboveSpan >= expectedHeightM * 0.5) {
+        console.error(`  [sliced-tiles] trimmed ${masked.length - above.length} sub-grade band(s) below footprint ground y=${groundY.toFixed(1)}`);
+        masked.splice(0, masked.length, ...above);
       }
     }
   }
@@ -753,6 +805,46 @@ export function fitHelicalFrustum(
     twistDegrees: 0,
     nDivisions,
   };
+}
+
+/**
+ * Share of a band ring's area that overhangs the OSM footprint, above which
+ * the ring is a real tier rather than photogrammetry jitter (see `isTier`).
+ */
+const TIER_OUTSIDE_FRACTION = 0.25;
+
+/**
+ * Off-centre band rings smaller than this share of the OSM area are dropped as
+ * edge debris instead of being replaced by the OSM outline.
+ */
+const EDGE_FRAGMENT_FRACTION = 0.3;
+
+/**
+ * Fraction of `ring`'s area lying outside `footprint`, estimated by sampling
+ * the ring's bbox on a grid (~1 m, at least 24 steps per axis). Exact polygon
+ * difference isn't needed for a threshold test, and concave OSM outlines
+ * (Pennzoil's indent) make clipping fragile.
+ */
+function areaFractionOutside(
+  ring: readonly LocalPoint2D[],
+  footprint: readonly LocalPoint2D[],
+): number {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const p of ring) {
+    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+    if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
+  }
+  const step = Math.min(1, (maxX - minX) / 24, (maxZ - minZ) / 24);
+  if (!(step > 0)) return 0;
+  let inRing = 0, outside = 0;
+  for (let x = minX + step / 2; x < maxX; x += step) {
+    for (let z = minZ + step / 2; z < maxZ; z += step) {
+      if (!pointInPolygon(x, z, ring)) continue;
+      inRing++;
+      if (!pointInPolygon(x, z, footprint)) outside++;
+    }
+  }
+  return inRing > 0 ? outside / inRing : 0;
 }
 
 function openRingFrom(p: Polygon2D): readonly LocalPoint2D[] {
