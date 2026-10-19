@@ -37,8 +37,14 @@ once the fixes below are on a phone.
   on the Saga), vehicles look their fleet up once a second (13 %), each pack's scripts share one player roster
   (`scripts/roster.js`, ~9 %). Profiles: `{pixel,saga}/profile/*.cpuprofile`; read with
   `python -I scripts/_cpuprofile_summary.py <profile>` (the burst view: busy ms per tick; median 24 ms of 50 on both
-  phones, Pixel 40/1,391 ticks over 50 ms). Next: build a round from the commit, sim gates, re-profile the same
-  scene (10303 + 11374 placed, 26 packs) and replay the pinball.
+  phones, Pixel 40/1,391 ticks over 50 ms).
+- Round 30zs IN FLIGHT (Pixel + test Saga, Sonnet agents; briefs `output/device-round-2026-10-19zs/brief-*.md`,
+  packs `packs-38fb625a` + `creator-38fb625a`, CI green on 38fb625a): rides cars 2/3 for the armed drop/loops,
+  drag incl. the stopped train, re-profiles 10303 + 11374 with the pinball played, VEH-19 spot check (Saga).
+  Results land in `{pixel,saga}/notes.md`. Sim gates on that build: default 150/150, regressions 38/38
+  (`regr.txt`); coaster-camera Pixel pass, Saga FAIL 0.51 blocks ahead at 20.9 b/s (`sim-coaster-camera.txt`) -
+  the same as the 30zq build (0.52): the Saga's entity lag 4 against the planned `animLag` 3.5, not this change.
+  After the round: record, then share ONE zip of the 26 packs (+ creator, nimbus) with sha256s.
 - VEH-19: the lock is NOT reproduced (Saga A 11/11, B 9/9; B's `craftmatic_camera` gone ~2 s after each dismount):
   the sweep is proved on the device. Watchdog "High memory usage" appeared in B on both phones (Pixel 8, Saga 4),
   never in A, first after the 10303 placement - cause unknown (scripts 19 MB over 25 packs; 10261's placement.js
