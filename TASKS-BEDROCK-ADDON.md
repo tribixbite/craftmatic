@@ -28,7 +28,7 @@ drop cut and the Pixel timing found below: RE-SHARE the 30zw build once its devi
   Saga 7.1); 4fed7295 started each animation on the reported yaw. Fixed c02fbbcc: start on the drawn car + head turn,
   head turn read against each rider's fitted report lag (`fitReportLag`, per-tick turns). The sim client now draws
   the own view on the drawn car (`ClientView.ownPose`).
-- BUILDING: round 30zw from 9e46b8c4 (`output/device-round-2026-10-19zw/build.sh`, log `build.log`, packs-9e46b8c4,
+- BUILT (all exit 0, stamp 9e46b8c4); device round 30zw RUNNING on both phones, sim gates running (`output/device-round-2026-10-19zw/sim/`): round 30zw from 9e46b8c4 (`output/device-round-2026-10-19zw/build.sh`, log `build.log`, packs-9e46b8c4,
   creator-9e46b8c4; carries the hop claim sweep 3734a496 too). Then: sim gates (default, `--scenario=regressions
   --new=`, `--scenario=coaster-camera --cars=1,2,3` on 10303/10261/42703, both clients), device round 30zw (briefs
   `output/device-round-2026-10-19zw/brief-{pixel,saga}-30zw.md`): cars 2 and 3, drop and loops, no cut, no
@@ -45,9 +45,12 @@ drop cut and the Pixel timing found below: RE-SHARE the 30zw build once its devi
   nothing placed: none 1.59 GB (native 0.79), 10303 1.84, three packs 2.08, 76417 1.91, all 26 4.34 GB (native 3.69,
   MemAvailable 0.98 GB, HUD 96 s). ~3.3-4.6 KB of native heap per entity CUBE (880k cubes over 26 packs; 10303 62k, 44k
   of it the shell lattice). 30zs crashed out of RAM with all 26; Saga PSS 5.0-5.15 GB, 16 Watchdog lines. Hidden faces
-  are only 7.5-13.5 % (`output/device-round-2026-10-19zv/memprobe/hidden_faces.py`). Probe packs built, NOT RUN:
-  `output/device-round-2026-10-19zv/memprobe/` (per cube vs per geometry vs unreferenced vs per-face UV; bind each
-  alone, census protocol). Then decide a cube budget per pack / per world.
+  are only 7.5-13.5 % (`output/device-round-2026-10-19zv/memprobe/hidden_faces.py`). Geometry probe RUN (Pixel,
+  `output/device-round-2026-10-19zv/pixel/memprobe/census.md`): box-UV cubes cost 2.0-2.5 MB native heap per 1000,
+  linear; 1000 small geometries +14 % over 100 big; unreferenced geometry still ~35 %; per-face UV with all six faces
+  +32 %, with three -14 % - the shells hide only 0.5-0.8 faces a cube, so per-face UV would COST memory. No free cut:
+  memory follows the bound packs' cube count. USER DECISION pending: a per-pack cube budget (fewer, coarser shell
+  cubes) vs binding fewer packs per world.
 
 ### Handoff (2026-10-12, main `304a0df6`+, CI green)
 
