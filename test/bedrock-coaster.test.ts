@@ -2137,13 +2137,16 @@ describe.skipIf(!ADDON_INTEGRATED)("pack assets with the set's own cars", () => 
 // ─── The rider's track-following camera ──────────────────────────────────────
 
 /** A player mock riding `entity`: Bedrock turns a rider with its vehicle, so the
- * player's yaw is the car's last teleported yaw plus the head turn `head`. */
-function cameraRider(entity: any, head = { yaw: 0, pitch: 0 }) {
-  // The CLIENT turns a rider with its own interpolated view of the car, so the
-  // yaw it reports trails the car's; measured ~6 ticks on the Pixel.
+ * player's yaw is the car's teleported yaw `reportLag` ticks back plus the head turn `head`. */
+function cameraRider(entity: any, head = { yaw: 0, pitch: 0 }, reportLag: number = COASTER_RIDER_VIEW.lookLag) {
+  // The CLIENT draws a rider's view on the car it draws and REPORTS that yaw later: the reported yaw trails the car's
+  // server yaw by `reportLag` ticks (round 30zv: Pixel 8.7, Saga 7.1), fractions interpolated.
   const lastYaw = () => {
     const calls = entity.tryTeleport.mock.calls as any[][];
-    return calls.length ? Number(calls[Math.max(0, calls.length - 1 - COASTER_RIDER_VIEW.lookLag)]![1].rotation.y) : 0;
+    if (!calls.length) return 0;
+    const t = Math.max(0, calls.length - 1 - reportLag), i = Math.floor(t), j = Math.min(calls.length - 1, i + 1), f = t - i;
+    const a = Number(calls[i]![1].rotation.y), b = Number(calls[j]![1].rotation.y);
+    return a + ((((b - a) % 360) + 540) % 360 - 180) * f;
   };
   // A real player in the car's world (it boards with `h.seat(player)`), its camera and effects spied.
   const world = coasterSims.get(entity);
@@ -2692,10 +2695,10 @@ describe('the rider camera follows the track', () => {
    * A `native` ride on the loop course with the rider's head turned `head` (the cameraRider's yaw trails the car by
    * `lookLag`, as the Pixel reports it): every camera call logged, with the car's yaw per tick.
    */
-  function nativeRide(head = { yaw: 0, pitch: 0 }, route = loopCourse(), ticks = 1200, onTick?: (tick: number, h: any, log: Array<{ tick: number; kind: string }>) => void, camera?: Partial<CoasterRiderViewConfig>) {
+  function nativeRide(head = { yaw: 0, pitch: 0 }, route = loopCourse(), ticks = 1200, onTick?: (tick: number, h: any, log: Array<{ tick: number; kind: string }>) => void, camera?: Partial<CoasterRiderViewConfig>, reportLag?: number) {
     const h = rideHost(route, { seat: [0, 0.35, 0], spline: true, ...(camera ? { camera } : {}) });
     expect(h.config.camera?.mode).toBe('native');
-    const { player } = cameraRider(h.entity, head);
+    const { player } = cameraRider(h.entity, head, reportLag);
     const log: Array<{ tick: number; kind: 'set' | 'play' | 'clear'; args: any[] }> = [];
     let tick = 0;
     (player.camera as any).playAnimation = vi.fn((...args: any[]) => { log.push({ tick, kind: 'play', args }); });
@@ -2733,10 +2736,10 @@ describe('the rider camera follows the track', () => {
       expect(spline.controlPoints).toHaveLength(total + 1);
       expect(options.animation.progressKeyFrames.at(-1).alpha).toBeCloseTo(1, 9);
       for (let k = 1; k < keys.length; k++) expect(keys[k].timeSeconds - keys[k - 1].timeSeconds).toBeGreaterThan(0.05);
-      // It starts on the player's own view: the yaw the client carries the rider round to (the car's, lookLag back:
-      // quirk rider-yaw-lag; the drawn car's animLag pose put the arming frame ~20 degrees off on a curve, Pixel 30zs)
-      // and their own pitch, no roll.
-      const own = (k: number) => yawAt(yaws, play.tick + k - COASTER_RIDER_VIEW.lookLag);
+      // It starts on the player's own view: the DRAWN car's yaw (animLag back) plus the head turn - the client draws a
+      // rider's view on the car it draws and reports it later (round 30zv; started from the reported yaw, 4fed7295 cut
+      // 35-45 degrees at 10303's crest on both phones) - and their own pitch, no roll.
+      const own = (k: number) => yawAt(yaws, play.tick + k - COASTER_RIDER_VIEW.animLag);
       expect(Math.abs(wrapDeg(keys[0].rotation.y - own(0)))).toBeLessThan(1);
       expect(keys[0].rotation.x).toBeCloseTo(0, 6);
       expect(keys[0].rotation.z).toBeCloseTo(0, 6);
@@ -2757,6 +2760,48 @@ describe('the rider camera follows the track', () => {
       // Nothing touches the camera while it plays; it is cleared, back to the player's own view, where it ends.
       expect(log.filter(e => e.tick > play.tick && e.tick < play.tick + total)).toHaveLength(0);
       expect(log.filter(e => e.tick === play.tick + total && e.kind === 'clear')).toHaveLength(1);
+    }
+  });
+
+  /** The station straight, a level right-hand curve into a steep drop, a loop and a run-out: 10303's crest in small. */
+  function crestCurveCourse(): CoasterRoute {
+    const points: Array<[number, number, number]> = [];
+    // The station straight, then a gentle run down (grade 0.15, not steep) so the train reaches the curve at speed.
+    for (let z = 0; z <= 40 + 1e-9; z += 0.25) points.push([0, 0, z]);
+    for (let z = 40.25; z <= 80 + 1e-9; z += 0.25) points.push([0, -0.15 * (z - 40), z]);
+    // A right-hand turn of radius 6 at speed (~6 degrees a tick, as 10303's crest): level for three quarters of a
+    // circle, then dropping steeply through the last quarter while it still turns.
+    const r = 6, n = 160, top = -6;
+    let y = top;
+    for (let k = 1; k <= n; k++) {
+      const ang = Math.PI - k / n * 2 * Math.PI;
+      if (k > n * 3 / 4) y -= 0.9 * r * 2 * Math.PI / n;
+      points.push([r + r * Math.cos(ang), y, 80 + r * Math.sin(ang)]);
+    }
+    // The run-out climbs gently, so the entry straight is the only level run (the station).
+    for (let z = 80.25; z <= 100 + 1e-9; z += 0.25) points.push([0, y + 0.2 * (z - 80), z]);
+    return { label: 'Crest curve', points, closed: false, maxSegmentLength: 0.5 };
+  }
+
+  it('native mode starts each animation on the view the phone DRAWS, whatever its report lag: the drawn car plus the head turn (COAST-06, round 30zu/30zv: a 35-45 degree cut at 10303\'s crest on both phones)', () => {
+    // The phones report a rider's yaw 8.7 (Pixel) and 7.1 (Saga) ticks after the car's server yaw it was drawn on, and
+    // draw the view on the car ~animLag behind. The runtime fits each rider's report lag as the car turns, so the head
+    // turn it reads is right on either phone and the first keyframe is the drawn car's yaw plus that turn.
+    for (const reportLag of [7.1, 8.7]) {
+      const head = { yaw: 12, pitch: 0 };
+      const { h, yaws, plays } = nativeRide(head, crestCurveCourse(), 900, undefined, { debug: true }, reportLag);
+      expect(plays.length, `lag ${reportLag}`).toBeGreaterThan(0);
+      const play = plays[0]!;
+      // The car was turning into the drop: the test means something only where the yaw changed in the last ticks.
+      expect(Math.abs(wrapDeg(yawAt(yaws, play.tick) - yawAt(yaws, play.tick - 20)))).toBeGreaterThan(10);
+      const keys = play.args[1].animation.rotationKeyFrames as any[];
+      const drawn = yawAt(yaws, play.tick - COASTER_RIDER_VIEW.animLag) + head.yaw;
+      expect(Math.abs(wrapDeg(keys[0].rotation.y - drawn)), `lag ${reportLag}`).toBeLessThan(2);
+      // Here the REPORTED yaw is well off the drawn view, so a start on it (4fed7295) would fail the line above.
+      expect(Math.abs(wrapDeg(yawAt(yaws, play.tick - reportLag) + head.yaw - drawn)), `lag ${reportLag}`).toBeGreaterThan(4);
+      // ...and the fitted lag is the client's.
+      const arm = h.warnings().filter((l: string) => l.includes('native-debug')).map((l: string) => JSON.parse(l.slice(l.indexOf('{')))).find((d: any) => d.what === 'arm');
+      expect(Math.abs(arm.reportLag - reportLag), `lag ${reportLag}`).toBeLessThan(0.6);
     }
   });
 
@@ -2804,7 +2849,7 @@ describe('the rider camera follows the track', () => {
     for (const play of plays) {
       const keys = play.args[1].animation.rotationKeyFrames as any[];
       const total = Math.round(play.args[1].totalTimeSeconds / 0.05);
-      const own = (k: number) => yawAt(yaws, play.tick + k - COASTER_RIDER_VIEW.lookLag) + head.yaw;
+      const own = (k: number) => yawAt(yaws, play.tick + k - COASTER_RIDER_VIEW.animLag) + head.yaw;
       expect(Math.abs(wrapDeg(keys[0].rotation.y - own(0)))).toBeLessThan(1);
       expect(keys[0].rotation.x).toBeCloseTo(-head.pitch, 6);
       expect(Math.abs(wrapDeg(keys.at(-1).rotation.y - own(total)))).toBeLessThan(1);

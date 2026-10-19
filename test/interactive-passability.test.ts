@@ -129,6 +129,7 @@ describe.skipIf(!HAVE)('doorways of real sets are passable open and blocked clos
       }
       expect(failures, failures.join('\n')).toEqual([]);
       expect(okAt100, `${set}: doorways walked through at 100 %`).toBeGreaterThanOrEqual(minOkAt100);
-    }, 600_000);
+      // 76417 alone takes 550-582 s on the dev box under other load (2026-10-19), so 600 s timed it out twice.
+    }, 900_000);
   }
 });

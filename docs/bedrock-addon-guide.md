@@ -2380,9 +2380,18 @@ clamped offset applied in the car's frame (±70 yaw, ±50 pitch;
   without the settle).
 - The yaw Bedrock reports for a rider is the CLIENT's, which turns the rider
   with its own interpolated view of the car: it trails the server's car yaw by
-  **~6 ticks**. Uncompensated, the look swung -37..+55° through the fast curve
-  after the lift; compared with the car's yaw 6 ticks back (`lookLag` 6) it
-  stayed within 5° of the rider's real head turn.
+  **8.7 ticks on the Pixel and 7.1 on the Saga** (round 30zv, `native-debug`
+  lines at 10303's crest; ~6 was read in 2026-09). Uncompensated, the look swung
+  -37..+55° through the fast curve after the lift. The runtime fits each rider's
+  lag from the per-tick TURNS (`fitReportLag`: a held head turn cancels, a
+  change of the car's turn rate pins the lag, a drag is rejected), starting
+  from `lookLag` 8.
+- The view the player SEES is drawn on the DRAWN car (~`animLag` behind) plus
+  the head turn, not at the reported yaw: an animation started on the reported
+  yaw (4fed7295) began 35-45° behind the view on 10303's crest curve, a cut to
+  the lift column at every drop on both phones (round 30zu). `native` starts and
+  ends each animation on the drawn car's yaw plus the head turn; the simulator's
+  client draws the own view the same way (`ClientView.ownPose`).
 - A ratcheting reference turned those transients into a permanent drift (0 →
   49° over one lap), so the reference never moves (`ratchet` false).
 

@@ -418,9 +418,27 @@ export class ClientView {
     return { x: p.x, y: p.y + PLAYER_EYE_HEIGHT, z: p.z };
   }
 
-  /** The player's own view: from its drawn head along its own look (client-authoritative; the carried rider yaw is the server's `riders` system's). */
+  /**
+   * The player's own view: from its drawn head along its own look. A rider of a carried seat (`lock_rider_rotation`
+   * not 0) looks along the DRAWN mount plus its head turn: the client draws the own view on the mount it draws and
+   * reports that yaw later, which the server's `riders` system models as the mount's turn `rider-yaw-lag` ticks ago.
+   * So the drawn yaw is the reported one plus the mount's turn between then and its drawn pose (round 30zv: drawn
+   * from the reported yaw, the sim never showed the 35-45 degree cut the phones drew at 10303's crest).
+   */
   ownPose(player: SimEntity): CameraPose {
-    return { eye: this.drawnHead(player), yaw: player.rotation.y, pitch: player.rotation.x, roll: 0 };
+    return { eye: this.drawnHead(player), yaw: player.rotation.y + this.carriedLead(player), pitch: player.rotation.x, roll: 0 };
+  }
+
+  /** Degrees a carried rider's drawn view leads its reported yaw: its drawn mount's turn since the reported yaw's mount pose. */
+  private carriedLead(player: SimEntity): number {
+    const mount = player.ridingOn;
+    if (!mount || !mount.valid) return 0;
+    const seats = mount.rideable()?.seats ?? [];
+    const lock = seats[Math.min(Math.max(0, mount.riders.indexOf(player)), Math.max(0, seats.length - 1))]?.lockRiderRotation;
+    if (lock === 0) return 0;
+    const reportLag = Math.max(0, Math.round(quirkValue('rider-yaw-lag', 'ticks')));
+    const drawn = this.drawnPose(mount).yaw, reported = this.poses.lagged(mount, this.tick, reportLag)?.yaw;
+    return Number.isFinite(drawn) && Number.isFinite(reported) ? ((((drawn - reported!) % 360) + 540) % 360) - 180 : 0;
   }
 
   /** What the player sees this tick. */
