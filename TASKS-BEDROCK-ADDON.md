@@ -47,8 +47,13 @@ once the fixes below are on a phone.
   After the round: record, then share ONE zip of the 26 packs (+ creator, nimbus) with sha256s.
 - VEH-19: the lock is NOT reproduced (Saga A 11/11, B 9/9; B's `craftmatic_camera` gone ~2 s after each dismount):
   the sweep is proved on the device. Watchdog "High memory usage" appeared in B on both phones (Pixel 8, Saga 4),
-  never in A, first after the 10303 placement - cause unknown (scripts 19 MB over 25 packs; 10261's placement.js
-  3.2 MB).
+  never in A, first after the 10303 placement - cause unknown. Phase A placed 10303 too (no warning), so the
+  placement alone is not it. Offline (2026-10-19, `output/device-round-2026-10-19zs/offline/heap-scenario.ts`,
+  `heap.json`): riding car 2 for 24,000 ticks on packs-38fb625a, the retained heap after a full GC stays 82.6-85.8 MB
+  with no trend (objects 966k-972k), so the coaster runtime does not leak in the sim; placing adds ~9 MB, Undo
+  frees 70k objects. Shipped scripts: 19.2 MB over 25 packs, 15.3 MB of it placement.js CONFIG (10261 3.2 MB:
+  colliders' tread plans 1.7 MB and carves 1.1 MB, 16 + 8 size:turn plans, all held as source literals). Next if
+  it recurs: count the warnings per phase against the camera mode, and whether they stop after Undo.
 - For the user: from car 2/3 the posed minifig rider of the car ahead fills a third of the view at eye height
   (both phases) - a seating/figure question, not a camera one.
 
