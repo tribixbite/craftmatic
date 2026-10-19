@@ -263,7 +263,7 @@ function buildUI(): void {
     <div class="map3d-controls">
       <div class="map3d-search-row">
         <input type="text" class="map3d-search-input" id="map3d-address"
-          placeholder="Search address..." value="${escAttr(DEFAULT_ADDRESS)}">
+          aria-label="Address to load 3D tiles for" placeholder="Search address..." value="${escAttr(DEFAULT_ADDRESS)}">
         <button class="btn btn-primary btn-sm" id="map3d-go">Load</button>
       </div>
       <div class="map3d-key-row">
@@ -275,7 +275,7 @@ function buildUI(): void {
         </label>
         <div class="map3d-key-input-row">
           <input type="password" class="map3d-key-input" id="map3d-key-input"
-            placeholder="${key ? 'Change API key...' : 'Paste Google Maps API key'}">
+            aria-label="Google Maps API key" placeholder="${key ? 'Change API key...' : 'Paste Google Maps API key'}">
           <button class="btn btn-secondary btn-sm" id="map3d-key-save">Save</button>
           <a href="https://console.cloud.google.com/apis/library/tile.googleapis.com"
             target="_blank" rel="noopener" class="map3d-key-link">Enable API</a>

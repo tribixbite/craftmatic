@@ -103,17 +103,23 @@ export const WALL_CLUSTERS: ColorCluster[] = [
   // ── Tans / Sandy / Limestone ─────────────────────────────────────────────────
   { rgb: [223, 214, 170], options: ['minecraft:smooth_sandstone', 'minecraft:sandstone'] },
   { rgb: [216, 203, 155], options: ['minecraft:sandstone', 'minecraft:smooth_sandstone', 'minecraft:end_stone_bricks'] },
+  // Neutral cream (a*≈0) — sits exactly on the old sandstone/white_terracotta
+  // knife edge; without this cluster a pale cream OSM colour tipped into
+  // white_terracotta whose texture renders mauve-pink (240-highland).
+  { rgb: [212, 197, 169], options: ['minecraft:sandstone', 'minecraft:smooth_sandstone'] },
   { rgb: [192, 175, 121], options: ['minecraft:birch_planks', 'minecraft:stripped_birch_log'] },
-  { rgb: [191, 147, 42], options: ['minecraft:smooth_sandstone', 'minecraft:sandstone'] },
+  // Golden ochre — yellow_terracotta texture is d=17 from target; the old
+  // sandstone options rendered ~140 RGB-distance too pale.
+  { rgb: [191, 147, 42], options: ['minecraft:yellow_terracotta'] },
   // Aged limestone / shadowed plaster
   { rgb: [165, 150, 115], options: ['minecraft:sandstone', 'minecraft:smooth_sandstone', 'minecraft:birch_planks'] },
-  { rgb: [140, 128, 98], options: ['minecraft:sandstone', 'minecraft:smooth_sandstone', 'minecraft:end_stone_bricks'] },
+  { rgb: [140, 128, 98], options: ['minecraft:exposed_cut_copper', 'minecraft:light_gray_terracotta'] },
 
   // ── Earth / Brownstone ───────────────────────────────────────────────────────
   // Light brownstone — NYC/Chicago facades
-  { rgb: [152, 94, 68], options: ['minecraft:terracotta', 'minecraft:brown_terracotta'] },
+  { rgb: [152, 94, 68], options: ['minecraft:terracotta', 'minecraft:bricks'] },
   // Medium brownstone
-  { rgb: [122, 92, 66], options: ['minecraft:brown_terracotta', 'minecraft:terracotta', 'minecraft:polished_granite'] },
+  { rgb: [122, 92, 66], options: ['minecraft:mud_bricks', 'minecraft:terracotta', 'minecraft:polished_granite'] },
   // Dark brownstone
   { rgb: [110, 70, 50], options: ['minecraft:brown_terracotta', 'minecraft:polished_granite'] },
   // Very dark earth
@@ -129,7 +135,7 @@ export const WALL_CLUSTERS: ColorCluster[] = [
   // snap to jungle_planks (wood grain) which looks wrong on masonry buildings.
   { rgb: [160, 110, 82], options: ['minecraft:bricks', 'minecraft:terracotta'] },
   { rgb: [150, 97, 83], options: ['minecraft:bricks', 'minecraft:terracotta'] },
-  { rgb: [159, 82, 36], options: ['minecraft:brown_terracotta', 'minecraft:bricks', 'minecraft:polished_granite'] },
+  { rgb: [159, 82, 36], options: ['minecraft:orange_terracotta', 'minecraft:acacia_planks'] },
   // Dark red / aged brick
   { rgb: [142, 33, 33], options: ['minecraft:red_concrete', 'minecraft:red_terracotta'] },
   { rgb: [68, 4, 7], options: ['minecraft:red_nether_bricks', 'minecraft:nether_bricks'] },
@@ -151,7 +157,9 @@ export const WALL_CLUSTERS: ColorCluster[] = [
   // Tuff: dark greenish-gray, fills gap between stone and gray_concrete
   { rgb: [108, 109, 102], options: ['minecraft:tuff'] },
   // Blue-gray / slate — polished_andesite (132,135,134)
-  { rgb: [132, 135, 134], options: ['minecraft:polished_andesite', 'minecraft:gray_terracotta'] },
+  // gray_terracotta removed: its texture is (58,42,35) dark BROWN — a mid-gray
+  // facade hash-picked it ~half the time and rendered chocolate.
+  { rgb: [132, 135, 134], options: ['minecraft:polished_andesite', 'minecraft:andesite'] },
   // Dark concrete — actual texture is very dark (55,58,62)
   { rgb: [55, 58, 62], options: ['minecraft:gray_concrete', 'minecraft:polished_deepslate'] },
 
@@ -170,10 +178,12 @@ export const WALL_CLUSTERS: ColorCluster[] = [
   // ── Painted Accents ──────────────────────────────────────────────────────────
   { rgb: [241, 175, 21], options: ['minecraft:yellow_concrete', 'minecraft:yellow_terracotta'] },
   { rgb: [76, 127, 153], options: ['minecraft:light_blue_terracotta', 'minecraft:cyan_terracotta'] },
-  { rgb: [58, 175, 217], options: ['minecraft:light_blue_concrete', 'minecraft:light_blue_terracotta'] },
+  // light_blue_terracotta texture is (113,108,138) gray-purple, d=117 off sky.
+  { rgb: [58, 175, 217], options: ['minecraft:light_blue_wool', 'minecraft:light_blue_concrete'] },
   { rgb: [21, 119, 136], options: ['minecraft:cyan_concrete', 'minecraft:cyan_terracotta'] },
   { rgb: [73, 91, 36], options: ['minecraft:green_concrete', 'minecraft:green_terracotta'] },
-  { rgb: [213, 159, 145], options: ['minecraft:pink_terracotta', 'minecraft:white_terracotta'] },
+  // pink_terracotta texture is (162,78,79) dusty dark rose, d=116 off pale pink.
+  { rgb: [213, 159, 145], options: ['minecraft:white_terracotta'] },
 ];
 
 // Backward-compatible single-block palette (first option from each cluster)
@@ -349,6 +359,31 @@ export function rgbToWallBlock(r: number, g: number, b: number, seedOrX?: number
     return cluster.options[idx];
   }
   return cluster.options[0];
+}
+
+/**
+ * Map a ROOF_PALETTE base (material root like `deepslate_tile`, `oak`,
+ * `stone_brick`) to its FULL-BLOCK id. Bases are roots so `_stairs`/`_slab`
+ * derive cleanly, but the full-block forms need a suffix: wood roots take
+ * `_planks`, brick/tile roots take a trailing `s` (`deepslate_tile` →
+ * `deepslate_tiles`). Single source of truth — the sliced-tiles path
+ * previously had its own copy WITHOUT the suffix map and emitted the invalid
+ * id `minecraft:deepslate_tile` as the top block of two goldens. Accepts the
+ * bare root or a derived `_slab[...]`/`_stairs[...]` form, with or without
+ * the `minecraft:` prefix.
+ */
+export function roofBaseToFullBlock(base: string): BlockState {
+  const root = base
+    .replace(/^minecraft:/, '')
+    .replace(/_slab(\[[^\]]*\])?$/, '')
+    .replace(/_stairs(\[[^\]]*\])?$/, '');
+  if (['dark_oak', 'oak', 'spruce', 'birch', 'jungle', 'acacia', 'warped', 'crimson'].includes(root)) {
+    return `minecraft:${root}_planks`;
+  }
+  if (['stone_brick', 'deepslate_tile', 'nether_brick', 'mud_brick', 'polished_blackstone_brick'].includes(root)) {
+    return `minecraft:${root}s`;
+  }
+  return `minecraft:${root}`;
 }
 
 /**

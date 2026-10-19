@@ -1,24 +1,40 @@
 /**
  * File upload UI — drag-and-drop parsing for .schem, .litematic, and mesh files.
+ *
+ * Mesh files (GLB/GLTF/OBJ) are loaded and returned as raw Object3D for
+ * immediate rendering. Voxelization is deferred — triggered by user action.
  */
 
+import * as THREE from 'three';
 import { parseSchemFile } from '@engine/schem.js';
 import { BlockGrid } from '@craft/schem/types.js';
+import type { MeshInfo } from '@engine/mesh-import.js';
 
 /** Supported file extensions */
 const SUPPORTED_EXTENSIONS = ['schem', 'schematic', 'nbt', 'litematic', 'glb', 'gltf', 'obj'];
 
-/** Schematic format extensions (parsed by schem.ts or litematic.ts) */
-
-/** Mesh format extensions (loaded by mesh-import.ts, voxelized by voxelizer.ts) */
+/** Mesh format extensions (loaded by mesh-import.ts) */
 const MESH_EXTENSIONS = ['glb', 'gltf', 'obj'];
+
+/** Mesh upload result — raw Object3D with metadata for deferred voxelization */
+export interface MeshUploadResult {
+  object: THREE.Object3D;
+  info: MeshInfo;
+  bytes: ArrayBuffer;
+  filename: string;
+}
+
+/** Discriminated union for upload results */
+export type UploadResult =
+  | { type: 'schematic'; grid: BlockGrid; filename: string }
+  | { type: 'mesh'; result: MeshUploadResult };
 
 /** Initialize upload zone with drag-and-drop and click-to-browse */
 export function initUpload(
   zoneEl: HTMLElement,
   fileInput: HTMLInputElement,
   infoEl: HTMLElement,
-  onLoaded: (grid: BlockGrid, filename: string) => void,
+  onResult: (result: UploadResult) => void,
 ): void {
   // Click to browse
   zoneEl.addEventListener('click', () => fileInput.click());
@@ -44,7 +60,7 @@ export function initUpload(
   fileInput.addEventListener('change', async () => {
     const file = fileInput.files?.[0];
     if (file) await handleFile(file);
-    fileInput.value = ''; // Reset so re-uploading the same file triggers change
+    fileInput.value = '';
   });
 
   // Auto-load from ?file= URL parameter (bypasses file picker for testing)
@@ -58,7 +74,11 @@ export function initUpload(
 
   const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
+  // Generation counter to detect stale uploads (user drops new file during processing)
+  let uploadGeneration = 0;
+
   async function handleFile(file: File): Promise<void> {
+    const myGen = ++uploadGeneration;
     const uploadText = zoneEl.querySelector('.upload-text') as HTMLElement;
     const uploadSubtext = zoneEl.querySelector('.upload-subtext') as HTMLElement;
 
@@ -79,62 +99,70 @@ export function initUpload(
 
     try {
       const buffer = await file.arrayBuffer();
-      let grid: BlockGrid;
-      let extraInfo = '';
+      if (myGen !== uploadGeneration) return; // stale — user dropped another file
 
-      if (ext === 'litematic') {
-        // Litematic format — lazy-load browser parser
-        uploadText.textContent = 'Parsing .litematic...';
-        uploadSubtext.textContent = file.name;
-        const { parseLitematicFile } = await import('@engine/litematic.js');
-        grid = await parseLitematicFile(buffer);
-      } else if (MESH_EXTENSIONS.includes(ext)) {
-        // Mesh format — lazy-load mesh pipeline
+      const safeName = escapeHtml(file.name);
+
+      if (MESH_EXTENSIONS.includes(ext)) {
+        // Mesh format — load Object3D for immediate rendering (no voxelization)
         uploadText.textContent = 'Loading mesh...';
         uploadSubtext.textContent = file.name;
-        const { meshFileToGrid } = await import('@engine/mesh-to-grid.js');
-        const result = await meshFileToGrid(buffer, file.name, {
-          onProgress: (p) => {
-            const pct = Math.round(p.progress * 100);
-            if (p.phase === 'bvh') {
-              uploadText.textContent = `Building spatial index... ${pct}%`;
-            } else {
-              uploadText.textContent = `Voxelizing layer ${p.currentY}/${p.totalY}... ${pct}%`;
-            }
-          },
-        });
-        grid = result.grid;
-        const { info } = result;
-        extraInfo = `
+        const { loadMeshFromBytes, analyzeMesh } = await import('@engine/mesh-import.js');
+        const object = await loadMeshFromBytes(buffer, file.name);
+        if (myGen !== uploadGeneration) return;
+        const info = analyzeMesh(object);
+
+        // Show mesh info
+        const { boundingBox: bb } = info;
+        infoEl.hidden = false;
+        infoEl.innerHTML = `
+          <div class="info-row"><span class="info-label">File</span><span class="info-value">${safeName}</span></div>
+          <div class="info-row"><span class="info-label">Size</span><span class="info-value">${formatSize(file.size)}</span></div>
+          <div class="info-row"><span class="info-label">Extent</span><span class="info-value">${bb.width.toFixed(1)} x ${bb.height.toFixed(1)} x ${bb.depth.toFixed(1)}m</span></div>
           <div class="info-row"><span class="info-label">Triangles</span><span class="info-value">${info.triangleCount.toLocaleString()}</span></div>
           <div class="info-row"><span class="info-label">Meshes</span><span class="info-value">${info.meshCount}</span></div>
           <div class="info-row"><span class="info-label">Textured</span><span class="info-value">${info.hasTextures ? 'Yes' : 'No'}</span></div>
         `;
+
+        uploadText.innerHTML = `Loaded <code>${safeName}</code>`;
+        uploadSubtext.textContent = 'Drop another file to replace';
+
+        onResult({ type: 'mesh', result: { object, info, bytes: buffer, filename: file.name } });
       } else {
-        // Standard schematic format
-        uploadText.textContent = 'Parsing...';
-        uploadSubtext.textContent = file.name;
-        grid = await parseSchemFile(buffer);
+        // Schematic format (schem, litematic, nbt)
+        let grid: BlockGrid;
+
+        if (ext === 'litematic') {
+          uploadText.textContent = 'Parsing .litematic...';
+          uploadSubtext.textContent = file.name;
+          const { parseLitematicFile } = await import('@engine/litematic.js');
+          grid = await parseLitematicFile(buffer);
+        } else {
+          uploadText.textContent = 'Parsing...';
+          uploadSubtext.textContent = file.name;
+          grid = await parseSchemFile(buffer);
+        }
+
+        if (myGen !== uploadGeneration) return;
+
+        const nonAir = grid.countNonAir();
+        infoEl.hidden = false;
+        infoEl.innerHTML = `
+          <div class="info-row"><span class="info-label">File</span><span class="info-value">${safeName}</span></div>
+          <div class="info-row"><span class="info-label">Size</span><span class="info-value">${formatSize(file.size)}</span></div>
+          <div class="info-row"><span class="info-label">Dimensions</span><span class="info-value">${grid.width} x ${grid.height} x ${grid.length}</span></div>
+          <div class="info-row"><span class="info-label">Blocks</span><span class="info-value">${nonAir.toLocaleString()}</span></div>
+          <div class="info-row"><span class="info-label">Palette</span><span class="info-value">${grid.palette.size} materials</span></div>
+          <div class="info-row"><span class="info-label">Entities</span><span class="info-value">${grid.blockEntities.length}</span></div>
+        `;
+
+        uploadText.innerHTML = `Loaded <code>${safeName}</code>`;
+        uploadSubtext.textContent = 'Drop another file to replace';
+
+        onResult({ type: 'schematic', grid, filename: file.name });
       }
-
-      const nonAir = grid.countNonAir();
-      const safeName = escapeHtml(file.name);
-      infoEl.hidden = false;
-      infoEl.innerHTML = `
-        <div class="info-row"><span class="info-label">File</span><span class="info-value">${safeName}</span></div>
-        <div class="info-row"><span class="info-label">Size</span><span class="info-value">${formatSize(file.size)}</span></div>
-        <div class="info-row"><span class="info-label">Dimensions</span><span class="info-value">${grid.width} x ${grid.height} x ${grid.length}</span></div>
-        <div class="info-row"><span class="info-label">Blocks</span><span class="info-value">${nonAir.toLocaleString()}</span></div>
-        <div class="info-row"><span class="info-label">Palette</span><span class="info-value">${grid.palette.size} materials</span></div>
-        <div class="info-row"><span class="info-label">Entities</span><span class="info-value">${grid.blockEntities.length}</span></div>
-        ${extraInfo}
-      `;
-
-      uploadText.innerHTML = `Loaded <code>${safeName}</code>`;
-      uploadSubtext.textContent = 'Drop another file to replace';
-
-      onLoaded(grid, file.name);
     } catch (err) {
+      if (myGen !== uploadGeneration) return;
       uploadText.textContent = 'Failed to parse file';
       uploadSubtext.textContent = String(err);
       console.error('File parse error:', err);

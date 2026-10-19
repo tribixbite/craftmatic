@@ -62,6 +62,13 @@ export async function ensureCatalog(
       fetch('/omr-index.json'),
     ]);
     if (!catalogResp.ok) throw new Error(`HTTP ${catalogResp.status} loading lego-catalog.json`);
+    // A dev server / SPA host answers a missing /lego-catalog.json with the
+    // index.html fallback (HTTP 200, content-type text/html), which then fails
+    // `.json()` with a cryptic "Unexpected token '<'". Detect that and surface
+    // an actionable message — the LDraw-upload flow works without the catalog.
+    if (!(catalogResp.headers.get('content-type') ?? '').includes('json')) {
+      throw new Error('set catalog unavailable — run `bun run prebuild:lego` to enable set search (LDraw upload still works)');
+    }
     const [data, omrList] = await Promise.all([
       catalogResp.json() as Promise<{
         sets: Array<{ set_num: string; name: string; year: number; theme_id: number; num_parts: number }>;

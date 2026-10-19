@@ -47,6 +47,33 @@ export interface ExportMeshLike {
   getColorAt?(index: number, color: THREE.Color): void;
 }
 
+/** A temporary scene group handed to a three.js exporter, plus its teardown. */
+type ExportGroup = { group: THREE.Group; cleanup: () => void };
+
+/**
+ * Mesh-viewer mode (a GLB shown un-voxelized, `viewer.object3d`): the scene is
+ * one Object3D, not InstancedMesh parts, so `viewer.meshes` is empty and
+ * baking instances would export nothing. Clone the object into a group as-is —
+ * its units are the source model's (metres for photogrammetry), so the
+ * LEGO-stud real-world scale does not apply.
+ */
+function object3dExportGroup(object: THREE.Object3D): ExportGroup {
+  const group = new THREE.Group();
+  group.add(object.clone());
+  group.updateMatrixWorld(true);
+  return { group, cleanup: () => { group.clear(); } };
+}
+
+/**
+ * The export group for whatever the viewer is showing: the mesh-viewer object
+ * when there is one, otherwise the baked block/brick instances at `scale`.
+ */
+function viewerExportGroup(viewer: ViewerState, scale: number): ExportGroup {
+  return viewer.object3d
+    ? object3dExportGroup(viewer.object3d)
+    : bakeInstances(viewer.meshes as unknown as ExportMeshLike[], scale);
+}
+
 /**
  * Bake InstancedMesh instances into a flat Group of plain Meshes suitable for
  * export. Three's STL/GLTF/OBJ exporters don't handle InstancedMesh, so each
@@ -63,7 +90,7 @@ export interface ExportMeshLike {
  * IMPORTANT: updateMatrixWorld(true) so exporters reading matrixWorld see the
  * correct positions (and the group scale).
  */
-function bakeInstances(meshes: readonly ExportMeshLike[], scale: number): { group: THREE.Group; cleanup: () => void } {
+function bakeInstances(meshes: readonly ExportMeshLike[], scale: number): ExportGroup {
   const group = new THREE.Group();
   const tempMeshes: THREE.Mesh[] = [];
   const clonedMaterials: THREE.Material[] = [];
@@ -143,20 +170,33 @@ export function countExportTriangles(meshes: readonly ExportMeshLike[]): number 
  *  STL stays geometry-only — the format has no color/material channel, so
  *  per-brick colors are intentionally not carried (use GLB/OBJ for color). */
 export async function meshesToStlBinary(meshes: readonly ExportMeshLike[], scale = EXPORT_MM_PER_STUD): Promise<ArrayBuffer> {
+  return groupToStlBinary(bakeInstances(meshes, scale));
+}
+
+/** Binary STL bytes for an export group; always runs its cleanup. */
+async function groupToStlBinary({ group, cleanup }: ExportGroup): Promise<ArrayBuffer> {
   const { STLExporter } = await import('three/examples/jsm/exporters/STLExporter.js');
-  const { group, cleanup } = bakeInstances(meshes, scale);
-  const result = new STLExporter().parse(group, { binary: true }) as unknown as DataView;
-  cleanup();
-  return result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength) as ArrayBuffer;
+  try {
+    const result = new STLExporter().parse(group, { binary: true }) as unknown as DataView;
+    return result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength) as ArrayBuffer;
+  } finally {
+    cleanup();
+  }
 }
 
 /** Bake instances → OBJ text at real-world mm scale. */
 export async function meshesToObj(meshes: readonly ExportMeshLike[], scale = EXPORT_MM_PER_STUD): Promise<string> {
+  return groupToObj(bakeInstances(meshes, scale));
+}
+
+/** OBJ text for an export group; always runs its cleanup. */
+async function groupToObj({ group, cleanup }: ExportGroup): Promise<string> {
   const { OBJExporter } = await import('three/examples/jsm/exporters/OBJExporter.js');
-  const { group, cleanup } = bakeInstances(meshes, scale);
-  const result = new OBJExporter().parse(group);
-  cleanup();
-  return result;
+  try {
+    return new OBJExporter().parse(group);
+  } finally {
+    cleanup();
+  }
 }
 
 // ── 3MF (color 3D printing) ────────────────────────────────────────────────
@@ -257,10 +297,14 @@ function groupTo3mfModelXml(group: THREE.Group): string {
  * [Content_Types].xml + _rels/.rels + 3D/3dmodel.model.
  */
 export async function meshesTo3mf(meshes: readonly ExportMeshLike[], scale = EXPORT_MM_PER_STUD): Promise<Uint8Array> {
+  return groupTo3mf(bakeInstances(meshes, scale));
+}
+
+/** 3MF archive bytes for an export group; always runs its cleanup. */
+async function groupTo3mf({ group, cleanup }: ExportGroup): Promise<Uint8Array> {
   // Relative (not @engine alias) so the pure core stays importable from the
   // node test harness, which only maps the @craft alias.
   const { createZip } = await import('../engine/zip-utils.js');
-  const { group, cleanup } = bakeInstances(meshes, scale);
   let modelXml: string;
   try {
     modelXml = groupTo3mfModelXml(group);
@@ -277,7 +321,7 @@ export async function meshesTo3mf(meshes: readonly ExportMeshLike[], scale = EXP
 
 /** Export the current Three.js scene as 3MF (color 3D printing, real-world mm). */
 export async function export3MF(viewer: ViewerState, filename = 'craftmatic.3mf'): Promise<void> {
-  const bytes = await meshesTo3mf(viewer.meshes as unknown as ExportMeshLike[]);
+  const bytes = await groupTo3mf(viewerExportGroup(viewer, EXPORT_MM_PER_STUD));
   downloadBlob(new Blob([bytes as unknown as BlobPart], { type: 'model/3mf' }), filename);
 }
 
@@ -286,7 +330,7 @@ export async function exportGLB(viewer: ViewerState, filename = 'craftmatic.glb'
   const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
   const exporter = new GLTFExporter();
   // GLB keeps scene units (1 unit = 1 stud); glTF viewers fit-to-view.
-  const { group, cleanup } = bakeInstances(viewer.meshes as unknown as ExportMeshLike[], 1);
+  const { group, cleanup } = viewerExportGroup(viewer, 1);
 
   return new Promise((resolve, reject) => {
     exporter.parse(
@@ -305,13 +349,13 @@ export async function exportGLB(viewer: ViewerState, filename = 'craftmatic.glb'
 
 /** Export the current Three.js scene as binary STL (3D printing, real-world mm). */
 export async function exportSTL(viewer: ViewerState, filename = 'craftmatic.stl'): Promise<void> {
-  const bytes = await meshesToStlBinary(viewer.meshes as unknown as ExportMeshLike[]);
+  const bytes = await groupToStlBinary(viewerExportGroup(viewer, EXPORT_MM_PER_STUD));
   downloadBlob(new Blob([bytes as unknown as BlobPart], { type: 'application/octet-stream' }), filename);
 }
 
 /** Export the current Three.js scene as OBJ (universal 3D format, real-world mm). */
 export async function exportOBJ(viewer: ViewerState, filename = 'craftmatic.obj'): Promise<void> {
-  const text = await meshesToObj(viewer.meshes as unknown as ExportMeshLike[]);
+  const text = await groupToObj(viewerExportGroup(viewer, EXPORT_MM_PER_STUD));
   downloadBlob(new Blob([text], { type: 'text/plain' }), filename);
 }
 
@@ -338,9 +382,10 @@ export function exportThreeJSON(viewer: ViewerState, filename = 'craftmatic-scen
   downloadBlob(blob, filename);
 }
 
-/** Export as standalone HTML with embedded viewer */
+/** Export as standalone HTML with embedded viewer (block viewer only) */
 export function exportHTML(viewer: ViewerState, filename = 'craftmatic.html'): void {
   const { grid } = viewer;
+  if (!grid) throw new Error('HTML export requires a block grid (not available for mesh view)');
   const { width, height, length } = grid;
 
   // Build compact block list from the viewer's existing meshes

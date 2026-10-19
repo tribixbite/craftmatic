@@ -108,8 +108,30 @@ export async function searchOSMBuilding(
   return null;
 }
 
+/** Auxiliary-structure detection — mirrors `src/gen/api/osm.ts`. An
+ *  interpolated geocode pin can sit closer to a shed/garage/toilet block
+ *  than to the addressed building; these stay selectable only as a last
+ *  resort (score-penalised, not excluded). */
+const AUX_BUILDING_VALUES = new Set([
+  'garage', 'garages', 'shed', 'carport', 'roof', 'service', 'hut',
+  'greenhouse', 'kiosk', 'toilets', 'shelter', 'gazebo', 'boathouse',
+]);
+const AUX_AMENITY_VALUES = new Set([
+  'toilets', 'shelter', 'parking', 'bicycle_parking', 'bench', 'fountain',
+]);
+const AUX_STRUCTURE_PENALTY_M = 60;
+
+function isAuxiliaryStructure(tags: Record<string, string> | undefined): boolean {
+  if (!tags) return false;
+  const b = tags['building'];
+  const a = tags['amenity'];
+  return (b != null && AUX_BUILDING_VALUES.has(b))
+    || (a != null && AUX_AMENITY_VALUES.has(a));
+}
+
 /**
- * Parse Overpass JSON elements and return the building closest to the query point.
+ * Parse Overpass JSON elements and return the best building for the query
+ * point: centroid distance plus an auxiliary-structure penalty.
  * Exported for testing with mock responses.
  */
 export function parseClosestBuilding(
@@ -118,7 +140,7 @@ export function parseClosestBuilding(
   queryLng: number,
 ): OSMBuildingData | null {
   let bestElement: OverpassElement | null = null;
-  let bestDist = Infinity;
+  let bestScore = Infinity;
 
   for (const el of elements) {
     // Extract centroid geometry from either way or relation
@@ -141,9 +163,10 @@ export function parseClosestBuilding(
     cLat /= geom.length;
     cLon /= geom.length;
 
-    const dist = haversineDistance(queryLat, queryLng, cLat, cLon);
-    if (dist < bestDist) {
-      bestDist = dist;
+    let score = haversineDistance(queryLat, queryLng, cLat, cLon);
+    if (isAuxiliaryStructure(el.tags)) score += AUX_STRUCTURE_PENALTY_M;
+    if (score < bestScore) {
+      bestScore = score;
       bestElement = el;
     }
   }

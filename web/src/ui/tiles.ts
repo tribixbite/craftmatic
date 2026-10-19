@@ -19,27 +19,16 @@ import {
 } from '3d-tiles-renderer/plugins';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { BlockGrid } from '@craft/schem/types.js';
-import { threeToGridAsync } from '@craft/convert/voxelizer.js';
 import { geocodeAddress } from '@ui/shared-geocode.js';
 import { captureTileMeshes } from '@engine/tile-capture.js';
 import { getStreetViewApiKey } from '@ui/import-streetview.js';
 import { exportSchem, encodeSchemBytes } from '@viewer/exporter.js';
-import { createCanvasTextureSampler } from '@engine/texture-sampler.js';
-import {
-  trimSparseBottomLayers, analyzeGrid, cropToAABB,
-  constrainPalette, modeFilter3D,
-  fillInteriorGaps, scanlineInteriorFill, clearOpenAirFill,
-  removeSmallComponents, removeArtifactComponents,
-  removeGroundPlane, stripVegetation,
-  morphClose3D, morphCloseFacadeAligned, smoothSurface,
-  flattenFacades, detectCornices, flattenFacadesSetbackAware,
-  glazeDarkWindows, glazeReflectiveWindows, injectSyntheticWindows,
-  extractEnvironmentPositions, replaceWithCleanFeatures, detectAndRegularizeWindows,
-  smoothFacadeColors, smoothRoofPlane, clusterFacadePalette,
-  fillFacadeHoles, removeIsolatedVoxels, fillFacadeVoids2D,
-} from '@craft/convert/mesh-filter.js';
-import type { AnalysisResult, ExtractedEnvironment } from '@craft/convert/mesh-filter.js';
+import type { AnalysisResult } from '@craft/pipeline/capture/analysis-types.js';
 import { resolveBuildingBounds, type BuildingBounds } from '@ui/building-bounds.js';
+import { runBrowserPipelineFromTiles, buildTileEvidenceFromGroup } from '@craft/pipeline/browser-entry.js';
+import { resolveContext, ContextInsufficientError } from '@craft/pipeline/context/resolver.js';
+import { lookupProfile } from '@craft/pipeline/context/profile.js';
+import { createBrowserFetchers } from '@ui/browser-fetchers.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -67,6 +56,25 @@ export interface TilesResultMeta {
 }
 
 let onResult: ((grid: BlockGrid, label: string, analysis: AnalysisResult | null, meta: TilesResultMeta | null) => void) | null = null;
+
+/** User-uploaded reference images — override API-fetched SV/satellite colors */
+let userSvFiles: File[] = [];
+let userSatFile: File | null = null;
+
+/** Update the reference image preview thumbnails in the UI */
+function updateRefPreview(container: HTMLElement | null, svFiles: File[], satFile: File | null): void {
+  if (!container) return;
+  container.innerHTML = '';
+  const allFiles = [...svFiles, ...(satFile ? [satFile] : [])];
+  for (const file of allFiles) {
+    const thumb = document.createElement('img');
+    thumb.className = 'tiles-ref-thumb';
+    thumb.style.cssText = 'width:48px;height:48px;object-fit:cover;border-radius:4px;margin:2px;';
+    thumb.src = URL.createObjectURL(file);
+    thumb.title = file.name;
+    container.appendChild(thumb);
+  }
+}
 
 // ─── API Key ────────────────────────────────────────────────────────────────
 
@@ -115,7 +123,7 @@ function buildUI(): void {
       </div>
       <div class="tiles-search-row">
         <input type="text" class="tiles-input" id="tiles-address"
-          placeholder="Enter address..." value="">
+          aria-label="Address to voxelize" placeholder="Enter address..." value="">
         <button class="btn btn-primary btn-sm" id="tiles-voxelize" ${!hasTileKey ? 'disabled' : ''}>Voxelize</button>
       </div>
       <div class="tiles-params">
@@ -142,6 +150,19 @@ function buildUI(): void {
           <label><input type="checkbox" id="scene-fences" checked> Fences & walls</label>
           <label><input type="checkbox" id="scene-pools" checked> Pool / driveway</label>
         </div>
+        <details class="tiles-ref-images">
+          <summary>Reference Images (optional)</summary>
+          <p class="tiles-ref-hint">Upload your own photos to override API-fetched colors</p>
+          <label class="tiles-param">
+            <span>Street View photos</span>
+            <input type="file" id="tiles-sv-upload" accept="image/*" multiple>
+          </label>
+          <label class="tiles-param">
+            <span>Satellite / aerial photo</span>
+            <input type="file" id="tiles-sat-upload" accept="image/*">
+          </label>
+          <div id="tiles-ref-preview" class="tiles-ref-preview"></div>
+        </details>
       </div>
       <div class="tiles-key-hint">
         <p>${hasTileKey
@@ -149,7 +170,7 @@ function buildUI(): void {
           : 'Google Maps API key required. Set it in the <strong>Map</strong> tab, or paste below:'}</p>
         <div class="tiles-key-row">
           <input type="password" class="tiles-key-input" id="tiles-key-input"
-            placeholder="${hasTileKey ? 'Replace API key...' : 'Google Maps API key'}">
+            aria-label="Google Maps API key" placeholder="${hasTileKey ? 'Replace API key...' : 'Google Maps API key'}">
           <button class="btn btn-secondary btn-sm" id="tiles-key-save">Save</button>
           ${hasTileKey ? '<button class="btn btn-secondary btn-sm" id="tiles-key-clear">Clear</button>' : ''}
         </div>
@@ -202,6 +223,23 @@ function buildUI(): void {
     sceneLabel.textContent = sceneToggle.checked ? 'On — building + environment' : 'Off — building only';
     sceneOptions.style.display = sceneToggle.checked ? '' : 'none';
   });
+
+  // Reference image uploads — override API-fetched SV/satellite colors
+  const svUpload = document.getElementById('tiles-sv-upload') as HTMLInputElement | null;
+  const satUpload = document.getElementById('tiles-sat-upload') as HTMLInputElement | null;
+  const refPreview = document.getElementById('tiles-ref-preview');
+  if (svUpload) {
+    svUpload.addEventListener('change', () => {
+      userSvFiles = svUpload.files ? Array.from(svUpload.files) : [];
+      updateRefPreview(refPreview, userSvFiles, userSatFile);
+    });
+  }
+  if (satUpload) {
+    satUpload.addEventListener('change', () => {
+      userSatFile = satUpload.files?.[0] ?? null;
+      updateRefPreview(refPreview, userSvFiles, userSatFile);
+    });
+  }
 
   const startVoxelize = async () => {
     const addr = addrInput.value.trim();
@@ -605,155 +643,93 @@ async function runVoxelizePipeline(
       gridWxHxL: `${Math.ceil(preSize.x * resolution)}x${Math.ceil(preSize.y * resolution)}x${Math.ceil(preSize.z * resolution)}`,
     }));
 
-    // Create Canvas-backed texture sampler for photorealistic tile textures.
-    // Without this, colors fall back to material.color (usually white).
-    const sampler = createCanvasTextureSampler();
-    // Cap grid dimension to prevent OOM on mobile. At resolution 10, a 50m building
-    // would be 500 blocks per side. Browser cap: 512 blocks (enough for most buildings,
-    // avoids 75M+ voxel grids that crash mobile GPUs). CLI has no cap by default.
-    const browserMaxDim = resolution >= 5 ? 512 : 256;
-    const grid = await threeToGridAsync(capturedGroup, resolution, {
-      onProgress: (p) => {
-        const msg = p.message
-          ? p.message
-          : `Voxelizing... ${Math.round(p.progress * 100)}% (layer ${p.currentY}/${p.totalY})`;
-        setStatus(msg, 'info');
-      },
-      textureSampler: sampler,
-      // Surface mode: 3D tiles are photogrammetry surfaces (not watertight solids).
-      // Uses closest-point-to-geometry instead of odd-even inside/outside test.
-      mode: 'surface',
-      // Yield to main thread every N layers to keep UI responsive on mobile.
-      // At high resolution, yield more often (more layers, each smaller).
-      yieldInterval: resolution >= 5 ? 2 : 4,
-      // Don't filter vegetation during voxelization — trees act as solid walls during
-      // fillInteriorGaps, preventing holes behind canopy. Strip in post-processing.
-      filterVegetation: false,
-      // Grid dimension cap prevents OOM at high resolutions
-      maxDimension: browserMaxDim,
-    });
-
-    // Post-voxel Y trim: remove sparse bottom layers (residual terrain that
-    // passed the height filter). Scan bottom-up for the first layer with >5%
-    // fill rate — everything below is likely ground/road fragments.
-    const trimmedGrid = trimSparseBottomLayers(grid);
-    if (trimmedGrid !== grid) {
-      const trimmed = grid.height - trimmedGrid.height;
-      console.log(`[tiles] trimmed ${trimmed} sparse bottom layers (${grid.height}→${trimmedGrid.height})`);
+    // ── New pipeline (parametric synthesis, spec 2026-04-17) ─────────────
+    // Replaces legacy voxelize-tiles → 21-phase patch post-processor with:
+    //   buildTileEvidenceFromGroup → resolveContext → runBrowserPipelineFromTiles
+    // Output is a parametric BlockGrid built from evidence, not patched voxels.
+    if (!geo) {
+      setStatus('Geocoded coordinates missing — cannot run pipeline', 'error');
+      return null;
+    }
+    if (userSvFiles.length > 0 || userSatFile) {
+      // User-uploaded reference images are currently NOT wired into the new
+      // pipeline — auto-captured SV + satellite dominate the palette. Noted
+      // as follow-up (user overrides → inject into fetchers).
+      // TODO: route userSvFiles/userSatFile into createBrowserFetchers() as
+      // reference-image overrides so the upload UI affects the build again.
+      console.warn('[tiles] user-uploaded SV/satellite photos are ignored by the new pipeline — auto-capture used instead');
     }
 
-    // Enforce dimension cap
-    if (trimmedGrid.width > MAX_DIMENSION || trimmedGrid.height > MAX_DIMENSION || trimmedGrid.length > MAX_DIMENSION) {
-      setStatus(`Grid too large: ${trimmedGrid.width}x${trimmedGrid.height}x${trimmedGrid.length} (max ${MAX_DIMENSION})`, 'error');
+    setStatus('Pipeline: resolving context…', 'info');
+    const fetchers = createBrowserFetchers(apiKey);
+    let ctx;
+    try {
+      ctx = await resolveContext(address, fetchers.context);
+    } catch (err) {
+      if (err instanceof ContextInsufficientError) {
+        setStatus(`Context insufficient: ${err.reason}`, 'error');
+        return null;
+      }
+      throw err;
+    }
+    const profile = lookupProfile(ctx);
+
+    setStatus('Pipeline: building tile evidence…', 'info');
+    const { evidence: tileEvidence } = await buildTileEvidenceFromGroup({
+      group: capturedGroup,
+      expectedHeightM: preSize.y,
+    });
+
+    setStatus('Pipeline: synthesizing…', 'info');
+    const result = await runBrowserPipelineFromTiles({
+      ctx,
+      profile,
+      tiles: tileEvidence,
+      svFetchers: fetchers.streetview,
+      satFetcher: fetchers.satellite,
+      onProgress: ({ stage, message }) => setStatus(`${stage}: ${message}`, 'info'),
+    });
+
+    if (!result.artifacts) {
+      setStatus(`Pipeline failed: ${result.report.status}`, 'error');
       return null;
     }
 
-    // Run auto-analysis to drive post-processing decisions
-    let analysis: AnalysisResult | null = null;
-    try {
-      analysis = analyzeGrid(trimmedGrid);
-      console.log(`[tiles] analysis: confidence=${analysis.confidence.toFixed(1)}, quality=${analysis.dataQuality}, typology=${analysis.typology}`);
-    } catch (err) {
-      console.warn('[tiles] analysis failed (non-fatal):', err);
+    const finalGrid = result.artifacts.voxelGrid;
+
+    if (finalGrid.width > MAX_DIMENSION || finalGrid.height > MAX_DIMENSION || finalGrid.length > MAX_DIMENSION) {
+      setStatus(`Grid too large: ${finalGrid.width}x${finalGrid.height}x${finalGrid.length} (max ${MAX_DIMENSION})`, 'error');
+      return null;
     }
 
-    // ── Post-processing: same essential pipeline as CLI voxelizer ──
-    // Without these steps the raw voxelization is noisy photogrammetry chaos.
-    const sceneEl = document.getElementById('tiles-scene-mode') as HTMLInputElement | null;
-    const isSceneMode = !!(sceneEl?.checked && geo);
-    setStatus('Post-processing...', 'info');
-    await new Promise(r => setTimeout(r, 50));
-    const envPositions = await postProcessTilesGrid(trimmedGrid, analysis, isSceneMode, resolution);
-
-    // ── Window/door regularization — always run when quality is decent ──
-    // v106: Moved out of scene-only block. Window patterns improve VLM scores universally.
-    let finalGrid = trimmedGrid;
-    if ((analysis?.confidence ?? 0) > 0.5 || isSceneMode) {
-      setStatus('Enhancing windows & doors...', 'info');
-      await new Promise(r => setTimeout(r, 0));
-      const winResult = detectAndRegularizeWindows(finalGrid, analysis?.groundPlaneY ?? 0);
-      console.log(`[tiles] windows regularized: ${winResult.windowsRegularized}, doors placed: ${winResult.doorsPlaced}`);
-    }
-
-    // ── Scene-specific steps (feature replacement, plot expansion, enrichment) ──
-    if (isSceneMode && geo) {
-      try {
-        // Clean feature replacement (trees, roads, vehicles at detected positions)
-        if (envPositions) {
-          setStatus('Replacing detected features...', 'info');
-          await new Promise(r => setTimeout(r, 0));
-          const treePalette: import('@craft/gen/structures.js').TreeType[] = ['oak', 'birch', 'dark_oak'];
-          const replaced = replaceWithCleanFeatures(finalGrid, envPositions, treePalette, 'grass', analysis?.groundPlaneY ?? 0);
-          console.log(`[tiles:scene] replaced: ${replaced.trees} trees, ${replaced.roads} road cells, ${replaced.vehicles} vehicles`);
-        }
-
-        // Plot expansion — add 8m padding per side
-        const { expandGrid } = await import('../../../src/convert/scene-pipeline.js');
-        const maxDim = Math.max(finalGrid.width, finalGrid.length);
-        const padding = 8 * resolution;
-        const newDim = maxDim + padding * 2;
-        if (newDim > finalGrid.width || newDim > finalGrid.length) {
-          setStatus(`Expanding plot ${finalGrid.width}x${finalGrid.length} → ${newDim}x${newDim}...`, 'info');
-          await new Promise(r => setTimeout(r, 0));
-          finalGrid = expandGrid(finalGrid, newDim, newDim);
-          console.log(`[tiles:scene] plot expansion: ${newDim}x${newDim}`);
-        }
-
-        // Scene enrichment — populate roads, trees, fences, ground from OSM + climate data
-        setStatus('Scene enrichment — fetching environment data...', 'info');
-        await new Promise(r => setTimeout(r, 50));
-        const { enrichScene } = await import('../../../src/convert/scene-pipeline.js');
-        const plotRadius = Math.max(finalGrid.width, finalGrid.length) / (2 * resolution);
-
-        // Read granular scene feature toggles from UI checkboxes
-        const readCheck = (id: string) => (document.getElementById(id) as HTMLInputElement)?.checked ?? true;
-        const sceneFeatures: import('../../../src/convert/scene-pipeline.js').SceneFeatureFlags = {
-          ground: readCheck('scene-ground'),
-          trees: readCheck('scene-trees'),
-          roads: readCheck('scene-roads'),
-          paths: readCheck('scene-paths'),
-          fences: readCheck('scene-fences'),
-          pools: readCheck('scene-pools'),
-        };
-
-        await enrichScene({
-          grid: finalGrid,
-          coords: { lat: geo.lat, lng: geo.lng },
-          resolution,
-          plotRadius,
-          capturedEnvironment: envPositions,
-          terrainHeightmap: captureResult.terrainHeightmap,
-          heightmapWidth: captureResult.heightmapWidth,
-          heightmapLength: captureResult.heightmapLength,
-          features: sceneFeatures,
-          onProgress: (msg) => setStatus(`Enrichment: ${msg}`, 'info'),
-        });
-      } catch (err) {
-        console.warn('[tiles] scene pipeline failed (non-fatal):', err);
-        setStatus('Scene enrichment failed — continuing with building only', 'info');
-      }
-    }
+    console.log('[tiles] pipeline result:', {
+      status: result.report.status,
+      synthesisPath: result.artifacts.synthesisPath,
+      voxelBlockCount: result.artifacts.voxelBlockCount,
+      footprintIoU: result.report.objective?.footprintIoU,
+      heightErr: result.report.objective?.heightErr,
+    });
 
     const nonAir = finalGrid.countNonAir();
-    // Debug: expose grid for inspection
     (window as unknown as Record<string, unknown>).__lastTilesGrid = finalGrid;
+    (window as unknown as Record<string, unknown>).__lastPipelineReport = result.report;
     console.log('[tiles] palette:', [...finalGrid.palette].join(', '));
 
-    const qualityLabel = analysis
-      ? ` (${analysis.dataQuality} quality, confidence ${analysis.confidence.toFixed(1)}/10)`
+    const objective = result.report.objective;
+    const iouLabel = objective
+      ? ` (IoU ${objective.footprintIoU.toFixed(2)}, height err ${(objective.heightErr * 100).toFixed(0)}%)`
       : '';
     setStatus(
-      `Done — ${finalGrid.width}x${finalGrid.height}x${finalGrid.length}, ${nonAir.toLocaleString()} blocks, ${finalGrid.palette.size} materials${qualityLabel}`,
+      `Done — ${finalGrid.width}x${finalGrid.height}x${finalGrid.length}, ${nonAir.toLocaleString()} blocks, ${finalGrid.palette.size} materials${iouLabel}`,
       'success',
     );
 
     // Dispose the tile viewer — we don't need it anymore
     disposeViewer();
 
-    // Step 5: Pass grid + analysis + geocode metadata to callback
-    // If analysis shows poor/fair quality, the callback can trigger manual selection
+    // Pass grid + (null analysis — new pipeline reports via VerificationReport) + metadata to callback
     if (onResult && !skipCallback) {
-      onResult(finalGrid, `tiles-${geo.formattedAddress}`, analysis, {
+      onResult(finalGrid, `tiles-${geo.formattedAddress}`, null, {
         lat: geo.lat,
         lng: geo.lng,
         resolution,
@@ -773,223 +749,6 @@ async function runVoxelizePipeline(
     setStatus(`Voxelize failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
     return null;
   }
-}
-
-// ─── Post-Processing ─────────────────────────────────────────────────────────
-
-/**
- * Apply essential post-processing to transform raw photogrammetry voxels into
- * clean building geometry. Mirrors the CLI voxelizer's --auto pipeline.
- *
- * Without these steps the browser output is a chaotic mass of noisy colored
- * blocks from baked lighting and surface noise in the Google 3D Tiles data.
- *
- * Steps applied (in order, matching CLI v44 pipeline):
- * 1. Ground plane removal
- * 2. Component cleanup (≥500 voxels)
- * 3. AABB crop (if analysis recommends it)
- * 4-5. Interior fill (dilation=2, two passes)
- * 6. Vegetation strip
- * 7. Morph close — spackle 1-voxel pockmarks
- * 8. Surface smooth + facade flatten
- * 9. Glaze dark windows (before mode filter — glass is PROTECTED)
- * 10. Mode filter — 3D majority-vote surface smoother
- * 11. Sky palette + analysis remaps
- */
-async function postProcessTilesGrid(grid: BlockGrid, analysis: AnalysisResult | null, sceneMode = false, resolution = 1): Promise<ExtractedEnvironment | undefined> {
-  const t0 = performance.now();
-  const rec = analysis?.recommended;
-
-  // Yield helper — lets the browser render status updates between heavy operations
-  const yieldUI = () => new Promise<void>(r => setTimeout(r, 0));
-
-  // 1. Ground plane subtraction — MUST run before fill.
-  // If terrain is present, fillInteriorGaps treats the entire capture volume as
-  // "interior" (terrain creates sealed perimeter), producing massive solid cubes.
-  const { removed: groundRemoved, groundY } = removeGroundPlane(grid, 1);
-  if (groundRemoved > 0) console.log(`[tiles:pp] ground plane: ${groundRemoved} blocks removed (y=${groundY})`);
-  await yieldUI();
-
-  // 2. Component cleanup — remove noise/debris, preserve legitimate building wings.
-  // Threshold 500 preserves multi-wing buildings (Pentagon, Capitol) while
-  // removing photogrammetry artifacts. Infinity would sever disconnected wings.
-  const cleaned = removeSmallComponents(grid, 500);
-  if (cleaned > 0) console.log(`[tiles:pp] component cleanup: ${cleaned} blocks removed (< 500 voxels)`);
-  // 2b. Density + distance artifact cleanup — removes sparse needle artifacts
-  // (density < 0.1) and distant debris (centroid > 1.5× building radius).
-  const artifactCleaned = removeArtifactComponents(grid, 0.1, 1.5);
-  if (artifactCleaned > 0) console.log(`[tiles:pp] artifact cleanup: ${artifactCleaned} blocks removed (sparse/distant)`);
-  await yieldUI();
-
-  // 3. AABB crop — isolate the central building if analysis detected multiple components
-  if (rec?.useAABBCrop && analysis) {
-    const aabb = analysis.centralAABB;
-    const cropped = cropToAABB(grid, aabb.minX, aabb.maxX, aabb.minZ, aabb.maxZ, 2);
-    if (cropped > 0) console.log(`[tiles:pp] AABB crop: ${cropped} blocks removed`);
-  }
-  await yieldUI();
-
-  // 4. Fill interior gaps — 3D masked dilation flood-fill.
-  // Mask dilation=2 virtually closes porosity for leak-proof exterior detection,
-  // but only original air voxels get filled (crisp geometry preserved).
-  const interiorFilled = fillInteriorGaps(grid, 2);
-  console.log(`[tiles:pp] interior fill (3D masked): ${interiorFilled} voxels`);
-  // 4b. Sky exposure — remove fill in open-air spaces (stadiums, courtyards).
-  const openAirCleared = clearOpenAirFill(grid);
-  if (openAirCleared > 0) console.log(`[tiles:pp] open-air fill cleared: ${openAirCleared} blocks (no roof above)`);
-  await yieldUI();
-
-  // 4c. Scanline interior fill — per-Y-layer boundary-crossing algorithm with
-  // sky-visibility check. Catches thin interior gaps that dilation+flood may miss.
-  // Sky check inherently prevents courtyard filling (unlike dilation which needs clearOpenAirFill).
-  const scanlineFilled = scanlineInteriorFill(grid);
-  if (scanlineFilled > 0) console.log(`[tiles:pp] scanline interior fill: ${scanlineFilled} voxels`);
-  await yieldUI();
-
-  // 5. Second fill pass — fill may close more gaps after vegetation strip.
-  const interiorFilled2 = fillInteriorGaps(grid, 2);
-  if (interiorFilled2 > 0) console.log(`[tiles:pp] interior fill pass 2 (3D masked): ${interiorFilled2} voxels`);
-  await yieldUI();
-
-  // 6a. Extract environment positions BEFORE stripping vegetation (scene mode only)
-  let envPositions: ExtractedEnvironment | undefined;
-  if (sceneMode) {
-    envPositions = extractEnvironmentPositions(grid, groundY);
-    console.log(`[tiles:pp] env extraction: ${envPositions.trees.length} trees, ${envPositions.roads.cells.size} road cells, ${envPositions.vehicles.length} vehicles`);
-  }
-
-  // 6b. Strip vegetation — trees acted as solid walls during fill,
-  // preventing holes behind canopy. Now building interior is solid.
-  const vegStripped = stripVegetation(grid);
-  if (vegStripped > 0) console.log(`[tiles:pp] vegetation strip: ${vegStripped} tree/bush blocks removed`);
-  await yieldUI();
-
-  // 7. Morph close — spackle 1-voxel pockmarks/holes in photogrammetry surfaces.
-  // Dilation+erosion fills small cracks without changing overall shape.
-  // Runs BEFORE smoothSurface so the surface smoother sees healed faces.
-  {
-    const closed = morphClose3D(grid, 1);
-    if (closed > 0) console.log(`[tiles:pp] morph close: ${closed} 1-voxel holes filled`);
-  }
-  // 7b. Facade-aligned morph close — radius-2 gap filling along facade normals only.
-  // Closes 2-voxel pockmarks in facade surfaces without affecting depth profile.
-  {
-    const facadeClosed = morphCloseFacadeAligned(grid, 2);
-    if (facadeClosed > 0) console.log(`[tiles:pp] facade morph close: ${facadeClosed} facade gaps filled (r=2)`);
-  }
-  // 7c. Fill single-block facade holes — air voxels with 4+ solid neighbors.
-  {
-    const holeFilled = fillFacadeHoles(grid, 4);
-    if (holeFilled > 0) console.log(`[tiles:pp] facade hole fill: ${holeFilled} voids patched`);
-  }
-  await yieldUI();
-
-  // 8. Geometric smoothing — remove 1-voxel protrusions from photogrammetry noise.
-  {
-    const surfaceSmoothed = smoothSurface(grid);
-    if (surfaceSmoothed > 0) console.log(`[tiles:pp] surface smooth: ${surfaceSmoothed} protrusions removed`);
-    // For rectangular buildings, detect cornices then apply setback-aware flattening
-    if (analysis?.isRectangular) {
-      const corniceYs = detectCornices(grid, 2, true);
-      if (corniceYs.size > 0) {
-        console.log(`[tiles:pp] cornices detected: ${corniceYs.size} Y levels preserved`);
-        const snapped = flattenFacadesSetbackAware(grid, corniceYs, 1, resolution);
-        if (snapped > 0) console.log(`[tiles:pp] setback-aware flatten: ${snapped} voxels snapped`);
-      } else {
-        const snapped = flattenFacades(grid, 1);
-        if (snapped > 0) console.log(`[tiles:pp] facade flatten: ${snapped} voxels snapped`);
-      }
-    }
-  }
-  // 8b. Seal multi-block facade holes using 2D flood-fill projection.
-  {
-    const sealed = fillFacadeVoids2D(grid);
-    if (sealed > 0) console.log(`[tiles:pp] facade void sealing (2D): ${sealed} enclosed voids filled`);
-  }
-
-  await yieldUI();
-
-  // 9. Glaze dark exterior blocks as windows BEFORE mode filter.
-  // modeFilter3D would erase small dark clusters (windows) as noise.
-  // gray_stained_glass is in modeFilter3D's PROTECTED set, so glazing
-  // first preserves windows while mode filter smooths walls around them.
-  {
-    const glazed = glazeDarkWindows(grid, resolution);
-    if (glazed > 0) console.log(`[tiles:pp] window glazing: ${glazed} dark blocks → gray_stained_glass`);
-    // Phase 5a: Sky-reflecting window detection — catches blue/grey specular blocks
-    // that photogrammetry maps from sky reflections in real windows.
-    const reflective = glazeReflectiveWindows(grid, resolution);
-    if (reflective > 0) console.log(`[tiles:pp] reflective windows: ${reflective} blue/grey blocks → glass`);
-    // Synthetic windows for bright facades that lack dark blocks to glaze
-    const injected = injectSyntheticWindows(grid, glazed + reflective, resolution);
-    if (injected > 0) console.log(`[tiles:pp] synthetic windows: ${injected} blocks (bright facade, glazed=${glazed + reflective})`);
-  }
-  await yieldUI();
-
-  // 10. Mode filter — 3x3x3 majority-vote smoother (radius=1).
-  // Runs AFTER glazeDarkWindows (glass is protected) and BEFORE sky remap
-  // so cyan won't get voted back by majority neighbors.
-  const modePasses = rec?.modePasses ?? 1;
-  if (modePasses > 0) {
-    const modeSmoothed = modeFilter3D(grid, modePasses, 1);
-    console.log(`[tiles:pp] mode filter 3x3x3: ${modeSmoothed} blocks (${modePasses} passes)`);
-  }
-  await yieldUI();
-
-  // 10b. Facade color coherence — 5×5×1 Lab-weighted average on facade planes.
-  // Snaps noisy outliers (delta-E > 15) to local majority. Runs after mode filter
-  // to refine remaining per-facade noise.
-  {
-    const facadeSmoothed = smoothFacadeColors(grid);
-    if (facadeSmoothed > 0) console.log(`[tiles:pp] facade smooth: ${facadeSmoothed} color outliers replaced`);
-  }
-  await yieldUI();
-
-  // 10c. K-means facade palette — cluster each facade to k=4 coherent materials.
-  {
-    const paletteReplaced = clusterFacadePalette(grid, 4);
-    if (paletteReplaced > 0) console.log(`[tiles:pp] palette cluster: ${paletteReplaced} blocks reassigned (k=4)`);
-  }
-  await yieldUI();
-
-  // 10d. Roof plane smoothing — aggressive 5×5 horizontal majority-vote on top 20%.
-  // Roofs in photogrammetry are noisy (HVAC, shadows, varied materials).
-  {
-    const roofSmoothed = smoothRoofPlane(grid);
-    if (roofSmoothed > 0) console.log(`[tiles:pp] roof smooth: ${roofSmoothed} roof blocks replaced`);
-  }
-  // 10e. Remove isolated single voxels — noise dots with 0-1 face neighbors.
-  {
-    const isolated = removeIsolatedVoxels(grid, 1);
-    if (isolated > 0) console.log(`[tiles:pp] isolated voxels: ${isolated} artifacts removed`);
-  }
-  await yieldUI();
-
-  // 11. Sky contamination remap — blue/cyan skylight baked into tiles surfaces.
-  // Runs AFTER mode filter so residual cyan clusters get cleaned up.
-  // Only remap cyan — light_blue_terracotta is often legitimate facade color
-  // (beige/tan buildings bake slightly blue in photogrammetry)
-  const skyRemaps = new Map<string, string>([
-    ['minecraft:cyan_terracotta', 'minecraft:stone'],
-    ['minecraft:cyan_concrete', 'minecraft:stone'],
-  ]);
-  const constrained = constrainPalette(grid, skyRemaps);
-  if (constrained > 0) console.log(`[tiles:pp] sky palette: ${constrained} blocks remapped`);
-
-  // Also apply analysis-recommended remaps (building-specific material corrections)
-  if (rec?.remaps && rec.remaps.size > 0) {
-    const remapped = constrainPalette(grid, rec.remaps);
-    console.log(`[tiles:pp] auto remap: ${remapped} blocks (${rec.remaps.size} rules)`);
-  }
-  await yieldUI();
-
-  // 10. glazeBackplane removed: legacy band-aid from carveFacadeShadows era.
-  // CIE-Lab color pipeline maps dark pixels to dark blocks natively.
-  // AABB raycasting placed black_concrete on exterior courtyard walls.
-
-  const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
-  console.log(`[tiles:pp] post-processing complete in ${elapsed}s`);
-  return envPositions;
 }
 
 // ─── Viewer Lifecycle ───────────────────────────────────────────────────────

@@ -1,0 +1,20 @@
+{
+  "$schema": "Manual polygon overrides for addresses where OSM lacks a building polygon. Keyed by slug (matches --slug flag or auto-generated slug from address). Polygon is an array of {lat, lon} vertices in any winding order; the system closes + orients automatically. Optional buildingColour (hex), levels, heightM tags propagate into evidence the same way OSM tags would.",
+  "overrides": {
+    "240-highland": {
+      "$comment": "Single-family West Newton residence at 42.3435/-71.2215. Approximate 14×12m rectangular footprint centred on the geocoded address point. Replace with a satellite-traced polygon for higher fidelity.",
+      "polygon": [
+        { "lat": 42.343455, "lon": -71.221573 },
+        { "lat": 42.343455, "lon": -71.221427 },
+        { "lat": 42.343586, "lon": -71.221427 },
+        { "lat": 42.343586, "lon": -71.221573 }
+      ],
+      "heightM": 8,
+      "levels": 2,
+      "buildingColour": "#D4C4A8",
+      "roofColour": "#3A2E22",
+      "roofShape": "gabled",
+      "material": "wood"
+    }
+  }
+}

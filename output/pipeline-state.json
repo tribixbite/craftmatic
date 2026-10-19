@@ -1,0 +1,1731 @@
+{
+  "version": "v400",
+  "addresses": {
+    "flatiron": {
+      "address": "175 5th Ave, New York, NY",
+      "status": "fail-consensus",
+      "lastRun": "2026-08-16T15:54:58.506Z",
+      "elapsedSec": 80.7,
+      "attempts": 1,
+      "recentFailureSignatures": [
+        "fail-objective:footprint IoU # < #",
+        "fail-consensus:median=5,min=2",
+        "fail-consensus:median=5,min=2",
+        "fail-consensus:median=4,min=1",
+        "fail-consensus:median=4,min=2"
+      ],
+      "objective": {
+        "footprintIoU": 0.9825899214479306,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 1278,
+        "minWallThicknessMm": 7.193524360656738,
+        "voxelCount": 942484,
+        "plinthWatertight": null,
+        "unknownBlockStates": [],
+        "pass": true,
+        "failures": []
+      },
+      "consensus": {
+        "status": "fail",
+        "rounds": 1,
+        "gemini": {
+          "color": 3,
+          "features": 2,
+          "massing": 9,
+          "overall": 4
+        },
+        "claude": {
+          "color": 3,
+          "features": 2,
+          "massing": 9,
+          "overall": 4
+        },
+        "gpt5": {
+          "color": 3,
+          "features": 2,
+          "massing": 9,
+          "overall": 4
+        },
+        "min": 2,
+        "median": 3.5,
+        "spread": 0,
+        "pass": false
+      },
+      "provenance": {
+        "fields": [
+          {
+            "field": "footprint",
+            "value": "34 pts",
+            "source": "osm",
+            "confidence": 1
+          },
+          {
+            "field": "height",
+            "value": "73.5m",
+            "source": "osm",
+            "confidence": 0.8
+          },
+          {
+            "field": "levels",
+            "value": "21",
+            "source": "osm",
+            "confidence": 0.95
+          },
+          {
+            "field": "wall",
+            "value": "lab(80,-3,14) +4",
+            "source": "osm",
+            "confidence": 0.85
+          },
+          {
+            "field": "roof",
+            "value": "lab(63,3,8) +1",
+            "source": "sat",
+            "confidence": 0.85
+          },
+          {
+            "field": "roofShape",
+            "value": "flat",
+            "source": "inferred",
+            "confidence": 0.5
+          }
+        ],
+        "weakest": {
+          "field": "roofShape",
+          "value": "flat",
+          "source": "inferred",
+          "confidence": 0.5
+        },
+        "meanConfidence": 0.8250000000000001
+      },
+      "crossCheck": {
+        "chosenSource": "osm",
+        "chosenHeightM": 73.5,
+        "alternatives": [],
+        "maxDisagreement": 0,
+        "truncationSuspected": false,
+        "ok": true,
+        "warnings": []
+      },
+      "defectScore": {
+        "defects": {
+          "height_truncated": false,
+          "facade_holes_visible": false,
+          "floating_artifacts": false,
+          "footprint_wrong_shape": false,
+          "surface_detail_visible": true,
+          "proportions_correct": true,
+          "facade_incoherent": false,
+          "facade_implausibly_dark": false
+        },
+        "score": 10,
+        "penalties": [],
+        "grid": {
+          "total": 942484,
+          "components": 1,
+          "largestSize": 942484,
+          "disconnectedRatio": 0,
+          "uniqueBlockTypes": 13,
+          "computed": true,
+          "facadeTotal": 702194,
+          "facadeDominantShare": 0.4711931460536547,
+          "facadeDominantState": "minecraft:smooth_sandstone",
+          "facadeMeanLuma": 181.75696073677642,
+          "facadeGlassShare": 0.21764782951719894
+        }
+      },
+      "synthesisPath": "7d-sliced",
+      "resolution": {
+        "osmId": "way/264768896",
+        "polygonSource": "osm",
+        "geocodeLocationType": "ROOFTOP",
+        "footprintAreaSqm": 1008.8
+      }
+    },
+    "240-highland": {
+      "address": "240 Highland St, Newton, MA",
+      "status": "fail-consensus",
+      "lastRun": "2026-08-26T02:03:07.681Z",
+      "elapsedSec": 16.3,
+      "attempts": 1,
+      "recentFailureSignatures": [
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=1,min=0",
+        "fail-consensus:median=0,min=0"
+      ],
+      "objective": {
+        "footprintIoU": 0.9999009083402147,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 932,
+        "minWallThicknessMm": 2.9975377917289734,
+        "voxelCount": 33025,
+        "plinthWatertight": null,
+        "unknownBlockStates": [],
+        "pass": true,
+        "failures": []
+      },
+      "consensus": {
+        "status": "fail",
+        "rounds": 1,
+        "gemini": {
+          "color": 2,
+          "features": 0,
+          "massing": 0,
+          "overall": 0
+        },
+        "claude": {
+          "color": 2,
+          "features": 0,
+          "massing": 0,
+          "overall": 0
+        },
+        "gpt5": {
+          "color": 2,
+          "features": 0,
+          "massing": 0,
+          "overall": 0
+        },
+        "min": 0,
+        "median": 0,
+        "spread": 0,
+        "pass": false
+      },
+      "provenance": {
+        "fields": [
+          {
+            "field": "footprint",
+            "value": "4 pts",
+            "source": "osm",
+            "confidence": 1
+          },
+          {
+            "field": "height",
+            "value": "7.0m",
+            "source": "osm",
+            "confidence": 0.8
+          },
+          {
+            "field": "levels",
+            "value": "2",
+            "source": "osm",
+            "confidence": 0.95
+          },
+          {
+            "field": "wall",
+            "value": "lab(80,1,16)",
+            "source": "osm",
+            "confidence": 0.75
+          },
+          {
+            "field": "roof",
+            "value": "lab(80,2,-4) +1",
+            "source": "sat",
+            "confidence": 0.6
+          },
+          {
+            "field": "roofShape",
+            "value": "gabled",
+            "source": "osm",
+            "confidence": 1
+          }
+        ],
+        "weakest": {
+          "field": "roof",
+          "value": "lab(80,2,-4) +1",
+          "source": "sat",
+          "confidence": 0.6
+        },
+        "meanConfidence": 0.85
+      },
+      "crossCheck": {
+        "chosenSource": "osm",
+        "chosenHeightM": 7,
+        "alternatives": [],
+        "maxDisagreement": 0,
+        "truncationSuspected": false,
+        "ok": true,
+        "warnings": []
+      },
+      "defectScore": {
+        "defects": {
+          "height_truncated": false,
+          "facade_holes_visible": false,
+          "floating_artifacts": false,
+          "footprint_wrong_shape": false,
+          "surface_detail_visible": true,
+          "proportions_correct": true,
+          "facade_incoherent": false,
+          "facade_implausibly_dark": false
+        },
+        "score": 10,
+        "penalties": [],
+        "grid": {
+          "total": 33025,
+          "components": 1,
+          "largestSize": 33025,
+          "disconnectedRatio": 0,
+          "uniqueBlockTypes": 5,
+          "computed": true,
+          "facadeTotal": 17005,
+          "facadeDominantShare": 0.6999705968832697,
+          "facadeDominantState": "minecraft:smooth_sandstone",
+          "facadeMeanLuma": 188.42701597177302,
+          "facadeGlassShare": 0.07738900323434283
+        }
+      },
+      "synthesisPath": "7a-parametric",
+      "resolution": {
+        "osmId": null,
+        "polygonSource": "osm",
+        "geocodeLocationType": "ROOFTOP",
+        "footprintAreaSqm": 0
+      },
+      "references": {
+        "svUsable": 2,
+        "skipped": [
+          "sv-front.jpg",
+          "sv-rear.jpg"
+        ]
+      }
+    },
+    "guggenheim": {
+      "address": "1071 5th Ave, New York, NY",
+      "status": "fail-consensus",
+      "lastRun": "2026-08-16T15:53:32.992Z",
+      "elapsedSec": 51.5,
+      "attempts": 2,
+      "recentFailureSignatures": [
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=0,min=0"
+      ],
+      "objective": {
+        "footprintIoU": 0.9914354230900994,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 1117,
+        "minWallThicknessMm": 9.736324071884155,
+        "voxelCount": 424876,
+        "plinthWatertight": null,
+        "unknownBlockStates": [],
+        "pass": true,
+        "failures": []
+      },
+      "consensus": {
+        "status": "fail",
+        "rounds": 1,
+        "gemini": {
+          "color": 1,
+          "features": 0,
+          "massing": 0,
+          "overall": 0
+        },
+        "claude": {
+          "color": 1,
+          "features": 0,
+          "massing": 0,
+          "overall": 0
+        },
+        "gpt5": {
+          "color": 1,
+          "features": 0,
+          "massing": 0,
+          "overall": 0
+        },
+        "min": 0,
+        "median": 0,
+        "spread": 0,
+        "pass": false
+      },
+      "provenance": {
+        "fields": [
+          {
+            "field": "footprint",
+            "value": "41 pts",
+            "source": "osm",
+            "confidence": 1
+          },
+          {
+            "field": "height",
+            "value": "21.0m",
+            "source": "osm",
+            "confidence": 0.8
+          },
+          {
+            "field": "levels",
+            "value": "6",
+            "source": "osm",
+            "confidence": 0.95
+          },
+          {
+            "field": "wall",
+            "value": "lab(87,0,0) +2",
+            "source": "sv",
+            "confidence": 0.9
+          },
+          {
+            "field": "roof",
+            "value": "lab(77,-1,1) +1",
+            "source": "sat",
+            "confidence": 0.85
+          },
+          {
+            "field": "roofShape",
+            "value": "flat",
+            "source": "inferred",
+            "confidence": 0.5
+          }
+        ],
+        "weakest": {
+          "field": "roofShape",
+          "value": "flat",
+          "source": "inferred",
+          "confidence": 0.5
+        },
+        "meanConfidence": 0.8333333333333334
+      },
+      "crossCheck": {
+        "chosenSource": "osm",
+        "chosenHeightM": 21,
+        "alternatives": [],
+        "maxDisagreement": 0,
+        "truncationSuspected": false,
+        "ok": true,
+        "warnings": []
+      },
+      "defectScore": {
+        "defects": {
+          "height_truncated": false,
+          "facade_holes_visible": false,
+          "floating_artifacts": false,
+          "footprint_wrong_shape": false,
+          "surface_detail_visible": true,
+          "proportions_correct": true,
+          "facade_incoherent": false,
+          "facade_implausibly_dark": false
+        },
+        "score": 10,
+        "penalties": [],
+        "grid": {
+          "total": 424876,
+          "components": 1,
+          "largestSize": 424876,
+          "disconnectedRatio": 0,
+          "uniqueBlockTypes": 14,
+          "computed": true,
+          "facadeTotal": 255710,
+          "facadeDominantShare": 0.3452543897383755,
+          "facadeDominantState": "minecraft:white_concrete",
+          "facadeMeanLuma": 167.58471224512147,
+          "facadeGlassShare": 0.19578428688748972
+        }
+      },
+      "synthesisPath": "7d-sliced",
+      "resolution": {
+        "osmId": "way/170149134",
+        "polygonSource": "osm",
+        "geocodeLocationType": "ROOFTOP",
+        "footprintAreaSqm": 2038.7
+      }
+    },
+    "geisel": {
+      "address": "9500 Gilman Dr, La Jolla, CA",
+      "status": "fail-consensus",
+      "lastRun": "2026-10-18T18:18:34.908Z",
+      "elapsedSec": 98.6,
+      "attempts": 3,
+      "recentFailureSignatures": [
+        "fail-consensus:median=1,min=0",
+        "fail-consensus:median=1,min=0",
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=0,min=0"
+      ],
+      "objective": {
+        "footprintIoU": 1,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 2425,
+        "minWallThicknessMm": 7.710445880889893,
+        "voxelCount": 1264355,
+        "plinthWatertight": null,
+        "unknownBlockStates": [],
+        "pass": true,
+        "failures": []
+      },
+      "consensus": {
+        "status": "fail",
+        "rounds": 1,
+        "gemini": {
+          "color": 0,
+          "features": 0,
+          "massing": 0,
+          "overall": 0
+        },
+        "claude": {
+          "color": 0,
+          "features": 0,
+          "massing": 0,
+          "overall": 0
+        },
+        "gpt5": {
+          "color": 0,
+          "features": 0,
+          "massing": 0,
+          "overall": 0
+        },
+        "min": 0,
+        "median": 0,
+        "spread": 0,
+        "pass": false
+      },
+      "provenance": {
+        "fields": [
+          {
+            "field": "footprint",
+            "value": "13 pts",
+            "source": "osm",
+            "confidence": 1
+          },
+          {
+            "field": "height",
+            "value": "31.7m",
+            "source": "tiles",
+            "confidence": 0.95
+          },
+          {
+            "field": "levels",
+            "value": "11",
+            "source": "inferred",
+            "confidence": 0.475
+          },
+          {
+            "field": "wall",
+            "value": "lab(68,3,9) +2",
+            "source": "sv",
+            "confidence": 0.9
+          },
+          {
+            "field": "roof",
+            "value": "lab(64,8,20) +1",
+            "source": "sat",
+            "confidence": 0.85
+          },
+          {
+            "field": "roofShape",
+            "value": "gabled",
+            "source": "inferred",
+            "confidence": 0.5
+          }
+        ],
+        "weakest": {
+          "field": "levels",
+          "value": "11",
+          "source": "inferred",
+          "confidence": 0.475
+        },
+        "meanConfidence": 0.7791666666666667
+      },
+      "crossCheck": {
+        "chosenSource": "tiles",
+        "chosenHeightM": 31.68230438232422,
+        "alternatives": [],
+        "maxDisagreement": 0,
+        "truncationSuspected": false,
+        "ok": true,
+        "verified": false,
+        "warnings": [
+          "height 32m from tiles is UNVERIFIED — no independent source (OSM height/levels, Solar, Smarty) to cross-check against"
+        ]
+      },
+      "defectScore": {
+        "defects": {
+          "height_truncated": false,
+          "facade_holes_visible": false,
+          "floating_artifacts": false,
+          "footprint_wrong_shape": false,
+          "surface_detail_visible": true,
+          "proportions_correct": true,
+          "facade_incoherent": false,
+          "facade_implausibly_dark": false
+        },
+        "score": 10,
+        "penalties": [],
+        "grid": {
+          "total": 1264355,
+          "components": 1,
+          "largestSize": 1264355,
+          "disconnectedRatio": 0,
+          "uniqueBlockTypes": 15,
+          "computed": true,
+          "facadeTotal": 436440,
+          "facadeDominantShare": 0.32159059664558703,
+          "facadeDominantState": "minecraft:smooth_stone",
+          "facadeMeanLuma": 147.0838768843369,
+          "facadeGlassShare": 0.10404637521767024
+        }
+      },
+      "synthesisPath": "7d-sliced",
+      "resolution": {
+        "osmId": "way/1423937815",
+        "polygonSource": "osm",
+        "geocodeLocationType": "ROOFTOP",
+        "footprintAreaSqm": 3037.5
+      },
+      "references": {
+        "svUsable": 4,
+        "skipped": []
+      }
+    },
+    "pennzoil": {
+      "address": "700 Milam St, Houston, TX",
+      "status": "pass",
+      "lastRun": "2026-08-16T15:48:36.139Z",
+      "elapsedSec": 141.1,
+      "attempts": 0,
+      "recentFailureSignatures": [],
+      "objective": {
+        "footprintIoU": 0.9976452119309263,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 42,
+        "minWallThicknessMm": 19.047046422958374,
+        "voxelCount": 1379781,
+        "plinthWatertight": null,
+        "unknownBlockStates": [],
+        "pass": true,
+        "failures": []
+      },
+      "consensus": {
+        "status": "pass",
+        "rounds": 1,
+        "gemini": {
+          "color": 8,
+          "features": 7,
+          "massing": 9,
+          "overall": 9
+        },
+        "claude": {
+          "color": 8,
+          "features": 7,
+          "massing": 9,
+          "overall": 9
+        },
+        "gpt5": {
+          "color": 8,
+          "features": 7,
+          "massing": 9,
+          "overall": 9
+        },
+        "min": 7,
+        "median": 8.5,
+        "spread": 0,
+        "pass": true
+      },
+      "provenance": {
+        "fields": [
+          {
+            "field": "footprint",
+            "value": "7 pts",
+            "source": "osm",
+            "confidence": 1
+          },
+          {
+            "field": "height",
+            "value": "151.0m",
+            "source": "osm",
+            "confidence": 0.8
+          },
+          {
+            "field": "levels",
+            "value": "36",
+            "source": "osm",
+            "confidence": 0.95
+          },
+          {
+            "field": "wall",
+            "value": "lab(34,-3,12) +4",
+            "source": "osm",
+            "confidence": 0.75
+          },
+          {
+            "field": "roof",
+            "value": "lab(35,2,-10) +1",
+            "source": "sat",
+            "confidence": 0.85
+          },
+          {
+            "field": "roofShape",
+            "value": "gabled",
+            "source": "inferred",
+            "confidence": 0.5
+          }
+        ],
+        "weakest": {
+          "field": "roofShape",
+          "value": "gabled",
+          "source": "inferred",
+          "confidence": 0.5
+        },
+        "meanConfidence": 0.8083333333333332
+      },
+      "crossCheck": {
+        "chosenSource": "osm",
+        "chosenHeightM": 151,
+        "alternatives": [],
+        "maxDisagreement": 0,
+        "truncationSuspected": false,
+        "ok": true,
+        "warnings": []
+      },
+      "defectScore": {
+        "defects": {
+          "height_truncated": false,
+          "facade_holes_visible": false,
+          "floating_artifacts": false,
+          "footprint_wrong_shape": false,
+          "surface_detail_visible": true,
+          "proportions_correct": true,
+          "facade_incoherent": false,
+          "facade_implausibly_dark": false
+        },
+        "score": 10,
+        "penalties": [],
+        "grid": {
+          "total": 1379781,
+          "components": -1,
+          "largestSize": -1,
+          "disconnectedRatio": 0,
+          "uniqueBlockTypes": 25,
+          "computed": false,
+          "facadeTotal": 1032465,
+          "facadeDominantShare": 0.5492709195953374,
+          "facadeDominantState": "minecraft:tuff",
+          "facadeMeanLuma": 120.96172378046714,
+          "facadeGlassShare": 0.07791837979979951
+        }
+      },
+      "synthesisPath": "7d-sliced",
+      "resolution": {
+        "osmId": "way/580965929",
+        "polygonSource": "osm",
+        "geocodeLocationType": "ROOFTOP",
+        "footprintAreaSqm": 5825.9
+      }
+    },
+    "flatiron-qa": {
+      "address": "175 5th Ave, New York, NY",
+      "status": "fail-consensus",
+      "lastRun": "2026-06-23T21:13:09.939Z",
+      "elapsedSec": 43.4,
+      "attempts": 2,
+      "recentFailureSignatures": [
+        "fail-consensus",
+        "fail-consensus"
+      ],
+      "objective": {
+        "footprintIoU": 0.9825899214479306,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 1278,
+        "minWallThicknessMm": 7.193524360656738,
+        "voxelCount": 942484,
+        "plinthWatertight": null,
+        "pass": true,
+        "failures": []
+      },
+      "consensus": null,
+      "provenance": {
+        "fields": [
+          {
+            "field": "footprint",
+            "value": "34 pts",
+            "source": "osm",
+            "confidence": 1
+          },
+          {
+            "field": "height",
+            "value": "73.5m",
+            "source": "osm",
+            "confidence": 0.8
+          },
+          {
+            "field": "levels",
+            "value": "21",
+            "source": "osm",
+            "confidence": 0.95
+          },
+          {
+            "field": "wall",
+            "value": "lab(80,-3,14) +4",
+            "source": "osm",
+            "confidence": 0.85
+          },
+          {
+            "field": "roof",
+            "value": "lab(27,4,4) +1",
+            "source": "sat",
+            "confidence": 0.85
+          },
+          {
+            "field": "roofShape",
+            "value": "flat",
+            "source": "inferred",
+            "confidence": 0.5
+          }
+        ],
+        "weakest": {
+          "field": "roofShape",
+          "value": "flat",
+          "source": "inferred",
+          "confidence": 0.5
+        },
+        "meanConfidence": 0.8250000000000001
+      },
+      "crossCheck": {
+        "chosenSource": "osm",
+        "chosenHeightM": 73.5,
+        "alternatives": [],
+        "maxDisagreement": 0,
+        "truncationSuspected": false,
+        "ok": true,
+        "warnings": []
+      },
+      "defectScore": {
+        "defects": {
+          "height_truncated": false,
+          "facade_holes_visible": false,
+          "floating_artifacts": false,
+          "footprint_wrong_shape": false,
+          "surface_detail_visible": true,
+          "proportions_correct": true
+        },
+        "score": 10,
+        "penalties": [],
+        "grid": {
+          "total": 942484,
+          "components": 1,
+          "largestSize": 942484,
+          "disconnectedRatio": 0,
+          "uniqueBlockTypes": 16,
+          "computed": true
+        }
+      }
+    },
+    "highland-qa": {
+      "address": "240 Highland St, Newton, MA",
+      "status": "fail-consensus",
+      "lastRun": "2026-06-23T21:10:30.532Z",
+      "elapsedSec": 6.4,
+      "attempts": 4,
+      "recentFailureSignatures": [
+        "fail-consensus",
+        "fail-consensus",
+        "fail-consensus",
+        "fail-consensus"
+      ],
+      "objective": {
+        "footprintIoU": 0.990454016298021,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 939,
+        "minWallThicknessMm": 4.9512269496917725,
+        "voxelCount": 76020,
+        "plinthWatertight": null,
+        "pass": true,
+        "failures": []
+      },
+      "consensus": null,
+      "provenance": {
+        "fields": [
+          {
+            "field": "footprint",
+            "value": "17 pts",
+            "source": "osm",
+            "confidence": 1
+          },
+          {
+            "field": "height",
+            "value": "8.0m",
+            "source": "inferred",
+            "confidence": 0.25
+          },
+          {
+            "field": "levels",
+            "value": "3",
+            "source": "inferred",
+            "confidence": 0.125
+          },
+          {
+            "field": "wall",
+            "value": "lab(74,-4,5)",
+            "source": "sv",
+            "confidence": 0.9
+          },
+          {
+            "field": "roof",
+            "value": "lab(62,-9,7) +1",
+            "source": "sat",
+            "confidence": 0.85
+          },
+          {
+            "field": "roofShape",
+            "value": "gabled",
+            "source": "inferred",
+            "confidence": 0.5
+          }
+        ],
+        "weakest": {
+          "field": "levels",
+          "value": "3",
+          "source": "inferred",
+          "confidence": 0.125
+        },
+        "meanConfidence": 0.6041666666666666
+      },
+      "crossCheck": {
+        "chosenSource": "inferred",
+        "chosenHeightM": 8,
+        "alternatives": [],
+        "maxDisagreement": 0,
+        "truncationSuspected": false,
+        "ok": true,
+        "warnings": []
+      },
+      "defectScore": {
+        "defects": {
+          "height_truncated": false,
+          "facade_holes_visible": false,
+          "floating_artifacts": false,
+          "footprint_wrong_shape": false,
+          "surface_detail_visible": true,
+          "proportions_correct": true
+        },
+        "score": 10,
+        "penalties": [],
+        "grid": {
+          "total": 76020,
+          "components": 1,
+          "largestSize": 76020,
+          "disconnectedRatio": 0,
+          "uniqueBlockTypes": 6,
+          "computed": true
+        }
+      }
+    },
+    "pennzoil-qa": {
+      "address": "700 Milam St, Houston, TX",
+      "status": "fail-consensus",
+      "lastRun": "2026-06-23T21:14:39.071Z",
+      "elapsedSec": 64.7,
+      "attempts": 1,
+      "recentFailureSignatures": [
+        "fail-consensus"
+      ],
+      "objective": {
+        "footprintIoU": 0.9976452119309263,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 42,
+        "minWallThicknessMm": 19.047046422958374,
+        "voxelCount": 1379781,
+        "plinthWatertight": null,
+        "pass": true,
+        "failures": []
+      },
+      "consensus": null,
+      "provenance": {
+        "fields": [
+          {
+            "field": "footprint",
+            "value": "7 pts",
+            "source": "osm",
+            "confidence": 1
+          },
+          {
+            "field": "height",
+            "value": "151.0m",
+            "source": "osm",
+            "confidence": 0.8
+          },
+          {
+            "field": "levels",
+            "value": "36",
+            "source": "osm",
+            "confidence": 0.95
+          },
+          {
+            "field": "wall",
+            "value": "lab(34,-3,12) +3",
+            "source": "osm",
+            "confidence": 0.75
+          },
+          {
+            "field": "roof",
+            "value": "lab(72,0,3) +1",
+            "source": "sat",
+            "confidence": 0.85
+          },
+          {
+            "field": "roofShape",
+            "value": "gabled",
+            "source": "inferred",
+            "confidence": 0.5
+          }
+        ],
+        "weakest": {
+          "field": "roofShape",
+          "value": "gabled",
+          "source": "inferred",
+          "confidence": 0.5
+        },
+        "meanConfidence": 0.8083333333333332
+      },
+      "crossCheck": {
+        "chosenSource": "osm",
+        "chosenHeightM": 151,
+        "alternatives": [],
+        "maxDisagreement": 0,
+        "truncationSuspected": false,
+        "ok": true,
+        "warnings": []
+      },
+      "defectScore": {
+        "defects": {
+          "height_truncated": false,
+          "facade_holes_visible": false,
+          "floating_artifacts": false,
+          "footprint_wrong_shape": false,
+          "surface_detail_visible": true,
+          "proportions_correct": true
+        },
+        "score": 10,
+        "penalties": [],
+        "grid": {
+          "total": 1379781,
+          "components": -1,
+          "largestSize": -1,
+          "disconnectedRatio": 0,
+          "uniqueBlockTypes": 14,
+          "computed": false
+        }
+      }
+    },
+    "guggenheim-qa": {
+      "address": "1071 5th Ave, New York, NY",
+      "status": "fail-consensus",
+      "lastRun": "2026-06-23T21:16:06.637Z",
+      "elapsedSec": 38.4,
+      "attempts": 1,
+      "recentFailureSignatures": [
+        "fail-consensus"
+      ],
+      "objective": {
+        "footprintIoU": 0.9914354230900994,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 1098,
+        "minWallThicknessMm": 9.736324071884155,
+        "voxelCount": 424876,
+        "plinthWatertight": null,
+        "pass": true,
+        "failures": []
+      },
+      "consensus": null,
+      "provenance": {
+        "fields": [
+          {
+            "field": "footprint",
+            "value": "41 pts",
+            "source": "osm",
+            "confidence": 1
+          },
+          {
+            "field": "height",
+            "value": "21.0m",
+            "source": "osm",
+            "confidence": 0.8
+          },
+          {
+            "field": "levels",
+            "value": "6",
+            "source": "osm",
+            "confidence": 0.95
+          },
+          {
+            "field": "wall",
+            "value": "lab(87,0,0) +2",
+            "source": "sv",
+            "confidence": 0.9
+          },
+          {
+            "field": "roof",
+            "value": "lab(25,-3,-12) +1",
+            "source": "sat",
+            "confidence": 0.85
+          },
+          {
+            "field": "roofShape",
+            "value": "flat",
+            "source": "inferred",
+            "confidence": 0.5
+          }
+        ],
+        "weakest": {
+          "field": "roofShape",
+          "value": "flat",
+          "source": "inferred",
+          "confidence": 0.5
+        },
+        "meanConfidence": 0.8333333333333334
+      },
+      "crossCheck": {
+        "chosenSource": "osm",
+        "chosenHeightM": 21,
+        "alternatives": [],
+        "maxDisagreement": 0,
+        "truncationSuspected": false,
+        "ok": true,
+        "warnings": []
+      },
+      "defectScore": {
+        "defects": {
+          "height_truncated": false,
+          "facade_holes_visible": false,
+          "floating_artifacts": false,
+          "footprint_wrong_shape": false,
+          "surface_detail_visible": true,
+          "proportions_correct": true
+        },
+        "score": 10,
+        "penalties": [],
+        "grid": {
+          "total": 424876,
+          "components": 1,
+          "largestSize": 424876,
+          "disconnectedRatio": 0,
+          "uniqueBlockTypes": 13,
+          "computed": true
+        }
+      }
+    },
+    "geisel-qa": {
+      "address": "9500 Gilman Dr, La Jolla, CA",
+      "status": "fail-consensus",
+      "lastRun": "2026-06-23T21:17:50.697Z",
+      "elapsedSec": 98.9,
+      "attempts": 1,
+      "recentFailureSignatures": [
+        "fail-consensus"
+      ],
+      "objective": {
+        "footprintIoU": 0.9999022052711359,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 3029,
+        "minWallThicknessMm": 16.511404037475586,
+        "voxelCount": 2075760,
+        "plinthWatertight": null,
+        "pass": true,
+        "failures": []
+      },
+      "consensus": null,
+      "provenance": {
+        "fields": [
+          {
+            "field": "footprint",
+            "value": "21 pts",
+            "source": "osm",
+            "confidence": 1
+          },
+          {
+            "field": "height",
+            "value": "72.9m",
+            "source": "tiles",
+            "confidence": 0.95
+          },
+          {
+            "field": "levels",
+            "value": "21",
+            "source": "inferred",
+            "confidence": 0.475
+          },
+          {
+            "field": "wall",
+            "value": "lab(79,-1,0) +1",
+            "source": "sv",
+            "confidence": 0.9
+          },
+          {
+            "field": "roof",
+            "value": "lab(31,0,1) +1",
+            "source": "sat",
+            "confidence": 0.85
+          },
+          {
+            "field": "roofShape",
+            "value": "flat",
+            "source": "inferred",
+            "confidence": 0.5
+          }
+        ],
+        "weakest": {
+          "field": "levels",
+          "value": "21",
+          "source": "inferred",
+          "confidence": 0.475
+        },
+        "meanConfidence": 0.7791666666666667
+      },
+      "crossCheck": {
+        "chosenSource": "tiles",
+        "chosenHeightM": 72.86758422851562,
+        "alternatives": [],
+        "maxDisagreement": 0,
+        "truncationSuspected": false,
+        "ok": true,
+        "warnings": []
+      },
+      "defectScore": {
+        "defects": {
+          "height_truncated": false,
+          "facade_holes_visible": false,
+          "floating_artifacts": false,
+          "footprint_wrong_shape": false,
+          "surface_detail_visible": true,
+          "proportions_correct": true
+        },
+        "score": 10,
+        "penalties": [],
+        "grid": {
+          "total": 2075760,
+          "components": -1,
+          "largestSize": -1,
+          "disconnectedRatio": 0,
+          "uniqueBlockTypes": 20,
+          "computed": false
+        }
+      }
+    },
+    "carroll-rowhouse": {
+      "address": "255 Carroll St, Brooklyn, NY 11231",
+      "status": "fail-consensus",
+      "lastRun": "2026-07-20T05:01:17.776Z",
+      "elapsedSec": 38.3,
+      "attempts": 2,
+      "recentFailureSignatures": [
+        "fail-consensus",
+        "fail-consensus"
+      ],
+      "objective": {
+        "footprintIoU": 0.9997731911998186,
+        "heightErr": 4.4268832655483696e-8,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 2230,
+        "minWallThicknessMm": 1.5651416778564453,
+        "voxelCount": 44535,
+        "plinthWatertight": null,
+        "unknownBlockStates": [],
+        "pass": true,
+        "failures": []
+      },
+      "consensus": null,
+      "provenance": {
+        "fields": [
+          {
+            "field": "footprint",
+            "value": "5 pts",
+            "source": "osm",
+            "confidence": 1
+          },
+          {
+            "field": "height",
+            "value": "18.8m",
+            "source": "tiles",
+            "confidence": 0.95
+          },
+          {
+            "field": "levels",
+            "value": "6",
+            "source": "inferred",
+            "confidence": 0.475
+          },
+          {
+            "field": "wall",
+            "value": "lab(54,-1,6)",
+            "source": "sv",
+            "confidence": 0.9
+          },
+          {
+            "field": "roof",
+            "value": "lab(76,1,2) +1",
+            "source": "sat",
+            "confidence": 0.85
+          },
+          {
+            "field": "roofShape",
+            "value": "gabled",
+            "source": "inferred",
+            "confidence": 0.5
+          }
+        ],
+        "weakest": {
+          "field": "levels",
+          "value": "6",
+          "source": "inferred",
+          "confidence": 0.475
+        },
+        "meanConfidence": 0.7791666666666667
+      },
+      "crossCheck": {
+        "chosenSource": "tiles",
+        "chosenHeightM": 18.849944233894348,
+        "alternatives": [],
+        "maxDisagreement": 0,
+        "truncationSuspected": false,
+        "ok": true,
+        "warnings": []
+      },
+      "defectScore": {
+        "defects": {
+          "height_truncated": false,
+          "facade_holes_visible": false,
+          "floating_artifacts": false,
+          "footprint_wrong_shape": false,
+          "surface_detail_visible": true,
+          "proportions_correct": true,
+          "facade_incoherent": false,
+          "facade_implausibly_dark": true
+        },
+        "score": 9,
+        "penalties": [
+          "facade_implausibly_dark"
+        ],
+        "grid": {
+          "total": 44535,
+          "components": 1,
+          "largestSize": 44535,
+          "disconnectedRatio": 0,
+          "uniqueBlockTypes": 6,
+          "computed": true,
+          "facadeTotal": 37337,
+          "facadeDominantShare": 0.40169269089642984,
+          "facadeDominantState": "minecraft:clay",
+          "facadeMeanLuma": 109.11747985644267,
+          "facadeGlassShare": 0.015319923936041997
+        }
+      },
+      "synthesisPath": "7a-parametric",
+      "resolution": {
+        "osmId": "way/248153916",
+        "polygonSource": "osm",
+        "geocodeLocationType": "ROOFTOP",
+        "footprintAreaSqm": 86.4
+      }
+    },
+    "berwyn-house": {
+      "address": "1123 Maple Ave, Berwyn, IL",
+      "status": "fail-consensus",
+      "lastRun": "2026-07-20T05:00:39.181Z",
+      "elapsedSec": 36.9,
+      "attempts": 3,
+      "recentFailureSignatures": [
+        "fail-objective:footprint IoU # < #",
+        "fail-consensus",
+        "fail-consensus"
+      ],
+      "objective": {
+        "footprintIoU": 0.9998863765481195,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 885,
+        "minWallThicknessMm": 1.5254030227661133,
+        "voxelCount": 24459,
+        "plinthWatertight": null,
+        "unknownBlockStates": [],
+        "pass": true,
+        "failures": []
+      },
+      "consensus": null,
+      "provenance": {
+        "fields": [
+          {
+            "field": "footprint",
+            "value": "5 pts",
+            "source": "osm",
+            "confidence": 0.85
+          },
+          {
+            "field": "height",
+            "value": "8.0m",
+            "source": "inferred",
+            "confidence": 0.25
+          },
+          {
+            "field": "levels",
+            "value": "3",
+            "source": "inferred",
+            "confidence": 0.125
+          },
+          {
+            "field": "wall",
+            "value": "lab(60,0,0)",
+            "source": "inferred",
+            "confidence": 0.2
+          },
+          {
+            "field": "roof",
+            "value": "lab(51,-18,15) +1",
+            "source": "sat",
+            "confidence": 0.35
+          },
+          {
+            "field": "roofShape",
+            "value": "gabled",
+            "source": "inferred",
+            "confidence": 0.5
+          }
+        ],
+        "weakest": {
+          "field": "levels",
+          "value": "3",
+          "source": "inferred",
+          "confidence": 0.125
+        },
+        "meanConfidence": 0.37916666666666665
+      },
+      "crossCheck": {
+        "chosenSource": "inferred",
+        "chosenHeightM": 8,
+        "alternatives": [],
+        "maxDisagreement": 0,
+        "truncationSuspected": false,
+        "ok": true,
+        "warnings": []
+      },
+      "defectScore": {
+        "defects": {
+          "height_truncated": false,
+          "facade_holes_visible": false,
+          "floating_artifacts": false,
+          "footprint_wrong_shape": false,
+          "surface_detail_visible": true,
+          "proportions_correct": true,
+          "facade_incoherent": false,
+          "facade_implausibly_dark": false
+        },
+        "score": 10,
+        "penalties": [],
+        "grid": {
+          "total": 24459,
+          "components": 1,
+          "largestSize": 24459,
+          "disconnectedRatio": 0,
+          "uniqueBlockTypes": 5,
+          "computed": true,
+          "facadeTotal": 16423,
+          "facadeDominantShare": 0.7209401449187116,
+          "facadeDominantState": "minecraft:andesite",
+          "facadeMeanLuma": 139.07697853011018,
+          "facadeGlassShare": 0.01169092126895208
+        }
+      },
+      "synthesisPath": "7a-parametric",
+      "resolution": {
+        "osmId": "way/512361782",
+        "polygonSource": "osm",
+        "geocodeLocationType": "RANGE_INTERPOLATED",
+        "footprintAreaSqm": 92.3
+      }
+    },
+    "annarbor-midrise": {
+      "address": "210 S Main St, Ann Arbor, MI",
+      "status": "fail-consensus",
+      "lastRun": "2026-07-20T01:53:24.845Z",
+      "elapsedSec": 15.3,
+      "attempts": 1,
+      "recentFailureSignatures": [
+        "fail-consensus"
+      ],
+      "objective": {
+        "footprintIoU": 0.9965986394557823,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 2555,
+        "minWallThicknessMm": 1.4592366814613342,
+        "voxelCount": 89646,
+        "plinthWatertight": null,
+        "unknownBlockStates": [],
+        "pass": true,
+        "failures": []
+      },
+      "consensus": null,
+      "provenance": {
+        "fields": [
+          {
+            "field": "footprint",
+            "value": "6 pts",
+            "source": "osm",
+            "confidence": 1
+          },
+          {
+            "field": "height",
+            "value": "20.0m",
+            "source": "inferred",
+            "confidence": 0.25
+          },
+          {
+            "field": "levels",
+            "value": "5",
+            "source": "inferred",
+            "confidence": 0.125
+          },
+          {
+            "field": "wall",
+            "value": "lab(76,5,45) +1",
+            "source": "sv",
+            "confidence": 0.9
+          },
+          {
+            "field": "roof",
+            "value": "lab(24,3,-10) +1",
+            "source": "sat",
+            "confidence": 0.85
+          },
+          {
+            "field": "roofShape",
+            "value": "flat",
+            "source": "inferred",
+            "confidence": 0.5
+          }
+        ],
+        "weakest": {
+          "field": "levels",
+          "value": "5",
+          "source": "inferred",
+          "confidence": 0.125
+        },
+        "meanConfidence": 0.6041666666666666
+      },
+      "crossCheck": {
+        "chosenSource": "inferred",
+        "chosenHeightM": 20,
+        "alternatives": [],
+        "maxDisagreement": 0,
+        "truncationSuspected": false,
+        "ok": true,
+        "warnings": []
+      },
+      "defectScore": {
+        "defects": {
+          "height_truncated": false,
+          "facade_holes_visible": false,
+          "floating_artifacts": false,
+          "footprint_wrong_shape": false,
+          "surface_detail_visible": true,
+          "proportions_correct": true,
+          "facade_incoherent": false
+        },
+        "score": 10,
+        "penalties": [],
+        "grid": {
+          "total": 89646,
+          "components": 1,
+          "largestSize": 89646,
+          "disconnectedRatio": 0,
+          "uniqueBlockTypes": 6,
+          "computed": true,
+          "facadeTotal": 73681,
+          "facadeDominantShare": 0.45764851182801536,
+          "facadeDominantState": "minecraft:stripped_birch_log"
+        }
+      },
+      "synthesisPath": "7a-parametric"
+    },
+    "durham-commercial": {
+      "address": "301 E Main St, Durham, NC 27701",
+      "status": "fail-consensus",
+      "lastRun": "2026-07-20T05:30:48.838Z",
+      "elapsedSec": 115.5,
+      "attempts": 2,
+      "recentFailureSignatures": [
+        "fail-consensus",
+        "fail-consensus"
+      ],
+      "objective": {
+        "footprintIoU": 1,
+        "heightErr": 0,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 598,
+        "minWallThicknessMm": 13.372986793518066,
+        "voxelCount": 1224579,
+        "plinthWatertight": null,
+        "unknownBlockStates": [],
+        "pass": true,
+        "failures": []
+      },
+      "consensus": null,
+      "provenance": {
+        "fields": [
+          {
+            "field": "footprint",
+            "value": "25 pts",
+            "source": "osm",
+            "confidence": 1
+          },
+          {
+            "field": "height",
+            "value": "41.6m",
+            "source": "tiles",
+            "confidence": 0.95
+          },
+          {
+            "field": "levels",
+            "value": "12",
+            "source": "inferred",
+            "confidence": 0.475
+          },
+          {
+            "field": "wall",
+            "value": "lab(81,0,-1) +3",
+            "source": "sv",
+            "confidence": 0.9
+          },
+          {
+            "field": "roof",
+            "value": "lab(90,-1,4) +1",
+            "source": "sat",
+            "confidence": 0.85
+          },
+          {
+            "field": "roofShape",
+            "value": "hipped",
+            "source": "inferred",
+            "confidence": 0.5
+          }
+        ],
+        "weakest": {
+          "field": "levels",
+          "value": "12",
+          "source": "inferred",
+          "confidence": 0.475
+        },
+        "meanConfidence": 0.7791666666666667
+      },
+      "crossCheck": {
+        "chosenSource": "tiles",
+        "chosenHeightM": 41.55084228515625,
+        "alternatives": [],
+        "maxDisagreement": 0,
+        "truncationSuspected": false,
+        "ok": true,
+        "warnings": []
+      },
+      "defectScore": {
+        "defects": {
+          "height_truncated": false,
+          "facade_holes_visible": false,
+          "floating_artifacts": false,
+          "footprint_wrong_shape": false,
+          "surface_detail_visible": true,
+          "proportions_correct": true,
+          "facade_incoherent": false,
+          "facade_implausibly_dark": false
+        },
+        "score": 10,
+        "penalties": [],
+        "grid": {
+          "total": 1224579,
+          "components": 1,
+          "largestSize": 1224579,
+          "disconnectedRatio": 0,
+          "uniqueBlockTypes": 16,
+          "computed": true,
+          "facadeTotal": 904131,
+          "facadeDominantShare": 0.3920117770544313,
+          "facadeDominantState": "minecraft:white_concrete",
+          "facadeMeanLuma": 159.9948818562797,
+          "facadeGlassShare": 0.004490499717408208
+        }
+      },
+      "synthesisPath": "7d-sliced",
+      "resolution": {
+        "osmId": "way/34415865",
+        "polygonSource": "osm",
+        "geocodeLocationType": "ROOFTOP",
+        "footprintAreaSqm": 1986.9
+      }
+    },
+    "175-5th-ave-new-york-ny": {
+      "address": "175-5th-ave-new-york-ny",
+      "attempts": 0,
+      "recentFailureSignatures": [],
+      "elapsedSec": 0,
+      "status": "fail-objective",
+      "lastRun": "2026-04-19T08:04:04.979Z",
+      "objective": {
+        "footprintIoU": 0.42212301587301587,
+        "heightErr": 0.6828286606340088,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 3679,
+        "minWallThicknessMm": 7.201572299003601,
+        "voxelCount": 86041,
+        "plinthWatertight": null,
+        "pass": false,
+        "failures": [
+          "footprint IoU 0.42 < 0.85",
+          "height error 68% > 10%",
+          "self-intersections: 3679"
+        ]
+      },
+      "consensus": null,
+      "synthesisPath": null,
+      "resolution": null
+    },
+    "240-highland-st-newton-ma": {
+      "address": "240-highland-st-newton-ma",
+      "attempts": 0,
+      "recentFailureSignatures": [],
+      "elapsedSec": 0,
+      "status": "fail-objective",
+      "lastRun": "2026-04-19T08:04:39.440Z",
+      "objective": {
+        "footprintIoU": 0.7299226441631504,
+        "heightErr": 0.13021725685457305,
+        "watertight": true,
+        "manifold": true,
+        "selfIntersect": 1003,
+        "minWallThicknessMm": 4.9512269496917725,
+        "voxelCount": 12826,
+        "plinthWatertight": null,
+        "pass": false,
+        "failures": [
+          "footprint IoU 0.73 < 0.85",
+          "height error 13% > 10%",
+          "self-intersections: 1003"
+        ]
+      },
+      "consensus": null,
+      "synthesisPath": null,
+      "resolution": null
+    }
+  }
+}

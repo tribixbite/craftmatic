@@ -251,7 +251,11 @@ export function initComparison(
 
   // Load comparison data — populates locations + API details
   fetch('comparison/comparison-data.json')
-    .then(r => r.json())
+    .then(r => {
+      // Guard against a 404 HTML page being fed to JSON.parse (cryptic SyntaxError).
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    })
     .then((data: ComparisonJsonEntry[]) => {
       // Build locations dynamically from JSON
       LOCATIONS = {};
@@ -265,7 +269,13 @@ export function initComparison(
     })
     .catch((err) => {
       console.error('Failed to load comparison-data.json:', err);
-      rootEl.querySelector('.cmp-nav')!.innerHTML = '<p style="color:#f88;padding:1rem">Failed to load comparison data</p>';
+      // Actionable empty state instead of a bare "failed" line: tell the user how
+      // to regenerate the missing dataset.
+      rootEl.querySelector('.cmp-nav')!.innerHTML =
+        `<div class="cmp-load-error">
+          <p>Comparison data could not be loaded.</p>
+          <p class="cmp-load-error-hint">Regenerate it with <code>bun scripts/gen-comparison.ts</code>, then reload.</p>
+        </div>`;
     });
 }
 

@@ -12,12 +12,17 @@
 
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const STATE     = 'C:/git/craftmatic/.claude/visual-loop-state.json';
-const LOG       = 'C:/git/craftmatic/.claude/visual-loop.log';
-const OMR_IDX   = 'C:/git/craftmatic/web/public/omr-index.json';
-const CATALOG   = 'C:/git/craftmatic/web/public/lego-catalog.json';
+// Repo root from this file's location (same as showcase-loop-check.mjs), so the
+// hook runs from any clone — it was pinned to one machine's C:/git checkout.
+const ROOT      = join(dirname(fileURLToPath(import.meta.url)), '..');
+const STATE     = join(ROOT, '.claude', 'visual-loop-state.json');
+const LOG       = join(ROOT, '.claude', 'visual-loop.log');
+const OMR_IDX   = join(ROOT, 'web', 'public', 'omr-index.json');
+const CATALOG   = join(ROOT, 'web', 'public', 'lego-catalog.json');
 const MIN_PARTS = 200; // only grade sets with enough parts to be visually interesting
 
 let inputData = '';

@@ -11,8 +11,8 @@
  * 5. Fallback 25m × 25m (typical US residential lot)
  */
 
-import { querySolarBuildingInsights } from '@craft/gen/api/google-solar.js';
-import { searchOSMBuilding } from '@ui/import-osm.js';
+import { querySolarBuildingInsights, type SolarBuildingData } from '@craft/gen/api/google-solar.js';
+import { searchOSMBuilding, type OSMBuildingData } from '@ui/import-osm.js';
 import type { LatLng } from '@ui/shared-geocode.js';
 import { computeSatelliteZoom } from '@craft/shared/satellite-zoom.js';
 
@@ -33,6 +33,10 @@ export interface BuildingBounds {
   sources: string[];
   /** Confidence 0-1 (higher = more precise) */
   confidence: number;
+  /** Raw OSM building data — polygon, tags, dimensions (null if OSM query failed) */
+  osm: OSMBuildingData | null;
+  /** Raw Solar API data — roof pitch, footprint area, bounds (null if Solar query failed) */
+  solar: SolarBuildingData | null;
 }
 
 // ─── Geo math ───────────────────────────────────────────────────────────────
@@ -163,5 +167,7 @@ export async function resolveBuildingBounds(
     satelliteZoom: computeSatelliteZoom(maxExtent, lat),
     sources,
     confidence,
+    osm: osm ?? null,
+    solar: solar ?? null,
   };
 }

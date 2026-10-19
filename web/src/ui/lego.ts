@@ -636,6 +636,7 @@ function buildUI(): void {
     <div class="lego-section">
       <div class="lego-search-row">
         <input type="text" id="lego-search" class="lego-input lego-search-input"
+          aria-label="Search for LEGO sets by name or number"
           placeholder="Search sets — several at once with commas (10354, 71040) — or leave empty to browse all…">
         <button class="btn btn-primary btn-sm" id="lego-search-btn">Search</button>
       </div>

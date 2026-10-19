@@ -6,18 +6,18 @@
 import './style.css';
 import * as THREE from 'three';
 import { BlockGrid } from '@craft/schem/types.js';
-import { createViewer, applyCutaway, type ViewerState } from '@viewer/scene.js';
+import { createViewer, createMeshViewer, applyCutaway, type ViewerState } from '@viewer/scene.js';
 import { createLegoViewer, ACCURATE_Y_SCALE } from '@viewer/lego-scene.js';
 import { enableSelection } from '@viewer/selection.js';
-import { cropToAABB } from '@craft/convert/mesh-filter.js';
-import type { AnalysisResult } from '@craft/convert/mesh-filter.js';
+import { cropToAABB } from '@craft/pipeline/capture/mesh-utils.js';
+import type { AnalysisResult } from '@craft/pipeline/capture/analysis-types.js';
 import { trimGrid } from '@craft/gen/gen-utils.js';
 import { exportGLB, exportSTL, exportOBJ, exportHTML, exportThreeJSON, exportLayerGuide } from '@viewer/exporter.js';
 import { runMinecraftExport } from '@ui/schem-export.js';
 import { mountSchemSettings, getSchemSettings } from '@ui/schem-settings-panel.js';
 import { initGenerator, type GeneratorConfig } from '@ui/generator.js';
 import { initImport, type PropertyData } from '@ui/import.js';
-import { initUpload } from '@ui/upload.js';
+import { initUpload, type MeshUploadResult } from '@ui/upload.js';
 import { initGallery } from '@ui/gallery.js';
 import { initComparison } from '@ui/comparison.js';
 import { initMap3d } from '@ui/map3d.js';
@@ -305,11 +305,11 @@ document.getElementById('btn-cutaway')!.addEventListener('click', () => {
   const isActive = cutawayPanel.hidden;
   cutawayPanel.hidden = !isActive;
   btn.classList.toggle('active', isActive);
-  if (!isActive && activeViewer) {
+  if (!isActive && activeViewer && activeGrid) {
     // Reset cutaway
-    cutawaySlider.value = String(activeGrid!.height);
+    cutawaySlider.value = String(activeGrid.height);
     cutawayLabel.textContent = 'All';
-    applyCutaway(activeViewer, activeGrid!.height);
+    applyCutaway(activeViewer, activeGrid.height);
   }
 });
 
@@ -516,24 +516,125 @@ const fileInput = document.getElementById('file-input') as HTMLInputElement;
 const uploadInfo = document.getElementById('upload-info')!;
 const uploadViewer = document.getElementById('upload-viewer')!;
 
-initUpload(uploadZone, fileInput, uploadInfo, (grid: BlockGrid, _filename: string) => {
-  // Use the uploaded filename (sans extension) as export basename
-  exportBasename = _filename.replace(/\.[^.]+$/, '') || 'upload';
-  showLoading('Rendering schematic...');
-  requestAnimationFrame(() => setTimeout(() => {
+initUpload(uploadZone, fileInput, uploadInfo, (result) => {
+  const filename = result.type === 'mesh' ? result.result.filename : result.filename;
+  exportBasename = filename.replace(/\.[^.]+$/, '') || 'upload';
+
+  if (result.type === 'schematic') {
+    // Schematic files → block viewer (same as before)
+    showLoading('Rendering schematic...');
+    requestAnimationFrame(() => setTimeout(() => {
+      try {
+        showInlineViewer(uploadViewer, result.grid);
+      } catch (err) {
+        console.warn('3D viewer failed:', err);
+        const fallback = document.createElement('div');
+        fallback.className = 'viewer-fallback';
+        fallback.textContent = '3D preview unavailable. Upload succeeded.';
+        uploadViewer.appendChild(fallback);
+      } finally {
+        hideLoading();
+      }
+    }, 0));
+  } else {
+    // Mesh files → render Object3D immediately, optional voxelization
     try {
-      showInlineViewer(uploadViewer, grid);
+      showMeshInlineViewer(uploadViewer, result.result);
     } catch (err) {
-      console.warn('3D viewer failed:', err);
+      console.warn('Mesh viewer failed:', err);
       const fallback = document.createElement('div');
       fallback.className = 'viewer-fallback';
       fallback.textContent = '3D preview unavailable. Upload succeeded.';
       uploadViewer.appendChild(fallback);
-    } finally {
-      hideLoading();
     }
-  }, 0));
+  }
 });
+
+/**
+ * Show a raw mesh Object3D in the inline viewer with a Voxelize button.
+ * No block conversion — renders the photogrammetry mesh as-is.
+ */
+function showMeshInlineViewer(container: HTMLElement, meshResult: MeshUploadResult): void {
+  // Dispose previous inline viewer
+  if (inlineViewer) {
+    inlineViewer.dispose();
+    inlineViewer = null;
+  }
+
+  container.innerHTML = '';
+  container.classList.add('inline-viewer');
+
+  // Controls overlay: Voxelize button + Download + Expand
+  const controlsDiv = document.createElement('div');
+  controlsDiv.className = 'inline-viewer-controls';
+  controlsDiv.innerHTML = `
+    <button class="btn btn-primary btn-sm" id="mesh-voxelize-btn" title="Convert to Minecraft blocks">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+        <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+      </svg>
+      Voxelize
+    </button>
+    <div class="download-dropdown" id="mesh-dl-dropdown">
+      <button class="btn btn-secondary btn-sm" id="mesh-dl-btn" title="Download">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download
+        <svg class="download-chevron" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="download-menu download-menu-up" id="mesh-dl-menu" hidden>
+        <button class="download-item" data-format="glb">GLB<span class="download-desc">glTF</span></button>
+        <button class="download-item" data-format="stl">STL<span class="download-desc">3D print</span></button>
+        <button class="download-item" data-format="obj">OBJ<span class="download-desc">Universal</span></button>
+        <button class="download-item" data-format="three">Three.js JSON<span class="download-desc">Scene</span></button>
+      </div>
+    </div>
+  `;
+  container.appendChild(controlsDiv);
+
+  // Wire mesh download dropdown
+  wireDownloadDropdown(
+    controlsDiv.querySelector('#mesh-dl-dropdown')!,
+    controlsDiv.querySelector('#mesh-dl-btn')!,
+    controlsDiv.querySelector('#mesh-dl-menu')!,
+    () => inlineViewer,
+    () => inlineViewer?.grid ?? null,
+  );
+
+  // Create mesh viewer
+  inlineViewer = createMeshViewer(container, meshResult.object);
+
+  // Wire Voxelize button
+  const voxBtn = controlsDiv.querySelector('#mesh-voxelize-btn') as HTMLButtonElement;
+  voxBtn.addEventListener('click', async () => {
+    voxBtn.disabled = true;
+    voxBtn.textContent = 'Voxelizing... 0%';
+
+    try {
+      const { meshFileToGrid } = await import('@engine/mesh-to-grid.js');
+      const { grid } = await meshFileToGrid(meshResult.bytes, meshResult.filename, {
+        onProgress: (p) => {
+          const pct = Math.round(p.progress * 100);
+          voxBtn.textContent = p.phase === 'bvh'
+            ? `Building index... ${pct}%`
+            : `Voxelizing ${p.currentY}/${p.totalY}... ${pct}%`;
+        },
+      });
+
+      // Dispose mesh viewer and show block viewer
+      if (inlineViewer) {
+        inlineViewer.dispose();
+        inlineViewer = null;
+      }
+      showInlineViewer(container, grid);
+    } catch (err) {
+      console.error('Voxelization failed:', err);
+      voxBtn.disabled = false;
+      voxBtn.textContent = 'Voxelize (failed — retry?)';
+    }
+  });
+}
 
 // ─── Gallery ─────────────────────────────────────────────────────────────────
 
@@ -915,7 +1016,9 @@ declare const __APP_VERSION__: string;
 const versionEl = document.getElementById('app-version');
 if (versionEl) {
   versionEl.textContent = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
-  versionEl.style.cssText = 'font-family:var(--font-mono,"JetBrains Mono",monospace);font-size:0.7rem;opacity:0.45;letter-spacing:0.02em;';
+  // opacity 0.45 rendered ~3.85:1 on the dark nav (below WCAG AA). 0.6 gives ~5.9:1
+  // while staying visually subtle as a version badge.
+  versionEl.style.cssText = 'font-family:var(--font-mono,"JetBrains Mono",monospace);font-size:0.7rem;opacity:0.6;letter-spacing:0.02em;';
 }
 
 // ─── Service Worker ─────────────────────────────────────────────────────────

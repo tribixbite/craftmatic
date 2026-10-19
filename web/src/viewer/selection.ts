@@ -45,7 +45,10 @@ export function enableSelection(
   viewer: ViewerState,
   groundY = 0,
 ): { promise: Promise<SelectionBounds | null>; cancel: () => void } {
-  const { scene, camera, renderer, grid } = viewer;
+  const { scene, camera, renderer } = viewer;
+  // Selection crops a voxel grid; the mesh viewer (object3d mode) has none.
+  if (!viewer.grid) throw new Error('enableSelection requires a block-grid viewer');
+  const grid = viewer.grid;
   const canvas = renderer.domElement;
 
   const halfW = grid.width / 2;

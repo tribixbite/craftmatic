@@ -31,6 +31,9 @@ web/public/lego-thumbs/
 # LEGO catalog JSON (regenerated — run: bun run prebuild:lego)
 web/public/lego-catalog.json
 
+# Agent subagent worktrees — transient
+.claude/worktrees/
+
 # Test/dev LDraw model fixtures kept locally for renderer testing — not
 # part of the app or production bundle. Drop new ones into web/public/
 # for quick fetch('/<name>.ldr') access during development.
@@ -61,3 +64,22 @@ output/*
 !output/pdf-placement-diagnosis/
 !output/pdf-universal-parts/
 !output/tiles/
+# output/tiles/ is also every local capture's renders + GLBs (1 GB+ on a dev
+# box); only the review pages and their small index/state JSON are tracked.
+output/tiles/*
+!output/tiles/*.html
+!output/tiles/grade-index.json
+!output/tiles/iterate-state.json
+
+# Pipeline state + per-slug verification reports are tracked (the Stop hook and
+# the handoff docs read them); the heavy per-slug artifacts (.glb/.schem/
+# .litematic/renders) beside them stay private. Hand-edited pipeline inputs too.
+!output/pipeline-state.json
+!output/polygon-overrides.json
+!output/goldens.json
+!output/category-state.json
+!output/pipeline/
+output/pipeline/**
+!output/pipeline/*.verification.json
+# One-off QA builds (--slug <x>-qa) are scratch, not golden state.
+output/pipeline/*-qa.verification.json

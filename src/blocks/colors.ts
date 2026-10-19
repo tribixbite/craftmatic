@@ -506,6 +506,15 @@ export const DOOR_BLOCKS = new Set([
 ]);
 
 /**
+ * Exact block ids this colour map knows. Consumed by the palette-validity
+ * gate (`src/blocks/known-blocks.ts`) — exposed as an accessor so the map
+ * itself stays private.
+ */
+export function knownColorBlockIds(): readonly string[] {
+  return Object.keys(BLOCK_COLORS);
+}
+
+/**
  * Shape suffixes whose colour comes from the underlying material block.
  * `_pane` is here for the semantic-element pass (part-elements.ts): it emits
  * all 16 `<colour>_stained_glass_pane` ids and only a handful are listed above.

@@ -9,7 +9,7 @@
  */
 
 import type { BlockState, FloorPlanShape } from '../../types/index.js';
-import { pickOverpassUrl } from '../../shared/overpass-query.js';
+import { pickOverpassUrl, reportOverpassFailure, reportOverpassSuccess } from '../../shared/overpass-query.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -40,6 +40,9 @@ export interface OSMBuildingData {
   roofColour?: string;
   /** Actual polygon area in square meters (shoelace formula) */
   footprintAreaSqm: number;
+  /** OSM element ref ("way/123", "relation/456") — forensics for
+   *  wrong-building selection; persisted into the verification report. */
+  osmId?: string;
   /** Raw OSM tags object */
   tags: Record<string, string>;
 }
@@ -57,6 +60,8 @@ export async function searchOSMBuilding(
   lat: number,
   lng: number,
   radius = 50,
+  /** House number from the query address (see parseClosestBuilding). */
+  houseNumber?: string | null,
 ): Promise<OSMBuildingData | null> {
   // Fetch both ways and relations tagged [building] — relations capture multipolygon
   // buildings with inner/outer rings (courtyards, through-block buildings).
@@ -66,49 +71,176 @@ export async function searchOSMBuilding(
   // Retry with exponential backoff for 429 (rate limit) and 504 (gateway timeout).
   // Rotate through servers on each retry (arnis pattern: 3 servers for reliability).
   const MAX_RETRIES = 5;
+  let lastError: string | null = null;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const serverUrl = pickOverpassUrl();
     try {
       const resp = await fetch(serverUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          // Overpass API returns 406 to requests without a User-Agent
+          // (anti-bot policy as of ~2026-04). Without this, every OSM
+          // lookup silently falls back to Solar bbox, dropping real
+          // polygon shape and dragging downstream IoU.
+          'User-Agent': 'craftmatic/1.0 (https://github.com/tribixbite/craftmatic)',
+        },
         body,
         signal: AbortSignal.timeout(20000),
       });
 
-      if (resp.status === 429 || resp.status === 504) {
+      // ANY non-OK response is a server problem, not an answer: fail the
+      // server over and retry elsewhere. Previously only 429/504 retried and
+      // every other status returned null — i.e. "no building here" — so a
+      // 502/503 from one mirror silently became a missing footprint.
+      if (!resp.ok) {
+        reportOverpassFailure(serverUrl);
+        lastError = `HTTP ${resp.status}`;
         if (attempt < MAX_RETRIES) {
-          const delay = (attempt + 1) * 3000; // 3s, 6s, 9s, 12s, 15s
-          console.warn(`OSM Overpass: HTTP ${resp.status}, retry ${attempt + 1}/${MAX_RETRIES} in ${delay / 1000}s`);
+          const delay = (attempt + 1) * 1500;
+          console.warn(`OSM Overpass: HTTP ${resp.status} from ${hostOf(serverUrl)}, retry ${attempt + 1}/${MAX_RETRIES} in ${delay / 1000}s`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
-        console.warn(`OSM Overpass: HTTP ${resp.status} after ${MAX_RETRIES} retries`);
-        return null;
-      }
-
-      if (!resp.ok) {
-        console.warn(`OSM Overpass: HTTP ${resp.status}`);
-        return null;
+        break;
       }
 
       const data = await resp.json() as { elements?: OverpassElement[] };
+      reportOverpassSuccess(serverUrl);
       const elements = data.elements;
+      // A well-formed empty result is a real answer: no building mapped here.
       if (!Array.isArray(elements) || elements.length === 0) return null;
 
-      return parseClosestBuilding(elements, lat, lng);
+      return parseClosestBuilding(elements, lat, lng, houseNumber);
     } catch (err) {
+      reportOverpassFailure(serverUrl);
+      lastError = (err as Error).message;
       if (attempt < MAX_RETRIES) {
-        const delay = (attempt + 1) * 3000;
-        console.warn(`OSM Overpass: error, retry ${attempt + 1}/${MAX_RETRIES} in ${delay / 1000}s`);
+        const delay = (attempt + 1) * 1500;
+        console.warn(`OSM Overpass: ${lastError} from ${hostOf(serverUrl)}, retry ${attempt + 1}/${MAX_RETRIES} in ${delay / 1000}s`);
         await new Promise(r => setTimeout(r, delay));
         continue;
       }
-      console.warn('OSM Overpass request failed:', err);
-      return null;
+      break;
     }
   }
-  return null;
+  // Every server failed. THROW rather than return null: the caller
+  // (resolveContext) distinguishes an unreachable Overpass from an empty
+  // result, and only the former should stop the pipeline from grading a
+  // building it had to invent. Returning null here made that guard inert.
+  throw new OverpassUnavailableError(lastError ?? 'unknown error');
+}
+
+/** Hostname only — keeps retry logs readable. */
+function hostOf(url: string): string {
+  try { return new URL(url).host; } catch { return url; }
+}
+
+/**
+ * Every Overpass mirror failed. Distinct from a `null` return, which means
+ * Overpass answered and there is genuinely no building at that location.
+ */
+export class OverpassUnavailableError extends Error {
+  constructor(detail: string) {
+    super(`Overpass unavailable after retries across all mirrors: ${detail}`);
+    this.name = 'OverpassUnavailableError';
+  }
+}
+
+// ─── building:part for compound buildings ──────────────────────────────────
+
+export interface OSMBuildingPart {
+  /** Outer polygon vertices, closed (last = first). */
+  polygon: { lat: number; lon: number }[];
+  /** building:levels or null. */
+  levels: number | null;
+  /** Explicit height tag (metres) or null. */
+  heightM: number | null;
+  /** Building colour as hex RGB or null. */
+  buildingColour: string | null;
+  /** Roof colour as hex RGB or null. */
+  roofColour: string | null;
+  /** roof:shape tag or null. */
+  roofShape: string | null;
+  /** Raw tags. */
+  tags: Record<string, string>;
+}
+
+/**
+ * Query OSM `building:part` ways within a radius of a point. Compound
+ * buildings (Pennzoil Place, Empire State, Petronas Towers etc.) often
+ * have a containing `building` polygon plus per-tower `building:part`
+ * polygons with their own height/roof/colour tags. Returning multiple
+ * parts lets the synthesizer build each tower as its own prism stack
+ * with correct individual heights.
+ *
+ * Returns empty array when no parts found, or on API failure (caller
+ * falls back to single-polygon synthesis).
+ */
+export async function searchOSMBuildingParts(
+  lat: number,
+  lng: number,
+  radiusM = 100,
+): Promise<OSMBuildingPart[]> {
+  const query = `[out:json][timeout:15];(way["building:part"](around:${radiusM},${lat},${lng}););out geom;`;
+  const body = `data=${encodeURIComponent(query)}`;
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const serverUrl = pickOverpassUrl();
+    try {
+      const resp = await fetch(serverUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'craftmatic/1.0 (https://github.com/tribixbite/craftmatic)',
+        },
+        body,
+        signal: AbortSignal.timeout(15000),
+      });
+      if (resp.status === 429 || resp.status === 504) {
+        if (attempt < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+          continue;
+        }
+        return [];
+      }
+      if (!resp.ok) return [];
+      const data = await resp.json() as { elements?: OverpassElement[] };
+      const elements = data.elements ?? [];
+      const parts: OSMBuildingPart[] = [];
+      for (const e of elements) {
+        if (e.type !== 'way' || !e.geometry || e.geometry.length < 4) continue;
+        const tags = e.tags ?? {};
+        if (tags['building:part'] === undefined || tags['building:part'] === 'no') continue;
+        const polygon = e.geometry.map(g => ({ lat: g.lat, lon: g.lon }));
+        const levelsRaw = tags['building:levels'];
+        const heightRaw = tags['height'] ?? tags['building:height'];
+        const roofHeightRaw = tags['roof:height'];
+        const baseHeight = heightRaw ? parseFloat(heightRaw) : null;
+        const roofHeight = roofHeightRaw ? parseFloat(roofHeightRaw) : 0;
+        const totalHeight = baseHeight !== null && Number.isFinite(baseHeight)
+          ? baseHeight + (Number.isFinite(roofHeight) ? roofHeight : 0)
+          : null;
+        parts.push({
+          polygon,
+          levels: levelsRaw ? parseInt(levelsRaw, 10) || null : null,
+          heightM: totalHeight,
+          buildingColour: tags['building:colour'] ?? null,
+          roofColour: tags['roof:colour'] ?? null,
+          roofShape: tags['roof:shape'] ?? null,
+          tags,
+        });
+      }
+      return parts;
+    } catch {
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+        continue;
+      }
+      return [];
+    }
+  }
+  return [];
 }
 
 /**
@@ -133,7 +265,14 @@ export async function fetchOSMById(
     try {
       const resp = await fetch(serverUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          // Overpass API returns 406 to requests without a User-Agent
+          // (anti-bot policy as of ~2026-04). Without this, every OSM
+          // lookup silently falls back to Solar bbox, dropping real
+          // polygon shape and dragging downstream IoU.
+          'User-Agent': 'craftmatic/1.0 (https://github.com/tribixbite/craftmatic)',
+        },
         body,
         signal: AbortSignal.timeout(20000),
       });
@@ -235,7 +374,116 @@ export async function fetchOSMById(
       return null;
     }
   }
-  return null;
+  // All Overpass retries exhausted — fall back to main OSM API.
+  // Supports way and relation (relation requires /full to get outer member nodes).
+  console.warn(`OSM Overpass: all retries failed — falling back to api.openstreetmap.org`);
+  return fetchOSMByIdFallback(osmType, osmId);
+}
+
+/**
+ * Fallback fetcher using the main OpenStreetMap API when Overpass is unavailable.
+ * Supports way and relation. Geometry is built from referenced node coordinates.
+ */
+async function fetchOSMByIdFallback(
+  osmType: 'way' | 'relation',
+  osmId: number,
+): Promise<OSMBuildingData | null> {
+  try {
+    // /full returns the element plus all referenced nodes (and relations for relations).
+    const url = `https://api.openstreetmap.org/api/0.6/${osmType}/${osmId}/full.json`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(20000) });
+    if (!resp.ok) {
+      console.warn(`OSM fallback: HTTP ${resp.status} from api.openstreetmap.org`);
+      return null;
+    }
+    const data = await resp.json() as { elements?: Array<{ id: number; type: string; lat?: number; lon?: number; nodes?: number[]; members?: Array<{ type: string; ref: number; role: string }>; geometry?: Array<{ lat: number; lon: number }>; tags?: Record<string, string> }> };
+    const elements = data.elements ?? [];
+
+    // Build node coordinate lookup
+    const nodeCoords = new Map<number, { lat: number; lon: number }>();
+    for (const el of elements) {
+      if (el.type === 'node' && el.id != null && el.lat != null && el.lon != null) {
+        nodeCoords.set(el.id, { lat: el.lat, lon: el.lon });
+      }
+    }
+
+    let polygon: { lat: number; lon: number }[] | null = null;
+    let tags: Record<string, string> = {};
+
+    if (osmType === 'way') {
+      const way = elements.find(e => e.type === 'way' && e.id === osmId);
+      if (!way?.nodes) {
+        console.warn(`OSM fallback: way/${osmId} not found`);
+        return null;
+      }
+      tags = way.tags ?? {};
+      polygon = way.nodes
+        .map(nid => nodeCoords.get(nid))
+        .filter((pt): pt is { lat: number; lon: number } => pt != null);
+    } else {
+      // relation: find outer ring members → collect their way nodes
+      const relation = elements.find(e => e.type === 'relation' && e.id === osmId);
+      if (!relation?.members) {
+        console.warn(`OSM fallback: relation/${osmId} not found`);
+        return null;
+      }
+      tags = relation.tags ?? {};
+      // Find a way that is the outer member and reconstruct its node coords
+      const outerRef = relation.members.find(m => m.role === 'outer' && m.type === 'way');
+      if (!outerRef) {
+        console.warn(`OSM fallback: relation/${osmId} has no outer way member`);
+        return null;
+      }
+      const outerWay = elements.find(e => e.type === 'way' && e.id === outerRef.ref);
+      if (!outerWay?.nodes) {
+        console.warn(`OSM fallback: outer way ${outerRef.ref} not found in response`);
+        return null;
+      }
+      polygon = outerWay.nodes
+        .map(nid => nodeCoords.get(nid))
+        .filter((pt): pt is { lat: number; lon: number } => pt != null);
+    }
+
+    if (!polygon || polygon.length < 3) {
+      console.warn(`OSM fallback: ${osmType}/${osmId} — insufficient polygon points`);
+      return null;
+    }
+
+    const { widthMeters, lengthMeters } = polygonBoundingDimensions(polygon);
+    const footprintAreaSqm = polygonArea(polygon);
+    const bboxArea = widthMeters * lengthMeters;
+    const fillRatio = bboxArea > 0 ? footprintAreaSqm / bboxArea : 1;
+    const aspectRatio = lengthMeters > 0 ? widthMeters / lengthMeters : 1;
+    let effectiveWidth = widthMeters;
+    let effectiveLength = lengthMeters;
+    if (fillRatio < 0.88 && footprintAreaSqm > 0) {
+      effectiveWidth = Math.sqrt(footprintAreaSqm * aspectRatio);
+      effectiveLength = Math.sqrt(footprintAreaSqm / aspectRatio);
+    }
+    const levelsRaw = tags['building:levels'];
+    const levels = levelsRaw ? parseInt(levelsRaw, 10) : undefined;
+
+    console.log(`OSM fallback: fetched ${osmType}/${osmId} via api.openstreetmap.org — ${tags['name'] || 'unnamed'} (${Math.round(effectiveWidth)}×${Math.round(effectiveLength)}m)`);
+
+    return {
+      polygon,
+      widthMeters: Math.round(effectiveWidth * 10) / 10,
+      lengthMeters: Math.round(effectiveLength * 10) / 10,
+      widthBlocks: Math.max(6, Math.min(60, Math.round(effectiveWidth))),
+      lengthBlocks: Math.max(6, Math.min(60, Math.round(effectiveLength))),
+      footprintAreaSqm: Math.round(footprintAreaSqm * 10) / 10,
+      levels: levels && !isNaN(levels) ? levels : undefined,
+      material: tags['building:material'] || undefined,
+      roofShape: tags['roof:shape'] || undefined,
+      roofMaterial: tags['roof:material'] || undefined,
+      buildingColour: normalizeOSMColour(tags['building:colour']),
+      roofColour: normalizeOSMColour(tags['roof:colour']),
+      tags,
+    };
+  } catch (err) {
+    console.warn('OSM fallback request failed:', err);
+    return null;
+  }
 }
 
 /** Ray-casting point-in-polygon test for lat/lng coordinates */
@@ -256,15 +504,47 @@ function pointInPolygon(
   return inside;
 }
 
+/** Score penalty (metres-equivalent) for auxiliary structures — garages,
+ *  sheds, toilets etc. They stay selectable when nothing else is near, but a
+ *  principal building within this margin always beats them. */
+const AUX_STRUCTURE_PENALTY_M = 60;
+/** Bonus when a candidate's addr:housenumber exactly matches the query's. */
+const HOUSENUMBER_MATCH_BONUS_M = 80;
+/** Smaller bonus for merely carrying an address (it's SOMEBODY's building). */
+const ADDRESSED_BUILDING_BONUS_M = 10;
+
+/** building=/amenity= values that mark a structure as auxiliary — not the
+ *  addressed building a user asked to reconstruct. */
+const AUX_BUILDING_VALUES = new Set([
+  'garage', 'garages', 'shed', 'carport', 'roof', 'service', 'hut',
+  'greenhouse', 'kiosk', 'toilets', 'shelter', 'gazebo', 'boathouse',
+]);
+const AUX_AMENITY_VALUES = new Set([
+  'toilets', 'shelter', 'parking', 'bicycle_parking', 'bench', 'fountain',
+]);
+
+/** True when the way's tags mark an auxiliary structure. */
+export function isAuxiliaryStructure(tags: Record<string, string> | undefined): boolean {
+  if (!tags) return false;
+  const b = tags['building'];
+  const a = tags['amenity'];
+  return (b != null && AUX_BUILDING_VALUES.has(b))
+    || (a != null && AUX_AMENITY_VALUES.has(a));
+}
+
 /**
  * Parse Overpass JSON elements and return the best building match.
- * Priority: (1) containing polygon with largest area, (2) closest centroid.
+ * Priority: (1) containing PRINCIPAL polygon with largest area, (2) lowest
+ * plausibility-adjusted score (distance + auxiliary penalty − address bonus).
  * Exported for testing with mock responses.
  */
 export function parseClosestBuilding(
   elements: OverpassElement[],
   queryLat: number,
   queryLng: number,
+  /** House number from the query address — exact addr:housenumber match
+   *  strongly pulls that candidate in. */
+  houseNumber?: string | null,
 ): OSMBuildingData | null {
   // Extract geometry for each element
   interface Candidate {
@@ -302,17 +582,35 @@ export function parseClosestBuilding(
 
   if (candidates.length === 0) return null;
 
-  // Prefer: (1) buildings that contain the query point, sorted by area descending
-  // (2) otherwise closest centroid
+  // Prefer: (1) PRINCIPAL buildings that contain the query point, sorted by
+  // area descending; (2) otherwise lowest plausibility-adjusted score.
+  //
+  // Raw closest-centroid is not enough: an interpolated geocode pin can sit
+  // closer to an auxiliary structure than to the addressed building (a
+  // RANGE_INTERPOLATED pin for "1123 Maple Ave, Berwyn" reconstructed the
+  // park TOILET BLOCK 53m away instead of the house at 59m). Auxiliary
+  // structures are score-penalised (still usable as a last resort), and a
+  // matching addr:housenumber strongly pulls its candidate in.
   const containing = candidates
-    .filter(c => c.containsQuery)
+    .filter(c => c.containsQuery && !isAuxiliaryStructure(c.el.tags))
     .sort((a, b) => b.area - a.area);
 
   let bestElement: OverpassElement;
   if (containing.length > 0) {
     bestElement = containing[0].el;
   } else {
-    candidates.sort((a, b) => a.centroidDist - b.centroidDist);
+    const score = (c: Candidate): number => {
+      let s = c.centroidDist;
+      if (isAuxiliaryStructure(c.el.tags)) s += AUX_STRUCTURE_PENALTY_M;
+      const num = c.el.tags?.['addr:housenumber'];
+      if (num != null) {
+        s -= houseNumber != null && num.trim() === houseNumber.trim()
+          ? HOUSENUMBER_MATCH_BONUS_M
+          : ADDRESSED_BUILDING_BONUS_M;
+      }
+      return s;
+    };
+    candidates.sort((a, b) => score(a) - score(b));
     bestElement = candidates[0].el;
   }
 
@@ -383,6 +681,7 @@ export function parseClosestBuilding(
     roofMaterial: tags['roof:material'] || undefined,
     buildingColour: normalizeOSMColour(tags['building:colour']),
     roofColour: normalizeOSMColour(tags['roof:colour']),
+    osmId: `${bestElement.type}/${bestElement.id}`,
     tags,
   };
 }

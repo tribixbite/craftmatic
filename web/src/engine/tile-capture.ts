@@ -8,7 +8,7 @@
 
 import * as THREE from 'three';
 import type { TilesRenderer } from '3d-tiles-renderer';
-import { filterMeshesByHeight } from '@craft/convert/mesh-filter.js';
+import { filterMeshesByHeight } from '@craft/pipeline/capture/mesh-utils.js';
 
 /** Options for tile mesh capture */
 export interface CaptureOptions {

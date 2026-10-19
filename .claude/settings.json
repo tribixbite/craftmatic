@@ -6,15 +6,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node C:/git/craftmatic/scripts/visual-loop-check.mjs"
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/scripts/visual-loop-check.mjs"
           },
           {
             "type": "command",
-            "command": "node C:/git/craftmatic/scripts/showcase-loop-check.mjs"
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/scripts/showcase-loop-check.mjs"
           },
           {
             "type": "command",
-            "command": "node C:/git/craftmatic/scripts/renderer-improve-loop.mjs"
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/scripts/renderer-improve-loop.mjs"
           }
         ]
       }

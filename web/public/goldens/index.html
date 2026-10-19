@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Goldens inspection</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font: 14px system-ui, sans-serif; background: #111; color: #ddd; }
+  header { padding: 12px 20px; border-bottom: 1px solid #333; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  header h1 { margin: 0; font-size: 16px; flex: 1; min-width: 200px; }
+  button { padding: 8px 14px; background: #222; color: #ddd; border: 1px solid #444; border-radius: 4px; cursor: pointer; }
+  button.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+  button:hover { background: #333; }
+  .content { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; padding: 20px; }
+  .tile { background: #1a1a1a; border: 1px solid #333; border-radius: 6px; padding: 10px; }
+  .tile h3 { margin: 0 0 8px; font-size: 13px; color: #aaa; font-weight: 500; }
+  .tile img { width: 100%; height: 280px; object-fit: contain; background: #000; border-radius: 3px; }
+  .meta { padding: 12px 20px; color: #888; font-size: 12px; background: #151515; border-top: 1px solid #333; }
+  .links { padding: 12px 20px; display: flex; gap: 10px; flex-wrap: wrap; background: #151515; }
+  .links a { color: #6b9eff; text-decoration: none; font-family: monospace; font-size: 12px; }
+  .links a:hover { text-decoration: underline; }
+  @media (max-width: 900px) { .content { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Pipeline goldens — visual inspection</h1>
+  <button data-slug="flatiron" class="active">Flatiron</button>
+  <button data-slug="240-highland">240-Highland</button>
+  <button data-slug="pennzoil">Pennzoil</button>
+  <button data-slug="guggenheim">Guggenheim</button>
+  <button data-slug="geisel">Geisel</button>
+</header>
+
+<div class="meta" id="meta">Loading…</div>
+
+<div class="content">
+  <div class="tile"><h3>Isometric view</h3><img id="iso" alt=""></div>
+  <div class="tile"><h3>Top-down silhouette</h3><img id="td" alt=""></div>
+  <div class="tile"><h3>Front elevation</h3><img id="front" alt=""></div>
+</div>
+
+<div class="links">
+  <span>Raw artifacts for this golden:</span>
+  <a id="gl-print" href="#" target="_blank">print.glb</a>
+  <a id="gl-scene" href="#" target="_blank">scene.glb</a>
+  <a id="open-upload" href="#" target="_blank">Open in Upload tab ↗</a>
+</div>
+
+<script>
+// Metrics come from goldens.json, written by `bun scripts/refresh-goldens.ts`
+// from output/pipeline-state.json — no more hardcoded (stale) numbers.
+let GOLDENS = {};
+const buttons = document.querySelectorAll('header button');
+function show(slug) {
+  buttons.forEach(b => b.classList.toggle('active', b.dataset.slug === slug));
+  const g = GOLDENS[slug] ?? {};
+  document.getElementById('meta').textContent =
+    `${g.address ?? slug} — status=${g.status ?? '?'} path=${g.synthesisPath ?? '?'} ` +
+    `IoU=${g.iou != null ? g.iou.toFixed(2) : '?'} defect=${g.defectScore ?? '?'} ` +
+    `voxels=${g.voxels ?? '?'} (${g.lastRun ? g.lastRun.slice(0, 10) : 'no state'})`;
+  document.getElementById('iso').src = `${slug}-iso.png`;
+  document.getElementById('td').src = `${slug}-td.png`;
+  document.getElementById('front').src = `${slug}-front.png`;
+  document.getElementById('gl-print').href = `${slug}.print.glb`;
+  document.getElementById('gl-scene').href = `${slug}.scene.glb`;
+  document.getElementById('open-upload').href = `/?tab=upload&file=/goldens/${slug}.scene.glb`;
+}
+buttons.forEach(b => b.addEventListener('click', () => show(b.dataset.slug)));
+fetch('goldens.json')
+  .then(r => r.json())
+  .then(list => {
+    GOLDENS = Object.fromEntries(list.map(g => [g.slug, g]));
+    show(document.querySelector('header button.active')?.dataset.slug ?? list[0]?.slug);
+  })
+  .catch(() => { document.getElementById('meta').textContent = 'goldens.json missing — run bun scripts/refresh-goldens.ts'; });
+</script>
+</body>
+</html>

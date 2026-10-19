@@ -1,0 +1,133 @@
+{
+  "status": "fail-consensus",
+  "lastRun": "2026-08-16T15:54:58.506Z",
+  "objective": {
+    "footprintIoU": 0.9825899214479306,
+    "heightErr": 0,
+    "watertight": true,
+    "manifold": true,
+    "selfIntersect": 1278,
+    "minWallThicknessMm": 7.193524360656738,
+    "voxelCount": 942484,
+    "plinthWatertight": null,
+    "unknownBlockStates": [],
+    "pass": true,
+    "failures": []
+  },
+  "consensus": {
+    "status": "fail",
+    "rounds": 1,
+    "gemini": {
+      "color": 3,
+      "features": 2,
+      "massing": 9,
+      "overall": 4
+    },
+    "claude": {
+      "color": 3,
+      "features": 2,
+      "massing": 9,
+      "overall": 4
+    },
+    "gpt5": {
+      "color": 3,
+      "features": 2,
+      "massing": 9,
+      "overall": 4
+    },
+    "min": 2,
+    "median": 3.5,
+    "spread": 0,
+    "pass": false
+  },
+  "provenance": {
+    "fields": [
+      {
+        "field": "footprint",
+        "value": "34 pts",
+        "source": "osm",
+        "confidence": 1
+      },
+      {
+        "field": "height",
+        "value": "73.5m",
+        "source": "osm",
+        "confidence": 0.8
+      },
+      {
+        "field": "levels",
+        "value": "21",
+        "source": "osm",
+        "confidence": 0.95
+      },
+      {
+        "field": "wall",
+        "value": "lab(80,-3,14) +4",
+        "source": "osm",
+        "confidence": 0.85
+      },
+      {
+        "field": "roof",
+        "value": "lab(63,3,8) +1",
+        "source": "sat",
+        "confidence": 0.85
+      },
+      {
+        "field": "roofShape",
+        "value": "flat",
+        "source": "inferred",
+        "confidence": 0.5
+      }
+    ],
+    "weakest": {
+      "field": "roofShape",
+      "value": "flat",
+      "source": "inferred",
+      "confidence": 0.5
+    },
+    "meanConfidence": 0.8250000000000001
+  },
+  "crossCheck": {
+    "chosenSource": "osm",
+    "chosenHeightM": 73.5,
+    "alternatives": [],
+    "maxDisagreement": 0,
+    "truncationSuspected": false,
+    "ok": true,
+    "warnings": []
+  },
+  "defectScore": {
+    "defects": {
+      "height_truncated": false,
+      "facade_holes_visible": false,
+      "floating_artifacts": false,
+      "footprint_wrong_shape": false,
+      "surface_detail_visible": true,
+      "proportions_correct": true,
+      "facade_incoherent": false,
+      "facade_implausibly_dark": false
+    },
+    "score": 10,
+    "penalties": [],
+    "grid": {
+      "total": 942484,
+      "components": 1,
+      "largestSize": 942484,
+      "disconnectedRatio": 0,
+      "uniqueBlockTypes": 13,
+      "computed": true,
+      "facadeTotal": 702194,
+      "facadeDominantShare": 0.4711931460536547,
+      "facadeDominantState": "minecraft:smooth_sandstone",
+      "facadeMeanLuma": 181.75696073677642,
+      "facadeGlassShare": 0.21764782951719894
+    }
+  },
+  "synthesisPath": "7d-sliced",
+  "resolution": {
+    "osmId": "way/264768896",
+    "polygonSource": "osm",
+    "geocodeLocationType": "ROOFTOP",
+    "footprintAreaSqm": 1008.8
+  }
+}

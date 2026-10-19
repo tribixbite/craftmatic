@@ -42,7 +42,7 @@ export default defineConfig({
     // lookup skipped `UnOfficial/parts/s/` and a null mirror skipped `ldraw_ref/`
     // (both fixed 2026-09-26). Without the copy (CI), answers are cached on disk.
     env: { ...(existsSync(LDRAW_REF) ? { CRAFTMATIC_LDRAW_REF: LDRAW_REF, CRAFTMATIC_LDRAW_MIRROR: process.env.CRAFTMATIC_LDRAW_MIRROR ?? 'off' } : {}), CRAFTMATIC_LDRAW_MIRROR_CACHE: LDRAW_MIRROR_CACHE },
-    include: ['test/**/*.test.ts'],
+    include: ['test/**/*.test.ts', 'src/pipeline/**/*.test.ts'],
     exclude: [
       ...configDefaults.exclude,
       ...(process.env['RUN_LIVE_TESTS'] ? [] : LIVE_TESTS),

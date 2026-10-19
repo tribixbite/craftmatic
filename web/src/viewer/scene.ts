@@ -17,7 +17,9 @@ export interface ViewerState {
   renderer: THREE.WebGLRenderer;
   controls: OrbitControls;
   meshes: THREE.InstancedMesh[];
-  grid: BlockGrid;
+  grid: BlockGrid | null;
+  /** Raw Object3D for mesh viewer mode (null for block viewer) */
+  object3d: THREE.Object3D | null;
   dispose: () => void;
 }
 
@@ -323,7 +325,7 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
       scene, camera,
       renderer: null as unknown as THREE.WebGLRenderer,
       controls: null as unknown as OrbitControls,
-      meshes: [], grid,
+      meshes: [], grid, object3d: null,
       dispose: () => { fallback.remove(); },
     };
   }
@@ -518,6 +520,7 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
     controls,
     meshes,
     grid,
+    object3d: null,
     dispose: () => {
       cancelAnimationFrame(animId);
       resizeObs.disconnect();
@@ -534,8 +537,165 @@ export function createViewer(container: HTMLElement, grid: BlockGrid): ViewerSta
   };
 }
 
-/** Apply Y-cutaway: hide blocks above maxY, restore blocks at or below */
+/**
+ * Render a raw Three.js Object3D (e.g. GLB photogrammetry) with the same
+ * lighting rig as the block viewer. No voxelization — shows the mesh as-is.
+ */
+export function createMeshViewer(container: HTMLElement, object: THREE.Object3D): ViewerState {
+  const box = new THREE.Box3().setFromObject(object);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  const maxDim = Math.max(size.x, size.y, size.z);
+
+  // Scene setup — same as block viewer
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x1a1a2e);
+  scene.fog = new THREE.FogExp2(0x1a1a2e, 0.003);
+
+  const aspect = container.clientHeight > 0 ? container.clientWidth / container.clientHeight : 16 / 9;
+  const camera = new THREE.PerspectiveCamera(55, aspect, 0.1, maxDim * 10);
+
+  let renderer: THREE.WebGLRenderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  } catch {
+    const fallback = document.createElement('div');
+    fallback.style.cssText = 'display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#999;font:14px/1.4 system-ui;text-align:center;padding:1em;';
+    fallback.textContent = '3D viewer requires WebGL.';
+    container.appendChild(fallback);
+    return {
+      scene, camera,
+      renderer: null as unknown as THREE.WebGLRenderer,
+      controls: null as unknown as OrbitControls,
+      meshes: [], grid: null, object3d: object,
+      dispose: () => { fallback.remove(); },
+    };
+  }
+
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  container.appendChild(renderer.domElement);
+
+  let animId = 0;
+  let controls: OrbitControls;
+  function animate() {
+    animId = requestAnimationFrame(animate);
+    controls?.update();
+    renderer.render(scene, camera);
+  }
+
+  renderer.domElement.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    cancelAnimationFrame(animId);
+  });
+  renderer.domElement.addEventListener('webglcontextrestored', () => { animate(); });
+
+  // Lighting — same rig as block viewer
+  scene.add(new THREE.AmbientLight(0x606080, 0.5));
+  scene.add(new THREE.HemisphereLight(0x87ceeb, 0x443322, 0.6));
+
+  const shadowRange = maxDim * 0.8;
+  const sun = new THREE.DirectionalLight(0xfff0dd, 1.8);
+  sun.position.set(center.x + maxDim * 0.6, center.y + maxDim, center.z + maxDim * 0.4);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.left = -shadowRange;
+  sun.shadow.camera.right = shadowRange;
+  sun.shadow.camera.top = shadowRange;
+  sun.shadow.camera.bottom = -shadowRange;
+  sun.shadow.bias = -0.001;
+  scene.add(sun);
+  scene.add(new THREE.DirectionalLight(0x8899cc, 0.4).translateX(center.x - maxDim * 0.5).translateY(center.y + maxDim * 0.3).translateZ(center.z - maxDim * 0.3));
+
+  // Ground plane at the bottom of the model
+  const groundSize = maxDim * 3;
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(groundSize, groundSize),
+    new THREE.MeshStandardMaterial({ color: 0x2a3a1a, roughness: 1, metalness: 0 }),
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(center.x, box.min.y - 0.1, center.z);
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // Enable shadows on all child meshes
+  object.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+    }
+  });
+
+  // Add the mesh as-is
+  scene.add(object);
+
+  // Camera: isometric-ish angle looking at center
+  camera.position.set(
+    center.x + maxDim * 0.9,
+    center.y + maxDim * 0.65,
+    center.z + maxDim * 0.9,
+  );
+  camera.lookAt(center.x, center.y, center.z);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.copy(center);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.maxDistance = maxDim * 5;
+  controls.update();
+
+  animate();
+
+  const resizeObs = new ResizeObserver(() => {
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    if (w === 0 || h === 0) return;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+  });
+  resizeObs.observe(container);
+
+  return {
+    scene,
+    camera,
+    renderer,
+    controls,
+    meshes: [],
+    grid: null,
+    object3d: object,
+    dispose: () => {
+      cancelAnimationFrame(animId);
+      resizeObs.disconnect();
+      controls.dispose();
+      // Recursively dispose all geometries, materials, and textures
+      object.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry?.dispose();
+          const mat = child.material;
+          if (Array.isArray(mat)) {
+            mat.forEach(m => { m.map?.dispose(); m.dispose(); });
+          } else {
+            mat.map?.dispose();
+            mat.dispose();
+          }
+        }
+      });
+      renderer.dispose();
+      renderer.domElement.remove();
+    },
+  };
+}
+
+/** Apply Y-cutaway: hide blocks above maxY, restore blocks at or below. No-op for mesh viewer. */
 export function applyCutaway(viewer: ViewerState, maxY: number): void {
+  if (!viewer.grid) return; // mesh viewer — cutaway not applicable
   const hideMatrix = new THREE.Matrix4();
   hideMatrix.setPosition(99999, 99999, 99999);
   for (const mesh of viewer.meshes) {

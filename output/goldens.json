@@ -1,0 +1,30 @@
+{
+  "$schema": "List of golden addresses the iteration loop drives through runPipeline. slug = stable id used in pipeline-state.json, address = the input passed to scripts/build.ts.",
+  "goldens": [
+    {
+      "slug": "flatiron",
+      "address": "175 5th Ave, New York, NY",
+      "notes": "Canonical parametric happy path — wedge, medium, OSM good"
+    },
+    {
+      "slug": "240-highland",
+      "address": "240 Highland St, Newton, MA",
+      "notes": "Small suburban residence, tests gabled-roof parametric"
+    },
+    {
+      "slug": "pennzoil",
+      "address": "700 Milam St, Houston, TX",
+      "notes": "Tower+podium skyscraper — tests height extrapolation on truncated capture"
+    },
+    {
+      "slug": "guggenheim",
+      "address": "1071 5th Ave, New York, NY",
+      "notes": "Curved iconic — tests cleaned-tiles fallback"
+    },
+    {
+      "slug": "geisel",
+      "address": "9500 Gilman Dr, La Jolla, CA",
+      "notes": "Multi-wing complex — tests cleaned-tiles"
+    }
+  ]
+}

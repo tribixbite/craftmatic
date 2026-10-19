@@ -149,7 +149,7 @@ export function createLegoViewer(
       scene, camera,
       renderer: null as unknown as THREE.WebGLRenderer,
       controls: null as unknown as OrbitControls,
-      meshes: [], grid,
+      meshes: [], grid, object3d: null,
       dispose: () => msg.remove(),
     };
   }
@@ -319,5 +319,5 @@ export function createLegoViewer(
     legoTexCache.clear();
   }
 
-  return { scene, camera, renderer, controls, meshes, grid, dispose };
+  return { scene, camera, renderer, controls, meshes, grid, object3d: null, dispose };
 }

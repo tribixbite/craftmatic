@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   rgbToHsl, isGrass, isSkyOrWater, isShadow, isGlare, isNonBuilding,
-  rgbToWallBlock, rgbToRoofOverride, rgbToTrimBlock, dominantColor,
+  rgbToWallBlock, rgbToRoofOverride, rgbToTrimBlock, dominantColor, roofBaseToFullBlock,
   WALL_PALETTE, ROOF_PALETTE, TRIM_PALETTE,
 } from '../src/gen/color-blocks.js';
 
@@ -376,5 +376,25 @@ describe('dominantColor', () => {
     expect(result!.r).toBeCloseTo(128, 0);
     expect(result!.g).toBeCloseTo(128, 0);
     expect(result!.b).toBeCloseTo(128, 0);
+  });
+});
+
+describe('roofBaseToFullBlock', () => {
+  it('pluralizes brick/tile roots (the deepslate_tile regression)', () => {
+    expect(roofBaseToFullBlock('deepslate_tile')).toBe('minecraft:deepslate_tiles');
+    expect(roofBaseToFullBlock('stone_brick')).toBe('minecraft:stone_bricks');
+    expect(roofBaseToFullBlock('nether_brick')).toBe('minecraft:nether_bricks');
+  });
+  it('maps wood roots to planks', () => {
+    expect(roofBaseToFullBlock('oak')).toBe('minecraft:oak_planks');
+    expect(roofBaseToFullBlock('dark_oak')).toBe('minecraft:dark_oak_planks');
+  });
+  it('passes through full-block roots unchanged', () => {
+    expect(roofBaseToFullBlock('blackstone')).toBe('minecraft:blackstone');
+    expect(roofBaseToFullBlock('prismarine')).toBe('minecraft:prismarine');
+  });
+  it('accepts derived cap/stair forms with props and prefix', () => {
+    expect(roofBaseToFullBlock('minecraft:deepslate_tile_slab[type=bottom]')).toBe('minecraft:deepslate_tiles');
+    expect(roofBaseToFullBlock('minecraft:spruce_stairs[facing=north]')).toBe('minecraft:spruce_planks');
   });
 });
