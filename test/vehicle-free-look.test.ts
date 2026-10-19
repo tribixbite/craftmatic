@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { FREE_LOOK, NATIVE_HEADING_PROPERTY, NATIVE_STEER, cockpitCamera, cockpitEyeLead, cockpitLagFromLead, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type CockpitPose, type FreeLookState } from '../web/src/engine/vehicle-free-look.js';
 import { quirkValue } from '../web/src/sim/quirks/registry.js';
 import { CHASE_PASSABLE_BLOCKS, chaseMaxRootBlocks, vehicleCameraScript, type VehicleCameraConfig } from '../web/src/engine/playable-addon.js';
+import { CAMERA_OWNER_TAG, CAMERA_SWEEP_TICKS } from '../web/src/engine/camera-release.js';
 import { ACTOR_DRAW_CEILING_BLOCKS } from '../web/src/engine/bedrock-lod-hull.js';
 import { FLIGHT_PROPS, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties } from '../web/src/engine/bedrock-vehicle.js';
 import { simHost, solidBelow } from './_sim-host.js';
@@ -255,7 +256,7 @@ const CAR = 'craftmatic:t_car';
 const cameraCfg: VehicleCameraConfig = { typeId: CAR, preset: 'craftmatic:t_car_chase', kind: 'car', radius: 6, height: 2.6, pivotY: 0.75, scripted: true, riderVisibleSizes: null, eye: [0, 1.62, -0.4] };
 function cameraHost(cfg: VehicleCameraConfig = cameraCfg, terrain = solidBelow(64), extraComponents: Record<string, unknown> = {}) {
   const h = simHost({
-    script: vehicleCameraScript({ vehicles: [cfg], pitchProperty: FLIGHT_PROPS.pitch, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, nativeHeadingProperty: NATIVE_HEADING_PROPERTY, telemetryEvent: VEHICLE_TELEMETRY_EVENT, passableBlocks: CHASE_PASSABLE_BLOCKS }),
+    script: vehicleCameraScript({ vehicles: [cfg], pitchProperty: FLIGHT_PROPS.pitch, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, nativeHeadingProperty: NATIVE_HEADING_PROPERTY, telemetryEvent: VEHICLE_TELEMETRY_EVENT, passableBlocks: CHASE_PASSABLE_BLOCKS, cameraRelease: { tag: CAMERA_OWNER_TAG, hidden: 'craftmatic_camera_hidden', every: CAMERA_SWEEP_TICKS } }),
     entities: { [CAR]: { properties: flightProperties() as Record<string, Record<string, unknown>>, components: {
       'minecraft:type_family': { family: ['craftmatic_vehicle', 'car'] },
       'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: [{ position: [0, 0.5, 0], lock_rider_rotation: FREE_LOOK.SEAT_LOCK_DEG }] },
@@ -311,6 +312,48 @@ describe('the camera runtime with free look (scripts/vehicle-camera.js on the si
     drive(40, 8);
     expect(Math.abs(wrap(view()!.yaw - car.rotation.y))).toBeLessThan(0.01);
   });
+  it('gives a dismounted rider their own view back, and clears it again once any ease has run out (VEH-19, the user 2026-10-18)', () => {
+    const { h, rider, view, drive } = cameraHost();
+    drive(10, 8);
+    expect(view()).toBeDefined();
+    expect(rider.tags.has(CAMERA_OWNER_TAG)).toBe(true);
+    h.unseat(rider);
+    h.run(2);
+    expect(view(), 'the release clears the camera at once').toBeUndefined();
+    // The tag stays until the sweep, which clears once more (a clear sent while a 0.15 s ease still ran is
+    // untested on a device) and takes it off.
+    h.run(CAMERA_SWEEP_TICKS);
+    expect(view()).toBeUndefined();
+    expect(rider.tags.has(CAMERA_OWNER_TAG)).toBe(false);
+  });
+
+  it('clears a camera this runtime lost: a player tagged as given one, riding nothing, after a restart (VEH-19)', () => {
+    // A camera left on a player by a runtime that has since forgotten them (a reload mid-ride): set it and tag the
+    // player by hand, as the earlier run did, with this run's runtime never having seen them ride.
+    const { h, rider } = cameraHost();
+    h.unseat(rider);
+    h.run(1);
+    const state = h.host.playerState(rider);
+    rider.tags.add(CAMERA_OWNER_TAG);
+    rider.tags.add('craftmatic_camera_hidden');
+    h.api(rider).camera.setCamera('minecraft:free', { location: { x: 0, y: 80, z: 0 }, facingLocation: { x: 0, y: 64, z: 10 } });
+    h.api(rider).addEffect('invisibility', 20 * 60, { showParticles: false });
+    expect(state.camera.location).toBeDefined();
+    h.run(CAMERA_SWEEP_TICKS + 1);
+    expect(state.camera.location, 'the sweep gives the view back').toBeUndefined();
+    expect(rider.tags.has(CAMERA_OWNER_TAG)).toBe(false);
+    expect(rider.tags.has('craftmatic_camera_hidden')).toBe(false);
+    expect([...rider.effects.keys()]).not.toContain('invisibility');
+  });
+
+  it('leaves a tagged player who RIDES alone: their mount\'s runtime owns the view (VEH-19)', () => {
+    const { h, rider, view, drive } = cameraHost();
+    drive(CAMERA_SWEEP_TICKS * 3, 8);
+    expect(view()).toBeDefined();
+    expect(rider.tags.has(CAMERA_OWNER_TAG)).toBe(true);
+    expect(h.host.playerState(rider).camera.location).toBeDefined();
+  });
+
   it('waits a second after the last drag before it eases, and follows the car through a turn', () => {
     const { car, rider, view, drive, drag } = cameraHost();
     drive(2, 8);

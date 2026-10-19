@@ -16,7 +16,7 @@ import { COASTER_RIDER_VIEW, coasterRuntimeConfig, coasterScript, type CoasterRo
 import { FREE_LOOK, cockpitEyeLead } from '../web/src/engine/vehicle-free-look.js';
 import { PoseHistory } from '../web/src/sim/client/draw-lag.js';
 import { attachClient, cameraFrame, ClientView, clientProfile, drawnCameraLead, easeSteadyLagTicks, sampleAnimation, TICK_SECONDS } from '../web/src/sim/client/camera.js';
-import { CAMERA_MAX_TURN_DEG, cameraFrameDelta, clientInvariants, scriptMeansContinuity } from '../web/src/sim/client/invariants.js';
+import { CAMERA_MAX_EYE_JUMP_BLOCKS, CAMERA_MAX_TURN_DEG, cameraFrameDelta, clientInvariants, scriptMeansContinuity } from '../web/src/sim/client/invariants.js';
 import { CameraTrace } from '../web/src/sim/client/steps.js';
 import { rasterizeDetailed, type RasterQuad } from '../web/src/sim/render/rasterizer.js';
 import { buildAddonAppearance, lodDistanceOf } from '../web/src/sim/adapters/craftmatic/appearance.js';
@@ -334,7 +334,7 @@ function rideLoop(profile: 'pixel' | 'saga', camera: Partial<CoasterRiderViewCon
 
 describe('the coaster camera drawn on each client (synthetic loop course)', () => {
   it('on the Pixel both cameras ride the drawn seat and the hand-back is continuous: no own view, the eye within half a block along the heading, and only the hand-back\'s own transient', () => {
-    const { trace } = rideLoop('pixel');
+    const { trace } = rideLoop('pixel', { mode: 'loop' });
     const s = trace.summary(2);
     expect(s.animations).toBeGreaterThanOrEqual(1);
     expect(s.ownFrames).toBe(0);
@@ -351,10 +351,10 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
     // catches up over ~6 ticks. An ease-aware hand-back - the first eased target one tick AHEAD of the steady lag
     // (0.5, then 1.5) - keeps the drawn camera on the seat. NOT a pack change here (the runtime is not package B's);
     // the measurement that says what to change (TODO(handback-ease), bedrock-coaster.ts `HANDBACK_BLEND`).
-    const shipped = rideLoop('pixel');
+    const shipped = rideLoop('pixel', { mode: 'loop' });
     const after = (t: { trace: CameraTrace }) => t.trace.rows.filter(r => r.tick > t.trace.lastHandbackTick && r.tick <= t.trace.lastHandbackTick + 8 && r.lead !== undefined).map(r => r.lead!);
     const worstShipped = Math.max(...after(shipped).map(Math.abs));
-    const noBlend = rideLoop('pixel', { handbackBlend: 1 });
+    const noBlend = rideLoop('pixel', { mode: 'loop', handbackBlend: 1 });
     const worstNoBlend = Math.max(...after(noBlend).map(Math.abs));
     expect(after(shipped).length).toBeGreaterThan(0);
     // The blend's transient is worse than a plain hand-back's; both are behind the seat (negative lead).
@@ -363,7 +363,7 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
   }, 60_000);
 
   it('on the Saga (entity lag 4, the ease not played) the per-tick camera rides 2.5 ticks AHEAD of the drawn car and the animation 0.5: a 2-tick cut at the animation\'s start (the 30g entry jump) and the blend\'s walk forward at the hand-back (the exit swing)', () => {
-    const { trace, client } = rideLoop('saga');
+    const { trace, client } = rideLoop('saga', { mode: 'loop' });
     expect(client.profile.entityLagTicks).toBe(4);
     const steady = trace.rows.filter(r => r.mode === 'free' && (r.speed ?? 0) > 2 && r.lead !== undefined && r.tick - trace.lastHandbackTick > 10);
     const speedAt = (r: { speed?: number }) => (r.speed ?? 0) * TICK_SECONDS;
@@ -380,10 +380,37 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
     expect(starts.length).toBeGreaterThanOrEqual(1);
     for (const r of starts) expect(r.jumpBlocks / speedAt(r), `tick ${r.tick}`).toBeGreaterThan(1.5);
     // And the Pixel shows none of it: both cameras on the seat, no jump at the start.
-    const pixel = rideLoop('pixel');
+    const pixel = rideLoop('pixel', { mode: 'loop' });
     const pixelStarts = pixel.trace.rows.filter((r, i) => r.mode === 'animation' && i > 0 && pixel.trace.rows[i - 1]!.mode === 'free');
     for (const r of pixelStarts) expect(r.jumpBlocks, `pixel tick ${r.tick}`).toBeLessThan(0.5);
   }, 60_000);
+  for (const profile of ['pixel', 'saga'] as const) {
+    it(`native mode (the default) on the ${profile}: the player's own view, and one animation per inversion that leaves and rejoins it with no cut and rides the drawn seat (COAST-06, the user 2026-10-18)`, () => {
+      const { trace, client } = rideLoop(profile);
+      // No per-tick script camera at all: the own view (drawn from the drawn seat by the client) or an animation.
+      expect(trace.rows.filter(r => r.mode !== 'own' && r.mode !== 'animation')).toHaveLength(0);
+      const s = trace.summary(2);
+      expect(s.animations).toBeGreaterThanOrEqual(1);
+      expect(trace.rows.filter(r => r.mode === 'own').length).toBeGreaterThan(300);
+      // Each switch between the own view and the animation meets: under the per-frame caps the invariants judge by.
+      let switches = 0;
+      for (let i = 1; i < trace.rows.length; i++) {
+        const a = trace.rows[i - 1]!, b = trace.rows[i]!;
+        if (a.mode === b.mode) continue;
+        switches++;
+        expect(b.turnDeg, `${profile} tick ${b.tick} ${a.mode} -> ${b.mode}`).toBeLessThan(CAMERA_MAX_TURN_DEG);
+        expect(b.jumpBlocks, `${profile} tick ${b.tick} ${a.mode} -> ${b.mode}`).toBeLessThan(CAMERA_MAX_EYE_JUMP_BLOCKS);
+      }
+      expect(switches).toBeGreaterThanOrEqual(2);
+      // The animation rides the drawn seat: lag 3.5 against the Pixel's 3.5 exactly, 0.5 tick ahead on the Saga's 4.
+      const anim = trace.rows.filter(r => r.mode === 'animation' && (r.speed ?? 0) > 2 && r.lead !== undefined);
+      expect(anim.length).toBeGreaterThan(10);
+      const bound = (r: { speed?: number }) => profile === 'pixel' ? 0.75 : Math.max(0.75, (4 - 3.5 + 0.5) * (r.speed ?? 0) * TICK_SECONDS);
+      for (const r of anim) expect(Math.abs(r.lead!), `${profile} anim tick ${r.tick}`).toBeLessThan(bound(r));
+      expect(client.profile.name).toBe(profile);
+    }, 60_000);
+  }
+
 });
 
 // ─── The round-30m packs, when this machine has them ───

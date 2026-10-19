@@ -180,7 +180,20 @@ per-sample track up (`coasterTrackUps`: gravity's up where upright, the loop's
 own normal through a loop, twist bounded by `TRACK_TWIST_RATE_DEG_PER_BLOCK`).
 
 **Rider camera.** `coasterRiderView` / `coasterRiderLook`, constants in
-`COASTER_RIDER_VIEW`. Default `loop`: tick by tick the `reflect` view (yaw
+`COASTER_RIDER_VIEW`. Default `native` (2026-10-18): NO script camera on
+near-level track - the player's own first person, which the client draws from
+the drawn seat every frame and turns with the finger at once - and one
+animation (`planSection`) over each FAST steep stretch (the car tilted past
+`steepTilt` 25 at `steepSpeed` 5 blocks/s or more, or upside down; stretches
+within `sectionGap` 12 ticks are one), planned by the same ride prediction
+through the station brake (`throughBrake`) up to `sectionHorizon` 160 ticks,
+its views blended from the player's own view (car yaw + head turn, own pitch)
+into the track's and back over `blendTicks` 6, so it starts and ends on what
+the player sees without it. The user rode `loop` (below) as "super laggy,
+stutter-jerks especially for seat 2 and 3, a camera blip reset in a loop, and
+lag when moving the camera by hand": a camera the SERVER sets each tick cannot
+stay locked to cars the CLIENT interpolates, nor follow a drag without a round
+trip. `loop`, the default until then: tick by tick the `reflect` view (yaw
 from the view's right axis — the car's axle — so it never re-derives a yaw
 from a near-vertical nose; the pitch folded back into ±90 past vertical),
 and each inversion sent as ONE camera animation that rolls, planned by

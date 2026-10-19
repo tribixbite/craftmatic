@@ -369,6 +369,13 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   at coaster speed), so both cameras show a PAST pose (`tickLag` 1.5 with
   the 0.1 s ease, `animLag` 3.5; marker-measured, `camprobe`).
   The "Experimental Creator Camera Features" experiment changes none of this.
+  **So the coaster rides the player's OWN first person on near-level track**
+  (`native`, 2026-10-18) and sends only fast steep stretches as one blended
+  animation: a camera the server sets every tick jerked against the
+  client-interpolated train (worst in cars 2-3) and lagged every drag (the
+  user's report). Every runtime that sets a camera tags the rider
+  (`CAMERA_OWNER_TAG`) and sweeps (`releaseOrphanCameras`), so a camera is
+  never left on a player who rides nothing (VEH-19).
   A rider's reported yaw is the CLIENT's and trails its vehicle ~6 ticks.
   Details: the add-on guide's "The rider's camera follows the track".
 - **An unloaded block is not air.** `dim.getBlock` returns `undefined` outside

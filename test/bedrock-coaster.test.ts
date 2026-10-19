@@ -9,6 +9,8 @@ import type { CoasterRiderViewConfig, CoasterRoute, CoasterRouteCar, CoasterRunt
 import type { CoasterCar } from '../web/src/engine/coaster-assemblies.js';
 import { detectCoasterAssemblies } from '../web/src/engine/coaster-assemblies.js';
 import { FLYER } from '../web/src/engine/bedrock-flyer.js';
+import { HOP_TAGS } from '../web/src/engine/bedrock-ride-hop.js';
+import { CAMERA_OWNER_TAG, CAMERA_SWEEP_TICKS } from '../web/src/engine/camera-release.js';
 import { extractCoasterTrackRoutes } from '../web/src/engine/coaster-track.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
 import { parseLDrawDocument } from '../web/src/engine/ldraw-parser.js';
@@ -2222,7 +2224,7 @@ describe('the rider camera follows the track', () => {
   });
 
   it('layers the rider\'s head turn on the track frame, clamped, and recentres by looking back', () => {
-    const h = rideHost(towerRoute(), { seat: [0, 0.35, 0] });
+    const h = rideHost(towerRoute(), { seat: [0, 0.35, 0], camera: { mode: 'loop' } });
     const rider = cameraRider(h.entity, { yaw: 25, pitch: -10 }); // boards looking somewhere else
     h.run(1); h.seat(rider.player); h.run(1);
     // Bedrock turns a new rider to the seat a few ticks after mounting: the
@@ -2273,7 +2275,7 @@ describe('the rider camera follows the track', () => {
   });
 
   it('reflect mode folds the pitch back over a loop and never turns the yaw', () => {
-    const h = rideHost(loopRoute(), { seat: [0, 0.35, 0] });
+    const h = rideHost(loopRoute(), { seat: [0, 0.35, 0], camera: { mode: 'loop' } });
     const { player } = cameraRider(h.entity);
     h.run(1); h.seat(player); h.run(700);
     const views = (player.camera.setCamera.mock.calls as any[][]).map(call => call[1].rotation);
@@ -2381,16 +2383,16 @@ describe('the rider camera follows the track', () => {
     expect(seated).toEqual([child]);
   });
 
-  it('loop mode (the default) sends each inversion as ONE rolling animation, planned with the ride\'s own arithmetic', () => {
+  it('loop mode sends each inversion as ONE rolling animation, planned with the ride\'s own arithmetic', () => {
     const ANIM_LAG = COASTER_RIDER_VIEW.animLag;
     // Measured against a marker on the Pixel (2026-09-29): an animation rides the DRAWN
     // entity at lag ~3.5 and the eased per-tick camera at ~1.5 (both fractional, poses interpolated).
     expect(ANIM_LAG).toBe(3.5);
     expect(COASTER_RIDER_VIEW.tickLag).toBe(1.5);
-    expect(COASTER_RIDER_VIEW.mode).toBe('loop');
+    expect(COASTER_RIDER_VIEW.mode).toBe('native');
     // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
     {
-      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], spline: true });
+      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], camera: { mode: 'loop' }, spline: true });
       const { player } = cameraRider(h.entity);
       const log: Array<{ tick: number; kind: 'set' | 'play'; args: any[]; distance: number }> = [];
       let tick = 0;
@@ -2471,7 +2473,7 @@ describe('the rider camera follows the track', () => {
   it('loop mode hands back at once when the ride leaves the plan (a held chunk)', () => {
     // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
     {
-      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], spline: true });
+      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], camera: { mode: 'loop' }, spline: true });
       const { player } = cameraRider(h.entity);
       (player.camera as any).playAnimation = vi.fn();
       h.run(1); h.seat(player);
@@ -2503,7 +2505,7 @@ describe('the rider camera follows the track', () => {
         for (tick = 0; tick < 700; tick++) h.run(1);
         return log;
       };
-      const plain = eyesAt({ mode: 'reflect', tickLag: 0 }), lagged = eyesAt({ tickLag: 1.5, animLag: 3.5 });
+      const plain = eyesAt({ mode: 'reflect', tickLag: 0 }), lagged = eyesAt({ mode: 'loop', tickLag: 1.5, animLag: 3.5 });
       const eye = (log: typeof plain, tick: number) => log.find(e => e.tick === tick && e.kind === 'set')?.args[1].location;
       const mid = (a: any, b: any, f: number) => ({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, z: a.z + (b.z - a.z) * f });
       const close = (a: any, b: any) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 1e-9;
@@ -2542,7 +2544,7 @@ describe('the rider camera follows the track', () => {
   });
 
   it('a client without LinearSpline rides loop mode on the per-tick reflect camera alone', () => {
-    const h = rideHost(loopCourse(), { seat: [0, 0.35, 0] });
+    const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], camera: { mode: 'loop' } });
     const { player } = cameraRider(h.entity);
     (player.camera as any).playAnimation = vi.fn();
     h.run(1); h.seat(player); h.run(400);
@@ -2585,7 +2587,7 @@ describe('the rider camera follows the track', () => {
       // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
       {
         const work = rideWork();
-        const h = rideHost(steepTower(grade), { seat: [0, 0.35, 0], wrapMath: work.wrapMath, spline: true });
+        const h = rideHost(steepTower(grade), { seat: [0, 0.35, 0], camera: { mode: 'loop' }, wrapMath: work.wrapMath, spline: true });
         const { player } = cameraRider(h.entity);
         (player.camera as any).playAnimation = vi.fn();
         h.run(1); h.seat(player); h.run(1); work.take();
@@ -2617,7 +2619,7 @@ describe('the rider camera follows the track', () => {
     // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
     {
       const work = rideWork();
-      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], wrapMath: work.wrapMath, spline: true });
+      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], camera: { mode: 'loop' }, wrapMath: work.wrapMath, spline: true });
       const { player } = cameraRider(h.entity);
       const plays: number[] = [];
       let tick = 0;
@@ -2642,6 +2644,124 @@ describe('the rider camera follows the track', () => {
     }
   });
 
+  /**
+   * A `native` ride on the loop course with the rider's head turned `head` (the cameraRider's yaw trails the car by
+   * `lookLag`, as the Pixel reports it): every camera call logged, with the car's yaw per tick.
+   */
+  function nativeRide(head = { yaw: 0, pitch: 0 }, route = loopCourse(), ticks = 1200) {
+    const h = rideHost(route, { seat: [0, 0.35, 0], spline: true });
+    expect(h.config.camera?.mode).toBe('native');
+    const { player } = cameraRider(h.entity, head);
+    const log: Array<{ tick: number; kind: 'set' | 'play' | 'clear'; args: any[] }> = [];
+    let tick = 0;
+    (player.camera as any).playAnimation = vi.fn((...args: any[]) => { log.push({ tick, kind: 'play', args }); });
+    player.camera.setCamera.mockImplementation((...args: any[]) => { log.push({ tick, kind: 'set', args }); });
+    player.camera.clear.mockImplementation(() => { log.push({ tick, kind: 'clear', args: [] }); });
+    h.run(1); h.seat(player);
+    const yaws: number[] = [];
+    for (tick = 0; tick < ticks; tick++) {
+      h.run(1);
+      const teleports = h.entity.tryTeleport.mock.calls as any[][];
+      yaws[tick] = Number(teleports.at(-1)?.[1].rotation.y);
+    }
+    return { h, log, yaws, plays: log.filter(e => e.kind === 'play') };
+  }
+  const wrapDeg = (a: number) => ((a % 360) + 540) % 360 - 180;
+  /** The car's yaw at fractional tick `t` (ticks one apart, interpolated the short way round). */
+  const yawAt = (yaws: number[], t: number) => {
+    const i = Math.floor(t), f = t - i, a = yaws[i]!, b = yaws[i + 1] ?? a;
+    return a + wrapDeg(b - a) * f;
+  };
+
+  it('native mode (the default): no camera on level track; each steep stretch is ONE animation that starts and ends on the player\'s own view (COAST-06, the user 2026-10-18)', () => {
+    const { log, yaws, plays } = nativeRide();
+    // The player's own first person throughout: the server never sets the camera, so nothing it sends can lag or
+    // jerk against the cars the client draws, and a drag turns the view at once.
+    expect(log.filter(e => e.kind === 'set')).toHaveLength(0);
+    expect(log.filter(e => e.kind === 'clear')).toHaveLength(0);
+    // The shuttle runs the loop out and back.
+    expect(plays.length).toBeGreaterThanOrEqual(2);
+    for (const play of plays) {
+      const [spline, options] = play.args;
+      const keys = options.animation.rotationKeyFrames as any[];
+      const total = Math.round(options.totalTimeSeconds / 0.05);
+      expect(total % 2).toBe(0);
+      expect(spline.controlPoints).toHaveLength(total + 1);
+      expect(options.animation.progressKeyFrames.at(-1).alpha).toBeCloseTo(1, 9);
+      for (let k = 1; k < keys.length; k++) expect(keys[k].timeSeconds - keys[k - 1].timeSeconds).toBeGreaterThan(0.05);
+      // It starts on the player's own view: the drawn car's yaw (the pose animLag back) and their own pitch, no roll.
+      const own = (k: number) => yawAt(yaws, play.tick + k - COASTER_RIDER_VIEW.animLag);
+      expect(Math.abs(wrapDeg(keys[0].rotation.y - own(0)))).toBeLessThan(1);
+      expect(keys[0].rotation.x).toBeCloseTo(0, 6);
+      expect(keys[0].rotation.z).toBeCloseTo(0, 6);
+      // ...and ends on it, whatever chart the loop left the pitch in (a whole turn on is the same view).
+      const last = keys.at(-1);
+      expect(Math.abs(wrapDeg(last.rotation.y - own(total)))).toBeLessThan(1);
+      expect(Math.abs(wrapDeg(last.rotation.x))).toBeLessThan(1e-6);
+      expect(last.rotation.z).toBeCloseTo(0, 6);
+      // One chart: no keyframe-to-keyframe jump an Euler-lerping client would draw as a spin.
+      for (let i = 1; i < keys.length; i++) {
+        const a = keys[i - 1].rotation, b = keys[i].rotation;
+        expect(Math.abs(b.y - a.y)).toBeLessThan(45);
+        expect(Math.abs(b.x - a.x)).toBeLessThan(60);
+        expect(Math.abs(b.z - a.z)).toBeLessThan(45);
+      }
+      // The loop is drawn: the view passes upside down.
+      expect(keys.some(key => rollFrame({ yaw: key.rotation.y, pitch: -key.rotation.x, roll: key.rotation.z }).u[1] < -0.9)).toBe(true);
+      // Nothing touches the camera while it plays.
+      expect(log.filter(e => e.tick > play.tick && e.tick < play.tick + total)).toHaveLength(0);
+    }
+  });
+
+  it('native mode carries the rider\'s head turn into the animation and back out of it', () => {
+    const head = { yaw: 30, pitch: 15 };
+    const { yaws, plays } = nativeRide(head);
+    expect(plays.length).toBeGreaterThanOrEqual(2);
+    for (const play of plays) {
+      const keys = play.args[1].animation.rotationKeyFrames as any[];
+      const total = Math.round(play.args[1].totalTimeSeconds / 0.05);
+      const own = (k: number) => yawAt(yaws, play.tick + k - COASTER_RIDER_VIEW.animLag) + head.yaw;
+      expect(Math.abs(wrapDeg(keys[0].rotation.y - own(0)))).toBeLessThan(1);
+      expect(keys[0].rotation.x).toBeCloseTo(-head.pitch, 6);
+      expect(Math.abs(wrapDeg(keys.at(-1).rotation.y - own(total)))).toBeLessThan(1);
+      expect(Math.abs(wrapDeg(keys.at(-1).rotation.x + head.pitch))).toBeLessThan(1e-6);
+    }
+  });
+
+  it('native mode leaves a slow steep climb to the player and animates the fast run back down, predicting a few ticks at a time', () => {
+    const work = rideWork();
+    const h = rideHost(steepTower(0.95), { seat: [0, 0.35, 0], wrapMath: work.wrapMath, spline: true });
+    const { player } = cameraRider(h.entity);
+    const plays: Array<{ tick: number; total: number }> = [];
+    let tick = 0;
+    (player.camera as any).playAnimation = vi.fn((_spline: unknown, options: any) => { plays.push({ tick, total: Math.round(options.totalTimeSeconds / 0.05) }); });
+    h.run(1); h.seat(player); h.run(1); work.take();
+    let worst = 0, predicted = 0, steepClimbing = 0;
+    const pitchCalls = () => (h.entity.setProperty.mock.calls as any[][]).filter(call => call[0] === 'craftmatic:track_pitch');
+    const climbingAt: boolean[] = [];
+    for (tick = 0; tick < 1500; tick++) {
+      h.run(1);
+      const extra = Math.max(0, work.take().predictions - 1);
+      predicted += extra; worst = Math.max(worst, extra);
+      const d = h.distances;
+      climbingAt[tick] = d.length > 1 && d.at(-1)! > d.at(-2)! + 1e-9;
+      if (climbingAt[tick] && Math.abs(Number(pitchCalls().at(-1)?.[1] ?? 0)) > 30) steepClimbing++;
+    }
+    expect(steepClimbing).toBeGreaterThan(40);
+    expect(plays.length).toBeGreaterThanOrEqual(2);
+    // The climb is slow (the chain's 2.5 blocks/s): no animation starts on it unless the fast run back down begins
+    // within the 10 ticks an animation may blend in ahead of its stretch.
+    for (const play of plays) {
+      if (!climbingAt[play.tick]) continue;
+      let turn = play.tick; while (turn < play.tick + 12 && climbingAt[turn]) turn++;
+      expect(climbingAt[turn], `animation at tick ${play.tick} started mid-climb`).toBe(false);
+    }
+    // A prediction never runs past the section horizon, and the camera's prediction work over the whole ride stays
+    // a few ride steps a tick on average (the 2026-09-25 regression: 80 every steep tick).
+    expect(worst).toBeLessThanOrEqual(COASTER_RIDER_VIEW.sectionHorizon! + 1);
+    expect(predicted / 1500).toBeLessThan(4);
+  });
+
   it('gives the player their own camera back, and their visibility, on dismount', () => {
     const h = rideHost(towerRoute());
     const { player } = cameraRider(h.entity);
@@ -2655,8 +2775,16 @@ describe('the rider camera follows the track', () => {
     h.run(1);
     expect(player.camera.clear).toHaveBeenCalledTimes(1);
     expect(player.removeEffect).toHaveBeenCalledWith('invisibility');
-    h.run(5);
-    expect(player.camera.clear).toHaveBeenCalledTimes(1);
+    // The hidden tag goes with the invisibility; the camera tag stays for the sweep (VEH-19), which clears once
+    // more within CAMERA_SWEEP_TICKS and takes it off - and then never again.
+    expect(player.hasTag(CAMERA_OWNER_TAG)).toBe(true);
+    expect(player.hasTag(HOP_TAGS.hidden)).toBe(false);
+    h.run(CAMERA_SWEEP_TICKS);
+    expect(player.hasTag(CAMERA_OWNER_TAG)).toBe(false);
+    const clears = player.camera.clear.mock.calls.length;
+    expect(clears).toBeLessThanOrEqual(2);
+    h.run(CAMERA_SWEEP_TICKS * 2);
+    expect(player.camera.clear).toHaveBeenCalledTimes(clears);
   });
 
   it('floats a player who leaves a car in the air down, and leaves one who gets off on the ground alone (SEAT-05, round 30zh)', () => {
@@ -2792,7 +2920,7 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
     // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
     {
       const { scene } = await corpusRoutes(PUBLISHED_10303);
-      const h = liftHost(scene.routes[0]!, undefined, WHEELBASE_10303, { spline: true });
+      const h = liftHost(scene.routes[0]!, { mode: 'loop' }, WHEELBASE_10303, { spline: true });
       const rider = cameraRider(h.lead.entity);
       const log: Array<{ tick: number; kind: 'set' | 'play'; args: any[] }> = [];
       let tick = 0;
@@ -2831,6 +2959,48 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
         }
       }
       expect(worstYawStep).toBeLessThan(20);
+    }
+  }, 240_000);
+
+  it('native mode (the default) in every car: no per-tick camera, and the drop and both loops as ONE animation a lap that leaves and returns to the player\'s own view (COAST-06, the user 2026-10-18: seats 2 and 3)', async () => {
+    const { scene } = await corpusRoutes(PUBLISHED_10303);
+    for (const index of [0, 1, 2]) {
+      const h = liftHost(scene.routes[0]!, undefined, WHEELBASE_10303, { spline: true });
+      expect(h.config.camera?.mode).toBe('native');
+      const car = h.cars[index]!;
+      const rider = cameraRider(car.entity);
+      const log: Array<{ tick: number; kind: 'set' | 'play'; args: any[] }> = [];
+      let tick = 0;
+      (rider.player.camera as any).playAnimation = vi.fn((...args: any[]) => { log.push({ tick, kind: 'play', args }); });
+      rider.player.camera.setCamera.mockImplementation((...args: any[]) => { log.push({ tick, kind: 'set', args }); });
+      h.run(1); car.seat(rider.player);
+      for (tick = 0; tick < 2400; tick++) h.run(1);
+      expect(log.filter(e => e.kind === 'set'), `car ${index}`).toHaveLength(0);
+      const plays = log.filter(e => e.kind === 'play');
+      // Two laps (the lift and the station dwell take most of each): one animation per lap, never one cut short and
+      // re-planned mid-stretch.
+      expect(plays.length, `car ${index}`).toBeGreaterThanOrEqual(2);
+      for (let i = 1; i < plays.length; i++) expect(plays[i]!.tick - plays[i - 1]!.tick, `car ${index}`).toBeGreaterThan(300);
+      for (const play of plays) {
+        const keys = play.args[1].animation.rotationKeyFrames as any[];
+        // Both loops are in it: the view passes upside down twice, separately, and comes back to the player's own.
+        let passes = 0, inverted = false;
+        for (const key of keys) {
+          const now = rollFrame({ yaw: key.rotation.y, pitch: -key.rotation.x, roll: key.rotation.z }).u[1] < -0.5;
+          if (now && !inverted) passes++;
+          inverted = now;
+        }
+        expect(passes, `car ${index}`).toBe(2);
+        expect(keys[0].rotation.x).toBeCloseTo(0, 6);
+        expect(Math.abs(((keys.at(-1).rotation.x % 360) + 540) % 360 - 180)).toBeLessThan(1e-6);
+        expect(keys[0].rotation.z).toBeCloseTo(0, 6);
+        expect(keys.at(-1).rotation.z).toBeCloseTo(0, 6);
+        for (let i = 1; i < keys.length; i++) {
+          expect(Math.abs(keys[i].rotation.y - keys[i - 1].rotation.y), `car ${index} key ${i}`).toBeLessThan(45);
+          expect(Math.abs(keys[i].rotation.x - keys[i - 1].rotation.x), `car ${index} key ${i}`).toBeLessThan(80);
+          expect(Math.abs(keys[i].rotation.z - keys[i - 1].rotation.z), `car ${index} key ${i}`).toBeLessThan(45);
+        }
+      }
     }
   }, 240_000);
 

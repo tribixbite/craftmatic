@@ -2428,7 +2428,7 @@ pitches to the zenith and back down to level over the top, world upright.
 10303 host numbers: worst yaw step 16.7°/tick (a real curve at 18 blocks/s),
 none on the drop or in the loops, where `clamp` stepped 40.
 
-**Through an inversion, one animation (`loop`, the default)**: measured on the
+**Through an inversion, one animation (`loop`, the default until 2026-10-18)**: measured on the
 Pixel, a camera animation re-issued every tick draws NO rotation (only the
 last, uninterrupted one does; with or without the experiment), but a single
 uninterrupted animation rolls: `loopsim` (a 5-block loop in front of the
@@ -2599,8 +2599,48 @@ probes flash at neither cut pattern; a rider missing from one tick's
 `getRiders()` would `camera.clear()` exactly so. Unconfirmed as the cause;
 the grace costs 0.05 s on a real dismount.
 
+**The player's own view between steep stretches (`native`, the default since
+2026-10-18).** The user rode `loop` in their own world as "super laggy, with
+stutter-jerks especially for seat 2 and 3, and a full camera blip reset during
+one of the upside-down loops", with lag "when a player manually moves the
+camera around", and asked for a smooth, fast ride with no hiccups. No camera
+code had changed since the packs they rode (1f1fb9f7), so it was the shipped
+design. Offline the per-tick camera is equally smooth in every car
+(`output/coaster-cam-1018/`, `cam_stats.py`: the host runs a perfect 20 Hz);
+what it cannot model is the device. A camera the server sets every tick (eased
+0.1 s, the ease restarted by each call) is drawn on the server's schedule, the
+cars on the client's interpolation: any unevenness in the script tick shows as
+the camera jerking against the train, and the further back the seat, the more
+train is in view - seats 2 and 3. The simulator's Saga profile (entity lag 4,
+the ease not played) already put that camera 2.5 ticks AHEAD of the drawn car.
+And the rider's look reaches the camera only through the server (the client's
+rotation read, the camera sent back, eased): a drag can never be immediate.
+
+So the ride now sets NO camera on near-level track: the player's own first
+person rides the drawn seat at the client's frame rate (the entity is placed
+so its upright seat IS the real seat, `carPose`, so that eye is the track
+camera's eye) and turns with the finger at once; Bedrock turns it with the car.
+Only a fast steep stretch - a drop, a loop, a hard bank (`steepTilt` 25 at
+`steepSpeed` 5 blocks/s, or upside down at any speed) - is one planned
+animation (`planSection`), because only an animation can roll or pitch the
+view past what the player holds. It blends from the player's own view (the
+car's yaw plus their head turn, their own pitch) into the track's over
+`blendTicks` 6 and back out the same way, so it starts on exactly what the
+player sees and its end - where the client returns the player's own view, the
+"flash" `loop` had to avoid - is that same view; the chart is unwrapped so the
+blend after a loop does not spin round. 10303's drop and both loops are ONE
+animation a lap (~5.8 s): stretches within `sectionGap` 12 ticks join, the
+plan runs through the station brake as the ride applies it (`throughBrake`:
+the second loop exits straight into it), and `sectionHorizon` is 160 ticks. A
+slow chain climb stays the player's own view to look round on. While an
+animation plays the player cannot look round; nothing else touches the camera,
+and a held ride tick no longer cuts it (the eye would only run a tick ahead).
+The held wand shows in the player's own first person on level track, as on any
+Bedrock mount. `loop` and the other modes remain for comparison (`mode`).
+Device proof: TASKS "Start here" (round 30zq).
+
 Host tools: `bun scripts/_coaster_cam_probe.ts <pack> [--rebuild]
-[--camera='{"animTail":0}']` prints every camera call and every animation's
+[--camera='{"animTail":0}'] [--car=r0c1]` prints every camera call and every animation's
 keyframes tick by tick for a rider whose head follows the car (the replay's
 rider is fixed at yaw 0, which reads as a 70-degree head turn).
 
