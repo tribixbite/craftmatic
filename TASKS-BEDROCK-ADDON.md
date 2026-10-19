@@ -179,9 +179,25 @@ The round-30m fixes on the phones:
      chest-height slab and it does not jump. Recorded in quirk `auto-jump` (evidence + gap; NOT modelled: one point does
      not say which rule Bedrock applies). PROBE: `bun scripts/_autojump_course.ts` prints a 9-lane course of
      collider forms (overhang depth 0-1, lip height 0.5-0.75, a 30zn replica) as chat commands plus the sim's verdict
-     per lane (Java rule: climbs to 0.5 deep, stops at 0.75 and a bare lip); Pixel round 30zo walks it
-     (`output/device-round-2026-10-18zo/`, brief + `pixel/notes.md`). Then model the rule and add a regression case; then decide whether the planner should
-     avoid such an overhang over a tread's approach.
+     per lane. PIXEL 30zo (`output/device-round-2026-10-18zo/pixel/notes.md`, 2/2 per lane): Java's rule matched 6/9;
+     Bedrock's lookahead is from the FEET, not past the move: 9/9, MERGED 2026-10-18 (88e51ab5, CI green; course + device verdicts `web/src/sim/quirks/autojump-course.ts`, guard
+     `test/auto-jump.test.ts :: the Pixel 30zo course`). `_walk_line --jump=auto` with it: 300 % lane 30.5 = the
+     device (6.25 at z 33.30, was a 3-block fall); 400 % lane 31.5 ends z 89.30 at 2.13 (device z 90.30 at 1.25:
+     a walk-off landing one column short, not auto-jump; `output/scale06-1018/autojump-variant-lines.txt`). The lane
+     pass (`bedrock-placement-pack.ts` lane walk) walks with this rule, so packs change: the 24-set rebuild vs 30zn
+     (`output/scale06-1018/aj-all.txt`) changed treads + placement.js in 17 sets (10261 lane-pass runs 774 -> 741 at
+     300 %, 918 -> 877 at 400 %), yet every device-proven SCALE-06 line walks IDENTICALLY on old and new packs
+     (`aj-lines.txt`); full suite 3331/0 (`fulltest-aj.txt`); sim 144/0, regressions 38/0 (2 known-unreproduced =
+     30zn; `aj-sim.txt` / `aj-regr.txt`, the nimbus fixture built into `aj-all` too). 10261 at 200 % lost 6 lane-pass
+     treads (`_tread_run_diff.py`), one ON the lift lane (x 36, z 5 -> 6, 8.25 up). Offline lift lane z+4.6 climbs to
+     43.5 and holds at the edge, but lane z+5.0 stops at x 17.7 (4.6 up) on BOTH aj-all and 30zn packs, where Pixel
+     30m climbed it. PIXEL 30zp (aj-all packs, `output/device-round-2026-10-18zp/pixel/notes.md`) = offline on all
+     three: lane z+4.6 climbs to 43.5 and holds at x+79.7; top south-east holds 2/2; lane z+5.0 stops at x+17.7 ~4 up
+     2/2 (HUD log `shots/_liftB1-hud.jpg`); placement ~30 s, 0 errors, 0 watchdog lines. OPEN (minor): lane z+5.0 was
+     lost between 30m and 30zn (NOT by this change: the 30zn pack stops there offline too); find which pack with
+     `_tread_run_diff.py` on the round packs if a second lift lane matters. NOTE the pack's 1-block z0 margin: at 200 %
+     the model corner is pin + (0, 0, 2), so 30m's pin-relative spots move +2 in z. Then decide whether the planner should avoid such an overhang over a tread's approach.
+     The probe's walls turned the grass under them to dirt; the tester restored it (`fill ... grass_block replace dirt`).
      TODO: no unit test for the cross-pass swap itself (the flank case); `output/scale06-1017/soft-kept/` is its check.
      OPEN: the watchdog line at 300/400 % placement on the Pixel (memory during re-laying).
      OPEN (test time): test/interactive-passability.test.ts '76417: every doorway' times out at 600 s on
@@ -199,9 +215,14 @@ The round-30m fixes on the phones:
      byte-identical to round 30zn bar diagnostics (`output/scale06-1017/ab-all.txt`, `perf-ab.sh`,
      `pack_json_equal.py`). Build s, 30zn log -> merged: 76417 1087 -> 816, 10326 254 -> 202, 76457 212 -> 173,
      42639 211 -> 172, 21063 105 -> 91, 10303 835 -> 836 (untouched: its time is elsewhere), 10261 1852 (no 30zn
-     figure). Next: PROFILE 10303 and 10261 (`bun --cpu-prof`; the 76417 branch profile is
-     `output/scale06-1017/prof76417/`); then fewer rebuild+walk rounds in `crossPass` (`withEveryRun` after each
-     revert) and `guardPass` `settle` (output-changing: needs the three device lines re-walked). A clego Claude session's pwsh
+     figure). 10303 PROFILED (`output/scale06-1018/prof10303/`, walk counts `stats10303/run.log`): verify
+     walks 4798 / 133 s (the last required key is found at 96 % of a walk, so early exit on success is useless),
+     guardPass `settle` `fine()` 2 x 3342 walks / ~182 s, crossPass + latePass tens of s each. TRIED, NOT MERGED
+     (branch `scale06-perf2`, 0531bbc2): stopping a guard `fine()` walk once it stands on a laid guard top gives the
+     same packs but no gain - 10303 quiet, back to back: main 802 s, perf2 803 s (`output/scale06-1018/time10303/
+     times.txt`); the settle walks that cost are the ones that pass. Don't retry. Further: fewer rebuild+walk rounds in `crossPass` (`withEveryRun` after each
+     revert), fewer slow-path verifies. `.worktrees/carve` holds TEMPORARY uncommitted walk-count instrumentation
+     (`CM_WALK_STATS`): never commit it. A clego Claude session's pwsh
      held one core the whole time (not this repo's; left alone).
      Evaluation tools: `output/scale06-1016/carve2/tools/` (`eval.sh <packs>`, `pack_diff.py`, `carve_stats.ts`).
      Also: 21061 run 4 climbs a 0.6x0.5 tree part; the jump-rule

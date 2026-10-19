@@ -91,7 +91,10 @@ const EPS = 1e-7;
  *     over the feet (Java's 0.5 and 1.2, no jump boost) - a taller one is never tried, though a pressed jump
  *     reaches `JUMP_PEAK` (1.2522);
  *   - it is found by two horizontal probes at `AUTO_JUMP_PROBE_HEIGHT` (0.51) over the feet, along the box's two
- *     sides, from the feet to `AUTO_JUMP_LOOKAHEAD` (0.7: the walk speed attribute 0.1 x 7) past this tick's move;
+ *     sides, from the feet to `AUTO_JUMP_LOOKAHEAD` (0.7: the walk speed attribute 0.1 x 7) from the feet - Java
+ *     measures it past this tick's move; Bedrock's is shorter (MEASURED, Pixel round 30zo's course,
+ *     `sim/quirks/autojump-course.ts`: 9/9 lanes with the lookahead from the feet, 6/9 past the move), so a
+ *     chest-height lip with the step-able box half a block behind its face is not jumped;
  *   - only moving forward: the move direction against the facing at or over `AUTO_JUMP_BACKWARD_DOT` (-0.15);
  *   - only with the two block cells over the head (the one holding the box's top and the next) free of collision;
  *   - on the ground, not sneaking, and the jump is made on the NEXT tick (Java's `autoJumpTime = 1`).
@@ -426,9 +429,11 @@ export function autoJumpWanted<S extends Box>(world: SolidQuery<S>, s: { x: numb
     .filter(q => q.x1 > bx + EPS && q.x0 < bx + 1 - EPS && q.y1 > by + EPS && q.y0 < by + 1 - EPS && q.z1 > bz + EPS && q.z0 < bz + 1 - EPS);
   const hx = Math.floor(s.x), hy = Math.floor(s.y + dims.height), hz = Math.floor(s.z);
   if (cellSolid(hx, hy, hz).length || cellSolid(hx, hy + 1, hz).length) return false;
-  // The two side probes, at 0.51 over the feet, from the feet to the lookahead past this move.
+  // The two side probes, at 0.51 over the feet, from the feet to the lookahead FROM THE FEET. Java reaches the
+  // lookahead past this tick's move; Bedrock does not (Pixel 30zo: a box 0.5 past a lip's face is not seen by a
+  // player pressed against the lip - reaching past the move saw it - while one 0.25 past is).
   const reach = Math.max(AUTO_JUMP_LOOKAHEAD, len);
-  const end = { x: s.x + d.x + dir.x * reach, z: s.z + d.z + dir.z * reach };
+  const end = { x: s.x + dir.x * reach, z: s.z + dir.z * reach };
   const py = s.y + AUTO_JUMP_PROBE_HEIGHT, half = dims.width / 2;
   const perp = { x: -dir.z * half, z: dir.x * half };
   const probes = [-1, 1].map(k => ({ x0: Math.min(s.x, end.x) + k * perp.x, x1: Math.max(s.x, end.x) + k * perp.x, z0: Math.min(s.z, end.z) + k * perp.z, z1: Math.max(s.z, end.z) + k * perp.z }));
