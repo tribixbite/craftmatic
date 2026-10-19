@@ -9,6 +9,28 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
+### IN FLIGHT 2026-10-18: the user's camera / lag reports (COAST-06, VEH-19, PIN-02)
+
+The user (their own world, every round pack bound): the 10303 ride "super laggy, stutter-jerks especially for seat
+2 and 3, a full camera blip reset in an upside-down loop", lag when moving the camera by hand; dismounting vehicles
+leaves the camera "locked in one location - big bug"; pinball "the same client server lag". Shared with them: all
+26 packs as `output/craftmatic-packs-2026-10-18-86f8e130.zip` (sha256 01dd8883...; loop camera, the old release).
+- DONE OFFLINE, merged locally as `b32e3e30` (main + origin's verify batch; full suite RUNNING,
+  `output/coaster-cam-1018/fulltest.txt`; push after it is green): coaster camera `native` (default): no camera on
+  near-level track, one blended animation per fast steep stretch (`planSection`); camera owner tag + sweep
+  (`camera-release.ts`) in the vehicle and coaster runtimes; `vehicle-camera.js` finds riders from the players.
+  Tools: `scripts/_ride_smoothness.py <video> --window=a-b` (stalls/s, jerk; 09-29 Pixel loop ride: 1.70 stalls/s
+  moving), `scripts/_sim_script_cost.ts <packs-dir>` (per-pack callback time; 26 packs idle: 111 callbacks a tick,
+  13 vehicles.js + 13 vehicle-camera.js entity scans), `_coaster_cam_probe.ts --car=r0c1`.
+- IN FLIGHT round 30zq phase A (no deploy): Pixel (`brief-pixel-30zq.md`): 10303 old camera in cars 2/3 recorded,
+  drag latency, smoothness numbers; Saga (`brief-saga-30zq.md`): try to REPRODUCE the locked camera on its current
+  packs (7 dismount cases incl. reload mid-ride). Then: build `output/device-round-2026-10-18zq/build.sh` from the
+  pushed commit, sim gates, SendMessage both agents for phase B (new packs; `/script profiler` CPU profiles with all
+  packs, idle and playing pinball), record, new zip for the user.
+- The VEH-19 cause is NOT known (each runtime's own release clears on dismount); the sweep covers a runtime that
+  lost its rider and a clear dropped mid-ease. PIN-02's remaining lag is the server tick under every pack: decide
+  from the device profile which runtimes to gate (idle vehicles.js scans every pack's vehicles each tick in 13 packs).
+
 ### Handoff (2026-10-12, main `304a0df6`+, CI green)
 
 **Read [REQUIREMENTS.md](REQUIREMENTS.md) first**: every user request with
