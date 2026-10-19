@@ -15,7 +15,7 @@ The user (their own world, every round pack bound, plays on a SAGA): the 10303 r
 especially for seat 2 and 3, a full camera blip reset in an upside-down loop", lag when moving the camera by hand;
 dismounting vehicles leaves the camera "locked in one location - big bug"; pinball "the same client server lag".
 SHARED 2026-10-19 07:10: `output/craftmatic-packs-2026-10-19-4fed7295.zip` (sha256 16c0737d...784a). It carries the
-drop cut and the Pixel timing found below: RE-SHARE the 30zw build once its device round passes.
+drop cut and the Pixel timing found below: RE-SHARE once the drop cut is fixed on the device.
 - WHY the Saga rode badly (round 30zv, `output/device-round-2026-10-19zv/saga/notes.md`, marker runs): the Saga draws
   entities 5.7 ticks behind (not the derived 4), applies properties 4.1 early (not 3.3), plays ~half the camera ease;
   every shipped pack used the Pixel's 3.5 / 3.3, so on a Saga the blended camera ran ~2.3 blocks ahead of the seat at
@@ -28,13 +28,22 @@ drop cut and the Pixel timing found below: RE-SHARE the 30zw build once its devi
   Saga 7.1); 4fed7295 started each animation on the reported yaw. Fixed c02fbbcc: start on the drawn car + head turn,
   head turn read against each rider's fitted report lag (`fitReportLag`, per-tick turns). The sim client now draws
   the own view on the drawn car (`ClientView.ownPose`).
-- BUILT (all exit 0, stamp 9e46b8c4); device round 30zw RUNNING on both phones, sim gates running (`output/device-round-2026-10-19zw/sim/`): round 30zw from 9e46b8c4 (`output/device-round-2026-10-19zw/build.sh`, log `build.log`, packs-9e46b8c4,
-  creator-9e46b8c4; carries the hop claim sweep 3734a496 too). Then: sim gates (default, `--scenario=regressions
-  --new=`, `--scenario=coaster-camera --cars=1,2,3` on 10303/10261/42703, both clients), device round 30zw (briefs
-  `output/device-round-2026-10-19zw/brief-{pixel,saga}-30zw.md`): cars 2 and 3, drop and loops, no cut, no
-  bodywork, camera on the seat; the Saga is the one that matters (the user's phone). Then share the zip.
-- Still open after 30zu: a dark hull BAND across 30-60 % of the view in both loops (both phones; may be the Saga
-  timing, re-check on 30zw); the snap back to the own view after loop 2 (1-6 frames); from car 3 a posed rider's
+- ROUND 30zw (9e46b8c4, `output/device-round-2026-10-19zw/{saga,pixel}/notes.md`): the drop CUT is NOT fixed. Saga:
+  car 3 smooth (pitches down from the own view), car 2 still cuts ~90 degrees at Td+0.6-0.9 every lap (frames
+  `saga/frames/C-car2-start-lap1.jpg` 42.75 -> 42.78). Pixel: cut in cars 2 AND 3 every lap (`pixel/frames/
+  C-car2-lap1-drop30.jpg` 46.29 -> 46.32): the first animated view looks ~70-90 degrees LEFT of the track (the lift
+  tower) and swings back to the track over ~0.4 s = the start blend, so the head turn `look` it starts from is wrong
+  on the device though the sim (both clients, cars 1-3, 0 violations, `zw/sim/coaster-cars.log`) is clean. Loop
+  smears stay gone; the hull band in the loops is NOT gone (Saga car 3 halved by count, same by eye; Pixel unchanged);
+  the hand-back after loop 2 is 1-3 frames in Saga car 2, smooth in car 3. Hop tag gone by 12 s (Saga) / 6.5 s (Pixel).
+  Memory: Saga PSS 5.19 GB after rides (26 bound), Pixel MemAvailable 894 MB at the all-26 load. 0 content-log errors.
+  NOT re-shared: the zip waits for the cut.
+- PROBE 30zx RUNNING on both phones (commit 9eda695f adds a per-tick `native-debug {"what":"t"}` line: reported yaw
+  `ry`, car yaw `car`, fitted `lag`, camera state `s`): debug pack `output/device-round-2026-10-19zx/probe-9eda695f/
+  10303-loop-coaster-debug.mcaddon` (sha256 7498b348...), briefs `brief-{saga,pixel}-30zx.md`: car 2 boarded at the
+  station vs mid-lap with `/ride`, car 3, car 1; per drop the `t` lines around the arm beside 30 fps frames. Next:
+  find which of `ry` / `car` / `lag` makes `look` wrong, fix with a guard, rebuild, device round, then share the zip.
+- Still open: the hull band in the loops (both phones); the hand-back snap (Saga car 2); from car 3 a posed rider's
   pink hair fills the lower right (`output/device-round-2026-10-19zu/pixel/frames/C-car3-drop-lap1-b.jpg`).
 - PIN-02: Saga busy median 8.6 ms with all 26 bound (30zs 8.8); `Entity::isValid` at roster.js:29 is the top self
   (14.4 %). Pinball on the Pixel: taps on the drawn zone outlines did not flip; taps lower (cabinet buttons, table
