@@ -15,7 +15,7 @@ The user (their own world, every round pack bound, plays on a SAGA): the 10303 r
 especially for seat 2 and 3, a full camera blip reset in an upside-down loop", lag when moving the camera by hand;
 dismounting vehicles leaves the camera "locked in one location - big bug"; pinball "the same client server lag".
 SHARED 2026-10-19 07:10: `output/craftmatic-packs-2026-10-19-4fed7295.zip` (sha256 16c0737d...784a). It carries the
-drop cut and the Pixel timing found below: RE-SHARE once the drop cut is fixed on the device.
+drop cut; superseded by the 19c3986b zip (below).
 - WHY the Saga rode badly (round 30zv, `output/device-round-2026-10-19zv/saga/notes.md`, marker runs): the Saga draws
   entities 5.7 ticks behind (not the derived 4), applies properties 4.1 early (not 3.3), plays ~half the camera ease;
   every shipped pack used the Pixel's 3.5 / 3.3, so on a Saga the blended camera ran ~2.3 blocks ahead of the seat at
@@ -36,11 +36,14 @@ drop cut and the Pixel timing found below: RE-SHARE once the drop cut is fixed o
   start view was right; the lag work of 30zu-30zw did not touch the cut). FIXED OFFLINE (the commit after 20e8de92): `splineAnimation` writes `y: 180 - yaw`; the sim draws keyframes through
   `keyframeView`; the old line fails 6 guards. The loops' keyframes (-90..-101) were drawn up to ~10 degrees off too,
   so the hull band in the loops may change: re-check it.
-- NEXT: build round 30zz from the fix commit (all 26 + creator + nimbus, `output/device-round-2026-10-19zw/build.sh`
-  pattern), sim gates, then one device round on both phones (briefs as `output/device-round-2026-10-19zw/brief-*.md`:
-  cars 2 and 3, the drop's start, the loops' bodywork, the hand-back, a drag on the level run), then RE-SHARE the zip.
-  The probe packs (`output/device-round-2026-10-19zx/probe-9eda695f`, `-19zy/probe-20e8de92`) write a content-log line
-  every tick (`native-debug`, `camera.debug`): never ship them.
+- ROUND 30zz (19c3986b, `output/device-round-2026-10-19zz/{saga,pixel}/notes.md`): Saga - no drop cut in cars 2 and 3,
+  6/6 laps; hand-back smooth; jerk lower; drags ~60 ms to the first turn. Bodywork still crosses the lower third in
+  the loops (navy 14-18 a lap, inflated by the black pillar; read by eye). Saga PSS 5.16 GB, 12 Watchdog lines.
+  SHARED 2026-10-19 19:05: `output/craftmatic-packs-2026-10-19-19c3986b.zip` (sha256 675c5f06...0c13, PACKS.md
+  corrects the morning's "no cut" claim). Pixel 30zz report pending at this writing (agent running; lead's own check:
+  car 2 lap 1 no cut). Probe packs with `camera.debug` (`-19zx/probe-9eda695f`, `-19zy/probe-20e8de92`): never ship.
+- NEXT (COAST-06): the loops' bodywork - is the band the own car's restraint bar or the car ahead? Read it with the
+  sim snapshot of car 3 in loop 1 against `saga/frames` 49.65-53.35 (30zz); the sim's view cover reads clean (worst 0.39).
 - The wand's Undo left 10303's entities (and the tower) on the Saga in 30zx after a re-placement on top of an earlier
   one ("Nothing to undo" on the 3rd try; `output/device-round-2026-10-19zx/saga/notes.md` "Wand Undo"); a single
   placement undid fine in 30zw/30zy. Not investigated.
