@@ -37,6 +37,8 @@ const failedDir = resolve(projectRoot, 'output/failed');
 interface Golden {
   slug: string;
   address: string;
+  /** "lat,lng" pin for addresses that geocode to the wrong building (campuses). */
+  coords?: string;
   notes?: string;
 }
 
@@ -161,6 +163,7 @@ function runBuild(golden: Golden, extraFlags: string[] = [], localTiles = false)
     // Cap tile capture at 60s — skyscrapers can hang indefinitely otherwise.
     // Partial captures fall through to cleaned-tiles / parametric paths.
     '--tile-timeout', '60',
+    ...(golden.coords ? ['--coords', golden.coords] : []),
     ...consensusFlag,
     ...localGlbFlag,
     ...extraFlags.filter((f) => f !== '--no-consensus'),

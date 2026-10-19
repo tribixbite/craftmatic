@@ -56,6 +56,16 @@ function popFlag(name: string): string | null {
   return null;
 }
 
+/** Parse "lat,lng" (decimal degrees); exits with a usage error when malformed. */
+function parseLatLng(s: string): { lat: number; lng: number } {
+  const [lat, lng] = s.split(',').map(Number);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    console.error(`--coords expects "lat,lng" in decimal degrees, got "${s}"`);
+    process.exit(2);
+  }
+  return { lat, lng };
+}
+
 const outDir = popFlag('--out') ?? popFlag('-o') ?? 'output/pipeline';
 const slugOverride = popFlag('--slug');
 const tileTimeoutSec = parseInt(popFlag('--tile-timeout') ?? '0', 10);
@@ -66,6 +76,12 @@ const cacheMode = parseCacheMode(popFlag('--cache-mode') ?? process.env['CRAFTMA
 const resolutionFlag = popFlag('--resolution');
 const maxDimFlag = popFlag('--max-dim');
 const tilesGlbPath = popFlag('--tiles-glb');
+// `--coords lat,lng` pins the building centre and skips geocoding. Campus
+// addresses resolve to the campus, not the building: "9500 Gilman Dr" geocodes
+// to UCSD's admin building 430 m from Geisel Library, so the nearest-OSM search
+// built the wrong building against Geisel's tiles and references.
+const coordsFlag = popFlag('--coords');
+const pinnedCoords = coordsFlag !== null ? parseLatLng(coordsFlag) : null;
 const skipTiles = argv.includes('--skip-tiles');
 if (skipTiles) argv.splice(argv.indexOf('--skip-tiles'), 1);
 const address = argv.join(' ').trim();
@@ -115,6 +131,18 @@ mkdirSync(absOutDir, { recursive: true });
 
 const contextFetchers: ContextFetchers = {
   geocode: async (addr) => {
+    if (pinnedCoords) {
+      // No viewport/bounds: the address's own would describe the wrong building.
+      return {
+        lat: pinnedCoords.lat,
+        lng: pinnedCoords.lng,
+        formattedAddress: addr,
+        placeId: null,
+        locationType: 'ROOFTOP' as const,
+        viewport: null,
+        bounds: null,
+      };
+    }
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr)}&key=${apiKey}`;
     const resp = await fetch(url);
     const data = await resp.json() as {
