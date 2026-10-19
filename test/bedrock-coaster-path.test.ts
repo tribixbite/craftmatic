@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { advanceCoasterRoute, buildCoasterFrames, buildCoasterPath, createCoasterRoute, sampleCoasterPath, sampleCoasterRoute, stitchCoasterTrackFragments } from '../web/src/engine/coaster-path.js';
 
 describe('coaster route sampling', () => {
@@ -35,6 +35,32 @@ describe('coaster route sampling', () => {
     expect(sampleCoasterPath(loop, loop.length).position).toEqual([0, 0, 0]);
     expect(sampleCoasterPath(loop, loop.length).tangent).toEqual([1, 0, 0]);
     expect(sampleCoasterPath(loop, loop.length + 1).position).toEqual([1, 0, 0]);
+  });
+
+  it('validates a path the first time it is sampled only, and finds the segment by bisection (PIN-02: the per-call check was 37-47 % of the busy script time on the phones)', () => {
+    const points: Array<[number, number, number]> = [];
+    for (let i = 0; i <= 400; i++) points.push([i, Math.sin(i / 7) * 3, 0]);
+    const path = buildCoasterPath(points, false, 2);
+    // The serialized copy, as the ride runs it: its own cache.
+    const embedded = new Function(`return (${sampleCoasterPath.toString()});`)() as typeof sampleCoasterPath;
+    const hypot = vi.spyOn(Math, 'hypot');
+    try {
+      embedded(path, 3);
+      const first = hypot.mock.calls.length;
+      expect(first).toBeGreaterThanOrEqual(path.points.length - 1);
+      for (let d = 0; d < path.length; d += path.length / 97) embedded(path, d);
+      expect(hypot.mock.calls.length).toBe(first);
+    } finally { hypot.mockRestore(); }
+    // Bisection agrees with a linear walk everywhere, including the ends and every vertex.
+    const linear = (distance: number): number => {
+      for (let i = 0; i < path.points.length - 2; i++) if (distance < path.cumulative[i + 1]!) return i;
+      return path.points.length - 2;
+    };
+    const probes = [0, path.length, ...path.cumulative, ...path.cumulative.map(c => c + 1e-7), ...path.cumulative.map(c => Math.max(0, c - 1e-7))];
+    for (const d of probes) {
+      const clamped = Math.max(0, Math.min(path.length, d));
+      expect(embedded(path, clamped).segmentIndex).toBe(linear(clamped));
+    }
   });
 
   it('rejects corrupt serialized path data rather than generating NaN coordinates', () => {

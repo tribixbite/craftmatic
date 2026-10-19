@@ -371,27 +371,36 @@ export function sampleCoasterPath(path: CoasterPath, signedDistance: number): Co
   // Kept local because this function is serialized into the Bedrock script.
   const epsilon = 1e-9;
   if (!Number.isFinite(signedDistance)) throw new Error('Coaster route distance must be finite.');
-  if (!path || typeof path !== 'object' || !Array.isArray(path.points) || !Array.isArray(path.cumulative)
-    || typeof path.closed !== 'boolean' || !Number.isFinite(path.length) || path.length <= 0
-    || path.points.length < 2 || path.cumulative.length !== path.points.length) {
-    throw new Error('Coaster path has invalid points, cumulative lengths, or total length.');
-  }
-  if (path.cumulative[0] !== 0 || Math.abs(path.cumulative.at(-1)! - path.length) > Math.max(1, path.length) * 1e-9) {
-    throw new Error('Coaster path cumulative lengths must start at zero and end at total length.');
-  }
-  for (let index = 0; index < path.points.length; index++) {
-    const point = path.points[index]!, cumulative = path.cumulative[index]!;
-    if (!Array.isArray(point) || point.length !== 3 || !point.every(Number.isFinite) || !Number.isFinite(cumulative)) {
-      throw new Error(`Coaster path point ${index} or cumulative length is invalid.`);
+  // A path is validated the FIRST time it is sampled, never again: the check walks every point (a hypot each), and
+  // the ride samples each car every tick and every predicted tick of a camera plan - 37 % of the scripts' busy time
+  // on the Pixel and 47 % on the Saga with 10303's two trains running (round 30zq profiles, PIN-02). The set lives
+  // on the function itself, so the serialized copy keeps its own. A path is never mutated after it is built.
+  const self = sampleCoasterPath as unknown as { checked?: WeakSet<object> };
+  const checked = self.checked || (self.checked = new WeakSet<object>());
+  if (!path || typeof path !== 'object' || !checked.has(path)) {
+    if (!path || typeof path !== 'object' || !Array.isArray(path.points) || !Array.isArray(path.cumulative)
+      || typeof path.closed !== 'boolean' || !Number.isFinite(path.length) || path.length <= 0
+      || path.points.length < 2 || path.cumulative.length !== path.points.length) {
+      throw new Error('Coaster path has invalid points, cumulative lengths, or total length.');
     }
-    if (index > 0) {
-      const previous = path.points[index - 1]!, previousCumulative = path.cumulative[index - 1]!;
-      const segmentLength = Math.hypot(point[0]! - previous[0]!, point[1]! - previous[1]!, point[2]! - previous[2]!);
-      if (!Number.isFinite(segmentLength) || segmentLength <= epsilon || cumulative <= previousCumulative
-        || Math.abs(cumulative - previousCumulative - segmentLength) > Math.max(1, segmentLength) * 1e-9) {
-        throw new Error(`Coaster path segment ${index - 1} is inconsistent with its cumulative length.`);
+    if (path.cumulative[0] !== 0 || Math.abs(path.cumulative.at(-1)! - path.length) > Math.max(1, path.length) * 1e-9) {
+      throw new Error('Coaster path cumulative lengths must start at zero and end at total length.');
+    }
+    for (let index = 0; index < path.points.length; index++) {
+      const point = path.points[index]!, cumulative = path.cumulative[index]!;
+      if (!Array.isArray(point) || point.length !== 3 || !point.every(Number.isFinite) || !Number.isFinite(cumulative)) {
+        throw new Error(`Coaster path point ${index} or cumulative length is invalid.`);
+      }
+      if (index > 0) {
+        const previous = path.points[index - 1]!, previousCumulative = path.cumulative[index - 1]!;
+        const segmentLength = Math.hypot(point[0]! - previous[0]!, point[1]! - previous[1]!, point[2]! - previous[2]!);
+        if (!Number.isFinite(segmentLength) || segmentLength <= epsilon || cumulative <= previousCumulative
+          || Math.abs(cumulative - previousCumulative - segmentLength) > Math.max(1, segmentLength) * 1e-9) {
+          throw new Error(`Coaster path segment ${index - 1} is inconsistent with its cumulative length.`);
+        }
       }
     }
+    checked.add(path);
   }
   const direction = signedDistance < 0 ? -1 : 1;
   let distance = Math.abs(signedDistance);
@@ -401,11 +410,15 @@ export function sampleCoasterPath(path: CoasterPath, signedDistance: number): Co
   } else {
     distance = Math.max(0, Math.min(path.length, direction < 0 ? path.length - distance : distance));
   }
+  // The first segment whose end lies past `distance` (the last one at or past the end): a binary search over the
+  // cumulative lengths, which only increase.
   const lastSegment = path.points.length - 2;
-  let segmentIndex = lastSegment;
-  for (let index = 0; index <= lastSegment; index++) {
-    if (distance < path.cumulative[index + 1]! || index === lastSegment) { segmentIndex = index; break; }
+  let lo = 0, hi = lastSegment;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (distance < path.cumulative[mid + 1]!) hi = mid; else lo = mid + 1;
   }
+  const segmentIndex = lo;
   const from = path.points[segmentIndex]!, to = path.points[segmentIndex + 1]!;
   const length = path.cumulative[segmentIndex + 1]! - path.cumulative[segmentIndex]!;
   if (!Number.isFinite(length) || length <= 0) throw new Error(`Coaster path segment ${segmentIndex} has invalid length.`);

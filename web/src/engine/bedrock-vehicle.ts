@@ -1816,18 +1816,47 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       });
     } catch { /* not in this API */ }
   }
+  // This pack's vehicles by dimension id. A family query per dimension every `FLEET_RESCAN_TICKS`, and the ones
+  // spawned (the wand) or loaded with their chunk in between come from the events. Querying every tick cost 13 % of
+  // the scripts' busy time on both phones (round 30zq profile: three dimensions x 13 packs, each query returning every pack's
+  // vehicles, PIN-02); a vehicle removed between scans fails `alive` and is skipped.
+  const FLEET_RESCAN_TICKS = 20;
+  const fleet = new Map<string, Map<string, any>>();
+  let fleetScannedAt = -Infinity;
+  const enlist = (e: any): void => {
+    let dimId: string;
+    try { if (!config.types[String(e.typeId)]) return; dimId = e.dimension.id; } catch { return; }
+    let ofDim = fleet.get(dimId);
+    if (!ofDim) fleet.set(dimId, ofDim = new Map());
+    ofDim.set(e.id, e);
+  };
+  try { world.afterEvents.entitySpawn.subscribe((ev: any) => enlist(ev.entity)); } catch { /* the rescan finds it */ }
+  try { world.afterEvents.entityLoad.subscribe((ev: any) => enlist(ev.entity)); } catch { /* the rescan finds it */ }
+  /** The night flag, read every `FLEET_RESCAN_TICKS` (a native call per pack per tick otherwise; a second late is nothing). */
+  let isNight = false;
   let tick = 0, busyMs = 0, busyTicks = 0;
   system.runInterval(() => {
     tick++;
     cells = new Map();
     seen = new Set();
     const started = Date.now();
-    let isNight = false;
-    try { isNight = night(world.getTimeOfDay(), HL); } catch { /* no clock */ }
+    if (tick - fleetScannedAt >= FLEET_RESCAN_TICKS) {
+      fleetScannedAt = tick;
+      try { isNight = night(world.getTimeOfDay(), HL); } catch { /* no clock */ }
+      for (const dim of dims()) {
+        // One query per dimension for every scripted type (per type, 60367's seven vehicle types made 21 queries a tick).
+        let list: any[] = [];
+        try { list = dim.getEntities({ families: ['craftmatic_vehicle'] }); } catch { continue; }
+        const ofDim = new Map<string, any>();
+        for (const e of list) { try { if (config.types[String(e.typeId)]) ofDim.set(e.id, e); } catch { /* gone */ } }
+        fleet.set(dim.id, ofDim);
+      }
+    }
     for (const dim of dims()) {
-      // One query per dimension for every scripted type (per type, 60367's seven vehicle types made 21 queries a tick).
-      let list: any[] = [];
-      try { list = dim.getEntities({ families: ['craftmatic_vehicle'] }); } catch { continue; }
+      const ofDim = fleet.get(dim.id);
+      if (!ofDim || !ofDim.size) continue;
+      const list: any[] = [];
+      for (const [id, e] of ofDim) { if (alive(e)) list.push(e); else ofDim.delete(id); }
       for (const e of list) {
         const type = String(e.typeId), kind = config.types[type];
         if (!kind) continue;

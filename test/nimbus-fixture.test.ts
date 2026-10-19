@@ -179,7 +179,7 @@ function nimbusPackTests(get: () => Pack): void {
     // The driver carries the dive pitch, the ride hint and the speed window (Saga round 2026-09-29), and names only Script API globals.
     expect(driver).toContain(`"divePitchDeg":${FLYER.DIVE_PITCH_DEG}`);
     expect(driver).toContain(`"rideHintTicks":${FLYER.RIDE_HINT_TICKS}`);
-    expect(() => new Function('world', 'system', driver.replace(/^import.*\n/, ''))).not.toThrow();
+    expect(() => new Function('world', 'system', driver.replace(/^import.*\n/gm, ''))).not.toThrow();
     expect(flyer.constants.DISMOUNT_SLOW_FALL_TICKS).toBe(FLYER.DISMOUNT_SLOW_FALL_TICKS);
     expect(flyer.constants.DISMOUNT_DROP_BLOCKS).toBe(FLYER.DISMOUNT_DROP_BLOCKS);
   });

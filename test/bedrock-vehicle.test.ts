@@ -356,7 +356,7 @@ function vehicleHost(o: HostOptions) {
   const player = h.addPlayer('Driver', o.at);
   h.seat(player, vehicle);
   return {
-    entity, poses, placed, dynamic: vehicle.dynamic, player, vehicle,
+    entity, poses, placed, dynamic: vehicle.dynamic, player, vehicle, dimension: h.dimension(),
     /** Every action-bar line the driver was shown. */
     get bars(): string[] { return h.lines('actionbar', 'Driver'); },
     set: (x: number, y: number, j = false) => { h.controls(player, { strafe: x, forward: y, jump: j }); },
@@ -943,6 +943,19 @@ describe('the vehicle runtime against blocks (scripts/vehicles.js on the simulat
     host.run(2);
     expect([...host.placed].filter(([, id]) => id.startsWith('minecraft:light_block')).length).toBe(0);
     expect(host.dynamic.has(VEHICLE_DYNAMIC.headlight)).toBe(false);
+  });
+  it('looks its vehicles up once a second, not every tick, and still drives them every tick (PIN-02: the per-tick family query was 13 % of the busy script time on the phones)', () => {
+    const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 } });
+    const dim = host.dimension, getEntities = dim.getEntities;
+    let scans = 0;
+    dim.getEntities = (...args: any[]) => { if (args[0]?.families) scans++; return getEntities.apply(dim, args); };
+    host.set(0, 1);
+    const before = host.poses.length;
+    host.run(60);
+    // One scan every 20 ticks (the first on the first tick).
+    expect(scans).toBeLessThanOrEqual(4);
+    expect(scans).toBeGreaterThanOrEqual(2);
+    expect(host.poses.length - before).toBeGreaterThanOrEqual(55);
   });
   it('brakes an empty car to a stop instead of letting it coast off (an empty time machine coasted 200 blocks)', () => {
     const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 } });
