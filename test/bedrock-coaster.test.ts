@@ -2836,7 +2836,11 @@ describe('the rider camera follows the track', () => {
     // And one line a tick to read a recording against: the reported yaw, the car's, the fitted lag, the camera state.
     const ticks = lines.filter((d: any) => d.what === 't');
     expect(ticks.length).toBeGreaterThan(100);
-    for (const d of ticks.slice(0, 5)) for (const k of ['ry', 'rx', 'car', 'lag']) expect(Number.isFinite(d[k]), k).toBe(true);
+    for (const d of ticks.slice(0, 5)) {
+      for (const k of ['ry', 'rx', 'car', 'lag']) expect(Number.isFinite(d[k]), k).toBe(true);
+      // The seat's eye this tick, so a marker's bearing can be read from where the rider actually is.
+      expect(d.e).toHaveLength(3);
+    }
     expect(ticks.some((d: any) => d.s === 'a') && ticks.some((d: any) => d.s === 'p')).toBe(true);
   });
 

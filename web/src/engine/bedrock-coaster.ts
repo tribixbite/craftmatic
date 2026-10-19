@@ -2734,7 +2734,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       const look = { yaw: ((((rotation.y - carYaw) % 360) + 540) % 360) - 180, pitch: rotation.x };
       // One compact line a tick: the reported rotation against the car's server yaw, the fitted lag and the camera's
       // state (a armed, p playing), so a device recording can be read tick by tick beside it (round 30zw: car 2's cut).
-      if (DEBUG) debugLine('t', { ry: round1(rotation.y), rx: round1(rotation.x), car: round1(nowYaw), lag: round1(viewer.reportLag), s: viewer.armed ? 'a' : viewer.anim ? 'p' : '' });
+      if (DEBUG) debugLine('t', { ry: round1(rotation.y), rx: round1(rotation.x), car: round1(nowYaw), lag: round1(viewer.reportLag), s: viewer.armed ? 'a' : viewer.anim ? 'p' : '', e: [round1(frame.eye.x), round1(frame.eye.y), round1(frame.eye.z)] });
       if (viewer.armed) {
         // Armed last tick (below): the camera is the script's now, so the animation will be drawn. Planned again from
         // this tick (the ride's own arithmetic: the same stretch, one tick on) and played at once.
