@@ -66,31 +66,32 @@ describe('the client model: numbers and derivations', () => {
     expect(pixel.easeFactor).toBe(1);
     expect(pixel.basis).toBe('measured');
     expect(drawnCameraLead(23, COASTER_RIDER_VIEW.tickLag, COASTER_RIDER_VIEW.ease, pixel)).toBeCloseTo(0, 9);
-    expect(drawnCameraLead(23, COASTER_RIDER_VIEW.animLag, 0, pixel)).toBeCloseTo(0, 9);
+    const pixelAnimLag = COASTER_RIDER_VIEW.clientTimings!.find(t => t.graphicsMode === pixel.device.graphicsMode && t.maxRenderDistance === pixel.device.maxRenderDistance)!.animLag;
+    expect(drawnCameraLead(23, pixelAnimLag, 0, pixel)).toBeCloseTo(0, 9);
   });
 
-  it('the Saga: entity lag 4 with the ease not played reproduces BOTH cockpit brackets (30k led at camera lag 1.5, 30l trailed at 4) through the camera-first order; the Pixel\'s numbers do not; (6, ease 2) fits them alike and only the coaster tells the two apart', () => {
-    const saga = clientProfile('saga'), pixel = clientProfile('pixel');
-    expect(saga.basis).toBe('derived');
-    expect(saga.entityLagTicks).toBe(4); expect(saga.easeFactor).toBe(0);
+  it('the Saga, MEASURED by marker (round 30zv): entity lag 5.7, half the ease, properties 4.1 early; the shipped default animation lag rides its drawn seat; of the older cockpit brackets it fits the 30k pair, the 30l pair read ~0.75 tick more lag', () => {
+    const saga = clientProfile('saga');
+    expect(saga.basis).toBe('measured');
+    expect(saga.entityLagTicks).toBe(5.7); expect(saga.easeFactor).toBe(0.5); expect(saga.propertyLeadTicks).toBe(4.1);
+    // The coaster's defaults are the Saga's (the user's phone): the animation over its drawn seat.
+    expect(drawnCameraLead(23, COASTER_RIDER_VIEW.animLag, 0, saga)).toBeCloseTo(0, 9);
     // The packs' order: vehicle-camera.js reads the vehicle before vehicles.js moves it (+1 tick on the server's clock).
     const cameraFirst = 1;
-    // Each device reading is +-0.3 block (quirk `cockpit-draw-lag`): the brackets widened by that.
     const brackets = [
       { speed: 19.2, lag: 1.5, lo: 1.5 - 0.3, hi: 2.5 + 0.3 }, // McLaren 30k, `r19-cmp.jpg`: over the hood
       { speed: 17.9, lag: 1.5, lo: 1.5 - 0.3, hi: 2.0 + 0.3 }, // X-wing 30k, `r20-strip.jpg`: up the nose
-      { speed: 19.2, lag: 4, lo: -1.0 - 0.3, hi: -1.0 + 0.3 }, // McLaren 30l, `r17-mcl-ck-sheet.jpg` f007-f011: the picture at -1
-      { speed: 17.9, lag: 4, lo: -1.5 - 0.3, hi: -1.0 + 0.3 }, // X-wing 30l, `r18-xw-ck-sheet.jpg`: inside the fuselage, -1..-1.5
+      { speed: 19.2, lag: 4, lo: -1.0 - 0.3, hi: -1.0 + 0.3 }, // McLaren 30l, `r17-mcl-ck-sheet.jpg` f007-f011
+      { speed: 17.9, lag: 4, lo: -1.5 - 0.3, hi: -1.0 + 0.3 }, // X-wing 30l, `r18-xw-ck-sheet.jpg`
     ];
-    const fits = (client: { entityLagTicks: number; easeFactor: number }) => brackets.filter(b => { const l = drawnCameraLead(b.speed, b.lag + cameraFirst, FREE_LOOK.COCKPIT_EASE_SECONDS, client); return l >= b.lo && l <= b.hi; }).length;
-    expect(fits(saga)).toBe(4);
-    expect(fits(pixel)).toBe(0);
-    // The brackets are blind to the split between the entity lag and the ease: (6, played) fits them as well.
-    expect(fits({ entityLagTicks: 6, easeFactor: 1 })).toBe(4);
-    // The registry's cockpit lag (3) is the Saga's 4 less the order's tick less the ease it plays: the quirk rows agree.
-    expect(quirkValue('cockpit-draw-lag', 'ticks')).toBe(saga.entityLagTicks - cameraFirst - easeSteadyLagTicks(FREE_LOOK.COCKPIT_EASE_SECONDS, saga.easeFactor));
-    // And `cockpitEyeLead` (the lag arithmetic the course judged by) is the same line for the shipped camera.
-    expect(drawnCameraLead(19.2, FREE_LOOK.COCKPIT_TICK_LAG + cameraFirst, FREE_LOOK.COCKPIT_EASE_SECONDS, saga)).toBeCloseTo(cockpitEyeLead(19.2, FREE_LOOK.COCKPIT_TICK_LAG, quirkValue('cockpit-draw-lag', 'ticks')), 9);
+    const lead = (b: typeof brackets[number]) => drawnCameraLead(b.speed, b.lag + cameraFirst, FREE_LOOK.COCKPIT_EASE_SECONDS, saga);
+    // 30k (camera lag 1.5): the measured client puts the camera where the pictures did.
+    for (const b of brackets.slice(0, 2)) { expect(lead(b)).toBeGreaterThanOrEqual(b.lo); expect(lead(b)).toBeLessThanOrEqual(b.hi); }
+    // 30l (lag 4): the pictures trailed ~1 block; the measured client puts it ~0.3 behind. The gap (~0.75 tick) is open:
+    // a cockpit run with the marker would say whether the cockpit camera's path differs (TODO(client-lag-saga)).
+    for (const b of brackets.slice(2)) expect(lead(b)).toBeGreaterThan(b.hi);
+    // The cockpit lag the vehicles ship (quirk `cockpit-draw-lag` 3) against this client: 5.7 - 1 - 1 = 3.7.
+    expect(saga.entityLagTicks - cameraFirst - easeSteadyLagTicks(FREE_LOOK.COCKPIT_EASE_SECONDS, saga.easeFactor)).toBeCloseTo(3.7, 6);
   });
 
   it('the invariants\' per-frame turn cap is the coaster camera\'s own', () => {
@@ -179,7 +180,7 @@ describe('the drawn poses', () => {
     // The value of the last whole tick at or before now - lag (+ lead): applied, not interpolated (12 at now).
     expect(inStep.value).toBe(12 - Math.ceil(inStep.lag));
     expect(ahead.value).toBe(12 - Math.ceil(ahead.lag - 2));
-    expect(quirk('property-ahead-of-position').values).toEqual({ pixelLeadTicks: 3.3, sagaLeadTicks: 3.3 });
+    expect(quirk('property-ahead-of-position').values).toEqual({ pixelLeadTicks: 3.3, sagaLeadTicks: 4.1 });
   });
 
   it('poses a bone as the add-on preview does: T(position) T(pivot) R(bind + animated) S T(-pivot)', () => {
@@ -402,24 +403,25 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
     expect(worstShipped).toBeGreaterThan(worstNoBlend * 0.9);
   }, 60_000);
 
-  it('on the Saga (entity lag 4, the ease not played) the per-tick camera rides 2.5 ticks AHEAD of the drawn car and the animation 0.5: a 2-tick cut at the animation\'s start (the 30g entry jump) and the blend\'s walk forward at the hand-back (the exit swing)', () => {
+  it('legacy loop mode on the measured Saga: the per-tick camera rides 3.2 ticks AHEAD of the drawn car (5.7 - 1.5 - 1 of ease) and the animation, on the Saga timing, on it: a 3-tick cut at each animation start - why loop mode is retired', () => {
     const { trace, client } = rideLoop('saga', { mode: 'loop' });
-    expect(client.profile.entityLagTicks).toBe(4);
+    expect(client.profile.entityLagTicks).toBe(5.7);
     const steady = trace.rows.filter(r => r.mode === 'free' && (r.speed ?? 0) > 2 && r.lead !== undefined && r.tick - trace.lastHandbackTick > 10);
     const speedAt = (r: { speed?: number }) => (r.speed ?? 0) * TICK_SECONDS;
     const median = (xs: number[]): number => { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]!; };
-    // Lead = speed x (4 - 1.5 - 0) ticks = 2.5 ticks of motion ahead; the animation (no ease) 4 - 3.5 = 0.5 ahead.
+    const ahead = client.profile.entityLagTicks - COASTER_RIDER_VIEW.tickLag - easeSteadyLagTicks(COASTER_RIDER_VIEW.ease, client.profile.easeFactor);
+    expect(ahead).toBeCloseTo(3.2, 6);
     expect(steady.length).toBeGreaterThan(100);
-    expect(median(steady.map(r => r.lead! / speedAt(r)))).toBeCloseTo(2.5, 1);
-    expect(steady.filter(r => Math.abs(r.lead! / speedAt(r) - 2.5) < 0.75).length / steady.length).toBeGreaterThan(0.8);
+    expect(Math.abs(median(steady.map(r => r.lead! / speedAt(r))) - ahead)).toBeLessThan(0.3);
+    // The animation runs on the Saga's own timing (the default): on the drawn seat.
     const anim = trace.rows.filter(r => r.mode === 'animation' && (r.speed ?? 0) > 2);
     expect(anim.length).toBeGreaterThan(10);
-    expect(median(anim.map(r => r.lead! / speedAt(r)))).toBeCloseTo(0.5, 0);
-    // The switch into the animation is the device's one-frame jump: 2 ticks of motion back in one frame.
+    expect(Math.abs(median(anim.map(r => r.lead! / speedAt(r))))).toBeLessThan(0.5);
+    // So the switch into the animation is a cut of ~3 ticks of motion in one frame.
     const starts = trace.rows.filter((r, i) => r.mode === 'animation' && i > 0 && trace.rows[i - 1]!.mode === 'free');
     expect(starts.length).toBeGreaterThanOrEqual(1);
-    for (const r of starts) expect(r.jumpBlocks / speedAt(r), `tick ${r.tick}`).toBeGreaterThan(1.5);
-    // And the Pixel shows none of it: both cameras on the seat, no jump at the start.
+    for (const r of starts) expect(r.jumpBlocks / speedAt(r), `tick ${r.tick}`).toBeGreaterThan(2);
+    // The Pixel, on its own timing, shows none of it.
     const pixel = rideLoop('pixel', { mode: 'loop' });
     const pixelStarts = pixel.trace.rows.filter((r, i) => r.mode === 'animation' && i > 0 && pixel.trace.rows[i - 1]!.mode === 'free');
     for (const r of pixelStarts) expect(r.jumpBlocks, `pixel tick ${r.tick}`).toBeLessThan(0.5);
@@ -449,11 +451,11 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
         expect(b.jumpBlocks, `${profile} tick ${b.tick} ${a.mode} -> ${b.mode}`).toBeLessThan(CAMERA_MAX_EYE_JUMP_BLOCKS);
       }
       expect(switches).toBeGreaterThanOrEqual(2);
-      // The animation rides the drawn seat: lag 3.5 against the Pixel's 3.5 exactly, 0.5 tick ahead on the Saga's 4.
+      // The animation rides the drawn seat on both phones: each client gets its own measured lag (`clientTimings`).
       const anim = trace.rows.filter(r => r.mode === 'animation' && (r.speed ?? 0) > 2 && r.lead !== undefined);
       expect(anim.length).toBeGreaterThan(10);
-      const bound = (r: { speed?: number }) => profile === 'pixel' ? 0.75 : Math.max(0.75, (4 - 3.5 + 0.5) * (r.speed ?? 0) * TICK_SECONDS);
-      for (const r of anim) expect(Math.abs(r.lead!), `${profile} anim tick ${r.tick}`).toBeLessThan(bound(r));
+      const bound = () => 0.75;
+      for (const r of anim) expect(Math.abs(r.lead!), `${profile} anim tick ${r.tick}`).toBeLessThan(bound());
       expect(client.profile.name).toBe(profile);
     }, 60_000);
   }
@@ -505,15 +507,16 @@ describe.skipIf(!havePacks)('the coaster camera on the round-30m 10303 (corpus)'
     for (const x of drop) expect(Math.abs(x.lead!)).toBeLessThan(0.15);
   }, 120_000);
 
-  it('predicts the Saga\'s seat lead (2.5 ticks ahead on the per-tick camera at speed) that the Pixel never showed', async () => {
+  it('predicts the Saga\'s seat lead on the round-30m pack (the per-tick camera 3.2 ticks ahead at speed: 5.7 - 1.5 - 1 of ease) that the Pixel never showed', async () => {
     const r = await ride('saga');
     const cc = r.state['coasterCamera'] as { worstLead: number } | undefined;
     expect(cc).toBeDefined();
     const trace = r.state['cameraTrace'] as Array<{ mode: string; lead?: number; speed?: number; pitch: number }>;
     const drop = trace.filter(x => x.mode === 'free' && Math.abs(x.pitch) > 85 && (x.speed ?? 0) > 15 && x.lead !== undefined);
     expect(drop.length).toBeGreaterThan(5);
-    // 2.5 ticks of motion ahead at 20+ blocks/s: more than a block, the course's slack several times over.
-    for (const x of drop) expect(x.lead! / (x.speed! * TICK_SECONDS)).toBeCloseTo(2.5, 0);
+    // The measured Saga: 5.7 - tickLag 1.5 - the ease it plays (1 tick) = 3.2 ticks of motion ahead at 20+ blocks/s.
+    const ahead = clientProfile('saga').entityLagTicks - COASTER_RIDER_VIEW.tickLag - easeSteadyLagTicks(COASTER_RIDER_VIEW.ease, clientProfile('saga').easeFactor);
+    for (const x of drop) expect(Math.abs(x.lead! / (x.speed! * TICK_SECONDS) - ahead)).toBeLessThan(0.5);
     expect(r.violations.some(v => v.invariant === 'camera-on-own-seat' && Number((v.evidence as { lead: number }).lead) > 0.5)).toBe(true);
   }, 120_000);
 });

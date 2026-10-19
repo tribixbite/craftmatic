@@ -68,6 +68,8 @@ export interface ClientProfile {
   basis: 'measured' | 'derived';
   /** Ticks an actor property reaches the screen before the position sent with it (quirk `property-ahead-of-position`). */
   propertyLeadTicks: number;
+  /** What the phone reports to scripts (round 30zv `si:dump`): set on the watched player, which the coaster's timing table reads. */
+  device: { graphicsMode: string; maxRenderDistance: number; memoryTier: number };
 }
 
 /**
@@ -77,20 +79,15 @@ export interface ClientProfile {
  * `ticks`) by the animation, and the eased per-tick camera on the drawn marker at 1.5 - the ease's
  * own 2 ticks (quirk `camera-ease-lag`): both cameras on the seat, as every Pixel ride read.
  *
- * The Saga (26.52): no marker run. Its cockpit brackets (30k at camera lag 1.5: +1.5..2.5 blocks
- * ahead; 30l at 4: ~1 behind) pin only `entityLag - easeLag - 1` (the camera-first script order)
- * = 3: (6, 2) and (4, 0) fit them alike. Its coaster findings separate them: the first-drop entry
- * jump (6/6 laps) at every inversion animation's start and the loop-1 exit swing (5/7) at every
- * hand-back (30g, `_notes.txt` item 3), which the Pixel never showed, need the per-tick camera and
- * the animation to DIFFER on that phone - under (6, 2) both sit 2.5 ticks ahead of the drawn car
- * and nothing jumps; under (4, 0) the per-tick camera sits 2.5 ticks ahead, the animation 0.5,
- * and each switch is a 2-tick cut in one frame. So the Saga is read as an entity lag of 4 with
- * the ease NOT played (`sagaTicks` 4, `camera-ease-lag` `sagaFactor` 0): DERIVED, both numbers.
+ * The Saga (26.52): MEASURED by marker run 2026-10-19 (round 30zv camprobe/proplag): it draws
+ * entities 5.7 ticks behind (`sagaTicks`), plays about half the camera ease (`sagaFactor` 0.5) and
+ * applies actor properties 4.1 ticks early (`sagaLeadTicks`). The pair (4, no ease) derived before
+ * from cockpit brackets and the 30g frame counts is superseded.
  */
 export function clientProfile(name: ClientProfileName): ClientProfile {
   return name === 'saga'
-    ? { name, entityLagTicks: quirkValue('client-entity-lag', 'sagaTicks'), easeFactor: quirkValue('camera-ease-lag', 'sagaFactor'), basis: 'derived', propertyLeadTicks: quirkValue('property-ahead-of-position', 'sagaLeadTicks') }
-    : { name: 'pixel', entityLagTicks: quirkValue('client-entity-lag', 'ticks'), easeFactor: quirkValue('camera-ease-lag', 'pixelFactor'), basis: 'measured', propertyLeadTicks: quirkValue('property-ahead-of-position', 'pixelLeadTicks') };
+    ? { name, entityLagTicks: quirkValue('client-entity-lag', 'sagaTicks'), easeFactor: quirkValue('camera-ease-lag', 'sagaFactor'), basis: 'measured', propertyLeadTicks: quirkValue('property-ahead-of-position', 'sagaLeadTicks'), device: { graphicsMode: 'Fancy', maxRenderDistance: 22, memoryTier: 4 } }
+    : { name: 'pixel', entityLagTicks: quirkValue('client-entity-lag', 'ticks'), easeFactor: quirkValue('camera-ease-lag', 'pixelFactor'), basis: 'measured', propertyLeadTicks: quirkValue('property-ahead-of-position', 'pixelLeadTicks'), device: { graphicsMode: 'Deferred', maxRenderDistance: 24, memoryTier: 4 } };
 }
 
 /**
@@ -336,6 +333,7 @@ export class ClientView {
   watch(player: SimEntity): void {
     if (this.watched.has(player) || !player.isPlayer) return;
     this.watched.add(player);
+    player.clientInfo = { ...this.profile.device };
     const cam = this.camera(player);
     const api = this.sim.host.entity(player) as { camera: Record<string, unknown> };
     const facade = api.camera;

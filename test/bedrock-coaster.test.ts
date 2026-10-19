@@ -122,6 +122,13 @@ function coasterSim(config: CoasterRuntimeConfig, options: CoasterSimOptions = {
   return api;
 }
 
+/**
+ * The legacy `loop` camera mode (not shipped since `native`, 2026-10-18) as its tests were written: for the Pixel's
+ * drawing lag (`animLag` 3.5, no per-client table). The shipped default is the Saga's 5.7 (round 30zv); `loop` was
+ * never re-tuned for it (its hand-back would come before the SHOWN pose is upright).
+ */
+const LOOP_MODE = { mode: 'loop' as const, animLag: 3.5, clientTimings: [] };
+
 interface RideHostOptions extends CoasterSimOptions { riders?: boolean; scale?: number; wheelbase?: number; seat?: [number, number, number]; camera?: Partial<CoasterRiderViewConfig>;
   /** A pack built before the rider camera existed: its config carries no `camera`. */
   noCamera?: boolean }
@@ -559,8 +566,10 @@ describe('serialized coaster runtime', () => {
     }
     // The loop really turns the body over, so the short way round is exercised.
     expect(Math.max(...props(now, 'craftmatic:track_pitch').map(Math.abs))).toBeGreaterThan(95);
-    // The shipped lag is the measured property lead (Pixel probe round 30zt), and every pack carries it.
-    expect(COASTER_RIDER_VIEW.bodyLag).toBe(quirkValue('property-ahead-of-position', 'pixelLeadTicks'));
+    // The shipped lags are the measured property leads: the default the Saga's (round 30zv, the user's phone), the
+    // Pixel's by its fingerprint (round 30zt) - and every pack carries them.
+    expect(COASTER_RIDER_VIEW.bodyLag).toBe(quirkValue('property-ahead-of-position', 'sagaLeadTicks'));
+    expect(COASTER_RIDER_VIEW.clientTimings?.find(t => t.graphicsMode === 'Deferred')?.bodyLag).toBe(quirkValue('property-ahead-of-position', 'pixelLeadTicks'));
     expect(coasterRuntimeConfig('craftmatic:x', [loopRoute()]).camera!.bodyLag).toBe(COASTER_RIDER_VIEW.bodyLag);
   });
 
@@ -2271,7 +2280,7 @@ describe('the rider camera follows the track', () => {
   });
 
   it('layers the rider\'s head turn on the track frame, clamped, and recentres by looking back', () => {
-    const h = rideHost(towerRoute(), { seat: [0, 0.35, 0], camera: { mode: 'loop' } });
+    const h = rideHost(towerRoute(), { seat: [0, 0.35, 0], camera: LOOP_MODE });
     const rider = cameraRider(h.entity, { yaw: 25, pitch: -10 }); // boards looking somewhere else
     h.run(1); h.seat(rider.player); h.run(1);
     // Bedrock turns a new rider to the seat a few ticks after mounting: the
@@ -2322,7 +2331,7 @@ describe('the rider camera follows the track', () => {
   });
 
   it('reflect mode folds the pitch back over a loop and never turns the yaw', () => {
-    const h = rideHost(loopRoute(), { seat: [0, 0.35, 0], camera: { mode: 'loop' } });
+    const h = rideHost(loopRoute(), { seat: [0, 0.35, 0], camera: LOOP_MODE });
     const { player } = cameraRider(h.entity);
     h.run(1); h.seat(player); h.run(700);
     const views = (player.camera.setCamera.mock.calls as any[][]).map(call => call[1].rotation);
@@ -2431,15 +2440,17 @@ describe('the rider camera follows the track', () => {
   });
 
   it('loop mode sends each inversion as ONE rolling animation, planned with the ride\'s own arithmetic', () => {
-    const ANIM_LAG = COASTER_RIDER_VIEW.animLag;
-    // Measured against a marker on the Pixel (2026-09-29): an animation rides the DRAWN
-    // entity at lag ~3.5 and the eased per-tick camera at ~1.5 (both fractional, poses interpolated).
-    expect(ANIM_LAG).toBe(3.5);
+    const ANIM_LAG = LOOP_MODE.animLag;
+    // Measured against a marker: an animation rides the DRAWN entity at lag 5.7 on the Saga (round 30zv, the shipped
+    // default) and 3.5 on the Pixel (2026-09-29, by its fingerprint); the eased per-tick camera at ~1.5 (fractional).
+    // This loop-mode test keeps the Pixel's 3.5 (LOOP_MODE).
+    expect(COASTER_RIDER_VIEW.animLag).toBe(quirkValue('client-entity-lag', 'sagaTicks'));
+    expect(COASTER_RIDER_VIEW.clientTimings?.find(t => t.graphicsMode === 'Deferred')?.animLag).toBe(quirkValue('client-entity-lag', 'ticks'));
     expect(COASTER_RIDER_VIEW.tickLag).toBe(1.5);
     expect(COASTER_RIDER_VIEW.mode).toBe('native');
     // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
     {
-      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], camera: { mode: 'loop' }, spline: true });
+      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], camera: LOOP_MODE, spline: true });
       const { player } = cameraRider(h.entity);
       const log: Array<{ tick: number; kind: 'set' | 'play'; args: any[]; distance: number }> = [];
       let tick = 0;
@@ -2520,7 +2531,7 @@ describe('the rider camera follows the track', () => {
   it('loop mode hands back at once when the ride leaves the plan (a held chunk)', () => {
     // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
     {
-      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], camera: { mode: 'loop' }, spline: true });
+      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], camera: LOOP_MODE, spline: true });
       const { player } = cameraRider(h.entity);
       (player.camera as any).playAnimation = vi.fn();
       h.run(1); h.seat(player);
@@ -2591,7 +2602,7 @@ describe('the rider camera follows the track', () => {
   });
 
   it('a client without LinearSpline rides loop mode on the per-tick reflect camera alone', () => {
-    const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], camera: { mode: 'loop' } });
+    const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], camera: LOOP_MODE });
     const { player } = cameraRider(h.entity);
     (player.camera as any).playAnimation = vi.fn();
     h.run(1); h.seat(player); h.run(400);
@@ -2634,7 +2645,7 @@ describe('the rider camera follows the track', () => {
       // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
       {
         const work = rideWork();
-        const h = rideHost(steepTower(grade), { seat: [0, 0.35, 0], camera: { mode: 'loop' }, wrapMath: work.wrapMath, spline: true });
+        const h = rideHost(steepTower(grade), { seat: [0, 0.35, 0], camera: LOOP_MODE, wrapMath: work.wrapMath, spline: true });
         const { player } = cameraRider(h.entity);
         (player.camera as any).playAnimation = vi.fn();
         h.run(1); h.seat(player); h.run(1); work.take();
@@ -2666,7 +2677,7 @@ describe('the rider camera follows the track', () => {
     // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
     {
       const work = rideWork();
-      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], camera: { mode: 'loop' }, wrapMath: work.wrapMath, spline: true });
+      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], camera: LOOP_MODE, wrapMath: work.wrapMath, spline: true });
       const { player } = cameraRider(h.entity);
       const plays: number[] = [];
       let tick = 0;
@@ -3049,7 +3060,7 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
     // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
     {
       const { scene } = await corpusRoutes(PUBLISHED_10303);
-      const h = liftHost(scene.routes[0]!, { mode: 'loop' }, WHEELBASE_10303, { spline: true });
+      const h = liftHost(scene.routes[0]!, LOOP_MODE, WHEELBASE_10303, { spline: true });
       const rider = cameraRider(h.lead.entity);
       const log: Array<{ tick: number; kind: 'set' | 'play'; args: any[] }> = [];
       let tick = 0;

@@ -364,10 +364,15 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   loops"). A `setCamera` issued while an animation plays takes over at once;
   an animation that ENDS before the next `setCamera` flashes the player's
   own view, so plan it past the hand-back (`animTail`). **The client draws
-  entities ~3.5 ticks behind the server**: a camera on the server's schedule
-  sits 1.7 blocks ahead of the drawn seat at 10 blocks/s (in the car ahead
-  at coaster speed), so both cameras show a PAST pose (`tickLag` 1.5 with
-  the 0.1 s ease, `animLag` 3.5; marker-measured, `camprobe`).
+  entities behind the server, and PHONES DIFFER**: Pixel 3.5 ticks, Saga 5.7
+  (marker runs, `camprobe`; property lead 3.3 vs 4.1; round 30zv), so a
+  camera on the server's schedule sits in the car ahead at coaster speed and
+  both cameras show a PAST pose. The coaster's timing is per client
+  (`clientTimings`, matched on `graphicsMode` + render distance; unknown
+  clients get the Saga's, the user's phone). A rider's own view is drawn on
+  the DRAWN car and only REPORTED 7-9 ticks later: start an animation from the
+  drawn car's yaw plus the head turn, never from the reported yaw (round 30zu:
+  a 35-45 degree cut at every drop).
   The "Experimental Creator Camera Features" experiment changes none of this.
   **So the coaster rides the player's OWN first person on near-level track**
   (`native`, 2026-10-18) and sends only fast steep stretches as one blended

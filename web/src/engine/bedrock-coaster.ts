@@ -418,6 +418,20 @@ export interface CoasterRuntimeConfig {
  */
 export type CoasterRiderViewMode = 'native' | 'loop' | 'reflect' | 'roll' | 'clamp' | 'over' | 'off';
 
+/** One measured client's coaster timing (`CoasterRiderViewConfig.clientTimings`). */
+export interface CoasterClientTiming {
+  /** Which phone, for the diagnostics. */
+  label: string;
+  /** `player.graphicsMode` to match (`Simple`, `Fancy`, `Deferred`, `RayTraced`). */
+  graphicsMode?: string;
+  /** `player.clientSystemInfo.maxRenderDistance` to match. */
+  maxRenderDistance?: number;
+  /** As `CoasterRiderViewConfig.animLag`, for this client. */
+  animLag: number;
+  /** As `CoasterRiderViewConfig.bodyLag`, for this client. */
+  bodyLag: number;
+}
+
 /** The camera constants the runtime reads from `config.camera`. */
 export interface CoasterRiderViewConfig {
   mode: CoasterRiderViewMode;
@@ -455,6 +469,15 @@ export interface CoasterRiderViewConfig {
    * the position sent with it, at 5, 10 and 20 blocks/s). Fractional: interpolated between two ticks' poses. Absent = 0.
    */
   bodyLag?: number;
+  /**
+   * Timing for clients known to draw differently from `animLag` / `bodyLag` (the defaults), matched on what the
+   * Script API reports of a player's client: `graphicsMode` and `clientSystemInfo.maxRenderDistance` (every field an
+   * entry names must match; the first match wins). A FINGERPRINT of measured phones, not a model of the cause: round
+   * 30zv measured the Saga (Fancy, 22) drawing entities 5.7 ticks behind with properties 4.1 early, the Pixel 8 Pro
+   * (Deferred, 24) 3.5 and 3.3. The defaults are the Saga's (the user's phone); an unknown client gets them, and
+   * `debug` logs every client's fingerprint so a new phone can be measured and added.
+   */
+  clientTimings?: ReadonlyArray<CoasterClientTiming>;
   /**
    * Device diagnostics: `native` writes one content-log line (`[Craftmatic coaster] native-debug {...}`) when it arms
    * a steep stretch and one when it plays it, with the rider's reported rotation, the car yaws, the look and the
@@ -516,7 +539,8 @@ export interface CoasterRiderViewConfig {
  * always sets where "ahead" is. Values chosen and measured in the guide's
  * "The rider's camera follows the track" section.
  */
-export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'native', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 8, animLag: 3.5, bodyLag: 3.3, animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
+export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'native', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 8, animLag: 5.7, bodyLag: 4.1,
+  clientTimings: [{ label: 'Pixel 8 Pro (Deferred, render distance 24; round 30zv)', graphicsMode: 'Deferred', maxRenderDistance: 24, animLag: 3.5, bodyLag: 3.3 }], animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
   steepTilt: 25, steepSpeed: 5, blendTicks: 6, sectionGap: 12, sectionHorizon: 160 };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
@@ -2329,7 +2353,8 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   // How many ticks the inversion animation's camera trails the server's train
   // (`COASTER_RIDER_VIEW.animLag`; a config without one keeps the measured 3.5). Fractional: a
   // pose between two ticks is interpolated (`poseAt`).
-  const animLag = Math.max(0, Math.min(10, Number.isFinite(camera.animLag) ? camera.animLag : 3.5));
+  const clampLag = (v: any, fallback: number) => Math.max(0, Math.min(10, Number.isFinite(v) ? Number(v) : fallback));
+  const animLag = clampLag(camera.animLag, 3.5);
   // Ticks an inversion's animation is planned past its hand-back, kept even so
   // the keyframes stay 0.1 s apart (`COASTER_RIDER_VIEW.animTail`; a config without one keeps 6).
   const animTail = 2 * Math.round(Math.max(0, Math.min(20, Number.isFinite(camera.animTail) ? camera.animTail : 6)) / 2);
@@ -2337,12 +2362,28 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   const tickLag = Math.max(0, Math.min(10, Number.isFinite(camera.tickLag) ? camera.tickLag : 1.5));
   /** Poses kept per rider: enough for the longest lag either camera reads back. */
   const HISTORY = 12;
+  /** Timing for a player's client: the first `clientTimings` entry its graphics mode and render distance match, else the defaults. */
+  const CLIENT_TIMINGS: any[] = Array.isArray(camera.clientTimings) ? camera.clientTimings : [];
+  const timingOf = (player: any): { label: string; animLag: number; bodyLag: number; graphicsMode: string; maxRenderDistance: number } => {
+    let graphicsMode = '', maxRenderDistance = NaN;
+    try { graphicsMode = String(player.graphicsMode); } catch { /* not reported */ }
+    try { maxRenderDistance = Number(player.clientSystemInfo.maxRenderDistance); } catch { /* not reported */ }
+    for (const t of CLIENT_TIMINGS) {
+      if (t.graphicsMode !== undefined && t.graphicsMode !== graphicsMode) continue;
+      if (t.maxRenderDistance !== undefined && t.maxRenderDistance !== maxRenderDistance) continue;
+      return { label: String(t.label), animLag: clampLag(t.animLag, animLag), bodyLag: clampBody(t.bodyLag, BODY_LAG), graphicsMode, maxRenderDistance };
+    }
+    return { label: 'default', animLag, bodyLag: BODY_LAG, graphicsMode, maxRenderDistance };
+  };
+  /** Ticks between re-reads of a viewer's client timing (the graphics mode can change in the settings). */
+  const TIMING_EVERY = 200;
   /** `COASTER_RIDER_VIEW.debug`: native's arm / play diagnostics in the content log. */
   const DEBUG = camera.debug === true;
   const round1 = (v: number) => Math.round(v * 10) / 10;
   const debugLine = (what: string, data: Record<string, unknown>) => { try { console.warn(`[Craftmatic coaster] native-debug ${JSON.stringify({ what, tick: ticks, ...data })}`); } catch { /* no log */ } };
   // Ticks each car's body pose properties trail its position (`CoasterRiderViewConfig.bodyLag`; absent = 0).
-  const BODY_LAG = Math.max(0, Math.min(HISTORY - 2, Number.isFinite(camera.bodyLag) ? Number(camera.bodyLag) : 0));
+  const clampBody = (v: any, fallback: number) => Math.max(0, Math.min(HISTORY - 2, Number.isFinite(v) ? Number(v) : fallback));
+  const BODY_LAG = clampBody(camera.bodyLag, 0);
   /**
    * The body pose `lag` ticks behind `now` for one car, from the poses kept on its `state` (oldest first, one per
    * tick, `now` pushed here): pitch and roll the short way round, the body offset linearly; the oldest kept pose
@@ -2449,7 +2490,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
    * every loop's exit (`ride1-loop2-zoom-d.jpg`). The per-tick camera takes
    * over at tick `length` while the animation is still playing.
    */
-  const planInversion = (frame: any, planner: any, look: any, history: any[]) => {
+  const planInversion = (frame: any, planner: any, look: any, history: any[], lag: number = animLag) => {
     // Cost bound (the 2026-09-25 regression: 80 predicted ticks on EVERY steep
     // tick, ~117 substeps a tick on 10261, the device's script tick overran
     // and the ride slowed and stuttered). Nothing is predicted unless inverted
@@ -2499,25 +2540,25 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     let length = end + 1;
     if (length % 2) length++;
     const total = length + animTail;
-    // Keyframe k shows the pose of tick k - animLag. `seq[j]` is the pose of
-    // tick j - A (A = animLag rounded up): the rider's history back to tick
+    // Keyframe k shows the pose of tick k - lag. `seq[j]` is the pose of
+    // tick j - A (A = lag rounded up): the rider's history back to tick
     // -A, this tick, then the plan; a fractional lag reads between two.
-    const A = Math.ceil(animLag);
+    const A = Math.ceil(lag);
     const past = history.slice(-(A + 1));
     while (past.length < A + 1) past.unshift(past[0] || { eye: frame.eye, nose: frame.nose, up: frame.up, yaw: frame.yaw });
     const seq = [...past, ...plan.poses];
-    if (seq.length < A + length - animLag + 1) return failed;
+    if (seq.length < A + length - lag + 1) return failed;
     // The tail past the hand-back is never meant to be seen (the per-tick
     // camera takes over at tick `length`); where the plan has no poses for it
     // (it stops where a brake could bite: 10303's second loop exits straight
     // into the station's braking distance), carry the last pose on at its own
     // velocity, right side up, so the animation keeps playing to the hand-back.
-    while (seq.length < A + total - animLag + 2) {
+    while (seq.length < A + total - lag + 2) {
       const a = seq[seq.length - 2], b = seq[seq.length - 1];
       seq.push({ eye: { x: 2 * b.eye.x - a.eye.x, y: 2 * b.eye.y - a.eye.y, z: 2 * b.eye.z - a.eye.z }, nose: b.nose, up: b.up, yaw: b.yaw });
     }
     const poses: any[] = [];
-    for (let k = 0; k <= total; k++) poses.push(poseAt(seq, k - animLag + A));
+    for (let k = 0; k <= total; k++) poses.push(poseAt(seq, k - lag + A));
     const views: any[] = [];
     let previous: any = null;
     // `over`: continuous pitch, the right axis's yaw, residual roll — no chart flip at the zenith.
@@ -2584,7 +2625,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
    * re-anchored to the track's only where the track has the whole view (the blend weight is 1), so after a loop
    * (the continuous pitch 360 on) the blend out does not spin the view round.
    */
-  const planSection = (frame: any, planner: any, look: any, history: any[]) => {
+  const planSection = (frame: any, planner: any, look: any, history: any[], lag: number = animLag) => {
     const LOOKOUT = 21;
     if (!planner.nearSteep(frame.car, 11)) return null;
     let first = -1, last = -1;
@@ -2607,19 +2648,19 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     // to the plan's end (a brake ahead, the horizon), even so the keyframes stay 0.1 s apart.
     let length = Math.min(plan.poses.length, last + 1 + BLEND);
     if (length % 2) length++;
-    // Keyframe k shows the pose of tick k - animLag (`planInversion`'s sequence: history, this tick, the plan,
+    // Keyframe k shows the pose of tick k - lag (`planInversion`'s sequence: history, this tick, the plan,
     // carried on at its own velocity where it stops short).
-    const A = Math.ceil(animLag);
+    const A = Math.ceil(lag);
     const past = history.slice(-(A + 1));
     while (past.length < A + 1) past.unshift(past[0] || { eye: frame.eye, nose: frame.nose, up: frame.up, yaw: frame.yaw });
     const seq = [...past, ...plan.poses];
-    while (seq.length < A + length - animLag + 2) {
+    while (seq.length < A + length - lag + 2) {
       const a = seq[seq.length - 2], b = seq[seq.length - 1];
       seq.push({ eye: { x: 2 * b.eye.x - a.eye.x, y: 2 * b.eye.y - a.eye.y, z: 2 * b.eye.z - a.eye.z }, nose: b.nose, up: b.up, yaw: b.yaw });
     }
     const poses: any[] = [];
-    for (let k = 0; k <= length; k++) poses.push(poseAt(seq, k - animLag + A));
-    // The player's OWN view at tick k is the DRAWN car's yaw (k - animLag) plus their head turn `look.yaw`: the client
+    for (let k = 0; k <= length; k++) poses.push(poseAt(seq, k - lag + A));
+    // The player's OWN view at tick k is the DRAWN car's yaw (k - lag) plus their head turn `look.yaw`: the client
     // draws a rider's own view on the car it draws, and only REPORTS that yaw some ticks later (`reportLag`, quirk
     // `rider-yaw-lag`). Started from the reported yaw instead (4fed7295), every drop began 35-45 degrees behind the view
     // on 10303's crest curve: a cut to the lift column on both phones (round 30zu; 30zv `native-debug` lines).
@@ -2659,6 +2700,13 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     }
     viewer.player = rider;
     viewer.seen = ticks;
+    if (!viewer.timing || ticks - viewer.timingAt >= TIMING_EVERY) {
+      viewer.timing = timingOf(rider);
+      viewer.timingAt = ticks;
+      if (DEBUG) debugLine('client', { timing: viewer.timing });
+    }
+    // The car this player rides draws its body for this player's client (`bodyLag`), until the seat is empty a while.
+    if (frame.car && frame.car.state) { frame.car.state.bodyLag = viewer.timing.bodyLag; frame.car.state.bodyLagAt = ticks; }
     viewer.history = viewer.history || [];
     viewer.history.push({ eye: frame.eye, nose: frame.nose, up: frame.up, yaw: frame.yaw });
     if (viewer.history.length > HISTORY) viewer.history.shift();
@@ -2688,7 +2736,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         // Armed last tick (below): the camera is the script's now, so the animation will be drawn. Planned again from
         // this tick (the ride's own arithmetic: the same stretch, one tick on) and played at once.
         viewer.armed = false;
-        const planned: any = planSection(frame, planner, look, viewer.history);
+        const planned: any = planSection(frame, planner, look, viewer.history, viewer.timing.animLag);
         if (DEBUG) debugLine('play', { rot: [round1(rotation.x), round1(rotation.y)], carYaw: round1(carYaw), nowYaw: round1(nowYaw), frameYaw: round1(frame.yaw), planned: planned && !planned.wait ? { first: planned.first, ...planned.debug } : planned });
         if (planned && !planned.wait) {
           try {
@@ -2729,7 +2777,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         viewer.cooldown = Math.max(viewer.cooldown || 0, ticks + 2);
       }
       if (!Spline || !planner || viewer.noAnim || viewer.cooldown > ticks) return;
-      const planned: any = planSection(frame, planner, look, viewer.history);
+      const planned: any = planSection(frame, planner, look, viewer.history, viewer.timing.animLag);
       if (planned && planned.wait) viewer.cooldown = ticks + planned.wait;
       else if (planned) {
         // ARM first: a `playAnimation` sent while the player is on their own view is never drawn (Pixel round 30zr,
@@ -2740,7 +2788,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           const first = planned.first;
           rider.camera.setCamera('minecraft:free', { location: first.eye, rotation: { x: Math.max(-89.9, Math.min(89.9, first.pitch)), y: first.yaw } });
           viewer.armed = true;
-          if (DEBUG) debugLine('arm', { rot: [round1(rotation.x), round1(rotation.y)], reportLag: round1(viewer.reportLag), carYaw: round1(carYaw), nowYaw: round1(nowYaw), frameYaw: round1(frame.yaw), carYaws: viewer.carYaws.map(round1), first, ...planned.debug });
+          if (DEBUG) debugLine('arm', { timing: viewer.timing.label, animLag: viewer.timing.animLag, rot: [round1(rotation.x), round1(rotation.y)], reportLag: round1(viewer.reportLag), carYaw: round1(carYaw), nowYaw: round1(nowYaw), frameYaw: round1(frame.yaw), carYaws: viewer.carYaws.map(round1), first, ...planned.debug });
         } catch (error) {
           // A client that refuses it rides the player's own view throughout.
           viewer.noAnim = true;
@@ -2787,13 +2835,13 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     // (that sent a yaw 360 degrees from the one before, which an easing
     // client may spin through).
     const since = Number.isFinite(viewer.handedBack) ? ticks - viewer.handedBack : Infinity;
-    const lag = since >= HANDBACK_BLEND ? tickLag : animLag + (tickLag - animLag) * since / HANDBACK_BLEND;
+    const lag = since >= HANDBACK_BLEND ? tickLag : viewer.timing.animLag + (tickLag - viewer.timing.animLag) * since / HANDBACK_BLEND;
     const pose = lagged(lag);
     viewer.view = riderView(pose.nose, pose.up, viewer.look, viewer.view, tickMode, camera.maxTurn);
     const eye = pose.eye, view = viewer.view;
     if (looping && !handBack) {
       if (!(viewer.cooldown > ticks) && Math.abs(frame.pitch) > 20) {
-        const planned: any = planInversion(frame, planner, viewer.look, viewer.history);
+        const planned: any = planInversion(frame, planner, viewer.look, viewer.history, viewer.timing.animLag);
         // Nothing to animate yet, proven for `wait` ticks (see `planInversion`),
         // or an inversion that cannot be drawn whole: the per-tick camera keeps
         // it, and the prediction is not re-run every tick.
@@ -3444,7 +3492,8 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         // otherwise untrack the cart mid-ride; the angles are already in range.
         for (const frame of frames) {
           // The body pose `bodyLag` ticks back (`CoasterRiderViewConfig.bodyLag`), from this car's recent poses.
-          const shown = bodyPoseBehind(frame.car.state, { pitch: frame.pitch, roll: frame.roll, body: frame.body }, BODY_LAG);
+          const st = frame.car.state, riderLag = st && ticks - st.bodyLagAt <= 40 ? st.bodyLag : undefined;
+          const shown = bodyPoseBehind(st, { pitch: frame.pitch, roll: frame.roll, body: frame.body }, Number.isFinite(riderLag) ? riderLag : BODY_LAG);
           frame.car.entity.setProperty('craftmatic:track_pitch', Math.max(-180, Math.min(180, shown.pitch)));
           frame.car.entity.setProperty('craftmatic:track_roll', Math.max(-180, Math.min(180, shown.roll)));
           frame.car.entity.setProperty('craftmatic:body_x', shown.body[0]);
