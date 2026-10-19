@@ -40,8 +40,11 @@ drop cut; superseded by the 19c3986b zip (below).
   6/6 laps; hand-back smooth; jerk lower; drags ~60 ms to the first turn. Bodywork still crosses the lower third in
   the loops (navy 14-18 a lap, inflated by the black pillar; read by eye). Saga PSS 5.16 GB, 12 Watchdog lines.
   SHARED 2026-10-19 19:05: `output/craftmatic-packs-2026-10-19-19c3986b.zip` (sha256 675c5f06...0c13, PACKS.md
-  corrects the morning's "no cut" claim). Pixel 30zz report pending at this writing (agent running; lead's own check:
-  car 2 lap 1 no cut). Probe packs with `camera.debug` (`-19zx/probe-9eda695f`, `-19zy/probe-20e8de92`): never ship.
+  corrects the morning's "no cut" claim). Pixel 30zz (`pixel/notes.md`): no drop cut in 6/6 laps
+  (cars 2, 3); drags ~0.1 s to the first turn, no repeats; BUT car 2's hand-back after loop 2 still snaps in 1-3
+  frames every lap (Saga: smooth), car 3 lap 2 a whole-view grey slab 2 frames (106.71/106.77), the hull band in both
+  loops unchanged (band2 0.15-3.24 s a lap), car 2's rider ahead a translucent yellow wash in loop 2. The Pixel's
+  content log flushes on HOME, not Save & Quit. Probe packs with `camera.debug` (`-19zx/probe-9eda695f`, `-19zy/probe-20e8de92`): never ship.
 - NEXT (COAST-06): the loops' bodywork - is the band the own car's restraint bar or the car ahead? Read it with the
   sim snapshot of car 3 in loop 1 against `saga/frames` 49.65-53.35 (30zz); the sim's view cover reads clean (worst 0.39).
 - The wand's Undo left 10303's entities (and the tower) on the Saga in 30zx after a re-placement on top of an earlier
