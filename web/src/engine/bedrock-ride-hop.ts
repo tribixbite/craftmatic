@@ -306,8 +306,9 @@ function hopRuntime(config: HopRuntimeConfig, makeKit: typeof hopKit, contact: t
     try { v.setDynamicProperty(config.holdProperty, true); } catch { /* gone */ }
   };
   system.runInterval(() => {
-    let now = 0;
-    try { now = Number(system.currentTick) || 0; } catch { return; }
+    // The tick is read only once a player is found on one of THIS pack's driveables: every pack runs this interval,
+    // and an unconditional `system.currentTick` read was 5 % of the scripts' busy time on the Saga (round 30zs).
+    let now = NaN;
     let players: any[] = [];
     try { players = world.getAllPlayers(); } catch { return; }
     const present = new Set<string>();
@@ -321,6 +322,7 @@ function hopRuntime(config: HopRuntimeConfig, makeKit: typeof hopKit, contact: t
       const src: HopSource | undefined = v ? config.sources[v.typeId] : undefined;
       // Not on one of THIS pack's driveables: another pack's runtime (or none) owns the player.
       if (!v || !src) { recs.delete(pid); continue; }
+      if (Number.isNaN(now)) { try { now = Number(system.currentTick) || 0; } catch { return; } }
       let pose: HopPose, riderAt: { x: number; y: number; z: number };
       try { const l = v.location; pose = { x: l.x, y: l.y, z: l.z, yaw: v.getRotation().y }; riderAt = p.location; } catch { continue; }
       let rec = recs.get(pid);

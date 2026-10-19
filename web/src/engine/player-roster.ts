@@ -24,7 +24,18 @@ export const ROSTER_REFRESH_TICKS = 40;
 export function playerRosterWorld(base: any, system: any, refreshTicks: number): any {
   let roster: any[] | null = null;
   let refreshedAt = -Infinity;
-  const tickNow = (): number => { try { return system.currentTick; } catch { return refreshedAt; } };
+  // The tick is counted HERE, by one interval per pack: reading `system.currentTick` is a native call, and on every
+  // `getAllPlayers` it was 17 % of the scripts' busy time on the Saga (round 30zs), more than the call it replaced.
+  // Without `runInterval` (a bare fake), fall back to reading it.
+  let counted = 0, counting = false;
+  try { system.runInterval(() => { counted++; }, 1); counting = true; } catch { /* read currentTick instead */ }
+  const tickNow = (): number => {
+    if (counting) return counted;
+    try { return system.currentTick; } catch { return refreshedAt; }
+  };
+  // The tick the roster was last checked for players gone invalid: once a tick, not on every call (the per-call
+  // `isValid` filter was another 9 % on the Saga).
+  let checkedAt = -Infinity;
   const valid = (player: any): boolean => {
     if (!player) return false;
     try { return typeof player.isValid === 'function' ? player.isValid() : player.isValid !== false; } catch { return false; }
@@ -32,7 +43,7 @@ export function playerRosterWorld(base: any, system: any, refreshTicks: number):
   // Read lazily, on the first call, never at load: `getAllPlayers` throws in early execution, and a roster read
   // then would stay empty until the next refresh.
   const refresh = (): void => {
-    try { roster = base.getAllPlayers(); refreshedAt = tickNow(); } catch { roster = null; }
+    try { roster = base.getAllPlayers(); refreshedAt = checkedAt = tickNow(); } catch { roster = null; }
   };
   try {
     base.afterEvents.playerSpawn.subscribe((event: any) => {
@@ -48,7 +59,7 @@ export function playerRosterWorld(base: any, system: any, refreshTicks: number):
   const getAllPlayers = (): any[] => {
     const now = tickNow();
     if (!roster || !(now - refreshedAt < refreshTicks) || now < refreshedAt) refresh();
-    else roster = roster.filter(valid);
+    else if (now !== checkedAt) { roster = roster.filter(valid); checkedAt = now; }
     // A copy: callers filter and sort what they get.
     return roster ? roster.slice() : base.getAllPlayers();
   };

@@ -25,7 +25,7 @@ describe('the shared player roster (PIN-02: ~30 getAllPlayers calls a tick acros
     const system = { currentTick: 100 };
     const wrapped = playerRosterWorld(world, system, ROSTER_REFRESH_TICKS);
     expect(wrapped.getAllPlayers().map((p: any) => p.id)).toEqual(['a']);
-    for (let t = 101; t < 100 + ROSTER_REFRESH_TICKS; t++) { system.currentTick = t; wrapped.getAllPlayers(); wrapped.getAllPlayers(); }
+    for (let t = 101; t < 100 + ROSTER_REFRESH_TICKS - 1; t++) { system.currentTick = t; wrapped.getAllPlayers(); wrapped.getAllPlayers(); }
     expect(counts.players).toBe(1);
     // A join between refreshes is seen at once, from the event; a leave too.
     const b = player('b');
@@ -35,13 +35,36 @@ describe('the shared player roster (PIN-02: ~30 getAllPlayers calls a tick acros
     for (const fn of listeners.leave) fn({ playerId: 'a' });
     expect(wrapped.getAllPlayers().map((p: any) => p.id)).toEqual(['b']);
     expect(counts.players).toBe(1);
-    // A player gone invalid (unloaded, left without an event) drops out before the refresh.
+    // A player gone invalid (unloaded, left without an event) drops out by the next tick, before the refresh.
     b.isValid = false;
+    system.currentTick = 100 + ROSTER_REFRESH_TICKS - 1;
     expect(wrapped.getAllPlayers()).toEqual([]);
     // The refresh re-reads the game: a missed event costs at most ROSTER_REFRESH_TICKS.
     system.currentTick = 100 + ROSTER_REFRESH_TICKS;
     players.splice(0, players.length, player('c'));
     expect(wrapped.getAllPlayers().map((p: any) => p.id)).toEqual(['c']);
+    expect(counts.players).toBe(2);
+  });
+
+  it('counts its own ticks and checks validity once a tick: no native call on a cached read (Saga 30zs: currentTick 17 %, isValid 9 % of busy time)', () => {
+    const { world, counts } = fakeWorld([]);
+    const reads = { tick: 0, valid: 0 };
+    let tickFn: () => void = () => {};
+    const system = { get currentTick() { reads.tick++; return 0; }, runInterval(fn: () => void, every: number) { expect(every).toBe(1); tickFn = fn; return 1; } };
+    const a = { id: 'a', isValid() { reads.valid++; return true; } };
+    world.getAllPlayers = () => { counts.players++; return [a]; };
+    const wrapped = playerRosterWorld(world, system, ROSTER_REFRESH_TICKS);
+    for (let tick = 0; tick < 10; tick++) {
+      for (let call = 0; call < 30; call++) expect(wrapped.getAllPlayers().map((p: any) => p.id)).toEqual(['a']);
+      tickFn();
+    }
+    expect(reads.tick).toBe(0);
+    // One read at the first call, then one validity check on each of the nine later ticks: not 30 a tick.
+    expect(counts.players).toBe(1);
+    expect(reads.valid).toBe(9);
+    // The counted tick still drives the refresh.
+    for (let tick = 10; tick < ROSTER_REFRESH_TICKS; tick++) tickFn();
+    wrapped.getAllPlayers();
     expect(counts.players).toBe(2);
   });
 
