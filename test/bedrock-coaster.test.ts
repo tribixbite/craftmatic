@@ -9,6 +9,7 @@ import type { CoasterRiderViewConfig, CoasterRoute, CoasterRouteCar, CoasterRunt
 import type { CoasterCar } from '../web/src/engine/coaster-assemblies.js';
 import { detectCoasterAssemblies } from '../web/src/engine/coaster-assemblies.js';
 import { FLYER } from '../web/src/engine/bedrock-flyer.js';
+import { quirkValue } from '../web/src/sim/quirks/registry.js';
 import { HOP_TAGS } from '../web/src/engine/bedrock-ride-hop.js';
 import { CAMERA_OWNER_TAG, CAMERA_SWEEP_TICKS } from '../web/src/engine/camera-release.js';
 import { extractCoasterTrackRoutes } from '../web/src/engine/coaster-track.js';
@@ -130,7 +131,9 @@ interface RideHostOptions extends CoasterSimOptions { riders?: boolean; scale?: 
  * cart's wheelbase and seat are what `buildCoasterRideAssets` would fill in. */
 function rideHost(route: CoasterRoute, options: RideHostOptions = {}) {
   const bare = coasterRuntimeConfig('craftmatic:test_cart', [route]);
-  const config: CoasterRuntimeConfig = { ...bare, ...(options.camera ? { camera: { ...bare.camera!, ...options.camera } } : {}), types: { ...bare.types, 'craftmatic:test_cart': { ...bare.types['craftmatic:test_cart']!, ...(options.wheelbase !== undefined ? { wheelbase: options.wheelbase } : {}), ...(options.seat ? { seat: options.seat } : {}) } } };
+  // The body pose is written in step with the position here (`bodyLag` 0) unless a test asks for a lag: these tests
+  // read where the bricks are drawn from the position and body offset of ONE tick. The shipped 3.3 has its own test.
+  const config: CoasterRuntimeConfig = { ...bare, camera: { ...bare.camera!, bodyLag: 0, ...(options.camera ?? {}) }, types: { ...bare.types, 'craftmatic:test_cart': { ...bare.types['craftmatic:test_cart']!, ...(options.wheelbase !== undefined ? { wheelbase: options.wheelbase } : {}), ...(options.seat ? { seat: options.seat } : {}) } } };
   if (options.noCamera) delete config.camera;
   const count = config.routes[0]!.cars.count;
   const world = coasterSim(config, options);
@@ -539,7 +542,7 @@ describe('serialized coaster runtime', () => {
   it('bodyLag writes each car\'s body pose properties that many ticks behind its position, interpolating fractions the short way round (Saga 30zs: the body turned ahead of the drawn car in the loops)', () => {
     const props = (h: ReturnType<typeof rideHost>, name: string): number[] =>
       (h.entity.setProperty.mock.calls as Array<[string, number]>).filter(([n]) => n === name).map(([, v]) => v);
-    const now = rideHost(loopRoute()), two = rideHost(loopRoute(), { camera: { bodyLag: 2 } }), half = rideHost(loopRoute(), { camera: { bodyLag: 1.5 } });
+    const now = rideHost(loopRoute(), { camera: { bodyLag: 0 } }), two = rideHost(loopRoute(), { camera: { bodyLag: 2 } }), half = rideHost(loopRoute(), { camera: { bodyLag: 1.5 } });
     for (const h of [now, two, half]) h.run(400);
     // The positions are the same in all three: only what the body shows is delayed.
     expect(two.positions).toEqual(now.positions);
@@ -556,6 +559,9 @@ describe('serialized coaster runtime', () => {
     }
     // The loop really turns the body over, so the short way round is exercised.
     expect(Math.max(...props(now, 'craftmatic:track_pitch').map(Math.abs))).toBeGreaterThan(95);
+    // The shipped lag is the measured property lead (Pixel probe round 30zt), and every pack carries it.
+    expect(COASTER_RIDER_VIEW.bodyLag).toBe(quirkValue('property-ahead-of-position', 'pixelLeadTicks'));
+    expect(coasterRuntimeConfig('craftmatic:x', [loopRoute()]).camera!.bodyLag).toBe(COASTER_RIDER_VIEW.bodyLag);
   });
 
   it('inverts the cart visually at a loop apex while leaving player rotation upright', () => {

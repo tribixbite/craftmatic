@@ -145,7 +145,7 @@ export interface SnapshotMetrics {
 }
 
 /** A client snapshot: the picture and what it measured, with the camera it was drawn from. */
-export interface ClientSnapshotResult { rgb: Uint8Array; width: number; height: number; camera: DrawnCamera; metrics: SnapshotMetrics }
+export interface ClientSnapshotResult { rgb: Uint8Array; width: number; height: number; camera: DrawnCamera; metrics: SnapshotMetrics; /** Per pixel: view depth (blocks) of the nearest opaque face, Infinity for sky. */ depth: Float32Array }
 
 /**
  * One actor's cull and LOD reading from a camera: culled past its realised cull (3-D, the horizontal reading
@@ -205,7 +205,7 @@ export function clientSnapshot(engine: SimEngine, appearance: AddonAppearance, p
   const { actors, faces } = lodFaces(full, hull);
   const at: V3 = [eye.x + camera.dir.x, eye.y + camera.dir.y, eye.z + camera.dir.z];
   const res = renderActorsDetailed(actors, faces, { eye: [eye.x, eye.y, eye.z], at, up: [camera.up.x, camera.up.y, camera.up.z], fovDeg, width, height }, { uvFloor, hatch: !!options.paintHatch }, options.atlases);
-  return { rgb: options.paintHatch ? paintHatch(res) : res.rgb, width, height, camera, metrics: { ...rasterMetrics(res), entities } };
+  return { rgb: options.paintHatch ? paintHatch(res) : res.rgb, width, height, camera, metrics: { ...rasterMetrics(res), entities }, depth: res.depth };
 }
 
 /** The point a drawn camera looks at, one block ahead (for callers building a raster camera). */

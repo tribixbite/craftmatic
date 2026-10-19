@@ -443,9 +443,9 @@ export interface CoasterRiderViewConfig {
    * Ticks each car's body pose (the `track_pitch` / `track_roll` / `body_*` actor properties its bones read) is
    * written BEHIND the pose the car's position is set to, so the drawn body turns in step with the drawn,
    * interpolated position. A property the client applies earlier than the position it was sent with turns the body
-   * ahead of the car: through a loop the rider's eye, on the drawn seat, lands inside its own car's bodywork (Saga
-   * round 30zs). Fractional: interpolated between two ticks' poses. 0 = the pose of this tick (the behaviour until
-   * measured: probe round 30zt, `output/device-round-2026-10-19zt/proplag/`). Absent = 0.
+   * ahead of the car: through a loop the rider's view filled with its own car's bodywork on both phones (round 30zs).
+   * MEASURED 3.3 (Pixel probe round 30zt, quirk `property-ahead-of-position`: a property lands 3.30-3.41 ticks before
+   * the position sent with it, at 5, 10 and 20 blocks/s). Fractional: interpolated between two ticks' poses. Absent = 0.
    */
   bodyLag?: number;
   /**
@@ -502,7 +502,7 @@ export interface CoasterRiderViewConfig {
  * always sets where "ahead" is. Values chosen and measured in the guide's
  * "The rider's camera follows the track" section.
  */
-export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'native', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, animLag: 3.5, animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
+export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'native', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, animLag: 3.5, bodyLag: 3.3, animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
   steepTilt: 25, steepSpeed: 5, blendTicks: 6, sectionGap: 12, sectionHorizon: 160 };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */

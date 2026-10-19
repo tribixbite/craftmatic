@@ -179,7 +179,7 @@ describe('the drawn poses', () => {
     // The value of the last whole tick at or before now - lag (+ lead): applied, not interpolated (12 at now).
     expect(inStep.value).toBe(12 - Math.ceil(inStep.lag));
     expect(ahead.value).toBe(12 - Math.ceil(ahead.lag - 2));
-    expect(quirk('property-ahead-of-position').values).toEqual({ pixelLeadTicks: 0, sagaLeadTicks: 0 });
+    expect(quirk('property-ahead-of-position').values).toEqual({ pixelLeadTicks: 3.3, sagaLeadTicks: 3.3 });
   });
 
   it('poses a bone as the add-on preview does: T(position) T(pivot) R(bind + animated) S T(-pivot)', () => {
