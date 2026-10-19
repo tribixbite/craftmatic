@@ -373,11 +373,28 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   (`native`, 2026-10-18) and sends only fast steep stretches as one blended
   animation: a camera the server sets every tick jerked against the
   client-interpolated train (worst in cars 2-3) and lagged every drag (the
-  user's report). Every runtime that sets a camera tags the rider
+  user's report). **A `playAnimation` sent while the player is on their own
+  view is never drawn** (Pixel round 30zr, quirk
+  `camera-animation-needs-camera`; round 30zq's camera sat at the top of the
+  drop): `native` arms each animation with one un-eased `setCamera` at the
+  drawn view the tick before, and clears at its end. Every 09-29 probe began
+  from a set camera, which is why this hid. Every runtime that sets a camera tags the rider
   (`CAMERA_OWNER_TAG`) and sweeps (`releaseOrphanCameras`), so a camera is
   never left on a player who rides nothing (VEH-19).
   A rider's reported yaw is the CLIENT's and trails its vehicle ~6 ticks.
   Details: the add-on guide's "The rider's camera follows the track".
+- **A native call is not free on a phone, and every pack pays its own.** With
+  the 26 round packs bound, the scripts took a median 24 ms of each 50 ms
+  tick on BOTH phones (round 30zq `/script profiler`; the user's pinball
+  "client server lag"). 10303's ride alone was 53 % of that busy time: its
+  path sampler re-validated the whole track on every call (37 %, Saga 47 %);
+  vehicles' per-tick `getEntities` was 13 % and ~30 `getAllPlayers` calls a
+  tick ~9 % - every pack pays its own, so each pack's scripts now take `world`
+  from one shared roster (`scripts/roster.js`, player-roster.ts). A per-tick
+  query or a per-call O(N) check is a cost multiplied by every pack. Profile with `/script profiler start|stop` (the `.cpuprofile` lands in
+  the content-log folder), read it with
+  `python -I scripts/_cpuprofile_summary.py`; the burst view (samples exist
+  only while scripts run) is the busy time per tick.
 - **An unloaded block is not air.** `dim.getBlock` returns `undefined` outside
   the loaded/simulated area; a runtime that reads that as "no ground" lets an
   entity fall through the world (an empty scripted car coasted off and fell

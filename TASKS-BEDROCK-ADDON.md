@@ -9,34 +9,42 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
-### IN FLIGHT 2026-10-18: the user's camera / lag reports (COAST-06, VEH-19, PIN-02)
+### IN FLIGHT 2026-10-19: the user's camera / lag reports (COAST-06, VEH-19, PIN-02)
 
 The user (their own world, every round pack bound): the 10303 ride "super laggy, stutter-jerks especially for seat
 2 and 3, a full camera blip reset in an upside-down loop", lag when moving the camera by hand; dismounting vehicles
 leaves the camera "locked in one location - big bug"; pinball "the same client server lag". Shared with them: all
-26 packs as `output/craftmatic-packs-2026-10-18-86f8e130.zip` (sha256 01dd8883...; loop camera, the old release).
-- DONE OFFLINE, merged locally as `b32e3e30` (main + origin's verify batch; full suite RUNNING,
-  `output/coaster-cam-1018/fulltest.txt`; push after it is green): coaster camera `native` (default): no camera on
-  near-level track, one blended animation per fast steep stretch (`planSection`); camera owner tag + sweep
-  (`camera-release.ts`) in the vehicle and coaster runtimes; `vehicle-camera.js` finds riders from the players.
-  Tools: `scripts/_ride_smoothness.py <video> --window=a-b` (stalls/s, jerk; 09-29 Pixel loop ride: 1.70 stalls/s
-  moving), `scripts/_sim_script_cost.ts <packs-dir>` (per-pack callback time; 26 packs idle: 111 callbacks a tick,
-  13 vehicles.js + 13 vehicle-camera.js entity scans), `_coaster_cam_probe.ts --car=r0c1`.
-- Round 30zq PHASE A done (old packs). Pixel (`output/device-round-2026-10-18zq/pixel/notes.md`, `smoothness-A.txt`):
-  the loop camera is near stall-free on level track (0-0.13 stalls/s) but rough from the drop through the loops
-  (cars 2/3: 2.6-3.55 stalls/s, jerk p99 31-106, recording fps falls to ~35); in the loops ~0.5 s spells of the
-  view INSIDE car bodywork (`frames/A-car2-loops-lap1.jpg` 36.0-36.5 s dark); from car 2 the posed minifig rider of
-  the car AHEAD fills much of the view (its head at the player's eye height) - a seating question for the user, not
-  a camera one; a drag on the stopped train turned nothing. Saga (`saga/notes.md`): the locked camera NOT
-  reproduced, 11/11 dismounts give the view back (rest, 43 mph, cockpit, hover, reload mid-ride, coaster); the game
-  was frozen on arrival (force-stopped, cause unknown); `/tp @s ~ ~ ~` no longer dismounts on the Saga.
-- Packs `output/device-round-2026-10-18zq/packs-f2572fc8` (+ `creator-f2572fc8`): sim 150/0, regressions 38/0,
-  coaster-camera Pixel pass (seat lead -0.15, eye jump 0.1), Saga 1 violation: the animation 0.52 blocks AHEAD of
-  the drawn seat at 21.7 blocks/s (animLag 3.5 is the Pixel's; the Saga draws at 4 - known, smaller than loop's).
-  IN FLIGHT phase B on both phones (new packs: the same rides / dismounts, `/script profiler` idle + pinball).
-- The VEH-19 cause is NOT known (each runtime's own release clears on dismount); the sweep covers a runtime that
-  lost its rider and a clear dropped mid-ease. PIN-02's remaining lag is the server tick under every pack: decide
-  from the device profile which runtimes to gate (idle vehicles.js scans every pack's vehicles each tick in 13 packs).
+26 packs as `output/craftmatic-packs-2026-10-18-86f8e130.zip` (loop camera, the old release); a new zip is owed
+once the fixes below are on a phone.
+- Round 30zq done on both phones (`output/device-round-2026-10-18zq/{pixel,saga}/notes.md`; packs-f2572fc8, stamp
+  b32e3e30). `native` vs `loop`, Pixel cars 2/3 same stretches (`smoothness-A.txt` / `-B.txt`): drop + loops
+  0.7-1.3 stalls/s vs 2.6-3.6, jerk p90 ~3 vs 5.5-10; level 0-0.25; a drag turns the view in 2-4 frames (rolling;
+  the stopped-train drag was not done in B). OPEN (COAST-06): on BOTH phones the animation's camera stops at the
+  top of the drop ~1 s while the train falls away, glides after it and rejoins the seat at the first loop
+  (`output/device-round-2026-10-18zq/review-B/dense/c2-398.jpg` 0.1 s steps, `review-B/saga-drop.jpg`); `loop`
+  showed an off-train view too (A 39.5 s); frames inside car bodywork remain in the loops. CAUSE found by the
+  Pixel probe round 30zr (`output/device-round-2026-10-19zr/pixel/notes.md`, camprobe v7 in `../camprobe/`): an
+  animation sent while the player is on their OWN view is never drawn (`nopre`, `own20 ride`: 4/4 no view change);
+  one or two ticks of an un-eased `setCamera` first and it plays from its first frame (`arm1`/`arm2`: 3/3, marker
+  locked next frame). Quirk `camera-animation-needs-camera` (modelled in sim/client/camera.ts; the sim-client
+  native test failed on the old code). `native` now ARMS: one un-eased free camera at the animation's first view,
+  re-plan + play next tick, clear at the end. NOT yet ridden: next round rides cars 2/3 again (same windows as
+  30zq) and checks the loop bodywork frames. Probe leftovers on the Pixel: the camprobe pack folder
+  `behavior_packs/Craftmatic(11)` (unbound; bindings restored byte-identical).
+- Offline since (see git log): native hands back to the player's own view the
+  tick the train leaves the plan (`anim.exact`, guard "native mode hands the view back"); PIN-02 tick cost:
+  `sampleCoasterPath` validates a path once and bisects (it was 37 % of the scripts' busy time on the Pixel, 47 %
+  on the Saga), vehicles look their fleet up once a second (13 %), each pack's scripts share one player roster
+  (`scripts/roster.js`, ~9 %). Profiles: `{pixel,saga}/profile/*.cpuprofile`; read with
+  `python -I scripts/_cpuprofile_summary.py <profile>` (the burst view: busy ms per tick; median 24 ms of 50 on both
+  phones, Pixel 40/1,391 ticks over 50 ms). Next: build a round from the commit, sim gates, re-profile the same
+  scene (10303 + 11374 placed, 26 packs) and replay the pinball.
+- VEH-19: the lock is NOT reproduced (Saga A 11/11, B 9/9; B's `craftmatic_camera` gone ~2 s after each dismount):
+  the sweep is proved on the device. Watchdog "High memory usage" appeared in B on both phones (Pixel 8, Saga 4),
+  never in A, first after the 10303 placement - cause unknown (scripts 19 MB over 25 packs; 10261's placement.js
+  3.2 MB).
+- For the user: from car 2/3 the posed minifig rider of the car ahead fills a third of the view at eye height
+  (both phases) - a seating/figure question, not a camera one.
 
 ### Handoff (2026-10-12, main `304a0df6`+, CI green)
 

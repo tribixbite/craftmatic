@@ -188,9 +188,17 @@ describe('the camera state machine', () => {
     expect(d.eye).toEqual({ x: 7, y: 3, z: 0 }); expect(d.pitch).toBe(10); expect(d.yaw).toBe(45);
   });
 
-  it('an animation plays from the frame it is issued, is cut by a setCamera, and shows the own view when it runs out first', async () => {
+  it('an animation sent from the player\'s own view is never drawn; armed by a set camera it plays from the frame it is issued, is cut by a setCamera, and shows the own view when it runs out first', async () => {
     const { sim, player, client, camera } = await world();
     const anim = (total: number) => camera.playAnimation({ controlPoints: [{ x: 0, y: 10, z: 0 }, { x: 0, y: 10, z: 10 }] }, { totalTimeSeconds: total, animation: { progressKeyFrames: [{ alpha: 0, timeSeconds: 0 }, { alpha: 1, timeSeconds: total }], rotationKeyFrames: [{ rotation: { x: 0, y: 0, z: 0 }, timeSeconds: 0 }, { rotation: { x: 360, y: 0, z: 0 }, timeSeconds: total }] } });
+    // From the own view: dropped (quirk `camera-animation-needs-camera`, Pixel round 30zr, 4/4).
+    anim(0.5);
+    await sim.run(3);
+    expect(client.drawn(player).mode).toBe('own');
+    // Armed: one un-eased setCamera, then the animation on the next tick.
+    camera.setCamera('minecraft:free', { location: { x: 0, y: 10, z: 0 }, rotation: { x: 0, y: 0 } });
+    await sim.run(1);
+    expect(client.drawn(player).mode).toBe('free');
     anim(0.5);
     await sim.run(1);
     expect(client.drawn(player).mode).toBe('animation');
@@ -387,8 +395,15 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
   for (const profile of ['pixel', 'saga'] as const) {
     it(`native mode (the default) on the ${profile}: the player's own view, and one animation per inversion that leaves and rejoins it with no cut and rides the drawn seat (COAST-06, the user 2026-10-18)`, () => {
       const { trace, client } = rideLoop(profile);
-      // No per-tick script camera at all: the own view (drawn from the drawn seat by the client) or an animation.
-      expect(trace.rows.filter(r => r.mode !== 'own' && r.mode !== 'animation')).toHaveLength(0);
+      // No per-tick script camera: the own view (drawn from the drawn seat by the client) or an animation, and one
+      // tick of the arming free camera before each animation (quirk `camera-animation-needs-camera`: an animation
+      // sent from the own view is never drawn, Pixel round 30zr).
+      const free = trace.rows.filter(r => r.mode !== 'own' && r.mode !== 'animation');
+      for (const r of free) {
+        const i = trace.rows.indexOf(r);
+        expect(r.mode, `${profile} tick ${r.tick}`).toBe('free');
+        expect(trace.rows[i + 1]?.mode, `${profile} tick ${r.tick}: the arming camera is followed by its animation`).toBe('animation');
+      }
       const s = trace.summary(2);
       expect(s.animations).toBeGreaterThanOrEqual(1);
       expect(trace.rows.filter(r => r.mode === 'own').length).toBeGreaterThan(300);

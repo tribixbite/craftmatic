@@ -225,6 +225,8 @@ class PlayerCamera {
   lastScriptCameraTick = -Infinity;
   /** The tick the animation playing last ended on its own (an own-view flash on a riding player). */
   animationEndedTick = -Infinity;
+  /** The tick of the last `playAnimation` the client dropped: one sent while the player was on their own view (quirk `camera-animation-needs-camera`). */
+  animationIgnoredTick = -Infinity;
   /** The pose the SCRIPT asked for this frame (the ease's target, the animation's sample, the instant set): what it means the view to be. */
   target: CameraPose | undefined;
 
@@ -248,15 +250,22 @@ class PlayerCamera {
         this.mode = 'own'; this.anim = undefined; this.animationEndedTick = now; this.target = undefined;
       } else { this.pose = sampleAnimation(this.anim, t); this.target = this.pose; }
     }
-    for (const r of this.pending) this.apply(r, now, own, easeFactor);
+    // Whether a script camera was on when this frame began: an animation arriving from the own view is dropped.
+    const entered = this.mode;
+    for (const r of this.pending) this.apply(r, now, own, easeFactor, entered);
     this.pending = [];
   }
 
   /** Apply one request on the frame `now` (a script's request lands on the frame of its own tick; a test's made between ticks on the next). */
-  private apply(r: CameraRequest, now: number, own: () => CameraPose, easeFactor: number): void {
+  private apply(r: CameraRequest, now: number, own: () => CameraPose, easeFactor: number, entered: DrawnMode = this.mode): void {
     if (r.kind === 'clear') { this.mode = 'own'; this.ease = undefined; this.anim = undefined; this.preset = undefined; this.target = undefined; return; }
-    this.lastScriptCameraTick = r.tick;
     if (r.kind === 'anim') {
+      // A `playAnimation` sent while the player is on their OWN view is never drawn (Pixel 26.52, round 30zr: the
+      // camprobe's `nopre` / `own20 ride` runs left the view untouched for the whole animation, 4 of 4; one or two
+      // ticks of an un-eased `setCamera` first and it played from its first frame, 3 of 3). Quirk
+      // `camera-animation-needs-camera`.
+      if (entered === 'own') { this.animationIgnoredTick = now; return; }
+      this.lastScriptCameraTick = r.tick;
       const arcs = [0];
       for (let k = 1; k < r.points.length; k++) { const a = r.points[k - 1]!, b = r.points[k]!; arcs.push(arcs[k - 1]! + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)); }
       this.anim = { start: now, total: r.total, points: r.points, arcs, progress: r.progress, rotation: r.rotation };
@@ -265,6 +274,7 @@ class PlayerCamera {
       this.target = this.pose;
       return;
     }
+    this.lastScriptCameraTick = r.tick;
     if (r.preset !== 'minecraft:free') {
       // A first/third-person preset: the player's own eye (no pack uses one; recorded, drawn as the own view).
       this.mode = 'own'; this.ease = undefined; this.anim = undefined; this.preset = r.preset; this.target = undefined;

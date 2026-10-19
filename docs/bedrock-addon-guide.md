@@ -2633,8 +2633,23 @@ animation a lap (~5.8 s): stretches within `sectionGap` 12 ticks join, the
 plan runs through the station brake as the ride applies it (`throughBrake`:
 the second loop exits straight into it), and `sectionHorizon` is 160 ticks. A
 slow chain climb stays the player's own view to look round on. While an
-animation plays the player cannot look round; nothing else touches the camera,
-and a held ride tick no longer cuts it (the eye would only run a tick ahead).
+animation plays the player cannot look round and nothing else touches the
+camera, but a train that leaves the plan (held by a refused teleport, a bay or
+the other train) hands back to the player's own view on that tick
+(`anim.exact`: only where the plan is the ride's own arithmetic, short of a
+brake).
+
+**An animation must be ARMED** (Pixel round 30zr, quirk
+`camera-animation-needs-camera`): a `playAnimation` sent while the player is on
+their own view is never drawn - the camprobe's `nopre` and `own20 ride` runs
+left the view untouched for the whole animation, 4 of 4, while one or two
+ticks of an un-eased `setCamera` first played it from its first frame, 3 of 3.
+Round 30zq's `native` showed it on both phones as a camera stopped at the top
+of 10303's drop for ~1 s while the train fell away (why that animation played
+at all, late, is not explained). So on the tick a stretch is planned the ride
+sets one un-eased free camera at the animation's first view (the drawn seat's
+eye, the player's own look), plans again on the next tick and plays, and
+clears the camera where the animation ends.
 The held wand shows in the player's own first person on level track, as on any
 Bedrock mount. `loop` and the other modes remain for comparison (`mode`).
 Device proof: TASKS "Start here" (round 30zq).

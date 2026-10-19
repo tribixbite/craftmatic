@@ -2543,7 +2543,9 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       views.push({ yaw: ownYaw + (track.yaw - ownYaw) * w, pitch: ownPitch + (track.pitch - ownPitch) * w, roll: (track.roll || 0) * w });
     }
     const animation = splineAnimation(poses, views, length);
-    return animation ? { ...animation, length } : { wait: 10 };
+    return animation
+      ? { ...animation, length, centres: plan.centres.slice(0, length), exact: Math.min(length, plan.exact), first: { eye: poses[0].eye, yaw: views[0].yaw, pitch: views[0].pitch } }
+      : { wait: 10 };
   };
   const aimRider = (rider: any, frame: any, planner?: any) => {
     if (camera.mode === 'off' || !rider?.camera) return;
@@ -2580,10 +2582,46 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       // from the drawn seat every frame and the finger turns it at once. Their look is the head turn from the car
       // and their own pitch, unclamped: that is the view an animation must start and end on.
       const look = { yaw: ((((rotation.y - carYaw) % 360) + 540) % 360) - 180, pitch: rotation.x };
+      if (viewer.armed) {
+        // Armed last tick (below): the camera is the script's now, so the animation will be drawn. Planned again from
+        // this tick (the ride's own arithmetic: the same stretch, one tick on) and played at once.
+        viewer.armed = false;
+        const planned: any = planSection(frame, planner, look, viewer.history);
+        if (planned && !planned.wait) {
+          try {
+            rider.camera.playAnimation(planned.spline, planned.options);
+            viewer.anim = { start: ticks, length: planned.length, centres: planned.centres, exact: planned.exact };
+            return;
+          } catch (error) {
+            viewer.noAnim = true;
+            console.warn(`[Craftmatic coaster] steep-stretch camera refused: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+        // Nothing to play after all (the train held at the crest): the arming camera goes, the player's view comes back.
+        try { rider.camera.clear(); } catch {}
+        viewer.cooldown = ticks + (planned && planned.wait ? planned.wait : 2);
+        return;
+      }
       if (viewer.anim) {
-        if (ticks - viewer.anim.start < viewer.anim.length) return;
-        // Ended: the client is back on the player's own view. Two ticks' grace before another may start, so a late
-        // client finishes this one first.
+        const anim = viewer.anim, k = ticks - anim.start;
+        // The train left the plan (held for the bay or the other train, a refused teleport): the animation would ride
+        // on without it, so the player's own view takes over at once. Loop mode always checked this; `native` did not,
+        // and on both phones (round 30zq) its camera sat at the top of 10303's drop for a second while the train fell
+        // away. Only where the plan is the ride's own arithmetic (`exact`): past it the brake is approximated.
+        if (k >= 1 && k <= anim.exact && Number.isFinite(anim.centres[k - 1]) && Math.abs(planner.centre - anim.centres[k - 1]) > 1e-6) {
+          try { rider.camera.clear(); } catch {}
+          viewer.anim = null;
+          viewer.cooldown = ticks + 10;
+          if (ticks - lastErrorLogTick >= 200) {
+            console.warn(`[Craftmatic coaster] ${config.typeId} steep-stretch camera handed back: the train left the plan at tick ${k} of ${anim.length} by ${Math.abs(planner.centre - anim.centres[k - 1]).toFixed(3)}`);
+            lastErrorLogTick = ticks;
+          }
+          return;
+        }
+        if (k < anim.length) return;
+        // Ended on the player's own view (the blend out). The camera is cleared rather than left to run out: the
+        // animation started from a set camera (the arming), and the own view is what the player gets back.
+        try { rider.camera.clear(); } catch {}
         viewer.anim = null;
         viewer.cooldown = Math.max(viewer.cooldown || 0, ticks + 2);
       }
@@ -2591,9 +2629,14 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       const planned: any = planSection(frame, planner, look, viewer.history);
       if (planned && planned.wait) viewer.cooldown = ticks + planned.wait;
       else if (planned) {
+        // ARM first: a `playAnimation` sent while the player is on their own view is never drawn (Pixel round 30zr,
+        // quirk `camera-animation-needs-camera`; round 30zq's camera sat at the top of the drop). One un-eased free
+        // camera at the animation's first view - the drawn seat's eye, the player's own look - and the animation
+        // next tick (above).
         try {
-          rider.camera.playAnimation(planned.spline, planned.options);
-          viewer.anim = { start: ticks, length: planned.length };
+          const first = planned.first;
+          rider.camera.setCamera('minecraft:free', { location: first.eye, rotation: { x: Math.max(-89.9, Math.min(89.9, first.pitch)), y: first.yaw } });
+          viewer.armed = true;
         } catch (error) {
           // A client that refuses it rides the player's own view throughout.
           viewer.noAnim = true;
@@ -3379,6 +3422,9 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
               return ahead >= 0 && ahead < speed * speed / (2 * STATION_BRAKE * scale) + 1;
             });
             let c = next, v = speed, held = Number.isFinite(car.state.yaw) ? car.state.yaw : 0;
+            // The first tick where a brake could bite: up to it the plan IS the ride (the same arithmetic in the same
+            // order), so a train found anywhere else was held; past it `throughBrake` approximates.
+            let exact = -1;
             const d = nextDirection;
             const face = cars.heading === 1 || cars.heading === -1 ? cars.heading : d;
             const centres: number[] = [], poses: any[] = [];
@@ -3393,14 +3439,15 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
               if (stopped) n = target;
               if (path.closed) n = ((n % total) + total) % total;
               else if (n > high || n < low) break;
-              if (!throughBrake && braking(n, clamped)) break;
+              if (exact < 0 && braking(n, clamped)) exact = k;
+              if (!throughBrake && exact >= 0) break;
               const pose = carPose(car, carArc(n, car.slot), 0, held, face);
               held = pose.yaw;
               centres.push(n); poses.push(pose);
               c = n; v = clamped;
               if (stopped || (stop && stop(poses, centres))) break;
             }
-            return { centres, poses };
+            return { centres, poses, exact: exact < 0 ? centres.length : exact };
           },
         };
         // The camera follows the car the rider is in. A camera fault must never

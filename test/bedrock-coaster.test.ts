@@ -255,6 +255,22 @@ function loopRoute(radius = 10, segments = 64): CoasterRoute {
   return { label: 'Loop', points, closed: true, maxSegmentLength: 2 };
 }
 
+/**
+ * `native`'s only `setCamera`: the ARMING camera, one un-eased free camera the tick before each animation (an
+ * animation sent from the player's own view is never drawn, Pixel round 30zr, quirk `camera-animation-needs-camera`).
+ * Every set is that, and every play has one.
+ */
+const expectArmedPlays = (log: Array<{ tick: number; kind: string; args: any[] }>, label = '') => {
+  const sets = log.filter(e => e.kind === 'set'), plays = log.filter(e => e.kind === 'play');
+  for (const set of sets) {
+    expect(set.args[0], `${label} tick ${set.tick}`).toBe('minecraft:free');
+    expect(set.args[1].easeOptions, `${label} tick ${set.tick}`).toBeUndefined();
+    expect(Math.abs(set.args[1].rotation.x), `${label} tick ${set.tick}`).toBeLessThan(90);
+    // Followed by its animation next tick, or (the train held at the crest) a clear.
+    expect(log.some(e => e.tick === set.tick + 1 && (e.kind === 'play' || e.kind === 'clear')), `${label} tick ${set.tick}`).toBe(true);
+  }
+  for (const play of plays) expect(sets.some(set => set.tick === play.tick - 1), `${label} play ${play.tick}`).toBe(true);
+};
 describe('measured station', () => {
   it('picks the longest level run in the low band, not a fixed index', () => {
     const station = findCoasterStation(buildCoasterPath(towerRoute().points, false, SPACING + 1e-6));
@@ -2648,7 +2664,7 @@ describe('the rider camera follows the track', () => {
    * A `native` ride on the loop course with the rider's head turned `head` (the cameraRider's yaw trails the car by
    * `lookLag`, as the Pixel reports it): every camera call logged, with the car's yaw per tick.
    */
-  function nativeRide(head = { yaw: 0, pitch: 0 }, route = loopCourse(), ticks = 1200) {
+  function nativeRide(head = { yaw: 0, pitch: 0 }, route = loopCourse(), ticks = 1200, onTick?: (tick: number, h: any, log: Array<{ tick: number; kind: string }>) => void) {
     const h = rideHost(route, { seat: [0, 0.35, 0], spline: true });
     expect(h.config.camera?.mode).toBe('native');
     const { player } = cameraRider(h.entity, head);
@@ -2660,6 +2676,7 @@ describe('the rider camera follows the track', () => {
     h.run(1); h.seat(player);
     const yaws: number[] = [];
     for (tick = 0; tick < ticks; tick++) {
+      onTick?.(tick, h, log);
       h.run(1);
       const teleports = h.entity.tryTeleport.mock.calls as any[][];
       yaws[tick] = Number(teleports.at(-1)?.[1].rotation.y);
@@ -2677,8 +2694,7 @@ describe('the rider camera follows the track', () => {
     const { log, yaws, plays } = nativeRide();
     // The player's own first person throughout: the server never sets the camera, so nothing it sends can lag or
     // jerk against the cars the client draws, and a drag turns the view at once.
-    expect(log.filter(e => e.kind === 'set')).toHaveLength(0);
-    expect(log.filter(e => e.kind === 'clear')).toHaveLength(0);
+    expectArmedPlays(log);
     // The shuttle runs the loop out and back.
     expect(plays.length).toBeGreaterThanOrEqual(2);
     for (const play of plays) {
@@ -2708,9 +2724,28 @@ describe('the rider camera follows the track', () => {
       }
       // The loop is drawn: the view passes upside down.
       expect(keys.some(key => rollFrame({ yaw: key.rotation.y, pitch: -key.rotation.x, roll: key.rotation.z }).u[1] < -0.9)).toBe(true);
-      // Nothing touches the camera while it plays.
+      // Nothing touches the camera while it plays; it is cleared, back to the player's own view, where it ends.
       expect(log.filter(e => e.tick > play.tick && e.tick < play.tick + total)).toHaveLength(0);
+      expect(log.filter(e => e.tick === play.tick + total && e.kind === 'clear')).toHaveLength(1);
     }
+  });
+
+  it('native mode hands the view back the tick the train leaves its plan, instead of riding the animation on without it (COAST-06, round 30zq: the camera sat at the top of the drop while the train fell away)', () => {
+    let held = -1;
+    const { log, plays } = nativeRide(undefined, undefined, 600, (tick, h, events) => {
+      // Five ticks into the first animation the ride is held (a refused teleport), as a bay or block hold would.
+      const first = events.find(e => e.kind === 'play');
+      if (first && held < 0 && tick === first.tick + 5) { held = tick; h.entity.tryTeleport.mockReturnValueOnce(false); }
+    });
+    expect(held).toBeGreaterThan(0);
+    const clears = log.filter(e => e.kind === 'clear');
+    // Handed back within a tick of the hold, by a clear (the player's own view), never by a server-set camera.
+    expect(clears.length).toBeGreaterThanOrEqual(1);
+    expect(clears[0]!.tick - held).toBeLessThanOrEqual(1);
+    expect(clears[0]!.tick - held).toBeGreaterThanOrEqual(0);
+    expectArmedPlays(log);
+    // The ride goes on, and a later steep stretch is animated again.
+    expect(plays.some(play => play.tick > clears[0]!.tick)).toBe(true);
   });
 
   it('native mode carries the rider\'s head turn into the animation and back out of it', () => {
@@ -2975,7 +3010,7 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
       rider.player.camera.setCamera.mockImplementation((...args: any[]) => { log.push({ tick, kind: 'set', args }); });
       h.run(1); car.seat(rider.player);
       for (tick = 0; tick < 2400; tick++) h.run(1);
-      expect(log.filter(e => e.kind === 'set'), `car ${index}`).toHaveLength(0);
+      expectArmedPlays(log, `car ${index}`);
       const plays = log.filter(e => e.kind === 'play');
       // Two laps (the lift and the station dwell take most of each): one animation per lap, never one cut short and
       // re-planned mid-stretch.
