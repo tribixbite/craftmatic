@@ -12,7 +12,8 @@ import { enableSelection } from '@viewer/selection.js';
 import { cropToAABB } from '@craft/pipeline/capture/mesh-utils.js';
 import type { AnalysisResult } from '@craft/pipeline/capture/analysis-types.js';
 import { trimGrid } from '@craft/gen/gen-utils.js';
-import { exportGLB, exportSTL, exportOBJ, exportHTML, exportThreeJSON, exportLayerGuide } from '@viewer/exporter.js';
+import { exportGLB, exportSTL, exportOBJ, exportHTML, exportThreeJSON, exportLayerGuide, glbBytes } from '@viewer/exporter.js';
+import { handOffToPokefit, openPokefit } from '@viewer/pokefit-handoff.js';
 import { runMinecraftExport } from '@ui/schem-export.js';
 import { mountSchemSettings, getSchemSettings } from '@ui/schem-settings-panel.js';
 import { initGenerator, type GeneratorConfig } from '@ui/generator.js';
@@ -183,6 +184,7 @@ function showInlineViewer(container: HTMLElement, grid: BlockGrid, legoYScale?: 
         <button class="download-item" data-format="display">Java Display Entities (.mcfunction)<span class="download-desc">1.19.4+ command function</span></button>
         <button class="download-item" data-format="stl">STL<span class="download-desc">3D print</span></button>
         <button class="download-item" data-format="glb">GLB<span class="download-desc">glTF</span></button>
+        <button class="download-item" data-format="pokefit">Fit in a Pokéball<span class="download-desc">pokefit.party · colour 3D print</span></button>
         <button class="download-item" data-format="obj">OBJ<span class="download-desc">Universal</span></button>
         <button class="download-item" data-format="three">Three.js JSON<span class="download-desc">Scene</span></button>
         <button class="download-item" data-format="html">HTML<span class="download-desc">Standalone</span></button>
@@ -388,6 +390,16 @@ function wireDownloadDropdown(
             await exportGLB(viewer, `${exportBasename}.glb`);
             hideLoading();
             break;
+          case 'pokefit': {
+            if (!viewer) return;
+            // Open the tab first, while the click still counts as a user gesture (pop-up blockers).
+            const tab = openPokefit();
+            if (!tab) { showError('Allow pop-ups for this site to open pokefit.party'); return; }
+            showLoading('Sending to pokefit...');
+            await handOffToPokefit(tab, glbBytes(viewer), `${exportBasename}.glb`);
+            hideLoading();
+            break;
+          }
           case 'obj':
             if (!viewer) return;
             showLoading('Exporting OBJ...');
@@ -585,6 +597,7 @@ function showMeshInlineViewer(container: HTMLElement, meshResult: MeshUploadResu
       </button>
       <div class="download-menu download-menu-up" id="mesh-dl-menu" hidden>
         <button class="download-item" data-format="glb">GLB<span class="download-desc">glTF</span></button>
+        <button class="download-item" data-format="pokefit">Fit in a Pokéball<span class="download-desc">pokefit.party · colour 3D print</span></button>
         <button class="download-item" data-format="stl">STL<span class="download-desc">3D print</span></button>
         <button class="download-item" data-format="obj">OBJ<span class="download-desc">Universal</span></button>
         <button class="download-item" data-format="three">Three.js JSON<span class="download-desc">Scene</span></button>

@@ -325,8 +325,8 @@ export async function export3MF(viewer: ViewerState, filename = 'craftmatic.3mf'
   downloadBlob(new Blob([bytes as unknown as BlobPart], { type: 'model/3mf' }), filename);
 }
 
-/** Export the current Three.js scene as GLB (binary glTF, scene units / studs). */
-export async function exportGLB(viewer: ViewerState, filename = 'craftmatic.glb'): Promise<void> {
+/** The current Three.js scene as GLB bytes (binary glTF, scene units / studs). */
+export async function glbBytes(viewer: ViewerState): Promise<ArrayBuffer> {
   const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
   const exporter = new GLTFExporter();
   // GLB keeps scene units (1 unit = 1 stud); glTF viewers fit-to-view.
@@ -335,16 +335,17 @@ export async function exportGLB(viewer: ViewerState, filename = 'craftmatic.glb'
   return new Promise((resolve, reject) => {
     exporter.parse(
       group,
-      (result) => {
-        cleanup();
-        const blob = new Blob([result as ArrayBuffer], { type: 'model/gltf-binary' });
-        downloadBlob(blob, filename);
-        resolve();
-      },
+      (result) => { cleanup(); resolve(result as ArrayBuffer); },
       (error) => { cleanup(); reject(error); },
       { binary: true }
     );
   });
+}
+
+/** Export the current Three.js scene as GLB (binary glTF, scene units / studs). */
+export async function exportGLB(viewer: ViewerState, filename = 'craftmatic.glb'): Promise<void> {
+  const bytes = await glbBytes(viewer);
+  downloadBlob(new Blob([bytes], { type: 'model/gltf-binary' }), filename);
 }
 
 /** Export the current Three.js scene as binary STL (3D printing, real-world mm). */
