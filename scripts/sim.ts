@@ -62,6 +62,7 @@
  *                LOD hull by the drawn camera): `no-visible-hatch-near`, `no-dropped-face-in-view`
  *                per shot; `--hatch` also paints the hatch pixels magenta.
  *   --client=    the client profile every client step reports for (default pixel; coaster-camera: both).
+ *   --cars=      coaster-camera: ride each of these cars, 1 = the front car (`--cars=1,2,3`); default the nearest.
  *   --prop-lead= ticks the client applies actor properties (a coaster car's pitch / roll / body bones) before
  *                the position sent with them, overriding the profile's (quirk `property-ahead-of-position`).
  *   --frames=    vehicles: `cockpitEye` judged from the DRAWN pose (always, since package B) also
@@ -124,6 +125,8 @@ const hatchFlag = args.includes('--hatch'), lodFlag = args.includes('--lod');
 const lagsFlag = flag('lag')?.split(',').map(Number).filter(Number.isFinite);
 /** `--prop-lead=N`: the client applies actor properties N ticks before the position (quirk `property-ahead-of-position`), overriding the profile's. */
 const propLeadFlag = flag('prop-lead') !== undefined ? Number(flag('prop-lead')) : undefined;
+/** `--cars=1,2,3`: coaster-camera rides each of these cars from the front (1 = the front car) instead of the nearest. */
+const carsFlag = flag('cars')?.split(',').map(n => Number(n) - 1).filter(n => Number.isInteger(n) && n >= 0);
 /** Child-play's pictures go through the client when any device rule is asked for. */
 const clientShots = !!(uvFloorFlag || hatchFlag || lodFlag);
 const clientStepOptions = { ...(uvFloorFlag ? { uvFloor: uvFloorFlag } : {}), lod: lodFlag || mode === 'walk-away', paintHatch: hatchFlag, frames: !!framesDir, ...(lagsFlag?.length ? { lags: lagsFlag } : {}) };
@@ -326,7 +329,7 @@ if (mode === 'hop') {
   process.exit(failed || !report.results.length ? 1 : 0);
 }
 
-if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|coaster-camera|walk-away|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>] [--runtime=pack|tree] [--client=pixel|saga|both] [--frames=<dir>] [--lag=1.5,3,4] [--prop-lead=N] [--uvfloor=v] [--hatch] [--lod] [--walk-away=a..b[:step]] [--size=200]'); process.exit(2); }
+if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|coaster-camera|walk-away|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>] [--runtime=pack|tree] [--client=pixel|saga|both] [--frames=<dir>] [--lag=1.5,3,4] [--prop-lead=N] [--cars=1,2,3] [--uvfloor=v] [--hatch] [--lod] [--walk-away=a..b[:step]] [--size=200]'); process.exit(2); }
 
 // `coaster-camera` and `walk-away` (package B): the drawn camera judged every tick, per client profile.
 if (mode === 'coaster-camera' || mode === 'walk-away') {
@@ -343,7 +346,7 @@ if (mode === 'coaster-camera' || mode === 'walk-away') {
       if (!pack) { report.error = 'not a craftmatic pack'; failed++; reports.push(report); continue; }
       report.label = pack.placement.label;
       for (const profile of clientProfiles) {
-        const scenarios = (mode === 'coaster-camera' ? coasterCameraScenarios(pack, profile) : walkAwayScenarios(pack, size, walk[0] ?? 40, walk[1] ?? 120, walk[2] ?? 10)).filter(s => !only || s.name.includes(only));
+        const scenarios = (mode === 'coaster-camera' ? coasterCameraScenarios(pack, profile, 3, carsFlag) : walkAwayScenarios(pack, size, walk[0] ?? 40, walk[1] ?? 120, walk[2] ?? 10)).filter(s => !only || s.name.includes(only));
         if (!scenarios.length) { console.log(`${report.pack}: nothing to run for ${mode} (${mode === 'coaster-camera' ? 'no coaster cars' : `no ${size} percent size`})`); continue; }
         for (const s of scenarios) {
           const fresh = await load(file);
