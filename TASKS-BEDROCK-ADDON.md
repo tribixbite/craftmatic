@@ -11,71 +11,44 @@ Parallel agents append ONE section each at the end of this file.
 
 ### IN FLIGHT 2026-10-19: the user's camera / lag reports (COAST-06, VEH-19, PIN-02)
 
-The user (their own world, every round pack bound): the 10303 ride "super laggy, stutter-jerks especially for seat
-2 and 3, a full camera blip reset in an upside-down loop", lag when moving the camera by hand; dismounting vehicles
-leaves the camera "locked in one location - big bug"; pinball "the same client server lag". Shared with them: all
-26 packs as `output/craftmatic-packs-2026-10-18-86f8e130.zip` (loop camera, the old release); a new zip is owed
-once the fixes below are on a phone.
-- Round 30zq done on both phones (`output/device-round-2026-10-18zq/{pixel,saga}/notes.md`; packs-f2572fc8, stamp
-  b32e3e30). `native` vs `loop`, Pixel cars 2/3 same stretches (`smoothness-A.txt` / `-B.txt`): drop + loops
-  0.7-1.3 stalls/s vs 2.6-3.6, jerk p90 ~3 vs 5.5-10; level 0-0.25; a drag turns the view in 2-4 frames (rolling;
-  the stopped-train drag was not done in B). OPEN (COAST-06): on BOTH phones the animation's camera stops at the
-  top of the drop ~1 s while the train falls away, glides after it and rejoins the seat at the first loop
-  (`output/device-round-2026-10-18zq/review-B/dense/c2-398.jpg` 0.1 s steps, `review-B/saga-drop.jpg`); `loop`
-  showed an off-train view too (A 39.5 s); frames inside car bodywork remain in the loops. CAUSE found by the
-  Pixel probe round 30zr (`output/device-round-2026-10-19zr/pixel/notes.md`, camprobe v7 in `../camprobe/`): an
-  animation sent while the player is on their OWN view is never drawn (`nopre`, `own20 ride`: 4/4 no view change);
-  one or two ticks of an un-eased `setCamera` first and it plays from its first frame (`arm1`/`arm2`: 3/3, marker
-  locked next frame). Quirk `camera-animation-needs-camera` (modelled in sim/client/camera.ts; the sim-client
-  native test failed on the old code). `native` now ARMS: one un-eased free camera at the animation's first view,
-  re-plan + play next tick, clear at the end. NOT yet ridden: next round rides cars 2/3 again (same windows as
-  30zq) and checks the loop bodywork frames. Probe leftovers on the Pixel: the camprobe pack folder
-  `behavior_packs/Craftmatic(11)` (unbound; bindings restored byte-identical).
-- Offline since (see git log): native hands back to the player's own view the
-  tick the train leaves the plan (`anim.exact`, guard "native mode hands the view back"); PIN-02 tick cost:
-  `sampleCoasterPath` validates a path once and bisects (it was 37 % of the scripts' busy time on the Pixel, 47 %
-  on the Saga), vehicles look their fleet up once a second (13 %), each pack's scripts share one player roster
-  (`scripts/roster.js`, ~9 %). Profiles: `{pixel,saga}/profile/*.cpuprofile`; read with
-  `python -I scripts/_cpuprofile_summary.py <profile>` (the burst view: busy ms per tick; median 24 ms of 50 on both
-  phones, Pixel 40/1,391 ticks over 50 ms). 30zs on packs-38fb625a: Saga median 8.8 ms (p99 31.9, 1 of 2,959 ticks
-  over 50), Pixel 13.9 ms (p99 52.5, 19 of 1,437), both led by the roster's own per-call `currentTick` (14-17 %) and
-  `isValid` (7-9 %) and hop's `currentTick` (5 %) - fixed in 6f132587, not yet on a phone.
-- Round 30zs DONE (packs-38fb625a; `output/device-round-2026-10-19zs/{pixel,saga}/notes.md`). Arming WORKS: no
-  freeze at the drop top on either phone, the view stays in the seat and pitches down (Saga sheets
-  `saga/frames/C-drop-lap*.jpg`); Pixel shows a one-frame cut to the lift column ~0.35 s into the drop (36.16 s,
-  `pixel/frames/C-car2-drop-lap1-a.jpg`, unexplained). Drag with the train STOPPED turns the view in ~3 frames
-  (30zq: none). OPEN: in both loops, on BOTH phones, the own car's bodywork fills the view (Pixel car 2 lap 1
-  37.86-41.77 s, the dark-navy body cuts across the frame over the car's own white/cyan interior; Saga 25.6-29.4 s),
-  and the view snaps back to the own view in one step after loop 2. Smoothness over drop+loops is worse in numbers
-  (Pixel 2.8-4.6 stalls/s vs 0.7-1.3) but the view now really pitches and rolls, so the tool cannot separate it.
-  Sim gates on that build: default 150/150, regressions 38/38; coaster-camera Saga 0.51 blocks lead (as 30zq).
-- Loop bodywork, investigated offline 2026-10-19: the sim now draws the car's property-driven bones (pitch, roll,
-  `body_*` offset, rider hide: `animatedPoses`, `AuditActor.poses`, `boneTransforms` poses) on the properties the
-  client applies (`ClientView.drawnProperties`, quirk `property-ahead-of-position`, `--prop-lead=N`), and counts
-  frames with the eye inside a car's cubes (`eyeInsideCoasterCars`). With the runtime's own axis convention the sim's
-  loop frames are CLEAN (`offline/sim-lap1-anim-bones.jpg`) and the eye never enters a car at lead 0 or 3
-  (`offline/eye-lead*.txt`): timing alone does not explain it. First suspect (docs/bedrock-addon-guide.md "Not
-  device-verified"): the device applies an AXIS of the animated `body_x/y/z` position with the other sign - zero on
-  level track, large on the drop and in loops, exactly where the bodywork shows. Probe round 30zt IN FLIGHT (Pixel,
-  `output/device-round-2026-10-19zt/brief-pixel-30zt.md`, pack `proplag/proplag-v8.mcaddon`: `cal`/`caly`/`calz` read
-  each axis's sign, `move` the property lead; `proplag/analyze.py`). The runtime assumes x +1, y +1, z -1. Then fix
-  `body` in `coasterRuntime` (or set `COASTER_RIDER_VIEW.bodyLag`, mechanism in place at 0) and ride again.
-- 30zs also: the Pixel game ran OUT OF RAM (11.1/11.6 GB) and crashed in the first pinball session (26 packs bound,
-  10303 + 11374 placed); 1 Watchdog "High memory usage" line after the relaunch. Pixel taps never moved a flipper
-  (Saga: tap to flipper ~0.20-0.25 s; launch = pull the left stick back) - unverified whether the taps were on
-  target. The player kept a `craftmatic_hop:<tick>` claim tag (bedrock-ride-hop.ts `board` never clears it: TODO).
-- After the fix: build a round, ride, then share ONE zip of the 26 packs (+ creator, nimbus) with sha256s.
-- VEH-19: the lock is NOT reproduced (Saga A 11/11, B 9/9; B's `craftmatic_camera` gone ~2 s after each dismount):
-  the sweep is proved on the device. Watchdog "High memory usage" appeared in B on both phones (Pixel 8, Saga 4),
-  never in A, first after the 10303 placement - cause unknown. Phase A placed 10303 too (no warning), so the
-  placement alone is not it. Offline (2026-10-19, `output/device-round-2026-10-19zs/offline/heap-scenario.ts`,
-  `heap.json`): riding car 2 for 24,000 ticks on packs-38fb625a, the retained heap after a full GC stays 82.6-85.8 MB
-  with no trend (objects 966k-972k), so the coaster runtime does not leak in the sim; placing adds ~9 MB, Undo
-  frees 70k objects. Shipped scripts: 19.2 MB over 25 packs, 15.3 MB of it placement.js CONFIG (10261 3.2 MB:
-  colliders' tread plans 1.7 MB and carves 1.1 MB, 16 + 8 size:turn plans, all held as source literals). Next if
-  it recurs: count the warnings per phase against the camera mode, and whether they stop after Undo.
-- For the user: from car 2/3 the posed minifig rider of the car ahead fills a third of the view at eye height
-  (both phases) - a seating/figure question, not a camera one.
+The user (their own world, every round pack bound, plays on a SAGA): the 10303 ride "super laggy, stutter-jerks
+especially for seat 2 and 3, a full camera blip reset in an upside-down loop", lag when moving the camera by hand;
+dismounting vehicles leaves the camera "locked in one location - big bug"; pinball "the same client server lag".
+SHARED 2026-10-19: `output/craftmatic-packs-2026-10-19-4fed7295.zip` (sha256 16c0737d...784a; 26 packs + PACKS.md,
+folder `output/share-2026-10-19-4fed7295/`), sent BEFORE round 30zu's device result: re-share if 30zu finds a fault.
+- Fixed and offline-gated, in packs-4fed7295 (`output/device-round-2026-10-19zu/`, build.log all exit 0):
+  - Loop bodywork (30zs both phones): the client applies an actor PROPERTY ~3.3 ticks before the position of the same
+    tick (Pixel probe 30zt, `output/device-round-2026-10-19zt/pixel/`; axes x +1, y +1, z -1 as the runtime assumes).
+    `COASTER_RIDER_VIEW.bodyLag` 3.3 writes pitch/roll/body_* from the pose 3.3 ticks back (33c9927d). Sim gate
+    `coaster-view-clear` (view share within 1 block of the eye per animation frame, max 0.4): old pack at lead 3.3
+    39 frames over, worst 0.57; packs-4fed7295 10303 Pixel worst 0.34 car 1, 0.13 car 2, 0 over; Saga worst 0.13.
+  - One-frame cut ~0.35 s into the drop (Pixel 30zs): the arming camera now starts on the yaw the client carries
+    the rider to (`lookLag` back, 4fed7295).
+  - PIN-02: the roster counts its own ticks; hop reads the tick only for its riders (6f132587).
+- After 4fed7295 (NOT in those packs; in the next build): hop claim-tag sweep (3734a496, VEH-12; 30zs left
+  `craftmatic_hop:<tick>` on the player); sim `--cars=1,2,3` and `coaster-view-clear` (5562fcfb).
+- RUNNING: device round 30zu on both phones (briefs `output/device-round-2026-10-19zu/brief-{pixel,saga}-30zu.md`:
+  cars 2 and 3, two laps each, drop/loop sheets, drags, profile + pinball feel, memory.txt, VEH-19 check). Sim
+  gate `output/device-round-2026-10-19zu/sim/coaster-cars.{log,md}` (cars 1-3, 10303 + 10261, both clients) and
+  `coaster-camera.{log,md}` (+42703). Not yet run on this build: default and `--scenario=regressions --new=`.
+- OPEN, Saga only (the user's phone): the sim predicts the blended camera 0.51 blocks AHEAD of the seat at 21
+  blocks/s and a 0.58-block eye jump at the hand-overs, because the Saga's entity lag is 4 (DERIVED, quirk
+  `client-entity-lag`, TODO(client-lag-saga)) against `animLag` 3.5 (Pixel, marker-measured). The Saga's property
+  lead (3.3) is ASSUMED. Next: round 30zv on the Saga AFTER its 30zu round (`output/device-round-2026-10-19zv/
+  brief-saga-30zv.md`: camprobe anim at lag 3/4/5 + shift calibration, per-tick T0/T1, proplag P1-P4). If the
+  Saga's lag is not 3.5, one `animLag` cannot fit both phones: choose by the user's phone (Saga) or split the
+  difference, and re-gate both clients.
+- Pixel memory: 30zs ran out of RAM (11.1/11.6 GB) and crashed with 26 packs bound; 30zu logs `memory.txt`.
+  Watchdog "High memory usage" appeared on both phones in 30zq B, never in A; offline the coaster runtime holds a
+  flat 83-86 MB heap over 24,000 ticks (`output/device-round-2026-10-19zs/offline/heap.json`). Shipped scripts are
+  19.2 MB over 25 packs, 15.3 MB of it placement.js CONFIG (10261 3.2 MB). Next if it recurs: warnings per phase,
+  and whether they stop after Undo.
+- Pinball: 30zs Saga tap to flipper ~0.20-0.25 s, launch = pull the left stick back; Pixel taps never moved a
+  flipper (target unverified): 30zu checks it.
+- VEH-19: not reproduced (Saga 30zq A 11/11, B 9/9; the camera tag clears ~2 s after each dismount); 30zu Saga
+  repeats the check.
+- For the user: from car 2/3 the posed minifig rider of the car ahead fills a third of the view at eye height - a
+  seating/figure question, not a camera one.
 
 ### Handoff (2026-10-12, main `304a0df6`+, CI green)
 
