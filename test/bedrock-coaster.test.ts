@@ -2733,8 +2733,10 @@ describe('the rider camera follows the track', () => {
       expect(spline.controlPoints).toHaveLength(total + 1);
       expect(options.animation.progressKeyFrames.at(-1).alpha).toBeCloseTo(1, 9);
       for (let k = 1; k < keys.length; k++) expect(keys[k].timeSeconds - keys[k - 1].timeSeconds).toBeGreaterThan(0.05);
-      // It starts on the player's own view: the drawn car's yaw (the pose animLag back) and their own pitch, no roll.
-      const own = (k: number) => yawAt(yaws, play.tick + k - COASTER_RIDER_VIEW.animLag);
+      // It starts on the player's own view: the yaw the client carries the rider round to (the car's, lookLag back:
+      // quirk rider-yaw-lag; the drawn car's animLag pose put the arming frame ~20 degrees off on a curve, Pixel 30zs)
+      // and their own pitch, no roll.
+      const own = (k: number) => yawAt(yaws, play.tick + k - COASTER_RIDER_VIEW.lookLag);
       expect(Math.abs(wrapDeg(keys[0].rotation.y - own(0)))).toBeLessThan(1);
       expect(keys[0].rotation.x).toBeCloseTo(0, 6);
       expect(keys[0].rotation.z).toBeCloseTo(0, 6);
@@ -2783,7 +2785,7 @@ describe('the rider camera follows the track', () => {
     for (const play of plays) {
       const keys = play.args[1].animation.rotationKeyFrames as any[];
       const total = Math.round(play.args[1].totalTimeSeconds / 0.05);
-      const own = (k: number) => yawAt(yaws, play.tick + k - COASTER_RIDER_VIEW.animLag) + head.yaw;
+      const own = (k: number) => yawAt(yaws, play.tick + k - COASTER_RIDER_VIEW.lookLag) + head.yaw;
       expect(Math.abs(wrapDeg(keys[0].rotation.y - own(0)))).toBeLessThan(1);
       expect(keys[0].rotation.x).toBeCloseTo(-head.pitch, 6);
       expect(Math.abs(wrapDeg(keys.at(-1).rotation.y - own(total)))).toBeLessThan(1);

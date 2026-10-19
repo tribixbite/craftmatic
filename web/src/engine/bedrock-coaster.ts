@@ -2546,7 +2546,8 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     if (length % 2) length++;
     // Keyframe k shows the pose of tick k - animLag (`planInversion`'s sequence: history, this tick, the plan,
     // carried on at its own velocity where it stops short).
-    const A = Math.ceil(animLag);
+    // The sequence reaches back far enough for both the drawn car (`animLag`) and the rider's carried yaw (`lookLag`).
+    const A = Math.max(Math.ceil(animLag), lookLag);
     const past = history.slice(-(A + 1));
     while (past.length < A + 1) past.unshift(past[0] || { eye: frame.eye, nose: frame.nose, up: frame.up, yaw: frame.yaw });
     const seq = [...past, ...plan.poses];
@@ -2556,6 +2557,12 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     }
     const poses: any[] = [];
     for (let k = 0; k <= length; k++) poses.push(poseAt(seq, k - animLag + A));
+    // The player's OWN view at tick k: the client carries a rider's yaw round with its car `lookLag` ticks late
+    // (quirk `rider-yaw-lag`), and `look.yaw` is measured against the car's yaw that far back, so the car's yaw of
+    // tick k - lookLag plus `look.yaw` is the view the player has - exactly their rotation at k = 0. Taken from the
+    // drawn car's yaw (k - animLag) instead, the blend began ~20 degrees off it on a curve and the arming frame cut
+    // (Pixel round 30zs: one frame of the lift column at 10303's drop; sim trace tick 926: 20.7 degrees).
+    const carriedYaw = (k: number): number => poseAt(seq, k - lookLag + A).yaw;
     const wrap = (angle: number) => ((angle % 360) + 540) % 360 - 180;
     const smooth = (x: number) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
     const views: any[] = [];
@@ -2563,7 +2570,8 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     for (let k = 0; k <= length; k++) {
       const pose = poses[k];
       track = riderView(pose.nose, pose.up, look, track, 'over', 40);
-      const yawNow = (Number.isFinite(pose.yaw) ? pose.yaw : track.yaw - look.yaw) + look.yaw;
+      const carried = carriedYaw(k);
+      const yawNow = (Number.isFinite(carried) ? carried : Number.isFinite(pose.yaw) ? pose.yaw : track.yaw - look.yaw) + look.yaw;
       ownYaw = Number.isFinite(ownYaw) ? ownYaw + wrap(yawNow - ownYaw) : track.yaw + wrap(yawNow - track.yaw);
       ownPitch = Number.isFinite(ownPitch) ? ownPitch : track.pitch + wrap(look.pitch - track.pitch);
       const w = smooth(k / BLEND) * smooth((length - k) / BLEND);
