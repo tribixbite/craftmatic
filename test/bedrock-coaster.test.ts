@@ -2833,6 +2833,11 @@ describe('the rider camera follows the track', () => {
     expect(arm.first.yaw).toBeCloseTo(arm.views[0][0], 0);
     expect(Array.isArray(arm.yaws)).toBe(true);
     expect(play.planned.first).toBeDefined();
+    // And one line a tick to read a recording against: the reported yaw, the car's, the fitted lag, the camera state.
+    const ticks = lines.filter((d: any) => d.what === 't');
+    expect(ticks.length).toBeGreaterThan(100);
+    for (const d of ticks.slice(0, 5)) for (const k of ['ry', 'rx', 'car', 'lag']) expect(Number.isFinite(d[k]), k).toBe(true);
+    expect(ticks.some((d: any) => d.s === 'a') && ticks.some((d: any) => d.s === 'p')).toBe(true);
   });
 
   it('native mode hands the view back the tick the train leaves its plan, instead of riding the animation on without it (COAST-06, round 30zq: the camera sat at the top of the drop while the train fell away)', () => {
