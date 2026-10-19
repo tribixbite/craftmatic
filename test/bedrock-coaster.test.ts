@@ -2692,8 +2692,8 @@ describe('the rider camera follows the track', () => {
    * A `native` ride on the loop course with the rider's head turned `head` (the cameraRider's yaw trails the car by
    * `lookLag`, as the Pixel reports it): every camera call logged, with the car's yaw per tick.
    */
-  function nativeRide(head = { yaw: 0, pitch: 0 }, route = loopCourse(), ticks = 1200, onTick?: (tick: number, h: any, log: Array<{ tick: number; kind: string }>) => void) {
-    const h = rideHost(route, { seat: [0, 0.35, 0], spline: true });
+  function nativeRide(head = { yaw: 0, pitch: 0 }, route = loopCourse(), ticks = 1200, onTick?: (tick: number, h: any, log: Array<{ tick: number; kind: string }>) => void, camera?: Partial<CoasterRiderViewConfig>) {
+    const h = rideHost(route, { seat: [0, 0.35, 0], spline: true, ...(camera ? { camera } : {}) });
     expect(h.config.camera?.mode).toBe('native');
     const { player } = cameraRider(h.entity, head);
     const log: Array<{ tick: number; kind: 'set' | 'play' | 'clear'; args: any[] }> = [];
@@ -2758,6 +2758,25 @@ describe('the rider camera follows the track', () => {
       expect(log.filter(e => e.tick > play.tick && e.tick < play.tick + total)).toHaveLength(0);
       expect(log.filter(e => e.tick === play.tick + total && e.kind === 'clear')).toHaveLength(1);
     }
+  });
+
+  it('native mode writes its arm / play diagnostics only with camera.debug (round 30zu: a cut at every drop the simulator does not show)', () => {
+    const quiet = nativeRide(undefined, undefined, 600);
+    expect(quiet.h.warnings().filter((l: string) => l.includes('native-debug'))).toEqual([]);
+    const { h, plays } = nativeRide(undefined, undefined, 600, undefined, { debug: true });
+    expect(plays.length).toBeGreaterThan(0);
+    const lines = h.warnings().filter((l: string) => l.includes('native-debug')).map((l: string) => JSON.parse(l.slice(l.indexOf('{'))));
+    const arm = lines.find((d: any) => d.what === 'arm'), play = lines.find((d: any) => d.what === 'play');
+    // What the phone reports and what the plan made of it, side by side: the rider's rotation, the car's yaws, the
+    // look, the first view and the yaw sequence the own view is carried on.
+    for (const d of [arm, play]) {
+      expect(d).toBeDefined();
+      expect(d.rot).toHaveLength(2);
+      expect(Number.isFinite(d.carYaw)).toBe(true);
+    }
+    expect(arm.first.yaw).toBeCloseTo(arm.views[0][0], 0);
+    expect(Array.isArray(arm.yaws)).toBe(true);
+    expect(play.planned.first).toBeDefined();
   });
 
   it('native mode hands the view back the tick the train leaves its plan, instead of riding the animation on without it (COAST-06, round 30zq: the camera sat at the top of the drop while the train fell away)', () => {

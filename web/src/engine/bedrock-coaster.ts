@@ -449,6 +449,13 @@ export interface CoasterRiderViewConfig {
    */
   bodyLag?: number;
   /**
+   * Device diagnostics: `native` writes one content-log line (`[Craftmatic coaster] native-debug {...}`) when it arms
+   * a steep stretch and one when it plays it, with the rider's reported rotation, the car yaws, the look and the
+   * planned first view. Off in every shipped pack; a probe build sets it to read what the phone reports (round 30zu:
+   * the Saga's view turned ~90 degrees at every drop's start, which the simulator never shows).
+   */
+  debug?: boolean;
+  /**
    * Ticks an inversion's animation is planned PAST the tick the per-tick
    * camera takes over, so it is still playing when that `setCamera` lands: an
    * animation that ended first left the player's own view (inside the car's
@@ -2278,6 +2285,10 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   const tickLag = Math.max(0, Math.min(10, Number.isFinite(camera.tickLag) ? camera.tickLag : 1.5));
   /** Poses kept per rider: enough for the longest lag either camera reads back. */
   const HISTORY = 12;
+  /** `COASTER_RIDER_VIEW.debug`: native's arm / play diagnostics in the content log. */
+  const DEBUG = camera.debug === true;
+  const round1 = (v: number) => Math.round(v * 10) / 10;
+  const debugLine = (what: string, data: Record<string, unknown>) => { try { console.warn(`[Craftmatic coaster] native-debug ${JSON.stringify({ what, tick: ticks, ...data })}`); } catch { /* no log */ } };
   // Ticks each car's body pose properties trail its position (`CoasterRiderViewConfig.bodyLag`; absent = 0).
   const BODY_LAG = Math.max(0, Math.min(HISTORY - 2, Number.isFinite(camera.bodyLag) ? Number(camera.bodyLag) : 0));
   /**
@@ -2581,7 +2592,8 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     }
     const animation = splineAnimation(poses, views, length);
     return animation
-      ? { ...animation, length, centres: plan.centres.slice(0, length), exact: Math.min(length, plan.exact), first: { eye: poses[0].eye, yaw: views[0].yaw, pitch: views[0].pitch } }
+      ? { ...animation, length, centres: plan.centres.slice(0, length), exact: Math.min(length, plan.exact), first: { eye: poses[0].eye, yaw: views[0].yaw, pitch: views[0].pitch },
+          ...(DEBUG ? { debug: { look, carried0: carriedYaw(0), pose0: poses[0].yaw, track0: riderView(poses[0].nose, poses[0].up, look, null, 'over', 40).yaw, views: views.slice(0, BLEND + 1).map(v => [round1(v.yaw), round1(v.pitch), round1(v.roll)]), yaws: seq.map(q => round1(q.yaw)) } } : {}) }
       : { wait: 10 };
   };
   const aimRider = (rider: any, frame: any, planner?: any) => {
@@ -2624,6 +2636,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         // this tick (the ride's own arithmetic: the same stretch, one tick on) and played at once.
         viewer.armed = false;
         const planned: any = planSection(frame, planner, look, viewer.history);
+        if (DEBUG) debugLine('play', { rot: [round1(rotation.x), round1(rotation.y)], carYaw: round1(carYaw), nowYaw: round1(nowYaw), frameYaw: round1(frame.yaw), planned: planned && !planned.wait ? { first: planned.first, ...planned.debug } : planned });
         if (planned && !planned.wait) {
           try {
             rider.camera.playAnimation(planned.spline, planned.options);
@@ -2674,6 +2687,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           const first = planned.first;
           rider.camera.setCamera('minecraft:free', { location: first.eye, rotation: { x: Math.max(-89.9, Math.min(89.9, first.pitch)), y: first.yaw } });
           viewer.armed = true;
+          if (DEBUG) debugLine('arm', { rot: [round1(rotation.x), round1(rotation.y)], carYaw: round1(carYaw), nowYaw: round1(nowYaw), frameYaw: round1(frame.yaw), carYaws: viewer.carYaws.map(round1), first, ...planned.debug });
         } catch (error) {
           // A client that refuses it rides the player's own view throughout.
           viewer.noAnim = true;
