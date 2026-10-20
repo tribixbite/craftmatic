@@ -3497,10 +3497,23 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         stage = 'animate cart';
         // A value outside a declared actor-property range throws, which would
         // otherwise untrack the cart mid-ride; the angles are already in range.
+        // Every car of a train is drawn for the client of the rider nearest it (its own rider first): a rider in car
+        // 2 or 3 watches the car AHEAD through the loops, and that car's pose properties land as early on the
+        // rider's client as their own car's do. Before, a car with no player drew for the default client (the
+        // Saga's 4.1), 0.8 tick off the Pixel's 3.3 (Pixel round 30zz, car 2: the rider ahead swept into the view).
+        const timedCars = frames.filter((frame: any) => frame.car.state && ticks - frame.car.state.bodyLagAt <= 40);
+        const viewerLag = (frame: any): number | undefined => {
+          let best: any = null, gap = Infinity;
+          for (const timed of timedCars) {
+            const g = Math.abs(timed.car.slot - frame.car.slot);
+            if (g < gap) { gap = g; best = timed; }
+          }
+          return best ? best.car.state.bodyLag : undefined;
+        };
         for (const frame of frames) {
           // The body pose `bodyLag` ticks back (`CoasterRiderViewConfig.bodyLag`), from this car's recent poses.
-          const st = frame.car.state, riderLag = st && ticks - st.bodyLagAt <= 40 ? st.bodyLag : undefined;
-          const shown = bodyPoseBehind(st, { pitch: frame.pitch, roll: frame.roll, body: frame.body }, Number.isFinite(riderLag) ? riderLag : BODY_LAG);
+          const st = frame.car.state, riderLag = viewerLag(frame);
+          const shown = bodyPoseBehind(st, { pitch: frame.pitch, roll: frame.roll, body: frame.body }, riderLag !== undefined && Number.isFinite(riderLag) ? riderLag : BODY_LAG);
           frame.car.entity.setProperty('craftmatic:track_pitch', Math.max(-180, Math.min(180, shown.pitch)));
           frame.car.entity.setProperty('craftmatic:track_roll', Math.max(-180, Math.min(180, shown.roll)));
           frame.car.entity.setProperty('craftmatic:body_x', shown.body[0]);

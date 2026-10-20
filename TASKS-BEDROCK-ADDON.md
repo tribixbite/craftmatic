@@ -45,8 +45,16 @@ drop cut; superseded by the 19c3986b zip (below).
   frames every lap (Saga: smooth), car 3 lap 2 a whole-view grey slab 2 frames (106.71/106.77), the hull band in both
   loops unchanged (band2 0.15-3.24 s a lap), car 2's rider ahead a translucent yellow wash in loop 2. The Pixel's
   content log flushes on HOME, not Save & Quit. Probe packs with `camera.debug` (`-19zx/probe-9eda695f`, `-19zy/probe-20e8de92`): never ship.
-- NEXT (COAST-06): the loops' bodywork - is the band the own car's restraint bar or the car ahead? Read it with the
-  sim snapshot of car 3 in loop 1 against `saga/frames` 49.65-53.35 (30zz); the sim's view cover reads clean (worst 0.39).
+- 2026-10-20 (COAST-06): the band is the CAR AHEAD seen close (its black restraint, seat back and pink-haired rider:
+  `output/device-round-2026-10-19zz/saga/frames/C-car2-zoom-lap1.jpg`), not the own hull. Server ticks are NOT the
+  cause: 19.96 ticks/s over every probe ride, slow seconds never inside an animation (scratch `tps2.py` over the 30zx/30zy
+  `native-debug` logs). Fixed offline: every car of a train draws its body for the client of its nearest rider (before:
+  only the rider's own car; the car ahead used the Saga's 4.1 on the Pixel, 0.8 tick off). OPEN: on the Pixel car 2's
+  camera sat INSIDE the rider ahead late in loop 2 and snapped back at the hand-back (30zz), i.e. the camera LEADS
+  the drawn train there. Hypothesis: the Pixel's entity lag (3.5, measured light: probe packs only, nothing placed)
+  is larger under load or grows during a long animation. Probe round 2026-10-20a (Pixel, camprobe E runs light vs
+  with 10303 placed, plus 10 s runs for drift): `output/device-round-2026-10-20a/brief-pixel-20a.md`, results in
+  `pixel/notes.md`. Sim ride car 2 Saga with frames: `output/coast06-band-1020/` (compare with the Saga frames).
 - The wand's Undo left 10303's entities (and the tower) on the Saga in 30zx after a re-placement on top of an earlier
   one ("Nothing to undo" on the 3rd try; `output/device-round-2026-10-19zx/saga/notes.md` "Wand Undo"); a single
   placement undid fine in 30zw/30zy. Not investigated.
@@ -65,8 +73,9 @@ drop cut; superseded by the 19c3986b zip (below).
   `output/device-round-2026-10-19zv/pixel/memprobe/census.md`): box-UV cubes cost 2.0-2.5 MB native heap per 1000,
   linear; 1000 small geometries +14 % over 100 big; unreferenced geometry still ~35 %; per-face UV with all six faces
   +32 %, with three -14 % - the shells hide only 0.5-0.8 faces a cube, so per-face UV would COST memory. No free cut:
-  memory follows the bound packs' cube count. USER DECISION pending: a per-pack cube budget (fewer, coarser shell
-  cubes) vs binding fewer packs per world.
+  memory follows the bound packs' cube count. USER DECIDED 2026-10-20: keep today's detail (no per-pack cube
+  budget); a phone short of memory binds fewer packs per world. The lossless cuts already ship (`mergeAlignedCuboids`,
+  the buried-cuboid cull). Say so in every share's PACKS.md (measured: Pixel PSS 2.08 GB with three packs, out of RAM with all 26; Saga all 26 at 5.2 GB).
 
 ### Handoff (2026-10-12, main `304a0df6`+, CI green)
 

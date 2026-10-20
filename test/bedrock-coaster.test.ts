@@ -574,6 +574,32 @@ describe('serialized coaster runtime', () => {
     expect(coasterRuntimeConfig('craftmatic:x', [loopRoute()]).camera!.bodyLag).toBe(COASTER_RIDER_VIEW.bodyLag);
   });
 
+  it('draws every car of a rider\'s train for the RIDER\'s client, the car ahead included (Pixel 30zz car 2: the rider ahead swept into the view)', () => {
+    const route: CoasterRoute = { ...loopRoute(), cars: { count: 3, spacing: 2.25 } };
+    // The simulated player reports the Saga's client (`Fancy`); this table names it, so the rider's lag is `bodyLag`.
+    const timing = (bodyLag: number) => ({ clientTimings: [{ label: 'probe client', graphicsMode: 'Fancy', animLag: 3.5, bodyLag }] });
+    const ride = (bodyLag: number) => {
+      const h = rideHost(route, { camera: { bodyLag: 0, ...timing(bodyLag) } });
+      const { player } = cameraRider(h.cars[2]!.entity);
+      h.run(1); h.seat(player, 2);
+      h.run(400);
+      return h;
+    };
+    const bodyY = (h: ReturnType<typeof rideHost>, car: number): number[] =>
+      (h.cars[car]!.entity.setProperty.mock.calls as Array<[string, number]>).filter(([n]) => n === 'craftmatic:body_y').map(([, v]) => v);
+    const now = ride(0), three = ride(3);
+    expect(three.cars[0]!.positions).toEqual(now.cars[0]!.positions);
+    // Car 1 (the front car, no player) and car 2 (the rider's) both show the pose 3 ticks back once the rider's
+    // client is known: the default (`bodyLag` 0 here) is the wrong client's for the car the rider watches.
+    for (const car of [0, 2]) {
+      const p0 = bodyY(now, car), p3 = bodyY(three, car);
+      expect(p3.length).toBe(p0.length);
+      const moved = p0.slice(10).some((v, k) => Math.abs(v - p0[k + 9]!) > 1e-3);
+      expect(moved).toBe(true);
+      for (let k = 10; k < p0.length; k++) expect(p3[k]).toBeCloseTo(p0[k - 3]!, 6);
+    }
+  });
+
   it('inverts the cart visually at a loop apex while leaving player rotation upright', () => {
     const route = loopRoute();
     const h = rideHost(route);
