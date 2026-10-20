@@ -29,6 +29,7 @@
 import { resolveLdrawEntityMaterial } from '../../../engine/ldraw-entity-materials.js';
 import { drawnCubeBox } from '../../../engine/bedrock-geometry-faces.js';
 import { decodePngRgb8, uniformPngRgb } from '../../../engine/png-rgb8.js';
+import type { ClientAnimationSet } from '../../../ui/addon-preview-data.js';
 
 export interface AppearanceSurface {
   metalness: number;
@@ -119,6 +120,11 @@ export interface AddonAppearance {
   materialMode: 'pbr-assets' | 'classic';
   /** Anything that could not be read, said rather than dropped. */
   notes: string[];
+  /**
+   * Each type's client animations, when read (`packAppearance`): the snapshot draws an entity's property-driven bones
+   * (a coaster car's pitch, roll, body offset, rider variants) through them; absent = every entity in its bind pose.
+   */
+  animations?: Map<string, ClientAnimationSet>;
 }
 
 /** The resource-pack files the appearance needs, as text keyed by archive path. */

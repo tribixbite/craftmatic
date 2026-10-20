@@ -180,7 +180,20 @@ per-sample track up (`coasterTrackUps`: gravity's up where upright, the loop's
 own normal through a loop, twist bounded by `TRACK_TWIST_RATE_DEG_PER_BLOCK`).
 
 **Rider camera.** `coasterRiderView` / `coasterRiderLook`, constants in
-`COASTER_RIDER_VIEW`. Default `loop`: tick by tick the `reflect` view (yaw
+`COASTER_RIDER_VIEW`. Default `native` (2026-10-18): NO script camera on
+near-level track - the player's own first person, which the client draws from
+the drawn seat every frame and turns with the finger at once - and one
+animation (`planSection`) over each FAST steep stretch (the car tilted past
+`steepTilt` 25 at `steepSpeed` 5 blocks/s or more, or upside down; stretches
+within `sectionGap` 12 ticks are one), planned by the same ride prediction
+through the station brake (`throughBrake`) up to `sectionHorizon` 160 ticks,
+its views blended from the player's own view (car yaw + head turn, own pitch)
+into the track's and back over `blendTicks` 6, so it starts and ends on what
+the player sees without it. The user rode `loop` (below) as "super laggy,
+stutter-jerks especially for seat 2 and 3, a camera blip reset in a loop, and
+lag when moving the camera by hand": a camera the SERVER sets each tick cannot
+stay locked to cars the CLIENT interpolates, nor follow a drag without a round
+trip. `loop`, the default until then: tick by tick the `reflect` view (yaw
 from the view's right axis — the car's axle — so it never re-derives a yaw
 from a near-vertical nose; the pitch folded back into ±90 past vertical),
 and each inversion sent as ONE camera animation that rolls, planned by
@@ -1138,10 +1151,11 @@ literal inside a function body (`§` marks the number).
 | `COASTER_RIDER_VIEW.maxTurn` | `web/src/engine/bedrock-coaster.ts` | 40 | degrees/tick | Most the per-tick camera's yaw turns in a tick (reflect: only a rider's fast head turn reaches it; clamp: its flip over a loop's side takes 5 ticks). |
 | `COASTER_RIDER_VIEW.lookYaw` | `web/src/engine/bedrock-coaster.ts` | 70 | degrees | Most a rider may look away sideways. |
 | `COASTER_RIDER_VIEW.lookPitch` | `web/src/engine/bedrock-coaster.ts` | 50 | degrees | Most up or down. |
-| `COASTER_RIDER_VIEW.lookLag` | `web/src/engine/bedrock-coaster.ts` | 6 | ticks | The client's rider yaw trails the car ~0.3 s on the Pixel; 6 held the look within 5°. |
-| `COASTER_RIDER_VIEW.animLag` | `web/src/engine/bedrock-coaster.ts` | 3.5 | ticks | An inversion's camera animation shows the pose of tick k − 3.5 (interpolated), which is where the client DRAWS the train: measured against a marker at 10 blocks/s (Pixel 2026-09-29, `output/coaster-cam-0929/`, `camprobe`, ~97 px per block): lag 1 +213 px ahead of the marker, 2 +108, 3 +35, 4 −62, 6 −194; zero at ~3.5. Ridden by eye at 1, 3, 6 on 2026-09-25 (1 inside the car ahead's rider, 6 behind its own train). |
+| `COASTER_RIDER_VIEW.lookLag` | `web/src/engine/bedrock-coaster.ts` | 8 | ticks | The START value of a rider's report lag: the reported yaw trails the car's server yaw 8.7 ticks on the Pixel, 7.1 on the Saga (round 30zv `native-debug`); each rider's own is then fitted from the per-tick turns (`fitReportLag`). |
+| `COASTER_RIDER_VIEW.animLag` | `web/src/engine/bedrock-coaster.ts` | 5.7 | ticks | An animation keyframe k shows the pose of tick k − animLag (interpolated), where the client DRAWS the train. The default is the Saga's (the user's phone): marker run round 30zv (`output/device-round-2026-10-19zv/saga/`, camprobe at lag 5 and 6, 409 px a block): zero at 5.69 (runs 5.55-5.81). The Pixel 8 Pro draws at 3.5 (2026-09-29, `output/coaster-cam-0929/`: lag 3 +35 px, 4 −62) and gets it by its fingerprint in `clientTimings`. |
 | `COASTER_RIDER_VIEW.handbackBlend` | `web/src/engine/bedrock-coaster.ts` | 4 | ticks | After an inversion animation hands back, the per-tick camera's lag runs from `animLag` (the pose the animation was showing) down to `tickLag` over this many ticks, so neither its eye nor its rotation jumps at the take-over. Without it the loop-2 exit on 10303 cut from looking down at the car to level ahead in one frame (Pixel, ride 3, 2026-09-29). |
 | `COASTER_RIDER_VIEW.tickLag` | `web/src/engine/bedrock-coaster.ts` | 1.5 | ticks | The per-tick camera shows the pose of tick k − 1.5 (interpolated). On the server's own schedule (lag 0) the eased camera sat +163 px (1.7 blocks) ahead of the drawn marker at 10 blocks/s — at a coaster's 23 blocks/s that is the car ahead, where every ride since 2026-09-24 was viewed from; lag 2 −62, 3 −162, 4 −210. Zero at ~1.5; the ease's own trailing supplies the rest. |
+| `COASTER_RIDER_VIEW.bodyLag` | `web/src/engine/bedrock-coaster.ts` | 4.1 | ticks | Each car's body pose properties (`track_pitch`, `track_roll`, `body_*`) are written this many ticks BEHIND the pose its position is set to (`bodyPoseBehind`), because the client applies a property that much before the interpolated position sent with it: Saga 4.1 (round 30zv proplag, 4.13-4.21), the default; Pixel 3.3 (round 30zt, 3.30-3.41), by `clientTimings`. Each car uses its rider's client. Without it the body turned ahead of the drawn car and the rider saw its own car's bodywork through 10303's loops on both phones (round 30zs). |
 | `COASTER_RIDER_VIEW.animTail` | `web/src/engine/bedrock-coaster.ts` | 6 | ticks | An inversion's animation is planned this far PAST the tick the per-tick camera takes over, so it is still playing when that `setCamera` lands. An animation that ended first left the player's own view (inside the car's cuboids) for ~2 ticks at every loop's exit (Pixel, 2026-09-29). Even, so keyframes stay 0.1 s apart. |
 | `COASTER_RIDER_VIEW.ease` | `web/src/engine/bedrock-coaster.ts` | 0.1 | s | Camera ease per update. |
 | `TRACK_TWIST_RATE_DEG_PER_BLOCK` | `web/src/engine/bedrock-coaster.ts` | 20 | degrees/block | Largest roll change of the track up between gravity's up and a loop's normal. |
@@ -1629,6 +1643,7 @@ one of these files fails the check until its row is written.
 | `COASTER_RIDER_VIEW` | const | Rider camera defaults (§4.1). |
 | `CoasterRiderViewMode` | type | `roll` / `rollover` / `clamp` / `over` / `off`. |
 | `CoasterRiderViewConfig` | interface | Camera constants the runtime reads from `config.camera`. |
+| `CoasterClientTiming` | interface | One measured client's `animLag` / `bodyLag`, matched on its reported `graphicsMode` and render distance (`COASTER_RIDER_VIEW.clientTimings`; a fingerprint of measured phones, round 30zv). |
 | `coasterRiderView` | function | SERIALISED. The rider's camera for a tick from the car's nose/up and the look offset. |
 | `CoasterRiderView` | interface | Its result. |
 | `coasterRiderLook` | function | SERIALISED. The rider's clamped head turn relative to the car. |

@@ -26,6 +26,7 @@
 import type { TimelineEntry, TimelineKind } from '../web/src/sim/core/timeline.js';
 import type { Vec3 } from '../web/src/sim/core/vec.js';
 import { Simulation } from '../web/src/sim/core/simulation.js';
+import { playerRosterScript } from '../web/src/engine/player-roster.js';
 import type { SimEntity } from '../web/src/sim/entity/entity.js';
 import type { PlayerControls } from '../web/src/sim/input/controls.js';
 import { entityDefinition, entityFilePath, fixtureAddon, type EntityDefinitionSpec, type FixtureFile, type FixturePackOptions } from '../web/src/sim/pack/fixture.js';
@@ -99,6 +100,8 @@ export function hostPack(o: SimHostOptions): FixturePackOptions {
   const entry = o.entry ?? 'scripts/main.js';
   if (o.script !== undefined) files[entry] = o.script;
   for (const [path, text] of Object.entries(o.modules ?? {})) files[path] = text;
+  // Every built pack ships its shared player roster (`shareScriptWorld`): a script taken out of a pack imports it.
+  if (!('scripts/roster.js' in files)) files['scripts/roster.js'] = playerRosterScript();
   for (const [id, def] of Object.entries(o.entities ?? {})) files[entityFilePath(id)] = entityDocument(id, def);
   // Object files go through the exporter's own JSON writer, so a float default is written as the pack writes it.
   return { name: 'runtime_test', files, json: v => bedrockJsonText(v), ...(o.script !== undefined || o.modules?.[entry] ? { scriptEntry: entry } : {}) };

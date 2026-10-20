@@ -139,8 +139,11 @@ export function pivotRotation(rotationDeg: Vec3, pivot: Vec3): Affine {
   return mul(translate(pivot[0], pivot[1], pivot[2]), mul(r, translate(-pivot[0], -pivot[1], -pivot[2])));
 }
 
+/** A bone's animated pose this frame (structurally the preview's `BonePose`): degrees and model units added, a scale multiplied. */
+export interface AnimatedBonePose { rotation: readonly [number, number, number]; position: readonly [number, number, number]; scale: readonly [number, number, number] }
+
 /** Every bone's model-space transform, composed up the parent chain. */
-export function boneTransforms(bones: readonly AppearanceBone[], overlay?: ReadonlyMap<string, readonly [number, number, number]>): Map<string, Affine> {
+export function boneTransforms(bones: readonly AppearanceBone[], overlay?: ReadonlyMap<string, readonly [number, number, number]>, poses?: ReadonlyMap<string, AnimatedBonePose>): Map<string, Affine> {
   const byName = new Map(bones.map(b => [b.name, b]));
   const done = new Map<string, Affine>();
   const resolve = (name: string, seen: Set<string>): Affine => {
@@ -150,9 +153,22 @@ export function boneTransforms(bones: readonly AppearanceBone[], overlay?: Reado
     if (!bone || seen.has(name)) { done.set(name, IDENTITY); return IDENTITY; }
     seen.add(name);
     const parent = bone.parent ? resolve(bone.parent, seen) : IDENTITY;
-    const add = overlay?.get(name);
+    const add = overlay?.get(name), pose = poses?.get(name);
     const [brx, bry, brz] = bone.rotation ?? [0, 0, 0];
-    const local = pivotRotation([brx + (add?.[0] ?? 0), bry + (add?.[1] ?? 0), brz + (add?.[2] ?? 0)], bone.pivot);
+    const turn: Vec3 = [brx + (add?.[0] ?? 0) + (pose?.rotation[0] ?? 0), bry + (add?.[1] ?? 0) + (pose?.rotation[1] ?? 0), brz + (add?.[2] ?? 0) + (pose?.rotation[2] ?? 0)];
+    let local = pivotRotation(turn, bone.pivot);
+    // An animated pose (the add-on preview's `poseBones`, measured on the Pixel for the pinball ball, 2026-09-25):
+    // T(animated position) · T(pivot) · R(bind + animated) · S(animated) · T(-pivot), the position in the geometry
+    // JSON's own frame.
+    if (pose) {
+      const [sx, sy, sz] = pose.scale;
+      if (sx !== 1 || sy !== 1 || sz !== 1) {
+        const [px, py, pz] = bone.pivot;
+        local = mul(local, mul(translate(px, py, pz), mul([sx, 0, 0, 0, 0, sy, 0, 0, 0, 0, sz, 0], translate(-px, -py, -pz))));
+      }
+      const [tx, ty, tz] = pose.position;
+      if (tx || ty || tz) local = mul(translate(tx, ty, tz), local);
+    }
     const world = mul(parent, local);
     done.set(name, world);
     return world;
@@ -246,6 +262,8 @@ export interface AuditActor {
   /** Uniform actor size; applies to geometry and bone/cube pivots, not placement. */
   scale?: number;
   overlay?: ReadonlyMap<string, readonly [number, number, number]>;
+  /** This frame's animated bone poses (a client's `query.property`-driven bones: a coaster car's pitch, roll and body offset). */
+  poses?: ReadonlyMap<string, AnimatedBonePose>;
   /** Bones not drawn (a coaster car's inactive rider variants). */
   hideBone?: (bone: string) => boolean;
 }
@@ -264,7 +282,7 @@ export function groupColourKey(g: AddonAppearanceEntry['groups'][number]): strin
 export function worldFaces(actors: readonly AuditActor[], options: { far?: boolean } = {}): WorldFace[] {
   const out: WorldFace[] = [];
   actors.forEach((a, actor) => {
-    const bones = boneTransforms(a.entry.bones, a.overlay);
+    const bones = boneTransforms(a.entry.bones, a.overlay, a.poses);
     // Actor frame: translate to its placement (×16: model units) and turn by its Bedrock yaw about +Y. Bedrock's
     // yaw turns +X toward +Z (yaw 90: the model's +X runs along world +Z, as the wand's `rotatePlacementPoint`
     // turns the colliders), which is three.js `rotation.y` by the NEGATED angle. Until 2026-09-30 the angle was

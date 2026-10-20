@@ -2380,9 +2380,18 @@ clamped offset applied in the car's frame (±70 yaw, ±50 pitch;
   without the settle).
 - The yaw Bedrock reports for a rider is the CLIENT's, which turns the rider
   with its own interpolated view of the car: it trails the server's car yaw by
-  **~6 ticks**. Uncompensated, the look swung -37..+55° through the fast curve
-  after the lift; compared with the car's yaw 6 ticks back (`lookLag` 6) it
-  stayed within 5° of the rider's real head turn.
+  **8.7 ticks on the Pixel and 7.1 on the Saga** (round 30zv, `native-debug`
+  lines at 10303's crest; ~6 was read in 2026-09). Uncompensated, the look swung
+  -37..+55° through the fast curve after the lift. The runtime fits each rider's
+  lag from the per-tick TURNS (`fitReportLag`: a held head turn cancels, a
+  change of the car's turn rate pins the lag, a drag is rejected), starting
+  from `lookLag` 8.
+- The view the player SEES is drawn on the DRAWN car (~`animLag` behind) plus
+  the head turn, not at the reported yaw: an animation started on the reported
+  yaw (4fed7295) began 35-45° behind the view on 10303's crest curve, a cut to
+  the lift column at every drop on both phones (round 30zu). `native` starts and
+  ends each animation on the drawn car's yaw plus the head turn; the simulator's
+  client draws the own view the same way (`ClientView.ownPose`).
 - A ratcheting reference turned those transients into a permanent drift (0 →
   49° over one lap), so the reference never moves (`ratchet` false).
 
@@ -2428,14 +2437,20 @@ pitches to the zenith and back down to level over the top, world upright.
 10303 host numbers: worst yaw step 16.7°/tick (a real curve at 18 blocks/s),
 none on the drop or in the loops, where `clamp` stepped 40.
 
-**Through an inversion, one animation (`loop`, the default)**: measured on the
+**Through an inversion, one animation (`loop`, the default until 2026-10-18)**: measured on the
 Pixel, a camera animation re-issued every tick draws NO rotation (only the
 last, uninterrupted one does; with or without the experiment), but a single
 uninterrupted animation rolls: `loopsim` (a 5-block loop in front of the
 player, 2-3 s) goes up, fully upside down (grass at the top of the screen),
-down and back to level (`loopsim4-flip-zoom.jpg`). Keyframe facts: `x` is the
-NEGATED pitch (Microsoft's flyover sample agrees: `x: -55` looks down),
-`z = +90` rolls the view left, keyframes more than 0.05 s apart. So when the
+down and back to level (`loopsim4-flip-zoom.jpg`). Keyframe facts: the rotation
+is in the Z-MIRRORED frame - `x` is the NEGATED pitch (Microsoft's flyover sample
+agrees: `x: -55` looks down) and `y` is 180 - the `setCamera` yaw (Pixel round
+30zy, `output/device-round-2026-10-19zy/pixel-yaw/notes.md`: keyframe 0 faced
+north, 45 north-west, 135 south-west, 180 south, -90 east; quirk
+`camera-keyframe-yaw-mirrored`; yaw +-90 is its own mirror, so 10303's
+x-aligned loops never showed it, while every drop off its crest curve cut
+60-120 degrees in rounds 30zu-30zx) - `z = +90` rolls the view left,
+keyframes more than 0.05 s apart. So when the
 car climbs into a loop the runtime predicts the train (`planner`: the ride's
 own `integrate`/`carPose`, same order, bit-exact), finds the first inverted
 run (car up.y < -0.2, starting within 10 ticks) and its end (up.y > 0.3), and
@@ -2599,8 +2614,63 @@ probes flash at neither cut pattern; a rider missing from one tick's
 `getRiders()` would `camera.clear()` exactly so. Unconfirmed as the cause;
 the grace costs 0.05 s on a real dismount.
 
+**The player's own view between steep stretches (`native`, the default since
+2026-10-18).** The user rode `loop` in their own world as "super laggy, with
+stutter-jerks especially for seat 2 and 3, and a full camera blip reset during
+one of the upside-down loops", with lag "when a player manually moves the
+camera around", and asked for a smooth, fast ride with no hiccups. No camera
+code had changed since the packs they rode (1f1fb9f7), so it was the shipped
+design. Offline the per-tick camera is equally smooth in every car
+(`output/coaster-cam-1018/`, `cam_stats.py`: the host runs a perfect 20 Hz);
+what it cannot model is the device. A camera the server sets every tick (eased
+0.1 s, the ease restarted by each call) is drawn on the server's schedule, the
+cars on the client's interpolation: any unevenness in the script tick shows as
+the camera jerking against the train, and the further back the seat, the more
+train is in view - seats 2 and 3. The simulator's Saga profile (entity lag 4,
+the ease not played) already put that camera 2.5 ticks AHEAD of the drawn car.
+And the rider's look reaches the camera only through the server (the client's
+rotation read, the camera sent back, eased): a drag can never be immediate.
+
+So the ride now sets NO camera on near-level track: the player's own first
+person rides the drawn seat at the client's frame rate (the entity is placed
+so its upright seat IS the real seat, `carPose`, so that eye is the track
+camera's eye) and turns with the finger at once; Bedrock turns it with the car.
+Only a fast steep stretch - a drop, a loop, a hard bank (`steepTilt` 25 at
+`steepSpeed` 5 blocks/s, or upside down at any speed) - is one planned
+animation (`planSection`), because only an animation can roll or pitch the
+view past what the player holds. It blends from the player's own view (the
+car's yaw plus their head turn, their own pitch) into the track's over
+`blendTicks` 6 and back out the same way, so it starts on exactly what the
+player sees and its end - where the client returns the player's own view, the
+"flash" `loop` had to avoid - is that same view; the chart is unwrapped so the
+blend after a loop does not spin round. 10303's drop and both loops are ONE
+animation a lap (~5.8 s): stretches within `sectionGap` 12 ticks join, the
+plan runs through the station brake as the ride applies it (`throughBrake`:
+the second loop exits straight into it), and `sectionHorizon` is 160 ticks. A
+slow chain climb stays the player's own view to look round on. While an
+animation plays the player cannot look round and nothing else touches the
+camera, but a train that leaves the plan (held by a refused teleport, a bay or
+the other train) hands back to the player's own view on that tick
+(`anim.exact`: only where the plan is the ride's own arithmetic, short of a
+brake).
+
+**An animation must be ARMED** (Pixel round 30zr, quirk
+`camera-animation-needs-camera`): a `playAnimation` sent while the player is on
+their own view is never drawn - the camprobe's `nopre` and `own20 ride` runs
+left the view untouched for the whole animation, 4 of 4, while one or two
+ticks of an un-eased `setCamera` first played it from its first frame, 3 of 3.
+Round 30zq's `native` showed it on both phones as a camera stopped at the top
+of 10303's drop for ~1 s while the train fell away (why that animation played
+at all, late, is not explained). So on the tick a stretch is planned the ride
+sets one un-eased free camera at the animation's first view (the drawn seat's
+eye, the player's own look), plans again on the next tick and plays, and
+clears the camera where the animation ends.
+The held wand shows in the player's own first person on level track, as on any
+Bedrock mount. `loop` and the other modes remain for comparison (`mode`).
+Device proof: TASKS "Start here" (round 30zq).
+
 Host tools: `bun scripts/_coaster_cam_probe.ts <pack> [--rebuild]
-[--camera='{"animTail":0}']` prints every camera call and every animation's
+[--camera='{"animTail":0}'] [--car=r0c1]` prints every camera call and every animation's
 keyframes tick by tick for a rider whose head follows the car (the replay's
 rider is fixed at yaw 0, which reads as a 70-degree head turn).
 

@@ -137,6 +137,12 @@ function cameraContinuous(): Invariant {
       const camera = client.drawn(p), target = client.scriptTarget(p);
       const seat = drawnSeat(client, p)?.eye;
       const now = { camera, target, ...(seat ? { seat } : {}) };
+      // A switch between the player's own view and an animation (the coaster's `native` camera starts and ends each
+      // steep stretch so) has no script target on one side: the drawn frames themselves must meet, within the caps.
+      if (prev && prev.camera.mode !== camera.mode && (prev.camera.mode === 'own' || camera.mode === 'own') && (prev.camera.mode === 'animation' || camera.mode === 'animation')) {
+        const drawn = cameraFrameDelta(prev, now);
+        if (drawn.turnDeg > CAMERA_MAX_TURN_DEG + 1e-6 || drawn.jumpBlocks > CAMERA_MAX_EYE_JUMP_BLOCKS + 1e-6) ctx.report({ invariant: 'camera-continuous', message: `the drawn view cut ${round(drawn.turnDeg)} degrees / ${round(drawn.jumpBlocks)} blocks (against the drawn seat) in one frame switching ${prev.camera.mode} -> ${camera.mode}`, evidence: { turnDeg: round(drawn.turnDeg), jumpBlocks: round(drawn.jumpBlocks), from: prev.camera.mode, to: camera.mode, eye: pt(camera.eye), previous: pt(prev.camera.eye), profile: client.profile.name } });
+      }
       if (camera.mode === 'own' || !prev || prev.camera.mode === 'own') arrived = false;
       else if (!arrived) arrived = cameraArrived(camera, target);
       else if (prev.target && target) {
@@ -176,23 +182,40 @@ function cameraOnOwnSeat(options: ClientInvariantOptions): Invariant {
   };
 }
 
+/** Frames after an animation runs out within which a script camera coming back makes the own view between a FLASH. */
+const FLASH_RESUME_FRAMES = 3;
+
 function noOwnViewFlash(): Invariant {
   const reported = new Set<SimEntity>();
-  let prevMode: DrawnCamera['mode'] | undefined, prevMount: SimEntity | undefined;
+  let prev: { mode: DrawnCamera['mode']; camera: DrawnCamera; seat?: { x: number; y: number; z: number } } | undefined, prevMount: SimEntity | undefined;
+  /** An animation that ran out onto the player's own view, still riding: a flash if a script camera comes back soon. */
+  let pending: { tick: number; mount: SimEntity } | undefined;
   return {
-    id: 'no-own-view-flash', description: 'While riding with a script camera the drawn view never falls back to the player\'s own view (an animation that ended before the next setCamera).',
+    id: 'no-own-view-flash', description: `While riding with a script camera the drawn view never falls back to the player's own view for a moment (an animation that ended before the next setCamera, which came within ${FLASH_RESUME_FRAMES} frames), nor cuts to it; an animation planned to END on the player's own view (the coaster's \`native\` camera) is no flash.`,
     tick(ctx) {
       const client = ClientView.of(ctx.engine);
       if (!client) return;
       const p = ctx.player, mount = p.ridingOn;
       const camera = client.drawn(p);
-      // A flash: the view was the script's on the previous frame, is the player's own now, the player still rides the
-      // same mount, and the script did not release it (an animation ran out, `animationEndedTick`).
-      if (mount && mount.valid && mount === prevMount && prevMode && prevMode !== 'own' && camera.mode === 'own' && client.animationEndedTick(p) === ctx.engine.tick && !reported.has(mount)) {
-        reported.add(mount);
-        ctx.report({ invariant: 'no-own-view-flash', message: `the camera animation ended before the next setCamera: the rider's own view showed on ${mount.typeId} (client ${client.profile.name})`, evidence: { mount: mount.typeId, eye: pt(camera.eye), lastScriptCameraTick: client.lastScriptCameraTick(p) } });
+      const seat = drawnSeat(client, p)?.eye;
+      const report = (m: SimEntity, why: string) => {
+        if (reported.has(m)) return;
+        reported.add(m);
+        ctx.report({ invariant: 'no-own-view-flash', message: `the camera animation ended ${why}: the rider's own view showed on ${m.typeId} (client ${client.profile.name})`, evidence: { mount: m.typeId, eye: pt(camera.eye), lastScriptCameraTick: client.lastScriptCameraTick(p) } });
+      };
+      if (pending) {
+        if (!mount || mount !== pending.mount || ctx.engine.tick - pending.tick > FLASH_RESUME_FRAMES) pending = undefined;
+        else if (camera.mode !== 'own') { report(pending.mount, `and a script camera came back ${ctx.engine.tick - pending.tick} frame(s) later`); pending = undefined; }
       }
-      prevMode = camera.mode; prevMount = mount && mount.valid ? mount : undefined;
+      // The view was the script's on the previous frame, is the player's own now, the player still rides the same
+      // mount, and the script did not release it (an animation ran out, `animationEndedTick`).
+      if (mount && mount.valid && mount === prevMount && prev && prev.mode !== 'own' && camera.mode === 'own' && client.animationEndedTick(p) === ctx.engine.tick) {
+        const cut = cameraFrameDelta({ camera: prev.camera, ...(prev.seat ? { seat: prev.seat } : {}) }, { camera, ...(seat ? { seat } : {}) });
+        if (cut.turnDeg > CAMERA_MAX_TURN_DEG + 1e-6 || cut.jumpBlocks > CAMERA_MAX_EYE_JUMP_BLOCKS + 1e-6) report(mount, `on a view ${round(cut.turnDeg)} degrees / ${round(cut.jumpBlocks)} blocks from its last frame`);
+        else pending = { tick: ctx.engine.tick, mount };
+      }
+      prev = { mode: camera.mode, camera, ...(seat ? { seat } : {}) };
+      prevMount = mount && mount.valid ? mount : undefined;
     },
   };
 }

@@ -353,7 +353,12 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
 - **A Bedrock camera cannot roll per tick** (Pixel, 26.51): `setCamera` takes
   yaw and a pitch within ±90 only (outside throws); roll exists only as
   `playAnimation` keyframe `rotation.z`, keyframes must be >0.05 s apart, a
-  `LinearSpline` needs 3 points, a keyframe's `x` is the NEGATED pitch, and
+  `LinearSpline` needs 3 points, **a keyframe's rotation is in the Z-MIRRORED
+  frame: `x` is the NEGATED pitch and `y` is 180 − the yaw `setCamera` would
+  take** (Pixel round 30zy, camprobe `yaw`: keyframe 0 faced north, 45
+  north-west; yaw ±90 is its own mirror, which is why every probe along
+  10303's x-aligned loops missed it and every drop off its crest curve cut
+  60-120 degrees for a week; quirk `camera-keyframe-yaw-mirrored`), and
   an animation re-issued every tick is never drawn — ONE uninterrupted
   animation does roll, so a coaster loop is sent whole, planned ahead.
   **Keyframe Euler angles are interpolated LINEARLY and `x` takes a
@@ -364,13 +369,46 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   loops"). A `setCamera` issued while an animation plays takes over at once;
   an animation that ENDS before the next `setCamera` flashes the player's
   own view, so plan it past the hand-back (`animTail`). **The client draws
-  entities ~3.5 ticks behind the server**: a camera on the server's schedule
-  sits 1.7 blocks ahead of the drawn seat at 10 blocks/s (in the car ahead
-  at coaster speed), so both cameras show a PAST pose (`tickLag` 1.5 with
-  the 0.1 s ease, `animLag` 3.5; marker-measured, `camprobe`).
+  entities behind the server, and PHONES DIFFER**: Pixel 3.5 ticks, Saga 5.7
+  (marker runs, `camprobe`; property lead 3.3 vs 4.1; round 30zv), so a
+  camera on the server's schedule sits in the car ahead at coaster speed and
+  both cameras show a PAST pose. The coaster's timing is per client
+  (`clientTimings`, matched on `graphicsMode` + render distance; unknown
+  clients get the Saga's, the user's phone). A rider's own view is drawn on
+  the DRAWN car and only REPORTED 7-9 ticks later: start an animation from the
+  drawn car's yaw plus the head turn, never from the reported yaw (round 30zy:
+  the own view read off marker pillars round 10303's crest, -156 against a
+  reported ~-178). When a camera looks wrong, MEASURE its yaw against
+  landmarks (`python -I scripts/_pillar_yaw.py`, coloured
+  pillars ~30 blocks out: the Pixel's fog hides them at 100) before
+  re-deriving lags from log lines: three rounds of lag fixes missed the mirror.
   The "Experimental Creator Camera Features" experiment changes none of this.
+  **So the coaster rides the player's OWN first person on near-level track**
+  (`native`, 2026-10-18) and sends only fast steep stretches as one blended
+  animation: a camera the server sets every tick jerked against the
+  client-interpolated train (worst in cars 2-3) and lagged every drag (the
+  user's report). **A `playAnimation` sent while the player is on their own
+  view is never drawn** (Pixel round 30zr, quirk
+  `camera-animation-needs-camera`; round 30zq's camera sat at the top of the
+  drop): `native` arms each animation with one un-eased `setCamera` at the
+  drawn view the tick before, and clears at its end. Every 09-29 probe began
+  from a set camera, which is why this hid. Every runtime that sets a camera tags the rider
+  (`CAMERA_OWNER_TAG`) and sweeps (`releaseOrphanCameras`), so a camera is
+  never left on a player who rides nothing (VEH-19).
   A rider's reported yaw is the CLIENT's and trails its vehicle ~6 ticks.
   Details: the add-on guide's "The rider's camera follows the track".
+- **A native call is not free on a phone, and every pack pays its own.** With
+  the 26 round packs bound, the scripts took a median 24 ms of each 50 ms
+  tick on BOTH phones (round 30zq `/script profiler`; the user's pinball
+  "client server lag"). 10303's ride alone was 53 % of that busy time: its
+  path sampler re-validated the whole track on every call (37 %, Saga 47 %);
+  vehicles' per-tick `getEntities` was 13 % and ~30 `getAllPlayers` calls a
+  tick ~9 % - every pack pays its own, so each pack's scripts now take `world`
+  from one shared roster (`scripts/roster.js`, player-roster.ts). A per-tick
+  query or a per-call O(N) check is a cost multiplied by every pack. Profile with `/script profiler start|stop` (the `.cpuprofile` lands in
+  the content-log folder), read it with
+  `python -I scripts/_cpuprofile_summary.py`; the burst view (samples exist
+  only while scripts run) is the busy time per tick.
 - **An unloaded block is not air.** `dim.getBlock` returns `undefined` outside
   the loaded/simulated area; a runtime that reads that as "no ground" lets an
   entity fall through the world (an empty scripted car coasted off and fell

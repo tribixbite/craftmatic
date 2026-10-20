@@ -43,10 +43,32 @@ export function moduleUrl(key: string, folder: string, path: string): string {
 }
 
 /** Wrap a callback so it runs as pack `key`'s code; the same callback always gets the same wrapper (for `unsubscribe`). */
+/**
+ * A sink for the wall time (ms) of every pack callback, with the pack and the module that registered it
+ * (`scripts/_sim_script_cost.ts`: which add-on runtime a world of many packs spends its script tick in). Null, the
+ * default, costs nothing; set it before the packs load, since a callback is attributed when it is registered.
+ */
+let profiler: ((key: string, module: string, ms: number) => void) | null = null;
+export function setPackProfiler(sink: ((key: string, module: string, ms: number) => void) | null): void { profiler = sink; }
+
+/** The module of pack `key` on the current stack (its `pack://` sourceURL path), for the profiler. */
+function registeringModule(key: string): string {
+  const prefix = `pack://${encodeURIComponent(key)}/`;
+  for (const line of (new Error().stack ?? '').split('\n')) {
+    const at = line.indexOf(prefix);
+    if (at >= 0) return line.slice(at + prefix.length).replace(/:\d+(:\d+)?\)?\s*$/, '');
+  }
+  return '?';
+}
+
 function scopedCallback<F extends (...args: never[]) => unknown>(key: string, fn: F, cache: WeakMap<object, unknown>): F {
   const hit = cache.get(fn) as F | undefined;
   if (hit) return hit;
-  const wrapped = ((...args: never[]) => withPack(key, () => fn(...args))) as unknown as F;
+  const sink = profiler;
+  const module = sink ? registeringModule(key) : '';
+  const wrapped = (sink
+    ? (...args: never[]) => { const t0 = performance.now(); try { return withPack(key, () => fn(...args)); } finally { sink(key, module, performance.now() - t0); } }
+    : (...args: never[]) => withPack(key, () => fn(...args))) as unknown as F;
   cache.set(fn, wrapped);
   return wrapped;
 }

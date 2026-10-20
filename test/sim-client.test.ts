@@ -15,8 +15,9 @@ import { quirk, quirkValue } from '../web/src/sim/quirks/registry.js';
 import { COASTER_RIDER_VIEW, coasterRuntimeConfig, coasterScript, type CoasterRoute, type CoasterRiderViewConfig } from '../web/src/engine/bedrock-coaster.js';
 import { FREE_LOOK, cockpitEyeLead } from '../web/src/engine/vehicle-free-look.js';
 import { PoseHistory } from '../web/src/sim/client/draw-lag.js';
-import { attachClient, cameraFrame, ClientView, clientProfile, drawnCameraLead, easeSteadyLagTicks, sampleAnimation, TICK_SECONDS } from '../web/src/sim/client/camera.js';
-import { CAMERA_MAX_TURN_DEG, cameraFrameDelta, clientInvariants, scriptMeansContinuity } from '../web/src/sim/client/invariants.js';
+import { boneTransforms, mul, pivotRotation } from '../web/src/engine/bedrock-geometry-faces.js';
+import { attachClient, cameraFrame, ClientView, clientProfile, drawnCameraLead, easeSteadyLagTicks, keyframeView, sampleAnimation, TICK_SECONDS } from '../web/src/sim/client/camera.js';
+import { CAMERA_MAX_EYE_JUMP_BLOCKS, CAMERA_MAX_TURN_DEG, cameraFrameDelta, clientInvariants, scriptMeansContinuity } from '../web/src/sim/client/invariants.js';
 import { CameraTrace } from '../web/src/sim/client/steps.js';
 import { rasterizeDetailed, type RasterQuad } from '../web/src/sim/render/rasterizer.js';
 import { buildAddonAppearance, lodDistanceOf } from '../web/src/sim/adapters/craftmatic/appearance.js';
@@ -65,31 +66,32 @@ describe('the client model: numbers and derivations', () => {
     expect(pixel.easeFactor).toBe(1);
     expect(pixel.basis).toBe('measured');
     expect(drawnCameraLead(23, COASTER_RIDER_VIEW.tickLag, COASTER_RIDER_VIEW.ease, pixel)).toBeCloseTo(0, 9);
-    expect(drawnCameraLead(23, COASTER_RIDER_VIEW.animLag, 0, pixel)).toBeCloseTo(0, 9);
+    const pixelAnimLag = COASTER_RIDER_VIEW.clientTimings!.find(t => t.graphicsMode === pixel.device.graphicsMode && t.maxRenderDistance === pixel.device.maxRenderDistance)!.animLag;
+    expect(drawnCameraLead(23, pixelAnimLag, 0, pixel)).toBeCloseTo(0, 9);
   });
 
-  it('the Saga: entity lag 4 with the ease not played reproduces BOTH cockpit brackets (30k led at camera lag 1.5, 30l trailed at 4) through the camera-first order; the Pixel\'s numbers do not; (6, ease 2) fits them alike and only the coaster tells the two apart', () => {
-    const saga = clientProfile('saga'), pixel = clientProfile('pixel');
-    expect(saga.basis).toBe('derived');
-    expect(saga.entityLagTicks).toBe(4); expect(saga.easeFactor).toBe(0);
+  it('the Saga, MEASURED by marker (round 30zv): entity lag 5.7, half the ease, properties 4.1 early; the shipped default animation lag rides its drawn seat; of the older cockpit brackets it fits the 30k pair, the 30l pair read ~0.75 tick more lag', () => {
+    const saga = clientProfile('saga');
+    expect(saga.basis).toBe('measured');
+    expect(saga.entityLagTicks).toBe(5.7); expect(saga.easeFactor).toBe(0.5); expect(saga.propertyLeadTicks).toBe(4.1);
+    // The coaster's defaults are the Saga's (the user's phone): the animation over its drawn seat.
+    expect(drawnCameraLead(23, COASTER_RIDER_VIEW.animLag, 0, saga)).toBeCloseTo(0, 9);
     // The packs' order: vehicle-camera.js reads the vehicle before vehicles.js moves it (+1 tick on the server's clock).
     const cameraFirst = 1;
-    // Each device reading is +-0.3 block (quirk `cockpit-draw-lag`): the brackets widened by that.
     const brackets = [
       { speed: 19.2, lag: 1.5, lo: 1.5 - 0.3, hi: 2.5 + 0.3 }, // McLaren 30k, `r19-cmp.jpg`: over the hood
       { speed: 17.9, lag: 1.5, lo: 1.5 - 0.3, hi: 2.0 + 0.3 }, // X-wing 30k, `r20-strip.jpg`: up the nose
-      { speed: 19.2, lag: 4, lo: -1.0 - 0.3, hi: -1.0 + 0.3 }, // McLaren 30l, `r17-mcl-ck-sheet.jpg` f007-f011: the picture at -1
-      { speed: 17.9, lag: 4, lo: -1.5 - 0.3, hi: -1.0 + 0.3 }, // X-wing 30l, `r18-xw-ck-sheet.jpg`: inside the fuselage, -1..-1.5
+      { speed: 19.2, lag: 4, lo: -1.0 - 0.3, hi: -1.0 + 0.3 }, // McLaren 30l, `r17-mcl-ck-sheet.jpg` f007-f011
+      { speed: 17.9, lag: 4, lo: -1.5 - 0.3, hi: -1.0 + 0.3 }, // X-wing 30l, `r18-xw-ck-sheet.jpg`
     ];
-    const fits = (client: { entityLagTicks: number; easeFactor: number }) => brackets.filter(b => { const l = drawnCameraLead(b.speed, b.lag + cameraFirst, FREE_LOOK.COCKPIT_EASE_SECONDS, client); return l >= b.lo && l <= b.hi; }).length;
-    expect(fits(saga)).toBe(4);
-    expect(fits(pixel)).toBe(0);
-    // The brackets are blind to the split between the entity lag and the ease: (6, played) fits them as well.
-    expect(fits({ entityLagTicks: 6, easeFactor: 1 })).toBe(4);
-    // The registry's cockpit lag (3) is the Saga's 4 less the order's tick less the ease it plays: the quirk rows agree.
-    expect(quirkValue('cockpit-draw-lag', 'ticks')).toBe(saga.entityLagTicks - cameraFirst - easeSteadyLagTicks(FREE_LOOK.COCKPIT_EASE_SECONDS, saga.easeFactor));
-    // And `cockpitEyeLead` (the lag arithmetic the course judged by) is the same line for the shipped camera.
-    expect(drawnCameraLead(19.2, FREE_LOOK.COCKPIT_TICK_LAG + cameraFirst, FREE_LOOK.COCKPIT_EASE_SECONDS, saga)).toBeCloseTo(cockpitEyeLead(19.2, FREE_LOOK.COCKPIT_TICK_LAG, quirkValue('cockpit-draw-lag', 'ticks')), 9);
+    const lead = (b: typeof brackets[number]) => drawnCameraLead(b.speed, b.lag + cameraFirst, FREE_LOOK.COCKPIT_EASE_SECONDS, saga);
+    // 30k (camera lag 1.5): the measured client puts the camera where the pictures did.
+    for (const b of brackets.slice(0, 2)) { expect(lead(b)).toBeGreaterThanOrEqual(b.lo); expect(lead(b)).toBeLessThanOrEqual(b.hi); }
+    // 30l (lag 4): the pictures trailed ~1 block; the measured client puts it ~0.3 behind. The gap (~0.75 tick) is open:
+    // a cockpit run with the marker would say whether the cockpit camera's path differs (TODO(client-lag-saga)).
+    for (const b of brackets.slice(2)) expect(lead(b)).toBeGreaterThan(b.hi);
+    // The cockpit lag the vehicles ship (quirk `cockpit-draw-lag` 3) against this client: 5.7 - 1 - 1 = 3.7.
+    expect(saga.entityLagTicks - cameraFirst - easeSteadyLagTicks(FREE_LOOK.COCKPIT_EASE_SECONDS, saga.easeFactor)).toBeCloseTo(3.7, 6);
   });
 
   it('the invariants\' per-frame turn cap is the coaster camera\'s own', () => {
@@ -121,12 +123,27 @@ describe('the camera frame and the animation sampling', () => {
   it('interpolates Euler keyframes LINEARLY (the yaw never the short way round, the pitch continuous past 90) and the eye by arc', () => {
     const anim = { points: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 1, y: 0, z: 3 }], arcs: [0, 1, 4], progress: [{ alpha: 0, t: 0 }, { alpha: 1, t: 0.2 }], rotation: [{ x: 0, y: 170, z: 0, t: 0 }, { x: 360, y: -170, z: 0, t: 0.2 }] };
     const mid = sampleAnimation(anim, 0.1);
-    // Half way: 2 blocks along the 4-block path (past the corner), the yaw through 0 (a 340-degree swing: the chart flip the Pixel drew as a spin), the pitch -180.
+    // Half way: 2 blocks along the 4-block path (past the corner), the keyframe yaw through 0 (a 340-degree swing: the
+    // chart flip the Pixel drew as a spin), drawn mirrored at 180 - 0, the pitch -180.
     expect(mid.eye).toEqual({ x: 1, y: 0, z: 1 });
-    expect(mid.yaw).toBeCloseTo(0);
+    expect(mid.yaw).toBeCloseTo(180);
     expect(mid.pitch).toBeCloseTo(-180);
-    expect(sampleAnimation(anim, 0).yaw).toBe(170);
+    expect(sampleAnimation(anim, 0).yaw).toBe(10);
     expect(sampleAnimation(anim, 1).eye).toEqual({ x: 1, y: 0, z: 3 }); // clamped past the end
+  });
+
+  it('draws a keyframe yaw MIRRORED, 180 - y (COAST-06, Pixel round 30zy camprobe `yaw`: a keyframe at 0 faced north where setCamera at 0 faced south, at 45 north-west against south-west)', () => {
+    const still = (y: number) => ({ points: [{ x: 0, y: 0, z: 0 }, { x: 0.01, y: 0, z: 0 }], arcs: [0, 0.01], progress: [{ alpha: 0, t: 0 }, { alpha: 1, t: 2 }], rotation: [{ x: 0, y, z: 0, t: 0 }, { x: 0, y, z: 0, t: 2 }] });
+    const facing = (yaw: number) => ({ x: -Math.sin(yaw * Math.PI / 180), z: Math.cos(yaw * Math.PI / 180) });
+    // setCamera's yaw 0 faces +z (south); the keyframe at 0 faces -z (north).
+    expect(facing(sampleAnimation(still(0), 1).yaw).z).toBeCloseTo(-1, 6);
+    // 45: setCamera faces south-west (-x, +z); the keyframe north-west (-x, -z), 135 - not 225 (a plain half turn).
+    const nw = facing(sampleAnimation(still(45), 1).yaw);
+    expect(nw.x).toBeCloseTo(-Math.SQRT1_2, 6);
+    expect(nw.z).toBeCloseTo(-Math.SQRT1_2, 6);
+    // +-90 is its own mirror: why every probe along 10303's x-aligned loops missed it.
+    expect(Math.cos((sampleAnimation(still(-90), 1).yaw + 90) * Math.PI / 180)).toBeCloseTo(1, 6);
+    expect(keyframeView({ x: 30, y: 45, z: 12 })).toEqual({ yaw: 135, pitch: -30, roll: 12 });
   });
 });
 
@@ -162,7 +179,38 @@ describe('the drawn poses', () => {
     expect(feet.y).toBeCloseTo(5 + 0.5 + quirkValue('rider-eye-above-seat', 'eyeAboveSeatBlocks') - 1.62);
     expect(client.drawnVelocity(player).x).toBeCloseTo(1, 6);
   });
+
+  it('reads an entity\'s actor properties at now - entityLag + propertyLead, held between ticks (quirk property-ahead-of-position)', async () => {
+    // The property counts the ticks; the same world read with the lead at 0 and at 2.
+    const drawnAt = async (lead: number) => {
+      const sim = new Simulation();
+      sim.loadAddon(await readAddon(await miniAddon({ 'seat.json': entityJson('x:seat', SEAT_BOX) }), 'props'));
+      const player = sim.addPlayer('P', { x: 0, y: 0, z: 0 });
+      const e = sim.engine.spawnEntity('x:seat', 'overworld', { x: 0, y: 5, z: 0 });
+      const client = attachClient(sim, player, { ...clientProfile('pixel'), propertyLeadTicks: lead });
+      for (let t = 1; t <= 12; t++) { e.properties.set('x:p', t); await sim.run(1); }
+      return { value: client.drawnProperties(e)['x:p'], lag: client.profile.entityLagTicks };
+    };
+    const inStep = await drawnAt(0), ahead = await drawnAt(2);
+    // The value of the last whole tick at or before now - lag (+ lead): applied, not interpolated (12 at now).
+    expect(inStep.value).toBe(12 - Math.ceil(inStep.lag));
+    expect(ahead.value).toBe(12 - Math.ceil(ahead.lag - 2));
+    expect(quirk('property-ahead-of-position').values).toEqual({ pixelLeadTicks: 3.3, sagaLeadTicks: 4.1 });
+  });
+
+  it('poses a bone as the add-on preview does: T(position) T(pivot) R(bind + animated) S T(-pivot)', () => {
+    const bones = [{ name: 'root', pivot: [0, 0, 0] as [number, number, number] }, { name: 'arm', parent: 'root', pivot: [0, 8, 0] as [number, number, number], rotation: [0, 0, 10] as [number, number, number] }];
+    const pose = { rotation: [30, 0, 5] as const, position: [2, -1, 4] as const, scale: [1, 2, 1] as const };
+    const posed = boneTransforms(bones, undefined, new Map([['arm', pose]])).get('arm')!;
+    const expected = mul(translate3(2, -1, 4), mul(pivotRotation([30, 0, 15], [0, 8, 0]), mul(translate3(0, 8, 0), mul([1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0], translate3(0, -8, 0)))));
+    posed.forEach((v, i) => expect(v).toBeCloseTo(expected[i]!, 9));
+    // No pose: the bind pose alone, as before.
+    const bind = boneTransforms(bones).get('arm')!;
+    pivotRotation([0, 0, 10], [0, 8, 0]).forEach((v, i) => expect(bind[i]).toBeCloseTo(v, 9));
+  });
 });
+
+const translate3 = (x: number, y: number, z: number): number[] => [1, 0, 0, x, 0, 1, 0, y, 0, 0, 1, z];
 
 describe('the camera state machine', () => {
   it('an eased per-tick camera chasing a target moving a block a tick settles exactly two blocks behind it', async () => {
@@ -188,9 +236,17 @@ describe('the camera state machine', () => {
     expect(d.eye).toEqual({ x: 7, y: 3, z: 0 }); expect(d.pitch).toBe(10); expect(d.yaw).toBe(45);
   });
 
-  it('an animation plays from the frame it is issued, is cut by a setCamera, and shows the own view when it runs out first', async () => {
+  it('an animation sent from the player\'s own view is never drawn; armed by a set camera it plays from the frame it is issued, is cut by a setCamera, and shows the own view when it runs out first', async () => {
     const { sim, player, client, camera } = await world();
     const anim = (total: number) => camera.playAnimation({ controlPoints: [{ x: 0, y: 10, z: 0 }, { x: 0, y: 10, z: 10 }] }, { totalTimeSeconds: total, animation: { progressKeyFrames: [{ alpha: 0, timeSeconds: 0 }, { alpha: 1, timeSeconds: total }], rotationKeyFrames: [{ rotation: { x: 0, y: 0, z: 0 }, timeSeconds: 0 }, { rotation: { x: 360, y: 0, z: 0 }, timeSeconds: total }] } });
+    // From the own view: dropped (quirk `camera-animation-needs-camera`, Pixel round 30zr, 4/4).
+    anim(0.5);
+    await sim.run(3);
+    expect(client.drawn(player).mode).toBe('own');
+    // Armed: one un-eased setCamera, then the animation on the next tick.
+    camera.setCamera('minecraft:free', { location: { x: 0, y: 10, z: 0 }, rotation: { x: 0, y: 0 } });
+    await sim.run(1);
+    expect(client.drawn(player).mode).toBe('free');
     anim(0.5);
     await sim.run(1);
     expect(client.drawn(player).mode).toBe('animation');
@@ -334,7 +390,7 @@ function rideLoop(profile: 'pixel' | 'saga', camera: Partial<CoasterRiderViewCon
 
 describe('the coaster camera drawn on each client (synthetic loop course)', () => {
   it('on the Pixel both cameras ride the drawn seat and the hand-back is continuous: no own view, the eye within half a block along the heading, and only the hand-back\'s own transient', () => {
-    const { trace } = rideLoop('pixel');
+    const { trace } = rideLoop('pixel', { mode: 'loop' });
     const s = trace.summary(2);
     expect(s.animations).toBeGreaterThanOrEqual(1);
     expect(s.ownFrames).toBe(0);
@@ -351,10 +407,10 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
     // catches up over ~6 ticks. An ease-aware hand-back - the first eased target one tick AHEAD of the steady lag
     // (0.5, then 1.5) - keeps the drawn camera on the seat. NOT a pack change here (the runtime is not package B's);
     // the measurement that says what to change (TODO(handback-ease), bedrock-coaster.ts `HANDBACK_BLEND`).
-    const shipped = rideLoop('pixel');
+    const shipped = rideLoop('pixel', { mode: 'loop' });
     const after = (t: { trace: CameraTrace }) => t.trace.rows.filter(r => r.tick > t.trace.lastHandbackTick && r.tick <= t.trace.lastHandbackTick + 8 && r.lead !== undefined).map(r => r.lead!);
     const worstShipped = Math.max(...after(shipped).map(Math.abs));
-    const noBlend = rideLoop('pixel', { handbackBlend: 1 });
+    const noBlend = rideLoop('pixel', { mode: 'loop', handbackBlend: 1 });
     const worstNoBlend = Math.max(...after(noBlend).map(Math.abs));
     expect(after(shipped).length).toBeGreaterThan(0);
     // The blend's transient is worse than a plain hand-back's; both are behind the seat (negative lead).
@@ -362,28 +418,63 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
     expect(worstShipped).toBeGreaterThan(worstNoBlend * 0.9);
   }, 60_000);
 
-  it('on the Saga (entity lag 4, the ease not played) the per-tick camera rides 2.5 ticks AHEAD of the drawn car and the animation 0.5: a 2-tick cut at the animation\'s start (the 30g entry jump) and the blend\'s walk forward at the hand-back (the exit swing)', () => {
-    const { trace, client } = rideLoop('saga');
-    expect(client.profile.entityLagTicks).toBe(4);
+  it('legacy loop mode on the measured Saga: the per-tick camera rides 3.2 ticks AHEAD of the drawn car (5.7 - 1.5 - 1 of ease) and the animation, on the Saga timing, on it: a 3-tick cut at each animation start - why loop mode is retired', () => {
+    const { trace, client } = rideLoop('saga', { mode: 'loop' });
+    expect(client.profile.entityLagTicks).toBe(5.7);
     const steady = trace.rows.filter(r => r.mode === 'free' && (r.speed ?? 0) > 2 && r.lead !== undefined && r.tick - trace.lastHandbackTick > 10);
     const speedAt = (r: { speed?: number }) => (r.speed ?? 0) * TICK_SECONDS;
     const median = (xs: number[]): number => { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]!; };
-    // Lead = speed x (4 - 1.5 - 0) ticks = 2.5 ticks of motion ahead; the animation (no ease) 4 - 3.5 = 0.5 ahead.
+    const ahead = client.profile.entityLagTicks - COASTER_RIDER_VIEW.tickLag - easeSteadyLagTicks(COASTER_RIDER_VIEW.ease, client.profile.easeFactor);
+    expect(ahead).toBeCloseTo(3.2, 6);
     expect(steady.length).toBeGreaterThan(100);
-    expect(median(steady.map(r => r.lead! / speedAt(r)))).toBeCloseTo(2.5, 1);
-    expect(steady.filter(r => Math.abs(r.lead! / speedAt(r) - 2.5) < 0.75).length / steady.length).toBeGreaterThan(0.8);
+    expect(Math.abs(median(steady.map(r => r.lead! / speedAt(r))) - ahead)).toBeLessThan(0.3);
+    // The animation runs on the Saga's own timing (the default): on the drawn seat.
     const anim = trace.rows.filter(r => r.mode === 'animation' && (r.speed ?? 0) > 2);
     expect(anim.length).toBeGreaterThan(10);
-    expect(median(anim.map(r => r.lead! / speedAt(r)))).toBeCloseTo(0.5, 0);
-    // The switch into the animation is the device's one-frame jump: 2 ticks of motion back in one frame.
+    expect(Math.abs(median(anim.map(r => r.lead! / speedAt(r))))).toBeLessThan(0.5);
+    // So the switch into the animation is a cut of ~3 ticks of motion in one frame.
     const starts = trace.rows.filter((r, i) => r.mode === 'animation' && i > 0 && trace.rows[i - 1]!.mode === 'free');
     expect(starts.length).toBeGreaterThanOrEqual(1);
-    for (const r of starts) expect(r.jumpBlocks / speedAt(r), `tick ${r.tick}`).toBeGreaterThan(1.5);
-    // And the Pixel shows none of it: both cameras on the seat, no jump at the start.
-    const pixel = rideLoop('pixel');
+    for (const r of starts) expect(r.jumpBlocks / speedAt(r), `tick ${r.tick}`).toBeGreaterThan(2);
+    // The Pixel, on its own timing, shows none of it.
+    const pixel = rideLoop('pixel', { mode: 'loop' });
     const pixelStarts = pixel.trace.rows.filter((r, i) => r.mode === 'animation' && i > 0 && pixel.trace.rows[i - 1]!.mode === 'free');
     for (const r of pixelStarts) expect(r.jumpBlocks, `pixel tick ${r.tick}`).toBeLessThan(0.5);
   }, 60_000);
+  for (const profile of ['pixel', 'saga'] as const) {
+    it(`native mode (the default) on the ${profile}: the player's own view, and one animation per inversion that leaves and rejoins it with no cut and rides the drawn seat (COAST-06, the user 2026-10-18)`, () => {
+      const { trace, client } = rideLoop(profile);
+      // No per-tick script camera: the own view (drawn from the drawn seat by the client) or an animation, and one
+      // tick of the arming free camera before each animation (quirk `camera-animation-needs-camera`: an animation
+      // sent from the own view is never drawn, Pixel round 30zr).
+      const free = trace.rows.filter(r => r.mode !== 'own' && r.mode !== 'animation');
+      for (const r of free) {
+        const i = trace.rows.indexOf(r);
+        expect(r.mode, `${profile} tick ${r.tick}`).toBe('free');
+        expect(trace.rows[i + 1]?.mode, `${profile} tick ${r.tick}: the arming camera is followed by its animation`).toBe('animation');
+      }
+      const s = trace.summary(2);
+      expect(s.animations).toBeGreaterThanOrEqual(1);
+      expect(trace.rows.filter(r => r.mode === 'own').length).toBeGreaterThan(300);
+      // Each switch between the own view and the animation meets: under the per-frame caps the invariants judge by.
+      let switches = 0;
+      for (let i = 1; i < trace.rows.length; i++) {
+        const a = trace.rows[i - 1]!, b = trace.rows[i]!;
+        if (a.mode === b.mode) continue;
+        switches++;
+        expect(b.turnDeg, `${profile} tick ${b.tick} ${a.mode} -> ${b.mode}`).toBeLessThan(CAMERA_MAX_TURN_DEG);
+        expect(b.jumpBlocks, `${profile} tick ${b.tick} ${a.mode} -> ${b.mode}`).toBeLessThan(CAMERA_MAX_EYE_JUMP_BLOCKS);
+      }
+      expect(switches).toBeGreaterThanOrEqual(2);
+      // The animation rides the drawn seat on both phones: each client gets its own measured lag (`clientTimings`).
+      const anim = trace.rows.filter(r => r.mode === 'animation' && (r.speed ?? 0) > 2 && r.lead !== undefined);
+      expect(anim.length).toBeGreaterThan(10);
+      const bound = () => 0.75;
+      for (const r of anim) expect(Math.abs(r.lead!), `${profile} anim tick ${r.tick}`).toBeLessThan(bound());
+      expect(client.profile.name).toBe(profile);
+    }, 60_000);
+  }
+
 });
 
 // ─── The round-30m packs, when this machine has them ───
@@ -431,15 +522,16 @@ describe.skipIf(!havePacks)('the coaster camera on the round-30m 10303 (corpus)'
     for (const x of drop) expect(Math.abs(x.lead!)).toBeLessThan(0.15);
   }, 120_000);
 
-  it('predicts the Saga\'s seat lead (2.5 ticks ahead on the per-tick camera at speed) that the Pixel never showed', async () => {
+  it('predicts the Saga\'s seat lead on the round-30m pack (the per-tick camera 3.2 ticks ahead at speed: 5.7 - 1.5 - 1 of ease) that the Pixel never showed', async () => {
     const r = await ride('saga');
     const cc = r.state['coasterCamera'] as { worstLead: number } | undefined;
     expect(cc).toBeDefined();
     const trace = r.state['cameraTrace'] as Array<{ mode: string; lead?: number; speed?: number; pitch: number }>;
     const drop = trace.filter(x => x.mode === 'free' && Math.abs(x.pitch) > 85 && (x.speed ?? 0) > 15 && x.lead !== undefined);
     expect(drop.length).toBeGreaterThan(5);
-    // 2.5 ticks of motion ahead at 20+ blocks/s: more than a block, the course's slack several times over.
-    for (const x of drop) expect(x.lead! / (x.speed! * TICK_SECONDS)).toBeCloseTo(2.5, 0);
+    // The measured Saga: 5.7 - tickLag 1.5 - the ease it plays (1 tick) = 3.2 ticks of motion ahead at 20+ blocks/s.
+    const ahead = clientProfile('saga').entityLagTicks - COASTER_RIDER_VIEW.tickLag - easeSteadyLagTicks(COASTER_RIDER_VIEW.ease, clientProfile('saga').easeFactor);
+    for (const x of drop) expect(Math.abs(x.lead! / (x.speed! * TICK_SECONDS) - ahead)).toBeLessThan(0.5);
     expect(r.violations.some(v => v.invariant === 'camera-on-own-seat' && Number((v.evidence as { lead: number }).lead) > 0.5)).toBe(true);
   }, 120_000);
 });

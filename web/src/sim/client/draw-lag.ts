@@ -18,6 +18,9 @@ import type { SimEntity } from '../entity/entity.js';
 /** One entity's pose as the server had it at a tick (world blocks, Bedrock yaw/pitch, `minecraft:scale`). */
 export interface DrawnEntityPose { tick: number; x: number; y: number; z: number; yaw: number; pitch: number; scale: number }
 
+/** An entity's actor properties as the server had them at a tick (only entities that declare any are recorded). */
+export type ActorProperties = Readonly<Record<string, number | boolean | string>>;
+
 const wrap = (a: number): number => ((a + 180) % 360 + 360) % 360 - 180;
 
 /** Ticks of history kept per entity: more than any lag a profile reads back (the Saga's derived 6 plus a blend). */
@@ -29,19 +32,27 @@ export const POSE_HISTORY_TICKS = 16;
  */
 export class PoseHistory {
   private readonly by = new Map<string, DrawnEntityPose[]>();
+  /** Each entity's actor properties per recorded tick, oldest first, beside its poses. */
+  private readonly props = new Map<string, Array<{ tick: number; values: ActorProperties }>>();
 
   constructor(readonly keep = POSE_HISTORY_TICKS) {}
 
   /** Record every valid entity's pose at the engine's current tick; forget entities that are gone. */
   record(engine: SimEngine): void {
     const tick = engine.tick;
-    for (const id of this.by.keys()) if (!engine.entities.has(id)) this.by.delete(id);
+    for (const id of this.by.keys()) if (!engine.entities.has(id)) { this.by.delete(id); this.props.delete(id); }
     for (const e of engine.entities.values()) {
-      if (!e.valid) { this.by.delete(e.id); continue; }
+      if (!e.valid) { this.by.delete(e.id); this.props.delete(e.id); continue; }
       let list = this.by.get(e.id);
       if (!list) this.by.set(e.id, list = []);
       list.push({ tick, x: e.location.x, y: e.location.y, z: e.location.z, yaw: e.rotation.y, pitch: e.rotation.x, scale: e.scale() });
       if (list.length > this.keep) list.shift();
+      if (e.properties.size) {
+        let kept = this.props.get(e.id);
+        if (!kept) this.props.set(e.id, kept = []);
+        kept.push({ tick, values: Object.fromEntries(e.properties) });
+        if (kept.length > this.keep) kept.shift();
+      }
     }
   }
 
@@ -67,6 +78,19 @@ export class PoseHistory {
       tick, x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, z: a.z + (b.z - a.z) * f,
       yaw: a.yaw + wrap(b.yaw - a.yaw) * f, pitch: a.pitch + (b.pitch - a.pitch) * f, scale: a.scale + (b.scale - a.scale) * f,
     };
+  }
+
+  /**
+   * The entity's actor properties as they stood at `tick` (a fractional tick reads the last whole tick at or before
+   * it: a property is a value the client applies, not a motion it interpolates); the oldest kept before the history,
+   * undefined for an entity with no recorded properties.
+   */
+  propertiesAt(e: SimEntity, tick: number): ActorProperties | undefined {
+    const kept = this.props.get(e.id);
+    if (!kept || !kept.length) return undefined;
+    let best = kept[0]!;
+    for (const k of kept) { if (k.tick <= tick) best = k; else break; }
+    return best.values;
   }
 
   /** The pose `lag` ticks before `now` (a fractional lag reads between two ticks). */

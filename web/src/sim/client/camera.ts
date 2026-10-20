@@ -66,6 +66,10 @@ export interface ClientProfile {
   easeFactor: number;
   /** `measured`: a marker run on that phone; `derived`: read back through this model from other measurements (ASSUMED until a marker run). */
   basis: 'measured' | 'derived';
+  /** Ticks an actor property reaches the screen before the position sent with it (quirk `property-ahead-of-position`). */
+  propertyLeadTicks: number;
+  /** What the phone reports to scripts (round 30zv `si:dump`): set on the watched player, which the coaster's timing table reads. */
+  device: { graphicsMode: string; maxRenderDistance: number; memoryTier: number };
 }
 
 /**
@@ -75,20 +79,15 @@ export interface ClientProfile {
  * `ticks`) by the animation, and the eased per-tick camera on the drawn marker at 1.5 - the ease's
  * own 2 ticks (quirk `camera-ease-lag`): both cameras on the seat, as every Pixel ride read.
  *
- * The Saga (26.52): no marker run. Its cockpit brackets (30k at camera lag 1.5: +1.5..2.5 blocks
- * ahead; 30l at 4: ~1 behind) pin only `entityLag - easeLag - 1` (the camera-first script order)
- * = 3: (6, 2) and (4, 0) fit them alike. Its coaster findings separate them: the first-drop entry
- * jump (6/6 laps) at every inversion animation's start and the loop-1 exit swing (5/7) at every
- * hand-back (30g, `_notes.txt` item 3), which the Pixel never showed, need the per-tick camera and
- * the animation to DIFFER on that phone - under (6, 2) both sit 2.5 ticks ahead of the drawn car
- * and nothing jumps; under (4, 0) the per-tick camera sits 2.5 ticks ahead, the animation 0.5,
- * and each switch is a 2-tick cut in one frame. So the Saga is read as an entity lag of 4 with
- * the ease NOT played (`sagaTicks` 4, `camera-ease-lag` `sagaFactor` 0): DERIVED, both numbers.
+ * The Saga (26.52): MEASURED by marker run 2026-10-19 (round 30zv camprobe/proplag): it draws
+ * entities 5.7 ticks behind (`sagaTicks`), plays about half the camera ease (`sagaFactor` 0.5) and
+ * applies actor properties 4.1 ticks early (`sagaLeadTicks`). The pair (4, no ease) derived before
+ * from cockpit brackets and the 30g frame counts is superseded.
  */
 export function clientProfile(name: ClientProfileName): ClientProfile {
   return name === 'saga'
-    ? { name, entityLagTicks: quirkValue('client-entity-lag', 'sagaTicks'), easeFactor: quirkValue('camera-ease-lag', 'sagaFactor'), basis: 'derived' }
-    : { name: 'pixel', entityLagTicks: quirkValue('client-entity-lag', 'ticks'), easeFactor: quirkValue('camera-ease-lag', 'pixelFactor'), basis: 'measured' };
+    ? { name, entityLagTicks: quirkValue('client-entity-lag', 'sagaTicks'), easeFactor: quirkValue('camera-ease-lag', 'sagaFactor'), basis: 'measured', propertyLeadTicks: quirkValue('property-ahead-of-position', 'sagaLeadTicks'), device: { graphicsMode: 'Fancy', maxRenderDistance: 22, memoryTier: 4 } }
+    : { name: 'pixel', entityLagTicks: quirkValue('client-entity-lag', 'ticks'), easeFactor: quirkValue('camera-ease-lag', 'pixelFactor'), basis: 'measured', propertyLeadTicks: quirkValue('property-ahead-of-position', 'pixelLeadTicks'), device: { graphicsMode: 'Deferred', maxRenderDistance: 24, memoryTier: 4 } };
 }
 
 /**
@@ -187,10 +186,20 @@ function keyed<T>(keys: readonly T[], t: number, timeOf: (k: T) => number, mix: 
 }
 
 /**
+ * The view a `playAnimation` rotation keyframe is drawn at. Keyframes are in the Z-MIRRORED frame: `x` is the
+ * NEGATED pitch (2026-09-29) and `y` is 180 - the yaw `setCamera` would take for the same view (Pixel round 30zy,
+ * camprobe `yaw`: a keyframe at 0 faced north where `setCamera` at 0 faced south, at 45 north-west against
+ * south-west; quirk `camera-keyframe-yaw-mirrored`); `z` is the roll as measured in that frame.
+ */
+export function keyframeView(rotation: { x: number; y: number; z: number }): { yaw: number; pitch: number; roll: number } {
+  return { yaw: 180 - rotation.y, pitch: -rotation.x, roll: rotation.z };
+}
+
+/**
  * The pose an animation shows `t` seconds in: the eye on the spline at the progress alpha (the
  * coaster resamples its spline to equal arc steps, so alpha by arc and by point index agree there;
  * arc is taken), the rotation keyframes' Euler angles interpolated LINEARLY (no short way round:
- * measured, a chart flip is drawn as a spin), x the NEGATED pitch, y the yaw, z the roll.
+ * measured, a chart flip is drawn as a spin), drawn through `keyframeView`.
  */
 export function sampleAnimation(anim: Pick<PlayingAnimation, 'points' | 'arcs' | 'progress' | 'rotation'>, t: number): CameraPose {
   const prog = keyed(anim.progress, t, k => k.t, (a, b, f) => ({ alpha: a.alpha + (b.alpha - a.alpha) * f, t }));
@@ -206,7 +215,7 @@ export function sampleAnimation(anim: Pick<PlayingAnimation, 'points' | 'arcs' |
     eye = { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, z: a.z + (b.z - a.z) * f };
   }
   const rot = keyed(anim.rotation, t, k => k.t, (a, b, f) => ({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, z: a.z + (b.z - a.z) * f, t }));
-  return { eye, yaw: rot?.y ?? 0, pitch: -(rot?.x ?? 0), roll: rot?.z ?? 0 };
+  return { eye, ...keyframeView(rot ?? { x: 0, y: 180, z: 0 }) };
 }
 
 /** The camera state of one player on the client. */
@@ -225,6 +234,8 @@ class PlayerCamera {
   lastScriptCameraTick = -Infinity;
   /** The tick the animation playing last ended on its own (an own-view flash on a riding player). */
   animationEndedTick = -Infinity;
+  /** The tick of the last `playAnimation` the client dropped: one sent while the player was on their own view (quirk `camera-animation-needs-camera`). */
+  animationIgnoredTick = -Infinity;
   /** The pose the SCRIPT asked for this frame (the ease's target, the animation's sample, the instant set): what it means the view to be. */
   target: CameraPose | undefined;
 
@@ -248,15 +259,22 @@ class PlayerCamera {
         this.mode = 'own'; this.anim = undefined; this.animationEndedTick = now; this.target = undefined;
       } else { this.pose = sampleAnimation(this.anim, t); this.target = this.pose; }
     }
-    for (const r of this.pending) this.apply(r, now, own, easeFactor);
+    // Whether a script camera was on when this frame began: an animation arriving from the own view is dropped.
+    const entered = this.mode;
+    for (const r of this.pending) this.apply(r, now, own, easeFactor, entered);
     this.pending = [];
   }
 
   /** Apply one request on the frame `now` (a script's request lands on the frame of its own tick; a test's made between ticks on the next). */
-  private apply(r: CameraRequest, now: number, own: () => CameraPose, easeFactor: number): void {
+  private apply(r: CameraRequest, now: number, own: () => CameraPose, easeFactor: number, entered: DrawnMode = this.mode): void {
     if (r.kind === 'clear') { this.mode = 'own'; this.ease = undefined; this.anim = undefined; this.preset = undefined; this.target = undefined; return; }
-    this.lastScriptCameraTick = r.tick;
     if (r.kind === 'anim') {
+      // A `playAnimation` sent while the player is on their OWN view is never drawn (Pixel 26.52, round 30zr: the
+      // camprobe's `nopre` / `own20 ride` runs left the view untouched for the whole animation, 4 of 4; one or two
+      // ticks of an un-eased `setCamera` first and it played from its first frame, 3 of 3). Quirk
+      // `camera-animation-needs-camera`.
+      if (entered === 'own') { this.animationIgnoredTick = now; return; }
+      this.lastScriptCameraTick = r.tick;
       const arcs = [0];
       for (let k = 1; k < r.points.length; k++) { const a = r.points[k - 1]!, b = r.points[k]!; arcs.push(arcs[k - 1]! + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)); }
       this.anim = { start: now, total: r.total, points: r.points, arcs, progress: r.progress, rotation: r.rotation };
@@ -265,6 +283,7 @@ class PlayerCamera {
       this.target = this.pose;
       return;
     }
+    this.lastScriptCameraTick = r.tick;
     if (r.preset !== 'minecraft:free') {
       // A first/third-person preset: the player's own eye (no pack uses one; recorded, drawn as the own view).
       this.mode = 'own'; this.ease = undefined; this.anim = undefined; this.preset = r.preset; this.target = undefined;
@@ -324,6 +343,7 @@ export class ClientView {
   watch(player: SimEntity): void {
     if (this.watched.has(player) || !player.isPlayer) return;
     this.watched.add(player);
+    player.clientInfo = { ...this.profile.device };
     const cam = this.camera(player);
     const api = this.sim.host.entity(player) as { camera: Record<string, unknown> };
     const facade = api.camera;
@@ -384,6 +404,14 @@ export class ClientView {
     return this.poses.lagged(e, now, this.profile.entityLagTicks) ?? { tick: now, x: e.location.x, y: e.location.y, z: e.location.z, yaw: e.rotation.y, pitch: e.rotation.x, scale: e.scale() };
   }
 
+  /**
+   * An entity's actor properties as the client applies them now: the server's of tick now - entityLag + propertyLead
+   * (quirk `property-ahead-of-position`), the live values for an entity with no recorded history yet.
+   */
+  drawnProperties(e: SimEntity): Readonly<Record<string, number | boolean | string>> {
+    return this.poses.propertiesAt(e, this.tick - this.profile.entityLagTicks + this.profile.propertyLeadTicks) ?? Object.fromEntries(e.properties);
+  }
+
   /** The drawn velocity (blocks per tick) of an entity's drawn pose: the drawn mount's for a rider, the lagged history's otherwise. */
   drawnVelocity(e: SimEntity): Vec3 {
     const mount = e.ridingOn;
@@ -398,9 +426,27 @@ export class ClientView {
     return { x: p.x, y: p.y + PLAYER_EYE_HEIGHT, z: p.z };
   }
 
-  /** The player's own view: from its drawn head along its own look (client-authoritative; the carried rider yaw is the server's `riders` system's). */
+  /**
+   * The player's own view: from its drawn head along its own look. A rider of a carried seat (`lock_rider_rotation`
+   * not 0) looks along the DRAWN mount plus its head turn: the client draws the own view on the mount it draws and
+   * reports that yaw later, which the server's `riders` system models as the mount's turn `rider-yaw-lag` ticks ago.
+   * So the drawn yaw is the reported one plus the mount's turn between then and its drawn pose (round 30zv: drawn
+   * from the reported yaw, the sim never showed the 35-45 degree cut the phones drew at 10303's crest).
+   */
   ownPose(player: SimEntity): CameraPose {
-    return { eye: this.drawnHead(player), yaw: player.rotation.y, pitch: player.rotation.x, roll: 0 };
+    return { eye: this.drawnHead(player), yaw: player.rotation.y + this.carriedLead(player), pitch: player.rotation.x, roll: 0 };
+  }
+
+  /** Degrees a carried rider's drawn view leads its reported yaw: its drawn mount's turn since the reported yaw's mount pose. */
+  private carriedLead(player: SimEntity): number {
+    const mount = player.ridingOn;
+    if (!mount || !mount.valid) return 0;
+    const seats = mount.rideable()?.seats ?? [];
+    const lock = seats[Math.min(Math.max(0, mount.riders.indexOf(player)), Math.max(0, seats.length - 1))]?.lockRiderRotation;
+    if (lock === 0) return 0;
+    const reportLag = Math.max(0, Math.round(quirkValue('rider-yaw-lag', 'ticks')));
+    const drawn = this.drawnPose(mount).yaw, reported = this.poses.lagged(mount, this.tick, reportLag)?.yaw;
+    return Number.isFinite(drawn) && Number.isFinite(reported) ? ((((drawn - reported!) % 360) + 540) % 360) - 180 : 0;
   }
 
   /** What the player sees this tick. */

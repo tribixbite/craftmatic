@@ -27,7 +27,8 @@ import {
   ensureCatalog, searchCatalog, splitQueryTerms, getThemes, isLoaded, isInOmr, isOmrLoaded, mergeIndexSets,
   type CatalogSet, type CatalogTheme,
 } from '@engine/lego-catalog.js';
-import { exportGLB, exportSTL, exportOBJ, export3MF, countExportTriangles } from '@viewer/exporter.js';
+import { exportGLB, exportSTL, exportOBJ, export3MF, countExportTriangles, glbBytes } from '@viewer/exporter.js';
+import { handOffToPokefit, openPokefit } from '@viewer/pokefit-handoff.js';
 import { runMinecraftExport, spanOfBricks } from '@ui/schem-export.js';
 import { mountSchemSettings, getSchemSettings } from '@ui/schem-settings-panel.js';
 import { mountMinifigBuilder } from '@ui/minifig-builder.js';
@@ -583,6 +584,7 @@ function buildUI(): void {
           <option value="obj">OBJ (.obj)</option>
           <option value="stl">STL (.stl)</option>
           <option value="3mf">3MF, color 3D print (.3mf)</option>
+          <option value="pokefit">Fit in a Pokéball (pokefit.party)</option>
         </optgroup>
         <optgroup label="Minecraft: Java">
           <option value="schem">Java schematic / WorldEdit (.schem)</option>
@@ -2084,6 +2086,27 @@ async function exportLoadedModel(fmt: string): Promise<void> {
   const base = exportStem();
   let progress: ExportProgressHandle | null = null;
   try {
+    if (fmt === 'pokefit') {
+      if (!currentLDrawViewer) {
+        setStatus('3D export needs the 3D renderer (enable “3D Render”).', 'error');
+        return;
+      }
+      // As for the downloads below: a connectivity-verify highlight would bake into the colours.
+      if (currentLDrawViewer.detachedHighlightActive) {
+        currentLDrawViewer.clearDetachedHighlight();
+        const vb = document.getElementById('lego-verify') as HTMLInputElement | null;
+        if (vb) vb.checked = false;
+      }
+      const meshes = currentLDrawViewer.exportMeshes();
+      if (meshes.length === 0) { setStatus('No geometry to export.', 'error'); return; }
+      // Open the tab before any await, while the menu choice still counts as a user gesture.
+      const tab = openPokefit();
+      if (!tab) { setStatus('Allow pop-ups for this site to open pokefit.party.', 'error'); return; }
+      setStatus(`Sending ${base}.glb to pokefit.party…`, 'info');
+      await handOffToPokefit(tab, glbBytes({ meshes } as unknown as ViewerState), `${base}.glb`);
+      setStatus(`Sent ${base}.glb to pokefit.party: it fits the set inside a printable Pokéball.`, 'success');
+      return;
+    }
     if (fmt === 'glb' || fmt === 'obj' || fmt === 'stl' || fmt === '3mf') {
       if (!currentLDrawViewer) {
         setStatus('3D export needs the 3D renderer (enable “3D Render”).', 'error');

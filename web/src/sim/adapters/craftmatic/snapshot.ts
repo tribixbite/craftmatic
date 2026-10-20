@@ -27,6 +27,7 @@ import { boxUvFaceDrawn, type UvFloorModel } from '../../../engine/figure-holes.
 import { resolveLdrawEntityMaterial } from '../../../engine/ldraw-entity-materials.js';
 import { paintHatch, rasterize, rasterizeDetailed, type RasterPaint, type RasterQuad, type RasterResult, type RasterTexture, type V3 } from '../../render/rasterizer.js';
 import type { AddonAppearance } from './appearance.js';
+import { animatedPoses } from './drawn.js';
 import type { SimEngine } from '../../core/engine.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { viewDirection, type Vec3 } from '../../core/vec.js';
@@ -144,7 +145,7 @@ export interface SnapshotMetrics {
 }
 
 /** A client snapshot: the picture and what it measured, with the camera it was drawn from. */
-export interface ClientSnapshotResult { rgb: Uint8Array; width: number; height: number; camera: DrawnCamera; metrics: SnapshotMetrics }
+export interface ClientSnapshotResult { rgb: Uint8Array; width: number; height: number; camera: DrawnCamera; metrics: SnapshotMetrics; /** Per pixel: view depth (blocks) of the nearest opaque face, Infinity for sky. */ depth: Float32Array }
 
 /**
  * One actor's cull and LOD reading from a camera: culled past its realised cull (3-D, the horizontal reading
@@ -197,12 +198,14 @@ export function clientSnapshot(engine: SimEngine, appearance: AddonAppearance, p
     const s = actorLodState(entry, cullBlocks, dist3d, distHorizontal, lod);
     entities.push({ typeId: e.typeId, id: e.id, dist3d, distHorizontal, cullBlocks, ...s });
     if (s.state === 'gone') continue;
-    (s.state === 'hull' ? hull : full).push({ typeId: e.typeId, kind: 'entity', entry, at: { x: p.x, y: p.y, z: p.z }, yawDeg: p.yaw, scale: p.scale });
+    // Property-driven bones (a coaster car's pitch, roll and body offset) as the client applies them now.
+    const poses = animatedPoses(appearance.animations?.get(e.typeId), client.drawnProperties(e));
+    (s.state === 'hull' ? hull : full).push({ typeId: e.typeId, kind: 'entity', entry, at: { x: p.x, y: p.y, z: p.z }, yawDeg: p.yaw, scale: p.scale, ...(poses?.size ? { poses } : {}) });
   }
   const { actors, faces } = lodFaces(full, hull);
   const at: V3 = [eye.x + camera.dir.x, eye.y + camera.dir.y, eye.z + camera.dir.z];
   const res = renderActorsDetailed(actors, faces, { eye: [eye.x, eye.y, eye.z], at, up: [camera.up.x, camera.up.y, camera.up.z], fovDeg, width, height }, { uvFloor, hatch: !!options.paintHatch }, options.atlases);
-  return { rgb: options.paintHatch ? paintHatch(res) : res.rgb, width, height, camera, metrics: { ...rasterMetrics(res), entities } };
+  return { rgb: options.paintHatch ? paintHatch(res) : res.rgb, width, height, camera, metrics: { ...rasterMetrics(res), entities }, depth: res.depth };
 }
 
 /** The point a drawn camera looks at, one block ahead (for callers building a raster camera). */

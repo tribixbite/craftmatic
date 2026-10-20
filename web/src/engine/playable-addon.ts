@@ -42,6 +42,8 @@ import { BOARD, BOARD_OWNER_PROPERTY, BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLI
 import { COLLIDER_KIT, ESCAPE_OPTIONS } from './collider-form.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { FREE_LOOK, NATIVE_HEADING_PROPERTY, NATIVE_STEER, cockpitCamera, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type FreeLookParams, type NativeSteerParams } from './vehicle-free-look.js';
+import { CAMERA_OWNER_TAG, CAMERA_SWEEP_TICKS, releaseOrphanCameras } from './camera-release.js';
+import { shareScriptWorld } from './player-roster.js';
 import { cellSpanLookup, figureLifeScript, FIGURE_TUNING, resolveFigureSpawn, separateFigureSpawns, type FigureSpawn, type SpanLookup } from './bedrock-figure-life.js';
 import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, accessAvoidCells, captureDoorwayNeighbours, type InteractiveColliderPlan, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
 declare const world: any;
@@ -2126,6 +2128,12 @@ export interface VehicleCameraRuntimeConfig {
     telemetryEvent: string;
     /** A regular expression (source) of block ids the chase camera sees through besides air and liquids (`CHASE_PASSABLE_BLOCKS`). */
     passableBlocks: string;
+    /**
+     * The tag put on a rider given this runtime's camera (`CAMERA_OWNER_TAG`), swept every `CAMERA_SWEEP_TICKS`
+     * (`releaseOrphanCameras`): a camera left on a player who rides nothing is cleared even when this runtime lost
+     * them (VEH-19). Absent (a hand-built config): no tag, no sweep.
+     */
+    cameraRelease?: { tag: string; hidden?: string; every: number };
 }
 
 /**
@@ -2163,7 +2171,7 @@ export const CHASE_PASSABLE_BLOCKS = '(short_grass|tall_grass|^minecraft:grass$|
  * Everything is cleared on dismount. If the free camera is rejected, the
  * vanilla third person stands in.
  */
-function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof freeLookStep, lookStart: typeof freeLookStart, cockpitView: typeof cockpitCamera) {
+function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof freeLookStep, lookStart: typeof freeLookStart, cockpitView: typeof cockpitCamera, releaseOrphans?: typeof releaseOrphanCameras) {
   const byType = new Map(config.vehicles.map((v: any) => [v.typeId, v] as const));
   /**
    * Whether the player HOPPED off within the grace (scripts/hop.js, bedrock-ride-hop.ts): the hop handed
@@ -2190,7 +2198,6 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
       if (ev.id === config.telemetryEvent) { const m = String(ev.message || '').trim(); telemetry.on = m !== 'off'; telemetry.every = m === 'fast' ? 4 : 20; }
     }, { namespaces: ['craftmatic'] });
   } catch {}
-  const dimensions = () => ['overworld', 'nether', 'the_end'].flatMap(id => { try { return [world.getDimension(id)]; } catch { return []; } });
   const applyPreset = (player: any, preset: string): boolean => {
     try { player.camera.setCamera(preset); return true; } catch {}
     try { player.camera.setCamera('minecraft:third_person'); return true; } catch {}
@@ -2365,17 +2372,19 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
     hidden.delete(id);
   };
   system.runInterval(() => {
+    // Who rides one of this pack's vehicles, asked of the PLAYERS (a handful) rather than every entity of three
+    // dimensions: every pack with vehicles runs this each tick, and a world binding them all scanned its whole
+    // entity list ~3 x 13 times a tick for the one or two riders it holds (2026-10-18, the user's lag).
     const riding = new Map<string, { player: any; vehicle: any; cfg: any }>();
-    for (const d of dimensions()) {
-      let vehicles: any[] = [];
-      try { vehicles = d.getEntities({ families: ['craftmatic_vehicle'] }); } catch { continue; }
-      for (const vehicle of vehicles) {
-        const cfg = byType.get(vehicle.typeId);
-        if (!cfg) continue;
-        let riders: any[] = [];
-        try { riders = vehicle.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch {}
-        for (const rider of riders) if (rider?.typeId === 'minecraft:player') riding.set(rider.id, { player: rider, vehicle, cfg });
-      }
+    let everyone: any[] = [];
+    try { everyone = world.getAllPlayers().filter(Boolean); } catch {}
+    for (const player of everyone) {
+      let vehicle: any;
+      try { vehicle = player.getComponent('minecraft:riding')?.entityRidingOn; } catch { vehicle = undefined; }
+      if (!vehicle) continue;
+      let cfg: any;
+      try { cfg = byType.get(vehicle.typeId); } catch { cfg = undefined; }
+      if (cfg) riding.set(player.id, { player, vehicle, cfg });
     }
     for (const [id, { player, vehicle, cfg }] of riding) {
       const t = tracked.get(id);
@@ -2422,6 +2431,8 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
       if (!t || t.typeId !== cfg.typeId) {
         scheme(player, RIDER_SCHEME);
         tracked.set(id, { typeId: cfg.typeId, chase: true });
+        // Marked as given a script camera, so the sweep below (in every pack) clears it if this runtime ever loses them.
+        if (config.cameraRelease) { try { player.addTag(config.cameraRelease.tag); } catch {} }
         try { player.sendMessage('§7Drag the screen to look around. Hotbar slot 9: cockpit view. Any other slot: chase camera.'); } catch {}
       } else if (schemeTick % 10 === 0 && !cfg.scripted) {
         scheme(player, RIDER_SCHEME);
@@ -2471,13 +2482,19 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
         looks.delete(id);
       }
     }
+    // A camera left on a player who rides nothing - this runtime's after it lost them (a reload mid-ride), another
+    // pack's, or a clear the client dropped while an ease still ran - is cleared again here (VEH-19).
+    if (config.cameraRelease && releaseOrphans && schemeTick % config.cameraRelease.every === 0) {
+      const hiddenTag = config.cameraRelease.hidden ?? config.hop?.hiddenTag;
+      releaseOrphans(world, { camera: config.cameraRelease.tag, ...(hiddenTag ? { hidden: hiddenTag } : {}) });
+    }
   }, 1);
   try { world.afterEvents?.playerLeave?.subscribe?.((ev: any) => { tracked.delete(ev.playerId); looks.delete(ev.playerId); }); } catch {}
 }
 
 /** `scripts/vehicle-camera.js`: the chase camera and free look runtime with its config (exported for the runtime tests). */
 export const vehicleCameraScript = (config: VehicleCameraRuntimeConfig) =>
-  `import { world, system } from "@minecraft/server";\n(${vehicleCameraRuntime.toString()})(${JSON.stringify(config)}, ${freeLookStep.toString()}, ${freeLookStart.toString()}, ${cockpitCamera.toString()});\n`;
+  `import { world, system } from "@minecraft/server";\n(${vehicleCameraRuntime.toString()})(${JSON.stringify(config)}, ${freeLookStep.toString()}, ${freeLookStart.toString()}, ${cockpitCamera.toString()}, ${releaseOrphanCameras.toString()});\n`;
 
 function blockRgb(state: string): [
     number,
@@ -3939,7 +3956,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     if (flyerConfig) files.push({ name: `${bp}scripts/flyer.js`, data: text(flyerScript(flyerConfig)) });
     // Each chase camera stays under its vehicle's LOD switch (the hull planned for its entity above) at every size.
     for (const c of cameraVehicles) c.maxRootBlocks = chaseMaxRootBlocks(lodHulls[c.typeId.replace(`${PACK_NAMESPACE}:`, '')]?.switchDistance);
-    if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles, pitchProperty: FLIGHT_PROPS.pitch, hop: { claimTag: HOP_TAGS.claim, graceTicks: HOP.BOARD_GRACE_TICKS, hiddenTag: HOP_TAGS.hidden }, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, nativeHeadingProperty: NATIVE_HEADING_PROPERTY, telemetryEvent: VEHICLE_TELEMETRY_EVENT, passableBlocks: CHASE_PASSABLE_BLOCKS })) });
+    if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles, pitchProperty: FLIGHT_PROPS.pitch, hop: { claimTag: HOP_TAGS.claim, graceTicks: HOP.BOARD_GRACE_TICKS, hiddenTag: HOP_TAGS.hidden }, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, nativeHeadingProperty: NATIVE_HEADING_PROPERTY, telemetryEvent: VEHICLE_TELEMETRY_EVENT, passableBlocks: CHASE_PASSABLE_BLOCKS, cameraRelease: { tag: CAMERA_OWNER_TAG, hidden: HOP_TAGS.hidden, every: CAMERA_SWEEP_TICKS } })) });
     // HOP (bedrock-ride-hop.ts): fly or drive one of this pack's driveables into another mountable and ride that.
     const hopSources: Record<string, HopSource> = { ...nativeHopSources, ...Object.fromEntries(Object.entries(scriptedTypes).map(([t, v]) => [t, scriptedHopSource(v)])) };
     const hasHop = Object.keys(hopSources).length > 0;
@@ -4036,6 +4053,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // the manifest opt-in for Vibrant Visuals.
     const emitsPbr = pbr && files.some(file => file.name.startsWith(`${rp}textures/`) && file.name.endsWith('.texture_set.json'));
     rpManifestFile.data = json({ ...rpManifest, ...(emitsPbr ? { capabilities: ['pbr'] } : {}) });
+    // Every script takes the pack's one shared player roster (PIN-02: one roster read a pack, not ~30 `getAllPlayers` calls a tick).
+    shareScriptWorld(files, bp);
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
     return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics, provenance, vehicleSeats, ...(mountReport ? { mounts: mountReport } : {}), ...(options.accessMargin ? { accessMarginUsed } : {}) };

@@ -49,6 +49,11 @@ export class SimEntity {
   flying = false;
   /** A GameTest simulated player (`spawnSimulatedPlayer`): its facade adds the SimulatedPlayer members; its stick never reaches `inputInfo`. */
   simulated = false;
+  /**
+   * What a player's client reports to scripts (`graphicsMode`, `clientSystemInfo`): the Saga's (round 30zv `si:dump`)
+   * unless a client profile is attached (`attachClient` sets its phone's).
+   */
+  clientInfo: { graphicsMode: string; maxRenderDistance: number; memoryTier: number } = { graphicsMode: 'Fancy', maxRenderDistance: 22, memoryTier: 4 };
   valid = true;
   readonly tags = new Set<string>();
   /** Dynamic properties: the engine's view, with each pack's own values (`DynamicStore`, quirk `dynamic-properties-per-pack`). */

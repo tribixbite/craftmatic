@@ -321,6 +321,8 @@ function playerMembers(host: FacadeHost, sim: SimEntity, _live: () => SimEntity)
     get camera() { return camera; },
     get inputInfo() { return inputInfo; },
     get inputPermissions() { return inputPermissions; },
+    get graphicsMode() { return sim.clientInfo.graphicsMode; },
+    get clientSystemInfo() { return { maxRenderDistance: sim.clientInfo.maxRenderDistance, memoryTier: sim.clientInfo.memoryTier, platformType: 'Mobile' }; },
     get selectedSlotIndex() { return st().selectedSlot; },
     set selectedSlotIndex(v: number) { st().selectedSlot = v; },
     get isFlying() { return sim.flying; },

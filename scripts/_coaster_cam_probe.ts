@@ -12,7 +12,8 @@
  * looks like a head turned up to ±70 degrees whenever the car has turned since
  * boarding; that is the wrong rider for reading the baseline view.
  *
- * Usage: bun scripts/_coaster_cam_probe.ts <pack.mcaddon | coaster.js> [--ticks=3000] [--from=T] [--to=T] [--rebuild] [--out=file.tsv]
+ * Usage: bun scripts/_coaster_cam_probe.ts <pack.mcaddon | coaster.js> [--ticks=3000] [--from=T] [--to=T] [--rebuild] [--out=file.tsv] [--car=r0c1]
+ *   `--car` seats the rider in that replay entity (`r<route>c<slot>`, default the first); the car columns follow it.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { extractMatching } from '../web/src/engine/zip-utils.ts';
@@ -22,14 +23,15 @@ import { coasterReplayWorld } from './_coaster_replay.ts';
 
 interface CamEvent { tick: number; kind: 'set' | 'anim' | 'clear'; yaw?: number; pitch?: number; ease?: number; x?: number; y?: number; z?: number; keys?: Array<{ t: number; yaw: number; pitch: number; roll: number; alpha: number }>; total?: number; points?: number }
 
-export function probeCoasterCamera(script: string, ticks: number, boardTick = 200): { events: CamEvent[]; car: Map<number, { yaw: number; pitch: number; x: number; y: number; z: number }> } {
+export function probeCoasterCamera(script: string, ticks: number, boardTick = 200, carId?: string): { events: CamEvent[]; car: Map<number, { yaw: number; pitch: number; x: number; y: number; z: number }> } {
   const { h, entities, start } = coasterReplayWorld(script);
   const events: CamEvent[] = [];
   const car = new Map<number, { yaw: number; pitch: number; x: number; y: number; z: number }>();
   let tickNo = 0, pitchProp = 0;
-  const car0 = entities[0];
+  const car0 = carId ? entities.find(e => e.id === carId) : entities[0];
+  if (carId && !car0) throw new Error(`no replay entity ${carId} (have ${entities.map(e => e.id).join(', ')})`);
   if (car0) {
-    // The lead car's pose on every tick it moves: its yaw after the teleport and its track pitch property.
+    // The rider's car's pose on every tick it moves: its yaw after the teleport and its track pitch property.
     const setProperty = car0.api.setProperty, tryTeleport = car0.api.tryTeleport;
     car0.api.setProperty = (k: string, v: unknown) => { if (k === 'craftmatic:track_pitch') pitchProp = Number(v); return setProperty(k, v); };
     car0.api.tryTeleport = (p: any, o: any) => {
@@ -83,16 +85,16 @@ if (import.meta.main) {
     script = coasterScript(config);
   }
   const ticks = Number(flag('ticks') ?? 3000), from = Number(flag('from') ?? 0), to = Number(flag('to') ?? ticks);
-  const { events, car } = probeCoasterCamera(script, ticks);
+  const { events, car } = probeCoasterCamera(script, ticks, 200, flag('car'));
   const f = (v: number | undefined, d = 1) => v === undefined || !Number.isFinite(v) ? '-' : v.toFixed(d);
-  const lines: string[] = ['tick\tkind\tcam_yaw\tcam_pitch\tease\tcar_yaw\tcar_pitch\tcar_y\tdetail'];
+  const lines: string[] = ['tick\tkind\tcam_yaw\tcam_pitch\tease\tcar_yaw\tcar_pitch\tcar_y\tdetail\tcam_x\tcam_y\tcam_z'];
   for (const e of events) {
     if (e.tick < from || e.tick > to) continue;
     const c = car.get(e.tick);
     if (e.kind === 'anim') {
       lines.push(`${e.tick}\tanim\t\t\t\t${f(c?.yaw)}\t${f(c?.pitch)}\t${f(c?.y, 2)}\ttotal ${e.total}s points ${e.points} keys ${e.keys!.length}`);
       for (const k of e.keys!) lines.push(`${e.tick}\t  key\t${f(k.yaw)}\t${f(k.pitch)}\t\t\t\t\tt ${k.t.toFixed(2)} roll ${f(k.roll)} alpha ${f(k.alpha, 3)}`);
-    } else if (e.kind === 'set') lines.push(`${e.tick}\tset\t${f(e.yaw)}\t${f(e.pitch)}\t${e.ease ?? '-'}\t${f(c?.yaw)}\t${f(c?.pitch)}\t${f(c?.y, 2)}\t`);
+    } else if (e.kind === 'set') lines.push(`${e.tick}\tset\t${f(e.yaw)}\t${f(e.pitch)}\t${e.ease ?? '-'}\t${f(c?.yaw)}\t${f(c?.pitch)}\t${f(c?.y, 2)}\t\t${f(e.x, 3)}\t${f(e.y, 3)}\t${f(e.z, 3)}`);
     else lines.push(`${e.tick}\tclear`);
   }
   const out = flag('out');

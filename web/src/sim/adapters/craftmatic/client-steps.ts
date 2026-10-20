@@ -45,7 +45,9 @@ import type { AddonAppearance } from './appearance.js';
 import type { CraftmaticPack } from './pack-facts.js';
 import { clientSnapshot, NEAR_BLOCKS, type ClientSnapshotResult, type SnapshotEntity } from './snapshot.js';
 import { placedOf } from './play.js';
+import { animatedPoses, drawnBoxes, drawnReaches } from './drawn.js';
 import { CRAFTMATIC_ALLOWED_LINES, CRAFTMATIC_YIELDING_LINES, type Snapshot } from './child-play.js';
+import { HOP_TAGS } from '../../../engine/bedrock-ride-hop.js';
 
 /** The family every coaster car carries (`COASTER_FAMILY` of bedrock-coaster.ts; the adapter reads the pack's JSON, not the runtime). */
 export const COASTER_CAR_FAMILY = 'craftmatic_coaster';
@@ -93,6 +95,34 @@ export function hasCoasterCars(pack: CraftmaticPack): boolean {
   for (const [path, data] of pack.pack.files) if (path.startsWith('entities/') && new TextDecoder().decode(data).includes(`"${COASTER_CAR_FAMILY}"`)) return true;
   return false;
 }
+
+/**
+ * Whether the drawn camera eye is inside a drawn, opaque cube of the rider's own car or of another coaster entity, each
+ * drawn as the client draws it: its drawn pose and its property-driven bones (pitch, roll, body offset, the hidden
+ * posed rider) on the properties the client applies (quirk `property-ahead-of-position`). Only entities whose root
+ * is within `reach` blocks of the eye are drawn.
+ */
+export function eyeInsideCoasterCars(engine: InvariantContext['engine'] | StepContext['sim']['engine'], view: ClientView, appearance: AddonAppearance, player: SimEntity, reach = 6): { own: boolean; other: boolean } {
+  const eye = view.drawn(player).eye, own = player.ridingOn;
+  const probe = { x0: eye.x - 0.01, y0: eye.y - 0.01, z0: eye.z - 0.01, x1: eye.x + 0.01, y1: eye.y + 0.01, z1: eye.z + 0.01 };
+  const out = { own: false, other: false };
+  for (const e of engine.loadedEntities(player.dimension)) {
+    if (e === player || !e.families().includes(COASTER_CAR_FAMILY)) continue;
+    const entry = appearance.byType.get(e.typeId);
+    if (!entry) continue;
+    const p = view.drawnPose(e);
+    if (Math.hypot(p.x - eye.x, p.y - eye.y, p.z - eye.z) > reach * Math.max(1, p.scale)) continue;
+    const poses = animatedPoses(appearance.animations?.get(e.typeId), view.drawnProperties(e));
+    const inside = drawnBoxes(entry, { x: p.x, y: p.y, z: p.z }, p.yaw, p.scale, 'near', poses).some(d => !d.glass && drawnReaches(d, probe));
+    if (inside) { if (e === own) out.own = true; else out.other = true; }
+  }
+  return out;
+}
+
+/** Blocks from the eye within which a drawn pixel counts as covering the rider's view (the car's own body, close). */
+export const NEAR_COVER_BLOCKS = 1;
+/** The most of an animation frame the near cover may fill before it counts as blocked: 10303 on packs-38fb625a drew worst 0.35 with the body in step and 39 frames over 0.4 (worst 0.57) at the measured property lead 3.3, the device's picture (2026-10-19, `output/device-round-2026-10-19zs/offline/cover-old-lead*.txt`). */
+export const VIEW_COVER_MAX_SHARE = 0.4;
 
 /** The step handlers. `profile` names the client whose numbers the steps report (the client itself is attached by `prepare`, or here on first use). */
 export function clientSteps(pack: CraftmaticPack, appearance: AddonAppearance, options: ClientStepOptions = {}, profile: ClientProfileName = 'pixel'): Record<string, StepHandler> {
@@ -145,31 +175,62 @@ export function clientSteps(pack: CraftmaticPack, appearance: AddonAppearance, o
 
     /**
      * Board the nearest coaster car (a hold: the vanilla rideable mounts on the interact) and ride `laps` laps
-     * (default 3) with the client invariants running; `{ laps, maxTicks, frames }`. A lap is a return to within 3
+     * (default 3) with the client invariants running; `{ laps, maxTicks, frames, car }`. `car` boards the car of that
+     * rank from the train's front (its `HOP_TAGS.rank` tag, 0 = the front car): cars 2-3 stuttered on the device. A lap is a return to within 3
      * blocks of the boarding point after the car has been 15 blocks away.
      */
     async rideCoasterCamera(step: AnyStep, ctx: StepContext) {
       const laps = Number(step['laps'] ?? 3), maxTicks = Number(step['maxTicks'] ?? 9000);
       const frames = step['frames'] !== undefined ? !!step['frames'] : !!options.frames;
-      const sel = { family: COASTER_CAR_FAMILY, where: (e: SimEntity) => !!e.rideable() && !e.riderList().length, label: 'a coaster car' };
+      const rank = step['car'] !== undefined ? Number(step['car']) : undefined;
+      const sel = { family: COASTER_CAR_FAMILY, where: (e: SimEntity) => !!e.rideable() && !e.riderList().length && (rank === undefined || e.tags.has(`${HOP_TAGS.rank}${rank}`)), label: rank === undefined ? 'a coaster car' : `coaster car ${rank + 1} from the front` };
       const car = ctx.find(sel);
+      // A car asked for by rank must exist: a ride of no car would pass every camera invariant.
+      if (!car && rank !== undefined) throw new Error(`no empty ${sel.label} (no car tagged ${HOP_TAGS.rank}${rank})`);
       if (!car) { ctx.note('no empty coaster car to board'); return; }
+      if (rank !== undefined) ctx.note(`boarded ${sel.label} (${car.typeId})`);
       await CORE_HANDLERS['hold']!({ kind: 'hold', target: sel, label: 'board the coaster' }, ctx);
       if (ctx.player.ridingOn !== car) { ctx.violate({ invariant: 'tap-boards-ride', message: `a hold on ${car.typeId} did not seat the child`, evidence: { car: car.typeId, at: pt(car.location) } }); return; }
       const view = client(ctx);
       const trace = new CameraTrace(view, ctx.player);
       const start = { ...car.location };
       let away = false, lapsDone = 0, t = 0;
+      // Frames the drawn eye spends inside a car's bodywork, by camera mode (Saga 30zs: its own car's, through the loops).
+      const inside = { own: new Map<string, number>(), other: new Map<string, number>() };
+      const insideTicks: number[] = [];
+      const nearShares: number[] = [];
+      const worstNear = { share: 0, tick: -1 };
       for (; t < maxTicks && ctx.player.ridingOn === car && lapsDone < laps; t++) {
         await ctx.run(1);
         const row = trace.sample();
+        const hit = eyeInsideCoasterCars(ctx.sim.engine, view, appearance, ctx.player);
+        // How much of an animation frame is drawn within NEAR_COVER_BLOCKS of the eye: the car's own body pushed over
+        // the camera (Pixel 30zs: the dark-navy slab across the loops) covers most of it; the seat view only its foot.
+        if (row.mode === 'animation') {
+          const small = clientSnapshot(ctx.sim.engine, appearance, ctx.player, view, { width: 96, height: 54, uvFloor: options.uvFloor ?? 'v', lod: options.lod ?? true });
+          let near = 0;
+          for (let k = 0; k < small.depth.length; k++) if (small.depth[k]! < NEAR_COVER_BLOCKS) near++;
+          const share = near / small.depth.length;
+          nearShares.push(share);
+          if (share > worstNear.share) { worstNear.share = share; worstNear.tick = t; }
+        }
+        if (hit.own) { inside.own.set(row.mode, (inside.own.get(row.mode) ?? 0) + 1); insideTicks.push(t); }
+        if (hit.other) inside.other.set(row.mode, (inside.other.get(row.mode) ?? 0) + 1);
         const d = Math.hypot(car.location.x - start.x, car.location.y - start.y, car.location.z - start.z);
         if (d > 15) away = true;
         else if (away && d < 3) { away = false; lapsDone++; ctx.note(`lap ${lapsDone} at tick ${ctx.sim.engine.tick}`); }
         if (frames && trace.interesting(row)) keep(ctx, 'frames', shotOf(ctx, `lap${lapsDone + 1}-t${String(t).padStart(5, '0')}-${row.mode}`, FRAME_SIZE));
       }
       const s = trace.summary(SEAT_SPEED_FLOOR);
-      const out = { profile: view.profile.name, entityLagTicks: view.profile.entityLagTicks, laps: lapsDone, ...s, ridden: t, car: car.typeId, stillRiding: ctx.player.ridingOn === car };
+      const eyeInOwnCar = Object.fromEntries(inside.own), eyeInOtherCar = Object.fromEntries(inside.other);
+      const meanNear = nearShares.length ? nearShares.reduce((a, b) => a + b, 0) / nearShares.length : 0;
+      const coveredFrames = nearShares.filter(v => v > VIEW_COVER_MAX_SHARE).length;
+      const viewCover = { frames: nearShares.length, mean: r2(meanNear), worst: r2(worstNear.share), worstAt: worstNear.tick, over: coveredFrames };
+      const out = { profile: view.profile.name, entityLagTicks: view.profile.entityLagTicks, propertyLeadTicks: view.profile.propertyLeadTicks, laps: lapsDone, ...s, ridden: t, car: car.typeId, stillRiding: ctx.player.ridingOn === car, eyeInOwnCar, eyeInOtherCar, viewCover };
+      const count = (m: Record<string, number>) => Object.values(m).reduce((a, b) => a + b, 0);
+      if (coveredFrames) ctx.violate({ invariant: 'coaster-view-clear', message: `${coveredFrames} animation frame(s) draw more than ${VIEW_COVER_MAX_SHARE} of the view within ${NEAR_COVER_BLOCKS} block of the eye (worst ${r2(worstNear.share)} at ride tick ${worstNear.tick}): the car's own body over the camera (Pixel/Saga round 30zs, the loops)`, evidence: viewCover });
+      ctx.note(`view cover within ${NEAR_COVER_BLOCKS} block of the eye through the animations (client ${view.profile.name}, property lead ${view.profile.propertyLeadTicks}): ${nearShares.length} frame(s), mean ${r2(meanNear)}, worst ${r2(worstNear.share)} at ride tick ${worstNear.tick}, ${coveredFrames} over ${VIEW_COVER_MAX_SHARE}`);
+      ctx.note(`eye inside bodywork (client ${view.profile.name}, property lead ${view.profile.propertyLeadTicks}): own car ${count(eyeInOwnCar)} frame(s) ${JSON.stringify(eyeInOwnCar)}, another car ${count(eyeInOtherCar)} ${JSON.stringify(eyeInOtherCar)}${insideTicks.length ? `; own-car ticks ${insideTicks.slice(0, 12).join(',')}${insideTicks.length > 12 ? '...' : ''}` : ''}`);
       ctx.state['coasterCamera'] = out;
       ctx.state['cameraTrace'] = trace.rows.map(r => ({ ...r, ...(r.lead !== undefined ? { lead: r2(r.lead) } : {}), ...(r.speed !== undefined ? { speed: r2(r.speed) } : {}), turnDeg: r2(r.turnDeg), jumpBlocks: r2(r.jumpBlocks), pitch: r2(r.pitch), yaw: r2(r.yaw) }));
       ctx.note(`coaster camera (client ${view.profile.name}, entity lag ${view.profile.entityLagTicks}): ${lapsDone} lap(s) in ${t} ticks, ${s.animations} inversion animation(s); worst turn ${r2(s.worstTurnDeg)} deg/frame, worst eye jump ${r2(s.worstJumpBlocks)} blocks, worst seat lead ${r2(s.worstLead)} blocks at tick ${s.worstLeadAt}, own-view frames while riding ${s.ownFrames}`);
@@ -273,14 +334,17 @@ export function clientSteps(pack: CraftmaticPack, appearance: AddonAppearance, o
 }
 
 /** The `coaster-camera` scenario of a pack (none when it has no coaster cars): place, ride 3 laps with frames, Undo. */
-export function coasterCameraScenarios(pack: CraftmaticPack, profile: ClientProfileName, laps = 3): Scenario[] {
+export function coasterCameraScenarios(pack: CraftmaticPack, profile: ClientProfileName, laps = 3, cars?: readonly number[]): Scenario[] {
   if (!hasCoasterCars(pack)) return [];
-  const steps: Step[] = [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'rideCoasterCamera', laps, frames: true }, { kind: 'undo' }];
-  return [{
-    name: `coaster-camera-${profile}`,
-    description: `Ride the coaster ${laps} laps watching the DRAWN camera on the ${profile} client: continuous frame to frame, on the drawn seat, never the rider's own view (COAST-06).`,
-    steps, allowLines: [...CRAFTMATIC_ALLOWED_LINES], yieldingLines: [...CRAFTMATIC_YIELDING_LINES],
-  }];
+  // `cars`: one scenario per car rank from the front (0 = the front car); without it, the nearest car.
+  return (cars?.length ? cars : [undefined]).map(car => {
+    const steps: Step[] = [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'rideCoasterCamera', laps, frames: true, ...(car !== undefined ? { car } : {}) }, { kind: 'undo' }];
+    return {
+      name: `coaster-camera-${profile}${car !== undefined ? `-car${car + 1}` : ''}`,
+      description: `Ride the coaster ${laps} laps${car !== undefined ? ` in car ${car + 1} from the front` : ''} watching the DRAWN camera on the ${profile} client: continuous frame to frame, on the drawn seat, never the rider's own view (COAST-06).`,
+      steps, allowLines: [...CRAFTMATIC_ALLOWED_LINES], yieldingLines: [...CRAFTMATIC_YIELDING_LINES],
+    };
+  });
 }
 
 /** The `walk-away` scenario: place at `size`, walk from `from` to `to` blocks off the model's edge (COL-03 / FID-03). */

@@ -9,6 +9,65 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
+### IN FLIGHT 2026-10-19: the user's camera / lag reports (COAST-06, VEH-19, PIN-02) + Pixel memory
+
+The user (their own world, every round pack bound, plays on a SAGA): the 10303 ride "super laggy, stutter-jerks
+especially for seat 2 and 3, a full camera blip reset in an upside-down loop", lag when moving the camera by hand;
+dismounting vehicles leaves the camera "locked in one location - big bug"; pinball "the same client server lag".
+SHARED 2026-10-19 07:10: `output/craftmatic-packs-2026-10-19-4fed7295.zip` (sha256 16c0737d...784a). It carries the
+drop cut; superseded by the 19c3986b zip (below).
+- WHY the Saga rode badly (round 30zv, `output/device-round-2026-10-19zv/saga/notes.md`, marker runs): the Saga draws
+  entities 5.7 ticks behind (not the derived 4), applies properties 4.1 early (not 3.3), plays ~half the camera ease;
+  every shipped pack used the Pixel's 3.5 / 3.3, so on a Saga the blended camera ran ~2.3 blocks ahead of the seat at
+  loop speed. Fixed 9e46b8c4: per-client timing `COASTER_RIDER_VIEW.clientTimings` (fingerprint `graphicsMode` +
+  render distance from `si:dump`: Pixel Deferred/24 -> 3.5/3.3; anything else the Saga's 5.7/4.1). The fingerprint
+  is n=1 per phone: a new phone needs a camprobe/proplag run (briefs: `output/device-round-2026-10-19zv/
+  brief-saga-30zv.md`, packs `output/device-round-2026-10-19zr/camprobe/`, `-19zt/proplag/`, `-19zv/sysinfo/`).
+- The own view before an animation is the DRAWN car plus the head turn (c02fbbcc; measured right by 30zy's pillars);
+  the reported yaw trails it (Pixel 8.7 ticks, Saga 7.1, fitted per rider: `fitReportLag`).
+- THE DROP CUT, CAUSE FOUND (round 30zy, 2026-10-19): a `playAnimation` keyframe's yaw is drawn MIRRORED, 180 - y
+  (Pixel camprobe v8 `cp:run yaw <Y>`, `output/device-round-2026-10-19zy/pixel-yaw/notes.md`: 0 -> 180, 45 -> 135,
+  135 -> 45, 180 -> 0, -90 -> -90; quirk `camera-keyframe-yaw-mirrored`). Yaw +-90 is its own mirror: 10303's loops
+  run along x, so every probe missed it, while each drop starts on the crest curve (car yaw ~-130..-170) and its first
+  keyframe was drawn 60-120 degrees off - looking into the model at the lift tower - in every car on both phones
+  (rounds 30zu-30zy; 30zw's "car 3 smooth" on the Saga was a misread, 30zx). Found with marker pillars (six 3x3
+  concrete pillars ~30 blocks round the crest, `output/device-round-2026-10-19zy/pillars-30.json`, read by
+  `scripts/_pillar_yaw.py`): the own view before the drop read -156, the drawn car plus the head turn (so c02fbbcc's
+  start view was right; the lag work of 30zu-30zw did not touch the cut). FIXED OFFLINE (the commit after 20e8de92): `splineAnimation` writes `y: 180 - yaw`; the sim draws keyframes through
+  `keyframeView`; the old line fails 6 guards. The loops' keyframes (-90..-101) were drawn up to ~10 degrees off too,
+  so the hull band in the loops may change: re-check it.
+- ROUND 30zz (19c3986b, `output/device-round-2026-10-19zz/{saga,pixel}/notes.md`): Saga - no drop cut in cars 2 and 3,
+  6/6 laps; hand-back smooth; jerk lower; drags ~60 ms to the first turn. Bodywork still crosses the lower third in
+  the loops (navy 14-18 a lap, inflated by the black pillar; read by eye). Saga PSS 5.16 GB, 12 Watchdog lines.
+  SHARED 2026-10-19 19:05: `output/craftmatic-packs-2026-10-19-19c3986b.zip` (sha256 675c5f06...0c13, PACKS.md
+  corrects the morning's "no cut" claim). Pixel 30zz (`pixel/notes.md`): no drop cut in 6/6 laps
+  (cars 2, 3); drags ~0.1 s to the first turn, no repeats; BUT car 2's hand-back after loop 2 still snaps in 1-3
+  frames every lap (Saga: smooth), car 3 lap 2 a whole-view grey slab 2 frames (106.71/106.77), the hull band in both
+  loops unchanged (band2 0.15-3.24 s a lap), car 2's rider ahead a translucent yellow wash in loop 2. The Pixel's
+  content log flushes on HOME, not Save & Quit. Probe packs with `camera.debug` (`-19zx/probe-9eda695f`, `-19zy/probe-20e8de92`): never ship.
+- NEXT (COAST-06): the loops' bodywork - is the band the own car's restraint bar or the car ahead? Read it with the
+  sim snapshot of car 3 in loop 1 against `saga/frames` 49.65-53.35 (30zz); the sim's view cover reads clean (worst 0.39).
+- The wand's Undo left 10303's entities (and the tower) on the Saga in 30zx after a re-placement on top of an earlier
+  one ("Nothing to undo" on the 3rd try; `output/device-round-2026-10-19zx/saga/notes.md` "Wand Undo"); a single
+  placement undid fine in 30zw/30zy. Not investigated.
+- Still open: the hull band in the loops (both phones); the hand-back snap (Saga car 2); from car 3 a posed rider's
+  pink hair fills the lower right (`output/device-round-2026-10-19zu/pixel/frames/C-car3-drop-lap1-b.jpg`).
+- PIN-02: Saga busy median 8.6 ms with all 26 bound (30zs 8.8); `Entity::isValid` at roster.js:29 is the top self
+  (14.4 %). Pinball on the Pixel: taps on the drawn zone outlines did not flip; taps lower (cabinet buttons, table
+  edge) did, 0.14-0.37 s (`output/device-round-2026-10-19zu/pixel/notes.md`); pick boxes follow the reported pitch
+  only (`zoneAt`). Open: probe where the Pixel's tap ray goes. Saga taps flip (0.30 s).
+- VEH-19 not reproduced again (Saga 30zu: tag gone 2.6 s after dismount, view follows the player).
+- PIXEL MEMORY (round 30zu, `output/device-round-2026-10-19zu/pixel/memory-census.md`): Minecraft PSS at world load,
+  nothing placed: none 1.59 GB (native 0.79), 10303 1.84, three packs 2.08, 76417 1.91, all 26 4.34 GB (native 3.69,
+  MemAvailable 0.98 GB, HUD 96 s). ~3.3-4.6 KB of native heap per entity CUBE (880k cubes over 26 packs; 10303 62k, 44k
+  of it the shell lattice). 30zs crashed out of RAM with all 26; Saga PSS 5.0-5.15 GB, 16 Watchdog lines. Hidden faces
+  are only 7.5-13.5 % (`output/device-round-2026-10-19zv/memprobe/hidden_faces.py`). Geometry probe RUN (Pixel,
+  `output/device-round-2026-10-19zv/pixel/memprobe/census.md`): box-UV cubes cost 2.0-2.5 MB native heap per 1000,
+  linear; 1000 small geometries +14 % over 100 big; unreferenced geometry still ~35 %; per-face UV with all six faces
+  +32 %, with three -14 % - the shells hide only 0.5-0.8 faces a cube, so per-face UV would COST memory. No free cut:
+  memory follows the bound packs' cube count. USER DECISION pending: a per-pack cube budget (fewer, coarser shell
+  cubes) vs binding fewer packs per world.
+
 ### Handoff (2026-10-12, main `304a0df6`+, CI green)
 
 **Read [REQUIREMENTS.md](REQUIREMENTS.md) first**: every user request with
