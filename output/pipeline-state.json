@@ -4,24 +4,24 @@
     "flatiron": {
       "address": "175 5th Ave, New York, NY",
       "status": "fail-consensus",
-      "lastRun": "2026-08-16T15:54:58.506Z",
-      "elapsedSec": 80.7,
+      "lastRun": "2026-10-19T03:53:09.679Z",
+      "elapsedSec": 143.7,
       "attempts": 1,
       "recentFailureSignatures": [
-        "fail-objective:footprint IoU # < #",
         "fail-consensus:median=5,min=2",
         "fail-consensus:median=5,min=2",
         "fail-consensus:median=4,min=1",
-        "fail-consensus:median=4,min=2"
+        "fail-consensus:median=4,min=2",
+        "fail-consensus:median=3,min=1"
       ],
       "objective": {
-        "footprintIoU": 0.9825899214479306,
+        "footprintIoU": 0.9905007363770251,
         "heightErr": 0,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 1278,
-        "minWallThicknessMm": 7.193524360656738,
-        "voxelCount": 942484,
+        "selfIntersect": 5646,
+        "minWallThicknessMm": 9.593616962432861,
+        "voxelCount": 2023745,
         "plinthWatertight": null,
         "unknownBlockStates": [],
         "pass": true,
@@ -31,25 +31,25 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 3,
-          "features": 2,
-          "massing": 9,
+          "color": 2,
+          "features": 1,
+          "massing": 8,
           "overall": 4
         },
         "claude": {
-          "color": 3,
-          "features": 2,
-          "massing": 9,
+          "color": 2,
+          "features": 1,
+          "massing": 8,
           "overall": 4
         },
         "gpt5": {
-          "color": 3,
-          "features": 2,
-          "massing": 9,
+          "color": 2,
+          "features": 1,
+          "massing": 8,
           "overall": 4
         },
-        "min": 2,
-        "median": 3.5,
+        "min": 1,
+        "median": 3,
         "spread": 0,
         "pass": false
       },
@@ -107,7 +107,10 @@
         "maxDisagreement": 0,
         "truncationSuspected": false,
         "ok": true,
-        "warnings": []
+        "verified": false,
+        "warnings": [
+          "height 74m from osm is UNVERIFIED — no independent source (OSM height/levels, Solar, Smarty) to cross-check against"
+        ]
       },
       "defectScore": {
         "defects": {
@@ -123,17 +126,17 @@
         "score": 10,
         "penalties": [],
         "grid": {
-          "total": 942484,
+          "total": 2023745,
           "components": 1,
-          "largestSize": 942484,
+          "largestSize": 2023745,
           "disconnectedRatio": 0,
-          "uniqueBlockTypes": 13,
+          "uniqueBlockTypes": 15,
           "computed": true,
-          "facadeTotal": 702194,
-          "facadeDominantShare": 0.4711931460536547,
+          "facadeTotal": 689324,
+          "facadeDominantShare": 0.3842024940376369,
           "facadeDominantState": "minecraft:smooth_sandstone",
-          "facadeMeanLuma": 181.75696073677642,
-          "facadeGlassShare": 0.21764782951719894
+          "facadeMeanLuma": 175.02257199575234,
+          "facadeGlassShare": 0.22725017553429155
         }
       },
       "synthesisPath": "7d-sliced",
@@ -142,6 +145,10 @@
         "polygonSource": "osm",
         "geocodeLocationType": "ROOFTOP",
         "footprintAreaSqm": 1008.8
+      },
+      "references": {
+        "svUsable": 4,
+        "skipped": []
       }
     },
     "240-highland": {
@@ -297,21 +304,22 @@
     "guggenheim": {
       "address": "1071 5th Ave, New York, NY",
       "status": "fail-consensus",
-      "lastRun": "2026-08-16T15:53:32.992Z",
-      "elapsedSec": 51.5,
-      "attempts": 2,
+      "lastRun": "2026-10-19T03:55:58.722Z",
+      "elapsedSec": 149.7,
+      "attempts": 1,
       "recentFailureSignatures": [
         "fail-consensus:median=0,min=0",
-        "fail-consensus:median=0,min=0"
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=1,min=0"
       ],
       "objective": {
-        "footprintIoU": 0.9914354230900994,
+        "footprintIoU": 0.9907407407407407,
         "heightErr": 0,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 1117,
-        "minWallThicknessMm": 9.736324071884155,
-        "voxelCount": 424876,
+        "selfIntersect": 1881,
+        "minWallThicknessMm": 16.447149753570557,
+        "voxelCount": 1194461,
         "plinthWatertight": null,
         "unknownBlockStates": [],
         "pass": true,
@@ -321,25 +329,25 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 1,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
+          "color": 0,
+          "features": 1,
+          "massing": 2,
+          "overall": 1
         },
         "claude": {
-          "color": 1,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
+          "color": 0,
+          "features": 1,
+          "massing": 2,
+          "overall": 1
         },
         "gpt5": {
-          "color": 1,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
+          "color": 0,
+          "features": 1,
+          "massing": 2,
+          "overall": 1
         },
         "min": 0,
-        "median": 0,
+        "median": 1,
         "spread": 0,
         "pass": false
       },
@@ -397,7 +405,10 @@
         "maxDisagreement": 0,
         "truncationSuspected": false,
         "ok": true,
-        "warnings": []
+        "verified": false,
+        "warnings": [
+          "height 21m from osm is UNVERIFIED — no independent source (OSM height/levels, Solar, Smarty) to cross-check against"
+        ]
       },
       "defectScore": {
         "defects": {
@@ -407,23 +418,25 @@
           "footprint_wrong_shape": false,
           "surface_detail_visible": true,
           "proportions_correct": true,
-          "facade_incoherent": false,
+          "facade_incoherent": true,
           "facade_implausibly_dark": false
         },
-        "score": 10,
-        "penalties": [],
+        "score": 9,
+        "penalties": [
+          "facade_incoherent"
+        ],
         "grid": {
-          "total": 424876,
+          "total": 1194461,
           "components": 1,
-          "largestSize": 424876,
+          "largestSize": 1194461,
           "disconnectedRatio": 0,
           "uniqueBlockTypes": 14,
           "computed": true,
-          "facadeTotal": 255710,
-          "facadeDominantShare": 0.3452543897383755,
+          "facadeTotal": 274183,
+          "facadeDominantShare": 0.24676219896930152,
           "facadeDominantState": "minecraft:white_concrete",
-          "facadeMeanLuma": 167.58471224512147,
-          "facadeGlassShare": 0.19578428688748972
+          "facadeMeanLuma": 172.6739956321143,
+          "facadeGlassShare": 0.21565523756031554
         }
       },
       "synthesisPath": "7d-sliced",
@@ -432,29 +445,33 @@
         "polygonSource": "osm",
         "geocodeLocationType": "ROOFTOP",
         "footprintAreaSqm": 2038.7
+      },
+      "references": {
+        "svUsable": 4,
+        "skipped": []
       }
     },
     "geisel": {
       "address": "9500 Gilman Dr, La Jolla, CA",
       "status": "fail-consensus",
-      "lastRun": "2026-10-18T18:18:34.908Z",
-      "elapsedSec": 98.6,
-      "attempts": 3,
+      "lastRun": "2026-10-19T03:50:22.062Z",
+      "elapsedSec": 188.4,
+      "attempts": 1,
       "recentFailureSignatures": [
         "fail-consensus:median=1,min=0",
-        "fail-consensus:median=1,min=0",
         "fail-consensus:median=0,min=0",
         "fail-consensus:median=0,min=0",
-        "fail-consensus:median=0,min=0"
+        "fail-consensus:median=0,min=0",
+        "fail-consensus:median=2,min=1"
       ],
       "objective": {
-        "footprintIoU": 1,
+        "footprintIoU": 0.9946667720143799,
         "heightErr": 0,
         "watertight": true,
         "manifold": true,
-        "selfIntersect": 2425,
-        "minWallThicknessMm": 7.710445880889893,
-        "voxelCount": 1264355,
+        "selfIntersect": 4459,
+        "minWallThicknessMm": 16.054222106933594,
+        "voxelCount": 1982504,
         "plinthWatertight": null,
         "unknownBlockStates": [],
         "pass": true,
@@ -464,25 +481,25 @@
         "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 0,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
+          "color": 1,
+          "features": 2,
+          "massing": 4,
+          "overall": 2
         },
         "claude": {
-          "color": 0,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
+          "color": 1,
+          "features": 2,
+          "massing": 4,
+          "overall": 2
         },
         "gpt5": {
-          "color": 0,
-          "features": 0,
-          "massing": 0,
-          "overall": 0
+          "color": 1,
+          "features": 2,
+          "massing": 4,
+          "overall": 2
         },
-        "min": 0,
-        "median": 0,
+        "min": 1,
+        "median": 2,
         "spread": 0,
         "pass": false
       },
@@ -490,13 +507,13 @@
         "fields": [
           {
             "field": "footprint",
-            "value": "13 pts",
+            "value": "58 pts",
             "source": "osm",
             "confidence": 1
           },
           {
             "field": "height",
-            "value": "31.7m",
+            "value": "37.1m",
             "source": "tiles",
             "confidence": 0.95
           },
@@ -508,19 +525,19 @@
           },
           {
             "field": "wall",
-            "value": "lab(68,3,9) +2",
+            "value": "lab(85,-1,-1) +3",
             "source": "sv",
             "confidence": 0.9
           },
           {
             "field": "roof",
-            "value": "lab(64,8,20) +1",
+            "value": "lab(67,1,7) +1",
             "source": "sat",
             "confidence": 0.85
           },
           {
             "field": "roofShape",
-            "value": "gabled",
+            "value": "flat",
             "source": "inferred",
             "confidence": 0.5
           }
@@ -535,14 +552,14 @@
       },
       "crossCheck": {
         "chosenSource": "tiles",
-        "chosenHeightM": 31.68230438232422,
+        "chosenHeightM": 37.087623596191406,
         "alternatives": [],
         "maxDisagreement": 0,
         "truncationSuspected": false,
         "ok": true,
         "verified": false,
         "warnings": [
-          "height 32m from tiles is UNVERIFIED — no independent source (OSM height/levels, Solar, Smarty) to cross-check against"
+          "height 37m from tiles is UNVERIFIED — no independent source (OSM height/levels, Solar, Smarty) to cross-check against"
         ]
       },
       "defectScore": {
@@ -559,25 +576,25 @@
         "score": 10,
         "penalties": [],
         "grid": {
-          "total": 1264355,
+          "total": 1982504,
           "components": 1,
-          "largestSize": 1264355,
+          "largestSize": 1982504,
           "disconnectedRatio": 0,
-          "uniqueBlockTypes": 15,
+          "uniqueBlockTypes": 16,
           "computed": true,
-          "facadeTotal": 436440,
-          "facadeDominantShare": 0.32159059664558703,
-          "facadeDominantState": "minecraft:smooth_stone",
-          "facadeMeanLuma": 147.0838768843369,
-          "facadeGlassShare": 0.10404637521767024
+          "facadeTotal": 398860,
+          "facadeDominantShare": 0.28043423757709474,
+          "facadeDominantState": "minecraft:stone_bricks",
+          "facadeMeanLuma": 159.3875338259038,
+          "facadeGlassShare": 0.1985759414330843
         }
       },
       "synthesisPath": "7d-sliced",
       "resolution": {
-        "osmId": "way/1423937815",
+        "osmId": "way/159385495",
         "polygonSource": "osm",
         "geocodeLocationType": "ROOFTOP",
-        "footprintAreaSqm": 3037.5
+        "footprintAreaSqm": 3166.2
       },
       "references": {
         "svUsable": 4,
@@ -586,11 +603,14 @@
     },
     "pennzoil": {
       "address": "700 Milam St, Houston, TX",
-      "status": "pass",
-      "lastRun": "2026-08-16T15:48:36.139Z",
-      "elapsedSec": 141.1,
-      "attempts": 0,
-      "recentFailureSignatures": [],
+      "status": "fail-consensus",
+      "lastRun": "2026-10-19T04:02:00.930Z",
+      "elapsedSec": 139.7,
+      "attempts": 1,
+      "recentFailureSignatures": [
+        "fail-consensus:median=7,min=4",
+        "fail-consensus:median=6,min=3"
+      ],
       "objective": {
         "footprintIoU": 0.9976452119309263,
         "heightErr": 0,
@@ -605,30 +625,30 @@
         "failures": []
       },
       "consensus": {
-        "status": "pass",
+        "status": "fail",
         "rounds": 1,
         "gemini": {
-          "color": 8,
-          "features": 7,
-          "massing": 9,
-          "overall": 9
+          "color": 5,
+          "features": 3,
+          "massing": 8,
+          "overall": 6
         },
         "claude": {
-          "color": 8,
-          "features": 7,
-          "massing": 9,
-          "overall": 9
+          "color": 5,
+          "features": 3,
+          "massing": 8,
+          "overall": 6
         },
         "gpt5": {
-          "color": 8,
-          "features": 7,
-          "massing": 9,
-          "overall": 9
+          "color": 5,
+          "features": 3,
+          "massing": 8,
+          "overall": 6
         },
-        "min": 7,
-        "median": 8.5,
+        "min": 3,
+        "median": 5.5,
         "spread": 0,
-        "pass": true
+        "pass": false
       },
       "provenance": {
         "fields": [
@@ -684,7 +704,10 @@
         "maxDisagreement": 0,
         "truncationSuspected": false,
         "ok": true,
-        "warnings": []
+        "verified": false,
+        "warnings": [
+          "height 151m from osm is UNVERIFIED — no independent source (OSM height/levels, Solar, Smarty) to cross-check against"
+        ]
       },
       "defectScore": {
         "defects": {
@@ -709,7 +732,7 @@
           "facadeTotal": 1032465,
           "facadeDominantShare": 0.5492709195953374,
           "facadeDominantState": "minecraft:tuff",
-          "facadeMeanLuma": 120.96172378046714,
+          "facadeMeanLuma": 122.60776061890718,
           "facadeGlassShare": 0.07791837979979951
         }
       },
@@ -719,6 +742,10 @@
         "polygonSource": "osm",
         "geocodeLocationType": "ROOFTOP",
         "footprintAreaSqm": 5825.9
+      },
+      "references": {
+        "svUsable": 4,
+        "skipped": []
       }
     },
     "flatiron-qa": {

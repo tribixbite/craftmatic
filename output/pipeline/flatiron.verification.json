@@ -1,14 +1,14 @@
 {
   "status": "fail-consensus",
-  "lastRun": "2026-08-16T15:54:58.506Z",
+  "lastRun": "2026-10-19T03:53:09.679Z",
   "objective": {
-    "footprintIoU": 0.9825899214479306,
+    "footprintIoU": 0.9905007363770251,
     "heightErr": 0,
     "watertight": true,
     "manifold": true,
-    "selfIntersect": 1278,
-    "minWallThicknessMm": 7.193524360656738,
-    "voxelCount": 942484,
+    "selfIntersect": 5646,
+    "minWallThicknessMm": 9.593616962432861,
+    "voxelCount": 2023745,
     "plinthWatertight": null,
     "unknownBlockStates": [],
     "pass": true,
@@ -18,25 +18,25 @@
     "status": "fail",
     "rounds": 1,
     "gemini": {
-      "color": 3,
-      "features": 2,
-      "massing": 9,
+      "color": 2,
+      "features": 1,
+      "massing": 8,
       "overall": 4
     },
     "claude": {
-      "color": 3,
-      "features": 2,
-      "massing": 9,
+      "color": 2,
+      "features": 1,
+      "massing": 8,
       "overall": 4
     },
     "gpt5": {
-      "color": 3,
-      "features": 2,
-      "massing": 9,
+      "color": 2,
+      "features": 1,
+      "massing": 8,
       "overall": 4
     },
-    "min": 2,
-    "median": 3.5,
+    "min": 1,
+    "median": 3,
     "spread": 0,
     "pass": false
   },
@@ -94,7 +94,10 @@
     "maxDisagreement": 0,
     "truncationSuspected": false,
     "ok": true,
-    "warnings": []
+    "verified": false,
+    "warnings": [
+      "height 74m from osm is UNVERIFIED — no independent source (OSM height/levels, Solar, Smarty) to cross-check against"
+    ]
   },
   "defectScore": {
     "defects": {
@@ -110,17 +113,17 @@
     "score": 10,
     "penalties": [],
     "grid": {
-      "total": 942484,
+      "total": 2023745,
       "components": 1,
-      "largestSize": 942484,
+      "largestSize": 2023745,
       "disconnectedRatio": 0,
-      "uniqueBlockTypes": 13,
+      "uniqueBlockTypes": 15,
       "computed": true,
-      "facadeTotal": 702194,
-      "facadeDominantShare": 0.4711931460536547,
+      "facadeTotal": 689324,
+      "facadeDominantShare": 0.3842024940376369,
       "facadeDominantState": "minecraft:smooth_sandstone",
-      "facadeMeanLuma": 181.75696073677642,
-      "facadeGlassShare": 0.21764782951719894
+      "facadeMeanLuma": 175.02257199575234,
+      "facadeGlassShare": 0.22725017553429155
     }
   },
   "synthesisPath": "7d-sliced",

@@ -82,6 +82,38 @@ describe('footprintIoU', () => {
     const iou = footprintIoU(positions, indices, tgt, { lat: 0, lng: 0 }, 0);
     expect(iou).toBeGreaterThan(0.9);
   });
+
+  /** Axis-aligned box as 12 triangles (8 shared vertices). */
+  function box(x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, base = 0) {
+    const v = [
+      [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1],
+      [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1],
+    ].flat();
+    const f = [0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2, 2, 6, 7, 2, 7, 3, 3, 7, 4, 3, 4, 0];
+    return { v, f: f.map(i => i + base) };
+  }
+  const d = 5 / 111_111;
+  const tgt: LatLon[] = [
+    { lat: -d, lon: -d }, { lat: -d, lon: d }, { lat: d, lon: d }, { lat: d, lon: -d },
+  ];
+  /** Combine boxes into one mesh. */
+  function mesh(...boxes: Array<[number, number, number, number, number, number]>) {
+    const v: number[] = [], f: number[] = [];
+    for (const b of boxes) { const m = box(...b, v.length / 3); v.push(...m.v); f.push(...m.f); }
+    return { positions: new Float32Array(v), indices: new Uint32Array(f) };
+  }
+
+  it('an upper-floor overhang does not count against the footprint', () => {
+    // 10×10 base matching the target, 30×30 tier from y=20..30 (geisel-style
+    // inverted pyramid). An OSM footprint is the outline at the ground.
+    const { positions, indices } = mesh([-5, 5, 0, 20, -5, 5], [-15, 15, 20, 30, -15, 15]);
+    expect(footprintIoU(positions, indices, tgt, { lat: 0, lng: 0 }, 0)).toBeGreaterThan(0.85);
+  });
+
+  it('a neighbour merged at ground level still fails', () => {
+    const { positions, indices } = mesh([-5, 5, 0, 20, -5, 5], [8, 18, 0, 20, -5, 5]);
+    expect(footprintIoU(positions, indices, tgt, { lat: 0, lng: 0 }, 0)).toBeLessThan(0.85);
+  });
 });
 
 describe('heightErrorRatio', () => {

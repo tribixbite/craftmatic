@@ -1,14 +1,14 @@
 {
   "status": "fail-consensus",
-  "lastRun": "2026-08-16T15:53:32.992Z",
+  "lastRun": "2026-10-19T03:55:58.722Z",
   "objective": {
-    "footprintIoU": 0.9914354230900994,
+    "footprintIoU": 0.9907407407407407,
     "heightErr": 0,
     "watertight": true,
     "manifold": true,
-    "selfIntersect": 1117,
-    "minWallThicknessMm": 9.736324071884155,
-    "voxelCount": 424876,
+    "selfIntersect": 1881,
+    "minWallThicknessMm": 16.447149753570557,
+    "voxelCount": 1194461,
     "plinthWatertight": null,
     "unknownBlockStates": [],
     "pass": true,
@@ -18,25 +18,25 @@
     "status": "fail",
     "rounds": 1,
     "gemini": {
-      "color": 1,
-      "features": 0,
-      "massing": 0,
-      "overall": 0
+      "color": 0,
+      "features": 1,
+      "massing": 2,
+      "overall": 1
     },
     "claude": {
-      "color": 1,
-      "features": 0,
-      "massing": 0,
-      "overall": 0
+      "color": 0,
+      "features": 1,
+      "massing": 2,
+      "overall": 1
     },
     "gpt5": {
-      "color": 1,
-      "features": 0,
-      "massing": 0,
-      "overall": 0
+      "color": 0,
+      "features": 1,
+      "massing": 2,
+      "overall": 1
     },
     "min": 0,
-    "median": 0,
+    "median": 1,
     "spread": 0,
     "pass": false
   },
@@ -94,7 +94,10 @@
     "maxDisagreement": 0,
     "truncationSuspected": false,
     "ok": true,
-    "warnings": []
+    "verified": false,
+    "warnings": [
+      "height 21m from osm is UNVERIFIED — no independent source (OSM height/levels, Solar, Smarty) to cross-check against"
+    ]
   },
   "defectScore": {
     "defects": {
@@ -104,23 +107,25 @@
       "footprint_wrong_shape": false,
       "surface_detail_visible": true,
       "proportions_correct": true,
-      "facade_incoherent": false,
+      "facade_incoherent": true,
       "facade_implausibly_dark": false
     },
-    "score": 10,
-    "penalties": [],
+    "score": 9,
+    "penalties": [
+      "facade_incoherent"
+    ],
     "grid": {
-      "total": 424876,
+      "total": 1194461,
       "components": 1,
-      "largestSize": 424876,
+      "largestSize": 1194461,
       "disconnectedRatio": 0,
       "uniqueBlockTypes": 14,
       "computed": true,
-      "facadeTotal": 255710,
-      "facadeDominantShare": 0.3452543897383755,
+      "facadeTotal": 274183,
+      "facadeDominantShare": 0.24676219896930152,
       "facadeDominantState": "minecraft:white_concrete",
-      "facadeMeanLuma": 167.58471224512147,
-      "facadeGlassShare": 0.19578428688748972
+      "facadeMeanLuma": 172.6739956321143,
+      "facadeGlassShare": 0.21565523756031554
     }
   },
   "synthesisPath": "7d-sliced",
