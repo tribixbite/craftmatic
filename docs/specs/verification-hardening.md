@@ -11,6 +11,40 @@ Status: **in progress** — opened 2026-06-21. Last worked 2026-08-16.
 chronological work log — **oldest-first until "Live-consensus era", then
 newest-first**. You do not need to read it all; this section is the summary.
 
+## Moving to the GPU desktop (2026-10-20)
+
+Development moved off the Termux phone. Code is all on `origin/main`; these
+git-ignored inputs travel separately (`craftmatic-handoff-2026-10-20.tar.gz`,
+unpack at the repo root):
+
+| path | why it matters |
+|---|---|
+| `output/tiles/{geisel-v200,guggenheim,pennzoil-new2,tiles-flatiron-building-new-york-ny,tiles-240-highland-st-newton-ma-02465}.glb` + `*.heightmap.bin` | the `--local-tiles` captures every board number above was measured on; live captures are nondeterministic |
+| `output/api-cache/<golden>/` | recorded geocode/OSM/Solar/SV/satellite — `--offline` runs and Overpass outages |
+| `output/reference-data/<golden>/` + `manifest.json` | the photos consensus scores against |
+| `output/failed/` | archived failing reports (trend history) |
+| `.env` (copy by hand, not in the archive) | `GOOGLE_MAPS_API_KEY`, `GEMINI_API_KEY`; optional `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_*`, `LOCAL_VLM_URL`/`LOCAL_VLM_MODEL` |
+
+What the GPU box should change first:
+1. **Real 3-model consensus.** With only a Gemini key `build.ts` runs
+   `gemini-fanout-med3` — one scorer copied into all three slots (spread is
+   always 0). Add `LOCAL_VLM_URL` (an OpenAI-compatible local VLM) and/or the
+   Claude/OpenAI keys so the gate is three opinions. Re-score identical
+   geometry twice to measure noise before trusting a ±1 move.
+2. **Re-baseline the board on an idle machine.** On the phone the texture
+   atlas timed out under load (procedural fallback, flagged "not comparable")
+   for geisel/guggenheim. Re-run all five with `--local-tiles --offline`.
+3. **pennzoil**: identical geometry fell from the Aug-16 pass (median 8.5) to
+   6.5/5.5. Diff what the scorer sees now vs then (reference set, 5927dc5)
+   before changing synthesis.
+4. **geisel colour (1)** and the lost pedestal — see §Ranked open work 3.
+5. Live tile capture needs WebGL: verify `captureTiles` works headless there
+   before trusting non-`--local-tiles` runs (on the phone it produced a
+   degraded 65-mesh capture).
+
+The pipeline-state Stop hook was removed from `.claude/settings.json`
+(2026-10-19); drive iterations by hand.
+
 ## How to run anything (read this before your first build)
 
 ```bash
