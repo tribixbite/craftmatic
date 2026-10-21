@@ -9,62 +9,43 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
-### IN FLIGHT 2026-10-19: the user's camera / lag reports (COAST-06, VEH-19, PIN-02) + Pixel memory
+### IN FLIGHT 2026-10-20: the user's camera / lag reports (COAST-06, VEH-19, PIN-02) + Pixel memory
 
 The user (their own world, every round pack bound, plays on a SAGA): the 10303 ride "super laggy, stutter-jerks
 especially for seat 2 and 3, a full camera blip reset in an upside-down loop", lag when moving the camera by hand;
 dismounting vehicles leaves the camera "locked in one location - big bug"; pinball "the same client server lag".
-SHARED 2026-10-19 07:10: `output/craftmatic-packs-2026-10-19-4fed7295.zip` (sha256 16c0737d...784a). It carries the
-drop cut; superseded by the 19c3986b zip (below).
-- WHY the Saga rode badly (round 30zv, `output/device-round-2026-10-19zv/saga/notes.md`, marker runs): the Saga draws
-  entities 5.7 ticks behind (not the derived 4), applies properties 4.1 early (not 3.3), plays ~half the camera ease;
-  every shipped pack used the Pixel's 3.5 / 3.3, so on a Saga the blended camera ran ~2.3 blocks ahead of the seat at
-  loop speed. Fixed 9e46b8c4: per-client timing `COASTER_RIDER_VIEW.clientTimings` (fingerprint `graphicsMode` +
-  render distance from `si:dump`: Pixel Deferred/24 -> 3.5/3.3; anything else the Saga's 5.7/4.1). The fingerprint
-  is n=1 per phone: a new phone needs a camprobe/proplag run (briefs: `output/device-round-2026-10-19zv/
-  brief-saga-30zv.md`, packs `output/device-round-2026-10-19zr/camprobe/`, `-19zt/proplag/`, `-19zv/sysinfo/`).
-- The own view before an animation is the DRAWN car plus the head turn (c02fbbcc; measured right by 30zy's pillars);
-  the reported yaw trails it (Pixel 8.7 ticks, Saga 7.1, fitted per rider: `fitReportLag`).
-- THE DROP CUT, CAUSE FOUND (round 30zy, 2026-10-19): a `playAnimation` keyframe's yaw is drawn MIRRORED, 180 - y
-  (Pixel camprobe v8 `cp:run yaw <Y>`, `output/device-round-2026-10-19zy/pixel-yaw/notes.md`: 0 -> 180, 45 -> 135,
-  135 -> 45, 180 -> 0, -90 -> -90; quirk `camera-keyframe-yaw-mirrored`). Yaw +-90 is its own mirror: 10303's loops
-  run along x, so every probe missed it, while each drop starts on the crest curve (car yaw ~-130..-170) and its first
-  keyframe was drawn 60-120 degrees off - looking into the model at the lift tower - in every car on both phones
-  (rounds 30zu-30zy; 30zw's "car 3 smooth" on the Saga was a misread, 30zx). Found with marker pillars (six 3x3
-  concrete pillars ~30 blocks round the crest, `output/device-round-2026-10-19zy/pillars-30.json`, read by
-  `scripts/_pillar_yaw.py`): the own view before the drop read -156, the drawn car plus the head turn (so c02fbbcc's
-  start view was right; the lag work of 30zu-30zw did not touch the cut). FIXED OFFLINE (the commit after 20e8de92): `splineAnimation` writes `y: 180 - yaw`; the sim draws keyframes through
-  `keyframeView`; the old line fails 6 guards. The loops' keyframes (-90..-101) were drawn up to ~10 degrees off too,
-  so the hull band in the loops may change: re-check it.
-- ROUND 30zz (19c3986b, `output/device-round-2026-10-19zz/{saga,pixel}/notes.md`): Saga - no drop cut in cars 2 and 3,
-  6/6 laps; hand-back smooth; jerk lower; drags ~60 ms to the first turn. Bodywork still crosses the lower third in
-  the loops (navy 14-18 a lap, inflated by the black pillar; read by eye). Saga PSS 5.16 GB, 12 Watchdog lines.
-  SHARED 2026-10-19 19:05: `output/craftmatic-packs-2026-10-19-19c3986b.zip` (sha256 675c5f06...0c13, PACKS.md
-  corrects the morning's "no cut" claim). Pixel 30zz (`pixel/notes.md`): no drop cut in 6/6 laps
-  (cars 2, 3); drags ~0.1 s to the first turn, no repeats; BUT car 2's hand-back after loop 2 still snaps in 1-3
-  frames every lap (Saga: smooth), car 3 lap 2 a whole-view grey slab 2 frames (106.71/106.77), the hull band in both
-  loops unchanged (band2 0.15-3.24 s a lap), car 2's rider ahead a translucent yellow wash in loop 2. The Pixel's
-  content log flushes on HOME, not Save & Quit. Probe packs with `camera.debug` (`-19zx/probe-9eda695f`, `-19zy/probe-20e8de92`): never ship.
-- 2026-10-20 (COAST-06) THE LOOPS' BAND, read: it is the OWN car's black lap bar (bone `r13`, swatch 0, a body child in
-  every car - not a rider) with the car ahead behind it (`output/device-round-2026-10-19zz/saga/rec/C-car2.mp4` 48.5 s
-  beside the car render). The simulator draws the same plan with NO bar in view even at 82 degrees
-  (`output/coast06-band-1020{,-fov82}/frames`, `sim.ts --fov=`), and agrees with the phone through the level run and the
-  drop's start: only in the loops does the phone's camera point ~20 degrees further DOWN relative to the own car (near
-  and far shift alike: a rotation, not the eye). Saga FOV setting is the default 60 (`output/device-round-2026-10-20a/
-  options-fov.md`; the Pixel's file is private, no root); Pixel measured ~72 degrees vertical (pillar fit, 30zy).
-  Hypothesis: the client applies rotation keyframes ~2 ticks behind the position keyframes (a loop turns ~12 deg/tick).
-  Probe RUNNING: Saga camprobe v9 `step` (`output/device-round-2026-10-20a/brief-saga-20a.md`, analyser
-  `camprobe/step_onsets.py`): R = (G_P - G_R)/2 x 20 ticks. If R ~ 2: write each rotation keyframe R ticks EARLY
-  (a per-client `rotationLead` beside `animLag`) and re-ride. Server ticks are NOT the cause (19.96/s on both phones;
-  slow seconds never inside an animation). Fixed offline (efb13281): every car of a train draws its body for the
-  client of its nearest rider. Pixel probe RUNNING (`brief-pixel-20a.md`): its entity lag light vs with 10303 placed,
-  and drift over 10 s - car 2's camera sat inside the rider ahead late in loop 2 and snapped back at the hand-back (30zz).
-- Wand Undo (30zx "left 10303's entities"): NOT reproduced - Undo removed everything in 30zy and 30zz on both phones,
-  and 30zx's own shot of the tap (`output/device-round-2026-10-19zx/saga/shots/u1-menu.jpg`) shows "Lighting / night
-  vision" highlighted, with no "Undo complete" toast in any shot: most likely a mis-tap. Device briefs: confirm the
-  toast after every Undo.
-- Still open: the hull band in the loops (both phones); the hand-back snap (Saga car 2); from car 3 a posed rider's
-  pink hair fills the lower right (`output/device-round-2026-10-19zu/pixel/frames/C-car3-drop-lap1-b.jpg`).
+- STATE (2026-10-20): the drop cut is FIXED on both phones (round 30zz: the keyframe yaw is mirrored, 180 - y, quirk
+  `camera-keyframe-yaw-mirrored`). SHARED 2026-10-19 19:05: `output/craftmatic-packs-2026-10-19-19c3986b.zip`
+  (sha256 675c5f06...0c13). Per-client timing (`COASTER_RIDER_VIEW`; fingerprint `graphicsMode` + render distance):
+  default (Saga, Fancy/22) animLag 5.7 / bodyLag 6; Pixel (Deferred/24) 5.5 / 5.3. BOTH phones run Minecraft
+  1.26.52.3 (`output/device-round-2026-10-20a/mc-versions.md`); the lag follows the GAME VERSION (the Pixel drew 3.5 on
+  1.26.51): record `versionName` in every round and re-measure after an update. The own view before an animation is the
+  drawn car plus the head turn; the reported yaw trails it (Pixel 8.7, Saga 7.1, `fitReportLag`). Server ticks are not
+  a cause (19.96/s on both phones, slow seconds never inside an animation).
+- 2026-10-20 FINDINGS (COAST-06), all offline-fixed, NOT yet on a phone:
+  * The loops' dark band is the OWN car's black lap bar (bone `r13`, swatch 0, in every car). The simulator draws it
+    only when a car's pose properties land ~6 ticks ahead (`--prop-lead=6`/`8`, `output/coast06-band-1020-pl{6,8}`),
+    not at the proplag-measured 4.1: so in the ride they land ~2 ticks earlier than beside a probe (quirk
+    `property-ahead-of-position` `sagaRideLeadTicks` 6, FITTED; Pixel `pixelRideLeadTicks` 5.3 ASSUMED). c3efdcd4.
+  * Rotation and position keyframes share one clock on the Saga (camprobe v9 `step`, round 2026-10-20a: 0.06 tick);
+    `rotationLead` exists, unset.
+  * Pixel 1.26.52: entity lag 5.1-5.4 light and with 10303 loaded, stepping up 0.8-1.9 ticks later in long runs
+    (round 2026-10-20a); the packs planned 3.5 -> its camera sat in the rider ahead late in loop 2 and snapped back.
+    24c752d3 plans 5.5. In the simulator the 30zz pack at Pixel 5.5 puts the camera inside the rider ahead all
+    through loop 1, while the phone did that only late in loop 2: the Pixel's ride lag may START nearer 3.5 and
+    step up. Round 20b decides it (look for the camera BEHIND the seat in loop 1).
+  * Every car of a train draws its body for the client of its nearest rider (efb13281; was the own car only).
+- ROUND 2026-10-20b RUNNING (10303 only, `output/device-round-2026-10-20b/packs-c3efdcd4/`, briefs `brief-{saga,pixel}-
+  20b.md`): cars 2 and 3, 2+ laps each, both phones. Simulator gate on that pack: pass on both clients
+  (`output/device-round-2026-10-20b/sim-{saga,pixel}/`). NEXT: read the reports; if clean, build all 26 + creator +
+  nimbus from the then-current commit (`output/device-round-2026-10-19zz/build.sh` pattern) and share a new zip.
+- Wand Undo (30zx "left 10303's entities"): NOT reproduced - Undo removed everything in 30zy and 30zz on both phones;
+  30zx's shot (`output/device-round-2026-10-19zx/saga/shots/u1-menu.jpg`) shows "Lighting / night vision" highlighted
+  and no "Undo complete" toast: a mis-tap. Briefs now confirm the toast after every Undo.
+- Still open: from car 3 a posed rider's pink hair fills the lower right (30zu Pixel); Pixel 30zz car 3 lap 2 a 2-frame
+  grey slab (106.71/106.77).
+- `bun scripts/_physics_spec_check.ts` HANGS (never exits) when a source it reads has a TypeScript syntax error: run
+  `bun run typecheck:web` first.
 - PIN-02: Saga busy median 8.6 ms with all 26 bound (30zs 8.8); `Entity::isValid` at roster.js:29 is the top self
   (14.4 %). Pinball on the Pixel: taps on the drawn zone outlines did not flip; taps lower (cabinet buttons, table
   edge) did, 0.14-0.37 s (`output/device-round-2026-10-19zu/pixel/notes.md`); pick boxes follow the reported pitch
