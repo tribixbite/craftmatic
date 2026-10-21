@@ -2821,6 +2821,26 @@ describe('the rider camera follows the track', () => {
     return { label: 'Crest curve', points, closed: false, maxSegmentLength: 0.5 };
   }
 
+  it('rotationLead writes each animation\'s rotation keyframes that many ticks EARLY against the same position keyframes (COAST-06, the loops\' lap bar)', () => {
+    const base = nativeRide(), lead = nativeRide(undefined, undefined, undefined, undefined, { rotationLead: 2 });
+    expect(lead.plays.length).toBe(base.plays.length);
+    expect(base.plays.length).toBeGreaterThanOrEqual(2);
+    // Shipped unset (0) until a phone measures it: no pack changes by this option alone.
+    expect(COASTER_RIDER_VIEW.rotationLead ?? 0).toBe(0);
+    for (let p = 0; p < base.plays.length; p++) {
+      const [s0, o0] = base.plays[p]!.args, [s2, o2] = lead.plays[p]!.args;
+      expect(lead.plays[p]!.tick).toBe(base.plays[p]!.tick);
+      // The eye path and its timing are untouched.
+      expect(s2.controlPoints).toEqual(s0.controlPoints);
+      expect(o2.animation.progressKeyFrames).toEqual(o0.animation.progressKeyFrames);
+      const k0 = o0.animation.rotationKeyFrames as any[], k2 = o2.animation.rotationKeyFrames as any[];
+      expect(k2.map(k => k.timeSeconds)).toEqual(k0.map(k => k.timeSeconds));
+      // Keyframes are two ticks apart, so a 2-tick lead is the next keyframe's rotation; the last holds the end view.
+      for (let i = 0; i + 1 < k0.length; i++) for (const axis of ['x', 'y', 'z']) expect(k2[i].rotation[axis]).toBeCloseTo(k0[i + 1].rotation[axis], 6);
+      for (const axis of ['x', 'y', 'z']) expect(k2.at(-1).rotation[axis]).toBeCloseTo(k0.at(-1).rotation[axis], 6);
+    }
+  });
+
   it('native mode starts each animation on the view the phone DRAWS, whatever its report lag: the drawn car plus the head turn (COAST-06, round 30zu/30zv: a 35-45 degree cut at 10303\'s crest on both phones)', () => {
     // The phones report a rider's yaw 8.7 (Pixel) and 7.1 (Saga) ticks after the car's server yaw it was drawn on, and
     // draw the view on the car ~animLag behind. The runtime fits each rider's report lag as the car turns, so the head

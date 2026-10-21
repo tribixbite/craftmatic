@@ -430,6 +430,8 @@ export interface CoasterClientTiming {
   animLag: number;
   /** As `CoasterRiderViewConfig.bodyLag`, for this client. */
   bodyLag: number;
+  /** As `CoasterRiderViewConfig.rotationLead`, for this client (absent = the default's). */
+  rotationLead?: number;
 }
 
 /** The camera constants the runtime reads from `config.camera`. */
@@ -469,6 +471,15 @@ export interface CoasterRiderViewConfig {
    * the position sent with it, at 5, 10 and 20 blocks/s). Fractional: interpolated between two ticks' poses. Absent = 0.
    */
   bodyLag?: number;
+  /**
+   * Ticks EARLY each camera animation's rotation keyframes are written against its position (progress) keyframes:
+   * keyframe k carries the view planned for tick k + `rotationLead` (the last view past the end). For a client that
+   * applies an animation's rotation later than its position. TODO(rotation-lead): unmeasured - camprobe v9 `step`
+   * (round 2026-10-20a) measures it; in 10303's loops both phones drew the camera ~20 degrees further down against the
+   * own car than planned (its lap bar across the view, round 30zz), which a rotation ~2 ticks behind would explain.
+   * Fractional: interpolated between two ticks' views. Absent = 0.
+   */
+  rotationLead?: number;
   /**
    * Timing for clients known to draw differently from `animLag` / `bodyLag` (the defaults), matched on what the
    * Script API reports of a player's client: `graphicsMode` and `clientSystemInfo.maxRenderDistance` (every field an
@@ -2364,16 +2375,18 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   const HISTORY = 12;
   /** Timing for a player's client: the first `clientTimings` entry its graphics mode and render distance match, else the defaults. */
   const CLIENT_TIMINGS: any[] = Array.isArray(camera.clientTimings) ? camera.clientTimings : [];
-  const timingOf = (player: any): { label: string; animLag: number; bodyLag: number; graphicsMode: string; maxRenderDistance: number } => {
+  const clampLead = (v: any, fallback: number) => Math.max(0, Math.min(6, Number.isFinite(v) ? Number(v) : fallback));
+  const ROTATION_LEAD = clampLead(camera.rotationLead, 0);
+  const timingOf = (player: any): { label: string; animLag: number; bodyLag: number; rotationLead: number; graphicsMode: string; maxRenderDistance: number } => {
     let graphicsMode = '', maxRenderDistance = NaN;
     try { graphicsMode = String(player.graphicsMode); } catch { /* not reported */ }
     try { maxRenderDistance = Number(player.clientSystemInfo.maxRenderDistance); } catch { /* not reported */ }
     for (const t of CLIENT_TIMINGS) {
       if (t.graphicsMode !== undefined && t.graphicsMode !== graphicsMode) continue;
       if (t.maxRenderDistance !== undefined && t.maxRenderDistance !== maxRenderDistance) continue;
-      return { label: String(t.label), animLag: clampLag(t.animLag, animLag), bodyLag: clampBody(t.bodyLag, BODY_LAG), graphicsMode, maxRenderDistance };
+      return { label: String(t.label), animLag: clampLag(t.animLag, animLag), bodyLag: clampBody(t.bodyLag, BODY_LAG), rotationLead: clampLead(t.rotationLead, ROTATION_LEAD), graphicsMode, maxRenderDistance };
     }
-    return { label: 'default', animLag, bodyLag: BODY_LAG, graphicsMode, maxRenderDistance };
+    return { label: 'default', animLag, bodyLag: BODY_LAG, rotationLead: ROTATION_LEAD, graphicsMode, maxRenderDistance };
   };
   /** Ticks between re-reads of a viewer's client timing (the graphics mode can change in the settings). */
   const TIMING_EVERY = 200;
@@ -2490,7 +2503,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
    * every loop's exit (`ride1-loop2-zoom-d.jpg`). The per-tick camera takes
    * over at tick `length` while the animation is still playing.
    */
-  const planInversion = (frame: any, planner: any, look: any, history: any[], lag: number = animLag) => {
+  const planInversion = (frame: any, planner: any, look: any, history: any[], lag: number = animLag, lead: number = ROTATION_LEAD) => {
     // Cost bound (the 2026-09-25 regression: 80 predicted ticks on EVERY steep
     // tick, ~117 substeps a tick on 10261, the device's script tick overran
     // and the ride slowed and stuttered). Nothing is predicted unless inverted
@@ -2563,7 +2576,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     let previous: any = null;
     // `over`: continuous pitch, the right axis's yaw, residual roll — no chart flip at the zenith.
     for (const pose of poses) { previous = riderView(pose.nose, pose.up, look, previous, 'over', 40); views.push(previous); }
-    const animation = splineAnimation(poses, views, total);
+    const animation = splineAnimation(poses, views, total, lead);
     if (!animation) return failed;
     return { ...animation, length, centres: plan.centres.slice(0, length) };
   };
@@ -2575,9 +2588,16 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
    * 180 - the yaw (Pixel round 30zy, camprobe `yaw`: a keyframe at 0 faced north and at 45 north-west where
    * `setCamera` faced south and south-west; quirk `camera-keyframe-yaw-mirrored`). Yaw +-90 is its own mirror, which
    * is why every probe along 10303's x-aligned loops missed it and every drop off its crest curve cut 60-120
-   * degrees. The roll was measured in this frame. Null when the eye hardly moves.
+   * degrees. The roll was measured in this frame. Rotation keyframe k carries the view of tick k + `lead`
+   * (`rotationLead`; the last view past the end), interpolated between two ticks' views for a fractional lead.
+   * Null when the eye hardly moves.
    */
-  const splineAnimation = (poses: any[], views: any[], total: number) => {
+  const splineAnimation = (poses: any[], views: any[], total: number, lead = 0) => {
+    const viewAt = (t: number) => {
+      const i = Math.max(0, Math.min(views.length - 1, Math.floor(t))), j = Math.min(views.length - 1, i + 1), f = Math.max(0, Math.min(1, t - i));
+      const a = views[i], b = views[j];
+      return f <= 0 || i === j ? a : { yaw: a.yaw + (b.yaw - a.yaw) * f, pitch: a.pitch + (b.pitch - a.pitch) * f, roll: (a.roll || 0) + ((b.roll || 0) - (a.roll || 0)) * f };
+    };
     const arcs = [0];
     for (let k = 1; k < poses.length; k++) {
       const a = poses[k - 1].eye, b = poses[k].eye;
@@ -2597,7 +2617,8 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     const progressKeyFrames: any[] = [], rotationKeyFrames: any[] = [];
     for (let k = 0; k <= total; k += 2) {
       progressKeyFrames.push({ alpha: arcs[k] / totalArc, timeSeconds: k * 0.05 });
-      rotationKeyFrames.push({ rotation: { x: -views[k].pitch, y: 180 - views[k].yaw, z: views[k].roll }, timeSeconds: k * 0.05 });
+      const view = viewAt(k + lead);
+      rotationKeyFrames.push({ rotation: { x: -view.pitch, y: 180 - view.yaw, z: view.roll }, timeSeconds: k * 0.05 });
     }
     const spline = new Spline();
     spline.controlPoints = points;
@@ -2629,7 +2650,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
    * re-anchored to the track's only where the track has the whole view (the blend weight is 1), so after a loop
    * (the continuous pitch 360 on) the blend out does not spin the view round.
    */
-  const planSection = (frame: any, planner: any, look: any, history: any[], lag: number = animLag) => {
+  const planSection = (frame: any, planner: any, look: any, history: any[], lag: number = animLag, lead: number = ROTATION_LEAD) => {
     const LOOKOUT = 21;
     if (!planner.nearSteep(frame.car, 11)) return null;
     let first = -1, last = -1;
@@ -2683,7 +2704,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       if (w >= 1) { ownYaw = track.yaw + wrap(ownYaw - track.yaw); ownPitch = track.pitch + wrap(ownPitch - track.pitch); }
       views.push({ yaw: ownYaw + (track.yaw - ownYaw) * w, pitch: ownPitch + (track.pitch - ownPitch) * w, roll: (track.roll || 0) * w });
     }
-    const animation = splineAnimation(poses, views, length);
+    const animation = splineAnimation(poses, views, length, lead);
     return animation
       ? { ...animation, length, centres: plan.centres.slice(0, length), exact: Math.min(length, plan.exact), first: { eye: poses[0].eye, yaw: views[0].yaw, pitch: views[0].pitch },
           ...(DEBUG ? { debug: { look, pose0: poses[0].yaw, track0: riderView(poses[0].nose, poses[0].up, look, null, 'over', 40).yaw, views: views.slice(0, BLEND + 1).map(v => [round1(v.yaw), round1(v.pitch), round1(v.roll)]), yaws: seq.map(q => round1(q.yaw)) } } : {}) }
@@ -2743,7 +2764,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         // Armed last tick (below): the camera is the script's now, so the animation will be drawn. Planned again from
         // this tick (the ride's own arithmetic: the same stretch, one tick on) and played at once.
         viewer.armed = false;
-        const planned: any = planSection(frame, planner, look, viewer.history, viewer.timing.animLag);
+        const planned: any = planSection(frame, planner, look, viewer.history, viewer.timing.animLag, viewer.timing.rotationLead);
         if (DEBUG) debugLine('play', { rot: [round1(rotation.x), round1(rotation.y)], carYaw: round1(carYaw), nowYaw: round1(nowYaw), frameYaw: round1(frame.yaw), planned: planned && !planned.wait ? { first: planned.first, ...planned.debug } : planned });
         if (planned && !planned.wait) {
           try {
@@ -2784,7 +2805,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         viewer.cooldown = Math.max(viewer.cooldown || 0, ticks + 2);
       }
       if (!Spline || !planner || viewer.noAnim || viewer.cooldown > ticks) return;
-      const planned: any = planSection(frame, planner, look, viewer.history, viewer.timing.animLag);
+      const planned: any = planSection(frame, planner, look, viewer.history, viewer.timing.animLag, viewer.timing.rotationLead);
       if (planned && planned.wait) viewer.cooldown = ticks + planned.wait;
       else if (planned) {
         // ARM first: a `playAnimation` sent while the player is on their own view is never drawn (Pixel round 30zr,
@@ -2848,7 +2869,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     const eye = pose.eye, view = viewer.view;
     if (looping && !handBack) {
       if (!(viewer.cooldown > ticks) && Math.abs(frame.pitch) > 20) {
-        const planned: any = planInversion(frame, planner, viewer.look, viewer.history, viewer.timing.animLag);
+        const planned: any = planInversion(frame, planner, viewer.look, viewer.history, viewer.timing.animLag, viewer.timing.rotationLead);
         // Nothing to animate yet, proven for `wait` ticks (see `planInversion`),
         // or an inversion that cannot be drawn whole: the per-tick camera keeps
         // it, and the prediction is not re-run every tick.
