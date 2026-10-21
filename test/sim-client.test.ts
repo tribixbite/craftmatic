@@ -16,7 +16,7 @@ import { COASTER_RIDER_VIEW, coasterRuntimeConfig, coasterScript, type CoasterRo
 import { FREE_LOOK, cockpitEyeLead } from '../web/src/engine/vehicle-free-look.js';
 import { PoseHistory } from '../web/src/sim/client/draw-lag.js';
 import { boneTransforms, mul, pivotRotation } from '../web/src/engine/bedrock-geometry-faces.js';
-import { attachClient, cameraFrame, ClientView, clientProfile, drawnCameraLead, easeSteadyLagTicks, keyframeView, sampleAnimation, TICK_SECONDS } from '../web/src/sim/client/camera.js';
+import { attachClient, cameraFrame, type ClientProfile, ClientView, clientProfile, drawnCameraLead, easeSteadyLagTicks, keyframeView, sampleAnimation, TICK_SECONDS } from '../web/src/sim/client/camera.js';
 import { CAMERA_MAX_EYE_JUMP_BLOCKS, CAMERA_MAX_TURN_DEG, cameraFrameDelta, clientInvariants, scriptMeansContinuity } from '../web/src/sim/client/invariants.js';
 import { CameraTrace } from '../web/src/sim/client/steps.js';
 import { rasterizeDetailed, type RasterQuad } from '../web/src/sim/render/rasterizer.js';
@@ -60,12 +60,19 @@ describe('the client model: numbers and derivations', () => {
     expect(quirkValue('camera-ease-lag', 'ticks')).toBe(2);
   });
 
-  it('the Pixel: the eased per-tick coaster camera at lag 1.5 and the animation at 3.5 both ride the drawn seat under ONE entity lag', () => {
+  it('the Pixel on 1.26.51: the eased per-tick coaster camera at lag 1.5 and the animation at 3.5 both rode the drawn seat under ONE entity lag', () => {
+    const old = clientProfile('pixel-26.51');
+    expect(old.entityLagTicks).toBe(3.5);
+    expect(old.easeFactor).toBe(1);
+    expect(old.basis).toBe('measured');
+    expect(drawnCameraLead(23, COASTER_RIDER_VIEW.tickLag, COASTER_RIDER_VIEW.ease, old)).toBeCloseTo(0, 9);
+    expect(drawnCameraLead(23, 3.5, 0, old)).toBeCloseTo(0, 9);
+  });
+
+  it('the Pixel on 1.26.52 (round 2026-10-20a, the Saga\'s build): entity lag 5.5, and the shipped Pixel animation lag rides its drawn seat', () => {
     const pixel = clientProfile('pixel');
-    expect(pixel.entityLagTicks).toBe(3.5);
-    expect(pixel.easeFactor).toBe(1);
+    expect(pixel.entityLagTicks).toBe(5.5);
     expect(pixel.basis).toBe('measured');
-    expect(drawnCameraLead(23, COASTER_RIDER_VIEW.tickLag, COASTER_RIDER_VIEW.ease, pixel)).toBeCloseTo(0, 9);
     const pixelAnimLag = COASTER_RIDER_VIEW.clientTimings!.find(t => t.graphicsMode === pixel.device.graphicsMode && t.maxRenderDistance === pixel.device.maxRenderDistance)!.animLag;
     expect(drawnCameraLead(23, pixelAnimLag, 0, pixel)).toBeCloseTo(0, 9);
   });
@@ -172,10 +179,11 @@ describe('the drawn poses', () => {
     expect(mount.addRider(player, sim.engine.tick).ok).toBe(true);
     for (let t = 1; t <= 12; t++) { mount.location = { x: t, y: 5, z: 0 }; mount.placeRiders(); await sim.run(1); }
     const drawn = client.drawnPose(mount);
-    expect(drawn.x).toBeCloseTo(12 - 3.5);
+    const lag = clientProfile('pixel').entityLagTicks;
+    expect(drawn.x).toBeCloseTo(12 - lag);
     const feet = client.drawnPose(player);
     // The seat (0, 0.5, 0) on the drawn mount, the player's feet eyeAboveSeat - eye height below the seat point.
-    expect(feet.x).toBeCloseTo(12 - 3.5);
+    expect(feet.x).toBeCloseTo(12 - lag);
     expect(feet.y).toBeCloseTo(5 + 0.5 + quirkValue('rider-eye-above-seat', 'eyeAboveSeatBlocks') - 1.62);
     expect(client.drawnVelocity(player).x).toBeCloseTo(1, 6);
   });
@@ -369,7 +377,7 @@ function loopCourse(): CoasterRoute {
  * Ride the loop course on a client profile with the shipped coaster runtime (`coasterScript`) and an optional
  * camera override; the rider's head follows the car as the device reports it. Returns the drawn camera's trace.
  */
-function rideLoop(profile: 'pixel' | 'saga', camera: Partial<CoasterRiderViewConfig> = {}, ticks = 700) {
+function rideLoop(profile: 'pixel' | 'saga' | ClientProfile, camera: Partial<CoasterRiderViewConfig> = {}, ticks = 700) {
   const config = coasterRuntimeConfig('craftmatic:test_cart', [loopCourse()]);
   config.types['craftmatic:test_cart']!.seat = [0, 0.35, 0];
   config.camera = { ...config.camera!, ...camera };
@@ -390,7 +398,8 @@ function rideLoop(profile: 'pixel' | 'saga', camera: Partial<CoasterRiderViewCon
 
 describe('the coaster camera drawn on each client (synthetic loop course)', () => {
   it('on the Pixel both cameras ride the drawn seat and the hand-back is continuous: no own view, the eye within half a block along the heading, and only the hand-back\'s own transient', () => {
-    const { trace } = rideLoop('pixel', { mode: 'loop' });
+    // The loop mode (not shipped since `native`) was tuned on the 1.26.51 Pixel: its client and its 3.5.
+    const { trace } = rideLoop(clientProfile('pixel-26.51'), { mode: 'loop', animLag: 3.5, clientTimings: [] });
     const s = trace.summary(2);
     expect(s.animations).toBeGreaterThanOrEqual(1);
     expect(s.ownFrames).toBe(0);
@@ -407,10 +416,10 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
     // catches up over ~6 ticks. An ease-aware hand-back - the first eased target one tick AHEAD of the steady lag
     // (0.5, then 1.5) - keeps the drawn camera on the seat. NOT a pack change here (the runtime is not package B's);
     // the measurement that says what to change (TODO(handback-ease), bedrock-coaster.ts `HANDBACK_BLEND`).
-    const shipped = rideLoop('pixel', { mode: 'loop' });
+    const shipped = rideLoop(clientProfile('pixel-26.51'), { mode: 'loop', animLag: 3.5, clientTimings: [] });
     const after = (t: { trace: CameraTrace }) => t.trace.rows.filter(r => r.tick > t.trace.lastHandbackTick && r.tick <= t.trace.lastHandbackTick + 8 && r.lead !== undefined).map(r => r.lead!);
     const worstShipped = Math.max(...after(shipped).map(Math.abs));
-    const noBlend = rideLoop('pixel', { mode: 'loop', handbackBlend: 1 });
+    const noBlend = rideLoop(clientProfile('pixel-26.51'), { mode: 'loop', animLag: 3.5, clientTimings: [], handbackBlend: 1 });
     const worstNoBlend = Math.max(...after(noBlend).map(Math.abs));
     expect(after(shipped).length).toBeGreaterThan(0);
     // The blend's transient is worse than a plain hand-back's; both are behind the seat (negative lead).
@@ -484,12 +493,15 @@ const havePacks = existsSync(`${PACKS}/10303-loop-coaster.mcaddon`);
 
 describe.skipIf(!havePacks)('the coaster camera on the round-30m 10303 (corpus)', () => {
   const load = async () => { const b = readFileSync(`${PACKS}/10303-loop-coaster.mcaddon`); return readAddon(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer, '10303'); };
+  // `pixel` rides the 1.26.51 client: the Pixel evidence these tests compare with (round 09-30g ride4) predates its
+  // 1.26.52 update (2026-10-01), on which it draws 2 ticks later (quirk `client-entity-lag`).
   const ride = async (profile: 'pixel' | 'saga') => {
     const addon = await load();
     const pack = readCraftmaticPack(addon)!;
+    const client = profile === 'pixel' ? clientProfile('pixel-26.51') : profile;
     const [scenario] = coasterCameraScenarios(pack, profile, 1);
     const steps = scenario!.steps.map(s => (s.kind === 'rideCoasterCamera' ? { ...s, frames: false, maxTicks: 1500 } : s));
-    return runScenario({ ...scenario!, steps }, [addon], { handlers: { ...craftmaticHandlers(pack, addon), ...clientSteps(pack, packAppearance(addon), {}, profile) }, invariants: clientInvariants({ seatCamera: craftmaticSeatCamera() }), prepare: (sim, player) => { attachClient(sim, player, profile); } });
+    return runScenario({ ...scenario!, steps }, [addon], { handlers: { ...craftmaticHandlers(pack, addon), ...clientSteps(pack, packAppearance(addon), {}, profile) }, invariants: clientInvariants({ seatCamera: craftmaticSeatCamera() }), prepare: (sim, player) => { attachClient(sim, player, client); } });
   };
 
   /** The 30m coaster cars' seat, Bedrock frame (`position` of the rideable): z 0.338 toward the nose. */

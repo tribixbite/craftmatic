@@ -485,7 +485,9 @@ export interface CoasterRiderViewConfig {
    * Script API reports of a player's client: `graphicsMode` and `clientSystemInfo.maxRenderDistance` (every field an
    * entry names must match; the first match wins). A FINGERPRINT of measured phones, not a model of the cause: round
    * 30zv measured the Saga (Fancy, 22) drawing entities 5.7 ticks behind with properties 4.1 early, the Pixel 8 Pro
-   * (Deferred, 24) 3.5 and 3.3. The defaults are the Saga's (the user's phone); an unknown client gets them, and
+   * (Deferred, 24) 3.5 and 3.3 - its 3.5 on Minecraft 1.26.51; on 1.26.52 (installed 2026-10-01, the Saga's build)
+   * it draws 5.1-5.4, stepping up 0.8-1.9 later in a long run under load (round 2026-10-20a), so it plans with 5.5.
+   * The lag follows the game VERSION: re-measure after every update (TODO(client-lag-version)). The defaults are the Saga's (the user's phone); an unknown client gets them, and
    * `debug` logs every client's fingerprint so a new phone can be measured and added.
    */
   clientTimings?: ReadonlyArray<CoasterClientTiming>;
@@ -551,7 +553,7 @@ export interface CoasterRiderViewConfig {
  * "The rider's camera follows the track" section.
  */
 export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'native', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 8, animLag: 5.7, bodyLag: 4.1,
-  clientTimings: [{ label: 'Pixel 8 Pro (Deferred, render distance 24; round 30zv)', graphicsMode: 'Deferred', maxRenderDistance: 24, animLag: 3.5, bodyLag: 3.3 }], animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
+  clientTimings: [{ label: 'Pixel 8 Pro (Deferred, render distance 24; rounds 30zt, 2026-10-20a)', graphicsMode: 'Deferred', maxRenderDistance: 24, animLag: 5.5, bodyLag: 3.3 }], animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
   steepTilt: 25, steepSpeed: 5, blendTicks: 6, sectionGap: 12, sectionHorizon: 160 };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
