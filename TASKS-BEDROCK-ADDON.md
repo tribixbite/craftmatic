@@ -14,26 +14,22 @@ Parallel agents append ONE section each at the end of this file.
 The user (their own world, every round pack bound, plays on a SAGA): the 10303 ride "super laggy, stutter-jerks
 especially for seat 2 and 3, a full camera blip reset in an upside-down loop", lag when moving the camera by hand;
 dismounting vehicles leaves the camera "locked in one location - big bug"; pinball "the same client server lag".
-- STATE (2026-10-20 23:00): the drop cut is FIXED on both phones (round 30zz: the keyframe yaw is mirrored, 180 - y,
-  quirk `camera-keyframe-yaw-mirrored`). SHARED 2026-10-19 19:05: `output/craftmatic-packs-2026-10-19-19c3986b.zip`
-  (sha256 675c5f06...0c13). Per-client timing (`COASTER_RIDER_VIEW`; fingerprint `graphicsMode` + render distance):
-  default (Saga, Fancy/22) animLag 5.7 / bodyLag 4.1; Pixel (Deferred/24) 5.5 / 3.3. BOTH phones run Minecraft
-  1.26.52.3 (`output/device-round-2026-10-20a/mc-versions.md`); the lag follows the GAME VERSION (the Pixel drew 3.5
-  on 1.26.51, 5.1-5.4 on 1.26.52, round 2026-10-20a): record `versionName` every round. Rotation and position
-  keyframes share one clock (Saga camprobe v9 `step`, 0.06 tick); `rotationLead` exists, unset. Server ticks are not
-  a cause (19.96/s on both phones).
-- THE LOOPS' DARK BAND = the OWN car's black lap bar (10303/10261: part 35654). Round 2026-10-20b (`output/device-
-  round-2026-10-20b/{saga,pixel}/notes.md`, pack c3efdcd4) rode a fitted bodyLag (6 Saga / 5.3 Pixel, from the
-  simulator drawing the bar only at a property lead of 6-8): the Saga's bar moved lower but stayed (dark-band counts no
-  better than 30zz), the Pixel's camera entered the car ahead's rider in loop 1 of all 6 laps. REJECTED, measured
-  leads back. Instead the bar is HIDDEN from its own rider (c306884d): `riderViewBricks` puts the car's parts that rise
-  to the chest, centred ahead of the eye, on a `view` bone scaled 0 while `craftmatic:occupied` (others still see it).
-- ROUND 2026-10-20c NEXT/RUNNING (10303 only, `output/device-round-2026-10-20c/packs-c306884d/`, briefs
-  `brief-{saga,pixel}-20c.md`): cars 2 and 3, both phones; the bar should be gone, the car ahead as in 30zz, and on
-  the Pixel count frames inside the car ahead's rider (30zz: late loop 2 of car 2; 20b: every loop 1). Run the
-  simulator gate first (`sim.ts <pack> --scenario=coaster-camera --client=saga|pixel --cars=2 --fov=82`).
-  If clean: build all 26 + creator + nimbus (`bash output/device-round-2026-10-20c/build.sh`: it names its output
-  folders by the commit) and share a new zip. The aborted 20c full build (c3efdcd4-era) left partial folders: ignore.
+- STATE (2026-10-21 00:15): the drop cut is FIXED on both phones (round 30zz: keyframe yaw mirrored, 180 - y). THE LOOPS'
+  LAP BAR is FIXED on both phones (round 2026-10-20c, pack c306884d, `output/device-round-2026-10-20c/{saga,pixel}/
+  notes.md`): the car's parts that rise to the rider's chest, centred ahead of the eye (10303/10261: 35654, plus a tile
+  on 10261's), go on a `view` bone hidden while `craftmatic:occupied` (`riderViewBricks`); no bar in 12 laps, still drawn
+  for others. Timing (`COASTER_RIDER_VIEW`): Saga (default) animLag 5.7 / bodyLag 4.1; Pixel 3.5 / 3.3 - as 30zz.
+  Both phones run 1.26.52.3. Rejected on the device: a fitted bodyLag 6 / 5.3 (round 20b), the Pixel planned at its
+  1.26.52 camprobe lag 5.5 and every car of a train drawn for its rider's client (20c: the Pixel's camera inside the car
+  ahead's rider in every loop 1). The Pixel's probe (5.3) and ride (3.5) disagree: TODO(pixel-ride-lag).
+  Rotation/position keyframes share one clock (Saga camprobe v9 `step`); `rotationLead` exists, unset.
+- OPEN (COAST-06): the camera grazes the car ahead at loop entries - Saga car 2 0.1-0.3 s translucent washes a lap
+  (20c); Pixel ~1 s every loop 1 in 20c (to re-ride on the reverted timing: if as 30zz, only late loop 2 of car 2).
+  10303's cars are 2.25 blocks apart and the eye rides 1.12 over the seat, so in a loop the car ahead's rider sits
+  ~1 block from it. Ideas, unmeasured: a lower or more rearward eye during the animation only.
+- NEXT: build all 26 + creator + nimbus (`bash output/device-round-2026-10-20d/build.sh`, folders named by the commit)
+  from the commit after the 20c reverts, sim gate, share the zip (with PACKS.md: lap bar gone, the grazing open, the
+  memory note: a phone short of memory binds fewer packs per world).
 - Wand Undo (30zx "left 10303's entities"): NOT reproduced - Undo removed everything in 30zy and 30zz on both phones;
   30zx's shot (`output/device-round-2026-10-19zx/saga/shots/u1-menu.jpg`) shows "Lighting / night vision" highlighted
   and no "Undo complete" toast: a mis-tap. Briefs now confirm the toast after every Undo.

@@ -576,7 +576,7 @@ describe('serialized coaster runtime', () => {
     expect(coasterRuntimeConfig('craftmatic:x', [loopRoute()]).camera!.bodyLag).toBe(COASTER_RIDER_VIEW.bodyLag);
   });
 
-  it('draws every car of a rider\'s train for the RIDER\'s client, the car ahead included (Pixel 30zz car 2: the rider ahead swept into the view)', () => {
+  it('draws only the RIDDEN car\'s body for its rider\'s client; the car ahead keeps the default (round 2026-10-20c: drawing the whole train for the Pixel rode worse)', () => {
     const route: CoasterRoute = { ...loopRoute(), cars: { count: 3, spacing: 2.25 } };
     // The simulated player reports the Saga's client (`Fancy`); this table names it, so the rider's lag is `bodyLag`.
     const timing = (bodyLag: number) => ({ clientTimings: [{ label: 'probe client', graphicsMode: 'Fancy', animLag: 3.5, bodyLag }] });
@@ -591,15 +591,15 @@ describe('serialized coaster runtime', () => {
       (h.cars[car]!.entity.setProperty.mock.calls as Array<[string, number]>).filter(([n]) => n === 'craftmatic:body_y').map(([, v]) => v);
     const now = ride(0), three = ride(3);
     expect(three.cars[0]!.positions).toEqual(now.cars[0]!.positions);
-    // Car 1 (the front car, no player) and car 2 (the rider's) both show the pose 3 ticks back once the rider's
-    // client is known: the default (`bodyLag` 0 here) is the wrong client's for the car the rider watches.
-    for (const car of [0, 2]) {
-      const p0 = bodyY(now, car), p3 = bodyY(three, car);
-      expect(p3.length).toBe(p0.length);
-      const moved = p0.slice(10).some((v, k) => Math.abs(v - p0[k + 9]!) > 1e-3);
-      expect(moved).toBe(true);
-      for (let k = 10; k < p0.length; k++) expect(p3[k]).toBeCloseTo(p0[k - 3]!, 6);
-    }
+    // Car 3 (the rider's) shows the pose 3 ticks back once the rider's client is known; car 1 (no player) keeps the
+    // default (`bodyLag` 0 here).
+    const moved = (p: number[]) => p.slice(10).some((v, k) => Math.abs(v - p[k + 9]!) > 1e-3);
+    const own0 = bodyY(now, 2), own3 = bodyY(three, 2);
+    expect(moved(own0)).toBe(true);
+    for (let k = 10; k < own0.length; k++) expect(own3[k]).toBeCloseTo(own0[k - 3]!, 6);
+    const ahead0 = bodyY(now, 0), ahead3 = bodyY(three, 0);
+    expect(moved(ahead0)).toBe(true);
+    expect(ahead3).toEqual(ahead0);
   });
 
   it('inverts the cart visually at a loop apex while leaving player rotation upright', () => {
@@ -2504,7 +2504,8 @@ describe('the rider camera follows the track', () => {
     // default) and 3.5 on the Pixel (2026-09-29, by its fingerprint); the eased per-tick camera at ~1.5 (fractional).
     // This loop-mode test keeps the Pixel's 3.5 (LOOP_MODE).
     expect(COASTER_RIDER_VIEW.animLag).toBe(quirkValue('client-entity-lag', 'sagaTicks'));
-    expect(COASTER_RIDER_VIEW.clientTimings?.find(t => t.graphicsMode === 'Deferred')?.animLag).toBe(quirkValue('client-entity-lag', 'ticks'));
+    // The Pixel rides at 3.5 although a camprobe run reads 5.1-5.4 on 1.26.52: planned at 5.5 it rode worse (round 2026-10-20c).
+    expect(COASTER_RIDER_VIEW.clientTimings?.find(t => t.graphicsMode === 'Deferred')?.animLag).toBe(quirkValue('client-entity-lag', 'pixel2651Ticks'));
     expect(COASTER_RIDER_VIEW.tickLag).toBe(1.5);
     expect(COASTER_RIDER_VIEW.mode).toBe('native');
     // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.

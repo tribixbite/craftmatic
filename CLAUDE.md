@@ -369,11 +369,11 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   loops"). A `setCamera` issued while an animation plays takes over at once;
   an animation that ENDS before the next `setCamera` flashes the player's
   own view, so plan it past the hand-back (`animTail`). **The client draws
-  entities behind the server, and the lag follows the GAME VERSION**: the
-  Pixel drew 3.5 ticks on 1.26.51 and 5.1-5.4 on 1.26.52, the Saga 5.7 on
-  1.26.52 (marker runs, `camprobe`; property lead 3.3 vs 4.1; rounds 30zv,
-  2026-10-20a: three rounds of Pixel tuning used a value one update stale -
-  record `versionName` in every device round and re-measure after an update), so a
+  entities behind the server, and PHONES DIFFER**: Pixel 3.5 ticks, Saga 5.7
+  (marker runs, `camprobe`; property lead 3.3 vs 4.1; round 30zv). A 1.26.52
+  camprobe run read the Pixel at 5.3, yet its coaster planned at 5.5 rode WORSE
+  than at 3.5 (round 2026-10-20c): judge a lag by a RIDE, not a probe alone,
+  and record `versionName` in every round (both phones 1.26.52.3), so a
   camera on the server's schedule sits in the car ahead at coaster speed and
   both cameras show a PAST pose. The coaster's timing is per client
   (`clientTimings`, matched on `graphicsMode` + render distance; unknown

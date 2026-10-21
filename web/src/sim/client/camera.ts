@@ -75,9 +75,10 @@ export interface ClientProfile {
 /**
  * The client profile by phone.
  *
- * The Pixel (26.52, round 2026-10-20a): entity lag 5.5 (quirk `client-entity-lag` `ticks`). On 26.51 it
- * drew 3.5 (`pixel2651Ticks`, `clientProfile('pixel-26.51')`): there the eased per-tick camera sat on the
- * drawn marker at 1.5 - the ease's own 2 ticks (quirk `camera-ease-lag`), as every 26.51 Pixel ride read.
+ * The Pixel: entity lag 3.5 (quirk `client-entity-lag` `ticks`), the eased per-tick camera on the drawn
+ * marker at 1.5 - the ease's own 2 ticks (quirk `camera-ease-lag`), as every Pixel ride read (26.51; on 26.52
+ * its coaster ride still does, round 2026-10-20c, though a camprobe run read 5.3: `pixelProbe2652Ticks`).
+ * `clientProfile('pixel-26.51')` is the same client, named for the tests of that era.
  *
  * The Saga (26.52): MEASURED by marker run 2026-10-19 (round 30zv camprobe/proplag): it draws
  * entities 5.7 ticks behind (`sagaTicks`), plays about half the camera ease (`sagaFactor` 0.5) and

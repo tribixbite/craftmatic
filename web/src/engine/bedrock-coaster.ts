@@ -488,9 +488,10 @@ export interface CoasterRiderViewConfig {
    * Script API reports of a player's client: `graphicsMode` and `clientSystemInfo.maxRenderDistance` (every field an
    * entry names must match; the first match wins). A FINGERPRINT of measured phones, not a model of the cause: round
    * 30zv measured the Saga (Fancy, 22) drawing entities 5.7 ticks behind with properties 4.1 early, the Pixel 8 Pro
-   * (Deferred, 24) 3.5 and 3.3 - its 3.5 on Minecraft 1.26.51; on 1.26.52 (installed 2026-10-01, the Saga's build)
-   * it draws 5.1-5.4, stepping up 0.8-1.9 later in a long run under load (round 2026-10-20a), so it plans with 5.5.
-   * The lag follows the game VERSION: re-measure after every update (TODO(client-lag-version)). The defaults are the Saga's (the user's phone); an unknown client gets them, and
+   * (Deferred, 24) 3.5 and 3.3. On Minecraft 1.26.52 a camprobe run reads the Pixel's entity lag 5.1-5.4 (round
+   * 2026-10-20a), but a coaster planned at 5.5 rode WORSE there (round 2026-10-20c: the camera inside the car ahead's
+   * rider in every loop 1; at 3.5, 30zz, only late in loop 2 of car 2), so the Pixel keeps 3.5. TODO(pixel-ride-lag):
+   * why the probe and the ride disagree on the Pixel (the Saga's 5.7 holds in both). The defaults are the Saga's (the user's phone); an unknown client gets them, and
    * `debug` logs every client's fingerprint so a new phone can be measured and added.
    */
   clientTimings?: ReadonlyArray<CoasterClientTiming>;
@@ -556,7 +557,7 @@ export interface CoasterRiderViewConfig {
  * "The rider's camera follows the track" section.
  */
 export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'native', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 8, animLag: 5.7, bodyLag: 4.1,
-  clientTimings: [{ label: 'Pixel 8 Pro (Deferred, render distance 24; rounds 30zt, 2026-10-20a)', graphicsMode: 'Deferred', maxRenderDistance: 24, animLag: 5.5, bodyLag: 3.3 }], animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
+  clientTimings: [{ label: 'Pixel 8 Pro (Deferred, render distance 24; rounds 30zt, 2026-10-20a)', graphicsMode: 'Deferred', maxRenderDistance: 24, animLag: 3.5, bodyLag: 3.3 }], animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
   steepTilt: 25, steepSpeed: 5, blendTicks: 6, sectionGap: 12, sectionHorizon: 160 };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
@@ -3578,22 +3579,12 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         stage = 'animate cart';
         // A value outside a declared actor-property range throws, which would
         // otherwise untrack the cart mid-ride; the angles are already in range.
-        // Every car of a train is drawn for the client of the rider nearest it (its own rider first): a rider in car
-        // 2 or 3 watches the car AHEAD through the loops, and that car's pose properties land as early on the
-        // rider's client as their own car's do. Before, a car with no player drew for the default client (the
-        // Saga's 4.1), 0.8 tick off the Pixel's 3.3 (Pixel round 30zz, car 2: the rider ahead swept into the view).
-        const timedCars = frames.filter((frame: any) => frame.car.state && ticks - frame.car.state.bodyLagAt <= 40);
-        const viewerLag = (frame: any): number | undefined => {
-          let best: any = null, gap = Infinity;
-          for (const timed of timedCars) {
-            const g = Math.abs(timed.car.slot - frame.car.slot);
-            if (g < gap) { gap = g; best = timed; }
-          }
-          return best ? best.car.state.bodyLag : undefined;
-        };
+        // A car a player rides draws its body for that player's client; every other car for the default client.
+        // (Drawing the whole train for its rider's client, efb13281, rode worse on the Pixel: round 2026-10-20c had
+        // the camera inside the car ahead's rider in every loop 1, 30zz only late in loop 2. Reverted.)
         for (const frame of frames) {
           // The body pose `bodyLag` ticks back (`CoasterRiderViewConfig.bodyLag`), from this car's recent poses.
-          const st = frame.car.state, riderLag = viewerLag(frame);
+          const st = frame.car.state, riderLag = st && ticks - st.bodyLagAt <= 40 ? st.bodyLag : undefined;
           const shown = bodyPoseBehind(st, { pitch: frame.pitch, roll: frame.roll, body: frame.body }, riderLag !== undefined && Number.isFinite(riderLag) ? riderLag : BODY_LAG);
           frame.car.entity.setProperty('craftmatic:track_pitch', Math.max(-180, Math.min(180, shown.pitch)));
           frame.car.entity.setProperty('craftmatic:track_roll', Math.max(-180, Math.min(180, shown.roll)));

@@ -69,10 +69,10 @@ describe('the client model: numbers and derivations', () => {
     expect(drawnCameraLead(23, 3.5, 0, old)).toBeCloseTo(0, 9);
   });
 
-  it('the Pixel on 1.26.52 (round 2026-10-20a, the Saga\'s build): entity lag 5.5, and the shipped Pixel animation lag rides its drawn seat', () => {
+  it('the Pixel on 1.26.52 rides as at 3.5 (round 2026-10-20c), though a camprobe run there read 5.3 (round 2026-10-20a, TODO(pixel-ride-lag)); the shipped Pixel animation lag rides its drawn seat', () => {
     const pixel = clientProfile('pixel');
-    expect(pixel.entityLagTicks).toBe(5.5);
-    expect(pixel.basis).toBe('measured');
+    expect(pixel.entityLagTicks).toBe(3.5);
+    expect(quirkValue('client-entity-lag', 'pixelProbe2652Ticks')).toBe(5.3);
     const pixelAnimLag = COASTER_RIDER_VIEW.clientTimings!.find(t => t.graphicsMode === pixel.device.graphicsMode && t.maxRenderDistance === pixel.device.maxRenderDistance)!.animLag;
     expect(drawnCameraLead(23, pixelAnimLag, 0, pixel)).toBeCloseTo(0, 9);
   });
