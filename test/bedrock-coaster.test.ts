@@ -1930,7 +1930,7 @@ async function corpusRoutes(file: string) {
 }
 
 describe('the car parts in front of its rider\'s eye (riderViewBricks, COAST-06: the loops\' lap bar)', () => {
-  it('takes a part rising over the hips just ahead of the eye, and leaves the seat back, the floor, the hull, the far nose, the roof and the side', () => {
+  it('takes a part rising to the chest just ahead of the eye, and leaves the seat back, the floor, the hull, the far nose, the roof, the side, a low nose and a side panel', () => {
     // The car's LDraw frame with its nose along +x (`ldrawToRenderRotation('+x')`): y is DOWN, the hips at the origin,
     // the eye 55 LDU over them.
     const frame = ldrawToRenderRotation('+x');
@@ -1943,10 +1943,12 @@ describe('the car parts in front of its rider\'s eye (riderViewBricks, COAST-06:
       box([60, -40, -10], [70, -20, 10]), // 4: the far nose, past the reach
       box([0, -100, -20], [30, -80, 20]), // 5: a roof over the head
       box([10, -40, 50], [30, -20, 70]), // 6: beside the car, out of the eye's column
+      box([10, -9, -20], [50, 0, 20]), // 7: a low nose brick, 9 over the hips (10303's white 44861)
+      box([-50, -31, 20], [10, 0, 40]), // 8: a seat-side slope running past the eye, centred beside it (10303's 4286)
     ];
     expect(riderViewBricks(boxes, [0, 0, 0], frame)).toEqual([0]);
     // The rule's region, so a change to it is a change to this test.
-    expect(RIDER_VIEW).toEqual({ aboveHips: 8, overEye: 8, minAhead: 4, reach: 40, halfWidth: 30, maxSpan: 80 });
+    expect(RIDER_VIEW).toEqual({ aboveHips: 25, overEye: 8, minAhead: 4, reach: 40, halfWidth: 30, maxSpan: 80 });
     expect(RIDER_VIEW_BONE).toBe('view');
   });
 });
@@ -1995,7 +1997,8 @@ describe.skipIf(!HAVE_CORPUS)('10303 Loop Coaster: its own three cars, its platf
       }
       // The lap bar in front of the rider's eye is on the `view` bone, hidden while a player rides (COAST-06: both
       // phones drew it across the loops, rounds 30zs-2026-10-20b).
-      expect(geometry.some((mesh: any) => mesh.bones.some((b: any) => b.name === RIDER_VIEW_BONE && b.cubes?.length))).toBe(true);
+      // (The bar is a turned part: its cubes sit on a rotated child bone of `view`.)
+      expect(geometry.some((mesh: any) => mesh.bones.some((b: any) => (b.name === RIDER_VIEW_BONE || b.parent === RIDER_VIEW_BONE) && b.cubes?.length))).toBe(true);
       expect(assets.types[car.typeId]!.view).toBe(true);
       expect((car.behavior as any)['minecraft:entity'].description.properties['craftmatic:occupied']).toBeDefined();
       const rideable = (car.behavior as any)['minecraft:entity'].components['minecraft:rideable'];

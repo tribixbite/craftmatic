@@ -121,7 +121,7 @@
  * the set's own rails, snapped onto the terminals it was measured against.
  */
 import { buildCoasterFrames, buildCoasterPath, sampleCoasterPath, type CoasterPath, type CoasterVec3 } from './coaster-path.js';
-import type { PartGeometryProvider, Vec3 } from './ldraw-part-geometry.js';
+import { createPartGeometryProvider, type PartGeometryProvider, type Vec3 } from './ldraw-part-geometry.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 import { geometryHitBox, sizeHitBox, withSizeGroups, type HitTestBox, type PlacementActor } from './bedrock-placement-pack.js';
 import { renderSeatToEntity } from './cockpit-seat.js';
@@ -1839,12 +1839,13 @@ const COASTER_README = (own: boolean, lift: boolean): string => [
 export const RIDER_VIEW_BONE = 'view';
 /**
  * What `riderViewBricks` counts as in front of the rider's eye, LDU in the car's render frame (+Y up, the nose at
- * -Z; a minifig is 40 LDU wide, its hips-to-eye 55): a part that rises at least `aboveHips` over the hips, starts
- * below `overEye` over the eye, reaches at least `minAhead` ahead of the eye and starts within `reach` of it, overlaps
- * the eye's column within `halfWidth` either side, and is no longer than `maxSpan` along any axis (the hull and the
- * chassis wrap the seat: they stay).
+ * -Z; a minifig is 40 LDU wide, its hips-to-eye 55): a part that rises at least `aboveHips` over the hips (chest
+ * height: 10303's white nose bricks rise 9 and stay), starts below `overEye` over the eye, has its CENTRE at least
+ * `minAhead` ahead of the eye (its seat-side slopes run past the eye but centre beside it: they stay) and starts
+ * within `reach` of it, overlaps the eye's column within `halfWidth` either side, and is no longer than `maxSpan`
+ * along any axis (the hull and the chassis wrap the seat: they stay). On 10303 it takes the lap bar (35654) alone.
  */
-export const RIDER_VIEW = { aboveHips: 8, overEye: 8, minAhead: 4, reach: 40, halfWidth: 30, maxSpan: 80 } as const;
+export const RIDER_VIEW = { aboveHips: 25, overEye: 8, minAhead: 4, reach: 40, halfWidth: 30, maxSpan: 80 } as const;
 /**
  * The car's own parts that stand in front of its seated rider's eye, by index: hidden while a player rides it (the
  * `view` bone, scale 0 while `craftmatic:occupied`), as the car's posed rider is. Through 10303's loops both phones
@@ -1866,7 +1867,7 @@ export function riderViewBricks(boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>, 
     }
     if (Math.max(max[0]! - min[0]!, max[1]! - min[1]!, max[2]! - min[2]!) > P.maxSpan) return;
     if (max[1]! < hips[1]! + P.aboveHips || min[1]! > eye[1]! + P.overEye) return;
-    if (min[2]! > eye[2]! - P.minAhead || max[2]! < eye[2]! - P.reach) return;
+    if ((min[2]! + max[2]!) / 2 > eye[2]! - P.minAhead || max[2]! < eye[2]! - P.reach) return;
     if (min[0]! > eye[0]! + P.halfWidth || max[0]! < eye[0]! - P.halfWidth) return;
     out.push(i);
   });
@@ -1913,6 +1914,7 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
   }
   // ── The set's own cars, one compile per type ──
   const carFrame = ldrawToRenderRotation('+x');
+  let viewProvider: PartGeometryProvider | undefined;
   for (const type of plan.types) {
     deps.onProgress?.(`compiling ${label} ${type.chassis} ride car`);
     const bricks: ParsedBrick[] = [...type.bricks];
@@ -1920,8 +1922,10 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
     const rigBones: EntityRig['bones'] = [];
     // The car's own bricks in front of its rider's eye leave the view while a player rides it (the loops' lap bar).
     let viewHidden: number[] = [];
-    if (type.seatLdu && deps.partGeometry) {
-      const meshes = await Promise.all(type.bricks.map(b => deps.partGeometry!.getPartMesh(b.part).catch(() => null)));
+    if (type.seatLdu) {
+      // The compiler's own provider when the caller passes none (the CLI build): the boxes must be the drawn parts'.
+      const provider = deps.partGeometry ?? (viewProvider ??= createPartGeometryProvider());
+      const meshes = await Promise.all(type.bricks.map(b => provider.getPartMesh(b.part).catch(() => null)));
       viewHidden = riderViewBricks(type.bricks.map((b, i) => placementBox(b, meshes[i])), type.seatLdu, carFrame);
       if (viewHidden.length) {
         rigBones.push({ name: RIDER_VIEW_BONE, parent: 'body', pivotLdu: [0, 0, 0] });
