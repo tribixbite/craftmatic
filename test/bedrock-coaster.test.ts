@@ -569,8 +569,8 @@ describe('serialized coaster runtime', () => {
     expect(Math.max(...props(now, 'craftmatic:track_pitch').map(Math.abs))).toBeGreaterThan(95);
     // The shipped lags are the measured property leads: the default the Saga's (round 30zv, the user's phone), the
     // Pixel's by its fingerprint (round 30zt) - and every pack carries them.
-    expect(COASTER_RIDER_VIEW.bodyLag).toBe(quirkValue('property-ahead-of-position', 'sagaLeadTicks'));
-    expect(COASTER_RIDER_VIEW.clientTimings?.find(t => t.graphicsMode === 'Deferred')?.bodyLag).toBe(quirkValue('property-ahead-of-position', 'pixelLeadTicks'));
+    expect(COASTER_RIDER_VIEW.bodyLag).toBe(quirkValue('property-ahead-of-position', 'sagaRideLeadTicks'));
+    expect(COASTER_RIDER_VIEW.clientTimings?.find(t => t.graphicsMode === 'Deferred')?.bodyLag).toBe(quirkValue('property-ahead-of-position', 'pixelRideLeadTicks'));
     expect(coasterRuntimeConfig('craftmatic:x', [loopRoute()]).camera!.bodyLag).toBe(COASTER_RIDER_VIEW.bodyLag);
   });
 

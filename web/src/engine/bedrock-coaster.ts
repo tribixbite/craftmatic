@@ -468,7 +468,10 @@ export interface CoasterRiderViewConfig {
    * interpolated position. A property the client applies earlier than the position it was sent with turns the body
    * ahead of the car: through a loop the rider's view filled with its own car's bodywork on both phones (round 30zs).
    * MEASURED 3.3 (Pixel probe round 30zt, quirk `property-ahead-of-position`: a property lands 3.30-3.41 ticks before
-   * the position sent with it, at 5, 10 and 20 blocks/s). Fractional: interpolated between two ticks' poses. Absent = 0.
+   * the position sent with it, at 5, 10 and 20 blocks/s) and 4.1 on the Saga (30zv) beside a probe entity; in the ride
+   * the Saga's fits 6 (`sagaRideLeadTicks`: at 4.1 the own lap bar crossed the view in the loops, round 30zz), which
+   * the default carries; the Pixel's 5.3 is its 3.3 plus the Saga's in-ride 2, ASSUMED (its loops showed the same bar
+   * in 30zz; TODO(pixel-ride-lead): confirm on a ride). Fractional: interpolated between two ticks' poses. Absent = 0.
    */
   bodyLag?: number;
   /**
@@ -552,8 +555,8 @@ export interface CoasterRiderViewConfig {
  * always sets where "ahead" is. Values chosen and measured in the guide's
  * "The rider's camera follows the track" section.
  */
-export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'native', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 8, animLag: 5.7, bodyLag: 4.1,
-  clientTimings: [{ label: 'Pixel 8 Pro (Deferred, render distance 24; rounds 30zt, 2026-10-20a)', graphicsMode: 'Deferred', maxRenderDistance: 24, animLag: 5.5, bodyLag: 3.3 }], animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
+export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'native', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 8, animLag: 5.7, bodyLag: 6,
+  clientTimings: [{ label: 'Pixel 8 Pro (Deferred, render distance 24; rounds 30zt, 2026-10-20a)', graphicsMode: 'Deferred', maxRenderDistance: 24, animLag: 5.5, bodyLag: 5.3 }], animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
   steepTilt: 25, steepSpeed: 5, blendTicks: 6, sectionGap: 12, sectionHorizon: 160 };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
