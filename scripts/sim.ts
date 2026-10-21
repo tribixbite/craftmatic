@@ -61,6 +61,7 @@
  *                rules (the box-UV faces the device drops, coplanar fights as hatch pixels, the
  *                LOD hull by the drawn camera): `no-visible-hatch-near`, `no-dropped-face-in-view`
  *                per shot; `--hatch` also paints the hatch pixels magenta.
+ *   --fov=       vertical field of view of the pictures (`--frames=`), degrees (default 70: the snapshot's assumed FOV).
  *   --client=    the client profile every client step reports for (default pixel; coaster-camera: both).
  *   --cars=      coaster-camera: ride each of these cars, 1 = the front car (`--cars=1,2,3`); default the nearest.
  *   --prop-lead= ticks the client applies actor properties (a coaster car's pitch / roll / body bones) before
@@ -129,7 +130,8 @@ const propLeadFlag = flag('prop-lead') !== undefined ? Number(flag('prop-lead'))
 const carsFlag = flag('cars')?.split(',').map(n => Number(n) - 1).filter(n => Number.isInteger(n) && n >= 0);
 /** Child-play's pictures go through the client when any device rule is asked for. */
 const clientShots = !!(uvFloorFlag || hatchFlag || lodFlag);
-const clientStepOptions = { ...(uvFloorFlag ? { uvFloor: uvFloorFlag } : {}), lod: lodFlag || mode === 'walk-away', paintHatch: hatchFlag, frames: !!framesDir, ...(lagsFlag?.length ? { lags: lagsFlag } : {}) };
+const fovFlag = Number(flag('fov'));
+const clientStepOptions = { ...(Number.isFinite(fovFlag) && fovFlag > 0 ? { fovDeg: fovFlag } : {}), ...(uvFloorFlag ? { uvFloor: uvFloorFlag } : {}), lod: lodFlag || mode === 'walk-away', paintHatch: hatchFlag, frames: !!framesDir, ...(lagsFlag?.length ? { lags: lagsFlag } : {}) };
 /** The run options that attach the client and its invariants to a scenario. */
 const clientRun = (profile: ClientProfileName): Pick<RunOptions, 'invariants' | 'prepare'> => ({ invariants: clientInvariants({ seatCamera: craftmaticSeatCamera() }), prepare: (sim, player) => { attachClient(sim, player, propLeadFlag !== undefined && Number.isFinite(propLeadFlag) ? { ...clientProfile(profile), propertyLeadTicks: propLeadFlag } : profile); } });
 /**

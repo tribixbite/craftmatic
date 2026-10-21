@@ -72,6 +72,8 @@ export interface ClientStepOptions {
   frames?: boolean;
   /** Candidate cockpit camera lags to re-derive the device brackets for (default 1.5, 3, 4: the two rounds' and the shipped one). */
   lags?: number[];
+  /** Vertical field of view of the pictures, degrees (default the snapshot's 70; quirk `touch-screen-pick` records it as assumed). */
+  fovDeg?: number;
 }
 
 /** A picture a client step took: child-play's `Snapshot` plus what it measured and the camera it was drawn from. */
@@ -128,7 +130,7 @@ export const VIEW_COVER_MAX_SHARE = 0.4;
 export function clientSteps(pack: CraftmaticPack, appearance: AddonAppearance, options: ClientStepOptions = {}, profile: ClientProfileName = 'pixel'): Record<string, StepHandler> {
   const client = (ctx: StepContext): ClientView => ClientView.of(ctx.sim.engine) ?? attachClient(ctx.sim, ctx.player, profile);
   const shotOf = (ctx: StepContext, name: string, size = { width: 480, height: 270 }): ClientShot => {
-    const r = clientSnapshot(ctx.sim.engine, appearance, ctx.player, client(ctx), { ...size, uvFloor: options.uvFloor ?? 'v', lod: options.lod ?? true, paintHatch: !!options.paintHatch });
+    const r = clientSnapshot(ctx.sim.engine, appearance, ctx.player, client(ctx), { ...size, uvFloor: options.uvFloor ?? 'v', lod: options.lod ?? true, paintHatch: !!options.paintHatch, ...(options.fovDeg ? { fovDeg: options.fovDeg } : {}) });
     return { name, width: r.width, height: r.height, rgb: r.rgb, metrics: r.metrics, camera: { mode: r.camera.mode, eye: pt(r.camera.eye), yaw: r2(r.camera.yaw), pitch: r2(r.camera.pitch), roll: r2(r.camera.roll) } };
   };
   const keep = (ctx: StepContext, key: 'snapshots' | 'frames', shot: ClientShot): void => { ctx.state[key] = [...((ctx.state[key] as ClientShot[] | undefined) ?? []), shot]; };

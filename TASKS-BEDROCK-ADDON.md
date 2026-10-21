@@ -45,19 +45,24 @@ drop cut; superseded by the 19c3986b zip (below).
   frames every lap (Saga: smooth), car 3 lap 2 a whole-view grey slab 2 frames (106.71/106.77), the hull band in both
   loops unchanged (band2 0.15-3.24 s a lap), car 2's rider ahead a translucent yellow wash in loop 2. The Pixel's
   content log flushes on HOME, not Save & Quit. Probe packs with `camera.debug` (`-19zx/probe-9eda695f`, `-19zy/probe-20e8de92`): never ship.
-- 2026-10-20 (COAST-06): the band is the CAR AHEAD seen close (its black restraint, seat back and pink-haired rider:
-  `output/device-round-2026-10-19zz/saga/frames/C-car2-zoom-lap1.jpg`), not the own hull. Server ticks are NOT the
-  cause: 19.96 ticks/s over every probe ride, slow seconds never inside an animation (scratch `tps2.py` over the 30zx/30zy
-  `native-debug` logs). Fixed offline: every car of a train draws its body for the client of its nearest rider (before:
-  only the rider's own car; the car ahead used the Saga's 4.1 on the Pixel, 0.8 tick off). OPEN: on the Pixel car 2's
-  camera sat INSIDE the rider ahead late in loop 2 and snapped back at the hand-back (30zz), i.e. the camera LEADS
-  the drawn train there. Hypothesis: the Pixel's entity lag (3.5, measured light: probe packs only, nothing placed)
-  is larger under load or grows during a long animation. Probe round 2026-10-20a (Pixel, camprobe E runs light vs
-  with 10303 placed, plus 10 s runs for drift): `output/device-round-2026-10-20a/brief-pixel-20a.md`, results in
-  `pixel/notes.md`. Sim ride car 2 Saga with frames: `output/coast06-band-1020/` (compare with the Saga frames).
-- The wand's Undo left 10303's entities (and the tower) on the Saga in 30zx after a re-placement on top of an earlier
-  one ("Nothing to undo" on the 3rd try; `output/device-round-2026-10-19zx/saga/notes.md` "Wand Undo"); a single
-  placement undid fine in 30zw/30zy. Not investigated.
+- 2026-10-20 (COAST-06) THE LOOPS' BAND, read: it is the OWN car's black lap bar (bone `r13`, swatch 0, a body child in
+  every car - not a rider) with the car ahead behind it (`output/device-round-2026-10-19zz/saga/rec/C-car2.mp4` 48.5 s
+  beside the car render). The simulator draws the same plan with NO bar in view even at 82 degrees
+  (`output/coast06-band-1020{,-fov82}/frames`, `sim.ts --fov=`), and agrees with the phone through the level run and the
+  drop's start: only in the loops does the phone's camera point ~20 degrees further DOWN relative to the own car (near
+  and far shift alike: a rotation, not the eye). Saga FOV setting is the default 60 (`output/device-round-2026-10-20a/
+  options-fov.md`; the Pixel's file is private, no root); Pixel measured ~72 degrees vertical (pillar fit, 30zy).
+  Hypothesis: the client applies rotation keyframes ~2 ticks behind the position keyframes (a loop turns ~12 deg/tick).
+  Probe RUNNING: Saga camprobe v9 `step` (`output/device-round-2026-10-20a/brief-saga-20a.md`, analyser
+  `camprobe/step_onsets.py`): R = (G_P - G_R)/2 x 20 ticks. If R ~ 2: write each rotation keyframe R ticks EARLY
+  (a per-client `rotationLead` beside `animLag`) and re-ride. Server ticks are NOT the cause (19.96/s on both phones;
+  slow seconds never inside an animation). Fixed offline (efb13281): every car of a train draws its body for the
+  client of its nearest rider. Pixel probe RUNNING (`brief-pixel-20a.md`): its entity lag light vs with 10303 placed,
+  and drift over 10 s - car 2's camera sat inside the rider ahead late in loop 2 and snapped back at the hand-back (30zz).
+- Wand Undo (30zx "left 10303's entities"): NOT reproduced - Undo removed everything in 30zy and 30zz on both phones,
+  and 30zx's own shot of the tap (`output/device-round-2026-10-19zx/saga/shots/u1-menu.jpg`) shows "Lighting / night
+  vision" highlighted, with no "Undo complete" toast in any shot: most likely a mis-tap. Device briefs: confirm the
+  toast after every Undo.
 - Still open: the hull band in the loops (both phones); the hand-back snap (Saga car 2); from car 3 a posed rider's
   pink hair fills the lower right (`output/device-round-2026-10-19zu/pixel/frames/C-car3-drop-lap1-b.jpg`).
 - PIN-02: Saga busy median 8.6 ms with all 26 bound (30zs 8.8); `Entity::isValid` at roster.js:29 is the top self
