@@ -23,13 +23,15 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   1.26.52 camprobe lag 5.5 and every car of a train drawn for its rider's client (20c: the Pixel's camera inside the car
   ahead's rider in every loop 1). The Pixel's probe (5.3) and ride (3.5) disagree: TODO(pixel-ride-lag).
   Rotation/position keyframes share one clock (Saga camprobe v9 `step`); `rotationLead` exists, unset.
-- OPEN (COAST-06): the camera grazes the car ahead at loop entries - Saga car 2 0.1-0.3 s translucent washes a lap
-  (20c); Pixel ~1 s every loop 1 in 20c (to re-ride on the reverted timing: if as 30zz, only late loop 2 of car 2).
-  10303's cars are 2.25 blocks apart and the eye rides 1.12 over the seat, so in a loop the car ahead's rider sits
-  ~1 block from it. Ideas, unmeasured: a lower or more rearward eye during the animation only.
-- NEXT: build all 26 + creator + nimbus (`bash output/device-round-2026-10-20d/build.sh`, folders named by the commit)
-  from the commit after the 20c reverts, sim gate, share the zip (with PACKS.md: lap bar gone, the grazing open, the
-  memory note: a phone short of memory binds fewer packs per world).
+- OPEN (COAST-06): the camera grazes the car ahead - Saga car 2 0.1-0.3 s translucent washes at loop entries a lap
+  (20c); Pixel on the 30zz timing (round 2026-10-20d, `output/device-round-2026-10-20d/pixel/notes.md`): loop 1 clear,
+  car 2's loop 2 inside the rider ahead 0.4 / 1.0 / 1.3 s (as 30zz), car 3 clean, a 1-frame pale panel at 3 of 6
+  hand-backs. 10303's cars are 2.25 blocks apart and the eye rides 1.12 over the seat: in a loop the car ahead's rider
+  sits ~1 block from it. Ideas, unmeasured: a lower or more rearward eye during the animation only. The simulator does
+  not reproduce the grazing (its `eye inside bodywork` reads 0 on both clients).
+- SHARE: the full 20d build (`output/device-round-2026-10-20d/packs-073c72ee/`, `bash output/device-round-2026-10-20d/
+  build.sh`, log `build.log`) -> share folder + zip with PACKS.md (lap bar gone; the grazing open; a phone short of
+  memory binds fewer packs per world).
 - Wand Undo (30zx "left 10303's entities"): NOT reproduced - Undo removed everything in 30zy and 30zz on both phones;
   30zx's shot (`output/device-round-2026-10-19zx/saga/shots/u1-menu.jpg`) shows "Lighting / night vision" highlighted
   and no "Undo complete" toast: a mis-tap. Briefs now confirm the toast after every Undo.
