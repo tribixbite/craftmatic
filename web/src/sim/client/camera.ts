@@ -87,8 +87,8 @@ export interface ClientProfile {
 export function clientProfile(name: ClientProfileName | 'pixel-26.51'): ClientProfile {
   if (name === 'pixel-26.51') return { ...clientProfile('pixel'), entityLagTicks: quirkValue('client-entity-lag', 'pixel2651Ticks') };
   return name === 'saga'
-    ? { name, entityLagTicks: quirkValue('client-entity-lag', 'sagaTicks'), easeFactor: quirkValue('camera-ease-lag', 'sagaFactor'), basis: 'measured', propertyLeadTicks: quirkValue('property-ahead-of-position', 'sagaRideLeadTicks'), device: { graphicsMode: 'Fancy', maxRenderDistance: 22, memoryTier: 4 } }
-    : { name: 'pixel', entityLagTicks: quirkValue('client-entity-lag', 'ticks'), easeFactor: quirkValue('camera-ease-lag', 'pixelFactor'), basis: 'measured', propertyLeadTicks: quirkValue('property-ahead-of-position', 'pixelRideLeadTicks'), device: { graphicsMode: 'Deferred', maxRenderDistance: 24, memoryTier: 4 } };
+    ? { name, entityLagTicks: quirkValue('client-entity-lag', 'sagaTicks'), easeFactor: quirkValue('camera-ease-lag', 'sagaFactor'), basis: 'measured', propertyLeadTicks: quirkValue('property-ahead-of-position', 'sagaLeadTicks'), device: { graphicsMode: 'Fancy', maxRenderDistance: 22, memoryTier: 4 } }
+    : { name: 'pixel', entityLagTicks: quirkValue('client-entity-lag', 'ticks'), easeFactor: quirkValue('camera-ease-lag', 'pixelFactor'), basis: 'measured', propertyLeadTicks: quirkValue('property-ahead-of-position', 'pixelLeadTicks'), device: { graphicsMode: 'Deferred', maxRenderDistance: 24, memoryTier: 4 } };
 }
 
 /**

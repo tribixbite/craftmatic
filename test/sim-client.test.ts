@@ -80,7 +80,7 @@ describe('the client model: numbers and derivations', () => {
   it('the Saga, MEASURED by marker (round 30zv): entity lag 5.7, half the ease, properties 4.1 early; the shipped default animation lag rides its drawn seat; of the older cockpit brackets it fits the 30k pair, the 30l pair read ~0.75 tick more lag', () => {
     const saga = clientProfile('saga');
     expect(saga.basis).toBe('measured');
-    expect(saga.entityLagTicks).toBe(5.7); expect(saga.easeFactor).toBe(0.5); expect(saga.propertyLeadTicks).toBe(6);
+    expect(saga.entityLagTicks).toBe(5.7); expect(saga.easeFactor).toBe(0.5); expect(saga.propertyLeadTicks).toBe(4.1);
     // The coaster's defaults are the Saga's (the user's phone): the animation over its drawn seat.
     expect(drawnCameraLead(23, COASTER_RIDER_VIEW.animLag, 0, saga)).toBeCloseTo(0, 9);
     // The packs' order: vehicle-camera.js reads the vehicle before vehicles.js moves it (+1 tick on the server's clock).
@@ -203,7 +203,7 @@ describe('the drawn poses', () => {
     // The value of the last whole tick at or before now - lag (+ lead): applied, not interpolated (12 at now).
     expect(inStep.value).toBe(12 - Math.ceil(inStep.lag));
     expect(ahead.value).toBe(12 - Math.ceil(ahead.lag - 2));
-    expect(quirk('property-ahead-of-position').values).toEqual({ pixelLeadTicks: 3.3, sagaLeadTicks: 4.1, sagaRideLeadTicks: 6, pixelRideLeadTicks: 5.3 });
+    expect(quirk('property-ahead-of-position').values).toEqual({ pixelLeadTicks: 3.3, sagaLeadTicks: 4.1 });
   });
 
   it('poses a bone as the add-on preview does: T(position) T(pivot) R(bind + animated) S T(-pivot)', () => {

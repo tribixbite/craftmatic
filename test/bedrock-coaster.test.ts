@@ -10,6 +10,8 @@ import type { CoasterCar } from '../web/src/engine/coaster-assemblies.js';
 import { detectCoasterAssemblies } from '../web/src/engine/coaster-assemblies.js';
 import { FLYER } from '../web/src/engine/bedrock-flyer.js';
 import { quirkValue } from '../web/src/sim/quirks/registry.js';
+import { riderViewBricks, RIDER_VIEW, RIDER_VIEW_BONE } from '../web/src/engine/bedrock-coaster.js';
+import { ldrawToRenderRotation } from '../web/src/engine/ldraw-entity-compiler.js';
 import { keyframeView } from '../web/src/sim/client/camera.js';
 import { HOP_TAGS } from '../web/src/engine/bedrock-ride-hop.js';
 import { CAMERA_OWNER_TAG, CAMERA_SWEEP_TICKS } from '../web/src/engine/camera-release.js';
@@ -569,8 +571,8 @@ describe('serialized coaster runtime', () => {
     expect(Math.max(...props(now, 'craftmatic:track_pitch').map(Math.abs))).toBeGreaterThan(95);
     // The shipped lags are the measured property leads: the default the Saga's (round 30zv, the user's phone), the
     // Pixel's by its fingerprint (round 30zt) - and every pack carries them.
-    expect(COASTER_RIDER_VIEW.bodyLag).toBe(quirkValue('property-ahead-of-position', 'sagaRideLeadTicks'));
-    expect(COASTER_RIDER_VIEW.clientTimings?.find(t => t.graphicsMode === 'Deferred')?.bodyLag).toBe(quirkValue('property-ahead-of-position', 'pixelRideLeadTicks'));
+    expect(COASTER_RIDER_VIEW.bodyLag).toBe(quirkValue('property-ahead-of-position', 'sagaLeadTicks'));
+    expect(COASTER_RIDER_VIEW.clientTimings?.find(t => t.graphicsMode === 'Deferred')?.bodyLag).toBe(quirkValue('property-ahead-of-position', 'pixelLeadTicks'));
     expect(coasterRuntimeConfig('craftmatic:x', [loopRoute()]).camera!.bodyLag).toBe(COASTER_RIDER_VIEW.bodyLag);
   });
 
@@ -1927,6 +1929,28 @@ async function corpusRoutes(file: string) {
   return { bricks: doc.bricks, provider, scene: coasterRoutesFromAssemblies(tracks, assemblies, doc.bricks, CORPUS_FRAME) };
 }
 
+describe('the car parts in front of its rider\'s eye (riderViewBricks, COAST-06: the loops\' lap bar)', () => {
+  it('takes a part rising over the hips just ahead of the eye, and leaves the seat back, the floor, the hull, the far nose, the roof and the side', () => {
+    // The car's LDraw frame with its nose along +x (`ldrawToRenderRotation('+x')`): y is DOWN, the hips at the origin,
+    // the eye 55 LDU over them.
+    const frame = ldrawToRenderRotation('+x');
+    const box = (min: Vec3, max: Vec3) => ({ min, max });
+    const boxes = [
+      box([10, -40, -20], [30, -20, 20]), // 0: a lap bar a stud ahead, chest high: hidden
+      box([-30, -60, -20], [-10, 0, 20]), // 1: the seat back, behind the rider
+      box([-20, 0, -20], [40, 10, 20]), // 2: the floor under the hips
+      box([-60, -30, -40], [60, 10, 40]), // 3: the hull round the seat (120 LDU long)
+      box([60, -40, -10], [70, -20, 10]), // 4: the far nose, past the reach
+      box([0, -100, -20], [30, -80, 20]), // 5: a roof over the head
+      box([10, -40, 50], [30, -20, 70]), // 6: beside the car, out of the eye's column
+    ];
+    expect(riderViewBricks(boxes, [0, 0, 0], frame)).toEqual([0]);
+    // The rule's region, so a change to it is a change to this test.
+    expect(RIDER_VIEW).toEqual({ aboveHips: 8, overEye: 8, minAhead: 4, reach: 40, halfWidth: 30, maxSpan: 80 });
+    expect(RIDER_VIEW_BONE).toBe('view');
+  });
+});
+
 describe.skipIf(!HAVE_CORPUS)('10303 Loop Coaster: its own three cars, its platform lift and its counterweight', () => {
   it('builds one circuit through the elevator, with the cars compiled from their own bricks', async () => {
     const { scene, provider } = await corpusRoutes(PUBLISHED_10303);
@@ -1969,6 +1993,11 @@ describe.skipIf(!HAVE_CORPUS)('10303 Loop Coaster: its own three cars, its platf
         expect(names.slice(0, 2)).toEqual(['track_pitch', 'track_roll']);
         expect(mesh.bones.filter((b: any) => !b.parent).map((b: any) => b.name)).toEqual(['track_pitch']);
       }
+      // The lap bar in front of the rider's eye is on the `view` bone, hidden while a player rides (COAST-06: both
+      // phones drew it across the loops, rounds 30zs-2026-10-20b).
+      expect(geometry.some((mesh: any) => mesh.bones.some((b: any) => b.name === RIDER_VIEW_BONE && b.cubes?.length))).toBe(true);
+      expect(assets.types[car.typeId]!.view).toBe(true);
+      expect((car.behavior as any)['minecraft:entity'].description.properties['craftmatic:occupied']).toBeDefined();
       const rideable = (car.behavior as any)['minecraft:entity'].components['minecraft:rideable'];
       expect(rideable.seats.position[1]).toBeGreaterThanOrEqual(0.3);
       expect(Math.abs(rideable.seats.position[2])).toBeLessThan(0.5);

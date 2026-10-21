@@ -125,6 +125,7 @@ import type { PartGeometryProvider, Vec3 } from './ldraw-part-geometry.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 import { geometryHitBox, sizeHitBox, withSizeGroups, type HitTestBox, type PlacementActor } from './bedrock-placement-pack.js';
 import { renderSeatToEntity } from './cockpit-seat.js';
+import { placementBox } from './scene-vehicles.js';
 import { bedrockJsonText, floatActorProperty } from './bedrock-json.js';
 import { boxUvSafeCube, compileLdrawEntityGeometry, ldrawToRenderRotation, type CompiledLdrawGeometry } from './ldraw-entity-compiler.js';
 import type { EntityRig } from './minifig-rig.js';
@@ -350,7 +351,7 @@ export interface CoasterRuntimeRoute {
  * blocks, entity frame), both filled by `buildCoasterRideAssets`, which is
  * where the compiled body and the export scale are known.
  */
-export interface CoasterRuntimeType { role: 'car' | 'platform' | 'counterweight'; riders: number; wheelbase?: number; seat?: [number, number, number] }
+export interface CoasterRuntimeType { role: 'car' | 'platform' | 'counterweight'; riders: number; wheelbase?: number; seat?: [number, number, number]; /** The car hides its `view` bone while a player rides it (`riderViewBricks`). */ view?: boolean }
 
 export interface CoasterRuntimeConfig {
   /** The fabricated cart's type id; also the stem the set's own vehicle types are named from. */
@@ -468,10 +469,9 @@ export interface CoasterRiderViewConfig {
    * interpolated position. A property the client applies earlier than the position it was sent with turns the body
    * ahead of the car: through a loop the rider's view filled with its own car's bodywork on both phones (round 30zs).
    * MEASURED 3.3 (Pixel probe round 30zt, quirk `property-ahead-of-position`: a property lands 3.30-3.41 ticks before
-   * the position sent with it, at 5, 10 and 20 blocks/s) and 4.1 on the Saga (30zv) beside a probe entity; in the ride
-   * the Saga's fits 6 (`sagaRideLeadTicks`: at 4.1 the own lap bar crossed the view in the loops, round 30zz), which
-   * the default carries; the Pixel's 5.3 is its 3.3 plus the Saga's in-ride 2, ASSUMED (its loops showed the same bar
-   * in 30zz; TODO(pixel-ride-lead): confirm on a ride). Fractional: interpolated between two ticks' poses. Absent = 0.
+   * the position sent with it, at 5, 10 and 20 blocks/s) and 4.1 on the Saga (30zv). A fit of 6 / 5.3 to the
+   * loops' lap bar (round 2026-10-20b) moved the bar without removing it on the Saga and swung the car ahead into the
+   * Pixel's camera: the bar is hidden instead (`riderViewBricks`). Fractional: interpolated between two ticks' poses. Absent = 0.
    */
   bodyLag?: number;
   /**
@@ -555,8 +555,8 @@ export interface CoasterRiderViewConfig {
  * always sets where "ahead" is. Values chosen and measured in the guide's
  * "The rider's camera follows the track" section.
  */
-export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'native', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 8, animLag: 5.7, bodyLag: 6,
-  clientTimings: [{ label: 'Pixel 8 Pro (Deferred, render distance 24; rounds 30zt, 2026-10-20a)', graphicsMode: 'Deferred', maxRenderDistance: 24, animLag: 5.5, bodyLag: 5.3 }], animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
+export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'native', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 8, animLag: 5.7, bodyLag: 4.1,
+  clientTimings: [{ label: 'Pixel 8 Pro (Deferred, render distance 24; rounds 30zt, 2026-10-20a)', graphicsMode: 'Deferred', maxRenderDistance: 24, animLag: 5.5, bodyLag: 3.3 }], animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
   steepTilt: 25, steepSpeed: 5, blendTicks: 6, sectionGap: 12, sectionHorizon: 160 };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
@@ -1765,7 +1765,7 @@ function countCuboids(geo: CompiledLdrawGeometry, riderPrefix = 'rider_'): { tot
  * and the measured seat - `seat` in the ENTITY frame (+Z the nose, x turned
  * with it: `renderSeatToEntity` of the render-frame seat the runtime keeps).
  */
-function carBehavior(typeId: string, riders: number, collision: { width: number; height: number }, seat: [number, number, number], hitTest: HitTestBox[], interactText = RIDE_INTERACT_TEXT): unknown {
+function carBehavior(typeId: string, riders: number, collision: { width: number; height: number }, seat: [number, number, number], hitTest: HitTestBox[], interactText = RIDE_INTERACT_TEXT, view = false): unknown {
   const rideable = { seat_count: 1, family_types: ['player'], interact_text: interactText,
     crouching_skip_interact: true, seats: { position: seat, lock_rider_rotation: 181 } };
   return withSizeGroups({ format_version: '1.26.30', 'minecraft:entity': {
@@ -1776,7 +1776,8 @@ function carBehavior(typeId: string, riders: number, collision: { width: number;
         ...bodyOffsetProperties(),
         // Which posed rider this car carries (`riders` = none), and whether a
         // player is in the seat: the rider bone is hidden while it is.
-        ...(riders ? { [PROP_RIDER]: { type: 'int', range: [0, riders], default: 0, client_sync: true }, [PROP_OCCUPIED]: { type: 'bool', default: false, client_sync: true } } : {}),
+        ...(riders ? { [PROP_RIDER]: { type: 'int', range: [0, riders], default: 0, client_sync: true } } : {}),
+        ...(riders || view ? { [PROP_OCCUPIED]: { type: 'bool', default: false, client_sync: true } } : {}),
       } },
     components: {
       'minecraft:type_family': { family: [COASTER_FAMILY] },
@@ -1810,8 +1811,8 @@ function liftBehavior(typeId: string, collision: { width: number; height: number
   } }, collision);
 }
 
-/** The car's track animation: pitch/roll bones from the synced properties, rider variants shown by `craftmatic:rider` and hidden by `craftmatic:occupied`. */
-function carAnimation(animationId: string, riders: number): unknown {
+/** The car's track animation: pitch/roll bones from the synced properties, rider variants shown by `craftmatic:rider` and hidden by `craftmatic:occupied`, and the `view` bone (`riderViewBricks`) hidden by it too. */
+function carAnimation(animationId: string, riders: number, view = false): unknown {
   const bones: Record<string, unknown> = {
     track_pitch: { position: bodyOffsetExpression(), rotation: [`query.property('${PROP_PITCH}')`, 0, 0] },
     track_roll: { rotation: [0, 0, `query.property('${PROP_ROLL}')`] },
@@ -1819,6 +1820,7 @@ function carAnimation(animationId: string, riders: number): unknown {
   for (let k = 0; k < riders; k++) {
     bones[`rider_${k}`] = { scale: `query.property('${PROP_RIDER}') == ${k} && !query.property('${PROP_OCCUPIED}') ? 1.0 : 0.0` };
   }
+  if (view) bones[RIDER_VIEW_BONE] = { scale: `query.property('${PROP_OCCUPIED}') ? 0.0 : 1.0` };
   return { format_version: '1.8.0', animations: { [animationId]: { loop: true, bones } } };
 }
 
@@ -1832,6 +1834,44 @@ const COASTER_README = (own: boolean, lift: boolean): string => [
   ...(own ? ['Two trains share each track: the second waits in the loading bay behind the platform and leaves once the first is half a lap ahead; a train coming back to an occupied platform holds behind it. Through a loop the car turns over on its rails and your view goes over the top with it.'] : []),
   own ? "Cars with no track of their own stay where the set parked them. Undo/re-place removes the ride cars and lift. Motion pauses at unloaded chunks." : 'Imported display cars remain part of the source scenery; the grey cart is an added ride mechanism, not replacement LEGO geometry. Undo/re-place removes the old ride cart. Motion pauses at unloaded chunks.',
 ].join('\n');
+
+/** The car bone holding its bricks in front of the rider's eye (`riderViewBricks`), hidden while a player rides. */
+export const RIDER_VIEW_BONE = 'view';
+/**
+ * What `riderViewBricks` counts as in front of the rider's eye, LDU in the car's render frame (+Y up, the nose at
+ * -Z; a minifig is 40 LDU wide, its hips-to-eye 55): a part that rises at least `aboveHips` over the hips, starts
+ * below `overEye` over the eye, reaches at least `minAhead` ahead of the eye and starts within `reach` of it, overlaps
+ * the eye's column within `halfWidth` either side, and is no longer than `maxSpan` along any axis (the hull and the
+ * chassis wrap the seat: they stay).
+ */
+export const RIDER_VIEW = { aboveHips: 8, overEye: 8, minAhead: 4, reach: 40, halfWidth: 30, maxSpan: 80 } as const;
+/**
+ * The car's own parts that stand in front of its seated rider's eye, by index: hidden while a player rides it (the
+ * `view` bone, scale 0 while `craftmatic:occupied`), as the car's posed rider is. Through 10303's loops both phones
+ * drew its black lap bar (`r13`) across the lower third or the middle of the view in every lap (rounds 30zs-30zz,
+ * 2026-10-20b): the rider's camera turns with the track while the client draws the car's body from properties on
+ * another clock, so a part a hand's width from the eye sweeps through the picture. No property timing fitted on both
+ * phones (2026-10-20b: 6 / 5.3 moved the bar on the Saga and swung the car ahead into the Pixel's camera). Others
+ * still see the bar on a ridden car. `boxes` are the car's placements in LDraw (`placementBox`), `seatLdu` its rider's
+ * hips there, `frame` the car's LDraw-to-render rotation.
+ */
+export function riderViewBricks(boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>, seatLdu: Vec3, frame: readonly number[], P: typeof RIDER_VIEW = RIDER_VIEW): number[] {
+  const hips = applyM(frame, seatLdu), eye = applyM(frame, add3(seatLdu, [0, -RIDER_EYE_ABOVE_HIPS_LDU, 0]));
+  const out: number[] = [];
+  boxes.forEach((box, i) => {
+    const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+    for (const x of [box.min[0], box.max[0]]) for (const y of [box.min[1], box.max[1]]) for (const z of [box.min[2], box.max[2]]) {
+      const p = applyM(frame, [x, y, z]);
+      for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k]!, p[k]!); max[k] = Math.max(max[k]!, p[k]!); }
+    }
+    if (Math.max(max[0]! - min[0]!, max[1]! - min[1]!, max[2]! - min[2]!) > P.maxSpan) return;
+    if (max[1]! < hips[1]! + P.aboveHips || min[1]! > eye[1]! + P.overEye) return;
+    if (min[2]! > eye[2]! - P.minAhead || max[2]! < eye[2]! - P.reach) return;
+    if (min[0]! > eye[0]! + P.halfWidth || max[0]! < eye[0]! - P.halfWidth) return;
+    out.push(i);
+  });
+  return out;
+}
 
 /**
  * Everything a pack needs for its coaster rides: the set's own cars, platforms
@@ -1878,6 +1918,17 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
     const bricks: ParsedBrick[] = [...type.bricks];
     const boneOf: string[] = type.bricks.map(() => 'body');
     const rigBones: EntityRig['bones'] = [];
+    // The car's own bricks in front of its rider's eye leave the view while a player rides it (the loops' lap bar).
+    let viewHidden: number[] = [];
+    if (type.seatLdu && deps.partGeometry) {
+      const meshes = await Promise.all(type.bricks.map(b => deps.partGeometry!.getPartMesh(b.part).catch(() => null)));
+      viewHidden = riderViewBricks(type.bricks.map((b, i) => placementBox(b, meshes[i])), type.seatLdu, carFrame);
+      if (viewHidden.length) {
+        rigBones.push({ name: RIDER_VIEW_BONE, parent: 'body', pivotLdu: [0, 0, 0] });
+        for (const i of viewHidden) boneOf[i] = RIDER_VIEW_BONE;
+        warnings.push(`${label}: ${type.chassis} ride car hides ${viewHidden.length} part(s) in front of its rider's eye while a player rides it (${[...new Set(viewHidden.map(i => type.bricks[i]!.part))].join(', ')}).`);
+      }
+    }
     type.riders.forEach((rider, k) => {
       rigBones.push({ name: `rider_${k}`, parent: 'body', pivotLdu: [0, 0, 0] });
       for (const b of rider) { bricks.push(b); boneOf.push(`rider_${k}`); }
@@ -1906,9 +1957,9 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
       warnings.push(`${label}: ${type.chassis} railway car has no posed driver; the player rides on its roof line.`);
     } else warnings.push(`${label}: ${type.chassis} ride car has no measured seat (no posed rider on this chassis); the player sits at the car's mid height.`);
     if (type.wheelbase === undefined) warnings.push(`${label}: ${type.chassis} ride car has no measured wheelbase; it pitches on the track's local tangent instead of the chord between its wheels.`);
-    types[type.typeId] = { ...(types[type.typeId] ?? { role: 'car', riders: type.riders.length }), seat, ...(type.wheelbase !== undefined ? { wheelbase: round3(type.wheelbase) } : {}) };
+    types[type.typeId] = { ...(types[type.typeId] ?? { role: 'car', riders: type.riders.length }), seat, ...(type.wheelbase !== undefined ? { wheelbase: round3(type.wheelbase) } : {}), ...(viewHidden.length ? { view: true } : {}) };
     const animationId = `animation.${type.typeId.replace(':', '.')}.track`;
-    files.push({ name: `${rp}animations/${type.id}.animation.json`, data: jsonBytes(carAnimation(animationId, type.riders.length)) });
+    files.push({ name: `${rp}animations/${type.id}.animation.json`, data: jsonBytes(carAnimation(animationId, type.riders.length, viewHidden.length > 0)) });
     compiled.push({
       id: type.id, typeId: type.typeId, role: 'car', label: `${label} ${type.chassis.replace(/\.dat$/i, '')} car`, geo,
       // The runtime keeps `seat` in the car's RENDER frame (+X right, +Y up, +Z back; `carPose` reads it so),
@@ -1920,7 +1971,7 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
       // camera, which rides the drawn seat, sat 0.5-0.7 blocks off the player's eye on both clients (COAST-06,
       // `bun scripts/sim.ts <pack> --scenario=coaster-camera`, 2026-10-08 engine run). The hit box over the
       // drawn body is the tap / interact target (VEH-17).
-      behavior: carBehavior(type.typeId, type.riders.length, geo.collisionBox, renderSeatToEntity(seat), [geometryHitBox(geo.value) ?? sizeHitBox(geo.sizeBlocks)], railTypes.has(type.typeId) ? RAIL_INTERACT_TEXT : RIDE_INTERACT_TEXT),
+      behavior: carBehavior(type.typeId, type.riders.length, geo.collisionBox, renderSeatToEntity(seat), [geometryHitBox(geo.value) ?? sizeHitBox(geo.sizeBlocks)], railTypes.has(type.typeId) ? RAIL_INTERACT_TEXT : RIDE_INTERACT_TEXT, viewHidden.length > 0),
       animations: { animations: { track: animationId }, animate: ['track'] },
       cuboids: counted.total, riderCuboids: counted.rider, riders: type.riders.length,
     });
@@ -3548,9 +3599,9 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           // The set's own car: show its posed rider unless a player has the seat.
           const type = types[frame.car.entity.typeId];
           const slot = cars.slots && cars.slots[frame.car.index];
-          if (type && type.riders > 0 && slot) {
+          if (type && (type.riders > 0 || type.view) && slot) {
             const occupied = frame.car.riders.length > 0;
-            if (frame.car.state.rider !== slot.rider) { frame.car.entity.setProperty('craftmatic:rider', slot.rider); frame.car.state.rider = slot.rider; }
+            if (type.riders > 0 && frame.car.state.rider !== slot.rider) { frame.car.entity.setProperty('craftmatic:rider', slot.rider); frame.car.state.rider = slot.rider; }
             if (frame.car.state.occupied !== occupied) { frame.car.entity.setProperty('craftmatic:occupied', occupied); frame.car.state.occupied = occupied; }
           }
         }
