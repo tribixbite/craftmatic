@@ -14,38 +14,31 @@ Parallel agents append ONE section each at the end of this file.
 The user (their own world, every round pack bound, plays on a SAGA): the 10303 ride "super laggy, stutter-jerks
 especially for seat 2 and 3, a full camera blip reset in an upside-down loop", lag when moving the camera by hand;
 dismounting vehicles leaves the camera "locked in one location - big bug"; pinball "the same client server lag".
-- STATE (2026-10-20): the drop cut is FIXED on both phones (round 30zz: the keyframe yaw is mirrored, 180 - y, quirk
-  `camera-keyframe-yaw-mirrored`). SHARED 2026-10-19 19:05: `output/craftmatic-packs-2026-10-19-19c3986b.zip`
+- STATE (2026-10-20 23:00): the drop cut is FIXED on both phones (round 30zz: the keyframe yaw is mirrored, 180 - y,
+  quirk `camera-keyframe-yaw-mirrored`). SHARED 2026-10-19 19:05: `output/craftmatic-packs-2026-10-19-19c3986b.zip`
   (sha256 675c5f06...0c13). Per-client timing (`COASTER_RIDER_VIEW`; fingerprint `graphicsMode` + render distance):
-  default (Saga, Fancy/22) animLag 5.7 / bodyLag 6; Pixel (Deferred/24) 5.5 / 5.3. BOTH phones run Minecraft
-  1.26.52.3 (`output/device-round-2026-10-20a/mc-versions.md`); the lag follows the GAME VERSION (the Pixel drew 3.5 on
-  1.26.51): record `versionName` in every round and re-measure after an update. The own view before an animation is the
-  drawn car plus the head turn; the reported yaw trails it (Pixel 8.7, Saga 7.1, `fitReportLag`). Server ticks are not
-  a cause (19.96/s on both phones, slow seconds never inside an animation).
-- 2026-10-20 FINDINGS (COAST-06), all offline-fixed, NOT yet on a phone:
-  * The loops' dark band is the OWN car's black lap bar (bone `r13`, swatch 0, in every car). The simulator draws it
-    only when a car's pose properties land ~6 ticks ahead (`--prop-lead=6`/`8`, `output/coast06-band-1020-pl{6,8}`),
-    not at the proplag-measured 4.1: so in the ride they land ~2 ticks earlier than beside a probe (quirk
-    `property-ahead-of-position` `sagaRideLeadTicks` 6, FITTED; Pixel `pixelRideLeadTicks` 5.3 ASSUMED). c3efdcd4.
-  * Rotation and position keyframes share one clock on the Saga (camprobe v9 `step`, round 2026-10-20a: 0.06 tick);
-    `rotationLead` exists, unset.
-  * Pixel 1.26.52: entity lag 5.1-5.4 light and with 10303 loaded, stepping up 0.8-1.9 ticks later in long runs
-    (round 2026-10-20a); the packs planned 3.5 -> its camera sat in the rider ahead late in loop 2 and snapped back.
-    24c752d3 plans 5.5. In the simulator the 30zz pack at Pixel 5.5 puts the camera inside the rider ahead all
-    through loop 1, while the phone did that only late in loop 2: the Pixel's ride lag may START nearer 3.5 and
-    step up. Round 20b decides it (look for the camera BEHIND the seat in loop 1).
-  * Every car of a train draws its body for the client of its nearest rider (efb13281; was the own car only).
-- ROUND 2026-10-20b RUNNING (10303 only, `output/device-round-2026-10-20b/packs-c3efdcd4/`, briefs `brief-{saga,pixel}-
-  20b.md`): cars 2 and 3, 2+ laps each, both phones. Simulator gate on that pack: pass on both clients
-  (`output/device-round-2026-10-20b/sim-{saga,pixel}/`). NEXT: read the reports; if clean, build all 26 + creator +
-  nimbus from the then-current commit (`output/device-round-2026-10-19zz/build.sh` pattern) and share a new zip.
+  default (Saga, Fancy/22) animLag 5.7 / bodyLag 4.1; Pixel (Deferred/24) 5.5 / 3.3. BOTH phones run Minecraft
+  1.26.52.3 (`output/device-round-2026-10-20a/mc-versions.md`); the lag follows the GAME VERSION (the Pixel drew 3.5
+  on 1.26.51, 5.1-5.4 on 1.26.52, round 2026-10-20a): record `versionName` every round. Rotation and position
+  keyframes share one clock (Saga camprobe v9 `step`, 0.06 tick); `rotationLead` exists, unset. Server ticks are not
+  a cause (19.96/s on both phones).
+- THE LOOPS' DARK BAND = the OWN car's black lap bar (10303/10261: part 35654). Round 2026-10-20b (`output/device-
+  round-2026-10-20b/{saga,pixel}/notes.md`, pack c3efdcd4) rode a fitted bodyLag (6 Saga / 5.3 Pixel, from the
+  simulator drawing the bar only at a property lead of 6-8): the Saga's bar moved lower but stayed (dark-band counts no
+  better than 30zz), the Pixel's camera entered the car ahead's rider in loop 1 of all 6 laps. REJECTED, measured
+  leads back. Instead the bar is HIDDEN from its own rider (c306884d): `riderViewBricks` puts the car's parts that rise
+  to the chest, centred ahead of the eye, on a `view` bone scaled 0 while `craftmatic:occupied` (others still see it).
+- ROUND 2026-10-20c NEXT/RUNNING (10303 only, `output/device-round-2026-10-20c/packs-c306884d/`, briefs
+  `brief-{saga,pixel}-20c.md`): cars 2 and 3, both phones; the bar should be gone, the car ahead as in 30zz, and on
+  the Pixel count frames inside the car ahead's rider (30zz: late loop 2 of car 2; 20b: every loop 1). Run the
+  simulator gate first (`sim.ts <pack> --scenario=coaster-camera --client=saga|pixel --cars=2 --fov=82`).
+  If clean: build all 26 + creator + nimbus (`bash output/device-round-2026-10-20c/build.sh`: it names its output
+  folders by the commit) and share a new zip. The aborted 20c full build (c3efdcd4-era) left partial folders: ignore.
 - Wand Undo (30zx "left 10303's entities"): NOT reproduced - Undo removed everything in 30zy and 30zz on both phones;
   30zx's shot (`output/device-round-2026-10-19zx/saga/shots/u1-menu.jpg`) shows "Lighting / night vision" highlighted
   and no "Undo complete" toast: a mis-tap. Briefs now confirm the toast after every Undo.
 - Still open: from car 3 a posed rider's pink hair fills the lower right (30zu Pixel); Pixel 30zz car 3 lap 2 a 2-frame
   grey slab (106.71/106.77).
-- `bun scripts/_physics_spec_check.ts` HANGS (never exits) when a source it reads has a TypeScript syntax error: run
-  `bun run typecheck:web` first.
 - PIN-02: Saga busy median 8.6 ms with all 26 bound (30zs 8.8); `Entity::isValid` at roster.js:29 is the top self
   (14.4 %). Pinball on the Pixel: taps on the drawn zone outlines did not flip; taps lower (cabinet buttons, table
   edge) did, 0.14-0.37 s (`output/device-round-2026-10-19zu/pixel/notes.md`); pick boxes follow the reported pitch
