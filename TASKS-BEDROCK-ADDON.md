@@ -29,9 +29,9 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   hand-backs. 10303's cars are 2.25 blocks apart and the eye rides 1.12 over the seat: in a loop the car ahead's rider
   sits ~1 block from it. Ideas, unmeasured: a lower or more rearward eye during the animation only. The simulator does
   not reproduce the grazing (its `eye inside bodywork` reads 0 on both clients).
-- SHARE: the full 20d build (`output/device-round-2026-10-20d/packs-073c72ee/`, `bash output/device-round-2026-10-20d/
-  build.sh`, log `build.log`) -> share folder + zip with PACKS.md (lap bar gone; the grazing open; a phone short of
-  memory binds fewer packs per world).
+- SHARED 2026-10-21 01:41: `output/craftmatic-packs-2026-10-21-073c72ee.zip` (sha256 b4dea6e0...b1ee; folder
+  `output/share-2026-10-21-073c72ee/` with PACKS.md). 26/26 packs valid (`_mcaddon_check.py`), simulator regressions
+  38 selected / 0 failed (`output/device-round-2026-10-20d/sim/regressions.log`).
 - Wand Undo (30zx "left 10303's entities"): NOT reproduced - Undo removed everything in 30zy and 30zz on both phones;
   30zx's shot (`output/device-round-2026-10-19zx/saga/shots/u1-menu.jpg`) shows "Lighting / night vision" highlighted
   and no "Undo complete" toast: a mis-tap. Briefs now confirm the toast after every Undo.
