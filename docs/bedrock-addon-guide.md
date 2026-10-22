@@ -2329,6 +2329,8 @@ needs a rebuilt pack.
 
 ### The rider's camera follows the track (2026-09-24, measured on the Pixel)
 
+The current design, end to end, is in [coaster-loop-camera.md](coaster-loop-camera.md); this section keeps the measurement history.
+
 User request: the rider's baseline view should be what a real rider sees,
 following the track "including the upside down loops", while the player can
 still look around. Until now a rider had their own first person, upright, with

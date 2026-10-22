@@ -502,28 +502,19 @@ describe('the LOD hull inside a pack', () => {
 
     // Forty courses: taller than one 13-block shell cell, so since 2026-10-11
     // (COL-03, the lattice planned for 400 %) the shell ships as lattice
-    // chunks, each its own actor with its own box and cull. Every chunk's hull
-    // ships, and every switch still sits under its own chunk's cull.
+    // chunks, each its own actor with its own root. Each would switch on the
+    // camera's distance to ITS root, so a far chunk drew voxels beside a near
+    // one in full detail (76457 from 15 blocks, 2026-10-22): a chunk ships no
+    // hull, and the split model costs exactly what it costs without the LOD.
     const tower = await shellPack('hull', undefined, 40);
     const towerDiag = JSON.parse(await textOf(tower.bytes, 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json')) as LodDiag;
-    expect(towerDiag.lod.skipped).toEqual({});
-    expect(towerDiag.lod.cuboids).toBeGreaterThan(0);
-    const chunks = Object.entries(towerDiag.lod.entities).filter(([id]) => id.startsWith('lodshed_shell_c'));
-    expect(chunks.length).toBeGreaterThan(1);
-    for (const [id, t] of chunks) {
-      expect(t.renderCullBlocks, id).toBeGreaterThanOrEqual(h.renderCullBlocks);
-      expect(t.switchDistance - (t.renderCullBlocks - LOD_CULL_MARGIN_BLOCKS), id).toBeLessThanOrEqual(0.05);
-      expect(t.nearestCubeBlocks, id).toBeGreaterThanOrEqual(MIN_LOD_NEAREST_CUBE_BLOCKS);
-    }
-    expect(listZipEntries(ab(tower.bytes)).some(e => /_lod\.geo\.json$/.test(e))).toBe(true);
-
-    // The hull is resident geometry: the same pack without it is cheaper by
-    // exactly the hull's cuboids, and the export says the LOD is on.
+    expect(Object.keys(towerDiag.lod.entities).filter(id => id.startsWith('lodshed_shell_c'))).toEqual([]);
+    expect(towerDiag.lod.cuboids).toBe(0);
+    expect(listZipEntries(ab(tower.bytes)).some(e => /_lod\.geo\.json$/.test(e))).toBe(false);
     const plain = await shellPack('none', undefined, 40);
     const plainDiag = JSON.parse(await textOf(plain.bytes, 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json')) as LodDiag;
-    expect(towerDiag.pack.cuboids - plainDiag.pack.cuboids).toBe(towerDiag.lod.cuboids);
-    expect(plainDiag.lod?.cuboids ?? 0).toBe(0);
-    expect(tower.warnings.some(w => /distance LOD on/.test(w))).toBe(true);
+    expect(towerDiag.pack.cuboids).toBe(plainDiag.pack.cuboids);
+    expect(tower.warnings.some(w => /lattice chunks ship no distance hull/.test(w))).toBe(true);
   });
 
   it('hands the wand a walk-through reason the game can show: every percent sign spelt out, the diagnostics untouched', async () => {

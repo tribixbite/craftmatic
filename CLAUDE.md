@@ -43,6 +43,7 @@ and conventions there; keep this file as the short project entry point.
 - **Bedrock playable add-ons:** [add-on guide](docs/bedrock-addon-guide.md) — entity geometry, vehicle controls/cameras, pack constraints, and Pixel QA.
 - **Bedrock add-on work:** [task tracker](TASKS-BEDROCK-ADDON.md) — its "Start here" holds the current handoff and the test phones' state; read it before resuming work or touching a device.
 - **Physics (coaster, pinball, walker, figures, vehicles):** [physics architecture](docs/physics-architecture.md) — units and frames, every constant with its justification, the serialised-runtime rules, the DRY map, how to add a vehicle class, known limits. **Read it before touching any physics; `bun scripts/_physics_spec_check.ts` (in `bun run test`) fails when it drifts from the code** — a new export, a changed constant or an unclassified physics-named module. It HANGS (never exits, 10+ min of CPU) on a TypeScript syntax error in a source it reads: run `bun run typecheck:web` first (2026-10-20).
+- **Coaster rider camera (upside down through loops):** [loop camera](docs/coaster-loop-camera.md) - Bedrock's camera limits, the `native` design (own view + one armed animation per steep stretch), the body bones, per-client lags, what was tried and replaced, open issues.
 - **LEGO/LDraw rendering:** [renderer guide](docs/lego-renderer-guide.md) — architecture, imports, rendering, colors, mesh metadata, contact checks, and download UI.
 - **LEGO models and parts:** [source guide](docs/lego-sources-guide.md) — dev/prod libraries, source-quality gates, index schema, offline data, and source freshness.
 - **Headless Bedrock simulator:** [sim engine](docs/sim-engine.md) — `bun scripts/sim.ts <packs>` loads a built `.mcaddon` as shipped, runs ALL its scripts unmodified against a `@minecraft/server` mock (unmodelled API is recorded, never passed), plays a child's session with invariants, and re-judges the device-bug regression set (`--scenario=regressions`). Run it before any phone round; a device finding comes back as a quirk row (`web/src/sim/quirks/registry.ts`) or a regression case.
@@ -311,6 +312,11 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   blocks from their cubes at 400 % and the phone drew no shell from 40 blocks
   west of the pin (round 30m, COL-03). A lattice per size group would
   multiply the resident cuboids; one lattice, sized for the largest.
+  **A lattice chunk ships NO distance hull** (FID-03, 2026-10-22): each chunk
+  switches on ITS OWN root's distance, so the 13-block cells (small enough
+  to pass `planLodSwitch`) drew a model's far chunks as 1-block voxels beside
+  its near chunks in full - the user's "models got blockier" (76457 from 15
+  blocks, `output/blocky-1022/`). Check `_pack_render.ts --lod --walk-away`.
 - **A walking body does not drop into the next column: it overshoots.** The
   reach guards (`guardPass`, bedrock-collider-scale.ts) measure a fall as the
   WALK-OFF (`WALK_OFF_FALL16`: a column catches the body only when its top

@@ -981,6 +981,34 @@ describe('playable add-on — brick-compiled entities', () => {
     expect(xs[1]! - xs[0]!).toBeCloseTo((byX[1]!.cell[0] - byX[0]!.cell[0]) * S, 4);
     for (const actor of placed) expect(actor.yaw).toBe(0);
   });
+
+  it('ships no distance hull for a lattice chunk, so a far chunk never draws voxels beside a near one in full (FID-03)', async () => {
+    const C = LDU_PER_BLOCK, I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    // The same two-chunk shell as above, built with the hull LOD the CLI round builds use.
+    const grid = new BlockGrid(83, 2, 9);
+    grid.set(11, 0, 2, 'minecraft:red_concrete');
+    grid.set(71, 0, 8, 'minecraft:red_concrete');
+    const frame: SceneGridFrame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: C, cellY: C };
+    const result = await buildPlayableAddon(grid, {
+      stem: 'long-shell', partGeometry: await providerFor(), pbr: false, lod: 'hull',
+      shell: { bricks: [[11, -2], [71, -8]].map(([x, z]) => ({ part: '3001.dat', color: 4, x: x! * C, y: 0, z: z! * C, rot: I })), frame },
+    });
+    const buffer = ab(result.bytes), entries = listZipEntries(buffer);
+    const diag = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_long_shell_BP/craftmatic-diagnostics.json'))) as {
+      lod: { mode: string; entities: Record<string, unknown> };
+      spatialShell: { actors: Array<{ id: string }> };
+    };
+    expect(diag.lod.mode).toBe('hull');
+    expect(diag.spatialShell.actors).toHaveLength(2);
+    for (const chunk of diag.spatialShell.actors) {
+      expect(entries).not.toContain(`Craftmatic_long_shell_RP/models/entity/${chunk.id}_lod.geo.json`);
+      expect(diag.lod.entities[chunk.id]).toBeUndefined();
+      // Every geometry the chunk's controllers select is full detail at every distance.
+      const controllers = new TextDecoder().decode(await extractFile(buffer, `Craftmatic_long_shell_RP/render_controllers/${chunk.id}.render_controllers.json`));
+      expect(controllers).not.toContain('distance_from_camera');
+    }
+    expect(result.warnings.some(w => /2 lattice chunks ship no distance hull/.test(w))).toBe(true);
+  });
 });
 
 describe('pack identity — two models must never share a manifest uuid', () => {

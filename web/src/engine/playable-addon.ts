@@ -2984,7 +2984,11 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             for (const [index, chunk] of split.chunks.entries()) {
                 const chunkLabel = chunked ? `${label} bricks ${index + 1}` : `${label} bricks`;
                 // Every chunk carries the same face atlas bytes (the split copies the mesh): one file under the shell's name.
-                emitCompiledEntity(chunk.id, chunk.geo, shellBehavior(chunk.id, chunk.geo.sizeBlocks), undefined, true, chunked ? `${shellId}_faces` : undefined);
+                // A lattice chunk never ships a distance hull: each switches on the camera's distance to ITS OWN root,
+                // so a model's far chunks drew as 1-block voxels beside its near chunks in full detail - the
+                // "blockier models" the user saw from 15 blocks off 76457 after the 13-block lattice (2026-10-12)
+                // made every chunk's reach small enough for `planLodSwitch` to ship one (FID-03, 2026-10-22).
+                emitCompiledEntity(chunk.id, chunk.geo, shellBehavior(chunk.id, chunk.geo.sizeBlocks), undefined, !chunked, chunked ? `${shellId}_faces` : undefined);
                 addEntityName(`${PACK_NAMESPACE}:${chunk.id}`, chunkLabel, false);
                 actors.push({ typeId: `${PACK_NAMESPACE}:${chunk.id}`, label: chunkLabel,
                     x: at[0] + chunk.offsetBlocks[0], y: at[1] + sgeo.originLiftBlocks + chunk.offsetBlocks[1], z: at[2] + chunk.offsetBlocks[2], yaw: 0 });
@@ -2992,6 +2996,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     ? `lattice cell ${chunk.cell.join(',')} (${STATIC_SHELL_CELL_BLOCKS}-block cells) of one ${options.shell.bricks.length}-part global compile, ${index + 1}/${split.chunks.length}`
                     : `${options.shell.bricks.length} parts compiled as the building's visible geometry` });
             }
+            if (chunked && lodMode === 'hull') warnings.push(`${label}: the building's ${split.chunks.length} lattice chunks ship no distance hull - each would switch on its own root's distance and draw voxels beside its full-detail neighbours; they draw in full until the actor cull.`);
             if (chunked) {
                 // A saved world may still hold the whole-model actor of an
                 // earlier pack: its type stays defined, drawing nothing, and
@@ -3199,7 +3204,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             });
             diagnostics[leafId] = lgeo.diagnostics;
             warnings.push(...lgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
-            emitCompiledEntity(leafId, lgeo, shellBehavior(leafId, lgeo.sizeBlocks), undefined, true);
+            // No hull: a leaf is drawn in its building's doorway, and a voxel leaf in a full-detail wall is the
+            // same mixed detail as a hulled shell chunk (FID-03).
+            emitCompiledEntity(leafId, lgeo, shellBehavior(leafId, lgeo.sizeBlocks), undefined, false);
             addEntityName(`${PACK_NAMESPACE}:${leafId}`, `${label} door leaf`, false);
             const at = sceneGridPoint(leaf.frame, lgeo.originLdu);
             actors.push({
