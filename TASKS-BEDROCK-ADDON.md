@@ -29,17 +29,16 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   hand-backs. 10303's cars are 2.25 blocks apart and the eye rides 1.12 over the seat: in a loop the car ahead's rider
   sits ~1 block from it. Ideas, unmeasured: a lower or more rearward eye during the animation only. The simulator does
   not reproduce the grazing (its `eye inside bodywork` reads 0 on both clients).
-- SHARED 2026-10-21 01:41: `output/craftmatic-packs-2026-10-21-073c72ee.zip` (sha256 b4dea6e0...b1ee; folder
-  `output/share-2026-10-21-073c72ee/` with PACKS.md). 26/26 packs valid (`_mcaddon_check.py`), simulator regressions
-  38 selected / 0 failed (`output/device-round-2026-10-20d/sim/regressions.log`).
-- FID-03 (the user 2026-10-22: "did our models become more blocky in the last week?"): YES, from 10-12. The cube
-  geometry is unchanged since 09-30 (same cube counts and sizes, `python -I output/blocky-1022/grain_compare.py <old packs> <new packs>`; switches: `lod_compare.py`); the
-  13-block shell lattice (8f0e4fd3) made every chunk small enough for `planLodSwitch`, so far chunks drew their 1-block
-  voxel hull beside near ones in full (76457 from 15 blocks: `output/blocky-1022/76457-1021-d015.png` vs `-1008-`).
-  Fixed: lattice chunks and door leaves ship no hull. NEXT: build `bash output/device-round-2026-10-22a/build.sh`, re-run
-  `bun scripts/_pack_render.ts <76457> --out=output/blocky-1022/76457-1022.png --lod --walk-away=0..60:15` (expect no
-  hull rows), regressions, share; ask the user whether far views read smooth again and whether fps dropped (far chunks
-  now draw in full to the cull, as before 10-12).
+- FID-03 (the user 2026-10-22: "did our models become more blocky in the last week?"): YES, from 10-12, FIXED d6645cdb.
+  Cube geometry is unchanged since 09-30 (`python -I output/blocky-1022/grain_compare.py <old packs> <new packs>`;
+  switch distances: `lod_compare.py`); the 13-block shell lattice (8f0e4fd3) let every chunk ship its 1-block hull, so
+  far chunks drew voxels beside near ones. Lattice chunks and door leaves ship no hull now; 76457 walk-away full detail
+  at 15/30 blocks (`output/blocky-1022/76457-1022-d0*.png`). OPEN: the user's read on far views, and fps looking at a
+  big model from far (far chunks now draw in full to the cull, as before 10-12) - unmeasured on a phone.
+- SHARED 2026-10-22: `output/craftmatic-packs-2026-10-22-d6645cdb.zip` (sha256 41f35f78...29d8fd; folder
+  `output/share-2026-10-22-d6645cdb/` with PACKS.md), build `output/device-round-2026-10-22a/` (26/26 valid, simulator
+  regressions 38 / 0 failed, `sim/`). Supersedes the 073c72ee share.
+- Loop camera architecture: `docs/coaster-loop-camera.md` (keep it current with any COAST-06 change).
 - Wand Undo (30zx "left 10303's entities"): NOT reproduced - Undo removed everything in 30zy and 30zz on both phones;
   30zx's shot (`output/device-round-2026-10-19zx/saga/shots/u1-menu.jpg`) shows "Lighting / night vision" highlighted
   and no "Undo complete" toast: a mis-tap. Briefs now confirm the toast after every Undo.
