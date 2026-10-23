@@ -52,9 +52,12 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   the final ones. Before: each pack's log in device-round-2026-10-22a.
 - TEST TIMING: `test/interactive-passability.test.ts` 76417 takes 14.6 min alone against its 15-min timeout; it timed out
   in the 2026-10-23 full run (contention). Speed it up or raise the cap before it flakes CI.
-- SHARED 2026-10-22: `output/craftmatic-packs-2026-10-22-d6645cdb.zip` (sha256 41f35f78...29d8fd; folder
-  `output/share-2026-10-22-d6645cdb/` with PACKS.md), build `output/device-round-2026-10-22a/` (26/26 valid, simulator
-  regressions 38 / 0 failed, `sim/`). Supersedes the 073c72ee share.
+- SHARED 2026-10-23: `output/craftmatic-packs-2026-10-23-880c702f.zip` (sha256 718a003b...684c73b; folder
+  `output/share-2026-10-23-880c702f/` with PACKS.md), build `output/device-round-2026-10-23a/` (26/26 valid, simulator
+  regressions 38 / 0 failed, `sim/`). Recommendations in the packs: every minifig building 100 % (10261, 10303, 10326,
+  41732, 42639, 42703, 60380, 76457, plus 76417/910004/11204/11374 already); 10788 200, 10796 300, 10797 200, 21063 150,
+  76419 200, 21061 200 from geometry. OPEN: a device check that the wand shows those numbers; the user's yes/no on
+  2-LDU track (FID-02). Supersedes the d6645cdb share.
 - Loop camera architecture: `docs/coaster-loop-camera.md` (keep it current with any COAST-06 change).
 - Wand Undo (30zx "left 10303's entities"): NOT reproduced - Undo removed everything in 30zy and 30zz on both phones;
   30zx's shot (`output/device-round-2026-10-19zx/saga/shots/u1-menu.jpg`) shows "Lighting / night vision" highlighted
