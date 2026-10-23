@@ -2839,10 +2839,15 @@ not a reading of its name or theme, and it is DATA (`recommendAccessScale` in
 `engine/bedrock-scene-actors.ts`): a recommended step plus the numbers in a
 sentence. `planAddonScale`'s `auto` is untouched and no export changes size.
 
-**The rule.** A player needs a clear opening 1 block wide by 2 high and two
-blocks of headroom (`PASSAGE_*` in `engine/addon-scale.ts` - the whole-block
-quantisation of the 0.6 × 1.8 player; `JUMP_HEIGHT_BLOCKS` 1.25,
-`STEP_HEIGHT_BLOCKS` 0.6). `measureSceneAccess(bricks, scene.meshes,
+**The rule (since 2026-10-22).** A doorway or room a minifig uses is the
+player's at 100 %: an opening must clear a minifig's envelope, 40 × 96 LDU
+(0.75 × 1.8 blocks at 1×, `DOORWAY_PASS_*` in `engine/addon-scale.ts`, the
+rule the doorway colliders are cut to, `passSizeFor`), and a room 96 LDU of
+headroom (`JUMP_HEIGHT_BLOCKS` 1.25, `STEP_HEIGHT_BLOCKS` 0.6). Until then it
+asked for a whole 1 × 2-block hole and 2 blocks of headroom (the whole-block
+`PASSAGE_*`, which the reach walk still uses), and the wand recommended
+150-300 % for minifig sets whose doors the player walks through at 100 % (the
+user, 2026-10-22, SCALE-04). `measureSceneAccess(bricks, scene.meshes,
 { exclude: scene.figureBricks })` builds an occupancy grid of the whole model
 at a 5 × 4 LDU cell aligned to world multiples (half-stud × half-plate, so an
 axis-aligned opening measures exactly; a plate-sized cell under-read a 104 LDU
@@ -2857,7 +2862,11 @@ It then measures:
    sides, under a lintel, at least 16 × 24 LDU, no wider than 2.5× its height
    (the gap under a car is not a doorway), that opens into a wider space or the
    outside within 100 LDU on BOTH faces. Each gets `requiredScale =
-   max(1 block / width, 2 blocks / height)`.
+   max(40 LDU / width, 96 LDU / height)` (`passageRequiredScale`). Each is
+   classified by where it leads (`connects`: entrance, interior, outside,
+   blind); a door LEAF is blind only with solid wall all the way past it - any
+   air behind a hung door, however small the space, is somewhere the player
+   steps (10326's six doors had read blind and recommended 300 %).
 2. **Headroom.** The median floor-to-ceiling over interior floor cells.
 3. **The reach walk**, once per step (100/150/200/300/400 %): a breadth-first
    walk from the outside ring over cells that are a floor with player headroom
@@ -2867,16 +2876,24 @@ It then measures:
    can lose the upper floors. The walk reports the highest floor reached per
    step against the model's top standing surface.
 
-The recommendation: door leaves decide when present (their MEDIAN required
-scale), else the aperture at the 25th percentile of required scale (the larger
-openings; small gaps between furniture are the rest); rounded up to the first
-step; raised to the headroom step when one exists; and if that step loses
+The recommendation: door leaves that are not blind decide when present
+(entrance leaves first; their MEDIAN required scale) - an open-backed play
+set's doors lead outside to outside and still speak for it over the slits
+between its houses (76457) - else the entrances, else every aperture at the
+25th percentile of required scale (the larger openings; small gaps between
+furniture are the rest) - except that among ENTRANCES the easiest decides,
+since each already leads from outside into a room (10303's station); rounded up to the first
+step; raised to the headroom step when one exists - but never when door leaves
+decide: the headroom is a median over every enclosed floor cell, counters and
+crawl spaces included (60380 read 0.5 blocks and its 1.3 × 2.5 doors went to
+400 %), and a door hung for a minifig opens onto a minifig's room; and if that step loses
 more than a quarter of the reachable height against another step, the reason
 says so and names that step ("the choice is between the doors and the
 stairs") instead of choosing silently. No opening at any step, or a solid
 model, is said plainly.
 
-**Measured** (`bun scripts/_access_scale.ts <source>`; heights in blocks at 100 %):
+**Measured** (`bun scripts/_access_scale.ts <source>`; heights in blocks at 100 %; this table predates the
+2026-10-22 minifig-envelope rule - the round's 26 sets under the new rule are in `output/access-1022/after.txt`):
 
 | set | source | leaves | openings | pick at 100 % | headroom | reach 1×/1.5×/2×/3×/4× (top) | recommends |
 |---|---|---|---|---|---|---|---|

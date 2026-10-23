@@ -40,7 +40,7 @@ import { assembleMinifig, figureAnchor, SEAT_BELOW_TORSO_LDU, seatedFigure } fro
 import type { BlockGrid } from '@craft/schem/types.js';
 import { LDU_PER_BLOCK, PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
 import { toBedrockBlock } from './bedrock-blocks.js';
-import { ACCESS_SCALE_STEPS, JUMP_HEIGHT_BLOCKS, PASSAGE_HEIGHT_BLOCKS, PASSAGE_WIDTH_BLOCKS, accessStepFor, passageRequiredScale } from './addon-scale.js';
+import { ACCESS_SCALE_STEPS, DOORWAY_PASS_BLOCKS_TEXT, DOORWAY_PASS_HEIGHT_LDU, JUMP_HEIGHT_BLOCKS, PASSAGE_WIDTH_BLOCKS, accessStepFor, passageRequiredScale } from './addon-scale.js';
 
 export interface SceneFigure {
   bricks: ParsedBrick[];
@@ -1362,7 +1362,7 @@ export interface SceneOpening {
   heightLdu: number;
   /** Centre of the opening's threshold, LDraw. */
   centreLdu: Vec3;
-  /** Smallest multiplier of the minifig scale at which a 1×2-block passage clears it. */
+  /** Smallest multiplier of the minifig scale at which a minifig's envelope clears it (`passageRequiredScale`). */
   requiredScale: number;
   /** Where it leads: only an `entrance` lets a player walk INTO the model from outside. */
   connects: OpeningConnection;
@@ -1728,8 +1728,14 @@ export function measureSceneAccess(bricks: readonly ParsedBrick[], meshes: Reado
    * `y`..`y + h - 1` of the width cell `w`: the first open cell (not solid, not another opening's passage) within a
    * wall's depth - the outside, a room (`roomBeyond`), or `none` (solid all the way, a leaf drawn on a wall; or a
    * pocket no player stands in). Past the grid is outside.
+   *
+   * `leaf`: the side of a door LEAF. A door was hung to be walked through, so any air past it is somewhere the
+   * player steps - a vestibule smaller than `roomBeyond`'s (2n)² cells, or another opening's passage (closed for
+   * the flood, air all the same) - and only a leaf with solid wall all the way past it is drawn, not hung. Read as
+   * an aperture, 10326's six doors were all `blind` (a passage or a 6-stud hall behind each) and the wand
+   * recommended 300 % for doors the Saga walked through at 100 % (rounds 30g/30i; SCALE-04, 2026-10-22).
    */
-  const sideOf = (axis: 'x' | 'z', from: number, dir: 1 | -1, y: number, h: number, w: number, n: number): 'out' | 'in' | 'none' => {
+  const sideOf = (axis: 'x' | 'z', from: number, dir: 1 | -1, y: number, h: number, w: number, n: number, leaf = false): 'out' | 'in' | 'none' => {
     const depthN = axis === 'x' ? sx : sz;
     for (let k = 0; k <= wallDepthCells; k++) {
       const d = from + dir * k;
@@ -1737,8 +1743,9 @@ export function measureSceneAccess(bricks: readonly ParsedBrick[], meshes: Reado
       for (let r = y; r < Math.min(sy, y + Math.max(1, h)); r++) {
         const [x, z] = axis === 'x' ? [d, w] : [w, d];
         const i = idx(x, r, z);
-        if (solid[i] || marks[i] === AIR_CLOSED) continue;
-        return marks[i] === AIR_OUTSIDE ? 'out' : roomBeyond(i, n) ? 'in' : 'none';
+        if (solid[i] || (!leaf && marks[i] === AIR_CLOSED)) continue;
+        if (marks[i] === AIR_OUTSIDE) return 'out';
+        return leaf || roomBeyond(i, n) ? 'in' : 'none';
       }
     }
     return 'none';
@@ -1761,7 +1768,7 @@ export function measureSceneAccess(bricks: readonly ParsedBrick[], meshes: Reado
     const w = o.axis === 'x' ? gz((l.min[2] + l.max[2]) / 2) : gx((l.min[0] + l.max[0]) / 2);
     const row = Math.max(1, gy(l.max[1])), h = Math.max(1, Math.round((l.max[1] - l.min[1]) / cellY));
     const n = Math.max(1, Math.round(o.widthLdu / cellXZ));
-    return { ...o, connects: connection(sideOf(o.axis, a0 - 1, -1, row, h, w, n), sideOf(o.axis, a1 + 1, 1, row, h, w, n)) };
+    return { ...o, connects: connection(sideOf(o.axis, a0 - 1, -1, row, h, w, n, true), sideOf(o.axis, a1 + 1, 1, row, h, w, n, true)) };
   });
   const merged = [...leafConnected, ...apertureOpenings.filter(o => !inLeaf(o))].sort((p, q) => p.requiredScale - q.requiredScale);
 
@@ -1921,14 +1928,19 @@ export function recommendAccessScale(m: SceneAccessMeasurement): AccessScaleReco
   const count = (c: OpeningConnection): number => m.openings.filter(o => o.connects === c).length;
   const enclosed = m.enclosedFloorCells >= Math.max(1, Math.round(MIN_ENCLOSED_FLOOR_CELLS * (ACCESS_CELL_LDU.xz / m.cell.xz) ** 2));
   const openingKinds = { entrances: count('entrance'), interior: count('interior'), outside: count('outside'), blind: count('blind'), enclosed };
-  // The doorways a player walks INTO the model through, when it has any: the entrances (door leaves first, as
-  // ever); otherwise every opening, as before - and the reason then says that none of them leads in.
+  // The doorways a player walks INTO the model through, when it has any: the entrances; otherwise every
+  // opening - and the reason then says that none of them leads in. Door LEAVES come first either way: a set
+  // built with door moulds was built for its figures to walk through them, and a leaf that is not hung on a
+  // solid wall is a door the player uses. An open-backed play set's doors lead outside to outside, never
+  // "in" (76457's six 1.3 x 2.5 doors), and were passed over for the slits between its houses that happened
+  // to reach its closed rooms (0.7 blocks wide: 200 %, the user 2026-10-22, SCALE-04).
   const entrances = m.openings.filter(o => o.connects === 'entrance');
-  const source = entrances.length ? entrances : m.openings;
-  const leaves = source.filter(o => o.source === 'door-leaf');
-  const pool = leaves.length ? leaves : source;
+  const doorLeaves = m.openings.filter(o => o.source === 'door-leaf' && o.connects !== 'blind');
+  const entranceLeaves = doorLeaves.filter(o => o.connects === 'entrance');
+  const leaves = entranceLeaves.length ? entranceLeaves : doorLeaves;
+  const pool = leaves.length ? leaves : entrances.length ? entrances : m.openings;
   const basis: AccessScaleRecommendation['basis'] = leaves.length ? 'door-leaves' : pool.length ? 'apertures' : 'none';
-  const need = `a player needs ${PASSAGE_WIDTH_BLOCKS}×${PASSAGE_HEIGHT_BLOCKS}`;
+  const need = `a player needs ${DOORWAY_PASS_BLOCKS_TEXT}, a minifig's doorway`;
   /**
    * An enclosed interior and not one opening leading into it from outside: said first and plainly, with the
    * counts, so a size chosen for the openings inside is not read as a way in (Notre-Dame, round 30zg).
@@ -1937,7 +1949,8 @@ export function recommendAccessScale(m: SceneAccessMeasurement): AccessScaleReco
     ? `No entrance at any size: the model has a closed interior, but none of its ${m.openings.length} opening${m.openings.length === 1 ? '' : 's'} leads in from outside (${openingKinds.interior} between its own rooms, ${openingKinds.outside} open to the outside on both sides${openingKinds.blind ? `, ${openingKinds.blind} onto a solid wall or a niche no player stands in` : ''}) - its doors are drawn, not cut. `
     : '';
   const headroom = m.headroomLdu !== null ? (() => {
-    const requiredScale = PASSAGE_HEIGHT_BLOCKS * LDU_PER_BLOCK / m.headroomLdu!;
+    // A room a minifig stands in is a room the player stands in (`DOORWAY_PASS_HEIGHT_LDU`, 1.8 blocks at 100 %).
+    const requiredScale = DOORWAY_PASS_HEIGHT_LDU / m.headroomLdu!;
     const scale = accessStepFor(requiredScale);
     return { blocks: Number(blocks1(m.headroomLdu!)), requiredScale, ...(scale !== undefined ? { scale } : {}) };
   })() : undefined;
@@ -1955,27 +1968,37 @@ export function recommendAccessScale(m: SceneAccessMeasurement): AccessScaleReco
       : 'No doorway or interior floor found: a solid model with nothing to walk through at any size.';
     return { basis, ...(headroom ? { headroom } : {}), openings: openingKinds, reason };
   }
-  // `pool` is sorted by ascending required scale: the percentile picks the representative doorway.
-  const pick = pool[Math.min(pool.length - 1, Math.floor((pool.length - 1) * (leaves.length ? LEAF_PERCENTILE : APERTURE_PERCENTILE)))]!;
+  // `pool` is sorted by ascending required scale: the percentile picks the representative doorway. An ENTRANCE
+  // aperture already leads from outside into a room, so the easiest one is a way in: a player who walks in through
+  // one a minifig walks through has the model at that size. 10303's station is entered through 1.4 x 7.4 and
+  // 2.1 x 2.1 openings at 100 %, and the 25th percentile of its 14 entrances was a 0.56-block slit (150 %).
+  const percentile = leaves.length ? LEAF_PERCENTILE : entrances.length ? 0 : APERTURE_PERCENTILE;
+  const pick = pool[Math.min(pool.length - 1, Math.floor((pool.length - 1) * percentile))]!;
   const doorStep = accessStepFor(pick.requiredScale);
-  const kind = entrances.length ? (leaves.length ? 'Entrance door leaves' : 'Entrances') : noEntrance ? (leaves.length ? 'Its door leaves' : 'Its openings') : leaves.length ? 'Door leaves' : 'Wall openings';
+  const kind = entranceLeaves.length ? 'Entrance door leaves' : leaves.length ? (noEntrance ? 'Its door leaves' : 'Door leaves') : entrances.length ? 'Entrances' : noEntrance ? 'Its openings' : 'Wall openings';
   const size = (o: SceneOpening, s = 1): string => `${blocks1(o.widthLdu, s)}×${blocks1(o.heightLdu, s)}`;
   if (doorStep === undefined) {
     const easiest = pool[0]!;
     const top = ACCESS_SCALE_STEPS[ACCESS_SCALE_STEPS.length - 1]!;
     return {
       basis, doorway: { widthBlocks: Number(blocks1(pick.widthLdu)), heightBlocks: Number(blocks1(pick.heightLdu)), requiredScale: pick.requiredScale, count: pool.length, passable: 0 }, ...(headroom ? { headroom } : {}), openings: openingKinds,
-      reason: `${noEntrance}No size step makes the model walkable: its largest ${entrances.length ? 'entrance' : 'doorway'} is ${size(easiest)} blocks at 100 % and ${size(easiest, top)} at ${pctOf(top)} (${need}).`,
+      reason: `${noEntrance}No size step makes the model walkable: its largest ${!leaves.length && entrances.length ? 'entrance' : 'doorway'} is ${size(easiest)} blocks at 100 % and ${size(easiest, top)} at ${pctOf(top)} (${need}).`,
     };
   }
   // Floors must clear standing headroom too, when a step can give it; a model
   // whose rooms stay low at every step still gets its doorway step, said plainly.
-  const scale = headroom?.scale !== undefined ? Math.max(doorStep, headroom.scale) : doorStep;
+  // Not when door LEAVES decide: a door hung for a minifig opens onto rooms a minifig stands in, and the
+  // headroom is a median over EVERY enclosed floor cell - under counters, between plates - which read 60380's
+  // rooms as 0.5 blocks and raised its 1.3 x 2.5 doors to 400 % (SCALE-04, 2026-10-22). It stays in the reason.
+  const headroomRaises = basis !== 'door-leaves';
+  const scale = headroomRaises && headroom?.scale !== undefined ? Math.max(doorStep, headroom.scale) : doorStep;
   const passable = pool.filter(o => o.requiredScale <= scale + 1e-9).length;
   let reason = noEntrance + (scale === 1
-    ? `${kind} are ${size(pick)} blocks at 100 %: a player walks through as exported (${passable}/${pool.length} clear the ${PASSAGE_WIDTH_BLOCKS}×${PASSAGE_HEIGHT_BLOCKS} passage)`
+    ? `${kind} are ${size(pick)} blocks at 100 %: a player walks through as exported (${passable}/${pool.length} clear the ${DOORWAY_PASS_BLOCKS_TEXT} a minifig needs)`
     : `${kind} are ${size(pick)} blocks at 100 %; ${pctOf(scale)} makes them ${size(pick, scale)} (${need}; ${passable}/${pool.length} clear it)`);
-  if (headroom) {
+  if (headroom && !headroomRaises && (headroom.scale === undefined || headroom.scale > scale)) {
+    reason += `; the median floor-to-ceiling over every enclosed floor is ${blocks1(m.headroomLdu!)} blocks at 100 % (furniture and crawl spaces included) - the doors were hung for a minifig, so the rooms behind them are a minifig's`;
+  } else if (headroom) {
     if (headroom.scale !== undefined && headroom.scale > doorStep) reason += `; floors are ${blocks1(m.headroomLdu!)} blocks under the ceiling at 100 %, so ${pctOf(scale)} is what gives standing room (${blocks1(m.headroomLdu!, scale)})`;
     else if (headroom.scale === undefined) reason += `; floors are only ${blocks1(m.headroomLdu!)} blocks under the ceiling at 100 % and ${blocks1(m.headroomLdu!, scale)} at ${pctOf(scale)} - stooping room, not standing`;
     else reason += `; floors are ${blocks1(m.headroomLdu!, scale)} blocks under the ceiling at ${pctOf(scale)}`;
@@ -1987,7 +2010,7 @@ export function recommendAccessScale(m: SceneAccessMeasurement): AccessScaleReco
   if (climb && !climb.climbableAtScale) {
     const alt = climb.bestStep;
     reason += `. But at ${pctOf(scale)} a player reaches only ${pctFloors(climb.fraction)} of the model's height (its top floor is ${blocks1(m.topFloorLdu!)} blocks up at 100 %), against ${pctFloors(climb.bestFraction)} at ${pctOf(alt)}: rises the player jumped at ${pctOf(alt)} are above the ${JUMP_HEIGHT_BLOCKS}-block jump at ${pctOf(scale)}`;
-    reason += `. ${pctOf(alt)} keeps the floors but leaves doorways at ${size(pick, alt)}${alt < doorStep ? ` - under the ${PASSAGE_WIDTH_BLOCKS}×${PASSAGE_HEIGHT_BLOCKS} passage` : ''}; the choice is between the doors and the stairs`;
+    reason += `. ${pctOf(alt)} keeps the floors but leaves doorways at ${size(pick, alt)}${alt < doorStep ? ` - under the ${DOORWAY_PASS_BLOCKS_TEXT} a minifig needs` : ''}; the choice is between the doors and the stairs`;
   } else if (climb && scale > 1 && climb.bestFraction > 0) {
     reason += `; a player still reaches ${pctFloors(climb.fraction)} of the model's height at ${pctOf(scale)}`;
   }

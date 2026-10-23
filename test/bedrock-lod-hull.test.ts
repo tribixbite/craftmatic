@@ -3,7 +3,7 @@
  * shell of an entity's FINAL emitted cube list, switched in by camera distance.
  */
 import { describe, expect, it } from 'vitest';
-import { ACTOR_DRAW_CEILING_BLOCKS, buildLodHull, entityRenderCullBlocks, LOD_CULL_MARGIN_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID, MIN_LOD_NEAREST_CUBE_BLOCKS, planLodSwitch, RENDER_CULL_BLOCKS_PER_UNIT, UNITS_PER_BLOCK } from '../web/src/engine/bedrock-lod-hull.js';
+import { ACTOR_DRAW_CEILING_BLOCKS, buildLodHull, entityRenderCullBlocks, LOD_CULL_MARGIN_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID, LOD_LARGEST_SIZE_FACTOR, MIN_LOD_NEAREST_CUBE_BLOCKS, planLodSwitch, RENDER_CULL_BLOCKS_PER_UNIT, UNITS_PER_BLOCK } from '../web/src/engine/bedrock-lod-hull.js';
 import { resolveLdrawEntityMaterial } from '../web/src/engine/ldraw-entity-materials.js';
 import { bedrockInGameText, buildPlayableAddon, DEFAULT_LOD_DISTANCE, DEVICE_CUBOID_BUDGET, type PlayableAddonOptions } from '../web/src/engine/playable-addon.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
@@ -11,6 +11,7 @@ import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import { BlockGrid } from '../src/schem/types.js';
 import type { SceneGridFrame } from '../web/src/engine/bedrock-scene-actors.js';
+import { WAND_SIZE_STEPS } from '../web/src/engine/bedrock-scene-actors.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
 import type { CompiledMesh } from '../web/src/engine/ldraw-entity-compiler.js';
 
@@ -287,6 +288,25 @@ describe('the render cull and the LOD switch', () => {
     expect(near.ship && near.switchSource).toBe('requested');
   });
 
+  it('plans the switch for the reach at the largest wand size, so no hull shows beside a model the wand enlarged (FID-03)', () => {
+    // The switch is a fixed camera-to-root distance; minecraft:scale multiplies the reach. The Milano (reach 19.1,
+    // switch 54 at 100 %) put a 400 % player 22 blocks INSIDE its reach when its hull took over: it ships none now.
+    expect(LOD_LARGEST_SIZE_FACTOR).toBe(Math.max(...WAND_SIZE_STEPS) / 100);
+    const box = { width: 3.5, height: 2.5 };
+    expect(planLodSwitch({ lodDistance: 96, radiusBlocks: 19.1, collisionBox: box }).ship).toBe(true);
+    const milano = planLodSwitch({ lodDistance: 96, radiusBlocks: 19.1, largestSizeFactor: LOD_LARGEST_SIZE_FACTOR, collisionBox: box });
+    expect(milano.ship).toBe(false);
+    if (milano.ship) throw new Error('unreachable');
+    expect(milano.nearestCubeBlocks).toBeCloseTo(54 - 4 * 19.1, 6);
+    expect(milano.reason).toMatch(/reach of 76\.4 at 400 percent/);
+    // A car (reach 4) keeps its hull: at 400 % the switch still leaves the camera 38 blocks from its nearest cube.
+    const car = planLodSwitch({ lodDistance: 96, radiusBlocks: 4, largestSizeFactor: LOD_LARGEST_SIZE_FACTOR, collisionBox: box });
+    expect(car.ship).toBe(true);
+    if (!car.ship) throw new Error('unreachable');
+    expect(car.switchDistance).toBe(54);
+    expect(car.nearestCubeBlocks).toBe(38);
+  });
+
   it('honours an explicit distance as asked and only reports whether the cull lets it show', () => {
     // The device A/B ships a never-hull (1024) and an always-hull (1) pack;
     // both must keep their hull geometry resident.
@@ -456,7 +476,8 @@ describe('the LOD hull inside a pack', () => {
     expect(hull.radiusBlocks).toBeGreaterThan(1);
     // An EXPLICIT distance (the device A/B's lever) is honoured as asked; the
     // shell's 0.1 box culls it at 64, which is reported beside it.
-    expect(hull.switchDistance).toBeCloseTo(48 + hull.radiusBlocks, 1);
+    // The diagnostics round the reach to 0.1, so x4 is within 0.2 of the switch.
+    expect(Math.abs(hull.switchDistance - (48 + hull.radiusBlocks * LOD_LARGEST_SIZE_FACTOR))).toBeLessThanOrEqual(0.2);
     expect(hull.switchSource).toBe('requested');
     expect(hull.renderCullBlocks).toBe(64);
     const expressions = Object.values(controllers).map(c => c.geometry);
@@ -496,7 +517,7 @@ describe('the LOD hull inside a pack', () => {
     expect(h.switchDistance - (h.renderCullBlocks - LOD_CULL_MARGIN_BLOCKS)).toBeLessThanOrEqual(0.05);
     expect(h.switchDistance).toBeLessThanOrEqual(h.requestedSwitchDistance);
     expect(h.nearestCubeBlocks).toBeGreaterThanOrEqual(MIN_LOD_NEAREST_CUBE_BLOCKS);
-    expect(h.requestedSwitchDistance).toBeCloseTo(DEFAULT_LOD_DISTANCE + h.radiusBlocks, 1);
+    expect(Math.abs(h.requestedSwitchDistance - (DEFAULT_LOD_DISTANCE + h.radiusBlocks * LOD_LARGEST_SIZE_FACTOR))).toBeLessThanOrEqual(0.2);
     const controllers = JSON.parse(await textOf(shed.bytes, 'Craftmatic_lodshed_RP/render_controllers/lodshed_shell.render_controllers.json')).render_controllers as Record<string, { geometry: string }>;
     expect(Object.values(controllers).some(c => c.geometry === `Array.g[query.distance_from_camera > ${h.switchDistance}]`)).toBe(true);
 

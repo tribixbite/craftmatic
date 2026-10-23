@@ -511,8 +511,14 @@ export const MIN_LOD_NEAREST_CUBE_BLOCKS = 32;
 export interface LodSwitchInput {
   /** Camera-to-nearest-cube distance the pack asks for (`PlayableAddonOptions.lodDistance`). */
   lodDistance: number;
-  /** The entity's reach from its root (`LodHull.radiusBlocks`). */
+  /** The entity's reach from its root at 100 % (`LodHull.radiusBlocks`). */
   radiusBlocks: number;
+  /**
+   * The largest size the entity is placed at, as a factor of 100 % (`LOD_LARGEST_SIZE_FACTOR` for anything the
+   * wand places; 1 when omitted). `minecraft:scale` multiplies the reach and not the switch, which is a fixed
+   * camera-to-ROOT distance in the render controller, so the switch is planned for the reach at that size.
+   */
+  largestSizeFactor?: number;
   /** The entity's `minecraft:collision_box` at 100 %; absent means the clamp (64 blocks). */
   collisionBox?: CollisionBox;
   /**
@@ -555,9 +561,19 @@ export type LodSwitchDecision = LodSwitchPlan | LodSwitchSkip;
 const round1 = (v: number): number => Math.round(v * 10) / 10;
 
 /**
- * The rule for one entity's switch, derived rather than set:
+ * The largest Brick Wand size, as a factor of 100 % (`WAND_SIZE_STEPS` tops out at 400). A hull's switch is a
+ * fixed camera-to-root distance in its render controller while `minecraft:scale` multiplies the entity's reach,
+ * so a switch planned for the 100 % reach let the hull take over within a few blocks of the drawn model at
+ * 200-400 %: the Milano (reach 19.1, switch 54) drew as 1-block voxels to a player standing beside it at 400 %
+ * (FID-03, 2026-10-22). Every switch is planned for this size; a model whose hull cannot hold there ships none.
+ */
+export const LOD_LARGEST_SIZE_FACTOR = 4;
+
+/**
+ * The rule for one entity's switch, derived rather than set, with the reach
+ * taken at the largest size it is placed at (`reach = radiusBlocks x largestSizeFactor`):
  *
- *   requested = lodDistance + radiusBlocks        (the camera is `lodDistance` from every cube)
+ *   requested = lodDistance + reach               (the camera is `lodDistance` from every cube)
  *   cull      = entityRenderCullBlocks(box)       (past this the actor is not drawn at all)
  *   latest    = cull - LOD_CULL_MARGIN_BLOCKS     (the hull must be seen for a chunk of travel)
  *   switch    = min(requested, latest)
@@ -572,7 +588,9 @@ const round1 = (v: number): number => Math.round(v * 10) / 10;
  * reach ~5) switches at 54 instead of its requested 101.
  */
 export function planLodSwitch(input: LodSwitchInput): LodSwitchDecision {
-  const requestedSwitchDistance = round1(input.lodDistance + input.radiusBlocks);
+  const reach = input.radiusBlocks * (input.largestSizeFactor ?? 1);
+  const atSize = (input.largestSizeFactor ?? 1) === 1 ? '' : ` at ${Math.round((input.largestSizeFactor ?? 1) * 100)} percent`;
+  const requestedSwitchDistance = round1(input.lodDistance + reach);
   const renderCullBlocks = round1(entityRenderCullBlocks(input.collisionBox));
   const latestSwitchDistance = round1(renderCullBlocks - LOD_CULL_MARGIN_BLOCKS);
   if (input.explicit) {
@@ -583,11 +601,11 @@ export function planLodSwitch(input: LodSwitchInput): LodSwitchDecision {
     };
   }
   const switchDistance = Math.min(requestedSwitchDistance, latestSwitchDistance);
-  const nearestCubeBlocks = round1(switchDistance - input.radiusBlocks);
+  const nearestCubeBlocks = round1(switchDistance - reach);
   if (nearestCubeBlocks < MIN_LOD_NEAREST_CUBE_BLOCKS) {
     return {
       ship: false, requestedSwitchDistance, renderCullBlocks, latestSwitchDistance, nearestCubeBlocks,
-      reason: `the actor is not drawn past ${renderCullBlocks} blocks from its root (collision box ${input.collisionBox ? `${input.collisionBox.width} x ${input.collisionBox.height}` : 'absent'}), so the hull could only take over by ${latestSwitchDistance}; with a reach of ${round1(input.radiusBlocks)} that puts the camera ${nearestCubeBlocks} blocks from the nearest cube, under the ${MIN_LOD_NEAREST_CUBE_BLOCKS} at which the 1-block hull is acceptable`,
+      reason: `the actor is not drawn past ${renderCullBlocks} blocks from its root (collision box ${input.collisionBox ? `${input.collisionBox.width} x ${input.collisionBox.height}` : 'absent'}), so the hull could only take over by ${latestSwitchDistance}; with a reach of ${round1(reach)}${atSize} that puts the camera ${nearestCubeBlocks} blocks from the nearest cube, under the ${MIN_LOD_NEAREST_CUBE_BLOCKS} at which the 1-block hull is acceptable`,
     };
   }
   return {

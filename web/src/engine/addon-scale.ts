@@ -243,14 +243,23 @@ export const ACCESS_SCALE_STEPS: readonly number[] = [1, 1.5, 2, 3, 4];
 
 /**
  * The smallest multiplier of the minifig scale at which an opening
- * `widthLdu` wide and `heightLdu` high clears the player's passage. An
- * opening with no lintel (`heightLdu` = Infinity) is limited by width alone.
+ * `widthLdu` wide and `heightLdu` high lets the player through: a MINIFIG's
+ * envelope (`DOORWAY_PASS_WIDTH_LDU` x `DOORWAY_PASS_HEIGHT_LDU`, 0.75 x 1.8
+ * blocks at 1x), the rule the doorway colliders are cut to (`passSizeFor`).
+ * A doorway a minifig walks through is a doorway the player walks through at
+ * 100 % - the purpose of the clearance and doorway work. Until 2026-10-22 this
+ * read the whole-block 1 x 2 passage, so the wand recommended 200 % for sets
+ * whose minifig doors the player already walks through at 100 % (SCALE-04).
+ * An opening with no lintel (`heightLdu` = Infinity) is limited by width alone.
  */
 export function passageRequiredScale(widthLdu: number, heightLdu: number): number {
-  const byWidth = PASSAGE_WIDTH_BLOCKS * LDU_PER_BLOCK / Math.max(widthLdu, 1e-9);
-  const byHeight = Number.isFinite(heightLdu) ? PASSAGE_HEIGHT_BLOCKS * LDU_PER_BLOCK / Math.max(heightLdu, 1e-9) : 0;
+  const byWidth = DOORWAY_PASS_WIDTH_LDU / Math.max(widthLdu, 1e-9);
+  const byHeight = Number.isFinite(heightLdu) ? DOORWAY_PASS_HEIGHT_LDU / Math.max(heightLdu, 1e-9) : 0;
   return Math.max(byWidth, byHeight);
 }
+
+/** The passage `passageRequiredScale` asks for, in blocks at 100 %, for a reason's text ("0.75×1.8"). */
+export const DOORWAY_PASS_BLOCKS_TEXT = `${Math.round(DOORWAY_PASS_WIDTH_LDU / LDU_PER_BLOCK * 100) / 100}×${Math.round(DOORWAY_PASS_HEIGHT_LDU / LDU_PER_BLOCK * 100) / 100}`;
 
 /** The first supported step at or above `requiredScale`; undefined when even 4× is not enough. */
 export function accessStepFor(requiredScale: number): number | undefined {

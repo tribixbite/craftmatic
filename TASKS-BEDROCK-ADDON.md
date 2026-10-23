@@ -29,12 +29,29 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   hand-backs. 10303's cars are 2.25 blocks apart and the eye rides 1.12 over the seat: in a loop the car ahead's rider
   sits ~1 block from it. Ideas, unmeasured: a lower or more rearward eye during the animation only. The simulator does
   not reproduce the grazing (its `eye inside bodywork` reads 0 on both clients).
-- FID-03 (the user 2026-10-22: "did our models become more blocky in the last week?"): YES, from 10-12, FIXED d6645cdb.
-  Cube geometry is unchanged since 09-30 (`python -I output/blocky-1022/grain_compare.py <old packs> <new packs>`;
-  switch distances: `lod_compare.py`); the 13-block shell lattice (8f0e4fd3) let every chunk ship its 1-block hull, so
-  far chunks drew voxels beside near ones. Lattice chunks and door leaves ship no hull now; 76457 walk-away full detail
-  at 15/30 blocks (`output/blocky-1022/76457-1022-d0*.png`). OPEN: the user's read on far views, and fps looking at a
-  big model from far (far chunks now draw in full to the cull, as before 10-12) - unmeasured on a phone.
+- FID-03 (the user 2026-10-22: "did our models become more blocky in the last week?"): YES, from 10-12, FIXED d6645cdb
+  (lattice chunks and door leaves ship no voxel hull). The user then said they had NOT noticed that: they meant close-up
+  smoothness, "the loop track itself". MEASURED: 10303's curved/ramp track (25061, 26559, 26560, 80564, 80566) is at
+  4 LDU in every build since the 09-22 pack they first rode (shell budget 43,972 cuboids, each pack's `grainPlan`);
+  0930 and 1022 render identical pixels without LOD (`output/blocky-1022/loop/near-*.png`). Not a change - a budget
+  trade (FID-02, now PARTIAL). Track at 2 LDU: about +23k cuboids on 10303 (~+50 MB native on the Pixel at 2.0-2.5 MB
+  per 1000 cubes) - ASK THE USER before spending it (it is their PERF-01 memory call). Same day:
+  every remaining hull's switch is planned at 400 % (`LOD_LARGEST_SIZE_FACTOR`; the Milano's hull took
+  over 22 blocks INSIDE its reach at 400 %), so only small vehicles keep one. Removing hulls costs no memory (they were
+  resident beside the full model); far views now draw full cuboids (fps, unmeasured on a phone). Disappearance is
+  unaffected: the cull is the collision box and the chunk roots (COL-03), and the 200 % walk-away's culled-actor counts
+  are identical before/after (`output/blocky-1022/loop/10303-102{1,2}-s200.txt`).
+- SCALE-04 (the user 2026-10-22: "still seeing 200% recommendation text in the placement wand ui for models
+  that ship with minifig-scaled models"): the walk-through recommendation measured openings against a whole 1 x 2-block
+  hole and its door leaves were `blind` whenever the space past them was smaller than a (2n)^2 room or another
+  opening's passage. Now: openings and headroom against a minifig's envelope (`passageRequiredScale`, 0.75 x 1.8 at
+  100 %, the doorway colliders' rule), door leaves that open onto anything first, a leaf blind only with solid wall
+  behind it, the easiest entrance (not the 25th percentile) among entrance apertures, and the whole-model headroom
+  median (furniture included: 60380 read 0.5 blocks) no longer raises a door-leaf step. Per-set results before the last
+  two rules: `output/access-1022/after.txt` (76457 / 10326 / 41732 / 10261 now 100 %); the rebuilt packs' logs carry
+  the final ones. Before: each pack's log in device-round-2026-10-22a.
+- TEST TIMING: `test/interactive-passability.test.ts` 76417 takes 14.6 min alone against its 15-min timeout; it timed out
+  in the 2026-10-23 full run (contention). Speed it up or raise the cap before it flakes CI.
 - SHARED 2026-10-22: `output/craftmatic-packs-2026-10-22-d6645cdb.zip` (sha256 41f35f78...29d8fd; folder
   `output/share-2026-10-22-d6645cdb/` with PACKS.md), build `output/device-round-2026-10-22a/` (26/26 valid, simulator
   regressions 38 / 0 failed, `sim/`). Supersedes the 073c72ee share.

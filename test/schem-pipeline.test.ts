@@ -324,12 +324,13 @@ describe('runSchemPipeline — bricks source, playable add-on', () => {
     const r = await runSchemPipeline(brickInput(bricks, 'mcaddon'));
     const access = r.mcpack?.access;
     expect(access, 'the pack summary carries the measurement').toBeTruthy();
-    // Measured on the model's real door leaf: 1.5 x 1.8 blocks at 100 %, so the
-    // first step that clears the player's 1x2 passage is 150 %.
+    // Measured on the model's real door leaf: 1.5 x 1.8 blocks at 100 %, which
+    // clears a minifig's 0.75 x 1.8 doorway, so the player walks through at
+    // 100 % (SCALE-04, 2026-10-22; the old whole-block 1 x 2 rule said 150 %).
     expect(access!.basis).toBe('door-leaves');
-    expect(access!.sizePct).toBe(150);
+    expect(access!.sizePct).toBe(100);
     expect(access!.doorway?.count).toBe(1);
-    expect(access!.reason).toMatch(/150 %/);
+    expect(access!.reason).toMatch(/at 100 %: a player walks through as exported/);
     // Said once in the export's warnings, with the reason WHOLE.
     expect(r.mcpack?.warnings).toContain(`Walk-through size: ${access!.reason}`);
 

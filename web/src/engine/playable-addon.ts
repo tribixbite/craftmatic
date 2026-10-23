@@ -30,7 +30,7 @@ import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import { generateLegoMaterialSwatch, legoMaterialSwatchName } from './ldraw-entity-atlas.js';
 import { MATERIAL_PBR, resolveLdrawEntityMaterial, type LdrawEntityMaterial } from './ldraw-entity-materials.js';
-import { ACTOR_DRAW_CEILING_BLOCKS, buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID, MIN_LOD_NEAREST_CUBE_BLOCKS, planLodSwitch, RENDER_CULL_BLOCKS_PER_UNIT, RENDER_CULL_MIN_UNITS, type CollisionBox } from './bedrock-lod-hull.js';
+import { ACTOR_DRAW_CEILING_BLOCKS, buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_LARGEST_SIZE_FACTOR, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID, MIN_LOD_NEAREST_CUBE_BLOCKS, planLodSwitch, RENDER_CULL_BLOCKS_PER_UNIT, RENDER_CULL_MIN_UNITS, type CollisionBox } from './bedrock-lod-hull.js';
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
@@ -2749,7 +2749,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 // resident cuboids (10303's 760, 2026-09-21).
                 const radiusBlocks = Math.round(hull.radiusBlocks * 10) / 10;
                 const collisionBox = collisionBoxOf(behavior);
-                const plan = planLodSwitch({ lodDistance, radiusBlocks: hull.radiusBlocks, collisionBox, explicit: lodExplicit });
+                // Planned for the largest wand size: the switch is a fixed root distance, the reach grows with the size (FID-03).
+                const plan = planLodSwitch({ lodDistance, radiusBlocks: hull.radiusBlocks, largestSizeFactor: LOD_LARGEST_SIZE_FACTOR, collisionBox, explicit: lodExplicit });
                 if (plan.ship) {
                     lod = { fullCount: bindings.length, distance: plan.switchDistance };
                     for (const mesh of hull.meshes) bindings.push({
@@ -3837,7 +3838,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     if (budget.warning) warnings.push(budget.warning);
     if (lodCuboids) {
         const switches = Object.entries(lodHulls).map(([id, h]) => `${id} at ${h.switchDistance} (reach ${h.radiusBlocks}, culls at ${h.renderCullBlocks}${h.switchSource === 'render-cull' ? `, capped from ${h.requestedSwitchDistance}` : ''}${h.hullWindowBlocks <= 0 ? ', NEVER DRAWN: the switch is past the cull' : ''})`).join(', ');
-        warnings.push(`${label}: distance LOD on - ${lodCuboids} extra hull cuboids over ${Object.keys(lodHulls).length} entit${Object.keys(lodHulls).length === 1 ? 'y' : 'ies'} (${Math.round(lodCuboids / Math.max(1, packCuboids) * 100)}% of this pack, ${Math.round(lodCuboids / DEVICE_CUBOID_BUDGET * 1000) / 10}% of the device budget), resident beside the full model. The hull takes over once the camera is more than ${lodDistance} blocks from a model's nearest cube; query.distance_from_camera reads in blocks to the entity ROOT (Pixel 8 Pro, 2026-09-19), so each entity switches at ${lodDistance} plus its reach from the root, capped ${LOD_CULL_MARGIN_BLOCKS} blocks under the distance its collision box lets the client draw it to (${RENDER_CULL_BLOCKS_PER_UNIT} blocks per unit of box diagonal, at least ${RENDER_CULL_BLOCKS_PER_UNIT * RENDER_CULL_MIN_UNITS}; Pixel 8 Pro, 2026-09-21): ${switches}.`);
+        warnings.push(`${label}: distance LOD on - ${lodCuboids} extra hull cuboids over ${Object.keys(lodHulls).length} entit${Object.keys(lodHulls).length === 1 ? 'y' : 'ies'} (${Math.round(lodCuboids / Math.max(1, packCuboids) * 100)}% of this pack, ${Math.round(lodCuboids / DEVICE_CUBOID_BUDGET * 1000) / 10}% of the device budget), resident beside the full model. The hull takes over once the camera is more than ${lodDistance} blocks from a model's nearest cube; query.distance_from_camera reads in blocks to the entity ROOT (Pixel 8 Pro, 2026-09-19), so each entity switches at ${lodDistance} plus its reach from the root at the largest wand size (${LOD_LARGEST_SIZE_FACTOR * 100} percent: the switch does not grow with the size, the reach does), capped ${LOD_CULL_MARGIN_BLOCKS} blocks under the distance its collision box lets the client draw it to (${RENDER_CULL_BLOCKS_PER_UNIT} blocks per unit of box diagonal, at least ${RENDER_CULL_BLOCKS_PER_UNIT * RENDER_CULL_MIN_UNITS}; Pixel 8 Pro, 2026-09-21): ${switches}.`);
     }
     // A hull the actor culls before it could take over is dropped, and the
     // pack says so, with the collision box that would let it ship.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '@craft/schem/types.js';
 import { DOOR_MAX_OFF_GRID_DEG, FIGURE_UPRIGHT_MAX_TILT_DEG, applySceneDoors, discoverSceneActors, doorBlockForColor, isDoorLeafDescription, measureSceneAccess, recommendAccessScale, recommendDoorExportScale, runtimeDoorCandidates, sceneFloorPoint, actorGroundLdu, groundLiftWarning, settleLooseAccessories, sceneGridPoint, tiltDegOf, yawForFacing } from '../web/src/engine/bedrock-scene-actors.js';
+import type { SceneAccessMeasurement, SceneOpening } from '../web/src/engine/bedrock-scene-actors.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
@@ -443,39 +444,73 @@ describe('measureSceneAccess / recommendAccessScale', () => {
   };
   const meshesOf = async (bricks: ParsedBrick[]) => (await discoverSceneActors(bricks, provider())).meshes;
 
-  it('a minifig-scale doorway (60 × 144 LDU) in a wall clears the 1×2 passage at 100 %', async () => {
+  it("a minifig-scale doorway (60 × 144 LDU) in a wall clears a minifig's doorway at 100 %", async () => {
     const bricks = wall(8, [-30, -10, 10], 6);
     const m = measureSceneAccess(bricks, await meshesOf(bricks));
     expect(m.cell).toEqual({ xz: 5, y: 4 });
     expect(m.openings).toHaveLength(1);
     expect(m.openings[0]).toMatchObject({ source: 'aperture', axis: 'z', widthLdu: 60, heightLdu: 144 });
-    expect(m.openings[0]!.requiredScale).toBeCloseTo(Math.max(LDU_PER_BLOCK / 60, 2 * LDU_PER_BLOCK / 144), 6);
+    expect(m.openings[0]!.requiredScale).toBeCloseTo(Math.max(40 / 60, 96 / 144), 6);
     // The threshold sits on the ground row under the wall, centred on the gap.
     expect(m.openings[0]!.centreLdu[0]).toBeCloseTo(-10, 6);
     expect(m.openings[0]!.centreLdu[1]).toBeCloseTo(0, 6);
     const rec = recommendAccessScale(m);
     expect(rec).toMatchObject({ scale: 1, sizePct: 100, basis: 'apertures' });
     expect(rec.doorway).toMatchObject({ widthBlocks: 1.1, heightBlocks: 2.7, count: 1, passable: 1 });
-    expect(rec.reason).toMatch(/^Wall openings are 1\.1×2\.7 blocks at 100 %: a player walks through as exported \(1\/1 clear the 1×2 passage\)/);
+    expect(rec.reason).toMatch(/^Wall openings are 1\.1×2\.7 blocks at 100 %: a player walks through as exported \(1\/1 clear the 0\.75×1\.8 a minifig needs\)/);
   });
 
-  it('a microscale doorway (40 × 48 LDU) needs 300 %, and the reason says what that makes it', async () => {
+  it('a microscale doorway (40 × 48 LDU) needs 200 %, the size at which a minifig would walk through it, and the reason says what that makes it', async () => {
     const bricks = wall(6, [-10, 10], 2);
     const rec = recommendAccessScale(measureSceneAccess(bricks, await meshesOf(bricks)));
-    expect(rec).toMatchObject({ scale: 3, sizePct: 300, basis: 'apertures' });
+    expect(rec).toMatchObject({ scale: 2, sizePct: 200, basis: 'apertures' });
     expect(rec.doorway).toMatchObject({ widthBlocks: 0.8, heightBlocks: 0.9, passable: 1 });
-    expect(rec.doorway!.requiredScale).toBeCloseTo(2 * LDU_PER_BLOCK / 48, 6);
-    expect(rec.reason).toBe('Wall openings are 0.8×0.9 blocks at 100 %; 300 % makes them 2.3×2.7 (a player needs 1×2; 1/1 clear it); floors are 2.7 blocks under the ceiling at 300 %.');
+    expect(rec.doorway!.requiredScale).toBeCloseTo(96 / 48, 6);
+    expect(rec.reason).toBe("Wall openings are 0.8×0.9 blocks at 100 %; 200 % makes them 1.5×1.8 (a player needs 0.75×1.8, a minifig's doorway; 1/1 clear it); floors are 1.8 blocks under the ceiling at 200 %.");
   });
 
-  it('a one-stud, one-brick gap (20 × 24 LDU) is beyond 400 %: no step is claimed, and the numbers say why', async () => {
+  it('a one-stud, one-brick gap (20 × 24 LDU), the smallest opening counted, opens at 400 %', async () => {
     const bricks = wall(6, [-10], 1);
     const rec = recommendAccessScale(measureSceneAccess(bricks, await meshesOf(bricks)));
-    expect(rec.scale).toBeUndefined();
-    expect(rec.sizePct).toBeUndefined();
-    expect(rec.basis).toBe('apertures');
-    expect(rec.doorway).toMatchObject({ count: 1, passable: 0 });
-    expect(rec.reason).toBe('No size step makes the model walkable: its largest doorway is 0.4×0.5 blocks at 100 % and 1.5×1.8 at 400 % (a player needs 1×2).');
+    expect(rec).toMatchObject({ scale: 4, sizePct: 400, basis: 'apertures' });
+    expect(rec.doorway).toMatchObject({ count: 1, passable: 1 });
+    expect(rec.reason).toMatch(/^Wall openings are 0\.4×0\.5 blocks at 100 %; 400 % makes them 1\.5×1\.8 /);
+  });
+
+  it('door leaves a player can use speak for the set over slits that reach its rooms: an open-backed house recommends its doors (SCALE-04)', () => {
+    // Hogsmeade (76457, the user 2026-10-22): its door leaves open outside to outside, and the only "entrances"
+    // were 0.3-0.7-block slits between houses - which put the wand's recommendation at 200 %.
+    const op = (source: SceneOpening['source'], widthLdu: number, heightLdu: number, connects: SceneOpening['connects']): SceneOpening =>
+      ({ source, axis: 'z', widthLdu, heightLdu, centreLdu: [0, 0, 0], requiredScale: Math.max(40 / widthLdu, 96 / heightLdu), connects });
+    const openings = [
+      op('door-leaf', 72, 134, 'outside'), op('door-leaf', 71, 134, 'outside'), op('door-leaf', 71, 134, 'outside'),
+      op('aperture', 35, 192, 'entrance'), op('aperture', 20, 144, 'entrance'), op('door-leaf', 70, 134, 'blind'),
+    ].sort((p, q) => p.requiredScale - q.requiredScale);
+    const m = { cell: { xz: 5, y: 4 }, grid: { x: 1, y: 1, z: 1, solid: 0 }, openings, headroomLdu: 200, interiorFloorCells: 500, enclosedFloorCells: 500, topFloorLdu: null, reach: [] } as unknown as SceneAccessMeasurement;
+    const rec = recommendAccessScale(m);
+    expect(rec).toMatchObject({ scale: 1, sizePct: 100, basis: 'door-leaves' });
+    expect(rec.doorway).toMatchObject({ count: 3, passable: 3 });
+    expect(rec.reason).toMatch(/^Door leaves are 1\.3×2\.5 blocks at 100 %: a player walks through as exported/);
+    // A leaf on a solid wall is never the evidence: with only that leaf, the slits decide.
+    const blindOnly = { ...m, openings: openings.filter(o => o.source !== 'door-leaf' || o.connects === 'blind') } as SceneAccessMeasurement;
+    expect(recommendAccessScale(blindOnly).basis).toBe('apertures');
+  });
+
+  it("doors decide over the whole model's headroom median, and the easiest ENTRANCE is a way in (SCALE-04)", () => {
+    const op = (source: SceneOpening['source'], widthLdu: number, heightLdu: number, connects: SceneOpening['connects']): SceneOpening =>
+      ({ source, axis: 'z', widthLdu, heightLdu, centreLdu: [0, 0, 0], requiredScale: Math.max(40 / widthLdu, 96 / heightLdu), connects });
+    const base = { cell: { xz: 5, y: 4 }, grid: { x: 1, y: 1, z: 1, solid: 0 }, interiorFloorCells: 500, enclosedFloorCells: 500, topFloorLdu: null, reach: [] };
+    // 60380: 1.3 x 2.5 doors, and a 0.5-block median over every enclosed floor cell (under counters, between plates).
+    const doors = { ...base, openings: [op('door-leaf', 71, 134, 'entrance')], headroomLdu: 27 } as unknown as SceneAccessMeasurement;
+    const rec = recommendAccessScale(doors);
+    expect(rec).toMatchObject({ scale: 1, sizePct: 100, basis: 'door-leaves' });
+    expect(rec.reason).toMatch(/median floor-to-ceiling over every enclosed floor is 0\.5 blocks at 100 %/);
+    // Without door leaves the headroom still raises the step (a microscale interior).
+    const slots = { ...base, openings: [op('aperture', 71, 134, 'entrance')], headroomLdu: 27 } as unknown as SceneAccessMeasurement;
+    expect(recommendAccessScale(slots).scale).toBe(4);
+    // 10303's station: two entrances wider than a minifig at 100 % among slits; the easiest entrance decides.
+    const station = { ...base, headroomLdu: 200, openings: [op('aperture', 75, 396, 'entrance'), op('aperture', 112, 114, 'entrance'), op('aperture', 37, 102, 'entrance'), op('aperture', 30, 396, 'entrance'), op('aperture', 15, 54, 'entrance')] } as unknown as SceneAccessMeasurement;
+    expect(recommendAccessScale(station)).toMatchObject({ scale: 1, sizePct: 100, basis: 'apertures' });
   });
 
   it('a solid wall has no opening and no interior: it says so instead of inventing a number', async () => {
@@ -500,13 +535,35 @@ describe('measureSceneAccess / recommendAccessScale', () => {
     expect(rec.reason).toMatch(/^Door leaves are 1\.5×2\.7 blocks at 100 %: a player walks through as exported \(1\/1 clear/);
   });
 
+  it('a door leaf onto a space smaller than a room still leads somewhere; only a leaf with solid wall behind it is blind (SCALE-04)', async () => {
+    // 10326 (rounds 30g/30i, walked at 100 % on the Saga): its doors open onto a passage or a 6-stud hall, which
+    // the aperture rule's (2n)² room test called pockets, so all six were `blind` and the wand said 300 %.
+    // A vestibule behind the leaf - side columns at x = ±50, a back wall at z = 60, a plate ceiling: a closet.
+    const vestibule = [
+      ...[20, 40].flatMap(z => [0, 1, 2, 3, 4, 5, 6, 7].flatMap(r => [brick('3005.dat', -50, -24 * r, z), brick('3005.dat', 50, -24 * r, z)])),
+      ...wall(8, [], 0, 60, [-50, -30, -10, 10, 30, 50]),
+      brick('3029.dat', 0, -192, 30),
+    ];
+    const leaf = { part: '60623.dat', color: 6, x: -40, y: 0, z: 0, rot: I };
+    const hung = [...wall(8, [-30, -10, 10, 30], 6), leaf, ...vestibule];
+    const m = measureSceneAccess(hung, await meshesOf(hung));
+    const door = m.openings.find(o => o.source === 'door-leaf')!;
+    expect(door.connects).not.toBe('blind');
+    expect(recommendAccessScale(m)).toMatchObject({ scale: 1, sizePct: 100, basis: 'door-leaves' });
+    // The same leaf flush on an uncut wall thicker than a wall's depth (solid all the way behind it) is drawn, not hung.
+    const drawn = [...[0, 20, 40, 60, 80, 100, 120].flatMap(z => wall(8, [], 0, z)), { ...leaf, z: -13 }];
+    const onWall = measureSceneAccess(drawn, await meshesOf(drawn)).openings.find(o => o.source === 'door-leaf');
+    expect(onWall?.connects).toBe('blind');
+  });
+
   it('a leaf wider than it is tall (a 1×3×1 cupboard door) is a hatch, never door evidence', async () => {
     const bricks = [brick('3821.dat', 0, 0, 0), brick('3001.dat', 200, 0, 0)];
     const m = measureSceneAccess(bricks, await meshesOf(bricks));
     expect(m.openings.map(o => o.source)).toEqual(['hatch-leaf']);
     const rec = recommendAccessScale(m);
     expect(rec.basis).toBe('apertures');
-    expect(rec.scale).toBeUndefined();
+    // 60 × 24: a brick high, so it opens only at 400 %.
+    expect(rec.scale).toBe(4);
   });
 
   it('the frame of a door mould keeps its hole: the aperture is measured between the jambs and under the lintel', async () => {
@@ -539,15 +596,15 @@ describe('measureSceneAccess / recommendAccessScale', () => {
 
   it('interior headroom is the median floor-to-ceiling, and a low ceiling raises the recommended step', async () => {
     // A room: the doorway wall in front, a 4×12 plate ceiling 48 LDU up over a floor behind it (rows 0-1 open in the gap).
-    // The doorway itself (40 × 48) needs 2.22× (300 %); the room's 48 LDU ceiling needs the same, so 300 % stands.
+    // The doorway itself (40 × 48) needs 2× (200 %); the room's 48 LDU ceiling needs the same, so 200 % stands.
     const bricks = [...wall(4, [-10, 10], 2), brick('3029.dat', 0, -48, 40)];
     const m = measureSceneAccess(bricks, await meshesOf(bricks));
     expect(m.headroomLdu).toBe(48);
     expect(m.interiorFloorCells).toBeGreaterThan(0);
     const rec = recommendAccessScale(m);
-    expect(rec.headroom).toMatchObject({ blocks: 0.9, scale: 3 });
-    expect(rec.headroom!.requiredScale).toBeCloseTo(2 * LDU_PER_BLOCK / 48, 6);
-    expect(rec.scale).toBe(3);
+    expect(rec.headroom).toMatchObject({ blocks: 0.9, scale: 2 });
+    expect(rec.headroom!.requiredScale).toBeCloseTo(96 / 48, 6);
+    expect(rec.scale).toBe(2);
   });
 
   it('excluded placements (a figure standing in the doorway) do not block it', async () => {
@@ -573,15 +630,24 @@ describe('measureSceneAccess / recommendAccessScale', () => {
     expect(m.reach[0]!.reachedSurfaces).toBeGreaterThan(m.reach[3]!.reachedSurfaces / 100);
   });
 
-  it('a microscale doorway with that staircase: the doorway wants 300 %, the stairs stop at 200 %, and the reason names both', async () => {
+  it('a microscale doorway with that staircase: the doorway wants 200 %, where the stairs still climb', async () => {
     const bricks = [...wall(6, [-10, 10], 2), ...stairs()];
     const rec = recommendAccessScale(measureSceneAccess(bricks, await meshesOf(bricks)));
-    expect(rec.scale).toBe(3);
-    // The stairs (96) against the wall top (144): two thirds of the height at 100 %, none at 300 %.
+    expect(rec.scale).toBe(2);
+    // The stairs (96) against the wall top (144): two thirds of the height at 100 % and at 200 % (a riser is a jump there).
+    expect(rec.climb).toMatchObject({ bestStep: 1, climbableAtScale: true });
+    expect(rec.climb!.fraction).toBeCloseTo(96 / 144, 9);
+    expect(rec.reason).not.toMatch(/reaches only/);
+  });
+
+  it('a doorway that wants 400 % with that staircase: the stairs stop at 300 %, and the reason names both', async () => {
+    // A one-stud, one-brick gap (20 × 24 LDU) needs 400 %; the stairs climb through 200 % and stop at 300 %.
+    const bricks = [...wall(6, [-10], 1), ...stairs()];
+    const rec = recommendAccessScale(measureSceneAccess(bricks, await meshesOf(bricks)));
+    expect(rec.scale).toBe(4);
     expect(rec.climb).toMatchObject({ bestStep: 1, climbableAtScale: false });
     expect(rec.climb!.fraction).toBe(0);
-    expect(rec.climb!.bestFraction).toBeCloseTo(96 / 144, 9);
-    expect(rec.reason).toMatch(/But at 300 % a player reaches only 0 % of the model's height \(its top floor is 2\.7 blocks up at 100 %\), against 67 % at 100 %: rises the player jumped at 100 % are above the 1\.25-block jump at 300 %\. 100 % keeps the floors but leaves doorways at 0\.8×0\.9 - under the 1×2 passage; the choice is between the doors and the stairs\.$/);
+    expect(rec.reason).toMatch(/But at 400 % a player reaches only 0 % of the model's height \(its top floor is 2\.7 blocks up at 100 %\), against 67 % at 100 %: rises the player jumped at 100 % are above the 1\.25-block jump at 400 %\. 100 % keeps the floors but leaves doorways at 0\.4×0\.5 - under the 0\.75×1\.8 a minifig needs; the choice is between the doors and the stairs\.$/);
   });
 
   it('a minifig-scale doorway with the same staircase: 100 % is recommended and nothing is lost', async () => {
@@ -627,7 +693,7 @@ describe('measureSceneAccess / recommendAccessScale', () => {
     expect(m.enclosedFloorCells).toBeGreaterThan(1000);
     const rec = recommendAccessScale(m);
     expect(rec.openings).toEqual({ entrances: 0, interior: 1, outside: 0, blind: 0, enclosed: true });
-    expect(rec.reason).toMatch(/^No entrance at any size: the model has a closed interior, but none of its 1 opening leads in from outside \(1 between its own rooms, 0 open to the outside on both sides\) - its doors are drawn, not cut\. Its openings are 0\.8×2\.7 blocks at 100 %; 150 % makes them/);
+    expect(rec.reason).toMatch(/^No entrance at any size: the model has a closed interior, but none of its 1 opening leads in from outside \(1 between its own rooms, 0 open to the outside on both sides\) - its doors are drawn, not cut\. Its openings are 0\.8×2\.7 blocks at 100 %: a player walks through as exported/);
   });
 
   it('the same building with its front doorway cut counts that doorway as its one entrance and recommends on it', async () => {
@@ -639,7 +705,9 @@ describe('measureSceneAccess / recommendAccessScale', () => {
     const rec = recommendAccessScale(m);
     expect(rec.openings).toMatchObject({ entrances: 1, interior: 1, enclosed: true });
     expect(rec.doorway).toMatchObject({ count: 1, passable: 1 });
-    expect(rec.reason).toMatch(/^Entrances are 0\.8×2\.7 blocks at 100 %; 150 % makes them 1\.1×4\.\d \(a player needs 1×2; 1\/1 clear it\)/);
+    // 40 × 144 LDU: two studs, the width of a minifig's hips - the player's doorway at 100 % (SCALE-04).
+    expect(rec).toMatchObject({ scale: 1, sizePct: 100 });
+    expect(rec.reason).toMatch(/^Entrances are 0\.8×2\.7 blocks at 100 %: a player walks through as exported \(1\/1 clear the 0\.75×1\.8 a minifig needs\)/);
   });
 
   it('keeps the reach walk\'s floors at the asked scale as LDraw points (the tread planner\'s fine walk)', async () => {
