@@ -13,7 +13,7 @@
  * download — that duplication is what S4 removed.
  */
 
-import { SMOOTH_TRACK_GRAIN_LDU } from '@engine/coaster-track.js';
+import { addonPipelineFields } from '@ui/schem-settings-map.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
 import type { VoxelizeOptions } from '@engine/ldraw-voxelizer.js';
@@ -457,19 +457,13 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
       const datTexts = collectDatTexts();
       input = {
         source: { kind: 'bricks', bricks: req.source.bricks, colorSpace: req.source.colorSpace, options: opts },
-        format, profile: settings.profile, lightFill: settings.lightFill,
-        lightCoverage: settings.lightCoverage, lightStyle: settings.lightStyle, lightSpacing: settings.lightSpacing, vehicleFacing: settings.vehicleFacing,
+        format, ...addonPipelineFields(settings),
         shapes: settings.shapes,
-        detailMaterials: settings.detailMaterials,
         ldrawBase: new URL('/ldraw-parts', location.origin).toString(),
         datTexts,
         packStem: base,
         packLabel: req.label ?? base,
         vehicleMode: req.vehicleMode ?? 'auto',
-        entityQuality: settings.addonDetail,
-        mainVehicleOnly: settings.addonMainVehicleOnly === true,
-        ...(settings.addonSmoothTrack ? { trackGrainLdu: SMOOTH_TRACK_GRAIN_LDU } : {}),
-        buildingFidelity: settings.addonBuildingBricks === false ? 'blocks' : 'bricks',
         ...(modelScale !== undefined ? { modelScale } : {}),
         ...provenanceInput(req),
       };
@@ -486,16 +480,10 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         },
         // An uploaded grid is already blocks — there is no sub-cell occupancy
         // left to refine from, so the shape pass has nothing to work with.
-        format, profile: settings.profile, lightFill: settings.lightFill,
-        lightCoverage: settings.lightCoverage, lightStyle: settings.lightStyle, lightSpacing: settings.lightSpacing, vehicleFacing: settings.vehicleFacing, shapes: false,
-        detailMaterials: settings.detailMaterials,
+        format, ...addonPipelineFields(settings), shapes: false,
         packStem: base,
         packLabel: req.label ?? base,
         vehicleMode: req.vehicleMode ?? 'auto',
-        entityQuality: settings.addonDetail,
-        mainVehicleOnly: settings.addonMainVehicleOnly === true,
-        ...(settings.addonSmoothTrack ? { trackGrainLdu: SMOOTH_TRACK_GRAIN_LDU } : {}),
-        buildingFidelity: settings.addonBuildingBricks === false ? 'blocks' : 'bricks',
         ...provenanceInput(req),
       };
     }

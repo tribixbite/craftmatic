@@ -21,6 +21,7 @@ import {
 import { BLOCK_PROFILES } from '@engine/block-profiles.js';
 import { ADDON_SCALE_OPTIONS, describeAddonScale, planAddonScale, type AddonScaleChoice } from '@engine/addon-scale.js';
 import { describeAccessRecommendation, getAccessRecommendation } from '@ui/schem-export.js';
+import { sanitizeSchemSettings } from '@ui/schem-settings-map.js';
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
 
 const STORAGE_KEY = 'craftmatic.mcExportSettings';
@@ -35,25 +36,7 @@ function load(): SchemExportSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<SchemExportSettings>;
-      const res = parsed.resolution;
-      settings = {
-        resolution: RESOLUTION_OPTIONS.some(o => o.value === res) ? res as ResolutionChoice : 'auto',
-        profile: BLOCK_PROFILES.some(p => p.id === parsed.profile) ? parsed.profile! : DEFAULT_SCHEM_SETTINGS.profile,
-        lightFill: parsed.lightFill === true,
-        vehicleFacing: ['+x', '-x', '+z', '-z'].includes(parsed.vehicleFacing ?? '') ? parsed.vehicleFacing : 'auto',
-        addonDetail: ['high', 'ultra'].includes(parsed.addonDetail ?? '') ? parsed.addonDetail : 'balanced',
-        addonMainVehicleOnly: parsed.addonMainVehicleOnly === true,
-        addonSmoothTrack: parsed.addonSmoothTrack !== false,
-        addonBuildingBricks: parsed.addonBuildingBricks !== false,
-        addonScale: ADDON_SCALE_OPTIONS.some(o => o.value === parsed.addonScale) ? parsed.addonScale : 'auto',
-        lightCoverage: parsed.lightCoverage === 'covered' ? 'covered' : 'sealed',
-        lightStyle: ['lantern', 'sea_lantern'].includes(parsed.lightStyle ?? '') ? parsed.lightStyle : 'profile',
-        lightSpacing: [3, 6, 10].includes(parsed.lightSpacing ?? 0) ? parsed.lightSpacing : 6,
-        // Default ON, so a value stored before the setting existed opts in.
-        shapes: parsed.shapes !== false,
-        detailMaterials: parsed.detailMaterials === true,
-      };
+      settings = sanitizeSchemSettings(JSON.parse(raw) as Partial<SchemExportSettings>);
     }
   } catch { /* private mode / corrupt value → defaults */ }
   return settings;
