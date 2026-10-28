@@ -12,7 +12,7 @@ import type { CanonMount } from './set-canon.js';
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
 import { CONCRETE_COLORS, encodePngRgba, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
 import type { ParsedBrick } from './ldraw-parser.js';
-import { compileLdrawEntityGeometry, ldrawToRenderRotation, unlevelPoint, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
+import { compileLdrawEntityGeometry, ldrawToRenderRotation, unlevelPoint, type CompileLdrawEntityOptions, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
 import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
 import { renderSeatToEntity, riderVisibleSizes, roofMap, surfaceOnTop, RIDE_ON_TOP_BELOW, ROOF_SEAT_BELOW_SURFACE, RIDER_EYE_ABOVE_SEAT, seatAtOnTop, type RoofMap, type SeatPlan } from './cockpit-seat.js';
 import type { VehicleSeatReport } from './seat-census.js';
@@ -2606,6 +2606,25 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     files.push(rpManifestFile);
     files.push({ name: `${bp}craftmatic-provenance.json`, data: json(provenance) });
     const diagnostics: Record<string, LegoGeometryDiagnostics> = {};
+    /** The compiler's "front/rear direction" note is a VEHICLE's; for a prop, a figure or a shell it says nothing. */
+    const FACING_NOTE = /front\/rear direction/;
+    /** Keep a compile's diagnostics and, unless told not to, its warnings without the facing note. */
+    const recordCompiled = (cid: string, geo: CompiledLdrawGeometry, keepWarnings = true): void => {
+        diagnostics[cid] = geo.diagnostics;
+        if (keepWarnings) warnings.push(...geo.warnings.filter(w => !FACING_NOTE.test(w)));
+    };
+    /**
+     * A static prop on the grid's own frame at the SHELL's quality: the shell, its interactives and
+     * door leaves, the pinball parts and lift cars share every option but these few, which each
+     * site passes in `extra` (origin above the model, a rig, a pinned grain, another frame). The
+     * lift car deliberately keeps its origin at the floor (10788's tap fix), so `originAboveModel`
+     * is never defaulted here.
+     */
+    const compileStaticProp = (cid: string, bricks: ParsedBrick[], extra: CompileLdrawEntityOptions = {}): Promise<CompiledLdrawGeometry> =>
+        compileLdrawEntityGeometry(cid, 'prop', bricks, {
+            scale: unitsPerLdu, frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
+            quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr, ...extra,
+        });
     /** Cuboids of the BlockGrid-fallback entities, which have no `LegoGeometryDiagnostics` to carry them. */
     let fallbackCuboids = 0;
     // Bundle authentic embossed LEGO stud & seam textures for Minecraft concrete blocks
@@ -2976,15 +2995,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         const shellId = entityId(rawShell, 'b');
         options.onProgress?.(`compiling ${label} brick geometry`, 72);
         try {
-            const sgeo = await compileLdrawEntityGeometry(shellId, 'prop', options.shell.bricks, {
-                scale: unitsPerLdu, frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
-                quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr,
+            const sgeo = await compileStaticProp(shellId, options.shell.bricks, {
                 ...(options.trackGrainLdu ? { pinGrain: { ldu: options.trackGrainLdu, parts: isTrackPart } } : {}),
                 // Lit from open sky above the roof, not from inside the colliders (Pixel round 4: three shells near-black).
                 originAboveModel: true,
             });
-            diagnostics[shellId] = sgeo.diagnostics;
-            warnings.push(...sgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
+            recordCompiled(shellId, sgeo);
             const at = sceneGridPoint(options.shell.frame, sgeo.originLdu);
             // Split the FINISHED geometry, not its input parts: the grain,
             // hidden-face, merge and coplanar plans still run exactly once.
@@ -3046,12 +3062,10 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 const ixLabel = `${noun} ${n}`;
                 options.onProgress?.(`compiling ${label} ${ixLabel.toLowerCase()}`, 73);
                 try {
-                    const igeo = await compileLdrawEntityGeometry(ixId, 'prop', it.bricks, {
-                        scale: unitsPerLdu, frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
-                        quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr,
+                    const igeo = await compileStaticProp(ixId, it.bricks, {
                         rig: interactiveRig(it.bricks.length, it.pivotLdu, it.axisLdu, it.anchorLdu), originLdu: it.anchorLdu,
                     });
-                    diagnostics[ixId] = igeo.diagnostics;
+                    recordCompiled(ixId, igeo, false);
                     // A sliding part (a drawer, a roller or sliding door) eases its distance; a hinged one its angle.
                     const rate = (it.slide ? Math.abs(it.angleDeg) : Math.max(Math.abs(it.angleDeg), OPEN_DEG[it.kind])) / SWING_SECONDS;
                     const anim = interactiveAnimation(typeId, rate, it.slide ? unitsPerLdu : undefined);
@@ -3208,13 +3222,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         const leafId = entityId(`${id}_door_leaf_${index + 1}`, 'd');
         options.onProgress?.(`compiling ${label} door leaf ${index + 1}`, 74);
         try {
-            const lgeo = await compileLdrawEntityGeometry(leafId, 'prop', leaf.bricks, {
-                scale: unitsPerLdu, frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
-                quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr,
-                originAboveModel: true,
-            });
-            diagnostics[leafId] = lgeo.diagnostics;
-            warnings.push(...lgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
+            const lgeo = await compileStaticProp(leafId, leaf.bricks, { originAboveModel: true });
+            recordCompiled(leafId, lgeo);
             // No hull: a leaf is drawn in its building's doorway, and a voxel leaf in a full-detail wall is the
             // same mixed detail as a hulled shell chunk (FID-03).
             emitCompiledEntity(leafId, lgeo, shellBehavior(leafId, lgeo.sizeBlocks), undefined, false);
@@ -3336,8 +3345,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     warnings.push(`${elabel}: could not be compiled (${e instanceof Error ? e.message : String(e)}); left out.`);
                     continue;
                 }
-                diagnostics[ecid] = egeo.diagnostics;
-                warnings.push(...egeo.warnings.filter(w => !/front\/rear direction/.test(w)));
+                recordCompiled(ecid, egeo);
                 if (ekind === 'figure') figureBodies[`${PACK_NAMESPACE}:${ecid}`] = figureCollisionBox(egeo.sizeBlocks, options.figureCollisionHeight).height;
                 const extraRoof = ekind === 'car' && egeo.seatPlan ? roofMap(geometryEntityBoxes(egeo.value)) : undefined;
                 const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks, options.figureCollisionHeight)
@@ -3401,8 +3409,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             mountReport?.missing.push({ style, label: mountLabel, reason });
             continue;
         }
-        diagnostics[flyerId] = geo.diagnostics;
-        warnings.push(...geo.warnings.filter(w => !/front\/rear direction/.test(w)));
+        recordCompiled(flyerId, geo);
         // The rider sits ON the mount: the seat at its top surface (a riding
         // player's eye is `SEATED_EYE_HEIGHT_BLOCKS` over it), player-sized at
         // 100 % and scaled with the mount's size steps like any vehicle seat.
@@ -3424,8 +3431,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             try {
                 options.onProgress?.(`compiling ${label} ${mountLabel} companion`);
                 // The companion's cloud: the same bricks on the same nose, origin over the model so open sky lights it (a lift car's recipe).
-                const cgeo = await compileLdrawEntityGeometry(carId, 'prop', m.bricks, { scale: unitsPerLdu, frame: ldrawToRenderRotation(nose), wholeModel: true, partGeometry: options.partGeometry, quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr, originAboveModel: true });
-                diagnostics[carId] = cgeo.diagnostics;
+                const cgeo = await compileStaticProp(carId, m.bricks, { frame: ldrawToRenderRotation(nose), originAboveModel: true });
+                recordCompiled(carId, cgeo, false);
                 emitCompiledEntity(carId, cgeo, mountCarBehavior(carId, cgeo.collisionBox));
                 addEntityName(carType, `${label} ${mountLabel} (companion)`, false);
                 files.push({ name: `${bp}entities/${seatId}.json`, data: json(companionSeatBehavior(seatId)) }, { name: `${rp}entity/${seatId}.entity.json`, data: json(seatClient(seatId)) });
@@ -3488,8 +3495,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             warnings.push(`${flabel}: could not be compiled (${e instanceof Error ? e.message : String(e)}); left out.`);
             continue;
         }
-        diagnostics[fcid] = fgeo.diagnostics;
-        warnings.push(...fgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
+        recordCompiled(fcid, fgeo);
         emitCompiledEntity(fcid, fgeo, figureBehavior(fcid, fgeo.sizeBlocks, options.figureCollisionHeight), fgeo.figure ? figureClientAnimations(fgeo.figure.system) : undefined);
         figureBodies[`${PACK_NAMESPACE}:${fcid}`] = figureCollisionBox(fgeo.sizeBlocks, options.figureCollisionHeight).height;
         addEntityName(`${PACK_NAMESPACE}:${fcid}`, flabel, true);
@@ -3582,16 +3588,14 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     let pinballConfig: PinballRuntimeConfig | undefined;
     if (options.pinball) {
         const { plan, frame } = options.pinball;
-        const compileOpts = { scale: unitsPerLdu, frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
-            quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr, originAboveModel: true };
         try {
             options.onProgress?.(`compiling ${label} pinball`, 77);
             const flipperTypes: string[] = [];
             for (const [i, f] of plan.flippers.entries()) {
                 const fid = entityId(`${id}_pinball_flipper_${f.side}`, 'p');
                 const typeId = `${PACK_NAMESPACE}:${fid}`;
-                const geo = await compileLdrawEntityGeometry(fid, 'prop', f.bricks, { ...compileOpts, rig: f.rig });
-                diagnostics[fid] = geo.diagnostics;
+                const geo = await compileStaticProp(fid, f.bricks, { originAboveModel: true, rig: f.rig });
+                recordCompiled(fid, geo, false);
                 const anim = flipperAnimation(typeId);
                 emitCompiledEntity(fid, geo, pinballPropBehavior(typeId, { width: 0.5, height: 0.3 }, flipperProperties()), { animations: { flip: anim.id }, animate: ['flip'] });
                 files.push({ name: `${rp}animations/${fid}.animation.json`, data: json(anim.file) });
@@ -3606,8 +3610,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             if (plan.plunger) {
                 const pid = entityId(`${id}_pinball_plunger`, 'p');
                 plungerType = `${PACK_NAMESPACE}:${pid}`;
-                const pgeo = await compileLdrawEntityGeometry(pid, 'prop', plan.plunger.bricks, { ...compileOpts, rig: plan.plunger.rig });
-                diagnostics[pid] = pgeo.diagnostics;
+                const pgeo = await compileStaticProp(pid, plan.plunger.bricks, { originAboveModel: true, rig: plan.plunger.rig });
+                recordCompiled(pid, pgeo, false);
                 const panim = plungerAnimation(plungerType, plan.map, plan.plunger.strokeLdu);
                 emitCompiledEntity(pid, pgeo, pinballPropBehavior(plungerType, { width: 0.5, height: 0.3 }, plungerProperties()), { animations: { pull: panim.id }, animate: ['pull'] });
                 files.push({ name: `${rp}animations/${pid}.animation.json`, data: json(panim.file) });
@@ -3621,8 +3625,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             for (const b of plan.buttons) {
                 const cbid = entityId(`${id}_pinball_cabinet_button_${b.side}`, 'p');
                 const cbType = `${PACK_NAMESPACE}:${cbid}`;
-                const cbgeo = await compileLdrawEntityGeometry(cbid, 'prop', b.bricks, { ...compileOpts, rig: b.rig });
-                diagnostics[cbid] = cbgeo.diagnostics;
+                const cbgeo = await compileStaticProp(cbid, b.bricks, { originAboveModel: true, rig: b.rig });
+                recordCompiled(cbid, cbgeo, false);
                 const cbanim = buttonPressAnimation(cbType, plan.map, b.strokeLdu, b.inward);
                 emitCompiledEntity(cbid, cbgeo, pinballPropBehavior(cbType, { width: 0.3, height: 0.3 }, pressProperties()), { animations: { press: cbanim.id }, animate: ['press'], overlayColor: pressFlashOverlay() });
                 files.push({ name: `${rp}animations/${cbid}.animation.json`, data: json(cbanim.file) });
@@ -3637,8 +3641,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             // culling box has to cover the whole table, not the ball.
             const bid = entityId(`${id}_pinball_ball`, 'p');
             const ballType = `${PACK_NAMESPACE}:${bid}`;
-            const bgeo = await compileLdrawEntityGeometry(bid, 'prop', [plan.ballBrick], { ...compileOpts, rig: plan.ballRig });
-            diagnostics[bid] = bgeo.diagnostics;
+            const bgeo = await compileStaticProp(bid, [plan.ballBrick], { originAboveModel: true, rig: plan.ballRig });
+            recordCompiled(bid, bgeo, false);
             const tableReach = (plan.table.grid.rows + plan.table.grid.cols) * plan.table.grid.cell * Math.hypot(...plan.map.u);
             const ballBounds = visibleBoundsForSizeSteps({ min: [-tableReach, -tableReach, -tableReach], max: [tableReach, tableReach, tableReach] });
             for (const g of (bgeo.value as { 'minecraft:geometry': Array<{ description: Record<string, unknown> }> })['minecraft:geometry']) Object.assign(g.description, ballBounds);
@@ -3778,9 +3782,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     // the car boards the lift (rides.js). With the origin a block over the
                     // car (for its light) and a 0.5 x 0.3 box there, a tap on the platform
                     // a child can see met nothing (10788, 2026-09-29).
-                    const geo = await compileLdrawEntityGeometry(carId, 'prop', r.carBricks, { scale: unitsPerLdu, frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
-                        quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr });
-                    diagnostics[carId] = geo.diagnostics;
+                    const geo = await compileStaticProp(carId, r.carBricks);
+                    recordCompiled(carId, geo, false);
                     carType = `${PACK_NAMESPACE}:${carId}`;
                     const carBox = { width: Math.round(Math.min(3.5, Math.max(0.5, Math.min(geo.sizeBlocks.width, geo.sizeBlocks.length))) * 100) / 100, height: Math.round(Math.min(3.5, Math.max(0.3, geo.sizeBlocks.height)) * 100) / 100 };
                     emitCompiledEntity(carId, geo, pinballPropBehavior(carType, carBox));
