@@ -41,8 +41,11 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   (+26,660), 10261 56,690 -> 88,949 (+32,259), 76417 58,869 -> 68,712 (+9,843), 42703 +0 (already 2 LDU). Pixel census
   (`pixel/notes.md`, two alternating pairs, 1.26.52.3): 10303 smooth +92 MB native heap / +96 MB PSS (pairs +111/+73), so
   2.7-4.2 MB per 1000 cuboids, not the bare-cube probe's 2.0-2.5; 10303 default alone +275 MB native over no packs.
-  Simulator regressions: same verdicts both builds (8 tested, 0 failed). OPEN: a device look at the smooth track; fps
-  with it in view. A browser that saved settings while the box was off keeps `false` (explicit) - tick the box once.
+  Simulator regressions: same verdicts both builds (8 tested, 0 failed). Pixel round 2026-10-28a (`output/device-round-2026-10-28a/pixel/`,
+  4 alternating runs, only 10303 bound): fps with the model placed 18-21 for BOTH builds at every view, smooth - default
+  -1.7..+0.3, inside run-to-run spread (no fps cost resolvable); `look-close.jpg`: the rail's outline steps a little
+  less on the smooth build, otherwise identical. The phone ends bound to SMOOTH. Loop views for later rounds:
+  `/tp @s 12024.5 -45 6017 facing 12024.5 -45 6011` (placed at 12000 -60 6000, 0 deg). A browser that saved settings while the box was off keeps `false` (explicit) - tick the box once.
 - FID-03 (2026-10-22, FIXED d6645cdb + 880c702f): no voxel hull on lattice chunks / door leaves; remaining hulls switch at
   400 % (`LOD_LARGEST_SIZE_FACTOR`), only small vehicles keep one. Far views draw full cuboids (fps unmeasured on a
   phone). Disappearance unaffected (`output/blocky-1022/loop/10303-102{1,2}-s200.txt`).
