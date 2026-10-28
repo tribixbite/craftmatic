@@ -291,7 +291,13 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   0.931 at 4 LDU — better AND cheaper — so round parts were coarsened first and
   read as squares up close (`0913f4f7`). Decide box-ness at the FINEST grain and
   measure everything else; `scripts/_round_part_fidelity.ts` prints the true
-  per-part IoU per grain.
+  per-part IoU per grain. **A plan's grain is what was ASKED, not always what
+  shipped:** `compilePartPrototype` doubles the cell on its own when the fine
+  lattice passes `MAX_FINE_CELLS`; at 6M it put 80566 (274 x 98 x 274 LDU) at
+  4 LDU under a plan saying 2, and a pinned smooth track stayed coarse
+  (2026-10-27, now 12M). Read a part's shipped grain from `heaviestParts`
+  `microcellLdu`, and the same "2 vs 4" row of `_round_part_fidelity.ts`
+  (equal counts = the guard fired).
 - **Bedrock culls an actor by its `minecraft:collision_box`, not its visible
   bounds** (`cull ≈ 64 × max(1, box diagonal)` blocks). A 0.1×0.1 shell box made
   every model vanish at 64 blocks; the box is now sized from the model extent in

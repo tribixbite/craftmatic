@@ -29,18 +29,22 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   hand-backs. 10303's cars are 2.25 blocks apart and the eye rides 1.12 over the seat: in a loop the car ahead's rider
   sits ~1 block from it. Ideas, unmeasured: a lower or more rearward eye during the animation only. The simulator does
   not reproduce the grazing (its `eye inside bodywork` reads 0 on both clients).
-- FID-03 (the user 2026-10-22: "did our models become more blocky in the last week?"): YES, from 10-12, FIXED d6645cdb
-  (lattice chunks and door leaves ship no voxel hull). The user then said they had NOT noticed that: they meant close-up
-  smoothness, "the loop track itself". MEASURED: 10303's curved/ramp track (25061, 26559, 26560, 80564, 80566) is at
-  4 LDU in every build since the 09-22 pack they first rode (shell budget 43,972 cuboids, each pack's `grainPlan`);
-  0930 and 1022 render identical pixels without LOD (`output/blocky-1022/loop/near-*.png`). Not a change - a budget
-  trade (FID-02, now PARTIAL). Track at 2 LDU: about +23k cuboids on 10303 (~+50 MB native on the Pixel at 2.0-2.5 MB
-  per 1000 cubes) - ASK THE USER before spending it (it is their PERF-01 memory call). Same day:
-  every remaining hull's switch is planned at 400 % (`LOD_LARGEST_SIZE_FACTOR`; the Milano's hull took
-  over 22 blocks INSIDE its reach at 400 %), so only small vehicles keep one. Removing hulls costs no memory (they were
-  resident beside the full model); far views now draw full cuboids (fps, unmeasured on a phone). Disappearance is
-  unaffected: the cull is the collision box and the chunk roots (COL-03), and the 200 % walk-away's culled-actor counts
-  are identical before/after (`output/blocky-1022/loop/10303-102{1,2}-s200.txt`).
+- FID-02 SMOOTH TRACK (the user 2026-10-27: "set up the pipeline to be able to yield both ldu values and create the
+  smoother variant and test and send to me"): DONE OFFLINE + Pixel memory, AWAITING the user's pick. `trackGrainLdu` /
+  `--track-grain=2` / LEGO tab "Smooth coaster track" pins every routed track mould (`isTrackPart`) at 2 LDU AFTER the
+  budget plan (`planPartGrains` `pinned`; every other part as before; `pinnedExtraCuboids` in the shell's grainPlan).
+  Two defects found on the way, both fixed with guards: the pin's extra cuboids took the studs' allowance (10303 lost all
+  1,290 studs; 0ddec4a6) and the fine-lattice guard (6M cells) silently compiled 80566/80564 at 4 LDU while every plan
+  listed them at 2 (now 12M, 4f0b9557; default packs unchanged in cuboids). A/B build `output/device-round-2026-10-27a/`
+  (`packs-4f0b9557` default, `-track2` smooth, `cuboids-ab.json`, `render/compare-loop.png`): 10303 61,230 -> 87,890
+  (+26,660), 10261 56,690 -> 88,949 (+32,259), 76417 58,869 -> 68,712 (+9,843), 42703 +0 (already 2 LDU). Pixel census
+  (`pixel/notes.md`, two alternating pairs, 1.26.52.3): 10303 smooth +92 MB native heap / +96 MB PSS (pairs +111/+73), so
+  2.7-4.2 MB per 1000 cuboids, not the bare-cube probe's 2.0-2.5; 10303 default alone +275 MB native over no packs.
+  Simulator regressions: same verdicts both builds (8 tested, 0 failed). NEXT: the user's choice - ship smooth as the
+  default for coasters, keep it opt-in, or drop it; a device look at the smooth track; fps with it in view.
+- FID-03 (2026-10-22, FIXED d6645cdb + 880c702f): no voxel hull on lattice chunks / door leaves; remaining hulls switch at
+  400 % (`LOD_LARGEST_SIZE_FACTOR`), only small vehicles keep one. Far views draw full cuboids (fps unmeasured on a
+  phone). Disappearance unaffected (`output/blocky-1022/loop/10303-102{1,2}-s200.txt`).
 - SCALE-04 (the user 2026-10-22: "still seeing 200% recommendation text in the placement wand ui for models
   that ship with minifig-scaled models"): the walk-through recommendation measured openings against a whole 1 x 2-block
   hole and its door leaves were `blind` whenever the space past them was smaller than a (2n)^2 room or another
@@ -50,23 +54,23 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   median (furniture included: 60380 read 0.5 blocks) no longer raises a door-leaf step. Per-set results before the last
   two rules: `output/access-1022/after.txt` (76457 / 10326 / 41732 / 10261 now 100 %); the rebuilt packs' logs carry
   the final ones. Before: each pack's log in device-round-2026-10-22a.
-- REFACTOR QUEUE (the user 2026-10-27: "identify areas for modularization / DRY / reusability"; read-only survey,
-  ranked value/risk). (1) `playable-addon.ts` compiles static entities with one repeated option block at 2979 shell,
-  3049 interactives, 3211 leaf, 3427 flyer, 3585 pinball (x4), 3781 lift car (NO `originAboveModel`: the 10788 tap fix)
-  plus `bedrock-coaster.ts` 1941/1993: a `compileStatic(id, bricks, extra)` closure + `recordCompiled(id, geo)` (diagnostics
-  + the `front/rear direction` warning filter, 15 copies). (2) Pack reading in scripts: `_addon_walk.ts` / `_collider_treads.ts`
-  identical, 12 diagnostics lookups in 8 scripts -> `readPackDiagnostics` / `readPackText` beside `readAddonPreviewFiles`.
-  (3) `_entity_color_diff.ts`, `_probe-hull-lod.ts` read stored cube `origin`/`size`, wrong for size+2/inflate -1 cubes ->
-  `forEachDrawnCube` in bedrock-geometry-faces.ts. (4) Settings -> pipeline input -> addon options copied in 6 places
-  (schem-settings, panel load/commit/sync, schem-export x2, schem-pipeline:773, _playable_ref): one typed field table;
-  pin the panel's sanitising (`!== false` defaults, lightSpacing 3/6/10) with a test FIRST. (5) ~30 `r2`/`r3` rounders
-  (variants differ: -0, floor) and 19 `errorMessage` copies. Never during a pack build.
-- SHARED 2026-10-23: `output/craftmatic-packs-2026-10-23-880c702f.zip` (sha256 718a003b...684c73b; folder
-  `output/share-2026-10-23-880c702f/` with PACKS.md), build `output/device-round-2026-10-23a/` (26/26 valid, simulator
-  regressions 38 / 0 failed, `sim/`). Recommendations in the packs: every minifig building 100 % (10261, 10303, 10326,
-  41732, 42639, 42703, 60380, 76457, plus 76417/910004/11204/11374 already); 10788 200, 10796 300, 10797 200, 21063 150,
-  76419 200, 21061 200 from geometry. OPEN: a device check that the wand shows those numbers; the user's yes/no on
-  2-LDU track (FID-02). Supersedes the d6645cdb share.
+- REFACTOR QUEUE (the user 2026-10-27: "identify areas for modularization / DRY / reusability"; read-only survey).
+  DONE: `compileStaticProp` + `recordCompiled` in playable-addon.ts (1b49b2fc, byte-identical 11374/10788 packs,
+  `output/device-round-2026-10-27a/refactor-ab/`); `readPackText` / `readPackDiagnostics` / `readPackScriptConfig` in
+  addon-preview-data.ts used by 5 scripts (f6f8f7e0); `_probe-hull-lod.ts` reads `drawnCubeBox` (f0325e88). OPEN:
+  (a) bedrock-coaster.ts 1941/1993 repeat the compile block through `deps.quality` (pass a compile closure in deps);
+  (b) 7 more scripts parse `const CONFIG = (...)` by regex (`_coaster_cam_probe`, `_ix_host_trace`, `_ix_inspect`,
+  `_ix_pairs_report`, `_ix_report`, `_pinball_zone_report`, `_shell_chunk_report`, `_gametest_rail`) -> `readPackScriptConfig`;
+  (c) settings -> pipeline input -> addon options copied in 6 places (schem-settings, panel load/commit/sync, schem-export
+  x2, schem-pipeline:773, _playable_ref): one typed field table; pin the panel's sanitising (`!== false` defaults,
+  lightSpacing 3/6/10) with a test FIRST; (d) ~30 `r2`/`r3` rounders (variants differ: -0, floor; pack bytes depend on
+  them) and 19 `errorMessage` copies. Never edit pipeline sources during a pack build (use a `.worktrees/` branch;
+  `.worktrees/refactor-compile` is merged and can go).
+- SHARED 2026-10-28: `output/craftmatic-smooth-track-2026-10-28-4f0b9557.zip` (sha256 3d98a0bf...6ee03c5; folder
+  `output/share-2026-10-28-4f0b9557-track/`, PACKS.md): both builds of 10303/10261/76417/42703, same labels (install one).
+  The other 22 packs: `output/craftmatic-packs-2026-10-23-880c702f.zip` (sha256 718a003b...684c73b; build
+  `output/device-round-2026-10-23a/`, recommendations: minifig buildings 100 %, 10788 200, 10796 300, 10797 200, 21063
+  150, 76419 200, 21061 200). OPEN: a device check that the wand shows those numbers.
 - Loop camera architecture: `docs/coaster-loop-camera.md` (keep it current with any COAST-06 change).
 - Wand Undo (30zx "left 10303's entities"): NOT reproduced - Undo removed everything in 30zy and 30zz on both phones;
   30zx's shot (`output/device-round-2026-10-19zx/saga/shots/u1-menu.jpg`) shows "Lighting / night vision" highlighted
