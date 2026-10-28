@@ -15,7 +15,7 @@
  *   --divergences  print up to N disagreeing surfaces per size with the attempts made (default 5).
  */
 import { readFileSync } from 'node:fs';
-import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.ts';
+import { readPackDiagnostics, readPackScriptConfig } from '../web/src/ui/addon-preview-data.ts';
 import { colliderSourceCells, treadBlocksFor, type PlacementColliders } from '../web/src/engine/bedrock-placement-pack.ts';
 import { QUARTER_TURNS, blocksAt100, type QuarterTurn, type ReachTarget } from '../web/src/engine/bedrock-collider-scale.ts';
 import { buildWalkWorld, compareReach, reachPoint, routeAsModelPoints, type PointReach } from '../web/src/engine/addon-walk.ts';
@@ -37,15 +37,11 @@ const showDivergences = Number(flag('divergences') ?? 5);
 
 const bytes = readFileSync(file);
 const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-const entries = listZipEntries(buffer);
-const scriptName = entries.find(e => e.endsWith('scripts/placement.js'));
-if (!scriptName) throw new Error('no scripts/placement.js in the pack');
-const script = new TextDecoder().decode(await extractFile(buffer, scriptName));
-const config = JSON.parse(/^const CONFIG = (\{.*\});$/m.exec(script)![1]!);
+const config = await readPackScriptConfig(buffer, 'placement');
+if (!config) throw new Error('no scripts/placement.js in the pack');
 const colliders: PlacementColliders | undefined = config.colliders;
 if (!colliders) throw new Error('this pack has no collider grid (coloured-block export): nothing to walk');
-const diagName = entries.find(e => e.endsWith('craftmatic-diagnostics.json'));
-const diagnostics = diagName ? JSON.parse(new TextDecoder().decode(await extractFile(buffer, diagName))) : null;
+const diagnostics = await readPackDiagnostics(buffer);
 const station = diagnostics?.coaster?.routes?.[0]?.station?.point;
 if (Array.isArray(station) && station.length === 3 && !targets.some(t => t.label === 'coaster station')) targets.push({ label: 'coaster station', x: station[0], y: station[1], z: station[2] });
 

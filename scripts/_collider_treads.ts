@@ -18,7 +18,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
-import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.ts';
+import { readPackDiagnostics, readPackScriptConfig } from '../web/src/ui/addon-preview-data.ts';
 import { colliderSourceCells, type PlacementColliders } from '../web/src/engine/bedrock-placement-pack.ts';
 import { QUARTER_TURNS, ScaledColliderGrid, blocksAt100, planColliderTreads, type QuarterTurn, type ReachTarget, type Surface, type TreadPlan } from '../web/src/engine/bedrock-collider-scale.ts';
 
@@ -91,14 +91,10 @@ const turns: readonly QuarterTurn[] = process.argv.includes('--turns') ? QUARTER
 
 /** The shipped colliders of a pack's placement script, plus its diagnostics when present. */
 async function fromPack(buffer: ArrayBuffer): Promise<{ colliders: PlacementColliders; diagnostics: any; label: string }> {
-  const entries = listZipEntries(buffer);
-  const scriptName = entries.find(e => e.endsWith('scripts/placement.js'));
-  if (!scriptName) throw new Error('no scripts/placement.js in the pack');
-  const script = new TextDecoder().decode(await extractFile(buffer, scriptName));
-  const config = JSON.parse(/^const CONFIG = (\{.*\});$/m.exec(script)![1]!);
+  const config = await readPackScriptConfig(buffer, 'placement');
+  if (!config) throw new Error('no scripts/placement.js in the pack');
   if (!config.colliders) throw new Error('this pack has no collider grid (coloured-block export): nothing to re-lay or step');
-  const diagName = entries.find(e => e.endsWith('craftmatic-diagnostics.json'));
-  const diagnostics = diagName ? JSON.parse(new TextDecoder().decode(await extractFile(buffer, diagName))) : null;
+  const diagnostics = await readPackDiagnostics(buffer);
   return { colliders: config.colliders, diagnostics, label: config.label };
 }
 

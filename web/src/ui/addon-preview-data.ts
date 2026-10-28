@@ -177,6 +177,32 @@ export interface AddonPreviewModel {
 export { extractJsonAfter } from '../sim/pack/script-config.js';
 import { extractJsonAfter } from '../sim/pack/script-config.js';
 
+/**
+ * One text file of a pack, by the end of its archive path (`/craftmatic-diagnostics\.json$/`), or
+ * undefined when the pack has none. For a CLI that needs one file, not the whole preview model.
+ */
+export async function readPackText(mcaddon: ArrayBuffer, suffix: RegExp): Promise<string | undefined> {
+  const name = listZipEntries(mcaddon).find(e => suffix.test(e));
+  if (!name) return undefined;
+  for (const [, data] of await extractMatching(mcaddon, candidate => candidate === name)) return utf8.decode(data);
+  return undefined;
+}
+
+/** The pack's `craftmatic-diagnostics.json`, parsed; null when it has none. */
+export async function readPackDiagnostics<T = Record<string, any>>(mcaddon: ArrayBuffer): Promise<T | null> {
+  const text = await readPackText(mcaddon, /(^|\/)craftmatic-diagnostics\.json$/);
+  return text === undefined ? null : JSON.parse(text) as T;
+}
+
+/** A pack script's embedded `const CONFIG = {...}` (`scripts/<script>.js`), parsed; null when the pack has no such script. */
+export async function readPackScriptConfig<T = Record<string, any>>(mcaddon: ArrayBuffer, script: 'placement' | 'coaster' | 'pinball' | 'interactives'): Promise<T | null> {
+  const text = await readPackText(mcaddon, new RegExp(`(^|/)scripts/${script}\\.js$`));
+  return text === undefined ? null : (extractJsonAfter(text, 'const CONFIG = ') as T | undefined) ?? null;
+}
+
+/** A Node `Buffer` (or any byte view) as the standalone `ArrayBuffer` the readers above take. */
+export const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+
 /** Behaviour-pack `entities/<id>.json`: the BP's own per-type definition (plural "entities", vs the RP's singular "entity"). */
 const BEHAVIOR_ENTITY_FILE_PATTERN = /(^|\/)entities\/[^/]+\.json$/;
 

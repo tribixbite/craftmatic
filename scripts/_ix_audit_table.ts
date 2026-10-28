@@ -14,7 +14,7 @@
  */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.ts';
+import { readPackDiagnostics } from '../web/src/ui/addon-preview-data.ts';
 import type { InteractivityReport } from '../web/src/engine/interactivity-stage.ts';
 
 const args = process.argv.slice(2);
@@ -46,8 +46,7 @@ for (const f of readdirSync(dir).filter(n => n.endsWith('.mcaddon')).sort()) {
   const set = f.replace(/\.mcaddon$/, '');
   const b = readFileSync(join(dir, f));
   const buf = b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
-  const name = listZipEntries(buf).find(e => e.endsWith('/craftmatic-diagnostics.json'));
-  const report: InteractivityReport | null = name ? JSON.parse(new TextDecoder().decode(await extractFile(buf, name))).interactivity ?? null : null;
+  const report: InteractivityReport | null = (await readPackDiagnostics<{ interactivity?: InteractivityReport }>(buf))?.interactivity ?? null;
   const found: Record<string, number> = {};
   for (const [k, n] of Object.entries(report?.found ?? {})) found[STAGE_TO[k] ?? k] = (found[STAGE_TO[k] ?? k] ?? 0) + (n ?? 0);
   // A BRICK-BUILT assembly (brick-hinges.ts) counts as what it is called, not as its

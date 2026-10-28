@@ -9,7 +9,7 @@
  */
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.ts';
+import { readPackDiagnostics } from '../web/src/ui/addon-preview-data.ts';
 import type { InteractivityReport } from '../web/src/engine/interactivity-stage.ts';
 
 const args = process.argv.slice(2);
@@ -25,8 +25,7 @@ for (const f of files) {
   const set = f.split(/[\\/]/).pop()!.replace(/\.mcaddon$/, '');
   const b = readFileSync(f);
   const buf = b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
-  const name = listZipEntries(buf).find(e => e.endsWith('/craftmatic-diagnostics.json'));
-  const diag = name ? JSON.parse(new TextDecoder().decode(await extractFile(buf, name))) : null;
+  const diag = await readPackDiagnostics(buf);
   const report: InteractivityReport | null = diag?.interactivity ?? null;
   out.push({ set, report });
   if (!report) { md.push(`| ${set} | (no report) | | | |`); continue; }

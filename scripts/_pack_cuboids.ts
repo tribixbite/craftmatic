@@ -15,7 +15,7 @@
  */
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { unzipSync, strFromU8 } from 'fflate';
+import { readPackDiagnostics, toArrayBuffer } from '../web/src/ui/addon-preview-data.ts';
 import { DEVICE_CUBOID_BUDGET } from '../web/src/engine/playable-addon.ts';
 
 /** Pixel native heap per 1,000 box-UV cubes, MB (low, high): the 30zv geometry probe. */
@@ -31,14 +31,12 @@ interface PackCost {
   top: Array<{ id: string; cubes: number }>;
 }
 
-function packCost(file: string): PackCost {
-  const files = unzipSync(new Uint8Array(readFileSync(file)), { filter: f => f.name.endsWith('craftmatic-diagnostics.json') });
-  const name = Object.keys(files)[0];
-  if (!name) throw new Error(`${file}: no craftmatic-diagnostics.json`);
-  const d = JSON.parse(strFromU8(files[name]!)) as {
+async function packCost(file: string): Promise<PackCost> {
+  const d = await readPackDiagnostics<{
     pack?: { cuboids?: number; entities?: number };
     entities?: Record<string, { cubeCount?: number; grainPlan?: ShellPlan }>;
-  };
+  }>(toArrayBuffer(readFileSync(file)));
+  if (!d) throw new Error(`${file}: no craftmatic-diagnostics.json`);
   const ents = Object.entries(d.entities ?? {}).map(([id, e]) => ({ id, cubes: e.cubeCount ?? 0, plan: e.grainPlan }));
   const shell = ents.find(e => /_shell$/.test(e.id));
   return {
@@ -61,9 +59,9 @@ const base = new Map((baseFlag ? packsIn(baseFlag) : []).map(f => [basename(f), 
 
 const report: Array<PackCost & { base?: PackCost }> = [];
 for (const file of inputs) {
-  const cost = packCost(file);
+  const cost = await packCost(file);
   const bf = base.get(basename(file));
-  const b = bf ? packCost(bf) : undefined;
+  const b = bf ? await packCost(bf) : undefined;
   report.push({ ...cost, ...(b ? { base: b } : {}) });
   const p = cost.shellPlan;
   console.log(`${basename(file)}: ${cost.cuboids.toLocaleString('en-US')} cuboids over ${cost.entities} entities `
