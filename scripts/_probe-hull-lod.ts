@@ -16,6 +16,7 @@
  */
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
+import { drawnCubeBox } from '../web/src/engine/bedrock-geometry-faces.ts';
 
 type Vec3 = [number, number, number];
 const deg = Math.PI / 180;
@@ -43,7 +44,9 @@ function boxesOf(path: string, colourOfGeo?: (identifier: string) => string): { 
     for (const b of g.bones) for (const c of b.cubes ?? []) {
       cubes++; cubeBytes += JSON.stringify(c).length;
       let pts: Vec3[] = [];
-      for (const x of [c.origin[0], c.origin[0] + c.size[0]]) for (const y of [c.origin[1], c.origin[1] + c.size[1]]) for (const z of [c.origin[2], c.origin[2] + c.size[2]]) pts.push([x, y, z]);
+      // The DRAWN box: a cube under one unit is declared size + 2 with inflate -1 (boxUvSafeCube).
+      const { origin: o, size: z3 } = drawnCubeBox(c as { origin: Vec3; size: Vec3; inflate?: number });
+      for (const x of [o[0], o[0] + z3[0]]) for (const y of [o[1], o[1] + z3[1]]) for (const z of [o[2], o[2] + z3[2]]) pts.push([x, y, z]);
       if (c.rotation && c.pivot) { const p = c.pivot; pts = pts.map(q => { const r = rot([q[0] - p[0], q[1] - p[1], q[2] - p[2]], c.rotation!); return [r[0] + p[0], r[1] + p[1], r[2] + p[2]] as Vec3; }); }
       for (let n: string | undefined = b.name; n; n = bPar.get(n)) {
         const r = bRot.get(n); if (!r) continue;
