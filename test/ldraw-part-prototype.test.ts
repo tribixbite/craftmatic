@@ -423,6 +423,17 @@ describe('silhouetteIoU', () => {
   });
 });
 
+describe('large moulds keep the grain asked for', () => {
+  it('compiles a coaster-quarter-sized part (274 x 98 x 274 LDU) at 2 LDU, not silently at 4 (FID-02)', () => {
+    // 80566's bounds: 7.36M one-LDU fine cells at 2 LDU, over the old 6M lattice guard, so it was compiled at
+    // 4 LDU while every grain plan listed it at 2 - and a pinned smooth track left it coarse (2026-10-27).
+    const quarter = mesh('quarter', box(0, 274, -18, 80, 0, 274));
+    const proto = compilePartPrototype(quarter, { ...Q, microcellLdu: 2, maxPartCubes: 4096 });
+    expect(proto.microcellLdu).toBe(2);
+    expect(proto.metrics.coarsened).toBe(0);
+  });
+});
+
 describe('planPartGrains', () => {
   const fine: LegoEntityQuality = { ...Q, microcellLdu: 2, maxPartCubes: 4096 };
   const parts = (): GrainPlanPart[] => [

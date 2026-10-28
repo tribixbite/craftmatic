@@ -180,8 +180,17 @@ export interface CompilePrototypeOptions {
   preserveSurface?: boolean;
 }
 
-/** Upper bound on the fine lattice; above it the microcell is doubled first. */
-const MAX_FINE_CELLS = 6_000_000;
+/**
+ * Upper bound on the fine lattice; above it the microcell is doubled first.
+ * About 6 bytes a cell while a part compiles (the solid lattice, the fill's
+ * reached map and its Int32 queue), so 12M is ~72 MB transient. It was 6M
+ * until 2026-10-27, which a coaster's quarter-loop or elevated curve (80566,
+ * 274 x 98 x 274 LDU: 7.36M cells at 2 LDU) exceeded: the part compiled at 4
+ * LDU while the grain plan reported it at 2, and a pinned smooth track
+ * (FID-02) left exactly the pieces it was for coarse. A 48 x 48 baseplate at
+ * 2 LDU is ~2.4M.
+ */
+const MAX_FINE_CELLS = 12_000_000;
 const MAX_COARSENING = 3;
 
 // ─── Triangle / box overlap (Akenine-Möller separating-axis test) ─────────────
