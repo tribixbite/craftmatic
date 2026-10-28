@@ -57,8 +57,9 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   the final ones. Before: each pack's log in device-round-2026-10-22a.
 - REFACTOR QUEUE (the user 2026-10-27: "identify areas for modularization / DRY / reusability").
   DONE: `compileStaticProp` + `recordCompiled` (playable-addon.ts, 1b49b2fc); pack readers in addon-preview-data.ts
-  (f6f8f7e0); `compileRideProp` for coaster cars/platforms/counterweights (629f3baa; A/B rebuild of 10303/10261 in
-  `output/coaster-refactor-ab-629f3baa/` against `packs-4f0b9557-track2`); `scriptConfig()` in sim/pack/script-config.ts
+  (f6f8f7e0); `compileRideProp` for coaster cars/platforms/counterweights (629f3baa; 10303/10261 rebuilt in
+  `output/coaster-refactor-ab-629f3baa/` equal to `packs-4f0b9557-track2` but for the stamp; neither has a platform lift,
+  that path is covered by test/bedrock-coaster only); `scriptConfig()` in sim/pack/script-config.ts
   replaces every script's CONFIG regex (21fca2c5, outputs equal to the old scripts); `ui/schem-settings-map.ts`
   `sanitizeSchemSettings` + `addonPipelineFields` (c94d4607, test-first: test/schem-settings-map.test.ts).
   OPEN: the popover's DOM sync/commit still lists every field (a field table would also drive them; UI-only, no pack
