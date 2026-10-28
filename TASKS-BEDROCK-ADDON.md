@@ -50,8 +50,17 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   median (furniture included: 60380 read 0.5 blocks) no longer raises a door-leaf step. Per-set results before the last
   two rules: `output/access-1022/after.txt` (76457 / 10326 / 41732 / 10261 now 100 %); the rebuilt packs' logs carry
   the final ones. Before: each pack's log in device-round-2026-10-22a.
-- TEST TIMING: `test/interactive-passability.test.ts` 76417 takes 14.6 min alone against its 15-min timeout; it timed out
-  in the 2026-10-23 full run (contention). Speed it up or raise the cap before it flakes CI.
+- REFACTOR QUEUE (the user 2026-10-27: "identify areas for modularization / DRY / reusability"; read-only survey,
+  ranked value/risk). (1) `playable-addon.ts` compiles static entities with one repeated option block at 2979 shell,
+  3049 interactives, 3211 leaf, 3427 flyer, 3585 pinball (x4), 3781 lift car (NO `originAboveModel`: the 10788 tap fix)
+  plus `bedrock-coaster.ts` 1941/1993: a `compileStatic(id, bricks, extra)` closure + `recordCompiled(id, geo)` (diagnostics
+  + the `front/rear direction` warning filter, 15 copies). (2) Pack reading in scripts: `_addon_walk.ts` / `_collider_treads.ts`
+  identical, 12 diagnostics lookups in 8 scripts -> `readPackDiagnostics` / `readPackText` beside `readAddonPreviewFiles`.
+  (3) `_entity_color_diff.ts`, `_probe-hull-lod.ts` read stored cube `origin`/`size`, wrong for size+2/inflate -1 cubes ->
+  `forEachDrawnCube` in bedrock-geometry-faces.ts. (4) Settings -> pipeline input -> addon options copied in 6 places
+  (schem-settings, panel load/commit/sync, schem-export x2, schem-pipeline:773, _playable_ref): one typed field table;
+  pin the panel's sanitising (`!== false` defaults, lightSpacing 3/6/10) with a test FIRST. (5) ~30 `r2`/`r3` rounders
+  (variants differ: -0, floor) and 19 `errorMessage` copies. Never during a pack build.
 - SHARED 2026-10-23: `output/craftmatic-packs-2026-10-23-880c702f.zip` (sha256 718a003b...684c73b; folder
   `output/share-2026-10-23-880c702f/` with PACKS.md), build `output/device-round-2026-10-23a/` (26/26 valid, simulator
   regressions 38 / 0 failed, `sim/`). Recommendations in the packs: every minifig building 100 % (10261, 10303, 10326,

@@ -2752,7 +2752,9 @@ export async function compileLdrawEntityGeometry(
     return out;
   };
   // Facets are the first detail traded for budget: 4 → 3 → 1 → none.
-  const studBudget = Math.min(quality.maxStudCubes, Math.max(0, quality.maxModelCubes - renderCuboids.length));
+  // A pinned part's extra cuboids sit OVER the budget (`planPartGrains` `pinned`), so they are not the studs'
+  // to pay: counted against the allowance, 10303's smooth track took all 1,290 studs (FID-02, 2026-10-27).
+  const studBudget = Math.min(quality.maxStudCubes, Math.max(0, quality.maxModelCubes + grainPlan.pinnedExtraCuboids - renderCuboids.length));
   let studFacets = 0;
   for (const facets of [requestedFacets, 3, 1]) {
     if (facets > requestedFacets) continue;

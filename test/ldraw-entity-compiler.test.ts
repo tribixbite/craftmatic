@@ -692,6 +692,24 @@ describe('the cuboid budget is spent per part', () => {
     expect(r.warnings.some(w => /12 placements of 1 part compiled coarser than 2 LDU/.test(w))).toBe(true);
   });
 
+  it('keeps a pinned part at its grain over the budget without taking the studs (FID-02)', async () => {
+    // 10303 at --track-grain=2 (2026-10-27) lost all 1,290 studs: the pinned track's extra cuboids
+    // were counted against the stud allowance, which is what the budget leaves after the body.
+    // At 60 the twelve slopes go to 8 LDU and the studs keep four facets (48); pinned back to 2 LDU they
+    // fell to three facets (36) before the stud allowance counted the pin's extra.
+    const quality = { microcellLdu: 2, maxModelCubes: 60, maxPartCubes: 4096 };
+    const free = await compileLdrawEntityGeometry('t', 'car', model(), { partGeometry: provider(), facing: '+z', quality });
+    const pinned = await compileLdrawEntityGeometry('t', 'car', model(), { partGeometry: provider(), facing: '+z', quality, pinGrain: { ldu: 2, parts: p => /^3040b/.test(p) } });
+    expect(free.diagnostics.heaviestParts.find(p => p.part === '3040b')!.microcellLdu).toBe(8);
+    expect(pinned.diagnostics.heaviestParts.find(p => p.part === '3040b')!.microcellLdu).toBe(2);
+    expect(pinned.diagnostics.grainPlan).toMatchObject({ pinnedParts: 1, pinnedPlacements: 12 });
+    expect(pinned.diagnostics.grainPlan.pinnedExtraCuboids).toBeGreaterThan(0);
+    expect(pinned.diagnostics.studFacets).toBe(free.diagnostics.studFacets);
+    expect(pinned.diagnostics.studCubeCount).toBe(free.diagnostics.studCubeCount);
+    expect(pinned.diagnostics.studsOmitted ?? 0).toBe(0);
+    expect(pinned.warnings.some(w => /12 placements of 1 pinned part kept at 2 LDU/.test(w))).toBe(true);
+  });
+
   it('says plainly when the budget cannot be met even at the coarsest cell', async () => {
     const r = await compileLdrawEntityGeometry('t', 'car', model(), { partGeometry: provider(), facing: '+z', quality: { microcellLdu: 2, maxModelCubes: 20, maxPartCubes: 4096 } });
     expect(r.diagnostics.grainPlan.fits).toBe(false);

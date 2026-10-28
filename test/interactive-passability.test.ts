@@ -129,7 +129,9 @@ describe.skipIf(!HAVE)('doorways of real sets are passable open and blocked clos
       }
       expect(failures, failures.join('\n')).toEqual([]);
       expect(okAt100, `${set}: doorways walked through at 100 %`).toBeGreaterThanOrEqual(minOkAt100);
-      // 76417 alone takes 550-582 s on the dev box under other load (2026-10-19), so 600 s timed it out twice.
-    }, 900_000);
+      // 76417 alone took 550-582 s on the dev box under other load (2026-10-19) and 876 s (14.6 min) alone on
+      // 2026-10-23, nearly all of it the in-process pack build; under the full suite 900 s timed it out. The corpus
+      // is local only (CI skips the suite), so the cap is set for a loaded dev box, not CI.
+    }, 1_800_000);
   }
 });
