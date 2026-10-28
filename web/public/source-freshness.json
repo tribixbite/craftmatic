@@ -1,24 +1,24 @@
 {
- "generated": "2026-10-19 13:43:15",
+ "generated": "2026-10-26 13:21:41",
  "model_index": {
   "source": "https://craftmatic.click/lego-models-index.json",
   "generated": "2026-09-20",
   "sets": 10177
  },
  "catalog": {
-  "sets": 28544,
-  "buildable": 16740
+  "sets": 28554,
+  "buildable": 16749
  },
  "channels": {
   "dbix_skulist": 1980,
   "omr_sets": 1419
  },
  "sourceless": {
-  "total": 6246,
-  "recent": 528,
+  "total": 6255,
+  "recent": 537,
   "harvestable_dbix": 23,
   "harvestable_omr": 1,
-  "no_known_channel": 6222
+  "no_known_channel": 6231
  },
  "harvest_dbix": [
   "75457-1",
@@ -51,18 +51,23 @@
  "recent_no_channel": [
   "6675226-1 Father's Day Frame (2027, 27p)",
   "910059-1 Privateer Frigate Fortuna (2026, 4086p)",
+  "910068-1 University of Science (2026, 4079p)",
+  "910064-1 Dustmark Keep (2026, 3968p)",
   "910060-1 Sushi Restaurant (2026, 3604p)",
   "4000351-1 FIFA World Cup Official Trophy – Champions Edition (2026, 2845p)",
+  "910065-1 Coconut Cape (2026, 2393p)",
   "910062-1 Alchemist's Shop (2026, 2319p)",
   "45832-1 BIOGLOW Challenge set (2026, 2096p)",
   "45834-1 BIOGLOW Future Edition Set (2026, 1990p)",
   "4000049-1 Vintage LEGO Logo (2026, 1614p)",
   "4000048-1 Bugatti Type 35 (2026, 1600p)",
+  "910067-1 Hot Air Balloon (2026, 1539p)",
   "40507-1 I ❤️ Billund (2026, 1404p)",
+  "910066-1 Brick Railroad Locomotive (2026, 1348p)",
   "910056-1 Off-Road Adventure (2026, 978p)",
   "910063-1 W.A.L.T. (2026, 766p)",
   "45833-1 BIOGLOW Explore Set (2026, 761p)",
-  "45835-1 FIRST LEGO League Future Edition Grades K-2 (2026, 709p)",
+  "45835-1 BIOGLOW FIRST LEGO League Future Edition Grades K-2 (2026, 709p)",
   "45522-1 Computer Science & AI Kit 6-8 (2026, 379p)",
   "45521-1 Computer Science & AI Kit 3-5 (2026, 321p)",
   "76340-1 Super Heroes Marvel Advent Calendar 2026 (2026, 316p)",
@@ -93,6 +98,7 @@
   "10478-1 3 in 1 Creative Ramps with Vehicles (2026, 111p)",
   "6663053-1 Siege Tower (2026, 111p)",
   "6630782-1 Emmy Award (2026, 103p)",
+  "6670124-1 Giraffe Surprise (2026, 101p)",
   "L0002212-1 Zane-Mech (2026, 99p)",
   "10472-1 Animal Building Game (2026, 94p)",
   "6650266-1 R2-D2 Level Up Workshop (2026, 93p)",
@@ -197,11 +203,11 @@
   "6614223-1 Little HeiHei (2026, 32p)",
   "6626065-1 F1 ACADEMY LEGO Race Car (2026, 32p)",
   "9788325349042-1 Falcon: Droga do Kapitana Ameryki (2026, 32p)",
+  "DATABASE-2026 2026 - Unused Parts Database Set (2026, 32p)",
   "L0002220-1 Police on Snowmobile (2026, 32p)",
   "30725-1 Spider-Man vs. Anti-Venom Heist (2026, 31p)",
   "30732-1 Alex's Campfire Conflict (2026, 31p)",
   "6644842-1 Poké Ball Smart Tag Case (2026, 31p)",
-  "DATABASE-2026 2026 - Unused Parts Database Set (2026, 31p)",
   "6636931-1 First Friendship (2026, 30p)",
   "6644880-1 Chopper's Hat (2026, 30p)",
   "6662602-1 Gnome (2026, 30p)",
@@ -215,6 +221,7 @@
   "L0002226-1 Beach Quad (2026, 28p)",
   "L0002227-1 Firefighter with Helicopter (2026, 28p)",
   "L0002261-1 Raptor and Volcano (2026, 28p)",
+  "6575864-1 Stitch M&T (2026, 27p)",
   "L0002272-1 Bane in Prison (2026, 27p)",
   "LCS6301YDE-1 Star Wars: Stories from the Galaxy (2026, 27p)",
   "562601-1 Baking Set and Bunny (2026, 26p)",
@@ -226,6 +233,7 @@
   "L0002221-1 Construction Worker (2026, 25p)",
   "L0002214-1 Jay and Mutation Monster (2026, 24p)",
   "L0002252-1 Space Sentinel, Enderman and Endermite (2026, 24p)",
+  "L0002253-1 Parrot Handler with Skeleton, Skeleton Spawner and Dungeon (2026, 24p)",
   "L0002254-1 Hero, Zombie and TNT Launcher (2026, 24p)",
   "L0002265-1 Kitten and Vet's Office (2026, 24p)",
   "L0002283-1 Spider-Man with Spider-Crawler (2026, 24p)",
@@ -240,14 +248,6 @@
   "L0002247-1 Realm Raider with Creeper and TNT Launcher (2026, 21p)",
   "2D001186-1 Valeria with Puppy (2026, 20p)",
   "9781837251735-1 Harry Potter: Draco's Potions (2026, 20p)",
-  "L0002215-1 Nya and Grimfax (2026, 20p)",
-  "L0002246-1 Jungle Ranger and Stray (2026, 19p)",
-  "L0002250-1 Smith with Smithing Table, Netherite Armor and Armor Stand (2026, 19p)",
-  "L0002273-1 The Riddler (2026, 19p)",
-  "L0002276-1 Black Panther with Hoverboard (2026, 19p)",
-  "10468-1 Tractor and Market (2026, 18p)",
-  "9781837251995-1 Ninjago: The Epic History Activity Box (2026, 18p)",
-  "L0002216-1 Zane and Loyalist Leader (2026, 18p)",
-  "L0002286-1 Hobgoblin (2026, 18p)"
+  "L0002215-1 Nya and Grimfax (2026, 20p)"
  ]
 }
