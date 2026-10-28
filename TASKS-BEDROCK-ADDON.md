@@ -57,6 +57,8 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   frames all read 20 - which is why smooth's +43 % cuboids read no different. HYPOTHESIS: every geometry's frustum box
   (`visibleBoundsForSizeSteps`, sized for the 400 % wand step: shell chunks 70-105 blocks wide) means no actor near a
   model can ever be frustum-culled. PROBE round 28c (`output/device-round-2026-10-28c/`, brief + `tight_bounds.ts`):
+  NOT RUN YET (2026-10-28 12:25: CleverKeys was in the Pixel's foreground, the phone in use; `pixel/bindings-before/`
+  saved, nothing deployed - resume the brief from step 2 when the phone is free)
   the same smooth 10303 with every box /4 + 3 (version 1002, same uuid) vs shipped 1001 - fps looking away, pop-out at
   100 % and 400 %. If TIGHT restores the fps, the fix needs a box that follows the size group (one geometry per size =
   5x memory: no; measure whether `minecraft:scale` scales the box first - the 400 % pan answers it).
@@ -77,7 +79,8 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   replaces every script's CONFIG regex (21fca2c5, outputs equal to the old scripts); `ui/schem-settings-map.ts`
   `sanitizeSchemSettings` + `addonPipelineFields` (c94d4607, test-first: test/schem-settings-map.test.ts); one
   (setting, control) table drives the popover (a6ce659e, checked in Chrome); `addonSettingsFromInput` +
-  `packProvenanceFields` in schem-pipeline.ts replace the one-line addon options call. DROPPED: the `x instanceof Error ? x.message
+  `packProvenanceFields` in schem-pipeline.ts replace the one-line addon options call (985ac53e; 10303/10261 rebuilt in
+  `output/pipeline-refactor-ab-985ac53e/` equal to the 629f3baa A/B but for stamp, times and `clearance.millis`). DROPPED: the `x instanceof Error ? x.message
   : String(x)` idiom (60 inline copies, 25 files) - a one-line expression, a helper would only add imports and touch the
   pipeline stamp; the ~30 `r2`/`r3` rounders differ (-0, floor) and pack bytes depend on them - not worth the risk.
   `.worktrees/refactor-compile` is merged; left in place (removing it is a recursive delete: the user's call).
