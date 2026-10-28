@@ -10,6 +10,7 @@
 import { readFileSync } from 'node:fs';
 import { extractMatching } from '../web/src/engine/zip-utils.ts';
 import { hitGroupName } from '../web/src/engine/bedrock-interactives.ts';
+import { extractJsonAfter, scriptConfig } from '../web/src/sim/pack/script-config.ts';
 
 const argv = process.argv.slice(2);
 const raw = argv.includes('--raw');
@@ -23,8 +24,9 @@ let ixConfig: { items?: Array<Record<string, unknown>> } = {};
 const groups = new Map<string, Record<string, unknown>>();
 for (const [name, data] of found) {
   const text = utf8.decode(data);
-  if (name.endsWith('placement.js')) { const m = /^const CONFIG = (\{.*\});$/m.exec(text); if (m) config = JSON.parse(m[1]!); continue; }
-  if (name.endsWith('interactives.js')) { const m = /^const (?:CONFIG|IX) = (\{.*\});$/m.exec(text); if (m) ixConfig = JSON.parse(m[1]!); continue; }
+  if (name.endsWith('placement.js')) { config = scriptConfig<typeof config>(text) ?? config; continue; }
+  // A pack built before the runtime was renamed calls its literal `IX`.
+  if (name.endsWith('interactives.js')) { ixConfig = (scriptConfig<typeof ixConfig>(text) ?? extractJsonAfter(text, 'const IX = ') as typeof ixConfig | undefined) ?? ixConfig; continue; }
   try { const e = JSON.parse(text)['minecraft:entity']; if (e?.description?.identifier) groups.set(e.description.identifier, e.component_groups ?? {}); } catch { /* not an entity */ }
 }
 const re = filter ? new RegExp(filter, 'i') : null;

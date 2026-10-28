@@ -26,6 +26,7 @@ import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
 import { packVersionAt } from '../web/src/engine/pipeline-version.ts';
 import { PROP_BALL_U, PROP_FLIP, PROP_PRESS, PROP_PULL } from '../web/src/engine/bedrock-pinball.ts';
 import { MINIFIG_WAND_API_GLOBAL } from '../web/src/engine/bedrock-minifig-wand.ts';
+import { scriptConfig } from '../web/src/sim/pack/script-config.ts';
 
 const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const file = process.argv.slice(2).find(a => !a.startsWith('--'));
@@ -43,9 +44,9 @@ const placementName = [...entries.keys()].find(n => /\/scripts\/placement\.js$/.
 if (!placementName) throw new Error(`${file}: no scripts/placement.js (not a playable add-on)`);
 const bpFolder = placementName.split('/')[0]!;
 const placementJs = text(placementName);
-const configMatch = /^const CONFIG = (\{.*\});$/m.exec(placementJs);
-if (!configMatch) throw new Error('placement.js: no `const CONFIG = {...};` line');
-const placement = JSON.parse(configMatch[1]!) as {
+const placementConfig = scriptConfig(placementJs);
+if (!placementConfig) throw new Error('placement.js: no `const CONFIG = {...};` line');
+const placement = placementConfig as {
   id: string; label: string; width: number; height: number; length: number;
   actors: Array<{ typeId: string; label: string; x: number; y: number; z: number; interactive?: number; rideOf?: number }>;
   colliders?: { block: string; loState: string; hiState: string };
@@ -170,7 +171,7 @@ const pinballName = [...entries.keys()].find(n => n === `${bpFolder}/scripts/pin
 let pinball: GametestPlan['pinball'];
 if (pinballName) {
   const js = text(pinballName);
-  const cfg = JSON.parse(/^const CONFIG = (\{.*\});$/m.exec(js)?.[1] ?? 'null') as { consoleType: string; buttonType: string; flipperTypes: string[]; plungerButtonType?: string; plungerType?: string; ballType?: string; cabinetButtonTypes?: { left?: string; right?: string } } | null;
+  const cfg = (scriptConfig(js) ?? null) as { consoleType: string; buttonType: string; flipperTypes: string[]; plungerButtonType?: string; plungerType?: string; ballType?: string; cabinetButtonTypes?: { left?: string; right?: string } } | null;
   const park = /\bPARK_SLOT = (\d+)/.exec(js)?.[1];
   const tag = /\bSEATED_TAG = ["']([^"']+)["']/.exec(js)?.[1];
   if (!cfg || park === undefined || !tag) throw new Error(`${pinballName}: CONFIG, PARK_SLOT or SEATED_TAG not found; the pinball runtime changed shape`);
@@ -216,7 +217,7 @@ for (const typeId of [...new Set(placement.actors.map(a => a.typeId))]) {
 let flyer: GametestFlyer | undefined;
 const flyerName = [...entries.keys()].find(n => n === `${bpFolder}/scripts/flyer.js`);
 if (flyerName) {
-  const fc = JSON.parse(/^const CONFIG = (\{.*\});$/m.exec(text(flyerName))?.[1] ?? 'null') as {
+  const fc = (scriptConfig(text(flyerName)) ?? null) as {
     mounts: Array<{ cloudType: string; summonTypes: string[]; seatType?: string; label: string }>;
     constants: { EMPTY_DESPAWN_TICKS: number; CLOUD_CAP: number; TAP_COOLDOWN_TICKS: number };
   } | null;
@@ -241,7 +242,7 @@ if (flyerName) {
 const trains: GametestTrain[] = [];
 const coasterName = [...entries.keys()].find(n => n === `${bpFolder}/scripts/coaster.js`);
 if (coasterName) {
-  const cc = JSON.parse(/^const CONFIG = (\{.*\});$/m.exec(text(coasterName))?.[1] ?? 'null') as {
+  const cc = (scriptConfig(text(coasterName)) ?? null) as {
     routes: Array<{ label: string; physics?: { DRIVER?: unknown }; path: { length: number; closed: boolean }; cars?: { slots?: Array<{ type: string }> } }>;
   } | null;
   if (!cc) throw new Error(`${coasterName}: no CONFIG line; the coaster runtime changed shape`);

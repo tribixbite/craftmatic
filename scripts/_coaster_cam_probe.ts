@@ -20,6 +20,7 @@ import { extractMatching } from '../web/src/engine/zip-utils.ts';
 import { coasterScript, type CoasterRuntimeConfig } from '../web/src/engine/bedrock-coaster.ts';
 import { COASTER_TEST_ORIGIN } from '../web/src/sim/adapters/craftmatic/coaster.ts';
 import { coasterReplayWorld } from './_coaster_replay.ts';
+import { scriptConfig } from '../web/src/sim/pack/script-config.ts';
 
 interface CamEvent { tick: number; kind: 'set' | 'anim' | 'clear'; yaw?: number; pitch?: number; ease?: number; x?: number; y?: number; z?: number; keys?: Array<{ t: number; yaw: number; pitch: number; roll: number; alpha: number }>; total?: number; points?: number }
 
@@ -78,9 +79,8 @@ if (import.meta.main) {
   // `--camera=<json>` merges camera constants into the pack's config (with --rebuild): a what-if without a pack build.
   const cameraOverride = flag('camera');
   if (process.argv.includes('--rebuild') || cameraOverride) {
-    const m = /^const CONFIG = (\{.*\});$/m.exec(script);
-    if (!m) { console.error('no CONFIG line'); process.exit(1); }
-    const config = JSON.parse(m[1]!) as CoasterRuntimeConfig;
+    const config = scriptConfig<CoasterRuntimeConfig>(script);
+    if (!config) { console.error('no CONFIG line'); process.exit(1); }
     if (cameraOverride) config.camera = { ...config.camera!, ...JSON.parse(cameraOverride) };
     script = coasterScript(config);
   }

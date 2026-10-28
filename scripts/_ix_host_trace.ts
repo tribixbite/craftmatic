@@ -12,6 +12,7 @@ import { extractMatching } from '../web/src/engine/zip-utils.ts';
 import { hitGroupName, worldHitBox, type HitBox, type InteractiveRuntimeConfig } from '../web/src/engine/bedrock-interactives.ts';
 import { colliderSourceCells } from '../web/src/engine/bedrock-placement-pack.ts';
 import { runtimeHost } from '../test/_ix-host.ts';
+import { scriptConfig } from '../web/src/sim/pack/script-config.ts';
 
 const [path, labelRe, feet, tapsArg, boxArg] = process.argv.slice(2);
 if (!path || !labelRe || !feet) { console.error('usage: bun scripts/_ix_host_trace.ts <pack> <label regex> <x,y,z feet> [taps] [box]'); process.exit(2); }
@@ -22,9 +23,8 @@ let placement: any = {}, cfg: InteractiveRuntimeConfig | null = null;
 const groups = new Map<string, Record<string, any>>();
 for (const [name, data] of found) {
   const text = utf8.decode(data);
-  const m = /^const CONFIG = (\{.*\});$/m.exec(text);
-  if (name.endsWith('placement.js')) { if (m) placement = JSON.parse(m[1]!); continue; }
-  if (name.endsWith('interactives.js')) { if (m) cfg = JSON.parse(m[1]!); continue; }
+  if (name.endsWith('placement.js')) { placement = scriptConfig(text) ?? placement; continue; }
+  if (name.endsWith('interactives.js')) { cfg = scriptConfig<InteractiveRuntimeConfig>(text) ?? cfg; continue; }
   try { const e = JSON.parse(text)['minecraft:entity']; if (e?.description?.identifier) groups.set(e.description.identifier, e.component_groups ?? {}); } catch { /* not an entity */ }
 }
 if (!cfg) throw new Error('no interactives config');

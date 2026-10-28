@@ -10,6 +10,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fitPinballZone, type PinballRuntimeConfig } from '../web/src/engine/bedrock-pinball.ts';
+import { scriptConfig } from '../web/src/sim/pack/script-config.ts';
 
 const args = process.argv.slice(2);
 const target = args.find(a => !a.startsWith('--'));
@@ -17,7 +18,7 @@ if (!target) { console.error('usage: bun scripts/_pinball_zone_report.ts <BP dir
 const flag = (k: string): string | undefined => args.find(a => a.startsWith(`--${k}=`))?.slice(k.length + 3);
 const file = statSync(target).isDirectory() ? join(target, 'scripts', 'pinball.js') : target;
 const js = readFileSync(file, 'utf8');
-const cfg = JSON.parse(/^const CONFIG = (\{.*\});$/m.exec(js)?.[1] ?? 'null') as PinballRuntimeConfig | null;
+const cfg = scriptConfig<PinballRuntimeConfig>(js) ?? null;
 if (!cfg) { console.error(`${file}: no CONFIG`); process.exit(1); }
 const pick = flag('pick') === 'level' ? 'level' : 'camera';
 const pitch = Number(flag('pitch') ?? 0);

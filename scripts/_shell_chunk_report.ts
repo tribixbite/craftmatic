@@ -13,6 +13,7 @@
 import { readFileSync } from 'node:fs';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.ts';
 import { isShellEntityId } from '../web/src/engine/bedrock-building-shell.ts';
+import { scriptConfig } from '../web/src/sim/pack/script-config.ts';
 
 interface GeoCube { origin?: number[]; size?: number[] }
 interface GeoBone { name: string; parent?: string; cubes?: GeoCube[] }
@@ -75,9 +76,8 @@ async function report(file: string): Promise<PackReport> {
   const placed: string[] = [];
   if (placement) {
     const script = await text(placement);
-    const config = /const CONFIG = (\{.*?\});\n/s.exec(script);
-    if (config) {
-      const parsed = JSON.parse(config[1]!) as { actors?: Array<{ typeId: string }>; shellMigrations?: unknown };
+    const parsed = scriptConfig<{ actors?: Array<{ typeId: string }>; shellMigrations?: unknown }>(script);
+    if (parsed) {
       for (const a of parsed.actors ?? []) if (isShellActor(a.typeId)) placed.push(a.typeId);
     }
   }

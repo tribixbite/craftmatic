@@ -18,6 +18,7 @@ import { basename, join, resolve } from 'node:path';
 import { createZip, extractMatching } from '../web/src/engine/zip-utils.ts';
 import { GT_MARGIN, GT_NAMESPACE, arenaExceeds, arenaSize, buildArenaStructure, patchPlacementForGametest, variantManifest, withGametestImport } from '../web/src/engine/gametest-pack.ts';
 import { packVersionAt } from '../web/src/engine/pipeline-version.ts';
+import { scriptConfig } from '../web/src/sim/pack/script-config.ts';
 
 interface RailPlan { modelId: string; dims: { width: number; height: number; length: number }; actorTypes: string[]; carTypes: string[] }
 
@@ -119,13 +120,14 @@ const stem = basename(file).replace(/\.mcaddon$/i, '');
 const bytes = readFileSync(file);
 const entries = await extractMatching(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, () => true);
 const text = (name: string): string => new TextDecoder().decode(entries.get(name)!);
+const fail = (why: string): never => { throw new Error(`${file}: ${why}`); };
 const placementName = [...entries.keys()].find(n => /\/scripts\/placement\.js$/.test(n));
 if (!placementName) throw new Error(`${file}: no scripts/placement.js`);
 const bpFolder = placementName.split('/')[0]!;
-const placement = JSON.parse(/^const CONFIG = (\{.*\});$/m.exec(text(placementName))![1]!) as { id: string; width: number; height: number; length: number; actors: Array<{ typeId: string }> };
+const placement = (scriptConfig(text(placementName)) ?? fail('scripts/placement.js carries no CONFIG')) as { id: string; width: number; height: number; length: number; actors: Array<{ typeId: string }> };
 const coasterName = `${bpFolder}/scripts/coaster.js`;
 if (!entries.has(coasterName)) throw new Error(`${file}: no scripts/coaster.js (no ride vehicles)`);
-const coaster = JSON.parse(/^const CONFIG = (\{.*\});$/m.exec(text(coasterName))![1]!) as { routes: Array<{ physics?: { DRIVER?: unknown }; cars: { slots?: Array<{ type: string }> } }> };
+const coaster = (scriptConfig(text(coasterName)) ?? fail('scripts/coaster.js carries no CONFIG')) as { routes: Array<{ physics?: { DRIVER?: unknown }; cars: { slots?: Array<{ type: string }> } }> };
 const carTypes = [...new Set(coaster.routes.filter(r => r.physics?.DRIVER).flatMap(r => (r.cars.slots ?? []).map(s => s.type)))];
 if (!carTypes.length) throw new Error(`${file}: no driven (railway) route`);
 const dims = { width: placement.width, height: placement.height, length: placement.length };

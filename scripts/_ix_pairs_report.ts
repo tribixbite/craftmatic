@@ -11,6 +11,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { extractMatching } from '../web/src/engine/zip-utils.ts';
 import { pairDoubleDoors, type InteractiveRuntimeItem } from '../web/src/engine/bedrock-interactives.ts';
+import { scriptConfig } from '../web/src/sim/pack/script-config.ts';
 
 const target = process.argv.slice(2).find(a => !a.startsWith('--'));
 const recompute = process.argv.includes('--recompute');
@@ -21,9 +22,9 @@ for (const f of files) {
   const b = readFileSync(f);
   const found = await extractMatching(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength), n => /scripts\/interactives\.js$/.test(n));
   for (const [, data] of found) {
-    const m = /^const CONFIG = (\{.*\});$/m.exec(new TextDecoder().decode(data));
-    if (!m) continue;
-    const items = JSON.parse(m[1]!).items as InteractiveRuntimeItem[];
+    const config = scriptConfig<{ items: InteractiveRuntimeItem[] }>(new TextDecoder().decode(data));
+    if (!config) continue;
+    const items = config.items;
     if (recompute) { for (const it of items) delete it.pairs; pairDoubleDoors(items); }
     for (const it of items) {
       if (!it.shares.length) continue;

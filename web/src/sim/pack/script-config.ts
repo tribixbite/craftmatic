@@ -32,3 +32,6 @@ export function extractJsonAfter(source: string, marker: string): unknown {
   }
   return undefined;
 }
+
+/** A generated pack script's `const CONFIG = {...}` literal, parsed; undefined when the script carries none. */
+export const scriptConfig = <T = Record<string, any>>(source: string): T | undefined => extractJsonAfter(source, 'const CONFIG = ') as T | undefined;

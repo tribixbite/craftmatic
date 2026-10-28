@@ -175,7 +175,7 @@ export interface AddonPreviewModel {
 
 /** The pack script's `const CONFIG = {...}` reader lives with the simulator's pack module (web/src/sim/pack/script-config.ts). */
 export { extractJsonAfter } from '../sim/pack/script-config.js';
-import { extractJsonAfter } from '../sim/pack/script-config.js';
+import { extractJsonAfter, scriptConfig } from '../sim/pack/script-config.js';
 
 /**
  * One text file of a pack, by the end of its archive path (`/craftmatic-diagnostics\.json$/`), or
@@ -197,7 +197,7 @@ export async function readPackDiagnostics<T = Record<string, any>>(mcaddon: Arra
 /** A pack script's embedded `const CONFIG = {...}` (`scripts/<script>.js`), parsed; null when the pack has no such script. */
 export async function readPackScriptConfig<T = Record<string, any>>(mcaddon: ArrayBuffer, script: 'placement' | 'coaster' | 'pinball' | 'interactives'): Promise<T | null> {
   const text = await readPackText(mcaddon, new RegExp(`(^|/)scripts/${script}\\.js$`));
-  return text === undefined ? null : (extractJsonAfter(text, 'const CONFIG = ') as T | undefined) ?? null;
+  return text === undefined ? null : scriptConfig<T>(text) ?? null;
 }
 
 /** A Node `Buffer` (or any byte view) as the standalone `ArrayBuffer` the readers above take. */
