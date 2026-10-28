@@ -47,8 +47,19 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   less on the smooth build, otherwise identical. The phone ends bound to SMOOTH. Loop views for later rounds:
   `/tp @s 12024.5 -45 6017 facing 12024.5 -45 6011` (placed at 12000 -60 6000, 0 deg). A browser that saved settings while the box was off keeps `false` (explicit) - tick the box once.
 - FID-03 (2026-10-22, FIXED d6645cdb + 880c702f): no voxel hull on lattice chunks / door leaves; remaining hulls switch at
-  400 % (`LOD_LARGEST_SIZE_FACTOR`), only small vehicles keep one. Far views draw full cuboids (fps unmeasured on a
-  phone). Disappearance unaffected (`output/blocky-1022/loop/10303-102{1,2}-s200.txt`).
+  400 % (`LOD_LARGEST_SIZE_FACTOR`), only small vehicles keep one. Far views draw full cuboids (Pixel 28a: 10303 from
+  45 blocks 19.6 fps, the same as from 6-14). Disappearance unaffected (`output/blocky-1022/loop/10303-102{1,2}-s200.txt`).
+- IN FLIGHT: A PLACED MODEL COSTS ~40 FPS ON THE PIXEL WHEREVER THE CAMERA LOOKS (round 28b,
+  `output/device-round-2026-10-28b/pixel/notes.md`, only one pack bound): 57 fps before, 10303 placed 21.7 looking at
+  it / 20.1 straight up / 23.5 facing away, 54 at 3 km (unloaded), 55 after undo; 76417 (no coaster) 18.1 / 18.9.
+  No thread saturated (RenderPool/MAIN/server ~55 % each, 476-534 % of 900 % idle), thermal 0; scripts 22 % of the tick
+  (coaster.js 61 %, figures.js 33 %; the trains run unridden). fps clusters at 60/3 = 20 (a frame pacer), so 33-50 ms
+  frames all read 20 - which is why smooth's +43 % cuboids read no different. HYPOTHESIS: every geometry's frustum box
+  (`visibleBoundsForSizeSteps`, sized for the 400 % wand step: shell chunks 70-105 blocks wide) means no actor near a
+  model can ever be frustum-culled. PROBE round 28c (`output/device-round-2026-10-28c/`, brief + `tight_bounds.ts`):
+  the same smooth 10303 with every box /4 + 3 (version 1002, same uuid) vs shipped 1001 - fps looking away, pop-out at
+  100 % and 400 %. If TIGHT restores the fps, the fix needs a box that follows the size group (one geometry per size =
+  5x memory: no; measure whether `minecraft:scale` scales the box first - the 400 % pan answers it).
 - SCALE-04 (the user 2026-10-22: "still seeing 200% recommendation text in the placement wand ui for models
   that ship with minifig-scaled models"): the walk-through recommendation measured openings against a whole 1 x 2-block
   hole and its door leaves were `blind` whenever the space past them was smaller than a (2n)^2 room or another
