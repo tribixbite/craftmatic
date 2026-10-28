@@ -37,6 +37,7 @@ import type { AccessScaleRecommendation } from './bedrock-scene-actors.js';
 import type { BorderMarginEvidence } from './bedrock-interactives.js';
 import { LDU_PER_BLOCK } from './lego-scale.js';
 import type { SeatCensus, SeatCensusContext } from './seat-census.js';
+import type { PlayableAddonOptions } from './playable-addon.js';
 
 /**
  * `mcpack` is the Bedrock Edition target: a behavior pack of `.mcstructure`
@@ -239,6 +240,37 @@ export interface SchemPipelineResult {
   elements?: ElementStats;
   /** Non-null only for `format: 'mcpack'`. */
   mcpack?: McpackSummary;
+}
+
+/** What every pack format stamps into itself: the pipeline's commit and the source it was built from. */
+function packProvenanceFields(input: SchemWorkerInput): { pipelineStamp?: PipelineStamp; source?: SourceProvenance | null } {
+  return {
+    ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}),
+    ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}),
+  };
+}
+
+/**
+ * The add-on settings the caller chose, forwarded as given. A build whose movable
+ * components were all rail (`railOnly`) ships its vehicle static.
+ */
+function addonSettingsFromInput(input: SchemWorkerInput, railOnly: boolean): Pick<PlayableAddonOptions,
+  'stem' | 'vehicleMode' | 'vehicleFacing' | 'seatCount' | 'entityQuality' | 'trackGrainLdu' | 'cameraStyle' | 'lod'
+  | 'lodDistance' | 'mainVehicleOnly' | 'modelScale' | 'figureCollisionHeight'> {
+  return {
+    stem: input.packStem ?? 'model',
+    vehicleMode: railOnly ? 'static' : input.vehicleMode,
+    vehicleFacing: input.vehicleFacing,
+    seatCount: input.seatCount,
+    entityQuality: input.entityQuality,
+    ...(input.trackGrainLdu ? { trackGrainLdu: input.trackGrainLdu } : {}),
+    cameraStyle: input.cameraStyle,
+    lod: input.lod ?? 'hull',
+    lodDistance: input.lodDistance,
+    mainVehicleOnly: input.mainVehicleOnly,
+    modelScale: input.modelScale,
+    figureCollisionHeight: input.figureCollisionHeight,
+  };
 }
 
 /**
@@ -770,7 +802,29 @@ export async function runSchemPipeline(
         screens.push({ id: anchor.id, label: anchor.label, x, y, z });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: railOnly ? 'static' : input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, ...(input.trackGrainLdu ? { trackGrainLdu: input.trackGrainLdu } : {}), cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(rides ? { rides } : {}), ...(mounts ? { mounts } : {}), ...(mountsMissing.length ? { mountsMissing } : {}), ...(interactives && shell ? { interactives } : {}), ...(interactivityReport ? { interactivityReport } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(accessMargin ? { accessMargin } : {}), ...(accessReachLdu ? { accessReachLdu } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
+    const pack = await buildPlayableAddon(grid, {
+      ...addonSettingsFromInput(input, railOnly),
+      label,
+      // What this export found in the scene.
+      components: components.length ? components : undefined, screens, figures, seats, shell,
+      ...(coasterRoutes.length ? { coasterRoutes } : {}),
+      ...(pinball ? { pinball } : {}),
+      ...(rides ? { rides } : {}),
+      ...(mounts ? { mounts } : {}),
+      ...(mountsMissing.length ? { mountsMissing } : {}),
+      // Doors, levers and the way in.
+      ...(interactives && shell ? { interactives } : {}),
+      ...(interactivityReport ? { interactivityReport } : {}),
+      ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}),
+      ...(interactionNote ? { interactionNote } : {}),
+      ...(access ? { access } : {}),
+      ...(accessMargin ? { accessMargin } : {}),
+      ...(accessReachLdu ? { accessReachLdu } : {}),
+      ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}),
+      ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}),
+      ...packProvenanceFields(input),
+      onProgress,
+    });
     // A margin no stair used is only a bigger footprint: export again without it (the pipeline is
     // deterministic, so the rerun is this export minus the margin; it costs one more build, and only
     // for a set whose raised door turned out to be reached already or refused its stair).
@@ -798,8 +852,7 @@ export async function runSchemPipeline(
     const pack = await buildMcpack(grid, {
       stem: input.packStem ?? 'model',
       ...(input.packLabel ? { label: input.packLabel } : {}),
-      ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}),
-      ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}),
+      ...packProvenanceFields(input),
       onProgress,
     });
     return {

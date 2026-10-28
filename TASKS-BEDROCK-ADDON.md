@@ -64,9 +64,9 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   `output/coaster-refactor-ab-629f3baa/` equal to `packs-4f0b9557-track2` but for the stamp; neither has a platform lift,
   that path is covered by test/bedrock-coaster only); `scriptConfig()` in sim/pack/script-config.ts
   replaces every script's CONFIG regex (21fca2c5, outputs equal to the old scripts); `ui/schem-settings-map.ts`
-  `sanitizeSchemSettings` + `addonPipelineFields` (c94d4607, test-first: test/schem-settings-map.test.ts).
-  OPEN: the popover's DOM sync/commit still lists every field (a field table would also drive them; UI-only, no pack
-  effect); schem-pipeline.ts:773 copies input -> addon options one by one. DROPPED: the `x instanceof Error ? x.message
+  `sanitizeSchemSettings` + `addonPipelineFields` (c94d4607, test-first: test/schem-settings-map.test.ts); one
+  (setting, control) table drives the popover (a6ce659e, checked in Chrome); `addonSettingsFromInput` +
+  `packProvenanceFields` in schem-pipeline.ts replace the one-line addon options call. DROPPED: the `x instanceof Error ? x.message
   : String(x)` idiom (60 inline copies, 25 files) - a one-line expression, a helper would only add imports and touch the
   pipeline stamp; the ~30 `r2`/`r3` rounders differ (-0, floor) and pack bytes depend on them - not worth the risk.
   `.worktrees/refactor-compile` is merged; left in place (removing it is a recursive delete: the user's call).
