@@ -6,7 +6,7 @@
  *
  * Usage: bun scripts/_playable_ref.ts <model.io|.mpd|.ldr> [out.mcaddon]
  *          [--quality=balanced|high|ultra] [--mode=auto|car|plane|boat]
- *          [--track-grain=2]  (keep coaster/train track at 2 LDU over the shell budget, FID-02)
+ *          [--track-grain=N]  (coaster/train track kept at N LDU over the shell budget, FID-02; default 2 like the LEGO tab, 0 = the budget decides)
  *          [--facing=auto|+x|-x|+z|-z] [--label=<text>] [--no-pbr] [--camera=orbit|boom] [--main-only]
  *          [--buildings=bricks|blocks]   (bricks: the building as a brick-accurate shell entity over colliders)
  *          [--scale=auto|0.25|0.5|0.75|1|1.5|2|3|4]   (model scale as a multiplier of the minifig scale, engine/addon-scale.ts)
@@ -32,6 +32,7 @@ import { planResolution, planResolutionAtCell, spanOfBricks, DEFAULT_SCHEM_SETTI
 import { planAddonScale, type AddonScaleChoice } from '../web/src/engine/addon-scale.ts';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.ts';
 import { modelExportStem } from '../web/src/engine/export-name.ts';
+import { SMOOTH_TRACK_GRAIN_LDU } from '../web/src/engine/coaster-track.ts';
 import { sourceHash12, type SourceProvenance } from '../web/src/engine/pipeline-version.ts';
 import { computePipelineStamp } from './pipeline-stamp.ts';
 
@@ -227,6 +228,8 @@ const plan = resolutionFlag && resolutionFlag !== 'auto' && resolutionFlag !== '
   : planResolutionAtCell(spanOfBricks(bricks), scalePlan.lduPerBlock);
 const modelScale = Math.round(LDU_PER_BLOCK / plan.cellLDU * 1000) / 1000;
 console.error(`  scale: ${scalePlan.reason} (cell ${Math.round(plan.cellLDU * 100) / 100} LDU, ${modelScale}x)`);
+/** Track grain: the LEGO tab's default (smooth track ON since 2026-10-28) unless `--track-grain=0` asks the budget. */
+const trackGrainLdu = flag('track-grain') !== undefined ? Number(flag('track-grain')) : DEFAULT_SCHEM_SETTINGS.addonSmoothTrack ? SMOOTH_TRACK_GRAIN_LDU : 0;
 const t0 = Date.now();
 const result = await runSchemPipeline({
   source: { kind: 'bricks', bricks, colorSpace, options: { cellLDU: plan.cellLDU, maxDim: 700 } },
@@ -245,7 +248,7 @@ const result = await runSchemPipeline({
   modelScale,
   lod: (flag('lod') ?? 'hull') as 'none' | 'hull',
   ...(flag('lod-distance') ? { lodDistance: Number(flag('lod-distance')) } : {}),
-  ...(flag('track-grain') ? { trackGrainLdu: Number(flag('track-grain')) } : {}),
+  ...(trackGrainLdu > 0 ? { trackGrainLdu } : {}),
   ...(flag('figure-collision-height') ? { figureCollisionHeight: Number(flag('figure-collision-height')) } : {}),
   pipelineStamp,
   sourceProvenance,

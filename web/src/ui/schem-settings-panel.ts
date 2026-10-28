@@ -44,7 +44,7 @@ function load(): SchemExportSettings {
         vehicleFacing: ['+x', '-x', '+z', '-z'].includes(parsed.vehicleFacing ?? '') ? parsed.vehicleFacing : 'auto',
         addonDetail: ['high', 'ultra'].includes(parsed.addonDetail ?? '') ? parsed.addonDetail : 'balanced',
         addonMainVehicleOnly: parsed.addonMainVehicleOnly === true,
-        addonSmoothTrack: parsed.addonSmoothTrack === true,
+        addonSmoothTrack: parsed.addonSmoothTrack !== false,
         addonBuildingBricks: parsed.addonBuildingBricks !== false,
         addonScale: ADDON_SCALE_OPTIONS.some(o => o.value === parsed.addonScale) ? parsed.addonScale : 'auto',
         lightCoverage: parsed.lightCoverage === 'covered' ? 'covered' : 'sealed',
@@ -208,7 +208,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
       <label class="mc-set-check" style="margin-top:6px">
         <input type="checkbox" id="mc-set-smooth-track">
         <span>Smooth coaster track<br>
-          <span class="mc-set-note">Keep curved track at 2 LDU instead of the 4 LDU the cuboid budget gives it. Costs memory: on 10303 Loop Coaster +26,700 cuboids, about +92 MB on a Pixel 8 Pro.</span>
+          <span class="mc-set-note">Keep curved track at 2 LDU instead of the 4 LDU the cuboid budget gives it. On by default; costs memory: on 10303 Loop Coaster +26,700 cuboids, about +92 MB on a Pixel 8 Pro.</span>
         </span>
       </label>
       <label class="mc-set-check" style="margin-top:6px">
@@ -252,7 +252,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   const coverageSel = pop.querySelector('#mc-set-light-coverage') as HTMLSelectElement;
   const styleSel = pop.querySelector('#mc-set-light-style') as HTMLSelectElement;
   const spacingSel = pop.querySelector('#mc-set-light-spacing') as HTMLSelectElement;
-  const syncLights = (s: SchemExportSettings): void => { facingSel.value = s.vehicleFacing ?? 'auto'; detailSel.value = s.addonDetail ?? 'balanced'; mainOnlyBox.checked = s.addonMainVehicleOnly === true; smoothTrackBox.checked = s.addonSmoothTrack === true; buildingBricksBox.checked = s.addonBuildingBricks !== false; scaleSel.value = s.addonScale ?? 'auto'; coverageSel.value = s.lightCoverage ?? 'covered'; styleSel.value = s.lightStyle ?? 'profile'; spacingSel.value = String(s.lightSpacing ?? 6); };
+  const syncLights = (s: SchemExportSettings): void => { facingSel.value = s.vehicleFacing ?? 'auto'; detailSel.value = s.addonDetail ?? 'balanced'; mainOnlyBox.checked = s.addonMainVehicleOnly === true; smoothTrackBox.checked = s.addonSmoothTrack !== false; buildingBricksBox.checked = s.addonBuildingBricks !== false; scaleSel.value = s.addonScale ?? 'auto'; coverageSel.value = s.lightCoverage ?? 'covered'; styleSel.value = s.lightStyle ?? 'profile'; spacingSel.value = String(s.lightSpacing ?? 6); };
   syncLights(current);
   const shapeBox = pop.querySelector('#mc-set-shapes') as HTMLInputElement;
   const detailBox = pop.querySelector('#mc-set-detail') as HTMLInputElement;

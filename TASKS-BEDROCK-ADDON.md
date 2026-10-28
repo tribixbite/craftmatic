@@ -30,7 +30,8 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   sits ~1 block from it. Ideas, unmeasured: a lower or more rearward eye during the animation only. The simulator does
   not reproduce the grazing (its `eye inside bodywork` reads 0 on both clients).
 - FID-02 SMOOTH TRACK (the user 2026-10-27: "set up the pipeline to be able to yield both ldu values and create the
-  smoother variant and test and send to me"): DONE OFFLINE + Pixel memory, AWAITING the user's pick. `trackGrainLdu` /
+  smoother variant and test and send to me"): DONE OFFLINE + Pixel memory; DEFAULT ON since 2026-10-28 (the user: "Default to smooth";
+  `addonSmoothTrack: true`, `_playable_ref.ts` builds at 2 LDU unless `--track-grain=0`). `trackGrainLdu` /
   `--track-grain=2` / LEGO tab "Smooth coaster track" pins every routed track mould (`isTrackPart`) at 2 LDU AFTER the
   budget plan (`planPartGrains` `pinned`; every other part as before; `pinnedExtraCuboids` in the shell's grainPlan).
   Two defects found on the way, both fixed with guards: the pin's extra cuboids took the studs' allowance (10303 lost all
@@ -40,8 +41,8 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   (+26,660), 10261 56,690 -> 88,949 (+32,259), 76417 58,869 -> 68,712 (+9,843), 42703 +0 (already 2 LDU). Pixel census
   (`pixel/notes.md`, two alternating pairs, 1.26.52.3): 10303 smooth +92 MB native heap / +96 MB PSS (pairs +111/+73), so
   2.7-4.2 MB per 1000 cuboids, not the bare-cube probe's 2.0-2.5; 10303 default alone +275 MB native over no packs.
-  Simulator regressions: same verdicts both builds (8 tested, 0 failed). NEXT: the user's choice - ship smooth as the
-  default for coasters, keep it opt-in, or drop it; a device look at the smooth track; fps with it in view.
+  Simulator regressions: same verdicts both builds (8 tested, 0 failed). OPEN: a device look at the smooth track; fps
+  with it in view. A browser that saved settings while the box was off keeps `false` (explicit) - tick the box once.
 - FID-03 (2026-10-22, FIXED d6645cdb + 880c702f): no voxel hull on lattice chunks / door leaves; remaining hulls switch at
   400 % (`LOD_LARGEST_SIZE_FACTOR`), only small vehicles keep one. Far views draw full cuboids (fps unmeasured on a
   phone). Disappearance unaffected (`output/blocky-1022/loop/10303-102{1,2}-s200.txt`).

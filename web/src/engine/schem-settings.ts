@@ -80,9 +80,9 @@ export interface SchemExportSettings {
   addonMainVehicleOnly?: boolean;
   /**
    * Playable add-on: keep coaster/train track at 2 LDU over the shell's cuboid
-   * budget (`trackGrainLdu`, FID-02). Off by default: the budget decides, and a
-   * coaster's curved track then ships at 4 LDU (10303 smooth: +26.7k cuboids, +92 MB native
-   * heap on the Pixel 8 Pro, round 2026-10-27a).
+   * budget (`trackGrainLdu`, FID-02). ON by default (the user, 2026-10-28); off, the
+   * budget decides and a coaster's curved track ships at 4 LDU. Cost on 10303: +26.7k
+   * cuboids, +92 MB native heap on the Pixel 8 Pro (round 2026-10-27a).
    */
   addonSmoothTrack?: boolean;
   /**
@@ -125,7 +125,7 @@ export const DEFAULT_SCHEM_SETTINGS: SchemExportSettings = {
   vehicleFacing: 'auto',
   addonDetail: 'balanced',
   addonMainVehicleOnly: false,
-  addonSmoothTrack: false,
+  addonSmoothTrack: true,
   addonBuildingBricks: true,
   addonScale: 'auto',
   shapes: true,
