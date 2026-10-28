@@ -127,7 +127,7 @@ import { geometryHitBox, sizeHitBox, withSizeGroups, type HitTestBox, type Place
 import { renderSeatToEntity } from './cockpit-seat.js';
 import { placementBox } from './scene-vehicles.js';
 import { bedrockJsonText, floatActorProperty } from './bedrock-json.js';
-import { boxUvSafeCube, compileLdrawEntityGeometry, ldrawToRenderRotation, type CompiledLdrawGeometry } from './ldraw-entity-compiler.js';
+import { boxUvSafeCube, compileLdrawEntityGeometry, ldrawToRenderRotation, type CompileLdrawEntityOptions, type CompiledLdrawGeometry } from './ldraw-entity-compiler.js';
 import type { EntityRig } from './minifig-rig.js';
 import type { LegoEntityQuality, LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
@@ -1895,6 +1895,18 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
   /** Car types that run on a railway line: their prompt says the rider drives. */
   const railTypes = new Set(config.routes.filter(route => route.physics?.DRIVER).flatMap(route => (route.cars.slots ?? []).map(slot => slot.type)));
   let cartCuboids = 0, vehicleCuboids = 0;
+  /**
+   * A ride car, platform or counterweight: a whole-model prop at the deps' scale, quality and
+   * pbr; each site passes its own frame, origin and (cars) rig.
+   */
+  const compileRideProp = async (id: string, bricks: ParsedBrick[], extra: CompileLdrawEntityOptions & Pick<Required<CompileLdrawEntityOptions>, 'frame' | 'originLdu'>): Promise<CompiledLdrawGeometry> => {
+    const geo = await compileLdrawEntityGeometry(id, 'prop', bricks, {
+      scale: deps.unitsPerLdu, wholeModel: true, partGeometry: deps.partGeometry, quality: deps.quality, pbr: deps.pbr, ...extra,
+    });
+    return geo;
+  };
+  /** Keep a compile's warnings, less the compiler's vehicle-facing note (it says nothing about a coaster entity). */
+  const keepWarnings = (geo: CompiledLdrawGeometry): void => { warnings.push(...geo.warnings.filter(w => !/front\/rear direction/.test(w))); };
   // The runtime's types, with what only this stage knows: the fabricated
   // cart's wheelbase at the export scale, each compiled car's seat.
   const types: Record<string, CoasterRuntimeType> = Object.fromEntries(Object.entries(config.types).map(([id, type]) => [id, { ...type }]));
@@ -1938,9 +1950,8 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
       rigBones.push({ name: `rider_${k}`, parent: 'body', pivotLdu: [0, 0, 0] });
       for (const b of rider) { bricks.push(b); boneOf.push(`rider_${k}`); }
     });
-    const geo = await compileLdrawEntityGeometry(type.id, 'prop', bricks, {
-      scale: deps.unitsPerLdu, frame: [...carFrame], wholeModel: true, originLdu: [0, 0, 0], partGeometry: deps.partGeometry,
-      quality: deps.quality, pbr: deps.pbr, ...(rigBones.length ? { rig: { bones: rigBones, boneOf } } : {}),
+    const geo = await compileRideProp(type.id, bricks, {
+      frame: [...carFrame], originLdu: [0, 0, 0], ...(rigBones.length ? { rig: { bones: rigBones, boneOf } } : {}),
     });
     wrapTrackBones(geo);
     const counted = countCuboids(geo);
@@ -1981,7 +1992,7 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
       cuboids: counted.total, riderCuboids: counted.rider, riders: type.riders.length,
     });
     names.push({ identifier: type.typeId, label: `${label} Ride Car` });
-    warnings.push(...geo.warnings.filter(w => !/front\/rear direction/.test(w)));
+    keepWarnings(geo);
   }
   // ── Platforms and counterweights ──
   for (const [index, route] of config.routes.entries()) {
@@ -1990,14 +2001,12 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
     if (!lift || data?.kind !== 'platform') continue;
     deps.onProgress?.(`compiling ${label} lift platform`);
     const compileStatic = async (id: string, typeId: string, role: 'platform' | 'counterweight', bricks: ParsedBrick[], originLdu: Vec3, entityLabel: string) => {
-      const geo = await compileLdrawEntityGeometry(id, 'prop', bricks, {
-        scale: deps.unitsPerLdu, frame: [...SHELL_FRAME], wholeModel: true, originLdu, partGeometry: deps.partGeometry, quality: deps.quality, pbr: deps.pbr,
-      });
+      const geo = await compileRideProp(id, bricks, { frame: [...SHELL_FRAME], originLdu });
       const counted = countCuboids(geo);
       vehicleCuboids += counted.total;
       compiled.push({ id, typeId, role, label: entityLabel, geo, behavior: liftBehavior(typeId, geo.collisionBox), cuboids: counted.total, riderCuboids: 0, riders: 0 });
       names.push({ identifier: typeId, label: entityLabel });
-      warnings.push(...geo.warnings.filter(w => !/front\/rear direction/.test(w)));
+      keepWarnings(geo);
     };
     await compileStatic(stripNamespace(lift.type), lift.type, 'platform', data.bricks, data.originLdu, `${label} Lift`);
     actors.push({ typeId: lift.type, label: `${route.label} Lift`, x: lift.parkedPoint[0], y: lift.parkedPoint[1], z: lift.parkedPoint[2], yaw: 0, coasterRouteIndex: index });
