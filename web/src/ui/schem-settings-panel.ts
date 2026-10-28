@@ -208,7 +208,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
       <label class="mc-set-check" style="margin-top:6px">
         <input type="checkbox" id="mc-set-smooth-track">
         <span>Smooth coaster track<br>
-          <span class="mc-set-note">Keep curved track at 2 LDU instead of the 4 LDU the cuboid budget gives it. Costs memory: about +19,000 cuboids on 10303 Loop Coaster.</span>
+          <span class="mc-set-note">Keep curved track at 2 LDU instead of the 4 LDU the cuboid budget gives it. Costs memory: on 10303 Loop Coaster +26,700 cuboids, about +92 MB on a Pixel 8 Pro.</span>
         </span>
       </label>
       <label class="mc-set-check" style="margin-top:6px">

@@ -81,7 +81,8 @@ export interface SchemExportSettings {
   /**
    * Playable add-on: keep coaster/train track at 2 LDU over the shell's cuboid
    * budget (`trackGrainLdu`, FID-02). Off by default: the budget decides, and a
-   * coaster's curved track then ships at 4 LDU (10303: +19k cuboids smooth).
+   * coaster's curved track then ships at 4 LDU (10303 smooth: +26.7k cuboids, +92 MB native
+   * heap on the Pixel 8 Pro, round 2026-10-27a).
    */
   addonSmoothTrack?: boolean;
   /**

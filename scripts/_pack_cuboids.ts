@@ -4,11 +4,14 @@
  * runs at each LDU, and what a pinned grain such as the smooth track added) and
  * the native-heap estimate from the Pixel geometry probe.
  *
- * The memory figures are the probe's measured slope, NOT a measurement of this
- * pack: box-UV cubes cost 2.0-2.5 MB of native heap per 1,000 on the Pixel 8
- * Pro, linear (round 30zv, `output/device-round-2026-10-19zv/pixel/memprobe/
- * census.md`); a whole-process anchor is round 30zu's census (Minecraft PSS
- * 1.59 GB with no pack, 1.84 GB with only 10303 bound at 61k cuboids).
+ * The memory figures are a measured SLOPE, not a measurement of this pack:
+ * round 2026-10-27a loaded two builds of 10303 that differ only in 26,660
+ * shell cuboids (the smooth track) on the Pixel 8 Pro, alternating, and read
+ * +73 / +111 MB native heap (+92 mean, +96 PSS) - 2.7-4.2 MB per 1,000
+ * cuboids (`output/device-round-2026-10-27a/pixel/notes.md`). The 30zv
+ * geometry probe's 2.0-2.5 per 1,000 (bare box-UV cubes) under-reads a real
+ * pack. Whole-process anchor: 10303's default build alone is +275 MB native,
+ * +297 MB PSS over no packs (same round).
  *
  * Usage: bun scripts/_pack_cuboids.ts <pack.mcaddon|dir>... [--base=<pack|dir>] [--json=<out>]
  *   --base   compare each pack with the same-named pack there (cuboid and MB deltas)
@@ -18,8 +21,8 @@ import { basename, join } from 'node:path';
 import { readPackDiagnostics, toArrayBuffer } from '../web/src/ui/addon-preview-data.ts';
 import { DEVICE_CUBOID_BUDGET } from '../web/src/engine/playable-addon.ts';
 
-/** Pixel native heap per 1,000 box-UV cubes, MB (low, high): the 30zv geometry probe. */
-export const PIXEL_NATIVE_MB_PER_1000_CUBES = [2.0, 2.5] as const;
+/** Pixel 8 Pro native heap per 1,000 pack cuboids, MB (low, high): round 2026-10-27a's two A/B pairs. */
+export const PIXEL_NATIVE_MB_PER_1000_CUBES = [2.7, 4.2] as const;
 
 interface ShellPlan {
   budget: number; cuboids: number; fidelity: number; placementsAtGrain: Record<string, number>;
