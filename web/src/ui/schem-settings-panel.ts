@@ -44,6 +44,7 @@ function load(): SchemExportSettings {
         vehicleFacing: ['+x', '-x', '+z', '-z'].includes(parsed.vehicleFacing ?? '') ? parsed.vehicleFacing : 'auto',
         addonDetail: ['high', 'ultra'].includes(parsed.addonDetail ?? '') ? parsed.addonDetail : 'balanced',
         addonMainVehicleOnly: parsed.addonMainVehicleOnly === true,
+        addonSmoothTrack: parsed.addonSmoothTrack === true,
         addonBuildingBricks: parsed.addonBuildingBricks !== false,
         addonScale: ADDON_SCALE_OPTIONS.some(o => o.value === parsed.addonScale) ? parsed.addonScale : 'auto',
         lightCoverage: parsed.lightCoverage === 'covered' ? 'covered' : 'sealed',
@@ -205,6 +206,12 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
         </span>
       </label>
       <label class="mc-set-check" style="margin-top:6px">
+        <input type="checkbox" id="mc-set-smooth-track">
+        <span>Smooth coaster track<br>
+          <span class="mc-set-note">Keep curved track at 2 LDU instead of the 4 LDU the cuboid budget gives it. Costs memory: about +19,000 cuboids on 10303 Loop Coaster.</span>
+        </span>
+      </label>
+      <label class="mc-set-check" style="margin-top:6px">
         <input type="checkbox" id="mc-set-building-bricks">
         <span>Brick-accurate buildings<br>
           <span class="mc-set-note">The building's parts become real geometry (round studs, exact colours) over invisible walkable blocks; doors, seats and figures still work. Off: the coloured block structure.</span>
@@ -237,6 +244,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   const facingSel = pop.querySelector('#mc-set-vehicle-facing') as HTMLSelectElement;
   const detailSel = pop.querySelector('#mc-set-addon-detail') as HTMLSelectElement;
   const mainOnlyBox = pop.querySelector('#mc-set-main-vehicle') as HTMLInputElement;
+  const smoothTrackBox = pop.querySelector('#mc-set-smooth-track') as HTMLInputElement;
   const buildingBricksBox = pop.querySelector('#mc-set-building-bricks') as HTMLInputElement;
   const scaleSel = pop.querySelector('#mc-set-addon-scale') as HTMLSelectElement;
   const scaleNote = pop.querySelector('[data-role="scale-note"]') as HTMLElement;
@@ -244,7 +252,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   const coverageSel = pop.querySelector('#mc-set-light-coverage') as HTMLSelectElement;
   const styleSel = pop.querySelector('#mc-set-light-style') as HTMLSelectElement;
   const spacingSel = pop.querySelector('#mc-set-light-spacing') as HTMLSelectElement;
-  const syncLights = (s: SchemExportSettings): void => { facingSel.value = s.vehicleFacing ?? 'auto'; detailSel.value = s.addonDetail ?? 'balanced'; mainOnlyBox.checked = s.addonMainVehicleOnly === true; buildingBricksBox.checked = s.addonBuildingBricks !== false; scaleSel.value = s.addonScale ?? 'auto'; coverageSel.value = s.lightCoverage ?? 'covered'; styleSel.value = s.lightStyle ?? 'profile'; spacingSel.value = String(s.lightSpacing ?? 6); };
+  const syncLights = (s: SchemExportSettings): void => { facingSel.value = s.vehicleFacing ?? 'auto'; detailSel.value = s.addonDetail ?? 'balanced'; mainOnlyBox.checked = s.addonMainVehicleOnly === true; smoothTrackBox.checked = s.addonSmoothTrack === true; buildingBricksBox.checked = s.addonBuildingBricks !== false; scaleSel.value = s.addonScale ?? 'auto'; coverageSel.value = s.lightCoverage ?? 'covered'; styleSel.value = s.lightStyle ?? 'profile'; spacingSel.value = String(s.lightSpacing ?? 6); };
   syncLights(current);
   const shapeBox = pop.querySelector('#mc-set-shapes') as HTMLInputElement;
   const detailBox = pop.querySelector('#mc-set-detail') as HTMLInputElement;
@@ -292,6 +300,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
       vehicleFacing: facingSel.value as SchemExportSettings['vehicleFacing'],
       addonDetail: detailSel.value as SchemExportSettings['addonDetail'],
       addonMainVehicleOnly: mainOnlyBox.checked,
+      addonSmoothTrack: smoothTrackBox.checked,
       addonBuildingBricks: buildingBricksBox.checked,
       addonScale: scaleSel.value as AddonScaleChoice,
       lightCoverage: coverageSel.value as 'sealed' | 'covered',
@@ -309,6 +318,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   shapeBox.addEventListener('change', commit, sig);
   detailBox.addEventListener('change', commit, sig);
   mainOnlyBox.addEventListener('change', commit, sig);
+  smoothTrackBox.addEventListener('change', commit, sig);
   buildingBricksBox.addEventListener('change', commit, sig);
 
   const close = (): void => { pop.classList.remove('is-open'); };

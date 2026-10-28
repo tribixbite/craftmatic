@@ -6,6 +6,7 @@
  *
  * Usage: bun scripts/_playable_ref.ts <model.io|.mpd|.ldr> [out.mcaddon]
  *          [--quality=balanced|high|ultra] [--mode=auto|car|plane|boat]
+ *          [--track-grain=2]  (keep coaster/train track at 2 LDU over the shell budget, FID-02)
  *          [--facing=auto|+x|-x|+z|-z] [--label=<text>] [--no-pbr] [--camera=orbit|boom] [--main-only]
  *          [--buildings=bricks|blocks]   (bricks: the building as a brick-accurate shell entity over colliders)
  *          [--scale=auto|0.25|0.5|0.75|1|1.5|2|3|4]   (model scale as a multiplier of the minifig scale, engine/addon-scale.ts)
@@ -244,6 +245,7 @@ const result = await runSchemPipeline({
   modelScale,
   lod: (flag('lod') ?? 'hull') as 'none' | 'hull',
   ...(flag('lod-distance') ? { lodDistance: Number(flag('lod-distance')) } : {}),
+  ...(flag('track-grain') ? { trackGrainLdu: Number(flag('track-grain')) } : {}),
   ...(flag('figure-collision-height') ? { figureCollisionHeight: Number(flag('figure-collision-height')) } : {}),
   pipelineStamp,
   sourceProvenance,

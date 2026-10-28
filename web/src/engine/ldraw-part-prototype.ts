@@ -871,6 +871,15 @@ export interface GrainPlanOptions {
   budget: number;
   /** Cuboids the plan cannot change (unresolved parts drawn as dims-table boxes). */
   fixedCuboids?: number;
+  /**
+   * Parts held at or finer than a grain whatever the budget: part key -> the
+   * coarsest microcell (LDU) it may ship at. Applied AFTER the budget plan, so
+   * every other part plans exactly as it would without the pin and the pinned
+   * parts' extra cuboids sit OVER the budget (`pinnedExtraCuboids`). That makes
+   * a pinned build a clean A/B against the default one: only the pinned parts
+   * differ. Used for a coaster's track (FID-02, `trackGrainLdu`).
+   */
+  pinned?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -901,8 +910,12 @@ export interface GrainPlanSummary {
   /** Unique parts per microcell, e.g. `{ "2": 185, "4": 86, "8": 27 }`. */
   partsAtGrain: Record<string, number>;
   placementsAtGrain: Record<string, number>;
-  /** False when every part is at the coarsest cell and the sum is still over budget. */
+  /** False when every part is at the coarsest cell and the sum is still over budget (pinned extra excluded). */
   fits: boolean;
+  /** Unique parts / placements under a `pinned` grain, and the cuboids the pin added over the budget plan. */
+  pinnedParts: number;
+  pinnedPlacements: number;
+  pinnedExtraCuboids: number;
   /** Coarsening steps taken. */
   steps: number;
 }
@@ -1024,6 +1037,27 @@ export function planPartGrains(parts: readonly GrainPlanPart[], quality: LegoEnt
     best.s.level = best.level;
     steps++;
   }
+  const fitsBudget = total <= options.budget;
+
+  // Pins go on after the plan: a pinned part is put back to the coarsest
+  // ladder cell at or under its pin, and what that costs is reported, not
+  // taken from the other parts.
+  let pinnedParts = 0, pinnedPlacements = 0, pinnedExtraCuboids = 0;
+  if (options.pinned?.size) {
+    for (const s of states) {
+      const pin = options.pinned.get(s.part.key);
+      if (pin === undefined) continue;
+      pinnedParts++;
+      pinnedPlacements += s.part.placements;
+      let target = 0;
+      for (let level = 0; level < ladder.length && ladder[level]! <= pin; level++) target = level;
+      if (s.level <= target) continue;
+      const extra = s.part.placements * (measure(s, target).cuboids - measure(s, s.level).cuboids);
+      total += extra;
+      pinnedExtraCuboids += extra;
+      s.level = target;
+    }
+  }
 
   const grains = new Map<string, number>();
   const partsAtGrain: Record<string, number> = {}, placementsAtGrain: Record<string, number> = {};
@@ -1040,7 +1074,8 @@ export function planPartGrains(parts: readonly GrainPlanPart[], quality: LegoEnt
     summary: {
       requestedMicrocellLdu: requested, coarsestMicrocellLdu: ladder[ladder.length - 1]!, budget: options.budget, fixedCuboids: fixed,
       cuboidsAtRequested, cuboids: total, fidelityAtRequested: round4(fidelityAtRequested), fidelity: round4(fidelityOf()),
-      partsCoarsened, placementsCoarsened, partsAtGrain, placementsAtGrain, fits: total <= options.budget, steps,
+      partsCoarsened, placementsCoarsened, partsAtGrain, placementsAtGrain, fits: fitsBudget, steps,
+      pinnedParts, pinnedPlacements, pinnedExtraCuboids,
     },
   };
 }

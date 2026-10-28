@@ -13,6 +13,7 @@
  * download — that duplication is what S4 removed.
  */
 
+import { SMOOTH_TRACK_GRAIN_LDU } from '@engine/coaster-track.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
 import type { VoxelizeOptions } from '@engine/ldraw-voxelizer.js';
@@ -467,6 +468,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         vehicleMode: req.vehicleMode ?? 'auto',
         entityQuality: settings.addonDetail,
         mainVehicleOnly: settings.addonMainVehicleOnly === true,
+        ...(settings.addonSmoothTrack ? { trackGrainLdu: SMOOTH_TRACK_GRAIN_LDU } : {}),
         buildingFidelity: settings.addonBuildingBricks === false ? 'blocks' : 'bricks',
         ...(modelScale !== undefined ? { modelScale } : {}),
         ...provenanceInput(req),
@@ -492,6 +494,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         vehicleMode: req.vehicleMode ?? 'auto',
         entityQuality: settings.addonDetail,
         mainVehicleOnly: settings.addonMainVehicleOnly === true,
+        ...(settings.addonSmoothTrack ? { trackGrainLdu: SMOOTH_TRACK_GRAIN_LDU } : {}),
         buildingFidelity: settings.addonBuildingBricks === false ? 'blocks' : 'bricks',
         ...provenanceInput(req),
       };

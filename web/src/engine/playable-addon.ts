@@ -24,6 +24,7 @@ import { minifigFromSpec } from './minifig-rig.js';
 import { creatorFigureBehavior, minifigWandScript } from './bedrock-minifig-wand.js';
 import { MAX_PRINT_LAYERS, MINIFIG_CREATOR_COLOURS, POSE_PROPERTY, type MinifigLibrarySpec, type MinifigCreatorConfig, type CreatorSlot } from './minifig-creator-types.js';
 import { CREATOR_POSES, creatorPoseAnimations, ldrawColourName } from './minifig-creator.js';
+import { isTrackPart } from './coaster-track.js';
 import { COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior, splitStaticShell, type ShellCell, type ColliderSourceBox } from './bedrock-building-shell.js';
 import { CLEARANCE_REFUSALS, applyColliderClearance, type ClearanceReport, type GridBox } from './collider-clearance.js';
 import type { NoseDirection } from './vehicle-facing.js';
@@ -205,6 +206,14 @@ export interface PlayableAddonOptions {
      * value is honoured as asked and only reported when unreachable.
      */
     lodDistance?: number;
+    /**
+     * Keep a model's TRACK (every routed coaster/train mould, `isTrackPart`)
+     * at this grain or finer, over the shell's cuboid budget (FID-02). Unset,
+     * the budget decides like any other part: 10303's curved track then ships
+     * at 4 LDU. 2 is the smooth variant; the extra cuboids are reported in the
+     * shell's `grainPlan.pinnedExtraCuboids` and the build's warnings.
+     */
+    trackGrainLdu?: number;
     /**
      * Experimental override for a figure NPC's `minecraft:collision_box.height`
      * (default: computed from the figure's own geometry, clamped to 1.0-1.8
@@ -2970,6 +2979,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             const sgeo = await compileLdrawEntityGeometry(shellId, 'prop', options.shell.bricks, {
                 scale: unitsPerLdu, frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
                 quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr,
+                ...(options.trackGrainLdu ? { pinGrain: { ldu: options.trackGrainLdu, parts: isTrackPart } } : {}),
                 // Lit from open sky above the roof, not from inside the colliders (Pixel round 4: three shells near-black).
                 originAboveModel: true,
             });

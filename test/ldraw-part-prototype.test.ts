@@ -502,6 +502,27 @@ describe('planPartGrains', () => {
     expect(plan.grains.get(ranked[1]!.key)).toBe(2);
   });
 
+  it('keeps a pinned part at its grain over the budget and leaves every other part as planned (FID-02)', () => {
+    const cache = createPrototypeCache();
+    const full = planPartGrains(parts(), fine, cache, { decomposition: 'greedy', budget: 1_000_000 }).summary.cuboidsAtRequested;
+    const budget = Math.round(full * 0.4);
+    const free = planPartGrains(parts(), fine, cache, { decomposition: 'greedy', budget });
+    const coarsened = [...free.grains].find(([key, cell]) => key !== 'brick' && cell > 2)![0];
+    const pinnedPlan = planPartGrains(parts(), fine, cache, { decomposition: 'greedy', budget, pinned: new Map([[coarsened, 2]]) });
+    expect(pinnedPlan.grains.get(coarsened)).toBe(2);
+    for (const [key, cell] of free.grains) if (key !== coarsened) expect(pinnedPlan.grains.get(key)).toBe(cell);
+    expect(pinnedPlan.summary.pinnedParts).toBe(1);
+    expect(pinnedPlan.summary.pinnedPlacements).toBe(20);
+    expect(pinnedPlan.summary.pinnedExtraCuboids).toBeGreaterThan(0);
+    expect(pinnedPlan.summary.cuboids).toBe(free.summary.cuboids + pinnedPlan.summary.pinnedExtraCuboids);
+    expect(pinnedPlan.summary.fits).toBe(true);
+    expect(pinnedPlan.summary.fidelity).toBeGreaterThan(free.summary.fidelity);
+    // A pin coarser than the plan's grain changes nothing.
+    const loose = planPartGrains(parts(), fine, cache, { decomposition: 'greedy', budget, pinned: new Map([[coarsened, PLANNER_COARSEST_LDU]]) });
+    expect([...loose.grains]).toEqual([...free.grains]);
+    expect(loose.summary.pinnedExtraCuboids).toBe(0);
+  });
+
   it('reports a model that cannot fit rather than coarsening past the floor', () => {
     const plan = planPartGrains(parts(), fine, createPrototypeCache(), { decomposition: 'greedy', budget: 10 });
     expect(plan.summary.fits).toBe(false);

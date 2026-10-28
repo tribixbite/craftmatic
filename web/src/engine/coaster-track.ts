@@ -482,6 +482,16 @@ const aliasProfiles = new Map<string, CoasterTrackProfile | undefined>();
 const shift = (points: readonly CoasterVec3[], by: CoasterVec3): CoasterVec3[] =>
   points.map(p => [p[0] + by[0], p[1] + by[1], p[2] + by[2]] as CoasterVec3);
 
+/**
+ * Is this placement TRACK: a routed coaster or train mould (including its
+ * BrickLink frame aliases) or a loose 4.5V/12V rail. What a build may keep at
+ * a finer grain than the budget would give it (`trackGrainLdu`, FID-02).
+ */
+/** The smooth-track grain (LDU): the finest the shell starts any part at. */
+export const SMOOTH_TRACK_GRAIN_LDU = 2;
+
+export const isTrackPart = (part: string): boolean => coasterTrackProfile(part) !== undefined || isSingleRail(part);
+
 /** Return a read-only measured profile for an exact mould id. */
 export function coasterTrackProfile(part: string): CoasterTrackProfile | undefined {
   const id = stem(part);

@@ -79,6 +79,12 @@ export interface SchemExportSettings {
    */
   addonMainVehicleOnly?: boolean;
   /**
+   * Playable add-on: keep coaster/train track at 2 LDU over the shell's cuboid
+   * budget (`trackGrainLdu`, FID-02). Off by default: the budget decides, and a
+   * coaster's curved track then ships at 4 LDU (10303: +19k cuboids smooth).
+   */
+  addonSmoothTrack?: boolean;
+  /**
    * Playable add-on: buildings as brick-accurate geometry (a static entity
    * compiled from the real parts over invisible walkable blocks). ON by
    * default; off ships the coloured block structure.
@@ -118,6 +124,7 @@ export const DEFAULT_SCHEM_SETTINGS: SchemExportSettings = {
   vehicleFacing: 'auto',
   addonDetail: 'balanced',
   addonMainVehicleOnly: false,
+  addonSmoothTrack: false,
   addonBuildingBricks: true,
   addonScale: 'auto',
   shapes: true,

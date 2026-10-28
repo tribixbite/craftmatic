@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseLDrawDocument } from '../web/src/engine/ldraw-parser.js';
-import { COASTER_RUNNING_ABOVE_RAIL_TOP_LDU, COASTER_TRACK_DUPLICATE_EPSILON_LDU, COASTER_TRACK_ENDPOINT_TOLERANCE_LDU, COASTER_TRACK_MAX_SAMPLE_SPACING_LDU, COASTER_TRACK_OVERLAP_TOLERANCE_LDU, coasterTrackProfile, extractCoasterTrackFragments, extractCoasterTrackRoutes } from '../web/src/engine/coaster-track.js';
+import { COASTER_RUNNING_ABOVE_RAIL_TOP_LDU, COASTER_TRACK_DUPLICATE_EPSILON_LDU, COASTER_TRACK_ENDPOINT_TOLERANCE_LDU, COASTER_TRACK_MAX_SAMPLE_SPACING_LDU, COASTER_TRACK_OVERLAP_TOLERANCE_LDU, coasterTrackProfile, extractCoasterTrackFragments, isTrackPart, extractCoasterTrackRoutes } from '../web/src/engine/coaster-track.js';
 import { buildCoasterPath, stitchCoasterTrackFragments, type CoasterVec3 } from '../web/src/engine/coaster-path.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 
@@ -30,6 +30,11 @@ function minimumChordLdu(points: readonly CoasterVec3[], pitch: number): number 
 }
 
 describe('measured coaster track profiles', () => {
+  it('counts every routed coaster mould, its BrickLink alias and a loose rail as track, and nothing else (FID-02)', () => {
+    for (const part of ['25061', '26559', '26560', '80564', '80566', 'bl_80566', '10261 - 25061', '53401', '3228a']) expect(isTrackPart(part)).toBe(true);
+    for (const part of ['3001', '3024', '35654', '26021']) expect(isTrackPart(part)).toBe(false);
+  });
+
   it('keeps 80564 embedded-mesh connector coordinates and its real lateral shift', () => {
     const profile = coasterTrackProfile('80564.dat')!;
     expect(profile.samples[0]).toEqual([-20.2, -40, -122.2]);
