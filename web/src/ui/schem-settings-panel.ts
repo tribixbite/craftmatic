@@ -221,32 +221,36 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   host.appendChild(btn);
   document.body.appendChild(pop);
 
-  const resSel = pop.querySelector('#mc-set-res') as HTMLSelectElement;
-  const profSel = pop.querySelector('#mc-set-profile') as HTMLSelectElement;
-  const lightBox = pop.querySelector('#mc-set-light') as HTMLInputElement;
-  const facingSel = pop.querySelector('#mc-set-vehicle-facing') as HTMLSelectElement;
-  const detailSel = pop.querySelector('#mc-set-addon-detail') as HTMLSelectElement;
-  const mainOnlyBox = pop.querySelector('#mc-set-main-vehicle') as HTMLInputElement;
-  const smoothTrackBox = pop.querySelector('#mc-set-smooth-track') as HTMLInputElement;
-  const buildingBricksBox = pop.querySelector('#mc-set-building-bricks') as HTMLInputElement;
-  const scaleSel = pop.querySelector('#mc-set-addon-scale') as HTMLSelectElement;
+  /**
+   * Every setting's control, once: sync writes a setting into it, commit reads it
+   * back through `sanitizeSchemSettings`, and each fires commit on change. A
+   * checkbox holds a flag, a select its option value.
+   */
+  const FIELDS: ReadonlyArray<readonly [keyof SchemExportSettings, string]> = [
+    ['resolution', 'mc-set-res'], ['profile', 'mc-set-profile'], ['shapes', 'mc-set-shapes'],
+    ['detailMaterials', 'mc-set-detail'], ['lightFill', 'mc-set-light'], ['vehicleFacing', 'mc-set-vehicle-facing'],
+    ['addonDetail', 'mc-set-addon-detail'], ['addonMainVehicleOnly', 'mc-set-main-vehicle'],
+    ['addonSmoothTrack', 'mc-set-smooth-track'], ['addonBuildingBricks', 'mc-set-building-bricks'],
+    ['addonScale', 'mc-set-addon-scale'], ['lightCoverage', 'mc-set-light-coverage'],
+    ['lightStyle', 'mc-set-light-style'], ['lightSpacing', 'mc-set-light-spacing'],
+  ];
+  const controls = FIELDS.map(([key, id]) => [key, pop.querySelector(`#${id}`) as HTMLInputElement | HTMLSelectElement] as const);
+  const control = (key: keyof SchemExportSettings): HTMLInputElement | HTMLSelectElement => controls.find(([k]) => k === key)![1];
+  const sync = (s: SchemExportSettings): void => {
+    for (const [key, el] of controls) {
+      if (el instanceof HTMLInputElement) el.checked = s[key] === true;
+      else el.value = String(s[key]);
+    }
+  };
+  const resSel = control('resolution') as HTMLSelectElement;
+  const profSel = control('profile') as HTMLSelectElement;
+  const scaleSel = control('addonScale') as HTMLSelectElement;
   const scaleNote = pop.querySelector('[data-role="scale-note"]') as HTMLElement;
   const scaleNoteDefault = scaleNote.textContent ?? '';
-  const coverageSel = pop.querySelector('#mc-set-light-coverage') as HTMLSelectElement;
-  const styleSel = pop.querySelector('#mc-set-light-style') as HTMLSelectElement;
-  const spacingSel = pop.querySelector('#mc-set-light-spacing') as HTMLSelectElement;
-  const syncLights = (s: SchemExportSettings): void => { facingSel.value = s.vehicleFacing ?? 'auto'; detailSel.value = s.addonDetail ?? 'balanced'; mainOnlyBox.checked = s.addonMainVehicleOnly === true; smoothTrackBox.checked = s.addonSmoothTrack !== false; buildingBricksBox.checked = s.addonBuildingBricks !== false; scaleSel.value = s.addonScale ?? 'auto'; coverageSel.value = s.lightCoverage ?? 'covered'; styleSel.value = s.lightStyle ?? 'profile'; spacingSel.value = String(s.lightSpacing ?? 6); };
-  syncLights(current);
-  const shapeBox = pop.querySelector('#mc-set-shapes') as HTMLInputElement;
-  const detailBox = pop.querySelector('#mc-set-detail') as HTMLInputElement;
+  sync(current);
   const preview = pop.querySelector('[data-role="preview"]') as HTMLElement;
   const profNote = pop.querySelector('[data-role="profile-note"]') as HTMLElement;
 
-  resSel.value = current.resolution;
-  profSel.value = current.profile;
-  lightBox.checked = current.lightFill;
-  shapeBox.checked = current.shapes;
-  detailBox.checked = current.detailMaterials === true;
   resSel.disabled = !opts.resolutionApplicable;
 
   const refresh = (): void => {
@@ -276,40 +280,18 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   };
 
   const commit = (): void => {
-    save({
-      resolution: resSel.value as ResolutionChoice,
-      profile: profSel.value,
-      lightFill: lightBox.checked,
-      vehicleFacing: facingSel.value as SchemExportSettings['vehicleFacing'],
-      addonDetail: detailSel.value as SchemExportSettings['addonDetail'],
-      addonMainVehicleOnly: mainOnlyBox.checked,
-      addonSmoothTrack: smoothTrackBox.checked,
-      addonBuildingBricks: buildingBricksBox.checked,
-      addonScale: scaleSel.value as AddonScaleChoice,
-      lightCoverage: coverageSel.value as 'sealed' | 'covered',
-      lightStyle: styleSel.value as 'profile' | 'lantern' | 'sea_lantern',
-      lightSpacing: Number(spacingSel.value),
-      shapes: shapeBox.checked,
-      detailMaterials: detailBox.checked,
-    });
+    const stored: Record<string, unknown> = {};
+    for (const [key, el] of controls) stored[key] = el instanceof HTMLInputElement ? el.checked : key === 'lightSpacing' ? Number(el.value) : el.value;
+    save(sanitizeSchemSettings(stored as Partial<SchemExportSettings>));
     refresh();
   };
-  resSel.addEventListener('change', commit, sig);
-  profSel.addEventListener('change', commit, sig);
-  lightBox.addEventListener('change', commit, sig);
-  for (const select of [facingSel, detailSel, scaleSel, coverageSel, styleSel, spacingSel]) select.addEventListener('change', commit, sig);
-  shapeBox.addEventListener('change', commit, sig);
-  detailBox.addEventListener('change', commit, sig);
-  mainOnlyBox.addEventListener('change', commit, sig);
-  smoothTrackBox.addEventListener('change', commit, sig);
-  buildingBricksBox.addEventListener('change', commit, sig);
+  for (const [, el] of controls) el.addEventListener('change', commit, sig);
 
   const close = (): void => { pop.classList.remove('is-open'); };
   const open = (): void => {
     // Sync from module state — the other surface's popover may have changed it.
     const s = load();
-    resSel.value = s.resolution; profSel.value = s.profile;
-    lightBox.checked = s.lightFill; shapeBox.checked = s.shapes; detailBox.checked = s.detailMaterials === true; syncLights(s);
+    sync(s);
     refresh();
     const r = btn.getBoundingClientRect();
     pop.classList.add('is-open');

@@ -55,18 +55,17 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   median (furniture included: 60380 read 0.5 blocks) no longer raises a door-leaf step. Per-set results before the last
   two rules: `output/access-1022/after.txt` (76457 / 10326 / 41732 / 10261 now 100 %); the rebuilt packs' logs carry
   the final ones. Before: each pack's log in device-round-2026-10-22a.
-- REFACTOR QUEUE (the user 2026-10-27: "identify areas for modularization / DRY / reusability"; read-only survey).
-  DONE: `compileStaticProp` + `recordCompiled` in playable-addon.ts (1b49b2fc, byte-identical 11374/10788 packs,
-  `output/device-round-2026-10-27a/refactor-ab/`); `readPackText` / `readPackDiagnostics` / `readPackScriptConfig` in
-  addon-preview-data.ts used by 5 scripts (f6f8f7e0); `_probe-hull-lod.ts` reads `drawnCubeBox` (f0325e88). OPEN:
-  (a) bedrock-coaster.ts 1941/1993 repeat the compile block through `deps.quality` (pass a compile closure in deps);
-  (b) 7 more scripts parse `const CONFIG = (...)` by regex (`_coaster_cam_probe`, `_ix_host_trace`, `_ix_inspect`,
-  `_ix_pairs_report`, `_ix_report`, `_pinball_zone_report`, `_shell_chunk_report`, `_gametest_rail`) -> `readPackScriptConfig`;
-  (c) settings -> pipeline input -> addon options copied in 6 places (schem-settings, panel load/commit/sync, schem-export
-  x2, schem-pipeline:773, _playable_ref): one typed field table; pin the panel's sanitising (`!== false` defaults,
-  lightSpacing 3/6/10) with a test FIRST; (d) ~30 `r2`/`r3` rounders (variants differ: -0, floor; pack bytes depend on
-  them) and 19 `errorMessage` copies. Never edit pipeline sources during a pack build (use a `.worktrees/` branch;
-  `.worktrees/refactor-compile` is merged and can go).
+- REFACTOR QUEUE (the user 2026-10-27: "identify areas for modularization / DRY / reusability").
+  DONE: `compileStaticProp` + `recordCompiled` (playable-addon.ts, 1b49b2fc); pack readers in addon-preview-data.ts
+  (f6f8f7e0); `compileRideProp` for coaster cars/platforms/counterweights (629f3baa; A/B rebuild of 10303/10261 in
+  `output/coaster-refactor-ab-629f3baa/` against `packs-4f0b9557-track2`); `scriptConfig()` in sim/pack/script-config.ts
+  replaces every script's CONFIG regex (21fca2c5, outputs equal to the old scripts); `ui/schem-settings-map.ts`
+  `sanitizeSchemSettings` + `addonPipelineFields` (c94d4607, test-first: test/schem-settings-map.test.ts).
+  OPEN: the popover's DOM sync/commit still lists every field (a field table would also drive them; UI-only, no pack
+  effect); schem-pipeline.ts:773 copies input -> addon options one by one. DROPPED: the `x instanceof Error ? x.message
+  : String(x)` idiom (60 inline copies, 25 files) - a one-line expression, a helper would only add imports and touch the
+  pipeline stamp; the ~30 `r2`/`r3` rounders differ (-0, floor) and pack bytes depend on them - not worth the risk.
+  `.worktrees/refactor-compile` is merged; left in place (removing it is a recursive delete: the user's call).
 - SHARED 2026-10-28: `output/craftmatic-smooth-track-2026-10-28-4f0b9557.zip` (sha256 3d98a0bf...6ee03c5; folder
   `output/share-2026-10-28-4f0b9557-track/`, PACKS.md): both builds of 10303/10261/76417/42703, same labels (install one).
   The other 22 packs: `output/craftmatic-packs-2026-10-23-880c702f.zip` (sha256 718a003b...684c73b; build
