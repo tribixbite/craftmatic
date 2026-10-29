@@ -54,7 +54,7 @@ const PACK_NAMESPACE = 'craftmatic';
 // The scale lives in lego-scale.ts (shared with the block-export planner); re-exported for the tests and the CLI probes.
 export { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK, LDU_PER_MINIFIG, PLAYER_HEIGHT_BLOCKS, SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
 import { BEDROCK_UNITS_PER_LDU, SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
-import { visibleBoundsForSizeSteps } from './bedrock-placement-pack.js';
+import { visibleBoundsFor } from './bedrock-placement-pack.js';
 import { partStem } from './part-id.js';
 import { planSeat, RIDER_EYE_ABOVE_SEAT, type SeatPlan } from './cockpit-seat.js';
 import { isShipWheel, isSteeringWheel } from './steering-parts.js';
@@ -2962,16 +2962,16 @@ export async function compileLdrawEntityGeometry(
   //
   // Every mesh chunk declares the WHOLE model's box on purpose: a chunk holds
   // an arbitrary slice of the cube list, so its cubes can sit anywhere in the
-  // model, and chunks culled independently would tear a set apart. The helper
-  // widens the box to the largest wand size step - see
-  // `visibleBoundsForSizeSteps`. (A "vanishes from above" report on the Pixel
+  // model, and chunks culled independently would tear a set apart. The box is
+  // the 100 % one; `minecraft:scale` scales it with the model - see
+  // `visibleBoundsFor`. (A "vanishes from above" report on the Pixel
   // was the tester falling back to the ground after an elevated /tp - not
   // culling.)
   const modelExtent = {
     min: [-totalWidth / 2, -originLiftBlocks, -totalLength / 2] as const,
     max: [totalWidth / 2, totalHeight - originLiftBlocks, totalLength / 2] as const,
   };
-  const cullingBounds = visibleBoundsForSizeSteps(modelExtent, 2);
+  const cullingBounds = visibleBoundsFor(modelExtent, 2);
   const description = (identifier: string) => ({
     identifier,
     // The geometry's texture is one flat colour end to end, so these only set

@@ -272,47 +272,43 @@ export interface VisibleBounds {
 const ceil2 = (v: number): number => Math.ceil(v * 100) / 100;
 
 /**
- * The culling box a geometry must declare so the model never vanishes at any
- * in-game size step.
+ * Slack added to every side of a geometry's culling box, in blocks at 100 %.
+ * It is what the Pixel probe in round 2026-10-28c declared (+3 on the width and
+ * the height), so the shipped box is the box that was measured.
+ */
+export const VISIBLE_BOUNDS_HEADROOM_BLOCKS = 1.5;
+
+/**
+ * The culling box a geometry declares: the model at 100 %, plus slack.
  *
  * Bedrock frustum-culls an entity against the box declared in its GEOMETRY
  * description: `visible_bounds_width` (used for BOTH horizontal axes),
  * `visible_bounds_height` and `visible_bounds_offset`, all in blocks, centred
- * on the entity's position plus the offset. The box is baked at build time and
- * `minecraft:scale` is documented as a "visual size multiplier" only - it does
- * not resize the box. `withSizeGroups` offers 25 %…400 %, so a geometry sized
- * for 100 % renders up to FOUR TIMES outside its own culling box and the whole
- * entity pops out of view the moment that small box leaves the frustum, which
- * is what "entire sets disappear when the camera is tilted, especially with
- * scaled up placements" describes.
+ * on the entity's position plus the offset. The width is a RADIUS about the
+ * entity position doubled, not a footprint (`ender_dragon.geo.json` declares 14
+ * for a body reaching x = -7).
  *
- * Mojang author their own geometries the same way: `slime.geo.json` is a
- * single 8-unit (half-block) cube and declares `visible_bounds_width: 5`,
- * `visible_bounds_height: 2`, `offset [0, 1, 0]` - a box sized for the LARGEST
- * scale its render controller applies (variant 4), not for the model as
- * authored. `ender_dragon.geo.json` sets `visible_bounds_width: 14` for a body
- * reaching x = −7, i.e. twice the largest distance from the origin, confirming
- * the width is a radius about the entity position rather than a footprint.
- *
- * So the box has to cover the union of `f × extent` over every size step. An
- * over-large box only means the entity is drawn while slightly off screen
- * (cheap); a too-small one makes it vanish, which is the bug.
+ * The box is sized for 100 % ONLY. `minecraft:scale` scales it with the model:
+ * on the Pixel (round 2026-10-28c, `output/device-round-2026-10-28c/pixel/`)
+ * 10303 placed at 400 % with every box cut to its 100 % size drew the same
+ * frames as the 400 %-sized build in nine pans from 20 blocks off (`t1-p4-*` vs
+ * `s1-p4-*`). Until then every box covered the union of the wand's 25-400 %
+ * steps, on the reading that scale leaves the box alone (Mojang's slime declares
+ * a box for its largest size). That made shell chunks 70-105 blocks wide, so
+ * near a placed model nothing could leave the frustum and the phone drew every
+ * actor every frame: with the model BEHIND the camera the Pixel ran 19.6 fps
+ * with those boxes and 47.4 with these (57-60 with nothing placed).
  *
  * @param extent Model AABB in blocks relative to the entity position, at 100 %.
- * @param padBlocks Slack at 100 % for geometry that can reach past that AABB
- *   (a rotated bone's cuboids are authored unrotated at the pivot), scaled with
- *   the model.
+ * @param padBlocks Slack for geometry that can reach past that AABB (a rotated
+ *   bone's cuboids are authored unrotated at the pivot), added to the headroom.
  */
-export function visibleBoundsForSizeSteps(extent: ModelExtentBlocks, padBlocks = 0): VisibleBounds {
-  const fMin = Math.min(...SIZE_STEPS) / 100, fMax = Math.max(...SIZE_STEPS) / 100;
-  // f × [a, b] for every f in [fMin, fMax] stays inside this interval: a
-  // negative bound reaches furthest at fMax, a positive one at fMin.
-  const span = (a: number, b: number): [number, number] => [Math.min(fMin * a, fMax * a), Math.max(fMin * b, fMax * b)];
-  const pad = Math.max(0, padBlocks);
-  const [x0, x1] = span(extent.min[0] - pad, extent.max[0] + pad);
-  const [y0, y1] = span(extent.min[1] - pad, extent.max[1] + pad);
-  const [z0, z1] = span(extent.min[2] - pad, extent.max[2] + pad);
-  // One width serves +X, −X, +Z and −Z, so it is twice the furthest horizontal
+export function visibleBoundsFor(extent: ModelExtentBlocks, padBlocks = 0): VisibleBounds {
+  const pad = Math.max(0, padBlocks) + VISIBLE_BOUNDS_HEADROOM_BLOCKS;
+  const [x0, x1] = [extent.min[0] - pad, extent.max[0] + pad];
+  const [y0, y1] = [extent.min[1] - pad, extent.max[1] + pad];
+  const [z0, z1] = [extent.min[2] - pad, extent.max[2] + pad];
+  // One width serves +X, -X, +Z and -Z, so it is twice the furthest horizontal
   // reach from the entity position; the height gets its own offset instead.
   const radius = Math.max(Math.abs(x0), Math.abs(x1), Math.abs(z0), Math.abs(z1));
   // Round the offset FIRST, then size the height around the rounded value: a

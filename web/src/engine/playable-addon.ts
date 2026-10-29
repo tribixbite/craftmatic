@@ -6,7 +6,7 @@ import { currentPipelineStamp, packDisplayName, packProvenance, packVersionAt, p
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
-import { boardPointsOf, buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, geometryEntityBoxes, geometryHitBox, hitTestAtSize, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsForSizeSteps, withColliderTreadsAsync, withSizeGroups, type CarveSource, type HitTestBox, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
+import { boardPointsOf, buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, geometryEntityBoxes, geometryHitBox, hitTestAtSize, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsFor, withColliderTreadsAsync, withSizeGroups, type CarveSource, type HitTestBox, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
 import { FLYER, flyerScript, type FlyerRuntimeConfig } from './bedrock-flyer.js';
 import type { CanonMount } from './set-canon.js';
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
@@ -1300,9 +1300,9 @@ function geometry(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: 
     // y = 0, so this is the model's AABB in blocks. Each chunk declares the
     // WHOLE model's culling box, not its own slice: a chunk's cubes can sit
     // anywhere in the model, and chunks culled independently would tear the
-    // build apart. `visibleBoundsForSizeSteps` widens it to the largest wand
-    // size step, which `minecraft:scale` cannot do at runtime.
-    const cullingBounds = visibleBoundsForSizeSteps({
+    // build apart. Sized for 100 %: `minecraft:scale` scales it with the model
+    // (`visibleBoundsFor`).
+    const cullingBounds = visibleBoundsFor({
         min: [-layout.width / 2, 0, -layout.length / 2],
         max: [layout.width / 2, layout.height, layout.length / 2],
     }, 1);
@@ -3644,7 +3644,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             const bgeo = await compileStaticProp(bid, [plan.ballBrick], { originAboveModel: true, rig: plan.ballRig });
             recordCompiled(bid, bgeo, false);
             const tableReach = (plan.table.grid.rows + plan.table.grid.cols) * plan.table.grid.cell * Math.hypot(...plan.map.u);
-            const ballBounds = visibleBoundsForSizeSteps({ min: [-tableReach, -tableReach, -tableReach], max: [tableReach, tableReach, tableReach] });
+            const ballBounds = visibleBoundsFor({ min: [-tableReach, -tableReach, -tableReach], max: [tableReach, tableReach, tableReach] });
             for (const g of (bgeo.value as { 'minecraft:geometry': Array<{ description: Record<string, unknown> }> })['minecraft:geometry']) Object.assign(g.description, ballBounds);
             const banim = ballAnimation(ballType, plan.map);
             emitCompiledEntity(bid, bgeo, pinballPropBehavior(ballType, { width: 0.3, height: 0.3 }, ballProperties()), { animations: { move: banim.id }, animate: ['move'], initialize: BALL_INITIALIZE, preAnimation: BALL_PRE_ANIMATION });

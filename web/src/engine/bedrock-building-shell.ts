@@ -29,7 +29,7 @@
  * mapped through the voxelizer's grid origin like every figure and seat.
  */
 
-import { SIZE_STEPS, visibleBoundsForSizeSteps, withSizeGroups } from './bedrock-placement-pack.js';
+import { SIZE_STEPS, visibleBoundsFor, withSizeGroups } from './bedrock-placement-pack.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import type { CompiledLdrawGeometry, CompiledMesh, OrientedBoxLdu } from './ldraw-entity-compiler.js';
@@ -363,7 +363,7 @@ export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): S
       min: [localBounds.min[0] - root[0], localBounds.min[1] - root[1], localBounds.min[2] - root[2]] as [number, number, number],
       max: [localBounds.max[0] - root[0], localBounds.max[1] - root[1], localBounds.max[2] - root[2]] as [number, number, number],
     };
-    const visible = visibleBoundsForSizeSteps(extent, 2);
+    const visible = visibleBoundsFor(extent, 2);
 
     geometries.forEach((geometry, geometryIndex) => {
       let kept = 0;

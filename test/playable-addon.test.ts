@@ -9,7 +9,6 @@ import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { packIdentity } from '../web/src/engine/mcpack.js';
 import { provenanceSentence, unstampedPipeline, type PipelineStamp, type SourceProvenance } from '../web/src/engine/pipeline-version.js';
 import type { CoasterRoute } from '../web/src/engine/bedrock-coaster.js';
-import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { readAddon } from '../web/src/sim/pack/pack.js';
 import { simHost, solidBelow } from './_sim-host.js';
 import { CREATOR_POSES, minifigCreatorLibrary } from '../web/src/engine/minifig-creator.js';
@@ -416,12 +415,11 @@ describe('playable Bedrock add-on',()=>{
   });
 
   // Bedrock culls an entity against the box its geometry declares, and the wand's
-  // `minecraft:scale` size steps (25 %…400 %) cannot resize it at runtime. A box
-  // sized for 100 % made whole sets vanish once the camera tilted far enough to
-  // push it out of the frustum. Every chunk carries the WHOLE model's box: a
-  // chunk is an arbitrary slice of the cube list, so a per-chunk box would let
-  // the game cull parts of one build away independently.
-  it('bounds every mesh for the LARGEST wand size step, not just for 100 %', async () => {
+  // `minecraft:scale` size steps scale that box with the model (Pixel round
+  // 2026-10-28c). Every chunk carries the WHOLE model's box: a chunk is an
+  // arbitrary slice of the cube list, so a per-chunk box would let the game cull
+  // parts of one build away independently.
+  it('bounds every mesh for the whole model at 100 percent, not for the largest wand size step', async () => {
     const grid = new BlockGrid(17, 9, 17);
     for (let y=0;y<9;y++) for(let z=0;z<17;z++) for(let x=0;x<17;x++) grid.set(x,y,z,(x+y+z)%2 ? 'minecraft:gold_block' : 'minecraft:stone');
     const result = await buildPlayableAddon(grid, { stem: 'Culling', vehicleMode: 'car' });
@@ -432,14 +430,18 @@ describe('playable Bedrock add-on',()=>{
     // The model's AABB in blocks, over ALL meshes (16 model units per block).
     const lo = [0, 1, 2].map(i => Math.min(...cubes.map((c: any) => c.origin[i])) / 16);
     const hi = [0, 1, 2].map(i => Math.max(...cubes.map((c: any) => c.origin[i] + c.size[i])) / 16);
-    const f = Math.max(...SIZE_STEPS) / 100;
+    // `minecraft:scale` scales the box with the model (Pixel round 2026-10-28c), so
+    // holding it at 100 % holds it at every size; a 400 % box would keep it drawn
+    // with the camera turned away, so it must also stay within reach + slack.
+    const reach = Math.max(...[0, 2].flatMap(i => [Math.abs(lo[i]!), Math.abs(hi[i]!)]));
     for (const mesh of meshes) {
       const d = mesh.description, half = d.visible_bounds_width / 2, oy = d.visible_bounds_offset[1];
       for (const i of [0, 2]) {
-        expect([d.identifier, i, lo[i]! * f >= -half, hi[i]! * f <= half]).toEqual([d.identifier, i, true, true]);
+        expect([d.identifier, i, lo[i]! >= -half, hi[i]! <= half]).toEqual([d.identifier, i, true, true]);
       }
-      expect([d.identifier, lo[1]! * f >= oy - d.visible_bounds_height / 2]).toEqual([d.identifier, true]);
-      expect([d.identifier, hi[1]! * f <= oy + d.visible_bounds_height / 2]).toEqual([d.identifier, true]);
+      expect([d.identifier, lo[1]! >= oy - d.visible_bounds_height / 2]).toEqual([d.identifier, true]);
+      expect([d.identifier, hi[1]! <= oy + d.visible_bounds_height / 2]).toEqual([d.identifier, true]);
+      expect([d.identifier, half <= reach + 4]).toEqual([d.identifier, true]);
     }
   });
 

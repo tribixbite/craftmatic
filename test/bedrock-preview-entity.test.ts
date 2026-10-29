@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '@craft/schem/types.js';
 import { buildPreviewGhost, coverBoxes, ghostCube, sceneOccupancy } from '../web/src/engine/bedrock-preview-entity.js';
-import { SIZE_STEPS, rotatePlacementPoint, rotateTilePlacement } from '../web/src/engine/bedrock-placement-pack.js';
+import { rotatePlacementPoint, rotateTilePlacement } from '../web/src/engine/bedrock-placement-pack.js';
 
 const solid = (w: number, h: number, l: number, fill: (x: number, y: number, z: number) => boolean): BlockGrid => {
   const g = new BlockGrid(w, h, l);
@@ -64,18 +64,17 @@ describe('ghost preview entity', () => {
     expect([rotated.x0, rotated.x1, rotated.z0, rotated.z1]).toEqual([tile.dx, tile.dx + tile.width, tile.dz, tile.dz + tile.length]);
   });
 
-  // The ghost carries the wand's size groups, and `minecraft:scale` does not
-  // resize a geometry's culling box, so the box must already hold the ghost at
-  // 400 % or a scaled-up preview vanishes when the camera tilts away from it.
-  it('bounds the ghost for the LARGEST wand size step', () => {
+  // The ghost carries the wand's size groups and `minecraft:scale` scales its
+  // culling box with it (Pixel round 2026-10-28c), so the box is the 100 % one.
+  it('bounds the ghost at 100 percent, not for the largest wand size step', () => {
     const ghost = buildPreviewGhost('m', solid(6, 2, 10, () => true), []);
-    const f = Math.max(...SIZE_STEPS) / 100;
     for (const mesh of (ghost.geometry as any)['minecraft:geometry']) {
       const d = mesh.description, half = d.visible_bounds_width / 2, oy = d.visible_bounds_offset[1];
       // Footprint 6 × 10 centred on the entity, standing on y = 0.
-      expect(half).toBeGreaterThanOrEqual(5 * f);
+      expect(half).toBeGreaterThanOrEqual(5);
+      expect(half).toBeLessThanOrEqual(5 + 4);
       expect(oy - d.visible_bounds_height / 2).toBeLessThanOrEqual(0);
-      expect(oy + d.visible_bounds_height / 2).toBeGreaterThanOrEqual(2 * f);
+      expect(oy + d.visible_bounds_height / 2).toBeGreaterThanOrEqual(2);
     }
   });
 
