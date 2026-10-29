@@ -49,18 +49,13 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
 - FID-03 (2026-10-22, FIXED d6645cdb + 880c702f): no voxel hull on lattice chunks / door leaves; remaining hulls switch at
   400 % (`LOD_LARGEST_SIZE_FACTOR`), only small vehicles keep one. Far views draw full cuboids (Pixel 28a: 10303 from
   45 blocks 19.6 fps, the same as from 6-14). Disappearance unaffected (`output/blocky-1022/loop/10303-102{1,2}-s200.txt`).
-- PERF-04 (FIXED offline, device check NEXT): a placed model cost ~40 fps on the Pixel wherever the camera looked
-  (round 28b, `output/device-round-2026-10-28b/pixel/notes.md`: 57 fps before, 10303 placed ~20 looking at it, up or
-  away, 54 at 3 km; no thread saturated; fps clusters at 60/3 = 20). Cause: every geometry's frustum box was sized for
-  the 400 % wand step (shell chunks 70-105 blocks wide), so nothing near a model could be culled. Round 28c
-  (`output/device-round-2026-10-28c/pixel/notes.md`, probe pack = boxes /4 + 3 via `tight_bounds.ts`): behind 19.6 ->
-  47.4 fps, sky 19.5 -> 31.4 (a strip of track still in view), looking at it 17.2 -> 19.3 (no change: the drawing
-  itself), far-behind 57-58 both; 400 % from 20 blocks, nine pans: identical frames, so `minecraft:scale` scales the box.
-  Fix: `visibleBoundsFor` = the 100 % box + `VISIBLE_BOUNDS_HEADROOM_BLOCKS` 1.5 (what the probe declared). NEXT: round
-  28d with packs BUILT from the fix (10303 smooth and 76417, `output/device-round-2026-10-28d/`): fps behind/sky/near
-  and pop-out at 25 / 100 / 400 % including CLOSE (5 blocks) and edge pans - 28c only checked 400 % from 20 blocks.
-  Pixel trap: `_pixel_cmd.sh` with a coordinate ending `.0` (`-45.0`) NPEs in `input text` and pauses the game; write `-45`.
-  Looking AT a model stays ~20 fps: only fewer cuboids or fewer packs move that (PERF-01: keep detail).
+- PERF-04 DONE-DEVICE (round 28d, `output/device-round-2026-10-28d/pixel/notes.md`): frustum boxes are the 100 % box
+  + 1.5 (`minecraft:scale` scales them). 10303 behind 19.6 -> 49.4 fps, sky 19.5 -> 33.2; no pop-out at 25/100/400 %.
+  Left open: looking AT a model stays ~20 fps (fewer cuboids or packs only; PERF-01 keeps detail). Unread: loose
+  dark-grey cubes beside 76417's rail at 400 % from inside (`shots/m2-in-c.jpg`) - check whether the model has them
+  (`_pack_render.ts` at that view) before calling it a fault. Pixel trap: `_pixel_cmd.sh` with a coordinate ending `.0`
+  NPEs in `input text` and pauses the game; write `-45`. Pixel leftovers (ours, delete file by file if needed):
+  `LoopCoaste(62)`/`(63)`, `GringottsW(40)`/`(41)` pack folders, `/sdcard/Download/000-*.mcaddon`.
 - SCALE-04 (the user 2026-10-22: "still seeing 200% recommendation text in the placement wand ui for models
   that ship with minifig-scaled models"): the walk-through recommendation measured openings against a whole 1 x 2-block
   hole and its door leaves were `blind` whenever the space past them was smaller than a (2n)^2 room or another
