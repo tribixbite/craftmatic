@@ -51,9 +51,11 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   45 blocks 19.6 fps, the same as from 6-14). Disappearance unaffected (`output/blocky-1022/loop/10303-102{1,2}-s200.txt`).
 - PERF-04 DONE-DEVICE (round 28d, `output/device-round-2026-10-28d/pixel/notes.md`): frustum boxes are the 100 % box
   + 1.5 (`minecraft:scale` scales them). 10303 behind 19.6 -> 49.4 fps, sky 19.5 -> 33.2; no pop-out at 25/100/400 %.
-  Left open: looking AT a model stays ~20 fps (fewer cuboids or packs only; PERF-01 keeps detail). Unread: loose
-  dark-grey cubes beside 76417's rail at 400 % from inside (`shots/m2-in-c.jpg`) - check whether the model has them
-  (`_pack_render.ts` at that view) before calling it a fault. Pixel trap: `_pixel_cmd.sh` with a coordinate ending `.0`
+  Left open: looking AT a model stays ~20 fps (fewer cuboids or packs only; PERF-01 keeps detail). The loose black
+  cubes beside 76417's spiral rail (`shots/m2-in-c.jpg`) are the PACK's geometry, not a draw fault: `_pack_render.ts`
+  draws them at 100 % and 400 % and in the 4 LDU build too (`output/cubes-76417-1029/`); the export's census reports
+  40 source parts in 17 pieces floating >1 stud clear. TODO(76417-floaters): name them (geograde cannot, it does not
+  resolve 80566, so it sees no rail) and repair the DbixConvV3 source if they belong on the rail. Pixel trap: `_pixel_cmd.sh` with a coordinate ending `.0`
   NPEs in `input text` and pauses the game; write `-45`. Pixel leftovers (ours, delete file by file if needed):
   `LoopCoaste(62)`/`(63)`, `GringottsW(40)`/`(41)` pack folders, `/sdcard/Download/000-*.mcaddon`.
 - SCALE-04 (the user 2026-10-22: "still seeing 200% recommendation text in the placement wand ui for models
