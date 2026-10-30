@@ -28,7 +28,11 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   car 2's loop 2 inside the rider ahead 0.4 / 1.0 / 1.3 s (as 30zz), car 3 clean, a 1-frame pale panel at 3 of 6
   hand-backs. 10303's cars are 2.25 blocks apart and the eye rides 1.12 over the seat: in a loop the car ahead's rider
   sits ~1 block from it. Ideas, unmeasured: a lower or more rearward eye during the animation only. The simulator does
-  not reproduce the grazing (its `eye inside bodywork` reads 0 on both clients).
+  not reproduce the grazing (its `eye inside bodywork` reads 0 on both clients). LEAD (2026-10-29): the device
+  dither-fades entity geometry NEAR the camera, not only geometry the eye is inside (Pixel 28d `n2-pc-R30` / `D45`:
+  a 10303 shell part against the camera washes the view translucent blue) - the Saga's "translucent washes" look
+  like that. Measure the fade distance on a phone (tp at known gaps from a flat shell face) and give the sim a rule
+  for it before changing the eye; the offline pose of those 28d shots did not register (tp took the block centre).
 - FID-02 SMOOTH TRACK (the user 2026-10-27: "set up the pipeline to be able to yield both ldu values and create the
   smoother variant and test and send to me"): DONE OFFLINE + Pixel memory; DEFAULT ON since 2026-10-28 (the user: "Default to smooth";
   `addonSmoothTrack: true`, `_playable_ref.ts` builds at 2 LDU unless `--track-grain=0`). `trackGrainLdu` /
