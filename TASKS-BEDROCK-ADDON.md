@@ -54,8 +54,13 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   Left open: looking AT a model stays ~20 fps (fewer cuboids or packs only; PERF-01 keeps detail). The loose black
   cubes beside 76417's spiral rail (`shots/m2-in-c.jpg`) are the PACK's geometry, not a draw fault: `_pack_render.ts`
   draws them at 100 % and 400 % and in the 4 LDU build too (`output/cubes-76417-1029/`); the export's census reports
-  40 source parts in 17 pieces floating >1 stud clear. TODO(76417-floaters): name them (geograde cannot, it does not
-  resolve 80566, so it sees no rail) and repair the DbixConvV3 source if they belong on the rail. Pixel trap: `_pixel_cmd.sh` with a coordinate ending `.0`
+  40 source parts in 17 pieces floating >1 stud clear. The census now NAMES them (`orphans.floaters`, the warning lists
+  the worst 5; `output/cubes-76417-1029/76417-diag.log`): all 17 are at the model's front (z -428..-850 LDU: 16x 2343,
+  1004705/36752a, 67095, 79511, 87991, 1011115 - display accessories), NONE by the rail. The rail cubes escape the
+  census because it joins parts by AABB and each 80566 quarter-spiral's box (274 x 98 x 274 LDU at x 380, z 38,
+  y -152..-584) encloses them; geograde cannot see them either (it does not resolve 80566). TODO(76417-rail-cubes):
+  candidates are the black 27925 tiles at r 77-116 LDU round (380, 38); check them against 76417's instructions
+  before repairing the DbixConvV3 source. Pixel trap: `_pixel_cmd.sh` with a coordinate ending `.0`
   NPEs in `input text` and pauses the game; write `-45`. Pixel leftovers (ours, delete file by file if needed):
   `LoopCoaste(62)`/`(63)`, `GringottsW(40)`/`(41)` pack folders, `/sdcard/Download/000-*.mcaddon`.
 - SCALE-04 (the user 2026-10-22: "still seeing 200% recommendation text in the placement wand ui for models

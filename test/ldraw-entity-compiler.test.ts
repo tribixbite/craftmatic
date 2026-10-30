@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BEDROCK_UNITS_PER_LDU, compileLdrawEntityGeometry, cullHiddenCuboids, cullHiddenCuboidsWithinBudget, CULL_CELL_LADDER, CULL_GRID_CELL_BUDGET, detachedClusters, eulerZYX, ldrawToRenderRotation, levelModel, mergeAlignedCuboids, snapSignedPermutation } from '../web/src/engine/ldraw-entity-compiler.js';
+import { analyseOrphans, BEDROCK_UNITS_PER_LDU, compileLdrawEntityGeometry, cullHiddenCuboids, cullHiddenCuboidsWithinBudget, CULL_CELL_LADDER, CULL_GRID_CELL_BUDGET, detachedClusters, eulerZYX, ldrawToRenderRotation, levelModel, mergeAlignedCuboids, snapSignedPermutation } from '../web/src/engine/ldraw-entity-compiler.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDRAW_COLOR_RGB } from '../web/src/engine/ldraw-colors.js';
 import { interactiveRig } from '../web/src/engine/bedrock-interactives.js';
@@ -714,5 +714,34 @@ describe('the cuboid budget is spent per part', () => {
     expect(r.diagnostics.grainPlan.fits).toBe(false);
     expect(r.diagnostics.grainPlan.coarsestMicrocellLdu).toBe(8);
     expect(r.warnings.some(w => /exceed the 20 budget even with every part at 8 LDU/.test(w))).toBe(true);
+  });
+});
+
+describe('analyseOrphans', () => {
+  /** An axis-aligned box from a corner and a size, in LDU. */
+  const box = (x: number, y: number, z: number, w: number, h: number, d: number) => ({ min: [x, y, z] as [number, number, number], max: [x + w, y + h, z + d] as [number, number, number] });
+  /** A row of `n` touching 20-LDU bricks from x0: a sub-build when n is large. */
+  const row = (x0: number, n: number) => Array.from({ length: n }, (_, i) => box(x0 + i * 20, 0, 0, 20, 24, 20));
+
+  // Round 2026-10-28d: black cubes hung beside 76417's spiral rail in game; the export said only "40 parts in 17 pieces
+  // float", so nobody could say which parts to repair in the source. Each floating piece is named, worst first.
+  it('names each floating piece by its parts, centre and clearance, worst first', () => {
+    const boxes = [...row(0, 220), ...row(10000, 220), box(0, -100, 0, 20, 8, 20), box(10000, -200, 0, 20, 8, 20), box(10020, -200, 0, 20, 8, 20)];
+    const parts = [...Array(440).fill('3001'), '3023', '3069b', '3069b'];
+    const o = analyseOrphans(boxes, parts);
+    expect(o.floatingParts).toBe(3);
+    expect(o.floatingGroups).toBe(2);
+    expect(o.floaters.map(f => f.parts)).toEqual([['3069b', '3069b'], ['3023']]);
+    expect(o.floaters[0]!.clearanceLdu).toBeCloseTo(192, 5);
+    expect(o.floaters[0]!.centreLdu).toEqual([10020, -196, 10]);
+    expect(o.floaters[1]!.clearanceLdu).toBeCloseTo(92, 5);
+  });
+
+  it('keeps at most the worst 24 floating pieces, counting all of them', () => {
+    const boxes = [...row(0, 220), ...row(10000, 220), ...Array.from({ length: 30 }, (_, i) => box(i * 100, -100 - i, 0, 20, 8, 20))];
+    const o = analyseOrphans(boxes, boxes.map(() => '3023'));
+    expect(o.floatingGroups).toBe(30);
+    expect(o.floaters).toHaveLength(24);
+    expect(o.floaters[0]!.clearanceLdu).toBeGreaterThanOrEqual(o.floaters[23]!.clearanceLdu);
   });
 });

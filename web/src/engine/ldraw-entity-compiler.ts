@@ -150,10 +150,7 @@ const FLOATER_CLEARANCE_LDU = 20;
  * Used by BOTH preparation paths — a building shell goes through
  * `prepareWholeModel`, which is the case this matters for.
  */
-function analyseOrphans(boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>): {
-  clusters: number; placements: number; subBuilds: number;
-  floatingParts: number; floatingGroups: number; worstClearanceLdu: number;
-} {
+export function analyseOrphans(boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>, parts: readonly string[] = []): OrphanCensus {
   const groups = connectedClusters(boxes as Array<{ min: Vec3; max: Vec3 }>);
   const orphanGroups = groups.slice(1);
   const subBuildMin = Math.max(SUB_BUILD_MIN_PARTS, boxes.length * SUB_BUILD_MIN_SHARE);
@@ -178,6 +175,7 @@ function analyseOrphans(boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>): {
     return best === Infinity ? Infinity : Math.sqrt(best);
   };
   let floatingParts = 0, floatingGroups = 0, worstClearanceLdu = 0;
+  const floaters: OrphanCensus['floaters'] = [];
   if (subBuilds.length) {
     for (const group of fragments) {
       const clearance = clearanceOf(group);
@@ -185,12 +183,46 @@ function analyseOrphans(boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>): {
       floatingParts += group.length;
       floatingGroups++;
       if (Number.isFinite(clearance) && clearance > worstClearanceLdu) worstClearanceLdu = clearance;
+      // Named, so the source can be repaired: a count alone left 76417's loose cubes unidentifiable (round 2026-10-28d).
+      const centreLdu = [0, 1, 2].map(axis => group.reduce((s, i) => s + (boxes[i]!.min[axis]! + boxes[i]!.max[axis]!) / 2, 0) / group.length) as Vec3;
+      floaters.push({ parts: group.map(i => parts[i] ?? '?'), centreLdu, clearanceLdu: clearance });
     }
   }
+  floaters.sort((a, b) => b.clearanceLdu - a.clearanceLdu);
   return {
     clusters: orphanGroups.length, placements: orphanGroups.reduce((a, g) => a + g.length, 0),
     subBuilds: subBuilds.length, floatingParts, floatingGroups, worstClearanceLdu,
+    floaters: floaters.slice(0, MAX_NAMED_FLOATERS),
   };
+}
+
+/** One floating piece for a warning: its parts (repeats counted), clearance in studs and centre in LDU. */
+function describeFloater(f: OrphanCensus['floaters'][number]): string {
+  const counts = new Map<string, number>();
+  for (const p of f.parts) counts.set(p, (counts.get(p) ?? 0) + 1);
+  const parts = [...counts].map(([p, n]) => (n > 1 ? `${n}x ${p}` : p)).join(' + ');
+  return `${parts} ${(f.clearanceLdu / 20).toFixed(1)} studs clear at LDU ${f.centreLdu.map(v => Math.round(v)).join(',')}`;
+}
+
+/** How many floating pieces a census names (the worst first); the counts cover all of them. */
+const MAX_NAMED_FLOATERS = 24;
+
+/**
+ * Connected pieces of a compiled entity that do not touch its main body -
+ * exactly what a player reports as a "floating piece". Anything left here
+ * after the stranding repair is loose in the SOURCE, so it is reported, not
+ * hidden: 31141 ships 22 such placements in 9 pieces, 76435 ships 60 in 43.
+ */
+export interface OrphanCensus {
+  clusters: number; placements: number;
+  /** Groups big enough to be a sub-build rather than debris. */
+  subBuilds: number;
+  /** Parts in small groups with more than a stud of clear air around them. */
+  floatingParts: number; floatingGroups: number;
+  /** The furthest such group's clearance, in LDU. */
+  worstClearanceLdu: number;
+  /** The floating pieces, worst clearance first (at most `MAX_NAMED_FLOATERS`): part ids, centre and clearance in the source's LDU frame. */
+  floaters: Array<{ parts: string[]; centreLdu: Vec3; clearanceLdu: number }>;
 }
 
 const WHEEL_PARTS = new Set(['56908', '44771', '44772', '87697', '92912', '15413', '41897', '23798', '23799']);
@@ -455,15 +487,7 @@ export interface LegoGeometryDiagnostics {
    * after the stranding repair is loose in the SOURCE, so it is reported, not
    * hidden: 31141 ships 22 such placements in 9 pieces, 76435 ships 60 in 43.
    */
-  orphans: {
-    clusters: number; placements: number;
-    /** Groups big enough to be a sub-build rather than debris. */
-    subBuilds: number;
-    /** Parts in small groups with more than a stud of clear air around them. */
-    floatingParts: number; floatingGroups: number;
-    /** The furthest such group's clearance, in LDU. */
-    worstClearanceLdu: number;
-  };
+  orphans: OrphanCensus;
   /** Body cuboids removed because every face was buried behind opaque cuboids (never visible from any viewpoint). */
   hiddenCubesCulled: number;
   /**
@@ -1414,15 +1438,7 @@ export interface PreparedEntityPlacements {
    * come from the SOURCE (a converted model whose parts do not meet), so the
    * count is reported rather than fixed.
    */
-  orphans: {
-    clusters: number; placements: number;
-    /** Groups big enough to be a sub-build rather than debris. */
-    subBuilds: number;
-    /** Parts in small groups with more than a stud of clear air around them. */
-    floatingParts: number; floatingGroups: number;
-    /** The furthest such group's clearance, in LDU. */
-    worstClearanceLdu: number;
-  };
+  orphans: OrphanCensus;
   /** World-LDraw AABB of a placement from its REAL part bounds (dims-table box when unresolved). */
   worldBoundsOf: (b: ParsedBrick) => { min: Vec3; max: Vec3 };
 }
@@ -1756,7 +1772,7 @@ export async function prepareWholeModel(bricks: ParsedBrick[], provider: PartGeo
   // A shell compiles every placement as given, so its loose pieces are the
   // SOURCE's (an exploded instruction layout, a converted model with gaps):
   // counted here so the export can say so instead of the player finding them.
-  const wholeOrphans = analyseOrphans(placed.map(worldBoundsOf));
+  const wholeOrphans = analyseOrphans(placed.map(worldBoundsOf), placed.map(b => b.part));
   return {
     level: { bricks, rotation: null, centre, alignedBefore: bricks.length, alignedAfter: bricks.length, angleDeg: 0 },
     placed, placedIdx, meshes,
@@ -2019,7 +2035,7 @@ export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBr
   // in 50 of those, up to 43.7 studs clear. One number for both said "1,832
   // placements in 72 pieces", which cannot tell them apart and fired on 39 of
   // 40 sets.
-  const orphans = analyseOrphans(placed.map(worldBoundsOf));
+  const orphans = analyseOrphans(placed.map(worldBoundsOf), placed.map(b => b.part));
   return { level: { ...level, bricks }, placed, placedIdx, meshes, displayDropped, detached, extras, skippedInternalCount, strandedRepaired, standContinued, orphans, worldBoundsOf };
 }
 
@@ -2302,7 +2318,7 @@ export async function compileLdrawEntityGeometry(
       ? `the model is ${orphans.subBuilds} sub-builds standing apart (normal for a set displayed that way)`
       : `${orphans.placements} placement${orphans.placements === 1 ? '' : 's'} in ${orphans.clusters} piece${orphans.clusters === 1 ? '' : 's'} do not touch the rest of the model`;
     const floating = orphans.floatingParts
-      ? ` ${orphans.floatingParts} part${orphans.floatingParts === 1 ? '' : 's'} in ${orphans.floatingGroups} piece${orphans.floatingGroups === 1 ? '' : 's'} float more than a stud clear of it${orphans.worstClearanceLdu ? `, up to ${(orphans.worstClearanceLdu / 20).toFixed(1)} studs` : ''} - those are loose in the SOURCE and will look like floating pieces in game.`
+      ? ` ${orphans.floatingParts} part${orphans.floatingParts === 1 ? '' : 's'} in ${orphans.floatingGroups} piece${orphans.floatingGroups === 1 ? '' : 's'} float more than a stud clear of it${orphans.worstClearanceLdu ? `, up to ${(orphans.worstClearanceLdu / 20).toFixed(1)} studs` : ''} - those are loose in the SOURCE and will look like floating pieces in game (worst: ${orphans.floaters.slice(0, 5).map(describeFloater).join('; ')}; all in diagnostics \`orphans.floaters\`).`
       : ' Nothing floats clear of it.';
     warnings.push(`${cid}: ${structure};${floating}`);
   }
