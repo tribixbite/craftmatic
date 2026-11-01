@@ -31,19 +31,18 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   not reproduce the grazing (its `eye inside bodywork` reads 0 on both clients). LEAD (2026-10-29): the device
   dither-fades entity geometry NEAR the camera, not only geometry the eye is inside (Pixel 28d `n2-pc-R30` / `D45`:
   a 10303 shell part against the camera washes the view translucent blue) - the Saga's "translucent washes" look
-  like that. It is an ENGINE FEATURE: Bedrock 1.21.120 "Mobs will now become slightly transparent when the camera
-  gets too close or passes through them" + an Accessibility toggle (Mojira MCPE-227625 Works As Intended); 26.60
-  exempted shulkers (hard-coded). IN FLIGHT 2026-10-31: Pixel probe round `output/coast06-dither-1031/` (brief
-  `brief-pixel-1031.md`, pack `CraftmaticDitherProbe.mcaddon` from `build_probe.py`, views `views.txt`, analyser
-  `python -I output/coast06-dither-1031/analyse.py output/coast06-dither-1031/pixel/shots`): 6 flat panels (5
-  materials + one turned 60 deg), eye 0.35-8 blocks, toggle on/off. v1 RESULT (`pixel/notes.md`): INCONCLUSIVE -
-  every panel evenly translucent at EVERY distance incl. 8 blocks, any material, toggle on or off; no control was
-  shot, the 1600-px resize blends a pixel dither, and v1's textures were 4-bit indexed PNGs (ours ship RGBA). v2
-  (`v2/`, brief `v2/brief-pixel-v2.md`, RGBA texture, a vanilla armor stand control, raw 1:1 crops, output
-  `pixel-v2/`) IN FLIGHT 2026-11-01. The toggle is Settings > Accessibility > Gameplay "Player and mob dithering"
-  (also "Block dithering"); options.txt does not exist at the known path on 1.26.60. The Pixel is now on
-  1.26.60.4 (was 1.26.52.3): later rounds record it. Then: give the sim a fade rule; tell the user about the
-  toggle; decide the eye.
+  like that. Bedrock 1.21.120 did add "mobs become slightly transparent when the camera gets too close" + an
+  Accessibility toggle (Settings > Accessibility > Gameplay "Player and mob dithering"; Mojira MCPE-227625). But the
+  PIXEL PROBE REFUTES IT FOR OUR ENTITIES (1.26.60.4, `output/coast06-dither-1031/pixel-v2/notes.md`, raw 1:1 crops
+  `shots/*-raw.png`): a flat custom panel (RGBA texture, material `entity`) is solid at eye distances 0.35-8 blocks,
+  toggle ON and OFF identical (centre patch within 1.6/255, `metrics.txt`). So the sim needs no fade rule; the
+  washes have another cause (lag / the eye in the rider ahead, as before). v1 (`pixel/`, 4-bit indexed textures, no
+  control, resized shots) was inconclusive. UNEXPLAINED (TODO(entity-tint)): the panel's white cells draw sky-blue
+  (232,232,232 -> 148,171,214) at every distance while the vanilla armor stand draws its own colours - 28d's
+  "translucent blue" shell close-ups may be this tint, not a fade. Next: render the probe offline and compare; check
+  our shells' colour on the phone against the texture. Probe tools: `build_probe.py`, `views.py`, `v2/`. Not
+  measured: the armor stand closer than 2.7 blocks (it fell under gravity). The v2 agent may have nudged an
+  Accessibility slider (after: chat 70 %, text 60 %, action bar 60 %, glint 50 %; before unrecorded).
 - FID-02 SMOOTH TRACK (the user 2026-10-27: "set up the pipeline to be able to yield both ldu values and create the
   smoother variant and test and send to me"): DONE OFFLINE + Pixel memory; DEFAULT ON since 2026-10-28 (the user: "Default to smooth";
   `addonSmoothTrack: true`, `_playable_ref.ts` builds at 2 LDU unless `--track-grain=0`). `trackGrainLdu` /
@@ -86,7 +85,8 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   frame differs from LDraw's - verify against instructions (`C:/git/clego/lego_sets/PDF/6477035-38.pdf`) before
   adding aliases. `C:/git/clego/lego_sets/IO/76417.io` is NOT authentic (our converter; no 80566). Pixel trap: `_pixel_cmd.sh` with a coordinate ending `.0`
   NPEs in `input text` and pauses the game; write `-45`. Pixel leftovers (ours, delete file by file if needed):
-  `LoopCoaste(62)`/`(63)`, `GringottsW(40)`/`(41)` pack folders, `/sdcard/Download/000-*.mcaddon`.
+  `LoopCoaste(62)`/`(63)`, `GringottsW(40)`/`(41)`, probe `Craftmatic(21)`/`(22)` BP + `(10)`/`(11)` RP pack folders,
+  `/sdcard/Download/000-*.mcaddon`.
 - SCALE-04 (the user 2026-10-22: "still seeing 200% recommendation text in the placement wand ui for models
   that ship with minifig-scaled models"): the walk-through recommendation measured openings against a whole 1 x 2-block
   hole and its door leaves were `blind` whenever the space past them was smaller than a (2n)^2 room or another
