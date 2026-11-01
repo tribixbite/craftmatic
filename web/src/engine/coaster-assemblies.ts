@@ -43,6 +43,7 @@ import { parseLDrawDocument, type ParsedBrick } from './ldraw-parser.js';
 import { descriptionOf, type LdrawPartMesh } from './ldraw-part-geometry.js';
 import { peekDatText } from './ldraw-geometry.js';
 import { connectedClusters, groupFigures, isFigurePart, snapSignedPermutation } from './ldraw-entity-compiler.js';
+import { classifyMinifigPart } from './minifig-rig.js';
 import { coasterTrackProfile, isSingleRail, type CoasterTrackExtraction } from './coaster-track.js';
 import type { CoasterVec3 } from './coaster-path.js';
 import { partStem } from './part-id.js';
@@ -55,6 +56,19 @@ export const CAR_ON_ROUTE_MAX_LDU = 40;
 export const CAR_FOOTPRINT_MARGIN_LDU = 4;
 /** How far above the chassis origin a car's own bricks (tub, restraint, rider) can reach. */
 export const CAR_HEIGHT_LDU = 120;
+/**
+ * How far past the footprint a part hung on a car's side may sit and still ride with it: a stud and a bit. 76417's
+ * cart hangs its wheel stacks 52 LDU out from a 40-wide chassis, 8 past the footprint's margin (2026-10-31).
+ */
+export const CAR_SIDE_REACH_LDU = 24;
+/** Two parts touch when their boxes are this close: a seam, not a gap. */
+export const CAR_CONTACT_TOL_LDU = 2;
+/**
+ * A part group hangs on a car when its boxes (in the car's own frame) come this close to the car's members: a plate.
+ * Wider than a seam because conversions seat parts a little off their mounts: 76417's 38799 saucers sit 5 LDU clear
+ * of the brackets that hold them (DbixConvV3, 2026-10-31).
+ */
+export const CAR_HUNG_GAP_LDU = 8;
 /** A wheel is mounted on a chassis when its origin is inside the chassis bounds grown by this much. */
 export const WHEEL_MOUNT_TOLERANCE_LDU = 4;
 /** Consecutive cars further apart than this multiple of the longer car's length are separate trains. */
@@ -723,6 +737,36 @@ export function detectCoasterAssemblies(
     }
     if (best >= 0) memberOf.set(i, best);
   });
+  // Parts hung on a car's SIDE: the footprint reads a part's origin, so one mounted on a side bracket past it was
+  // left in the static shell at the car's source pose and floated beside the rail when the car rode off (76417's four
+  // wheel stacks, 12 parts, Pixel round 2026-10-28d). A connected group of unclaimed parts joins a car when it
+  // comes within CAR_HUNG_GAP_LDU of that car's members and no other car's, and every origin in it is within
+  // CAR_SIDE_REACH_LDU of the footprint. A station piece by a car belongs to a group that runs on into the station,
+  // past the reach. A loose minifig accessory in no figure may hang on a car too (the stacks' 38799 "Minifig Saucer");
+  // a figure's own parts never do.
+  {
+    const looseAccessory = (i: number): boolean => !figureOfBrick.has(i) && classifyMinifigPart(bricks[i]!.part, desc(bricks[i]!)) === 'held';
+    const free: number[] = [];
+    bricks.forEach((_, i) => { if (!memberOf.has(i) && (!isFigureBrick(i) || looseAccessory(i)) && !isTrackMould(i) && !trainChassis.has(i)) free.push(i); });
+    const groups = connectedClusters(free.map(i => worldBounds(bricks[i]!, mesh(bricks[i]!)) as { min: [number, number, number]; max: [number, number, number] }), CAR_CONTACT_TOL_LDU).map(g => g.map(k => free[k]!));
+    const touches = (a: Box, b: Box): boolean => [0, 1, 2].every(k => a.min[k]! - CAR_HUNG_GAP_LDU <= b.max[k]! && a.max[k]! + CAR_HUNG_GAP_LDU >= b.min[k]!);
+    const membersOf = new Map<number, number[]>();
+    for (const [i, c] of memberOf) if (!trainCars.has(c)) (membersOf.get(c) ?? membersOf.set(c, []).get(c)!).push(i);
+    for (const group of groups) {
+      let owner = -1;
+      for (const [c, members] of membersOf) {
+        const { rot, origin, footprint } = carLocal.get(c)!;
+        // In the car's own frame, so a car parked on a slope does not swell every box into its neighbours.
+        const boxes = group.map(i => boundsInFrame(bricks[i]!, mesh(bricks[i]!), rot, origin));
+        if (!members.some(m => { const mb = boundsInFrame(bricks[m]!, mesh(bricks[m]!), rot, origin); return boxes.some(b => touches(b, mb)); })) continue;
+        if (owner >= 0) { owner = -2; break; } // it touches two cars: neither takes it
+        const near = group.every(i => inBox(footprint, apply(transpose(rot), sub(originOf(bricks[i]!), origin)), CAR_SIDE_REACH_LDU));
+        owner = near && group.every(i => authoredMember(bricks[i]!, bricks[c]!, riderSourcePaths.get(c) ?? [])) ? c : -2;
+        if (owner < 0) break;
+      }
+      if (owner >= 0) for (const i of group) memberOf.set(i, owner);
+    }
+  }
   // A wheel mounted on a chassis belongs to that chassis even if another footprint scores it closer.
   for (const [c, wheels] of wheelsByChassis) if (chassisSet.has(c)) for (const w of wheels) memberOf.set(w, c);
   for (const [c, car] of trainCars) for (const i of car.members) memberOf.set(i, c);

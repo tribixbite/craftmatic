@@ -31,8 +31,19 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   not reproduce the grazing (its `eye inside bodywork` reads 0 on both clients). LEAD (2026-10-29): the device
   dither-fades entity geometry NEAR the camera, not only geometry the eye is inside (Pixel 28d `n2-pc-R30` / `D45`:
   a 10303 shell part against the camera washes the view translucent blue) - the Saga's "translucent washes" look
-  like that. Measure the fade distance on a phone (tp at known gaps from a flat shell face) and give the sim a rule
-  for it before changing the eye; the offline pose of those 28d shots did not register (tp took the block centre).
+  like that. It is an ENGINE FEATURE: Bedrock 1.21.120 "Mobs will now become slightly transparent when the camera
+  gets too close or passes through them" + an Accessibility toggle (Mojira MCPE-227625 Works As Intended); 26.60
+  exempted shulkers (hard-coded). IN FLIGHT 2026-10-31: Pixel probe round `output/coast06-dither-1031/` (brief
+  `brief-pixel-1031.md`, pack `CraftmaticDitherProbe.mcaddon` from `build_probe.py`, views `views.txt`, analyser
+  `python -I output/coast06-dither-1031/analyse.py output/coast06-dither-1031/pixel/shots`): 6 flat panels (5
+  materials + one turned 60 deg), eye 0.35-8 blocks, toggle on/off. v1 RESULT (`pixel/notes.md`): INCONCLUSIVE -
+  every panel evenly translucent at EVERY distance incl. 8 blocks, any material, toggle on or off; no control was
+  shot, the 1600-px resize blends a pixel dither, and v1's textures were 4-bit indexed PNGs (ours ship RGBA). v2
+  (`v2/`, brief `v2/brief-pixel-v2.md`, RGBA texture, a vanilla armor stand control, raw 1:1 crops, output
+  `pixel-v2/`) IN FLIGHT 2026-11-01. The toggle is Settings > Accessibility > Gameplay "Player and mob dithering"
+  (also "Block dithering"); options.txt does not exist at the known path on 1.26.60. The Pixel is now on
+  1.26.60.4 (was 1.26.52.3): later rounds record it. Then: give the sim a fade rule; tell the user about the
+  toggle; decide the eye.
 - FID-02 SMOOTH TRACK (the user 2026-10-27: "set up the pipeline to be able to yield both ldu values and create the
   smoother variant and test and send to me"): DONE OFFLINE + Pixel memory; DEFAULT ON since 2026-10-28 (the user: "Default to smooth";
   `addonSmoothTrack: true`, `_playable_ref.ts` builds at 2 LDU unless `--track-grain=0`). `trackGrainLdu` /
@@ -62,9 +73,18 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   the worst 5; `output/cubes-76417-1029/76417-diag.log`): all 17 are at the model's front (z -428..-850 LDU: 16x 2343,
   1004705/36752a, 67095, 79511, 87991, 1011115 - display accessories), NONE by the rail. The rail cubes escape the
   census because it joins parts by AABB and each 80566 quarter-spiral's box (274 x 98 x 274 LDU at x 380, z 38,
-  y -152..-584) encloses them; geograde cannot see them either (it does not resolve 80566). TODO(76417-rail-cubes):
-  candidates are the black 27925 tiles at r 77-116 LDU round (380, 38); check them against 76417's instructions
-  before repairing the DbixConvV3 source. Pixel trap: `_pixel_cmd.sh` with a coordinate ending `.0`
+  y -152..-584) encloses them; geograde cannot see them either (it does not resolve 80566). FOUND 2026-10-31
+  (`output/cubes-76417-1031/`, `drawn-islands.ts` = a census of the DRAWN cuboids): they are the CART's four
+  wheel stacks (38799 saucer, 85861, hub cap 1011124 = LEGO 72210b, element 6336204) hung 52 LDU out on side
+  brackets of a 40-wide 26021, past the car footprint, so they stayed in the shell at the cart's source pose.
+  FIXED offline: `coaster-assemblies.ts` side-hung pass (CAR_SIDE_REACH_LDU 24, CAR_HUNG_GAP_LDU 8, loose minifig
+  accessories allowed); A/B `members-base.txt` vs `members-new3.txt`: 76417 car 25 -> 36 members, else only two
+  inert stray cars change; rebuilt pack (`build-dirty/`, a dirty-tree build, not for phones) `islands-100-fixed.txt`:
+  every rail-side island gone; 5 ground-level display plates + 1 piece (r4400) remain. Not yet seen on a phone.
+  TODO(ldd-hubcap-alias): 1011124/1011115 (72210b/72210a) and 1004705 (36752 wand sprue), 104814, 49972, 68503,
+  79511, 3469 ship as AABB boxes in 76417's shell; the DBIX pose puts the hub cap's disc horizontal, so the LDD
+  frame differs from LDraw's - verify against instructions (`C:/git/clego/lego_sets/PDF/6477035-38.pdf`) before
+  adding aliases. `C:/git/clego/lego_sets/IO/76417.io` is NOT authentic (our converter; no 80566). Pixel trap: `_pixel_cmd.sh` with a coordinate ending `.0`
   NPEs in `input text` and pauses the game; write `-45`. Pixel leftovers (ours, delete file by file if needed):
   `LoopCoaste(62)`/`(63)`, `GringottsW(40)`/`(41)` pack folders, `/sdcard/Download/000-*.mcaddon`.
 - SCALE-04 (the user 2026-10-22: "still seeing 200% recommendation text in the placement wand ui for models

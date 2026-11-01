@@ -62,6 +62,7 @@ const MESHES = new Map<string, LdrawPartMesh | null>([
   ['3626c.dat', boxMesh('3626c', 'Minifig Head with Closed Hollow Stud', [-13, 0, -13], [13, 24, 13])],
   ['3815.dat', boxMesh('3815', 'Minifig Hips', [-18, -11, -10], [18, 21, 10])],
   ['3816.dat', boxMesh('3816', 'Minifig Leg Right', [-19.5, -9, -11], [-1.5, 28, 9])],
+  ['38799.dat', boxMesh('38799', 'Minifig Saucer with Hollow Stud on Top', [-14, 0, -14], [14, 3, 14])],
 ]);
 
 const IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -235,6 +236,34 @@ describe('coaster assemblies: ride cars', () => {
     expect(result.cars).toHaveLength(1);
     expect(result.cars[0]!.wheels).toHaveLength(2);
     expect(result.cars[0]!.wheelbaseLdu).toBe(50);
+  });
+
+  it('takes a part hung on the car\'s side outside its footprint, never a station piece that runs on past it (76417\'s wheel stacks)', () => {
+    // 76417's cart hangs a wheel stack (38799 saucer, 85861 plate, 72210b hub cap) on each side bracket, 52 LDU out
+    // from a chassis 40 LDU wide: past the footprint (40 + 4), so all twelve parts stayed in the static shell at the
+    // cart's source pose and floated beside the rail once the car rode off (Pixel round 2026-10-28d, `m2-in-c.jpg`).
+    const car = carAt(40, 0, false);
+    const y = car[0]!.y;
+    const bracket = brick('3023.dat', 40, y - 8, 34);       // z 24..44: inside the footprint, touching the chassis
+    const hung = brick('3023.dat', 40, y - 8, 54);          // z 44..64: origin 10 past the footprint, touching only the bracket
+    const bracket2 = brick('3023.dat', 40, y - 8, -34);
+    const stationEdge = brick('3023.dat', 40, y - 8, -54);  // touches the second bracket AND the station brick below
+    const station = brick('3001.dat', 40, y - 8, -84);      // z -104..-64: origin 40 past the footprint
+    // The conversion seated 76417's 38799 saucers 5 LDU off their brackets: still the car's (a plate's gap or less)...
+    const offsetMount = brick('3023.dat', -20, y - 8, 34);  // a member: x -40..0, z 24..44
+    const offset = brick('3023.dat', -20, y - 8, 59);       // z 49..69: 5 LDU clear of its mount, touching nothing
+    // ...but a part further off than a plate is not hung on the car, though its origin is within the reach.
+    const loose = brick('3023.dat', -20, y - 8, -60);       // z -70..-50: 10 LDU clear of the chassis (z -40)
+    // A "Minifig …" accessory in no figure is the car's decoration (76417's saucers); the first pass skips every
+    // figure-described part, so only this one can take it.
+    const saucer = brick('38799.dat', 90, y - 8, 52);       // z 38..66 against the chassis' x 30..111, z -40..40
+    // Preconditions: by its origin alone the hung plate is outside the footprint (z 44) the first pass reads.
+    expect(Math.abs(hung.z) - 40).toBeGreaterThan(4);
+    const result = run([...STRAIGHT_ROUTE, ...car, bracket, hung, bracket2, stationEdge, station, offsetMount, offset, loose, saucer]);
+    expect(result.cars).toHaveLength(1);
+    // Indices: route 0-1, the car 2-5, bracket 6, hung 7, bracket2 8, station edge 9, station 10, offsetMount 11,
+    // offset 12, loose 13, saucer 14.
+    expect(result.cars[0]!.bricks).toEqual([2, 3, 4, 5, 6, 7, 8, 11, 12, 14]);
   });
 
   it('finds nothing and says so when no brick carries wheels', () => {
