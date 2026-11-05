@@ -28,26 +28,16 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   car 2's loop 2 inside the rider ahead 0.4 / 1.0 / 1.3 s (as 30zz), car 3 clean, a 1-frame pale panel at 3 of 6
   hand-backs. 10303's cars are 2.25 blocks apart and the eye rides 1.12 over the seat: in a loop the car ahead's rider
   sits ~1 block from it. Ideas, unmeasured: a lower or more rearward eye during the animation only. The simulator does
-  not reproduce the grazing (its `eye inside bodywork` reads 0 on both clients). LEAD (2026-10-29): the device
-  dither-fades entity geometry NEAR the camera, not only geometry the eye is inside (Pixel 28d `n2-pc-R30` / `D45`:
-  a 10303 shell part against the camera washes the view translucent blue) - the Saga's "translucent washes" look
-  like that. Bedrock 1.21.120 did add "mobs become slightly transparent when the camera gets too close" + an
-  Accessibility toggle (Settings > Accessibility > Gameplay "Player and mob dithering"; Mojira MCPE-227625). But the
-  PIXEL PROBE REFUTES IT FOR OUR ENTITIES (1.26.60.4, `output/coast06-dither-1031/pixel-v2/notes.md`, raw 1:1 crops
-  `shots/*-raw.png`): a flat custom panel (RGBA texture, material `entity`) is solid at eye distances 0.35-8 blocks,
-  toggle ON and OFF identical (centre patch within 1.6/255, `metrics.txt`). So the sim needs no fade rule; the
-  washes have another cause (lag / the eye in the rider ahead, as before). v1 (`pixel/`, 4-bit indexed textures, no
-  control, resized shots) was inconclusive. UNEXPLAINED (TODO(entity-tint)): the panel's white cells draw sky-blue
-  (232,232,232 -> 148,171,214) at every distance while the vanilla armor stand draws its own colours - 28d's
-  "translucent blue" shell close-ups may be this tint, not a fade. HYPOTHESIS: ordinary Vibrant Visuals lighting - the
-  Pixel reports `graphicsMode` Deferred (19zv `sysinfo.txt`; the Saga Fancy) and the camera faced the panel's NORTH
-  face, which the sun never lights. READY, NOT RUN: round 2026-11-05a (`output/device-round-2026-11-05a/`, brief
-  `brief-pixel-05a.md`, Pixel over its mDNS serial - :5555 refused): panel vs white concrete/wool per face at
-  /time 1000 and 6000, plus 76417's cart check (step A). The first attempt STOPPED at the start (`pixel/notes.md`,
-  `start-state.txt`): keyguard showing, a MediaProjection (screen-capture) permission prompt in the foreground; nothing
-  changed. `pixel/tools/` is set up; re-run the brief from step 1 once the phone is unlocked. Probe tools: `build_probe.py`, `views.py`, `v2/`. Not
-  measured: the armor stand closer than 2.7 blocks (it fell under gravity). The v2 agent may have nudged an
-  Accessibility slider (after: chat 70 %, text 60 %, action bar 60 %, glint 50 %; before unrecorded).
+  not reproduce the grazing (its `eye inside bodywork` reads 0 on both clients). RULED OUT: Bedrock's near-camera
+  "Player and mob dithering" (1.21.120, Mojira MCPE-227625) - a custom `entity` panel is solid at 0.35-8 blocks with the
+  toggle on or off (Pixel 1.26.60.4, `output/coast06-dither-1031/pixel-v2/notes.md`), so the sim needs no fade rule.
+  The panel's (and 28d's 10303 close-ups') sky-blue colour is Vibrant Visuals LIGHTING, not a pack fault (round
+  2026-11-05a, `output/device-round-2026-11-05a/pixel/notes.md` "B", `metrics.txt`): the Pixel runs Vibrant Visuals
+  (the Saga Fancy); a white concrete block beside the panel reads the same blue on faces out of the sun (B/R 1.51 vs
+  the panel's 1.44, panel/concrete 1.06-1.17 every channel) and the panel's east face turns warm in the morning sun.
+  Unexplained, minor: the turned panel's west face is 12-20 % brighter relative to the concrete. Not measured: a
+  vanilla mob closer than 2.7 blocks. The probe v2 agent may have nudged an Accessibility slider (after: chat 70 %,
+  text 60 %, action bar 60 %, glint 50 %; before unrecorded).
 - FID-02 SMOOTH TRACK (the user 2026-10-27: "set up the pipeline to be able to yield both ldu values and create the
   smoother variant and test and send to me"): DONE OFFLINE + Pixel memory; DEFAULT ON since 2026-10-28 (the user: "Default to smooth";
   `addonSmoothTrack: true`, `_playable_ref.ts` builds at 2 LDU unless `--track-grain=0`). `trackGrainLdu` /
@@ -86,13 +76,19 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   inert stray cars change; rebuilt pack (`build-dirty/`, a dirty-tree build, not for phones) `islands-100-fixed.txt`:
   every rail-side island gone; 5 ground-level display plates + 1 piece (r4400) remain. Committed build
   `output/device-round-2026-11-05a/packs-3128d08d/` (sha in SHA256SUMS.txt, `islands-100.txt` = the dirty build's,
-  sim 0 failed, regressions 3 tested 0 failed): on the Pixel in round 05a.
+  sim 0 failed, regressions 3 tested 0 failed). PIXEL ROUND 05a CONFIRMS (`output/device-round-2026-11-05a/pixel/`):
+  black wheels on both sides of the cart, travelling with it (`shots/a-cart2-*.jpg`), and 28d's nine 400 % inside views
+  no longer show the floating cubes (`cmp/m2in-sheet.jpg`, left 28d, right new). The cart cycles the track by itself,
+  so a fixed /tp view of it misses: aim with `/execute as @e[type=<cart>,c=1] at @s run tp @p ~dx ~dy ~dz facing ~ ~ ~`.
+  Round 05a's 400 % Undo was cut short by a force-stop ~1 min later: its colliders stayed in world 924 (unknown
+  blocks with 76417 unbound) and were `/fill`ed to air for y -60..-29; a sweep of y -28..91 is running
+  (`brief-pixel-05a-sweep.md`, `pixel-sweep/`). Wait for a 400 % Undo to finish (top-down view clear) before leaving.
   TODO(ldd-hubcap-alias): 1011124/1011115 (72210b/72210a) and 1004705 (36752 wand sprue), 104814, 49972, 68503,
   79511, 3469 ship as AABB boxes in 76417's shell; the DBIX pose puts the hub cap's disc horizontal, so the LDD
   frame differs from LDraw's - verify against instructions (`C:/git/clego/lego_sets/PDF/6477035-38.pdf`) before
   adding aliases. `C:/git/clego/lego_sets/IO/76417.io` is NOT authentic (our converter; no 80566). Pixel trap: `_pixel_cmd.sh` with a coordinate ending `.0`
   NPEs in `input text` and pauses the game; write `-45`. Pixel leftovers (ours, delete file by file if needed):
-  `LoopCoaste(62)`/`(63)`, `GringottsW(40)`/`(41)`, probe `Craftmatic(21)`/`(22)` BP + `(10)`/`(11)` RP pack folders,
+  `LoopCoaste(62)`/`(63)`, `GringottsW(40)`/`(41)`, `GringottsW(42)` (05a), probe `Craftmatic(21)`/`(22)` BP + `(10)`/`(11)` RP pack folders,
   `/sdcard/Download/000-*.mcaddon`.
 - SCALE-04 (the user 2026-10-22: "still seeing 200% recommendation text in the placement wand ui for models
   that ship with minifig-scaled models"): the walk-through recommendation measured openings against a whole 1 x 2-block

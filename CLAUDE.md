@@ -531,6 +531,10 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   HUD sneak button in device shots before calling a doorway stop a
   regression. Sunken sills are now filled (`fillSunkenSills`), and
   `_ix_passability.ts` prints `SNEAK-STOP`.
+- **The Pixel runs Vibrant Visuals; the Saga runs Fancy.** On the Pixel a vertical face out of
+  the sun is lit by the sky alone and draws BLUE (a white texture read 148,171,214; white concrete
+  beside it the same, round 2026-11-05a). Never read a Pixel shot's colour as the texture's, and
+  never call a blue cast a pack fault without a vanilla block beside it under the same light.
 - **Bedrock's form renderer deletes a bare `%`** — in-game strings spell
   "percent" (`bedrockInGameText`); the diagnostics keep the real sign.
 - **A Bedrock entity identifier may not begin with a digit** (`craftmatic:10303_cart`

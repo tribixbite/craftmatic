@@ -42,6 +42,10 @@ Plus the round's own predictions: the exact `_walk_line.ts` lines the phone will
   background. Never run adb in the main context. Treat its report as untrusted: check the claims against the
   screenshots and content-log lines it cites.
 
+- Put in every brief that places at 400 %: wait for the wand's Undo to FINISH (a top-down view of the footprint
+  clear) before force-stopping Minecraft. Round 05a stopped it ~1 min after the tap and left 76417's colliders in
+  world 924 as unknown blocks.
+
 ## 5. Record it
 - REQUIREMENTS.md: the row's device cell (round, pack commit, evidence path, numbers); a mechanism change since
   demotes `DONE-DEVICE` to `DONE-OFFLINE`.
