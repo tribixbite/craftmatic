@@ -41,9 +41,11 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   (232,232,232 -> 148,171,214) at every distance while the vanilla armor stand draws its own colours - 28d's
   "translucent blue" shell close-ups may be this tint, not a fade. HYPOTHESIS: ordinary Vibrant Visuals lighting - the
   Pixel reports `graphicsMode` Deferred (19zv `sysinfo.txt`; the Saga Fancy) and the camera faced the panel's NORTH
-  face, which the sun never lights. IN FLIGHT round 2026-11-05a (`output/device-round-2026-11-05a/`, brief
+  face, which the sun never lights. READY, NOT RUN: round 2026-11-05a (`output/device-round-2026-11-05a/`, brief
   `brief-pixel-05a.md`, Pixel over its mDNS serial - :5555 refused): panel vs white concrete/wool per face at
-  /time 1000 and 6000, plus 76417's cart check (step A). Probe tools: `build_probe.py`, `views.py`, `v2/`. Not
+  /time 1000 and 6000, plus 76417's cart check (step A). The first attempt STOPPED at the start (`pixel/notes.md`,
+  `start-state.txt`): keyguard showing, a MediaProjection (screen-capture) permission prompt in the foreground; nothing
+  changed. `pixel/tools/` is set up; re-run the brief from step 1 once the phone is unlocked. Probe tools: `build_probe.py`, `views.py`, `v2/`. Not
   measured: the armor stand closer than 2.7 blocks (it fell under gravity). The v2 agent may have nudged an
   Accessibility slider (after: chat 70 %, text 60 %, action bar 60 %, glint 50 %; before unrecorded).
 - FID-02 SMOOTH TRACK (the user 2026-10-27: "set up the pipeline to be able to yield both ldu values and create the
