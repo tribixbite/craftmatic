@@ -81,8 +81,9 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   no longer show the floating cubes (`cmp/m2in-sheet.jpg`, left 28d, right new). The cart cycles the track by itself,
   so a fixed /tp view of it misses: aim with `/execute as @e[type=<cart>,c=1] at @s run tp @p ~dx ~dy ~dz facing ~ ~ ~`.
   Round 05a's 400 % Undo was cut short by a force-stop ~1 min later: its colliders stayed in world 924 (unknown
-  blocks with 76417 unbound) and were `/fill`ed to air for y -60..-29; a sweep of y -28..91 is running
-  (`brief-pixel-05a-sweep.md`, `pixel-sweep/`). Wait for a 400 % Undo to finish (top-down view clear) before leaving.
+  blocks with 76417 unbound) and were `/fill`ed to air for y -60..-29; the sweep of y -28..91 over the same 224 x 224
+  found 22 more in the origin's cube (y -28..3) and 0 in the other 195, re-run 0 (`pixel-sweep/shots/fill/c24_y0.png`,
+  `fill-index.txt`): world 924 is clean. Wait for a 400 % Undo to finish (top-down view clear) before leaving.
   TODO(ldd-hubcap-alias): 1011124/1011115 (72210b/72210a) and 1004705 (36752 wand sprue), 104814, 49972, 68503,
   79511, 3469 ship as AABB boxes in 76417's shell; the DBIX pose puts the hub cap's disc horizontal, so the LDD
   frame differs from LDraw's - verify against instructions (`C:/git/clego/lego_sets/PDF/6477035-38.pdf`) before
