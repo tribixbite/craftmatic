@@ -39,8 +39,11 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   washes have another cause (lag / the eye in the rider ahead, as before). v1 (`pixel/`, 4-bit indexed textures, no
   control, resized shots) was inconclusive. UNEXPLAINED (TODO(entity-tint)): the panel's white cells draw sky-blue
   (232,232,232 -> 148,171,214) at every distance while the vanilla armor stand draws its own colours - 28d's
-  "translucent blue" shell close-ups may be this tint, not a fade. Next: render the probe offline and compare; check
-  our shells' colour on the phone against the texture. Probe tools: `build_probe.py`, `views.py`, `v2/`. Not
+  "translucent blue" shell close-ups may be this tint, not a fade. HYPOTHESIS: ordinary Vibrant Visuals lighting - the
+  Pixel reports `graphicsMode` Deferred (19zv `sysinfo.txt`; the Saga Fancy) and the camera faced the panel's NORTH
+  face, which the sun never lights. IN FLIGHT round 2026-11-05a (`output/device-round-2026-11-05a/`, brief
+  `brief-pixel-05a.md`, Pixel over its mDNS serial - :5555 refused): panel vs white concrete/wool per face at
+  /time 1000 and 6000, plus 76417's cart check (step A). Probe tools: `build_probe.py`, `views.py`, `v2/`. Not
   measured: the armor stand closer than 2.7 blocks (it fell under gravity). The v2 agent may have nudged an
   Accessibility slider (after: chat 70 %, text 60 %, action bar 60 %, glint 50 %; before unrecorded).
 - FID-02 SMOOTH TRACK (the user 2026-10-27: "set up the pipeline to be able to yield both ldu values and create the
@@ -79,7 +82,9 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   FIXED offline: `coaster-assemblies.ts` side-hung pass (CAR_SIDE_REACH_LDU 24, CAR_HUNG_GAP_LDU 8, loose minifig
   accessories allowed); A/B `members-base.txt` vs `members-new3.txt`: 76417 car 25 -> 36 members, else only two
   inert stray cars change; rebuilt pack (`build-dirty/`, a dirty-tree build, not for phones) `islands-100-fixed.txt`:
-  every rail-side island gone; 5 ground-level display plates + 1 piece (r4400) remain. Not yet seen on a phone.
+  every rail-side island gone; 5 ground-level display plates + 1 piece (r4400) remain. Committed build
+  `output/device-round-2026-11-05a/packs-3128d08d/` (sha in SHA256SUMS.txt, `islands-100.txt` = the dirty build's,
+  sim 0 failed, regressions 3 tested 0 failed): on the Pixel in round 05a.
   TODO(ldd-hubcap-alias): 1011124/1011115 (72210b/72210a) and 1004705 (36752 wand sprue), 104814, 49972, 68503,
   79511, 3469 ship as AABB boxes in 76417's shell; the DBIX pose puts the hub cap's disc horizontal, so the LDD
   frame differs from LDraw's - verify against instructions (`C:/git/clego/lego_sets/PDF/6477035-38.pdf`) before
