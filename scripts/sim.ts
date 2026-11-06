@@ -64,6 +64,7 @@
  *   --fov=       vertical field of view of the pictures (`--frames=`), degrees (default 70: the snapshot's assumed FOV).
  *   --client=    the client profile every client step reports for (default pixel; coaster-camera: both).
  *   --cars=      coaster-camera: ride each of these cars, 1 = the front car (`--cars=1,2,3`); default the nearest.
+ *   --other-prop-lead= EXPERIMENT: the property lead for entities no player rides (COAST-06).
  *   --prop-lead= ticks the client applies actor properties (a coaster car's pitch / roll / body bones) before
  *                the position sent with them, overriding the profile's (quirk `property-ahead-of-position`).
  *   --frames=    vehicles: `cockpitEye` judged from the DRAWN pose (always, since package B) also
@@ -126,6 +127,8 @@ const hatchFlag = args.includes('--hatch'), lodFlag = args.includes('--lod');
 const lagsFlag = flag('lag')?.split(',').map(Number).filter(Number.isFinite);
 /** `--prop-lead=N`: the client applies actor properties N ticks before the position (quirk `property-ahead-of-position`), overriding the profile's. */
 const propLeadFlag = flag('prop-lead') !== undefined ? Number(flag('prop-lead')) : undefined;
+/** `--other-prop-lead=N`: EXPERIMENT (COAST-06) - the lead for entities no player rides, the ridden one keeping the profile's (or --prop-lead's). */
+const otherPropLeadFlag = flag('other-prop-lead') !== undefined ? Number(flag('other-prop-lead')) : undefined;
 /** `--cars=1,2,3`: coaster-camera rides each of these cars from the front (1 = the front car) instead of the nearest. */
 const carsFlag = flag('cars')?.split(',').map(n => Number(n) - 1).filter(n => Number.isInteger(n) && n >= 0);
 /** Child-play's pictures go through the client when any device rule is asked for. */
@@ -133,7 +136,9 @@ const clientShots = !!(uvFloorFlag || hatchFlag || lodFlag);
 const fovFlag = Number(flag('fov'));
 const clientStepOptions = { ...(Number.isFinite(fovFlag) && fovFlag > 0 ? { fovDeg: fovFlag } : {}), ...(uvFloorFlag ? { uvFloor: uvFloorFlag } : {}), lod: lodFlag || mode === 'walk-away', paintHatch: hatchFlag, frames: !!framesDir, ...(lagsFlag?.length ? { lags: lagsFlag } : {}) };
 /** The run options that attach the client and its invariants to a scenario. */
-const clientRun = (profile: ClientProfileName): Pick<RunOptions, 'invariants' | 'prepare'> => ({ invariants: clientInvariants({ seatCamera: craftmaticSeatCamera() }), prepare: (sim, player) => { attachClient(sim, player, propLeadFlag !== undefined && Number.isFinite(propLeadFlag) ? { ...clientProfile(profile), propertyLeadTicks: propLeadFlag } : profile); } });
+const clientRun = (profile: ClientProfileName): Pick<RunOptions, 'invariants' | 'prepare'> => ({ invariants: clientInvariants({ seatCamera: craftmaticSeatCamera() }), prepare: (sim, player) => { attachClient(sim, player, (propLeadFlag !== undefined && Number.isFinite(propLeadFlag)) || (otherPropLeadFlag !== undefined && Number.isFinite(otherPropLeadFlag))
+      ? { ...clientProfile(profile), ...(propLeadFlag !== undefined && Number.isFinite(propLeadFlag) ? { propertyLeadTicks: propLeadFlag } : {}), ...(otherPropLeadFlag !== undefined && Number.isFinite(otherPropLeadFlag) ? { otherPropertyLeadTicks: otherPropLeadFlag } : {}) }
+      : profile); } });
 /**
  * Two run-option sets in one: both `prepare` hooks run (cost telemetry, then the client camera) and the
  * invariants concatenate; every other key is taken from whichever set has it, the second winning.

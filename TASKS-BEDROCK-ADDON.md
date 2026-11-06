@@ -31,10 +31,14 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   (`output/coast06-eye-1106/*.txt`, 10303 smooth pack 4f0b9557, `--runtime=tree`, which now swaps the coaster too): the
   ride step reports the eye's clearance to the car ahead / behind. Car 2 Pixel at property lead 3.3 (measured), 1.5, 5,
   6.6: never within 0.5 of car 1; car 3 likewise. Lead 0: within 0.2 (18 frames), as the phone, but the own body covers
-  the view (93 frames, the 30zs fault the phone no longer shows). So the sim does NOT reproduce the grazing; one
-  untested reading: the ridden car's properties and the car ahead's arrive with different leads. NEXT: model a separate
-  lead for other cars (`ClientView` property lead per entity), find the pair that gives car 2 loop 2 graze / loop 1
-  clear / car 3 clean, then judge an eye shift there. `animEyeBack` / `animEyeDown` (camera config, off by default;
+  the view (93 frames, the 30zs fault the phone no longer shows). So the sim does NOT reproduce the grazing at one lead.
+  Split leads (`--other-prop-lead=N`: entities no player rides; the ridden car 3.3), `olb*-c{2,3}.txt`: other 2 = as
+  3.3 (0 frames within 0.3); other 1: car 2 9 frames within 0.3 (ride ticks 334-335, 402 a lap) + 27 covered frames,
+  car 3 0 within 0.3 but 72 covered; other 0: car 2 54 / 93, car 3 33 / 138. The phone: car 2 loop 2 inside car 1's
+  rider, loop 1 clear, car 3 clean bar a ~0.2 s pass of car 2's bodywork at loop 1's entry - so no split lead matches
+  car 3 either (UNPROVEN model, not a fit). Which ride ticks are loop 1 / loop 2: `olb1f-c2.json` (`--frames`, trace)
+  was running 2026-11-06. NEXT: map the close ticks to the loops; if no lead model fits all three observations, measure
+  the car ahead's drawn lead on the Pixel (camprobe/proplag with TWO cars, one ridden) before any eye shift. `animEyeBack` / `animEyeDown` (camera config, off by default;
   guard `test/bedrock-coaster.test.ts :: native mode animEyeDown`) shift the animation eye weighted by the blend; sim on
   lead 3.3: back 0.3 / down 0.3 / 0.5 / both 0.3 pass, back 0.5 fails `camera-on-own-seat` (-0.54). Override for a run:
   `CRAFTMATIC_SIM_COASTER_CAMERA='{"animEyeDown":0.3}' bun scripts/sim.ts <pack> --scenario=coaster-camera

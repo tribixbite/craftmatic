@@ -68,6 +68,11 @@ export interface ClientProfile {
   basis: 'measured' | 'derived';
   /** Ticks an actor property reaches the screen before the position sent with it (quirk `property-ahead-of-position`). */
   propertyLeadTicks: number;
+  /**
+   * EXPERIMENT (COAST-06, unmeasured): the lead for an entity no player rides, when it differs from the ridden one's.
+   * Absent = `propertyLeadTicks` for every entity, the measured model; set only by `scripts/sim.ts --other-prop-lead=`.
+   */
+  otherPropertyLeadTicks?: number;
   /** What the phone reports to scripts (round 30zv `si:dump`): set on the watched player, which the coaster's timing table reads. */
   device: { graphicsMode: string; maxRenderDistance: number; memoryTier: number };
 }
@@ -411,7 +416,9 @@ export class ClientView {
    * (quirk `property-ahead-of-position`), the live values for an entity with no recorded history yet.
    */
   drawnProperties(e: SimEntity): Readonly<Record<string, number | boolean | string>> {
-    return this.poses.propertiesAt(e, this.tick - this.profile.entityLagTicks + this.profile.propertyLeadTicks) ?? Object.fromEntries(e.properties);
+    const other = this.profile.otherPropertyLeadTicks;
+    const lead = other !== undefined && !e.riderList().some(r => r.isPlayer) ? other : this.profile.propertyLeadTicks;
+    return this.poses.propertiesAt(e, this.tick - this.profile.entityLagTicks + lead) ?? Object.fromEntries(e.properties);
   }
 
   /** The drawn velocity (blocks per tick) of an entity's drawn pose: the drawn mount's for a rider, the lagged history's otherwise. */
