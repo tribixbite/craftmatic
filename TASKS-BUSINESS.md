@@ -59,9 +59,16 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
   7. dev stamps and set numbers in player-facing names.
 
   None of this blocks free play; all of it blocks a listing.
-- NEXT: the legality report (BIZ-01). Then write the verdict and decisions below, and ask the user to choose a
-  scenario. When the other reports land, verify the load-bearing claims against the cited pages (agent output is
-  untrusted). Write the verdict and decisions below, then ask the user to decide on the scenario.
+- BIZ-01 (`1-legality.md`, 50 sources, fable) LANDED. VERIFIED 2026-11-06: EU General Court T-297/22 and
+  T-298/22 (6 Dec 2023) upheld LEGO's minifigure 3D trade marks (chaillot.com, ipkitten). Agent's other key cites
+  (not re-opened by me):
+  - Lego Juris C-48/09 P: the plain brick SHAPE is not a valid trade mark;
+  - minifig sculpture copyright upheld in Lego v Best-Lock (2019) and Lego v ZURU;
+  - LDraw parts CC BY 2.0/4.0, commercial use allowed with attribution;
+  - the Studio EULA forbids redistributing parts of it;
+  - LEGO shut down a free Bionicle fan game (May 2025);
+  - Mojang's guidelines cite branded cars and movie characters as disallowed.
+- NEXT: the user chooses a scenario (asked 2026-11-06). Until then nothing below is decided; no listing work.
 
 ## The user's hypothesis (to test, not assume)
 "None of the original source files are used in the resulting distribution, so it is legally feasible,
@@ -84,9 +91,28 @@ Points the research must settle:
 - C: a licence or partnership (LEGO, or a theme licensor).
 - D: free fan releases funded by donations, Patreon or ads, if commercial sale is barred.
 
-## Decisions (empty until the reports are verified)
-- Legal verdict:
-- Chosen scenario:
+## Decisions
+- Legal verdict (research, not legal advice; a lawyer confirms before any sale): the user's hypothesis FAILS.
+  - A pack ships LEGO's protected expression itself: the set's selection and arrangement of parts re-expressed as
+    cuboids (a derivative work); minifigure sculpture and 3D marks; print and face art; LEGO and licensor names.
+  - Not shipping the source FILE removes only the fan authors' thin copyright and the library-redistribution
+    question.
+  - Landmarks: the building is public domain, LEGO's brick interpretation is not (17 U.S.C. 103(b)). So a
+    part-for-part 21061 copies LEGO; an INDEPENDENT design from the real Notre-Dame is fine.
+  - LEGO also forbids set recreations in its own licensed Fortnite programme, and Mojang does not sanction sales
+    outside the Marketplace.
+
+  Safest commercial route:
+  - original brick-style designs with a generic studded-brick look (the Brick Rigs model);
+  - our own figure proportions, never the minifig;
+  - no LEGO marks, no set names or numbers, no licensed themes;
+  - landmarks designed from the real buildings;
+  - LDraw attribution shipped, and every Studio-only mesh resolved away;
+  - sold on the Marketplace via a publisher;
+  - plus the converter sold as a tool for creators' OWN designs.
+
+  Free fan releases of official sets are lower-damages but NOT safe (the Bionicle precedent).
+- Chosen scenario: PENDING the user.
 - Channel:
 - Price points:
 - Launch checklist:

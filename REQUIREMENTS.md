@@ -287,10 +287,10 @@ the user received is 30i (2026-09-30); later work has not been on a phone.
 
 | id | requirement | status | implementation | guards | device | gap |
 |---|---|---|---|---|---|---|
-| `BIZ-01` | Establish whether selling LEGO-derived / LEGO-inspired add-ons is legal (copyright in set designs, LEGO and licensed-theme trademarks, LDraw/Studio library terms, Mojang usage + Marketplace rules), incl. landmark sets (Notre-Dame, Eiffel Tower); the user 2026-11-06 | OPEN | research agent report `output/business-1106/1-legality.md`; plan `TASKS-BUSINESS.md` | none | — | Desk research only, not legal advice; a lawyer decides |
-| `BIZ-02` | Competitive landscape and market positioning | OPEN | `output/business-1106/2-competition.md`; `TASKS-BUSINESS.md` | none | — | research running 2026-11-06 |
-| `BIZ-03` | Pricing and go-to-market strategy for marketplace revenue | OPEN | `output/business-1106/3-pricing-gtm.md`; `TASKS-BUSINESS.md` | none | — | research running 2026-11-06 |
-| `BIZ-04` | Steps to create, list and sell (LEGO-inspired) add-ons per channel | OPEN | `output/business-1106/4-create-list-sell.md`; `TASKS-BUSINESS.md` | none | — | research running 2026-11-06 |
+| `BIZ-01` | Establish whether selling LEGO-derived / LEGO-inspired add-ons is legal (copyright in set designs, LEGO and licensed-theme trademarks, LDraw/Studio library terms, Mojang usage + Marketplace rules), incl. landmark sets (Notre-Dame, Eiffel Tower); the user 2026-11-06 | OPEN | research agent report `output/business-1106/1-legality.md`; plan `TASKS-BUSINESS.md` | none | — | Research verdict 2026-11-06 (TASKS-BUSINESS Decisions): official-set packs are derivative of LEGO's designs + minifig marks/copyright; safe route = original brick-style designs. Not legal advice; a lawyer confirms; the user picks a scenario |
+| `BIZ-02` | Competitive landscape and market positioning | OPEN | `output/business-1106/2-competition.md`; `TASKS-BUSINESS.md` | none | — | report landed 2026-11-06, key claims verified (TASKS-BUSINESS); awaiting the user's scenario choice |
+| `BIZ-03` | Pricing and go-to-market strategy for marketplace revenue | OPEN | `output/business-1106/3-pricing-gtm.md`; `TASKS-BUSINESS.md` | none | — | report landed 2026-11-06, key claims verified (TASKS-BUSINESS); awaiting the user's scenario choice |
+| `BIZ-04` | Steps to create, list and sell (LEGO-inspired) add-ons per channel | OPEN | `output/business-1106/4-create-list-sell.md`; `TASKS-BUSINESS.md` | none | — | report landed 2026-11-06, key claims verified (TASKS-BUSINESS); awaiting the user's scenario choice |
 
 ## Counts by status (70 items)
 
