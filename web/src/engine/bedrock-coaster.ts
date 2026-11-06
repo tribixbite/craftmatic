@@ -545,6 +545,15 @@ export interface CoasterRiderViewConfig {
   sectionGap?: number;
   /** `native`: the longest stretch planned at once, ticks (10303 drop to brake: ~110); a longer one blends out where the plan ends. Optional: 160. */
   sectionHorizon?: number;
+  /**
+   * `native`: blocks the animation's eye moves BACK along the car's nose while the track has the view, weighted by
+   * the blend (0 at its first and last keyframe, so neither the take-over nor the hand-back moves the eye). In a loop
+   * the eye, 1.12 over the seat toward the loop's centre, sits ~1 block behind the rider of the car ahead (10303: cars
+   * 2.25 blocks apart) and the camera grazed it (COAST-06). Optional: 0.
+   */
+  animEyeBack?: number;
+  /** `native`: as `animEyeBack`, blocks DOWN along the car's up (toward the rails, out of the loop's centre). Optional: 0. */
+  animEyeDown?: number;
 }
 
 /**
@@ -2701,6 +2710,9 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   const BLEND = 2 * Math.max(1, Math.round((Number.isFinite(camera.blendTicks) ? camera.blendTicks! : 6) / 2));
   const SECTION_GAP = Math.max(0, Number.isFinite(camera.sectionGap) ? camera.sectionGap! : 12);
   const SECTION_HORIZON = Math.max(24, Math.min(200, Number.isFinite(camera.sectionHorizon) ? camera.sectionHorizon! : 160));
+  // The animation's eye shift (`animEyeBack` / `animEyeDown`), clamped to a block: further would leave the car.
+  const EYE_BACK = Math.max(0, Math.min(1, Number.isFinite(camera.animEyeBack) ? camera.animEyeBack! : 0));
+  const EYE_DOWN = Math.max(0, Math.min(1, Number.isFinite(camera.animEyeDown) ? camera.animEyeDown! : 0));
   /**
    * Whether a car pose takes the view: upside down at any speed, or tilted past `STEEP_TILT` (its up's angle from
    * the world's: pitch and bank together) at `STEEP_SPEED` or more (`speed` in blocks/s) - a slow chain climb is
@@ -2770,6 +2782,11 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       ownYaw = Number.isFinite(ownYaw) ? ownYaw + wrap(yawNow - ownYaw) : track.yaw + wrap(yawNow - track.yaw);
       ownPitch = Number.isFinite(ownPitch) ? ownPitch : track.pitch + wrap(look.pitch - track.pitch);
       const w = smooth(k / BLEND) * smooth((length - k) / BLEND);
+      // The eye shift rides the same weight: none where the animation meets the player's own view.
+      if ((EYE_BACK || EYE_DOWN) && w > 0) {
+        const n = pose.nose, u = pose.up;
+        poses[k] = { ...pose, eye: { x: pose.eye.x - w * (EYE_BACK * n[0] + EYE_DOWN * u[0]), y: pose.eye.y - w * (EYE_BACK * n[1] + EYE_DOWN * u[1]), z: pose.eye.z - w * (EYE_BACK * n[2] + EYE_DOWN * u[2]) } };
+      }
       // Where the track has the whole view the player's own angles may change chart freely: take the one nearest it.
       if (w >= 1) { ownYaw = track.yaw + wrap(ownYaw - track.yaw); ownPitch = track.pitch + wrap(ownPitch - track.pitch); }
       views.push({ yaw: ownYaw + (track.yaw - ownYaw) * w, pitch: ownPitch + (track.pitch - ownPitch) * w, roll: (track.roll || 0) * w });

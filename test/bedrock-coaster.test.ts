@@ -3191,6 +3191,45 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
     }
   }, 240_000);
 
+  it('native mode animEyeDown moves the animation eye toward the rails only while the track has the view: the first and last keyframes stay on the seat eye (COAST-06)', async () => {
+    const { scene } = await corpusRoutes(PUBLISHED_10303);
+    /** The eye spline of car 2's first animation for a camera override. */
+    const firstSpline = (camera?: Partial<CoasterRiderViewConfig>) => {
+      const h = liftHost(scene.routes[0]!, camera, WHEELBASE_10303, { spline: true });
+      const car = h.cars[1]!;
+      const rider = cameraRider(car.entity);
+      const plays: any[][] = [];
+      (rider.player.camera as any).playAnimation = vi.fn((...args: any[]) => { plays.push(args); });
+      h.run(1); car.seat(rider.player);
+      for (let tick = 0; tick < 1400 && !plays.length; tick++) h.run(1);
+      expect(plays.length, 'an animation within 1400 ticks').toBeGreaterThan(0);
+      return plays[0]![0].controlPoints as Array<{ x: number; y: number; z: number }>;
+    };
+    const base = firstSpline(), back = firstSpline({ animEyeDown: 0.3 });
+    const gap = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+    expect(back.length).toBe(base.length);
+    expect(gap(back[0]!, base[0]!)).toBeLessThan(1e-9);
+    expect(gap(back.at(-1)!, base.at(-1)!)).toBeLessThan(1e-9);
+    // Off the ends the eye leaves the unshifted path by about the shift: the distance to the base polyline. The spline's
+    // points are resampled at equal arc along chords of the shifted path, which in a tight loop run a few hundredths
+    // further out than the shift itself (0.338 measured for 0.3), hence the 0.1 allowance.
+    const toPath = (q: { x: number; y: number; z: number }) => {
+      let best = Infinity;
+      for (let i = 1; i < base.length; i++) {
+        const a = base[i - 1]!, b = base[i]!;
+        const d = [b.x - a.x, b.y - a.y, b.z - a.z], w = [q.x - a.x, q.y - a.y, q.z - a.z];
+        const len2 = d[0]! * d[0]! + d[1]! * d[1]! + d[2]! * d[2]!;
+        const s = len2 > 0 ? Math.max(0, Math.min(1, (w[0]! * d[0]! + w[1]! * d[1]! + w[2]! * d[2]!) / len2)) : 0;
+        best = Math.min(best, Math.hypot(w[0]! - s * d[0]!, w[1]! - s * d[1]!, w[2]! - s * d[2]!));
+      }
+      return best;
+    };
+    const off = Math.max(...back.map(toPath));
+    expect(off).toBeGreaterThan(0.05);
+    expect(off).toBeGreaterThan(0.2);
+    expect(off).toBeLessThan(0.3 + 0.1);
+  }, 120_000);
+
   it('native mode (the default) in every car: no per-tick camera, and the drop and both loops as ONE animation a lap that leaves and returns to the player\'s own view (COAST-06, the user 2026-10-18: seats 2 and 3)', async () => {
     const { scene } = await corpusRoutes(PUBLISHED_10303);
     for (const index of [0, 1, 2]) {

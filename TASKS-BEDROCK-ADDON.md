@@ -27,8 +27,18 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   (20c); Pixel on the 30zz timing (round 2026-10-20d, `output/device-round-2026-10-20d/pixel/notes.md`): loop 1 clear,
   car 2's loop 2 inside the rider ahead 0.4 / 1.0 / 1.3 s (as 30zz), car 3 clean, a 1-frame pale panel at 3 of 6
   hand-backs. 10303's cars are 2.25 blocks apart and the eye rides 1.12 over the seat: in a loop the car ahead's rider
-  sits ~1 block from it. Ideas, unmeasured: a lower or more rearward eye during the animation only. The simulator does
-  not reproduce the grazing (its `eye inside bodywork` reads 0 on both clients). RULED OUT: Bedrock's near-camera
+  sits ~1 block from it (only the FRONT car has a posed figure: it is car 2 meeting car 1's). SIM 2026-11-06
+  (`output/coast06-eye-1106/*.txt`, 10303 smooth pack 4f0b9557, `--runtime=tree`, which now swaps the coaster too): the
+  ride step reports the eye's clearance to the car ahead / behind. Car 2 Pixel at property lead 3.3 (measured), 1.5, 5,
+  6.6: never within 0.5 of car 1; car 3 likewise. Lead 0: within 0.2 (18 frames), as the phone, but the own body covers
+  the view (93 frames, the 30zs fault the phone no longer shows). So the sim does NOT reproduce the grazing; one
+  untested reading: the ridden car's properties and the car ahead's arrive with different leads. NEXT: model a separate
+  lead for other cars (`ClientView` property lead per entity), find the pair that gives car 2 loop 2 graze / loop 1
+  clear / car 3 clean, then judge an eye shift there. `animEyeBack` / `animEyeDown` (camera config, off by default;
+  guard `test/bedrock-coaster.test.ts :: native mode animEyeDown`) shift the animation eye weighted by the blend; sim on
+  lead 3.3: back 0.3 / down 0.3 / 0.5 / both 0.3 pass, back 0.5 fails `camera-on-own-seat` (-0.54). Override for a run:
+  `CRAFTMATIC_SIM_COASTER_CAMERA='{"animEyeDown":0.3}' bun scripts/sim.ts <pack> --scenario=coaster-camera
+  --runtime=tree --cars=2 --client=pixel [--prop-lead=N]` (~19 min a ride; 6 run in parallel fine). RULED OUT: Bedrock's near-camera
   "Player and mob dithering" (1.21.120, Mojira MCPE-227625) - a custom `entity` panel is solid at 0.35-8 blocks with the
   toggle on or off (Pixel 1.26.60.4, `output/coast06-dither-1031/pixel-v2/notes.md`), so the sim needs no fade rule.
   The panel's (and 28d's 10303 close-ups') sky-blue colour is Vibrant Visuals LIGHTING, not a pack fault (round

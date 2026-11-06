@@ -213,9 +213,26 @@ fingerprint, so a new phone can be measured and added.
   - Pixel, car 2, second loop: 0.4–1.3 s inside the rider ahead.
 
   10303's cars are 2.25 blocks apart, and the eye is 1.12 blocks over the seat,
-  so in a loop the rider ahead is about a block from the eye. The simulator does
-  not reproduce it. Ideas, not yet measured: a lower or more rearward eye during
-  the animation only.
+  so in a loop the rider ahead is about a block from the eye. Only the FRONT car
+  carries a posed figure, so it is car 2's camera meeting car 1's rider.
+  The simulator does not reproduce it (2026-11-06, `output/coast06-eye-1106/`).
+  The ride step now reports the eye's clearance to the car ahead and the car
+  behind (`eyeInsideCoasterCars` on `EYE_CLEAR_LADDER`). At the measured
+  property lead 3.3, and at 1.5, 5 and 6.6, car 2 never comes within 0.5 block
+  of car 1. At lead 0 it comes within 0.2 block (18 frames), as on the phone,
+  but its own body then covers the view (93 frames), which the phone stopped
+  showing after round 30zs. One reading is that the client applies the ridden
+  car's properties and the car ahead's with different leads. That is a guess,
+  not measured.
+  `animEyeBack` / `animEyeDown` move the animation's eye back along the nose or
+  down along the car's up, weighted by the blend: 0 at the first and last
+  keyframes. They are off (0) by default. Until the simulator reproduces the
+  grazing, its numbers for them decide nothing: back 0.5 brings the eye within
+  0.3 block of another car and breaks `camera-on-own-seat` (-0.54).
+  To try a value on a shipped pack:
+  `CRAFTMATIC_SIM_COASTER_CAMERA='{"animEyeDown":0.3}' bun scripts/sim.ts <pack>
+  --scenario=coaster-camera --runtime=tree --cars=2 --client=pixel [--prop-lead=N]`.
+  A ride takes about 19 minutes.
 - **The Pixel's hand-back** shows a pale panel for one frame on about half the
   laps.
 - **TODO(pixel-ride-lag):** a camprobe run on 1.26.52 reads the Pixel's entity

@@ -681,7 +681,9 @@ KNOWN-UNREPRODUCED when the current pack passes the scenario: printed apart
 (a line of its own and a banner over the markdown table) and not failing
 the run by itself; its current pack failing is still a FAIL.
 
-**`--runtime=tree`** runs the CURRENT pack's figures/rides/vehicles scripts
+**`--runtime=tree`** runs the CURRENT pack's figures/rides/vehicles/coaster scripts
+(the coaster since 2026-11-06; `CRAFTMATIC_SIM_COASTER_CAMERA` merges a JSON
+object over its `camera` for an experiment)
 as this tree builds them from the pack's own CONFIG
 (`adapters/craftmatic/runtime-swap.ts`); the old side always runs as the
 device ran it. It measures a runtime fix on the packs a round used without

@@ -11,7 +11,11 @@
  * (`ridesScript`), `scripts/vehicles.js` (`scriptedVehicleScript`),
  * `scripts/interactives.js` (`interactivesScript`, since 2026-10-07: the
  * doors' step-out fix measured on round 30k's packs), `scripts/vehicle-camera.js`
- * (`vehicleCameraScript`, since 2026-10-15: the 25 % chase framing). Every
+ * (`vehicleCameraScript`, since 2026-10-15: the 25 % chase framing),
+ * `scripts/coaster.js` (`coasterScript`, since 2026-11-06: the rider camera,
+ * COAST-06; its `world` still taken from the pack's roster when the pack's
+ * was). `CRAFTMATIC_SIM_COASTER_CAMERA` (a JSON object) is merged over the
+ * coaster CONFIG's `camera` for an experiment, and noted on stderr. Every
  * other script runs as shipped. A pack whose CONFIG predates a field the
  * tree's runtime reads gets that runtime's own default for it - the swap is a
  * code change, never a data migration.
@@ -25,9 +29,11 @@ import { interactivesScript, type InteractiveRuntimeConfig } from '../../../engi
 import { BOAT, CAR, FLIGHT, FOOTPRINT, HEADLIGHTS, HOVER, MOVE, scriptedVehicleScript, type ScriptedVehicleConfig } from '../../../engine/bedrock-vehicle.js';
 import { vehicleCameraScript, type VehicleCameraRuntimeConfig } from '../../../engine/playable-addon.js';
 import { FREE_LOOK } from '../../../engine/vehicle-free-look.js';
+import { coasterScript, type CoasterRuntimeConfig } from '../../../engine/bedrock-coaster.js';
+import { rosterScriptSource } from '../../../engine/player-roster.js';
 
 /** One swappable script: where its CONFIG sits in the shipped text and the tree's builder. */
-interface Swap { path: string; read: (text: string) => unknown; build: (config: never) => string }
+interface Swap { path: string; read: (text: string) => unknown; build: (config: never, shipped: string) => string }
 
 /**
  * A vehicle CONFIG's constant sections topped up with this tree's constants for every key the pack
@@ -43,6 +49,22 @@ function vehicleConfigWithTreeDefaults(c: ScriptedVehicleConfig): ScriptedVehicl
   };
 }
 
+/**
+ * The coaster runtime rebuilt from its CONFIG, with the experiment's camera override when one is set, and `world`
+ * from `./roster.js` when the shipped script took it from there (the pack ships the roster beside it).
+ */
+function coasterFromConfig(c: CoasterRuntimeConfig, shipped: string): string {
+  const raw = typeof process !== 'undefined' ? process.env['CRAFTMATIC_SIM_COASTER_CAMERA'] : undefined;
+  let config = c;
+  if (raw) {
+    const override = JSON.parse(raw) as Partial<NonNullable<CoasterRuntimeConfig['camera']>>;
+    config = { ...c, camera: { ...(c.camera ?? {}), ...override } as CoasterRuntimeConfig['camera'] };
+    console.error(`runtime-swap: coaster camera override ${JSON.stringify(override)}`);
+  }
+  const source = coasterScript(config);
+  return shipped.includes(`from './roster.js'`) ? rosterScriptSource(source) : source;
+}
+
 const SWAPS: readonly Swap[] = [
   { path: 'scripts/figures.js', read: t => extractJsonAfter(t, 'const CONFIG'), build: (c: FigureLifeConfig) => figureLifeScript(c) },
   { path: 'scripts/rides.js', read: t => extractJsonAfter(t, 'const CONFIG'), build: (c: RideRuntimeConfig) => ridesScript(c) },
@@ -50,6 +72,7 @@ const SWAPS: readonly Swap[] = [
   // vehicle-camera.js passes its CONFIG inline too: `(function ...)({"vehicles": ...}, ...)`; its free-look constants topped up.
   { path: 'scripts/vehicle-camera.js', read: t => { const at = t.indexOf('({"vehicles":'); return at < 0 ? undefined : extractJsonAfter(t.slice(at), '('); }, build: (c: VehicleCameraRuntimeConfig) => vehicleCameraScript({ ...c, freeLook: { ...FREE_LOOK, ...c.freeLook } }) },
   // vehicles.js passes its CONFIG inline as the runtime's first argument: `(function ...)({"types": ...}, ...)`.
+  { path: 'scripts/coaster.js', read: t => extractJsonAfter(t, 'const CONFIG'), build: (c: CoasterRuntimeConfig, shipped: string) => coasterFromConfig(c, shipped) },
   { path: 'scripts/vehicles.js', read: t => { const at = t.indexOf('({"types":'); return at < 0 ? undefined : extractJsonAfter(t.slice(at), '('); }, build: (c: ScriptedVehicleConfig) => scriptedVehicleScript(vehicleConfigWithTreeDefaults(c)) },
 ];
 
@@ -64,7 +87,7 @@ export function swapTreeRuntimes(addon: Addon): string[] {
       if (!text) continue;
       const config = s.read(text);
       if (!config || typeof config !== 'object') throw new Error(`${addon.source}: ${s.path} has no readable CONFIG to rebuild from`);
-      pack.files.set(s.path, encoder.encode(s.build(config as never)));
+      pack.files.set(s.path, encoder.encode(s.build(config as never, text)));
       swapped.push(s.path);
     }
   }
