@@ -28,7 +28,39 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
   The agent's positioning: sell the CONVERTER as a tool for creators' own designs (MOCs) and an unbranded
   toy-brick line; keep official-set conversion private until BIZ-01 says otherwise. No competitor found that
   makes LEGO models PLAYABLE in Minecraft; the nearest is ObjToSchematic (static blocks).
-- NEXT: when the other reports land, verify the load-bearing claims against the cited pages (agent output is
+- BIZ-03 (`3-pricing-gtm.md`, 37 sources) and BIZ-04 (`4-create-list-sell.md`) LANDED. VERIFIED 2026-11-06 on
+  minecraft.net/en-us/usage-guidelines: "You may create, use, or distribute a mod if ..." (never sell), and "If
+  something isn't covered by these guidelines ... that probably means we don't want you to do it ... don't do it
+  without getting written permission from us". So paid sales OUTSIDE the Marketplace (Gumroad, itch.io, Patreon
+  paywalls) need Mojang's written permission.
+  The agents' route:
+  - **Marketplace through a listed publisher** (Waypoint, Pathway, Blocklab; Mojang's Partner page says it may not
+    be accepting applications). Waypoint quotes 8-12 weeks from build to listing.
+  - **Free releases with tips** (CurseForge rewards; MCPEDL now uploads via CurseForge).
+  - **The converter on craftmatic.click** sold as a tool.
+
+  Price ideas (UNVERIFIED):
+  - free sampler;
+  - Coaster Park 1,340 Minecoins, vehicle garage 990, pinball 830, furniture & doors 660, a three-pack bundle 1,990.
+  - Converter: $4.99 per model, $8 a month, $49 a month for studios.
+
+  Revenue guess (agent's, wide): $0-1.5k in the first 90 days, $2.5-35k over months 4-12. The creator share is
+  unpublished: 35-70% modelled.
+- Marketplace technical blockers in OUR packs (BIZ-04 agent, read off a 10261 pack; one verified):
+  1. one shared `craftmatic:` namespace; Mojang wants a fixed `<creator>_<pack>:` namespace per add-on;
+  2. identifier and folder layout that fails Microsoft's add-on validator;
+  3. VERIFIED: the RP overwrites vanilla `textures/blocks/concrete_<colour>.png` with stud textures
+     (`playable-addon.ts:2633`, `lego-resource-pack.ts:362`), so binding the pack restyles all of the world's
+     concrete;
+  4. RP manifest lacks `pack_scope: world` and a dependency on the BP;
+  5. pack size against a 25 MB guideline, entity counts and script cost on low-end devices, and the collider
+     block permutation count (unchecked);
+  6. placement must only go into air, ask first, and offer undo;
+  7. dev stamps and set numbers in player-facing names.
+
+  None of this blocks free play; all of it blocks a listing.
+- NEXT: the legality report (BIZ-01). Then write the verdict and decisions below, and ask the user to choose a
+  scenario. When the other reports land, verify the load-bearing claims against the cited pages (agent output is
   untrusted). Write the verdict and decisions below, then ask the user to decide on the scenario.
 
 ## The user's hypothesis (to test, not assume)
