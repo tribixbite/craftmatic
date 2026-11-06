@@ -16,7 +16,19 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
      Partner programme, Marketplace Pass), other channels, prices for scenarios A-D (below), a 90-day plan.
   4. `output/business-1106/4-create-list-sell.md` (BIZ-04): Partner application, submission and
      certification, technical blockers for our packs, a numbered launch checklist per channel.
-- NEXT: when the reports land, verify the load-bearing claims against the cited pages (agent output is
+- BIZ-02 report LANDED (`2-competition.md`, 35 sources). Load-bearing claim VERIFIED 2026-11-06 on fortnite.com
+  ("Introducing the LEGO Brick Editor..."): LEGO's creator rules for its LICENSED Fortnite channel say "No
+  recreation of existing LEGO sets and LEGO toys (Rule #6)", plus genuine LEGO elements only (Rule #7), and LEGO
+  takes 15% of the payout. So LEGO forbids set recreations even for paying licensees. Not yet verified:
+  - MCPEDL rejecting packs named LEGO;
+  - the Marketplace figures: over $500M gross since launch (GDC 2024), about 40.2k items from 326 creators, add-on
+    median price 660 Minecoins, top furniture packs at 15-24k ratings;
+  - the official free LEGO Chicken Mounts add-on (Noxcrew, May 2026) at 34k ratings.
+
+  The agent's positioning: sell the CONVERTER as a tool for creators' own designs (MOCs) and an unbranded
+  toy-brick line; keep official-set conversion private until BIZ-01 says otherwise. No competitor found that
+  makes LEGO models PLAYABLE in Minecraft; the nearest is ObjToSchematic (static blocks).
+- NEXT: when the other reports land, verify the load-bearing claims against the cited pages (agent output is
   untrusted). Write the verdict and decisions below, then ask the user to decide on the scenario.
 
 ## The user's hypothesis (to test, not assume)
