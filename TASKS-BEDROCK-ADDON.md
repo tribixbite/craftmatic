@@ -36,9 +36,13 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   3.3 (0 frames within 0.3); other 1: car 2 9 frames within 0.3 (ride ticks 334-335, 402 a lap) + 27 covered frames,
   car 3 0 within 0.3 but 72 covered; other 0: car 2 54 / 93, car 3 33 / 138. The phone: car 2 loop 2 inside car 1's
   rider, loop 1 clear, car 3 clean bar a ~0.2 s pass of car 2's bodywork at loop 1's entry - so no split lead matches
-  car 3 either (UNPROVEN model, not a fit). Which ride ticks are loop 1 / loop 2: `olb1f-c2.json` (`--frames`, trace)
-  was running 2026-11-06. NEXT: map the close ticks to the loops; if no lead model fits all three observations, measure
-  the car ahead's drawn lead on the Pixel (camprobe/proplag with TWO cars, one ridden) before any eye shift. `animEyeBack` / `animEyeDown` (camera config, off by default;
+  car 3 either (UNPROVEN model, not a fit). Ride ticks of a lap (`frames-olb1-c2/*-frames.json`, continuous pitch):
+  drop 330-345, loop 1 ~357-392 (~10 deg/tick), loop 2 ~400-425 (~15 deg/tick, the faster). Other-lead 0, car 2: close
+  at 335-336 (drop), 356-357 + 369 (loop 1, a few), 400-409 + 422-424 (loop 2, most) - the phone's shape (loop 1 close
+  but solid, loop 2 inside 0.4-1.3 s); car 3 at other-lead 0 grazes empty car 2 in loop 2 (402-407), which the phone
+  does not show. NEXT: measure, not fit - a Pixel probe of the drawn lead of a car AHEAD while riding the one behind
+  (proplag v8 rows on two entities, one ridden; round 30zt's method), then re-run `olb*` at the measured pair and only
+  then judge `animEyeBack`/`animEyeDown`. `animEyeBack` / `animEyeDown` (camera config, off by default;
   guard `test/bedrock-coaster.test.ts :: native mode animEyeDown`) shift the animation eye weighted by the blend; sim on
   lead 3.3: back 0.3 / down 0.3 / 0.5 / both 0.3 pass, back 0.5 fails `camera-on-own-seat` (-0.54). Override for a run:
   `CRAFTMATIC_SIM_COASTER_CAMERA='{"animEyeDown":0.3}' bun scripts/sim.ts <pack> --scenario=coaster-camera
