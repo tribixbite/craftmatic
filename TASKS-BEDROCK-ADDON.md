@@ -9,6 +9,37 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
+### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
+The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles
+fly/drive/etc? with proper POV and camera movement?". Detection is part-based, but every check so far ran on the
+40 favourites, the 21 vehicle sets and Gabby only. Business research runs alongside: `TASKS-BUSINESS.md`.
+- Step 1, baseline at `4da29033` (`bash output/generality-1106/run-fav.sh`, background): it runs, in order,
+  - the favourites sweep, into `output/favsweep-4da29033/`;
+  - `sim.ts`, giving `output/favsweep-4da29033-sim.md`;
+  - the regressions, giving `-regr.md`;
+  - the seat and vehicle audits under the LEGO tab's labels, into `output/generality-1106/fav-named/`.
+
+  Logs `output/generality-1106/fav-*.log`; `fav.done` when finished. Compare with the 10-12 sweep
+  (`output/favsweep-2ecb8240-sim.md`): 11 failures, namely 10365 and 42670 shell chunks 6-9 blocks under the
+  ground, and 76417 Door 3's tap picking fig6.
+- Step 2, census (`bash output/generality-1106/run-census.sh`, background): 200 sets outside the favourites from
+  `bun scripts/_generality_sample.ts` (64 set-number families round-robin, 150-4000 parts, 2005+;
+  `output/generality-1106/sample.txt`). It runs the seat audit, then the vehicle audit `--keep` on the same packs
+  (`census/`), then `sim.ts` (`census-sim.md`); `census.done` when finished.
+- Step 3 (NEXT after both finish): a census report comparing what the parts say each set should have with what
+  the pack ships, set by set:
+  - seat moulds against player seats (`audit.json` seat census);
+  - hinge leaves against interactives (the pack diagnostics);
+  - slide/lift parts against rides;
+  - wheels, vehicle words or cockpit parts against a drivable vehicle (a "static" verdict on a set with
+    wheels is a miss).
+
+  Rank the miss classes by DISTINCT sets, fix the top ones generically, each with a test, then re-run the
+  census.
+- Step 4: a per-vehicle drive check for every census vehicle: the sim's vehicles scenario (move 20 blocks, turn,
+  camera follows, dismount gives the camera back, never inside a wall), plus `_cockpit_view.ts` renders
+  (`driverSeesOut`). Then BDS 1.26.63.1 (`C:/git/bds/`) beside the sim for API fidelity, then one Pixel round.
+
 ### IN FLIGHT 2026-10-20: the user's camera / lag reports (COAST-06, VEH-19, PIN-02) + Pixel memory
 
 The user (their own world, every round pack bound, plays on a SAGA): the 10303 ride "super laggy, stutter-jerks
