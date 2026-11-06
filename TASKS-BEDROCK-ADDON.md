@@ -534,12 +534,22 @@ Record per point: pass/fail, the CMVT/CMCAM lines around it, a clip.
 
 ## Phones
 
-- **Pixel 8 Pro** (`adb devices -l`; mDNS serial `adb-39141FDJG007G5-…`,
-  lock `C:/git/craftmatic/output/.phone-lock`), Minecraft 26.51, not rooted:
+- **Distilled for any project (2026-11-06):** global skills `android-test-devices` (who may be touched, hard
+  rules, adb recipes) and `bedrock-addon-modding` (engine facts, test ladder, `quirks-reference.md` generated
+  from `web/src/sim/quirks/registry.ts` - regenerate after adding quirks:
+  `bun ~/.claude/skills/bedrock-addon-modding/dump-quirks.ts ~/.claude/skills/bedrock-addon-modding/quirks-reference.md`).
+- **This PC tests too:** Bedrock Dedicated Server 1.26.63.1 at `C:/git/bds/1.26.63.1/` (port 19150, world
+  `cmtest`, Beta APIs on, content log to console; a probe proved script warns/exceptions with file:line and entity
+  property errors print there). Real engine for everything server-side - the natural check of the sim's API
+  fidelity (run a round pack on BDS beside `sim.ts`). Minecraft for Windows 1.26.62 is the USER's (they play here):
+  never close it or touch their worlds.
+- **Pixel 8 Pro** (`adb devices -l`; mDNS serial `adb-39141FDJG007G5-XqgZN1._adb-tls-connect._tcp`,
+  lock `C:/git/craftmatic/output/.phone-lock`), Minecraft 1.26.60.4 (Vibrant Visuals), not rooted:
   world **924** (QA, import mode), **cmgametest** (GameTest; runner
   `output/gametest-0926/_gt_device_run.py <set>…` in the polish worktree).
-- **Saga** (`192.168.1.243:5555`, rooted, lock `C:/git/craftmatic/output/.saga-lock`),
-  Minecraft 26.52: world **925** (root dev mode). **NEVER `stop`/`start`,
+- **Test Saga** `O1N1XT412200373` (rooted, lock `C:/git/craftmatic/output/.saga-lock`; NOT attached 2026-11-06,
+  was `192.168.1.243:5555` on the old network), Minecraft 1.26.52.3: world **925** (root dev mode). The user's own
+  Saga `O1N1XT172300325` / `192.168.0.202`: never touch. Unknown Saga `O1N1XT172301887` / `192.168.0.144`: ask first. **NEVER `stop`/`start`,
   `setprop ctl.restart` or any framework restart; no reboot; no clearing app
   data** (either phone). Taps: 90 ms swipes `input swipe x y x y 90` worked
   for every button and the crosshair (2026-09-29; 300 ms also works). Chat:
