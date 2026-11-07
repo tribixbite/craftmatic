@@ -79,14 +79,11 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
   Seat audit (`census/audit.md`): 271 seat places; the player can sit at 224; 47 have no use. Regressions at
   `4da29033`: 38 NOT TESTED. The regression set looks for round-named packs
   (`10788-gabbys-dollhouse.mcaddon`) that the sweep does not write, so run it against a round's pack dir.
-- Step 3 NEXT:
-  - merge `gen-veh-1106` into main once the favourites chain (`fav.done`; its seat audit took 35 min on 10261)
-    finishes, since a merge changes pipeline sources under a running sweep; then merge `gen-view-1106` the same
-    way (its full suite already passed on `a9e6f6eb`);
-  - rebuild the 11 sets and re-sim them (running from the worktree: `output/gen-veh-1106/`,
-    `output-veh.log`, `output-sim.log` there);
-  - then class 2's side-view policy (6 sets) and classes 4, 6 and 7, each fix with a test;
-  - re-run the census.
+- Step 3 NEXT (`gen-veh-1106` and `gen-view-1106` are MERGED into main, full suite green; the favourites seat audit
+  `output/generality-1106/fav-named/audit.md`: 161 places, 159 the player can sit at, the 2 others by design):
+  - class 4 (seats beside the hull, 6 sets) is with an agent on branch `gen-seat4-1106`, not merged;
+  - then class 2's side-view policy (6 sets, the user's call) and classes 6 and 7, each fix with a test;
+  - re-run the census (`output/generality-1106/run-census.sh`, into a NEW output dir).
 - Step 4: a per-vehicle drive check for every census vehicle: the sim's vehicles scenario (move 20 blocks, turn,
   camera follows, dismount gives the camera back, never inside a wall), plus `_cockpit_view.ts` renders
   (`driverSeesOut`). Then BDS 1.26.63.1 (`C:/git/bds/`) beside the sim for API fidelity, then one Pixel round.
