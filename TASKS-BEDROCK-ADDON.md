@@ -26,8 +26,22 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
      of the model, >= 4 wheels spread over half its length, not taller than long, no scenery title. Still OPEN:
      planes on wheels ride as cars (31060, 7345: `TODO(whole-plane)`), a train with no track (4841), a 3-wheel
      chopper (6866), a 2-wheel bike with no title word.
-  2. **The driver sees out** (`driver-sees-ahead`): 10 sets, 43114, 44014, 4768, 4997, 6243, 7344, 8153, 8487, 8495
-     and 9396. Mostly boats and ships, whose side rays are blocked.
+  2. **The driver sees out** (`driver-sees-ahead`): 10 sets plus 8638's third jet. Branch `gen-view-1106`
+     (worktree `.worktrees/gen-view-1106`, NOT merged) has these fixes:
+     - `2e736edf` (the sim read a turned cube by its corner box; this cleared 9396);
+     - `d9a37549` (a seat that saw out on the planned cuboids but not on the cubes the pack ships after
+       `separateCoplanarFaces` is planned again on the shipped cubes; this cleared 4768, 7344, 8487 and 8638).
+
+     Rebuilt with them (`.worktrees/gen-view-1106/output/view-after-sim.md`), all 5 sets see out, and none of the
+     favourite seat plans changed.
+
+     OPEN, a policy choice for 6 sets (43114, 44014, 4997, 6243, 8153, 8495): `planSeat` keeps an eye that sees ahead
+     with a panel within a block of one side ("sides are a preference"), while the sim requires both. Recommended:
+     make the sides hard, since the 42639 device report (a side panel over 35 % of the view) shows the sides matter.
+     That moves those eyes out of the cabin and hides the rider. Also open: `TODO` give the planner the sim's
+     shape-aware ray test, since 8487 car 4's eye moved 0.58 block on corner boxes. The full suite has not been run on
+     the branch. The base-commit worktree `.worktrees/gen-view-base` is left in place, because removing it would be a
+     recursive delete.
   3. **Seat drifts below 100 %** (`seat-on-vehicle` DRIFTS at 75/50 %): 7 sets, 3222, 41681, 42229, 4997, 5489, 5887
      and 7213, plus the favourite 910047. The same class as the baseline's only failure.
   4. **Extra seats beside the hull or over the drawn top**: 5 sets, 31109, 41681, 4768, 5585 and 6243. Mostly ships:
@@ -43,7 +57,8 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
   (`10788-gabbys-dollhouse.mcaddon`) that the sweep does not write, so run it against a round's pack dir.
 - Step 3 NEXT:
   - merge `gen-veh-1106` into main once the favourites chain (`fav.done`; its seat audit took 35 min on 10261)
-    finishes, since a merge changes pipeline sources under a running sweep;
+    finishes, since a merge changes pipeline sources under a running sweep; then merge `gen-view-1106` the same
+    way, after the full suite;
   - rebuild the 11 sets and re-sim them (running from the worktree: `output/gen-veh-1106/`,
     `output-veh.log`, `output-sim.log` there);
   - then classes 2-3 (17 distinct sets), each fix with a test;
