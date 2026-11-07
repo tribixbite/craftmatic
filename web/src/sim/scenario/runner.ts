@@ -70,6 +70,17 @@ export function findEntity(sim: Simulation, player: SimEntity, sel: EntitySelect
   return list[sel.index ?? 0];
 }
 
+/**
+ * Valid entities `sel` matches that stand OUTSIDE the loaded area, where `findEntity` cannot see them: what a
+ * step that drove the player far away left behind at the model (census 2026-11-06, the second aircraft of
+ * 3222/3368/3658/8638). The entity filter is `findEntity`'s, minus the loaded test.
+ */
+export function unloadedMatches(sim: Simulation, player: SimEntity, sel: EntitySelector): SimEntity[] {
+  const typeOk = (e: SimEntity): boolean => sel.type === undefined || (typeof sel.type === 'string' ? e.typeId === sel.type : sel.type.test(e.typeId));
+  return [...sim.engine.entities.values()].filter(e => e.valid && !e.isPlayer && e.dimension === player.dimension && !sim.engine.isEntityLoaded(e)
+    && typeOk(e) && (!sel.family || e.families().includes(sel.family)) && (!sel.where || sel.where(e)));
+}
+
 /** The core step handlers. */
 export const CORE_HANDLERS: Record<string, StepHandler> = {
   async wait(step, ctx) { await ctx.run(Number(step['ticks'] ?? 1)); },

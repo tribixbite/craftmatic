@@ -32,8 +32,9 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
      and 7213, plus the favourite 910047. The same class as the baseline's only failure.
   4. **Extra seats beside the hull or over the drawn top**: 5 sets, 31109, 41681, 4768, 5585 and 6243. Mostly ships:
      the passenger seats run off the deck.
-  5. **A second vehicle placed but gone when the sim drives it** (`driveVehicle: no ..._plane_sub<N>`): 4 sets, 3222,
-     3368, 3658 and 8638. `placement.js` lists the actor. Sim harness or runtime, not yet read.
+  5. FIXED, a SIM harness gap and not a pack bug: the second aircraft of 3222, 3368, 3658 and 8638 was "missing"
+     because driving the first one took the player out of loading range. `driveVehicle` now walks back to the model
+     (`unloadedMatches`, runner.ts). 3658 and 3368 now pass; 8638's third jet fails `driver-sees-ahead` (class 2).
   6. **Windows no tap reaches**: 3 sets, 3600, 5482 and 5508. Brick-box houses.
   7. **Doorway lines**: 2 sets. On 2504 a tread blocks the porch; on 5582 a 2.1-3.2 block HOLE opens at Door 2.
 
@@ -43,7 +44,8 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
 - Step 3 NEXT:
   - merge `gen-veh-1106` into main once the favourites chain (`fav.done`; its seat audit took 35 min on 10261)
     finishes, since a merge changes pipeline sources under a running sweep;
-  - rebuild the 11 sets and re-sim them;
+  - rebuild the 11 sets and re-sim them (running from the worktree: `output/gen-veh-1106/`,
+    `output-veh.log`, `output-sim.log` there);
   - then classes 2-3 (17 distinct sets), each fix with a test;
   - re-run the census.
 - Step 4: a per-vehicle drive check for every census vehicle: the sim's vehicles scenario (move 20 blocks, turn,

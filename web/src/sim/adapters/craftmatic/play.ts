@@ -24,7 +24,7 @@
  */
 
 import type { AnyStep, StepContext, StepHandler } from '../../scenario/types.js';
-import { APPROACH_KEY, CORE_HANDLERS, FOOTING_KEY, FOOT_ORIGIN_KEY, findEntity } from '../../scenario/runner.js';
+import { APPROACH_KEY, CORE_HANDLERS, FOOTING_KEY, FOOT_ORIGIN_KEY, findEntity, unloadedMatches } from '../../scenario/runner.js';
 import { lookAngles, rotateYaw, type Box, type Vec3 } from '../../core/vec.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { teleport } from '../../script-host/facades.js';
@@ -213,7 +213,19 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
     /** Board a vehicle by a hold, check the driver's view, drive a course, sneak off: `{ type, ticks }`. */
     async driveVehicle(step: AnyStep, ctx: StepContext) {
       const type = String(step['type']);
-      const v = findEntity(ctx.sim, ctx.player, { type });
+      let v = findEntity(ctx.sim, ctx.player, { type });
+      if (!v) {
+        // A vehicle driven before this one can take the player out of loading range of the model, where the
+        // rest of its vehicles still stand unloaded (census 2026-11-06: the second aircraft of 3222, 3368, 3658
+        // and 8638 was "missing"). A child walks back to the model; so does the step, then looks again.
+        const placed = ctx.state[PLACED_KEY] as Placed | undefined;
+        if (placed && unloadedMatches(ctx.sim, ctx.player, { type }).length) {
+          teleport(ctx.sim.host, ctx.player, { x: placed.anchor.x, y: placed.anchor.y + 1, z: placed.anchor.z });
+          await ctx.run(20);
+          ctx.note(`${type}: out of loading range after the vehicles before it; walked back to the model`);
+          v = findEntity(ctx.sim, ctx.player, { type });
+        }
+      }
       if (!v) throw new Error(`driveVehicle: no ${type}`);
       await CORE_HANDLERS['hold']!({ kind: 'hold', target: { where: (e: SimEntity) => e === v, label: type } }, ctx);
       if (ctx.player.ridingOn !== v) { ctx.violate({ invariant: 'tap-boards-ride', message: `a hold on ${type} did not mount it`, evidence: { at: pt(v.location) } }); return; }

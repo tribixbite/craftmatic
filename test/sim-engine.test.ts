@@ -16,7 +16,7 @@ import { rewriteModule } from '../web/src/sim/script-host/module-loader.js';
 import { Simulation } from '../web/src/sim/core/simulation.js';
 import { readAddon } from '../web/src/sim/pack/pack.js';
 import { aimPoint, lookAt, tap } from '../web/src/sim/input/touch.js';
-import { runScenario } from '../web/src/sim/scenario/runner.js';
+import { findEntity, runScenario, unloadedMatches } from '../web/src/sim/scenario/runner.js';
 import { allQuirks, quirk, quirkValue } from '../web/src/sim/quirks/registry.js';
 import { simHost, solidBelow } from './_sim-host.js';
 import { PLAYER_HEIGHT as SIM_PLAYER_HEIGHT, PLAYER_WIDTH as SIM_PLAYER_WIDTH, STEP_HEIGHT as SIM_STEP_HEIGHT, tickPlayer, NO_INPUT } from '../web/src/sim/physics/body.js';
@@ -475,6 +475,22 @@ describe('the script host', () => {
     expect(held.violations.map(v => v.invariant)).toContain('rider-drag-reaches-look');
     expect((await run('set camera_relative')).violations.map(v => v.invariant)).toContain('rider-drag-reaches-look');
     expect((await run('clear')).violations.map(v => v.invariant)).not.toContain('rider-drag-reaches-look');
+  });
+
+  it('an entity left outside the loaded area is invisible to findEntity and listed by unloadedMatches until the player walks back (census 2026-11-06)', async () => {
+    const sim = new Simulation();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'box.json': entityJson('x:box', {}) }), 'unloaded-entity'));
+    const player = sim.addPlayer('Driver', { x: 0, y: 0, z: 0 });
+    const box = sim.engine.spawnEntity('x:box', 'overworld', { x: 3, y: 0, z: 0 });
+    expect(findEntity(sim, player, { type: 'x:box' })).toBe(box);
+    expect(unloadedMatches(sim, player, { type: 'x:box' })).toEqual([]);
+    player.location = { x: 5000, y: 0, z: 0 };
+    await sim.run(5);
+    expect(findEntity(sim, player, { type: 'x:box' })).toBeUndefined();
+    expect(unloadedMatches(sim, player, { type: 'x:box' })).toEqual([box]);
+    player.location = { x: 0, y: 0, z: 0 };
+    await sim.run(5);
+    expect(findEntity(sim, player, { type: 'x:box' })).toBe(box);
   });
 
   it('getBlock outside the loaded area is undefined, never air', async () => {
