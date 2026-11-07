@@ -13,7 +13,7 @@ import { seedDatTexts, setLDrawRoot } from '../web/src/engine/ldraw-geometry.js'
 import { runSchemPipeline } from '../web/src/engine/schem-pipeline.js';
 import { LEGO_ENTITY_QUALITY } from '../web/src/engine/ldraw-part-prototype.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
-import { renderSeatToEntity } from '../web/src/engine/cockpit-seat.js';
+import { helmSeatPlan, renderSeatToEntity } from '../web/src/engine/cockpit-seat.js';
 
 const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
 const GOLDEN = [
@@ -96,7 +96,9 @@ describe.skipIf(!HAVE_CORPUS)('playable add-on golden models', () => {
       // whose +Z is the nose. The geometry is drawn half turned from the render frame, so both
       // x and z flip (z: Saga 2026-09-26, the X-wing's pilot sat over its nose; x: Pixel 30f,
       // 60380's driver sat outside its cab wall).
-      expect(driverSeat.position).toEqual(renderSeatToEntity(d.seatPlan.seat));
+      // A scripted vehicle whose eye left the cabin keeps the seat at the helm (`helmSeatPlan`, 2026-11-07:
+      // 10300's eye rose 0.7 over its roof to see ahead, its driver stays in the car); the diagnostics keep the plan.
+      expect(driverSeat.position).toEqual(renderSeatToEntity(helmSeatPlan(d.seatPlan)!.seat));
       expect(behavior.components['minecraft:rideable'].seat_count).toBe(Array.isArray(seats) ? seats.length : 1);
       // Every brick car and fixed wing is scripted (scripts/vehicles.js): zero native speed, attitude
       // properties - the 10300 time machine too since 2026-09-25 (its time circuits set its top speed).
