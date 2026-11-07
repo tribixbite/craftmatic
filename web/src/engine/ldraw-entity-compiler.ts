@@ -1418,6 +1418,14 @@ export interface EntityExtra {
 export const MAX_PASSENGER_SEATS = 3;
 
 /**
+ * A connected group of at most this many parts (`parts`, or `share` of the
+ * vehicle's parts if more) that touches nothing else is LOOSE beside the
+ * vehicle, not part of it: its glass is no cockpit (`findDriverSeat` steps
+ * 4-5; 7345's spare canopy, census 2026-11-06).
+ */
+export const LOOSE_GLASS_GROUP = { parts: 3, share: 0.05 } as const;
+
+/**
  * Indices into a compile's INPUT bricks: what the driver's seat and each
  * passenger seat were read from, and where the driver sits (its seat pan) in
  * the INPUT frame - the seat census's cockpit place when no part names it.
@@ -2245,10 +2253,20 @@ function findDriverSeat(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh
     for (const b of list) { const c = boundsCentre(b); if (c && (!best || c.volume > best.volume)) best = { brick: b, centre: c.centre, volume: c.volume }; }
     return best;
   };
-  const canopy = largest(placed.filter(b => isCanopyMould(b.part, desc(b))));
+  // Glass lying loose beside the vehicle (a spare windscreen, a display piece: a connected group of a few parts
+  // that touches nothing of the vehicle) is no cockpit: 7345's largest canopy mould stood 4.5 blocks to one side
+  // of its chopper over nothing drawn, and seated the driver in the air there (census 2026-11-06, VEH-20).
+  const onVehicle = (() => {
+    const boxes = placed.map(b => { const c = boundsCentre(b); return c ? { min: [c.centre[0] - c.size[0] / 2, c.centre[1] - c.size[1] / 2, c.centre[2] - c.size[2] / 2] as Vec3, max: [c.centre[0] + c.size[0] / 2, c.centre[1] + c.size[1] / 2, c.centre[2] + c.size[2] / 2] as Vec3 } : { min: [b.x, b.y, b.z] as Vec3, max: [b.x, b.y, b.z] as Vec3 }; });
+    const keep = new Set<ParsedBrick>(), loose = Math.max(LOOSE_GLASS_GROUP.parts, placed.length * LOOSE_GLASS_GROUP.share);
+    for (const cluster of connectedClusters(boxes)) if (cluster.length > loose) for (const i of cluster) keep.add(placed[i]!);
+    // A model of loose groups only (nothing passes the size) keeps every part: there is nothing to tell apart.
+    return keep.size ? (b: ParsedBrick): boolean => keep.has(b) : (): boolean => true;
+  })();
+  const canopy = largest(placed.filter(b => isCanopyMould(b.part, desc(b)) && onVehicle(b)));
   if (canopy) return { source: 'canopy-parts', eyeLdu: canopy.centre, detail: `${cleanPartId(canopy.brick.part)} at ${Math.round(canopy.brick.x)}, ${Math.round(canopy.brick.y)}, ${Math.round(canopy.brick.z)}`, driverParts: [], evidenceParts: [placed.indexOf(canopy.brick)] };
   const glass = largest(placed.filter(b => {
-    if (resolveLdrawEntityMaterial(b.color).alpha >= 1) return false;
+    if (resolveLdrawEntityMaterial(b.color).alpha >= 1 || !onVehicle(b)) return false;
     // Clear parts that are not glass: 42172's trans-clear "Technic Engine
     // Cylinder Head" pistons won this rule and seated the driver in the engine
     // bay behind the cockpit (Saga 2026-09-26: the cockpit view was the dark

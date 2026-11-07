@@ -386,6 +386,35 @@ describe('the cockpit evidence', () => {
     expect(findCockpit(placed as never, glassMeshes, { nose: '-x', isXLongitudinal: true, forwardSign: -1, spanX: 400, spanZ: 40 }).source).toBe('translucent-canopy');
   });
 
+  it('never seats the driver under a canopy lying loose beside the vehicle (7345: the driver in the air 4.5 blocks off its chopper)', async () => {
+    const { findCockpit, LOOSE_GLASS_GROUP } = await import('../web/src/engine/ldraw-entity-compiler.js');
+    const mesh = (description: string, sx: number, sy: number, sz: number) => ({
+      partId: description, resolvedAs: description, studs: [], unresolvedRefs: [], description,
+      triangles: [{ a: [0, 0, 0], b: [sx, 0, 0], c: [0, -sy, sz], color: 16 }],
+      bounds: { min: [0, -sy, 0], max: [sx, 0, sz] },
+    }) as never;
+    const meshes = new Map([
+      ['brick.dat', mesh('Brick 2 x 4', 80, 24, 40)],
+      ['small.dat', mesh('Windscreen 2 x 4 x 2', 40, 48, 80)],
+      ['big.dat', mesh('Windscreen 8 x 6 x 2 Curved', 120, 48, 160)],
+    ]);
+    // A body of 20 bricks, end to end along x (each touching the next), its small windscreen on top at the nose (-x);
+    // a bigger windscreen lies on its own 400 LDU to one side.
+    const placed = [
+      ...Array.from({ length: 20 }, (_, i) => ({ part: 'brick.dat', color: 4, x: -800 + i * 80, y: 0, z: 0 })),
+      { part: 'small.dat', color: 47, x: -760, y: -24, z: -20 },
+      { part: 'big.dat', color: 47, x: 0, y: 0, z: 400 },
+    ];
+    expect(LOOSE_GLASS_GROUP.parts).toBeGreaterThanOrEqual(1);
+    const frame = { nose: '-x' as const, isXLongitudinal: true, forwardSign: -1, spanX: 1600, spanZ: 560 };
+    const cockpit = findCockpit(placed as never, meshes, frame);
+    expect(cockpit.source).toBe('canopy-parts');
+    expect(cockpit.evidenceParts).toEqual([20]);
+    // Touching the body, the big windscreen is the vehicle's own and the larger one wins, as before.
+    const attached = placed.map((b, i) => i === 21 ? { ...b, x: -400, y: -24, z: 0 } : b);
+    expect(findCockpit(attached as never, meshes, frame).evidenceParts).toEqual([21]);
+  });
+
   // A hull 400 long along x (nose -x), a figure kit, a steering stand and a ship's wheel.
   const boxMesh = (description: string, min: [number, number, number], max: [number, number, number]) => ({
     partId: description, resolvedAs: description, studs: [], unresolvedRefs: [], description,
