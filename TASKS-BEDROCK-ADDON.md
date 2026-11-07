@@ -43,11 +43,31 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
      with a panel within a block of one side ("sides are a preference"), while the sim requires both. Recommended:
      make the sides hard, since the 42639 device report (a side panel over 35 % of the view) shows the sides matter.
      That moves those eyes out of the cabin and hides the rider. Also open: `TODO` give the planner the sim's
-     shape-aware ray test, since 8487 car 4's eye moved 0.58 block on corner boxes. The full suite has not been run on
-     the branch. The base-commit worktree `.worktrees/gen-view-base` is left in place, because removing it would be a
+     shape-aware ray test, since 8487 car 4's eye moved 0.58 block on corner boxes. The base-commit worktree `.worktrees/gen-view-base` is left in place, because removing it would be a
      recursive delete.
-  3. (A fork agent is investigating, on branch `gen-view-1106`.) **Seat drifts below 100 %** (`seat-on-vehicle` DRIFTS at 75/50 %): 7 sets, 3222, 41681, 42229, 4997, 5489, 5887
-     and 7213, plus the favourite 910047. The same class as the baseline's only failure.
+  3. FIXED on `gen-view-1106` (full suite 3,601 passed on `a9e6f6eb`): **seat drifts below 100 %**, 12 sets
+     (3222, 3648, 41681, 42229, 4997, 5489, 5887, 7213, 76915, 8898, 8969, the favourite 910047). Two causes:
+     - in 10 sets the sim was too strict: `seatOnTop` judged the body's air over a whole map cell beyond the body
+       (`b4c5e7d0`);
+     - in 8969 and 910047 the compiler sat the rider on air, about 1.05 above the drawn top. 910047 took a cell the
+       footprint barely touches (`9a2cd8f7`: only cells whose centre is under the body hold a rider). 8969 read turned
+       cubes by their corner boxes (`a9e6f6eb`: `BoxBlocks.solid`, clipped per cell).
+
+     After a rebuild (`.worktrees/gen-view-1106/output/drift-after2-sim.md`) there are 0 drift rows, and 3 failing
+     scenarios remain from other classes: 41681 seat 3 (class 4), 3222's fall, and 4997's view (class 2).
+
+     The favourites moved:
+     - 19 of 320 rows changed, all below 100 %, all passing (before `.worktrees/gen-view-base/output/fav-seat-before/`,
+       after `.worktrees/gen-view-1106/output/fav-seat-after2/`);
+     - 4 of them are 910047's, which now pass;
+     - the large moves (10303 75 % s1, 10365 50 % s0 and 75 % s1, 42172 75 % s1, 42639 75 %, 76286 25/75 %, 75397 25 %)
+       went from the roof into the seat itself, because the freed cabin air now holds the unscaled body;
+     - the device-proven positions are unchanged: 42172 at 25/50 %, and 76286 at 50 % stays on its canopy, 0.05 lower.
+
+     Accepted as the VEH-18 rule's intent: the lowest surface with room for the body, read under the body's own
+     footprint. The moved rows are not device-proven; check 10365 and 42639 at 50-75 % in the next phone round.
+     Leftovers: build-only branch `gen-view-veh` (unsigned merge commits, never merge it), and partial sweep dirs
+     `output/favsweep-9a2cd8f7` and `output/favsweep-a9e6f6eb` in the branch worktree.
   4. **Extra seats beside the hull or over the drawn top**: 5 sets, 31109, 41681, 4768, 5585 and 6243. Mostly ships:
      the passenger seats run off the deck.
   5. FIXED, a SIM harness gap and not a pack bug: the second aircraft of 3222, 3368, 3658 and 8638 was "missing"
@@ -62,10 +82,10 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
 - Step 3 NEXT:
   - merge `gen-veh-1106` into main once the favourites chain (`fav.done`; its seat audit took 35 min on 10261)
     finishes, since a merge changes pipeline sources under a running sweep; then merge `gen-view-1106` the same
-    way, after the full suite;
+    way (its full suite already passed on `a9e6f6eb`);
   - rebuild the 11 sets and re-sim them (running from the worktree: `output/gen-veh-1106/`,
     `output-veh.log`, `output-sim.log` there);
-  - then classes 2-3 (17 distinct sets), each fix with a test;
+  - then class 2's side-view policy (6 sets) and classes 4, 6 and 7, each fix with a test;
   - re-run the census.
 - Step 4: a per-vehicle drive check for every census vehicle: the sim's vehicles scenario (move 20 blocks, turn,
   camera follows, dismount gives the camera back, never inside a wall), plus `_cockpit_view.ts` renders
