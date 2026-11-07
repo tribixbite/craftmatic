@@ -817,18 +817,24 @@ export function surfaceOnTop(map: RoofMap, x: number, z: number, from: number, f
   const i0 = Math.max(0, Math.floor((x - half - map.x0) / map.cell)), i1 = Math.min(map.nx - 1, Math.floor((x + half - map.x0) / map.cell));
   const k0 = Math.max(0, Math.floor((z - half - map.z0) / map.cell)), k1 = Math.min(map.nz - 1, Math.floor((z + half - map.z0) / map.cell));
   if (i0 > i1 || k0 > k1) return null;
-  const pairs: Array<[number, number]> = [];
+  // Every cell the body's footprint touches keeps its air clear; only a cell whose CENTRE lies under the body can
+  // hold it up. A cell is wider than nothing, so an edge cell the footprint barely touches holds parts that stand
+  // wholly beside the body: read as a seat, the rider floated over the drawn top under it (census 2026-11-06:
+  // 8969 at 75 %, 1.04 blocks; 910047's third seat, 1.09 - the baseline's only failure).
+  const pairs: Array<[number, number]> = [], held: Array<[number, number]> = [];
+  const centreUnder = (c: number, at: number, o: number): boolean => Math.abs(o + (c + 0.5) * map.cell - at) <= half;
   for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) {
     const s = map.spans[i * map.nz + k]!;
-    for (let j = 0; j + 1 < s.length; j += 2) pairs.push([s[j]!, s[j + 1]!]);
+    const under = centreUnder(i, x, map.x0) && centreUnder(k, z, map.z0);
+    for (let j = 0; j + 1 < s.length; j += 2) { pairs.push([s[j]!, s[j + 1]!]); if (under) held.push([s[j]!, s[j + 1]!]); }
   }
   if (!pairs.length) return null;
-  const spans = mergeSpans(pairs);
+  const spans = mergeSpans(pairs), support = mergeSpans(held);
   /** Whether the body sits on `y` with nothing of the model in the air over it (a hair of overlap allowed). */
   const room = (y: number): boolean => !spans.some(([a, b]) => b > y + 0.02 && a < y + clear - 0.02);
   // The pan itself, if the model holds it up (a span reaching it) or it is the floor.
   if (room(from) && (from <= 0.02 || spans.some(([a, b]) => a <= from + 0.02 && b >= from - 0.02))) return from;
-  for (const [, top] of spans) if (top >= from - 0.02 && top <= from + ROOF_MAX_LIFT && room(top)) return top;
+  for (const [, top] of support) if (top >= from - 0.02 && top <= from + ROOF_MAX_LIFT && room(top)) return top;
   return from;
 }
 

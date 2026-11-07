@@ -236,6 +236,20 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
 });
 
 describe('surfaceOnTop: what a rider on top sits on below 100 % (VEH-18)', () => {
+  it('never sits on a part beside the body that only shares an edge map cell (8969, 910047: riders floated 1.04-1.09 over the top under them)', () => {
+    // At 75 % the body is 0.4 (model) either side of its seat: a seat at x 0.1 reaches 0.5, so its footprint touches
+    // the cell 0.5..0.75 (cells from the deck's edge at -2). A rail 0.55..0.6 standing to 2.0 lies wholly beside the
+    // body, in that cell; read as a surface the rider sat 1 block over the deck with nothing under its body.
+    const f = 0.75, half = 0.3 / f;
+    const deck = box([-2, 0, -4], [2, 1, 4]);
+    const map = roofMap([deck, box([0.55, 1, -0.2], [0.6, 2, 0.2])])!;
+    const centre = map.x0 + (Math.floor((0.55 - map.x0) / map.cell) + 0.5) * map.cell;
+    expect(Math.abs(centre - 0.1)).toBeGreaterThan(half);
+    expect(surfaceOnTop(map, 0.1, 0, 1, f)).toBeCloseTo(1, 3);
+    // The same rail under the body is a surface, read as before (the first with room over it).
+    const under = roofMap([deck, box([0.15, 1, -0.2], [0.2, 2, 0.2])])!;
+    expect(surfaceOnTop(under, 0.1, 0, 1, f)).toBeCloseTo(2, 3);
+  });
   it('sits on a closed cabin roof, not inside it', () => {
     const map = roofMap(cabin(0.7, 1.6))!;
     // The pan 0.3 over a seat at 0.1: the cabin's roof (top 1.8) is the first surface with air over it.
