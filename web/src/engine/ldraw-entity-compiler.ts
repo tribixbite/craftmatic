@@ -56,10 +56,10 @@ export { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK, LDU_PER_MINIFIG, PLAYER_HEIGHT_BL
 import { BEDROCK_UNITS_PER_LDU, SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
 import { visibleBoundsFor } from './bedrock-placement-pack.js';
 import { partStem } from './part-id.js';
-import { planSeat, RIDER_EYE_ABOVE_SEAT, type SeatPlan } from './cockpit-seat.js';
+import { planSeat, RIDER_EYE_ABOVE_SEAT, seesOut, type BoxBlocks, type SeatPlan } from './cockpit-seat.js';
 import { isShipWheel, isSteeringWheel } from './steering-parts.js';
 export { isShipWheel, isSteeringWheel } from './steering-parts.js';
-import { separateCoplanarFaces, type CoplanarSeparation, type GeoEntryLike } from './bedrock-geometry-faces.js';
+import { boneTransforms, cubeCorners, drawnCubeBox, IDENTITY as AFFINE_IDENTITY, separateCoplanarFaces, type CoplanarSeparation, type GeoEntryLike } from './bedrock-geometry-faces.js';
 
 /**
  * Canopy / windscreen moulds — used for COCKPIT DETECTION only. Whether a
@@ -878,6 +878,26 @@ interface BedrockBone {
 }
 
 /** A cuboid in the render frame R, before the JSON mirror. */
+/**
+ * The cubes an entity SHIPS, as the seat planner's boxes (render frame, blocks; the JSON's X mirror undone): each
+ * cube's drawn box (`drawnCubeBox`, after separation and the box-UV inflate) through its bone, a turned cube by its
+ * corners' bounds, glass where its colour group is translucent.
+ */
+export function shippedSeatBoxes(
+  groups: ReadonlyArray<{ translucent: boolean; items: ReadonlyArray<{ bone: string; cube: { origin: readonly number[]; size: readonly number[]; inflate?: unknown; rotation?: readonly number[]; pivot?: readonly number[] } }> }>,
+  bones: GeoEntryLike['bones'],
+): BoxBlocks[] {
+  const transforms = boneTransforms(bones);
+  const out: BoxBlocks[] = [];
+  for (const g of groups) for (const { bone, cube } of g.items) {
+    const d = drawnCubeBox(cube);
+    const k = cubeCorners({ bone, origin: d.origin, size: d.size, ...(cube.rotation && cube.pivot ? { rotation: [cube.rotation[0]!, cube.rotation[1]!, cube.rotation[2]!], pivot: [cube.pivot[0]!, cube.pivot[1]!, cube.pivot[2]!] } : {}) }, transforms.get(bone) ?? AFFINE_IDENTITY);
+    const xs = k.map(p => -p[0] / 16), ys = k.map(p => p[1] / 16), zs = k.map(p => p[2] / 16);
+    out.push({ min: [Math.min(...xs), Math.min(...ys), Math.min(...zs)], max: [Math.max(...xs), Math.max(...ys), Math.max(...zs)], glass: g.translucent });
+  }
+  return out;
+}
+
 interface RenderCuboid {
   min: Vec3;
   max: Vec3;
@@ -2886,7 +2906,9 @@ export async function compileLdrawEntityGeometry(
   });
   // Does a player-sized body fit that seat, and from which wand size (cockpit-seat.ts)?
   // Measured on every body box (a rotated part's box is its OBB's bounds), in the seat's own frame.
-  const seatPlan: SeatPlan | undefined = kind === 'figure' || kind === 'prop' ? undefined : (() => {
+  /** The seat planner's question (eye, seat, evidence), kept so the plan can be re-asked on the shipped cubes below. */
+  let seatAsk: { eye: Vec3; seat: Vec3; evidence: Parameters<typeof planSeat>[3]; boxes: BoxBlocks[] } | undefined;
+  let seatPlan: SeatPlan | undefined = kind === 'figure' || kind === 'prop' ? undefined : (() => {
     const boxes = worldBoxes.map(wb => {
       const r = aabbOfCorners(cornersOf(wb.min, wb.max).map(v => apply(A, v)));
       const lo = toUnits(r.min), hi = toUnits(r.max);
@@ -2894,8 +2916,11 @@ export async function compileLdrawEntityGeometry(
     });
     const eyeY = round(cockpitUnits[1] / 16);
     // A default cabin at minifig scale (a toy or doll car built round a figure) is judged by its view (cockpit-seat.ts `VIEW`).
-    return planSeat(boxes, [seatX, eyeY, round(cockpitUnits[2] / 16)], [seatX, round(eyeY - RIDER_EYE_ABOVE_SEAT), seatZ],
-      cockpit.source === 'seated-figure' || cockpit.source === 'seat-parts' ? 'seat' : cockpit.source === 'steering-wheel' ? 'steering' : cockpit.source === 'default-cabin' && scale >= BEDROCK_UNITS_PER_LDU - 1e-9 ? 'none' : 'volume');
+    seatAsk = {
+      boxes, eye: [seatX, eyeY, round(cockpitUnits[2] / 16)], seat: [seatX, round(eyeY - RIDER_EYE_ABOVE_SEAT), seatZ],
+      evidence: cockpit.source === 'seated-figure' || cockpit.source === 'seat-parts' ? 'seat' : cockpit.source === 'steering-wheel' ? 'steering' : cockpit.source === 'default-cabin' && scale >= BEDROCK_UNITS_PER_LDU - 1e-9 ? 'none' : 'volume',
+    };
+    return planSeat(seatAsk.boxes, seatAsk.eye, seatAsk.seat, seatAsk.evidence);
   })();
   const collisionBox = {
     width: Math.min(3.5, Math.max(0.8, Math.round(totalWidth * 0.85 * 10) / 10)),
@@ -3058,6 +3083,18 @@ export async function compileLdrawEntityGeometry(
   let boxUvInflated = 0;
   if (options.boxUvFloorSafe ?? true) {
     for (const group of ordered) for (const it of group.items) if (boxUvSafeCube(it.cube)) boxUvInflated++;
+  }
+  // The driver's view is planned on the cuboids BEFORE the separation above grew faces (up to 4 x 1/107 block):
+  // an eye that passed by less than that can look into a face the pack ships (census 2026-11-06: 4768, 7344,
+  // 8487, 8638 passed the planner by under 0.04 block and failed the simulator on the shipped cubes). Such a
+  // plan is asked again on the shipped cubes; a plan that sees out on them is left exactly as it was.
+  if (seatPlan && seatAsk && seesOut(seatAsk.boxes, seatPlan.eye)) {
+    const shipped = shippedSeatBoxes(ordered, coplanarEntry.bones);
+    if (!seesOut(shipped, seatPlan.eye)) {
+      const again = planSeat(shipped, seatAsk.eye, seatAsk.seat, seatAsk.evidence);
+      warnings.push(`${cid}: the driver's eye at (${seatPlan.eye.join(', ')}) saw out on the planned cuboids but not on the cubes the pack ships (coplanar separation); re-planned on the shipped cubes to (${again.eye.join(', ')})${seesOut(shipped, again.eye) ? '' : ', which still does not see out to both sides'}.`);
+      seatPlan = again;
+    }
   }
   for (const group of ordered) {
     for (let offset = 0; offset < group.items.length; offset += chunk) {

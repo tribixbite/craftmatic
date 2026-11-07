@@ -12,6 +12,7 @@ import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile } from '../web/src/engine/zip-utils.js';
 import { simHost } from './_sim-host.js';
+import { shippedSeatBoxes } from '../web/src/engine/ldraw-entity-compiler.js';
 import { ROOF_BODY_CLEAR, ROOF_MAX_LIFT, roofMap, surfaceOnTop, AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -706,3 +707,29 @@ describe('every seat sees the horizon ahead (AHEAD), whatever its evidence', () 
     expect(cockpit.eyeLdu[2]).toBeCloseTo(wheel.z + CAR_WHEEL_EYE_LDU.aft, 6);
   });
 });
+
+describe('a driver eye is judged on the cubes the pack ships (shippedSeatBoxes, census 2026-11-06)', () => {
+  it('reads a JSON cube back into the planner frame: X mirror undone, the box-UV inflate applied, glass kept', () => {
+    // JSON origin x = -(render max x): a render box x 1..2 is JSON origin -2 .. size 1. Units: 16 = one block.
+    const plain = { origin: [-32, 0, 16], size: [16, 8, 32] };
+    // A thin cube declared size + 2 with inflate -1 (`boxUvSafeCube`) draws its own size.
+    const thin = { origin: [-1, 15, 0], size: [2.5, 2.5, 16], inflate: -1 };
+    const boxes = shippedSeatBoxes([{ translucent: false, items: [{ bone: 'body', cube: plain }] }, { translucent: true, items: [{ bone: 'body', cube: thin }] }], [{ name: 'body', pivot: [0, 0, 0] }]);
+    expect(boxes[0]).toEqual({ min: [1, 0, 1], max: [2, 0.5, 3], glass: false });
+    expect(boxes[1]!.glass).toBe(true);
+    expect(boxes[1]!.min[1]).toBeCloseTo(1, 6);
+    expect(boxes[1]!.max[1]).toBeCloseTo(1 + 0.5 / 16, 6);
+  });
+  it('a sill the separation grew to eye level blocks the view; re-asked on those cubes, the eye clears it', () => {
+    // 7344's shape: a sill whose top is 1/107 block under the eye on the planned cuboids, AT the eye once shipped.
+    const deck = box([-1, 0, -2], [1, 0.3, 2]);
+    const eye: Vec3 = [0, 1.42, 0];
+    const planned = [deck, box([-0.4, 1.0, -1.6], [0.4, 1.42 - 0.15 / 16, -1.4])];
+    const shipped = [deck, box([-0.4, 1.0, -1.6], [0.4, 1.42, -1.4])];
+    expect(seesOut(planned, eye)).toBe(true);
+    expect(seesOut(shipped, eye)).toBe(false);
+    const again = planSeat(shipped, eye, [0, eye[1] - RIDER_EYE_ABOVE_SEAT, 0], 'seat');
+    expect(seesOut(shipped, again.eye)).toBe(true);
+  });
+});
+
