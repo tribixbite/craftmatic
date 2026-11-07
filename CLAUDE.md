@@ -438,8 +438,12 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   half round, x AND z (`renderSeatToEntity`). Every seat's eye must see out
   (`driverSeesOut`: the horizon `AHEAD`, and no panel within a block beside
   the face, `SIDES`); where nothing in the cabin sees ahead the eye leaves it
-  and the body is hidden (`AHEAD_FALLBACK`) - the hotbar-9 view is the
-  rider's own first person, so eye and seat move together. `bun scripts/_cockpit_view.ts
+  (`AHEAD_FALLBACK`). On a SCRIPTED vehicle the hotbar-9 view is a script
+  camera at the plan's eye, so the rider stays drawn at the helm and only the
+  camera leaves (`helmSeatPlan`, 2026-11-07: 31109's helmsman had sat hidden
+  6 blocks over its deck); on a native mount it is the rider's own first
+  person, so eye and seat move together and the body is hidden. The sim
+  judges the view from that camera (`driverLookFrom`). `bun scripts/_cockpit_view.ts
   <packs> --out=<dir>` renders the hotbar-9 view offline. A car's wheel eye is
   aft along the VEHICLE, never along the mould's axes (42639's turned
   `16091`). A riding player's eye is 1.12 above its seat

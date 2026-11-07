@@ -27,10 +27,10 @@ import { FLAT_GROUND_Y } from '../web/src/sim/world/voxel-world.js';
 import { pickBoxes, raycastEntities } from '../web/src/sim/input/ray.js';
 import { REGRESSIONS, regressionVerdict } from '../web/src/sim/adapters/craftmatic/regressions.js';
 import { craftmaticHandlers, figureMode } from '../web/src/sim/adapters/craftmatic/child-play.js';
-import { FLOOR_LEVEL_TOLERANCE, floorLevelInRecordedCell, judgeSide, onRunout } from '../web/src/sim/adapters/craftmatic/play.js';
+import { FLOOR_LEVEL_TOLERANCE, driverLookFrom, floorLevelInRecordedCell, judgeSide, onRunout } from '../web/src/sim/adapters/craftmatic/play.js';
 import { relayRounding } from '../web/src/engine/bedrock-collider-scale.js';
 import { findApproach } from '../web/src/sim/scenario/approach.js';
-import { NO_MARGIN, modelCorner, readCraftmaticPack, type PlacementFacts } from '../web/src/sim/adapters/craftmatic/pack-facts.js';
+import { NO_MARGIN, modelCorner, readCraftmaticPack, vehicleCameraEntry, type PlacementFacts } from '../web/src/sim/adapters/craftmatic/pack-facts.js';
 import { swapTreeRuntimes } from '../web/src/sim/adapters/craftmatic/runtime-swap.js';
 import { extractJsonAfter } from '../web/src/sim/pack/script-config.js';
 import { ESCAPE_OPTIONS } from '../web/src/engine/collider-form.js';
@@ -701,3 +701,24 @@ describe('craftmatic adapter judgements (simulator triage 2026-09-30)', () => {
     expect(figureMode({ dynamic: new Map() } as unknown as SimEntity)).toBeUndefined();
   });
 });
+
+describe('the driver\'s view is judged from where the device draws it (driverLookFrom, census 2026-11-07, VEH-20)', () => {
+  it('reads a scripted vehicle\'s cockpit eye from vehicle-camera.js and judges the view from that camera, else from the head', () => {
+    const script = 'import { world } from "@minecraft/server";\n(function (c) {})({"vehicles":[{"typeId":"craftmatic:ship_boat","scripted":true,"eye":[0,9,-2]},{"typeId":"craftmatic:heli_plane","eye":[0,2,1]}]}, 1);\n';
+    const pack = { kind: 'behavior', folder: '', name: 'p', uuid: 'u', version: [1, 0, 0], scriptModules: {}, files: new Map([['scripts/vehicle-camera.js', new TextEncoder().encode(script)]]) };
+    const ship = vehicleCameraEntry(pack as never, 'craftmatic:ship_boat');
+    expect(ship).toMatchObject({ scripted: true, eye: [0, 9, -2] });
+    // Yaw 0 faces +z (the eye's z is toward the nose): the camera stands 9 up and 2 aft of the root, scaled with the vehicle.
+    const at = driverLookFrom(ship, { x: 10, y: 64, z: 20, yaw: 0 }, 1)!;
+    expect(at.x).toBeCloseTo(10, 6);
+    expect(at.y).toBeCloseTo(73, 6);
+    expect(at.z).toBeCloseTo(18, 6);
+    expect(driverLookFrom(ship, { x: 10, y: 64, z: 20, yaw: 0 }, 2)!.y).toBeCloseTo(82, 6);
+    // A native mount's cockpit view is the rider's own first person; below 100 % on top the camera is the head.
+    expect(driverLookFrom(vehicleCameraEntry(pack as never, 'craftmatic:heli_plane'), { x: 0, y: 0, z: 0, yaw: 0 }, 1)).toBeUndefined();
+    expect(driverLookFrom({ ...ship, onTop: { below: 1 } }, { x: 0, y: 0, z: 0, yaw: 0 }, 0.5)).toBeUndefined();
+    expect(driverLookFrom({ ...ship, onTop: { below: 1 } }, { x: 0, y: 0, z: 0, yaw: 0 }, 1)).toBeDefined();
+    expect(vehicleCameraEntry(pack as never, 'craftmatic:none')).toBeUndefined();
+  });
+});
+

@@ -158,3 +158,16 @@ export function modelDirToWorld(facts: PlacementFacts, placed: Placed, d: Vec3):
   const q = rotatePlacementPoint(d, facts.width, facts.length, placed.rotation);
   return { x: q.x - o.x, y: q.y - o.y, z: q.z - o.z };
 }
+
+/**
+ * A vehicle's entry in `scripts/vehicle-camera.js` (the camera runtime's first argument, `({"vehicles": ...})`):
+ * whether its runtime is scripted, and the cockpit eye (hotbar slot 9) in the rideable seat's frame at 100 %
+ * (playable-addon.ts `VehicleCameraConfig.eye`). Undefined when the pack ships no camera runtime or no entry.
+ */
+export function vehicleCameraEntry(pack: Pack, typeId: string): { scripted?: boolean; eye?: [number, number, number]; onTop?: unknown } | undefined {
+  const text = packText(pack, 'scripts/vehicle-camera.js');
+  const at = text ? text.indexOf('({"vehicles":') : -1;
+  if (!text || at < 0) return undefined;
+  const cfg = extractJsonAfter(text.slice(at), '(') as { vehicles?: Array<{ typeId?: string; scripted?: boolean; eye?: [number, number, number]; onTop?: unknown }> } | undefined;
+  return cfg?.vehicles?.find(c => c.typeId === typeId);
+}

@@ -9,12 +9,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
-import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
+import { buildPlayableAddon, cameraSeatFields } from '../web/src/engine/playable-addon.js';
 import { extractFile } from '../web/src/engine/zip-utils.js';
 import { simHost } from './_sim-host.js';
 import { shippedSeatBoxes } from '../web/src/engine/ldraw-entity-compiler.js';
 import { parallelepipedFromCorners } from '../web/src/engine/oriented-box.js';
-import { PASSENGER_DECK, passengerHeld, passengerSurface, ROOF_BODY_CLEAR, ROOF_MAX_LIFT, roofMap, surfaceOnTop, AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
+import { PASSENGER_DECK, passengerHeld, passengerSurface, ROOF_BODY_CLEAR, ROOF_MAX_LIFT, roofMap, surfaceOnTop, AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, helmSeatPlan, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const box = (min: Vec3, max: Vec3): BoxBlocks => ({ min, max });
@@ -761,6 +761,36 @@ describe('every seat sees the horizon ahead (AHEAD), whatever its evidence', () 
     expect(plan.steps.every(s => !s.fits)).toBe(true);
     expect(riderVisibleSizes(plan)).toEqual([]);
     expect(riderVisibleAt(plan, 1)).toBe(false);
+  });
+
+  it('keeps a scripted vehicle\'s rider at the helm an eye left to see ahead, drawn, the eye the cockpit camera\'s alone (31109, census 2026-11-07, VEH-20)', () => {
+    // The 76286 hull above: a roofed seat behind a bulkhead no cabin search clears.
+    const hull = [
+      box([-1, 0, -3], [1, 0.3, 3]),
+      box([-1, 0.3, -1.2], [1, 3.5, -1.0]),
+      box([-1, 2.2, -1.0], [1, 2.4, 1.0]),
+    ];
+    const eye: Vec3 = [0, 1.46, 0];
+    const seat: Vec3 = [0, eye[1] - RIDER_EYE_ABOVE_SEAT, 0];
+    const plan = planSeat(hull, eye, seat, 'seat');
+    expect(plan.ahead!.fallback).toBe(true);
+    // The planner remembers the helm the eye left, measured where it was.
+    expect(plan.ahead!.helm!.seat).toEqual(seat);
+    const helm = helmSeatPlan(plan)!;
+    // The eye stays where it sees ahead; the seat is back at the helm, under the roof, and the body is drawn there.
+    expect(helm.eye).toEqual(plan.eye);
+    expect(seesAhead(hull, helm.eye)).toBe(true);
+    expect(helm.seat).toEqual(seat);
+    expect(helm.ahead!.lookout).toBe(true);
+    expect(riderVisibleAt(helm, 1)).toBe(true);
+    expect(helm.fitScale).not.toBeNull();
+    // The chase camera clears the drawn rider's head at the helm, not the lookout eye 2 blocks over it.
+    expect(cameraSeatFields(helm).eyeY).toBeCloseTo(seat[1] + RIDER_EYE_ABOVE_SEAT, 2);
+    expect(cameraSeatFields(plan).eyeY).toBe(plan.eye[1]);
+    // Any plan whose eye stayed in the cabin is returned as it is.
+    const open = planSeat([box([-1, 0, -2], [1, 0.3, 2])], [0, 1.42, 0], [0, 0.3, 0], 'seat');
+    expect(helmSeatPlan(open)).toBe(open);
+    expect(helmSeatPlan(undefined)).toBeUndefined();
   });
 
   it('finds the FRONT cockpit along the inside before leaving the hull, never the top of the spine (76286, Saga 30j: "sit IN the cockpit, not on top")', () => {
