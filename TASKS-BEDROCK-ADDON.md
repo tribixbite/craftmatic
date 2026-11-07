@@ -13,29 +13,39 @@ Parallel agents append ONE section each at the end of this file.
 The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles
 fly/drive/etc? with proper POV and camera movement?". Detection is part-based, but every check so far ran on the
 40 favourites, the 21 vehicle sets and Gabby only. Business research runs alongside: `TASKS-BUSINESS.md`.
-- Step 1, baseline at `4da29033` (`bash output/generality-1106/run-fav.sh`, background): it runs, in order,
-  - the favourites sweep, into `output/favsweep-4da29033/`;
-  - `sim.ts`, giving `output/favsweep-4da29033-sim.md`;
-  - the regressions, giving `-regr.md`;
-  - the seat and vehicle audits under the LEGO tab's labels, into `output/generality-1106/fav-named/`.
+- RESULT 2026-11-06, census (200 sets, `output/generality-1106/census-sim.md`): 26 of 200 sets fail at least one
+  sim scenario (1,158/1,200 scenarios pass). Baseline favourites at `4da29033` (`output/favsweep-4da29033-sim.md`):
+  1 of 40 fails (910047 seat drift at 75 %), down from the 10-12 sweep's 11. So the checks DO NOT generalise yet.
+  The vehicle audit found a rideable in 57 sets; 143 shipped static.
+  Miss classes, by DISTINCT sets:
+  1. **Whole-model vehicle with no vehicle word in its title** (VEH-20). Probe `bun scripts/_untitled_vehicle_probe.ts
+     output/generality-1106/census` -> `untitled-probe.tsv`. The title regex alone decides, and the scene finder caps
+     a vehicle at a quarter of the scene. FIX on branch `gen-veh-1106` (worktree `.worktrees/gen-veh-1106`,
+     `findWholeModelVehicles` + `isSceneryLabel`, `motorbike`/`batwing` title words): 11 static sets become cars
+     (2263, 31060, 3366, 3648, 42075, 6753, 7345, 7476, 76915, 8898, 8969); favourites unchanged. Guards: over a quarter
+     of the model, >= 4 wheels spread over half its length, not taller than long, no scenery title. Still OPEN:
+     planes on wheels ride as cars (31060, 7345: `TODO(whole-plane)`), a train with no track (4841), a 3-wheel
+     chopper (6866), a 2-wheel bike with no title word.
+  2. **The driver sees out** (`driver-sees-ahead`): 10 sets, 43114, 44014, 4768, 4997, 6243, 7344, 8153, 8487, 8495
+     and 9396. Mostly boats and ships, whose side rays are blocked.
+  3. **Seat drifts below 100 %** (`seat-on-vehicle` DRIFTS at 75/50 %): 7 sets, 3222, 41681, 42229, 4997, 5489, 5887
+     and 7213, plus the favourite 910047. The same class as the baseline's only failure.
+  4. **Extra seats beside the hull or over the drawn top**: 5 sets, 31109, 41681, 4768, 5585 and 6243. Mostly ships:
+     the passenger seats run off the deck.
+  5. **A second vehicle placed but gone when the sim drives it** (`driveVehicle: no ..._plane_sub<N>`): 4 sets, 3222,
+     3368, 3658 and 8638. `placement.js` lists the actor. Sim harness or runtime, not yet read.
+  6. **Windows no tap reaches**: 3 sets, 3600, 5482 and 5508. Brick-box houses.
+  7. **Doorway lines**: 2 sets. On 2504 a tread blocks the porch; on 5582 a 2.1-3.2 block HOLE opens at Door 2.
 
-  Logs `output/generality-1106/fav-*.log`; `fav.done` when finished. Compare with the 10-12 sweep
-  (`output/favsweep-2ecb8240-sim.md`): 11 failures, namely 10365 and 42670 shell chunks 6-9 blocks under the
-  ground, and 76417 Door 3's tap picking fig6.
-- Step 2, census (`bash output/generality-1106/run-census.sh`, background): 200 sets outside the favourites from
-  `bun scripts/_generality_sample.ts` (64 set-number families round-robin, 150-4000 parts, 2005+;
-  `output/generality-1106/sample.txt`). It runs the seat audit, then the vehicle audit `--keep` on the same packs
-  (`census/`), then `sim.ts` (`census-sim.md`); `census.done` when finished.
-- Step 3 (NEXT after both finish): a census report comparing what the parts say each set should have with what
-  the pack ships, set by set:
-  - seat moulds against player seats (`audit.json` seat census);
-  - hinge leaves against interactives (the pack diagnostics);
-  - slide/lift parts against rides;
-  - wheels, vehicle words or cockpit parts against a drivable vehicle (a "static" verdict on a set with
-    wheels is a miss).
-
-  Rank the miss classes by DISTINCT sets, fix the top ones generically, each with a test, then re-run the
-  census.
+  Seat audit (`census/audit.md`): 271 seat places; the player can sit at 224; 47 have no use. Regressions at
+  `4da29033`: 38 NOT TESTED. The regression set looks for round-named packs
+  (`10788-gabbys-dollhouse.mcaddon`) that the sweep does not write, so run it against a round's pack dir.
+- Step 3 NEXT:
+  - merge `gen-veh-1106` into main once the favourites chain (`fav.done`; its seat audit took 35 min on 10261)
+    finishes, since a merge changes pipeline sources under a running sweep;
+  - rebuild the 11 sets and re-sim them;
+  - then classes 2-3 (17 distinct sets), each fix with a test;
+  - re-run the census.
 - Step 4: a per-vehicle drive check for every census vehicle: the sim's vehicles scenario (move 20 blocks, turn,
   camera follows, dismount gives the camera back, never inside a wall), plus `_cockpit_view.ts` renders
   (`driverSeesOut`). Then BDS 1.26.63.1 (`C:/git/bds/`) beside the sim for API fidelity, then one Pixel round.
