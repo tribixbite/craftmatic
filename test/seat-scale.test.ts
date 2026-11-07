@@ -114,6 +114,15 @@ describe('seatOnTop: below 100 % a vehicle is ridden on top (VEH-18)', () => {
     const deck = { x: 0, y: 1.2 * f - 0.3, z: 0.5 * f }, sail = [...car(f), box(-0.2, 1.2 * f + 0.4, 0, 0.2, 1.2 * f + 2, 0.5)];
     expect(seatOnTop(deck, seatOnDrawn(deck, sail), seatScaleDrift(deck, seat100, f), f, sail)).toBe(false);
   });
+  it('judges the seated body air over the body itself, not the map cell beside it (census 2026-11-06: 10 sets)', () => {
+    // 76915 at 75 %: a mirror 0.4 block beside the seat, inside the cell-widened ring (0.3 + 0.25 x 0.75), outside the body.
+    const f = 0.75, seat = { x: 0, y: 1.2 * f - 0.3, z: 0.5 * f };
+    const mirror = [...car(f), box(0.4, 1.2 * f + 0.2, 0.2, 0.45, 1.2 * f + 0.4, 0.5)];
+    expect(seatOnTop(seat, seatOnDrawn(seat, mirror), seatScaleDrift(seat, seat100, f), f, mirror)).toBe(true);
+    // The same part inside the body (0.2 beside the seat) still refuses it.
+    const post = [...car(f), box(0.15, 1.2 * f + 0.2, 0.2, 0.2, 1.2 * f + 0.4, 0.5)];
+    expect(seatOnTop(seat, seatOnDrawn(seat, post), seatScaleDrift(seat, seat100, f), f, post)).toBe(false);
+  });
 });
 
 describe('seatScaleAudit: every rideable at every wand size', () => {

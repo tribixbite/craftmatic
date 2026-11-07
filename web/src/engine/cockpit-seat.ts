@@ -27,10 +27,15 @@
  */
 
 import { SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
+import { clipParallelepiped, type Parallelepiped } from './oriented-box.js';
 
 export type Vec3 = [number, number, number];
 /** A model box (entity frame, blocks). `glass`: a translucent part, seen through (the eye and the view ignore it). */
-export interface BoxBlocks { min: Vec3; max: Vec3; glass?: boolean }
+/**
+ * A box of a model (blocks). `solid` is set for a TURNED cube: the cube itself, whose corner box `min`..`max`
+ * holds air beside it (`roofMap` reads a turned cube by its shape in each cell, never by that box).
+ */
+export interface BoxBlocks { min: Vec3; max: Vec3; glass?: boolean; solid?: Parallelepiped }
 
 /**
  * A riding player's eye above its seat position: the measured 1.12
@@ -792,7 +797,14 @@ export function roofMap(boxes: readonly BoxBlocks[], cell = ROOF_CELL): RoofMap 
   for (const b of boxes) {
     const i0 = Math.max(0, Math.floor((b.min[0] - x0) / cell)), i1 = Math.min(nx - 1, Math.ceil((b.max[0] - x0) / cell) - 1);
     const k0 = Math.max(0, Math.floor((b.min[2] - z0) / cell)), k1 = Math.min(nz - 1, Math.ceil((b.max[2] - z0) / cell) - 1);
-    for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) cells[i * nz + k]!.push([b.min[1], b.max[1]]);
+    for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) {
+      if (!b.solid) { cells[i * nz + k]!.push([b.min[1], b.max[1]]); continue; }
+      // A turned cube marks a cell only where it is, at the heights it has there: its corner box's top over a
+      // cell it does not reach was a seat in the air (census 2026-11-06: 8969 at 75 %, the rider 1.04 over the
+      // drawn top under its body).
+      const c = clipParallelepiped(b.solid, [x0 + i * cell, b.min[1], z0 + k * cell], [x0 + (i + 1) * cell, b.max[1], z0 + (k + 1) * cell]);
+      if (c && c.max[0] > c.min[0] && c.max[2] > c.min[2]) cells[i * nz + k]!.push([c.min[1], c.max[1]]);
+    }
   }
   const r3 = (v: number): number => Math.round(v * 1000) / 1000;
   return { x0: r3(x0), z0: r3(z0), cell, nx, nz, spans: cells.map(c => mergeSpans(c).flatMap(([a, b]) => [r3(a), r3(b)])) };
@@ -817,18 +829,24 @@ export function surfaceOnTop(map: RoofMap, x: number, z: number, from: number, f
   const i0 = Math.max(0, Math.floor((x - half - map.x0) / map.cell)), i1 = Math.min(map.nx - 1, Math.floor((x + half - map.x0) / map.cell));
   const k0 = Math.max(0, Math.floor((z - half - map.z0) / map.cell)), k1 = Math.min(map.nz - 1, Math.floor((z + half - map.z0) / map.cell));
   if (i0 > i1 || k0 > k1) return null;
-  const pairs: Array<[number, number]> = [];
+  // Every cell the body's footprint touches keeps its air clear; only a cell whose CENTRE lies under the body can
+  // hold it up. A cell is wider than nothing, so an edge cell the footprint barely touches holds parts that stand
+  // wholly beside the body: read as a seat, the rider floated over the drawn top under it (census 2026-11-06:
+  // 8969 at 75 %, 1.04 blocks; 910047's third seat, 1.09 - the baseline's only failure).
+  const pairs: Array<[number, number]> = [], held: Array<[number, number]> = [];
+  const centreUnder = (c: number, at: number, o: number): boolean => Math.abs(o + (c + 0.5) * map.cell - at) <= half;
   for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) {
     const s = map.spans[i * map.nz + k]!;
-    for (let j = 0; j + 1 < s.length; j += 2) pairs.push([s[j]!, s[j + 1]!]);
+    const under = centreUnder(i, x, map.x0) && centreUnder(k, z, map.z0);
+    for (let j = 0; j + 1 < s.length; j += 2) { pairs.push([s[j]!, s[j + 1]!]); if (under) held.push([s[j]!, s[j + 1]!]); }
   }
   if (!pairs.length) return null;
-  const spans = mergeSpans(pairs);
+  const spans = mergeSpans(pairs), support = mergeSpans(held);
   /** Whether the body sits on `y` with nothing of the model in the air over it (a hair of overlap allowed). */
   const room = (y: number): boolean => !spans.some(([a, b]) => b > y + 0.02 && a < y + clear - 0.02);
   // The pan itself, if the model holds it up (a span reaching it) or it is the floor.
   if (room(from) && (from <= 0.02 || spans.some(([a, b]) => a <= from + 0.02 && b >= from - 0.02))) return from;
-  for (const [, top] of spans) if (top >= from - 0.02 && top <= from + ROOF_MAX_LIFT && room(top)) return top;
+  for (const [, top] of support) if (top >= from - 0.02 && top <= from + ROOF_MAX_LIFT && room(top)) return top;
   return from;
 }
 

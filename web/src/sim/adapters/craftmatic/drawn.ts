@@ -14,7 +14,7 @@ import type { Box, Vec3 } from '../../core/vec.js';
 import { rayBox } from '../../core/vec.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { AHEAD, SIDES, VIEW, driverSeesOut, sideFan } from '../../../engine/cockpit-seat.js';
-import { clipParallelepiped, isAxisAligned, parallelepipedFromCorners, type Parallelepiped } from '../../../engine/oriented-box.js';
+import { clipParallelepiped, isAxisAligned, parallelepipedFromCorners, rayParallelepiped, type Parallelepiped } from '../../../engine/oriented-box.js';
 import { evaluateClientAnimations, initializeClientAnimations, readClientAnimations, type BonePose, type ClientAnimationSet, type MolangEnv } from '../../../ui/addon-preview-data.js';
 
 /** Read an add-on's appearance (every entity type's drawn geometry). */
@@ -120,14 +120,17 @@ export function entityDrawn(appearance: AddonAppearance, e: SimEntity): DrawnBox
  * fan), in the world frame, looking along `yawDeg`. 1 = every ray clear.
  */
 export function forwardViewWorld(boxes: readonly DrawnBox[], eye: Vec3, yawDeg: number, fan: { yaw: readonly number[]; pitch: readonly number[] }, maxDistance = 16): { clear: number; total: number } {
-  const opaque = boxes.filter(b => !b.glass).map(b => b.box);
+  // A turned cube is tested by its own shape (`rayParallelepiped`), its corner box only as the cheap first test.
+  const opaque = boxes.filter(b => !b.glass);
+  const hits = (d: Vec3, b: DrawnBox): boolean => rayBox(eye, d, b.box, maxDistance) !== undefined
+    && (!b.solid || rayParallelepiped([eye.x, eye.y, eye.z], [d.x, d.y, d.z], b.solid, maxDistance) !== undefined);
   let clear = 0, total = 0;
   for (const yd of fan.yaw) for (const pd of fan.pitch) {
     total++;
     const yy = (yawDeg + yd) * Math.PI / 180, p = pd * Math.PI / 180;
     // Bedrock yaw: 0 looks +Z, +90 looks -X; +pitch in the fan looks UP here (cockpit-seat's convention).
     const d = { x: -Math.sin(yy) * Math.cos(p), y: Math.sin(p), z: Math.cos(yy) * Math.cos(p) };
-    if (!opaque.some(b => rayBox(eye, d, b, maxDistance) !== undefined)) clear++;
+    if (!opaque.some(b => hits(d, b))) clear++;
   }
   return { clear, total };
 }

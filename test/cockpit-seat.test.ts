@@ -12,6 +12,8 @@ import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile } from '../web/src/engine/zip-utils.js';
 import { simHost } from './_sim-host.js';
+import { shippedSeatBoxes } from '../web/src/engine/ldraw-entity-compiler.js';
+import { parallelepipedFromCorners } from '../web/src/engine/oriented-box.js';
 import { ROOF_BODY_CLEAR, ROOF_MAX_LIFT, roofMap, surfaceOnTop, AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -235,6 +237,39 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
 });
 
 describe('surfaceOnTop: what a rider on top sits on below 100 % (VEH-18)', () => {
+  it('reads a turned part by its shape: its corner box over the seat is no seat (8969 at 75 %: the rider 1.04 over the drawn top)', () => {
+    // A deck 0..1 and a beam turned 45 degrees about y, 2.83 long and 0.2 thick, standing 1..2 on the line x + z = 1.3:
+    // its corner box (x and z -0.42..1.72) covers the seat at the origin, the beam itself passes 0.92 block away -
+    // past the body (0.4 either side at 75 %).
+    const a = Math.PI / 4, c = Math.cos(a), sn = Math.sin(a), cx = 0.65, cz = 0.65;
+    const corners = [0, 1, 2, 3, 4, 5, 6, 7].map(i => {
+      const lx = i & 1 ? Math.SQRT2 : -Math.SQRT2, lz = i & 4 ? 0.1 : -0.1;
+      return [cx + c * lx + sn * lz, i & 2 ? 2 : 1, cz - sn * lx + c * lz];
+    });
+    const xs = corners.map(q => q[0]!), zs = corners.map(q => q[2]!);
+    const beam: BoxBlocks = { min: [Math.min(...xs), 1, Math.min(...zs)], max: [Math.max(...xs), 2, Math.max(...zs)], solid: parallelepipedFromCorners(corners)! };
+    const deck = box([-2, 0, -4], [2, 1, 4]);
+    // Its corner box reaches over the seat ...
+    expect(beam.min[0]).toBeLessThan(-0.4);
+    expect(beam.min[2]).toBeLessThan(-0.4);
+    // ... read as a box it is a roof 2 over the deck; read by its shape the rider stays on the deck.
+    expect(surfaceOnTop(roofMap([deck, { min: beam.min, max: beam.max }])!, 0, 0, 1, 0.75)).toBeCloseTo(2, 3);
+    expect(surfaceOnTop(roofMap([deck, beam])!, 0, 0, 1, 0.75)).toBeCloseTo(1, 3);
+  });
+  it('never sits on a part beside the body that only shares an edge map cell (8969, 910047: riders floated 1.04-1.09 over the top under them)', () => {
+    // At 75 % the body is 0.4 (model) either side of its seat: a seat at x 0.1 reaches 0.5, so its footprint touches
+    // the cell 0.5..0.75 (cells from the deck's edge at -2). A rail 0.55..0.6 standing to 2.0 lies wholly beside the
+    // body, in that cell; read as a surface the rider sat 1 block over the deck with nothing under its body.
+    const f = 0.75, half = 0.3 / f;
+    const deck = box([-2, 0, -4], [2, 1, 4]);
+    const map = roofMap([deck, box([0.55, 1, -0.2], [0.6, 2, 0.2])])!;
+    const centre = map.x0 + (Math.floor((0.55 - map.x0) / map.cell) + 0.5) * map.cell;
+    expect(Math.abs(centre - 0.1)).toBeGreaterThan(half);
+    expect(surfaceOnTop(map, 0.1, 0, 1, f)).toBeCloseTo(1, 3);
+    // The same rail under the body is a surface, read as before (the first with room over it).
+    const under = roofMap([deck, box([0.15, 1, -0.2], [0.2, 2, 0.2])])!;
+    expect(surfaceOnTop(under, 0.1, 0, 1, f)).toBeCloseTo(2, 3);
+  });
   it('sits on a closed cabin roof, not inside it', () => {
     const map = roofMap(cabin(0.7, 1.6))!;
     // The pan 0.3 over a seat at 0.1: the cabin's roof (top 1.8) is the first surface with air over it.
@@ -706,3 +741,29 @@ describe('every seat sees the horizon ahead (AHEAD), whatever its evidence', () 
     expect(cockpit.eyeLdu[2]).toBeCloseTo(wheel.z + CAR_WHEEL_EYE_LDU.aft, 6);
   });
 });
+
+describe('a driver eye is judged on the cubes the pack ships (shippedSeatBoxes, census 2026-11-06)', () => {
+  it('reads a JSON cube back into the planner frame: X mirror undone, the box-UV inflate applied, glass kept', () => {
+    // JSON origin x = -(render max x): a render box x 1..2 is JSON origin -2 .. size 1. Units: 16 = one block.
+    const plain = { origin: [-32, 0, 16], size: [16, 8, 32] };
+    // A thin cube declared size + 2 with inflate -1 (`boxUvSafeCube`) draws its own size.
+    const thin = { origin: [-1, 15, 0], size: [2.5, 2.5, 16], inflate: -1 };
+    const boxes = shippedSeatBoxes([{ translucent: false, items: [{ bone: 'body', cube: plain }] }, { translucent: true, items: [{ bone: 'body', cube: thin }] }], [{ name: 'body', pivot: [0, 0, 0] }]);
+    expect(boxes[0]).toEqual({ min: [1, 0, 1], max: [2, 0.5, 3], glass: false });
+    expect(boxes[1]!.glass).toBe(true);
+    expect(boxes[1]!.min[1]).toBeCloseTo(1, 6);
+    expect(boxes[1]!.max[1]).toBeCloseTo(1 + 0.5 / 16, 6);
+  });
+  it('a sill the separation grew to eye level blocks the view; re-asked on those cubes, the eye clears it', () => {
+    // 7344's shape: a sill whose top is 1/107 block under the eye on the planned cuboids, AT the eye once shipped.
+    const deck = box([-1, 0, -2], [1, 0.3, 2]);
+    const eye: Vec3 = [0, 1.42, 0];
+    const planned = [deck, box([-0.4, 1.0, -1.6], [0.4, 1.42 - 0.15 / 16, -1.4])];
+    const shipped = [deck, box([-0.4, 1.0, -1.6], [0.4, 1.42, -1.4])];
+    expect(seesOut(planned, eye)).toBe(true);
+    expect(seesOut(shipped, eye)).toBe(false);
+    const again = planSeat(shipped, eye, [0, eye[1] - RIDER_EYE_ABOVE_SEAT, 0], 'seat');
+    expect(seesOut(shipped, again.eye)).toBe(true);
+  });
+});
+
