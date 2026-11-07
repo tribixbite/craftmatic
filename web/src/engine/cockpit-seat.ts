@@ -876,19 +876,22 @@ export const PASSENGER_DECK = { below: 4, above: ROOF_MAX_LIFT, over: 0.75 } as 
 
 /**
  * Whether the model already holds a passenger seated at (x, `seat`, z) (entity
- * frame, blocks at 100 %, `seat` the hips): something is drawn under the
- * body's footprint (the cells whose centre lies under it) and the hips are no more than `PASSENGER_DECK.over` over
- * its highest top there - in a cabin or on a deck, as the simulator judges a
- * seat (`SEAT_ON_DRAWN.over`). Such a seat is kept where it is; only a seat
- * over nothing, or over air, is moved (`passengerSurface`).
+ * frame, blocks at 100 %, `seat` the hips): a span drawn under the body's
+ * footprint (the cells whose centre lies under it) starts at or under the
+ * hips and reaches to within `PASSENGER_DECK.over` of them - in a cabin or on
+ * a deck, as the simulator judges a seat (`SEAT_ON_DRAWN.over`). Such a seat
+ * is kept where it is; only a seat over nothing, or over air, is moved
+ * (`passengerSurface`).
  */
 export function passengerHeld(map: RoofMap, x: number, z: number, seat: number): boolean {
   const col = bodyColumn(map, x, z, 1);
   // Read on the cells under the body only (`support`): an edge cell the footprint barely touches holds parts that
   // stand beside it, and held 41681's and 5585's seats over nothing drawn.
-  if (!col || !col.support.length) return false;
-  const top = Math.max(...col.support.map(([, b]) => b));
-  return seat - top <= PASSENGER_DECK.over + 1e-9;
+  // A span wholly over the hips is a roof with nothing under the body (41681's last row, under its camper's
+  // overhang): it holds nothing. A span holds the seat where it starts at or under the hips and reaches to
+  // within `over` of them (the hips on it, or among it as in a car's back seat).
+  if (!col) return false;
+  return col.support.some(([a, b]) => a <= seat + 1e-9 && seat - b <= PASSENGER_DECK.over + 1e-9);
 }
 
 /**
