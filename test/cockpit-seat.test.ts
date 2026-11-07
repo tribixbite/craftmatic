@@ -14,7 +14,7 @@ import { extractFile } from '../web/src/engine/zip-utils.js';
 import { simHost } from './_sim-host.js';
 import { shippedSeatBoxes } from '../web/src/engine/ldraw-entity-compiler.js';
 import { parallelepipedFromCorners } from '../web/src/engine/oriented-box.js';
-import { PASSENGER_DECK, passengerSurface, ROOF_BODY_CLEAR, ROOF_MAX_LIFT, roofMap, surfaceOnTop, AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
+import { PASSENGER_DECK, passengerHeld, passengerSurface, ROOF_BODY_CLEAR, ROOF_MAX_LIFT, roofMap, surfaceOnTop, AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const box = (min: Vec3, max: Vec3): BoxBlocks => ({ min, max });
@@ -325,6 +325,15 @@ describe('passengerSurface: a passenger with no seat mould sits on the model (ce
   it('keeps a passenger within PASSENGER_DECK of the driver\'s pan: a deck further down is not the driver\'s', () => {
     expect(passengerSurface(ship, 1, -1.5, 1 + PASSENGER_DECK.below + 0.5)).toBeNull();
     expect(passengerSurface(ship, 1, -1.5, 1 + PASSENGER_DECK.below - 0.5)).toBeCloseTo(1, 3);
+  });
+  it('keeps a passenger the model already holds where it is: in a cabin, or on a deck within PASSENGER_DECK.over (the favourites\' back seats)', () => {
+    // Inside the quarterdeck's block (hips at 2.4, its top 3): held, as a car's back seat sits among its body.
+    expect(passengerHeld(ship, 0.75, 4, 2.4)).toBe(true);
+    // Over the waist deck (top 1): held up to 0.75 over it, not 2 over it (4768's row at its helm's height).
+    expect(passengerHeld(ship, 1, -1.5, 1 + PASSENGER_DECK.over)).toBe(true);
+    expect(passengerHeld(ship, 1, -1.5, 3)).toBe(false);
+    // Over open water beside the bow: never.
+    expect(passengerHeld(ship, 1.5, -4, 1)).toBe(false);
   });
   it('takes the surface nearest the driver\'s pan where a cabin roof stands over the deck', () => {
     // A closed cabin over the waist: its roof (top 2.2) has air over it, the deck under it (1) has 1.0 of air - not

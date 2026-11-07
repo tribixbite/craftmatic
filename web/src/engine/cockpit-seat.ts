@@ -872,7 +872,22 @@ function bodyColumn(map: RoofMap, x: number, z: number, f: number): { spans: Arr
  * waist 2.9 under its helm), and up no further than a rider on top is lifted
  * (`ROOF_MAX_LIFT`).
  */
-export const PASSENGER_DECK = { below: 4, above: ROOF_MAX_LIFT } as const;
+export const PASSENGER_DECK = { below: 4, above: ROOF_MAX_LIFT, over: 0.75 } as const;
+
+/**
+ * Whether the model already holds a passenger seated at (x, `seat`, z) (entity
+ * frame, blocks at 100 %, `seat` the hips): something is drawn under the
+ * body's footprint and the hips are no more than `PASSENGER_DECK.over` over
+ * its highest top there - in a cabin or on a deck, as the simulator judges a
+ * seat (`SEAT_ON_DRAWN.over`). Such a seat is kept where it is; only a seat
+ * over nothing, or over air, is moved (`passengerSurface`).
+ */
+export function passengerHeld(map: RoofMap, x: number, z: number, seat: number): boolean {
+  const col = bodyColumn(map, x, z, 1);
+  if (!col) return false;
+  const top = Math.max(...col.spans.map(([, b]) => b));
+  return seat - top <= PASSENGER_DECK.over + 1e-9;
+}
 
 /**
  * Where a passenger with no seat mould sits at (x, z) (entity frame, blocks at

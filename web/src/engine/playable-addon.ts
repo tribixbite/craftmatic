@@ -14,7 +14,7 @@ import { CONCRETE_COLORS, encodePngRgba, generateStudBlockPng, generateEntityLeg
 import type { ParsedBrick } from './ldraw-parser.js';
 import { compileLdrawEntityGeometry, ldrawToRenderRotation, unlevelPoint, type CompileLdrawEntityOptions, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
 import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
-import { passengerSurface, renderSeatToEntity, riderVisibleSizes, roofMap, surfaceOnTop, RIDE_ON_TOP_BELOW, ROOF_SEAT_BELOW_SURFACE, RIDER_EYE_ABOVE_SEAT, seatAtOnTop, type RoofMap, type SeatPlan } from './cockpit-seat.js';
+import { passengerHeld, passengerSurface, renderSeatToEntity, riderVisibleSizes, roofMap, surfaceOnTop, RIDE_ON_TOP_BELOW, ROOF_SEAT_BELOW_SURFACE, RIDER_EYE_ABOVE_SEAT, seatAtOnTop, type RoofMap, type SeatPlan } from './cockpit-seat.js';
 import type { VehicleSeatReport } from './seat-census.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendation, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { fineReachColumns, type FineReachColumns, type SourceCell } from './bedrock-collider-scale.js';
@@ -732,6 +732,10 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         /** The passenger at render-frame z, on the model (roof map in the entity frame), or null. */
         const placeAt = (z: number): [number, number, number] | null => {
             if (!roof) return [seatX, seatY, r2(z)];
+            // Where the model already holds the seat at the driver's height (a car's back seat, a coaster car's
+            // second row), it stays as it was.
+            const here = renderSeatToEntity([seatX, 0, z]);
+            if (passengerHeld(roof, here[0], here[2], seatY)) return [seatX, seatY, r2(z)];
             for (const x of seatX === 0 ? [0] : [seatX, 0]) {
                 const e = renderSeatToEntity([x, 0, z]);
                 const top = passengerSurface(roof, e[0], e[2], pan);
