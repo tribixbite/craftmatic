@@ -68,8 +68,18 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
      footprint. The moved rows are not device-proven; check 10365 and 42639 at 50-75 % in the next phone round.
      Leftovers: build-only branch `gen-view-veh` (unsigned merge commits, never merge it), and partial sweep dirs
      `output/favsweep-9a2cd8f7` and `output/favsweep-a9e6f6eb` in the branch worktree.
-  4. **Extra seats beside the hull or over the drawn top**: 5 sets, 31109, 41681, 4768, 5585 and 6243. Mostly ships:
-     the passenger seats run off the deck.
+  4. FIXED, merged from `gen-seat4-1106`: **extra seats beside the hull or over the drawn top**, 6 sets.
+     - 5 sets (31109, 41681, 4768, 5585, 6243): fallback passengers (no seat mould) copied the driver's height and side
+       offset, and sat over water, over nothing, or 6-9 blocks over 31109's deck. Now `passengerSurface` sits them on
+       what the model draws under the body; a place with nothing under it gets no seat (41681: 4 -> 3); a passenger
+       the model already holds stays put (`passengerHeld`).
+     - 7345: a loose canopy 4.5 blocks off the chopper was read as its windscreen (`LOOSE_GLASS_GROUP`).
+
+     Rebuilt (`.worktrees/gen-seat4-veh/output/seat4-after5-sim.md`): 3 of 36 scenarios fail, none of them a passenger.
+     Favourites: only 75397 moved (3 passengers that were 2.4-3.75 over the top at 100 % now sit on its deck).
+     OPEN, from class 2: 31109's driver eye is lifted 10.2 blocks over the sails to see ahead (the documented
+     hidden-rider fallback) and the sim calls it 6.14 over the drawn top. Decide: cap the lift, or exempt hidden
+     riders in the sim. The 75397 driver at 100 % was off before and still is.
   5. FIXED, a SIM harness gap and not a pack bug: the second aircraft of 3222, 3368, 3658 and 8638 was "missing"
      because driving the first one took the player out of loading range. `driveVehicle` now walks back to the model
      (`unloadedMatches`, runner.ts). 3658 and 3368 now pass; 8638's third jet fails `driver-sees-ahead` (class 2).
@@ -81,7 +91,6 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
   (`10788-gabbys-dollhouse.mcaddon`) that the sweep does not write, so run it against a round's pack dir.
 - Step 3 NEXT (`gen-veh-1106` and `gen-view-1106` are MERGED into main, full suite green; the favourites seat audit
   `output/generality-1106/fav-named/audit.md`: 161 places, 159 the player can sit at, the 2 others by design):
-  - class 4 (seats beside the hull, 6 sets) is with an agent on branch `gen-seat4-1106`, not merged;
   - then class 2's side-view policy (6 sets, the user's call) and classes 6 and 7, each fix with a test;
   - re-run the census (`output/generality-1106/run-census.sh`, into a NEW output dir).
 - Step 4: a per-vehicle drive check for every census vehicle: the sim's vehicles scenario (move 20 blocks, turn,
