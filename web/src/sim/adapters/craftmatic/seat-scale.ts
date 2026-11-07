@@ -49,7 +49,7 @@ import { packFiles, type Pack } from '../../pack/pack.js';
 import { quirkValue } from '../../quirks/registry.js';
 import { ROOF_BODY_CLEAR, ROOF_BODY_HALF, ROOF_CELL, ROOF_MAX_LIFT, ROOF_SEAT_BELOW_SURFACE, ridesOnTopAt } from '../../../engine/cockpit-seat.js';
 import type { AddonAppearance } from './appearance.js';
-import { drawnBoxes, drawnTopOver, type DrawnBox } from './drawn.js';
+import { drawnBoxes, drawnReaches, drawnTopOver, type DrawnBox } from './drawn.js';
 
 /**
  * The tolerances of "in or on" (blocks, world):
@@ -167,7 +167,10 @@ export function seatOnTop(seat: Vec3, place: SeatPlace, drift: SeatDrift, scale:
   // ... but the body's air is the BODY's (`ROOF_BODY_HALF`): widened by the cell too, the ring outside a 0.6-block
   // body made the test stricter than the rule. Census 2026-11-06: 10 sets' on-top seats were refused only on
   // parts in that ring (a rail, a mirror beside the seat), none inside the body.
-  const clear = !within(ROOF_BODY_HALF).some(({ box: b }) => b.y1 > hips + tol && b.y0 < hips + ROOF_BODY_CLEAR - 0.05);
+  // A turned cube is read by its shape (`drawnReaches`): 31109's turned rigging passed beside a passenger's body at
+  // 75 % with its corner box reaching 0.1 into the body's column (2026-11-07), as the compiler's map clips it.
+  const air: Box = { x0: seat.x - ROOF_BODY_HALF, x1: seat.x + ROOF_BODY_HALF, y0: hips + tol, y1: hips + ROOF_BODY_CLEAR - 0.05, z0: seat.z - ROOF_BODY_HALF, z1: seat.z + ROOF_BODY_HALF };
+  const clear = !drawn.some(d => drawnReaches(d, air));
   return sits && clear;
 }
 

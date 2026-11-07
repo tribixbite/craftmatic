@@ -14,6 +14,7 @@ import { buildAddonAppearance } from '../web/src/sim/adapters/craftmatic/appeara
 import { SEAT_ON_DRAWN, collisionScaleAudit, describeBoxRow, describeSeatRow, seatOnDrawn, seatOnTop, seatScaleAudit, seatScaleDrift } from '../web/src/sim/adapters/craftmatic/seat-scale.js';
 import type { DrawnBox } from '../web/src/sim/adapters/craftmatic/drawn.js';
 import { fixturePack } from '../web/src/sim/pack/fixture.js';
+import { parallelepiped } from '../web/src/engine/oriented-box.js';
 
 const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, glass = false): DrawnBox => ({ box: { x0, y0, z0, x1, y1, z1 }, glass });
 
@@ -122,6 +123,19 @@ describe('seatOnTop: below 100 % a vehicle is ridden on top (VEH-18)', () => {
     // The same part inside the body (0.2 beside the seat) still refuses it.
     const post = [...car(f), box(0.15, 1.2 * f + 0.2, 0.2, 0.2, 1.2 * f + 0.4, 0.5)];
     expect(seatOnTop(seat, seatOnDrawn(seat, post), seatScaleDrift(seat, seat100, f), f, post)).toBe(false);
+  });
+
+  it('reads a turned part in the body\'s air by its shape, not its corner box (31109 at 75 %, 2026-11-07)', () => {
+    // A rigging strip turned 45 degrees, passing beside the body's column: its corner box reaches 0.05 into the
+    // column, the strip itself stays 0.15 or more outside it (x - z >= 0.45 where the column's corner is 0.225).
+    const f = 0.75, seat = { x: 0, y: 1.2 * f - 0.3, z: 0.5 * f };
+    const y0 = 1.2 * f + 0.2, solid = parallelepiped([0.25, y0, -0.2], [[0.6, 0, 0.6], [0.035, 0, -0.035], [0, 0.2, 0]])!;
+    const strip: DrawnBox = { box: { x0: 0.25, y0, z0: -0.235, x1: 0.885, y1: y0 + 0.2, z1: 0.4 }, glass: false, solid };
+    const rigged = [...car(f), strip];
+    expect(seatOnTop(seat, seatOnDrawn(seat, rigged), seatScaleDrift(seat, seat100, f), f, rigged)).toBe(true);
+    // Its corner box alone, as an aligned cube, is in the body's air and refuses the seat.
+    const boxed = [...car(f), { ...strip, solid: undefined }];
+    expect(seatOnTop(seat, seatOnDrawn(seat, boxed), seatScaleDrift(seat, seat100, f), f, boxed)).toBe(false);
   });
 });
 
