@@ -91,7 +91,10 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
   (`10788-gabbys-dollhouse.mcaddon`) that the sweep does not write, so run it against a round's pack dir.
 - Step 3 NEXT (`gen-veh-1106` and `gen-view-1106` are MERGED into main, full suite green; the favourites seat audit
   `output/generality-1106/fav-named/audit.md`: 161 places, 159 the player can sit at, the 2 others by design):
-  - then class 2's side-view policy (6 sets, the user's call) and classes 6 and 7, each fix with a test;
+  - IN FLIGHT 2026-11-07 (agents, not merged): classes 6 and 7 on branch `gen-ix-1107` (`.worktrees/gen-ix-1107`);
+    the 31109 / 75397 driver lift on `gen-lift-1107` (`.worktrees/gen-lift-1107`). If a session restarts, read
+    each branch's `git log main..<branch>` and re-run its suite before merging;
+  - class 2's side-view policy (6 sets) waits on the user;
   - re-run the census (`output/generality-1106/run-census.sh`, into a NEW output dir).
 - Step 4: a per-vehicle drive check for every census vehicle: the sim's vehicles scenario (move 20 blocks, turn,
   camera follows, dismount gives the camera back, never inside a wall), plus `_cockpit_view.ts` renders
