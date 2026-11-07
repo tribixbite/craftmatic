@@ -14,7 +14,7 @@ import { CONCRETE_COLORS, encodePngRgba, generateStudBlockPng, generateEntityLeg
 import type { ParsedBrick } from './ldraw-parser.js';
 import { compileLdrawEntityGeometry, ldrawToRenderRotation, unlevelPoint, type CompileLdrawEntityOptions, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
 import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
-import { renderSeatToEntity, riderVisibleSizes, roofMap, surfaceOnTop, RIDE_ON_TOP_BELOW, ROOF_SEAT_BELOW_SURFACE, RIDER_EYE_ABOVE_SEAT, seatAtOnTop, type RoofMap, type SeatPlan } from './cockpit-seat.js';
+import { passengerHeld, passengerSurface, renderSeatToEntity, riderVisibleSizes, roofMap, surfaceOnTop, RIDE_ON_TOP_BELOW, ROOF_SEAT_BELOW_SURFACE, RIDER_EYE_ABOVE_SEAT, seatAtOnTop, type RoofMap, type SeatPlan } from './cockpit-seat.js';
 import type { VehicleSeatReport } from './seat-census.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendation, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { fineReachColumns, type FineReachColumns, type SourceCell } from './bedrock-collider-scale.js';
@@ -718,12 +718,33 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     // A boat's driver is at its stern (the helm, ldraw-entity-compiler
     // `findDriverSeat`), so where there is no room behind, its passengers go
     // AHEAD of the helm instead, never past the bow (31109 lost two to that).
+    // Each such seat sits on what the model draws there (`passengerSurface`, over the shipped geometry's roof
+    // map): on the driver's line or else the centre line, on the deck nearest the driver's own pan - the pan
+    // the evidence gave, before an eye that left the cabin (`AHEAD_FALLBACK`) lifted the driver's seat with
+    // it - and a place with nothing under the body is not offered (census 2026-11-06, VEH-20).
     const length = entitySize?.length ?? layout.length;
     const fallback: Array<[number, number, number]> = [];
     if (!measured.length && seatCount <= 1 && seatPositionOverride && (kind === 'car' || kind === 'boat') && length >= 3.5) {
         const spacing = kind === 'boat' && length >= 8 ? 2 : 1;
-        for (let k = 1; k <= 3 && seatZ + k * spacing <= length / 2 - 0.4; k++) fallback.push([seatX, seatY, Math.round((seatZ + k * spacing) * 100) / 100]);
-        if (kind === 'boat') for (let k = 1; fallback.length < 3 && seatZ - k * spacing >= -length / 2 + 0.4; k++) fallback.push([seatX, seatY, Math.round((seatZ - k * spacing) * 100) / 100]);
+        const lifted = seatPlan?.ahead?.fallback ? seatPlan.ahead.moved?.[1] ?? 0 : 0;
+        const pan = seatY - lifted + ROOF_SEAT_BELOW_SURFACE;
+        const r2 = (v: number): number => Math.round(v * 100) / 100;
+        /** The passenger at render-frame z, on the model (roof map in the entity frame), or null. */
+        const placeAt = (z: number): [number, number, number] | null => {
+            if (!roof) return [seatX, seatY, r2(z)];
+            // Where the model already holds the seat at the driver's height (a car's back seat, a coaster car's
+            // second row), it stays as it was.
+            const here = renderSeatToEntity([seatX, 0, z]);
+            if (passengerHeld(roof, here[0], here[2], seatY)) return [seatX, seatY, r2(z)];
+            for (const x of seatX === 0 ? [0] : [seatX, 0]) {
+                const e = renderSeatToEntity([x, 0, z]);
+                const top = passengerSurface(roof, e[0], e[2], pan);
+                if (top !== null) return [x, r2(top - ROOF_SEAT_BELOW_SURFACE), r2(z)];
+            }
+            return null;
+        };
+        for (let k = 1; fallback.length < 3 && seatZ + k * spacing <= length / 2 - 0.4; k++) { const p = placeAt(seatZ + k * spacing); if (p) fallback.push(p); }
+        if (kind === 'boat') for (let k = 1; fallback.length < 3 && seatZ - k * spacing >= -length / 2 + 0.4; k++) { const p = placeAt(seatZ - k * spacing); if (p) fallback.push(p); }
     }
     const measuredPassengers = measured.length ? measured : fallback.slice(0, kind === 'car' ? 1 : 3);
     // A compiled model's seats are measured in its RENDER frame (nose toward -Z);
