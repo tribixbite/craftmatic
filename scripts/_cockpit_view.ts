@@ -29,6 +29,8 @@ import { childPlay } from '../web/src/sim/adapters/craftmatic/child-play.ts';
 import { CRAFTMATIC_ALLOWED_LINES } from '../web/src/sim/adapters/craftmatic/child-play.ts';
 import { driverViewWorld, entityDrawn, packAppearance } from '../web/src/sim/adapters/craftmatic/drawn.ts';
 import { firstPersonSnapshot } from '../web/src/sim/adapters/craftmatic/snapshot.ts';
+import { driverLookFrom } from '../web/src/sim/adapters/craftmatic/play.ts';
+import { vehicleCameraEntry } from '../web/src/sim/adapters/craftmatic/pack-facts.ts';
 import type { StepContext } from '../web/src/sim/scenario/types.ts';
 
 const args = process.argv.slice(2);
@@ -62,6 +64,13 @@ for (const file of files) {
         ctx.player.rotation.y = v.rotation.y + yawOff;
         ctx.player.rotation.x = pitch;
         await ctx.run(1);
+        // A scripted vehicle's hotbar-9 view is a camera at the pack's cockpit eye (`driverLookFrom`), over the drawn
+        // rider where the eye left the cabin to see ahead (`helmSeatPlan`): the picture is taken from there.
+        const look = driverLookFrom(vehicleCameraEntry(cp.pack.pack, type), { ...v.location, yaw: v.rotation.y }, v.scale());
+        if (look) {
+          const head = ctx.player.headLocation();
+          ctx.player.location = { x: ctx.player.location.x + look.x - head.x, y: ctx.player.location.y + look.y - head.y, z: ctx.player.location.z + look.z - head.z };
+        }
         if (shift.some(s => s !== 0)) {
           // A candidate eye: the rider moved by `--shift` in the vehicle's frame (+x as the seat's x, +z its nose), after the seat placed it.
           const a = v.rotation.y * Math.PI / 180;

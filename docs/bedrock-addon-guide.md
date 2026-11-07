@@ -4778,9 +4778,20 @@ so the camera IS the seat's eye: moving the eye moves the seat.
 - **`AHEAD_FALLBACK`**: when no eye in the cabin sees ahead, the eye leaves
   it - the nearest point up (to the model's top + 1.4) or back (2 blocks, not
   past the tail) that does, in air, on the seat's own line, preferring one
-  that also sees the sides within 0.5 block further. Only an eye there: the
-  body is hidden at every size (`SeatPlan.ahead.fallback`, all `fits` false),
-  since a body drawn over a roof is the kart rule removed on 2026-09-26.
+  that also sees the sides within 0.5 block further. On a NATIVE mount the
+  eye is the rider's own first person, so the seat goes with it and the body
+  is hidden at every size (`SeatPlan.ahead.fallback`, all `fits` false), since
+  a body drawn over a roof is the kart rule removed on 2026-09-26. On a
+  SCRIPTED vehicle (every car, boat, ship, hover craft and fixed wing) the
+  hotbar-9 view is already a script camera at the plan's eye
+  (`cockpitCamera`), so since 2026-11-07 only that camera leaves: the rider
+  stays at the helm the eye left, drawn where the body fits there
+  (`helmSeatPlan`, `SeatPlan.ahead.helm` / `lookout`), and the chase camera
+  clears the drawn rider's head, not the lookout. Census class 4: 31109's
+  helmsman sat hidden 6.1 blocks over its deck among the sails; 75397's
+  driver 2.8 over its deck (its passengers now sit on the deck too), 60446's
+  pilot 1.1 up, 10337's driver 0.5 up. The sim and `_cockpit_view.ts` judge
+  and draw the view from that camera (`driverLookFrom`).
 
 Results (audit of 61 sets / 41 rideables, `audit-base-40fd7d54` vs
 `audit-8aa1425c`, `audit-diff-*.txt`; views `*/views/`): drawn horizon not
@@ -4796,11 +4807,9 @@ horizon; the picture is sky and the ship's top). Moved by the sides only:
 back 0.1/0.25, 10497 +0.1. Pictures: `cockpit-before-after-8aa1425c.jpg`
 (76286, 42639 before/after; 60380, 42172 unchanged), `fallback-sheet-8aa1425c.jpg`.
 
-TODO(cockpit-camera): a boat's or ship's drawn captain disappears when its
-eye leaves the cabin. A camera preset offset from the seated rider (keeping
-the body at the helm) would avoid it, but the only client-side camera that
-follows without the ~3.5-tick server lag is the first person; untested on
-the device.
+The drawn captain no longer disappears when a scripted vehicle's eye leaves
+the cabin (above, 2026-11-07); a native mount's still does. Device-unproven:
+the lookout view and the drawn helmsman together (TODO(cockpit-camera)).
 
 **Device-only still:** cockpit lighting, near-plane and look behavior (the
 offline picture has no ground). At this historical cockpit-fallback round
