@@ -334,6 +334,9 @@ describe('passengerSurface: a passenger with no seat mould sits on the model (ce
     expect(passengerHeld(ship, 1, -1.5, 3)).toBe(false);
     // Over open water beside the bow: never.
     expect(passengerHeld(ship, 1.5, -4, 1)).toBe(false);
+    // Nor where the bow lies only in an edge cell the footprint touches, wholly beside the body (41681, 5585).
+    expect(passengerHeld(ship, 0.75, -4, 1)).toBe(false);
+    expect(passengerHeld(ship, 0.25, -4, 1)).toBe(true);
   });
   it('takes the surface nearest the driver\'s pan where a cabin roof stands over the deck', () => {
     // A closed cabin over the waist: its roof (top 2.2) has air over it, the deck under it (1) has 1.0 of air - not
