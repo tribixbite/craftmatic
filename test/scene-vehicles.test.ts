@@ -6,8 +6,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
 import type { LdrawPartMesh, Vec3 } from '../web/src/engine/ldraw-part-geometry.js';
-import { classifyVehicleKind, discoverPlayableComponents, isWholeVehicleLabel, vehicleKindFromParts } from '../web/src/engine/playable-components.js';
-import { findSceneVehicles, SCENE_VEHICLES } from '../web/src/engine/scene-vehicles.js';
+import { classifyVehicleKind, discoverPlayableComponents, isSceneryLabel, isWholeVehicleLabel, vehicleKindFromParts } from '../web/src/engine/playable-components.js';
+import { findSceneVehicles, findWholeModelVehicles, SCENE_VEHICLES } from '../web/src/engine/scene-vehicles.js';
 
 /** A part mesh that is just its box and its library description. */
 const mesh = (description: string, min: Vec3, max: Vec3): LdrawPartMesh => ({
@@ -114,5 +114,37 @@ describe('titles that name a craft or a hover craft', () => {
     expect(classifyVehicleKind("Jabba's Sail Barge (75397-1)", 'auto')).toBe('boat');
     expect(classifyVehicleKind('X-34 Landspeeder', 'auto')).toBe('boat');
     expect(isWholeVehicleLabel('X-34 Landspeeder')).toBe(true);
+  });
+});
+
+/** A model that is one car and nothing else: four wheels, a chassis plate, `storeys` layers of body bricks. */
+function wholeCar(storeys: number) {
+  const s = scene();
+  for (const [x, z] of [[-60, -36], [60, -36], [-60, 36], [60, 36]]) s.add('wheel.dat', 'Wheel 11mm D. x 6mm', [-8, -8, -4], [8, 8, 4], [x!, -8, z!]);
+  s.add('plate.dat', 'Plate  4 x  8', [-80, -8, -40], [80, 0, 40], [0, -12, 0]);
+  for (let k = 0; k < 4 * storeys; k++) s.add('3001.dat', 'Brick  2 x  4', [-40, -24, -20], [40, 0, 20], [(k % 2) * 80 - 40, -20 - 24 * Math.floor(k / 4), (k % 4 < 2 ? -20 : 20)]);
+  s.add('3829.dat', 'Car Steering Wheel', [-10, -10, -4], [10, 0, 4], [0, -24 * storeys - 20, 0]);
+  return s;
+}
+
+describe('a whole model that is a car its title does not name (findWholeModelVehicles, VEH-20)', () => {
+  it('finds the whole car the scene finder leaves (a vehicle is at most a quarter of a scene)', () => {
+    const car = wholeCar(3);
+    expect(findSceneVehicles(car.bricks, car.meshes).components).toHaveLength(0);
+    const whole = findWholeModelVehicles(car.bricks, car.meshes);
+    expect(whole.components).toHaveLength(1);
+    expect(whole.components[0]).toMatchObject({ kind: 'car' });
+    expect(whole.components[0]!.bricks).toHaveLength(car.bricks.length);
+    expect(whole.components[0]!.provenance).toMatch(/whole model stands on its own wheels/);
+  });
+  it('refuses a model taller than it is long (a robot on wheels)', () => {
+    const tower = wholeCar(12);
+    expect(findWholeModelVehicles(tower.bricks, tower.meshes).components).toHaveLength(0);
+  });
+  it('reads scenery titles, motorbikes and the Batwing', () => {
+    expect(isSceneryLabel('The Batcave (6860-1)')).toBe(true);
+    expect(isSceneryLabel('Pagani Utopia (76915-1)')).toBe(false);
+    expect(classifyVehicleKind('Skull Motorbike (2259-1)', 'auto')).toBe('car');
+    expect(classifyVehicleKind('Batwing Battle Over Gotham City (6863-1)', 'auto')).toBe('plane');
   });
 });

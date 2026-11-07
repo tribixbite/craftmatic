@@ -60,6 +60,16 @@ export const SCENE_VEHICLES = {
   MIN_LENGTH: 120,
   /** A flat part bigger than this (8 x 8 studs, LDU²) is scene ground, never a vehicle's floor. */
   FLOOR_PATCH_MAX_AREA: 160 * 160,
+  /**
+   * A WHOLE-MODEL car (`findWholeModelVehicles`) is no taller than its longest
+   * horizontal side: 51515's robot on 8 wheels is 865 LDU tall over a 526 LDU
+   * base, every car of the 2026-11-06 census at most 0.9 of its length.
+   */
+  WHOLE_MAX_HEIGHT_TO_LENGTH: 1,
+  /** ... stands on at least this many distinct wheels (31141 Main Street's building stands on 3 with a seat in it). */
+  WHOLE_MIN_WHEELS: 4,
+  /** ... whose centres spread over at least this share of its long side (a car's axles sit near its ends). */
+  WHOLE_MIN_WHEEL_SPREAD: 0.5,
 } as const;
 export type SceneVehicleParams = { readonly [K in keyof typeof SCENE_VEHICLES]: number };
 
@@ -243,4 +253,41 @@ export function findSceneVehicles(bricks: ParsedBrick[], meshes: Map<string, Ldr
     });
   }
   return { components, candidates };
+}
+
+/**
+ * A model that IS a vehicle but whose title names none ("Airshow Aces",
+ * "Pagani Utopia", "Police Chase", "Highway Transport"): the scene finder
+ * caps a vehicle at `MAX_SHARE` of the scene, so a car that is the whole
+ * model was never found, and its title kept it static (VEH-20 census,
+ * 2026-11-06: 14 of the 143 sets shipped with no rideable stand on their own
+ * wheels). The same finder runs with the cap lifted and keeps only CARS - a
+ * whole model with two oars or a sail part is as often a scene's prop (a
+ * science kit's iceberg) - no taller than long (`WHOLE_MAX_HEIGHT_TO_LENGTH`).
+ * The caller runs it only where the title names no vehicle, no scenery
+ * (`isSceneryLabel`: The Batcave stands on its Batmobile's wheels) and the
+ * scene search found nothing.
+ */
+export function findWholeModelVehicles(bricks: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, P: SceneVehicleParams = SCENE_VEHICLES): { components: PlayableBrickComponent[]; candidates: SceneVehicleCandidate[] } {
+  const found = findSceneVehicles(bricks, meshes, { ...P, MAX_SHARE: 1 });
+  const components = found.components.filter(c => {
+    // Only what the cap excluded: a smaller car is the scene finder's, and it judged it already.
+    if (c.kind !== 'car' || c.bricks.length <= bricks.length * P.MAX_SHARE) return false;
+    const boxes = c.bricks.map(b => placementBox(b, meshes.get(b.part)));
+    const { min, max } = boxOf(boxes);
+    const long = max[0] - min[0] >= max[2] - min[2] ? 0 : 2;
+    const length = max[long] - min[long];
+    if (max[1] - min[1] > P.WHOLE_MAX_HEIGHT_TO_LENGTH * length) return false;
+    // The wheels it stands on (bottoms within `WHEEL_BOTTOM_SLACK` of its lowest), one per position.
+    const wheels = boxes.filter((bx, i) => isWheel(desc(meshes.get(c.bricks[i]!.part))) && bx.max[1] >= max[1] - P.WHEEL_BOTTOM_SLACK);
+    const centres: Vec3[] = [];
+    for (const bx of wheels) {
+      const m: Vec3 = [(bx.min[0] + bx.max[0]) / 2, (bx.min[1] + bx.max[1]) / 2, (bx.min[2] + bx.max[2]) / 2];
+      if (!centres.some(q => Math.hypot(q[0] - m[0], q[1] - m[1], q[2] - m[2]) < P.WHEEL_MERGE)) centres.push(m);
+    }
+    if (centres.length < P.WHOLE_MIN_WHEELS) return false;
+    const along = centres.map(q => q[long]);
+    return Math.max(...along) - Math.min(...along) >= P.WHOLE_MIN_WHEEL_SPREAD * length;
+  }).map(c => ({ ...c, provenance: `whole model stands on its own wheels (the title names no vehicle): ${c.provenance.replace(/^vehicle standing in the scene: /, '')}` }));
+  return { components, candidates: found.candidates };
 }

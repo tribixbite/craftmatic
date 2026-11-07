@@ -384,7 +384,7 @@ export async function runSchemPipeline(
   if (input.format === 'mcaddon') {
     const { buildPlayableAddon, measureCoasterTrain } = await import('./playable-addon.js');
     const { bedrockExportNotes } = await import('./bedrock-export-notes.js');
-    const { discoverPlayableComponents, isWholeVehicleLabel, knownScreenAnchors, withPlayableBounds } = await import('./playable-components.js');
+    const { discoverPlayableComponents, isSceneryLabel, isWholeVehicleLabel, knownScreenAnchors, withPlayableBounds } = await import('./playable-components.js');
     const { DOOR_MAX_OFF_GRID_DEG, discoverSceneActors, settleLooseAccessories, applySceneDoors, measureSceneAccess, recommendAccessScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, yawForFacing, actorGroundLdu, groundLiftWarning } = await import('./bedrock-scene-actors.js');
     const { isFigurePart, isTorso, repairFigureTorsos, describeTorsoRepairs } = await import('./ldraw-entity-compiler.js');
     const { ACCESS_DOOR_MAX_OFF_GRID_DEG, accessMarginFor, borderMarginFor } = await import('./bedrock-interactives.js');
@@ -450,11 +450,17 @@ export async function runSchemPipeline(
       // become rideable where they stand; ride cars and trains stay the rail
       // engine's. Only in auto mode, and never for a title that IS a vehicle.
       if ((input.vehicleMode ?? 'auto') === 'auto' && !found.components.length && !isWholeVehicleLabel(label)) {
-        const { findSceneVehicles } = await import('./scene-vehicles.js');
+        const { findSceneVehicles, findWholeModelVehicles } = await import('./scene-vehicles.js');
         const inScene = findSceneVehicles(source.bricks, sourceMeshes);
         for (const component of inScene.components) found.components.push(withPlayableBounds({ ...component, label: `${label} ${component.label.toLowerCase()}` }));
         const judged = inScene.candidates.filter(c => c.kind || c.wheels || c.oars || c.hull);
         if (judged.length) warnings.push(`Scene vehicles: ${judged.map(c => `${c.kind ?? 'not a vehicle'} (${c.parts} placements at ${c.centre.join(', ')} LDU: ${c.reason})`).join('; ')}.`);
+        // Nothing small in a scene: the model may BE the car its title does not name (VEH-20).
+        if (!found.components.length && !isSceneryLabel(label)) {
+          const whole = findWholeModelVehicles(source.bricks, sourceMeshes);
+          for (const component of whole.components) found.components.push(withPlayableBounds({ ...component, label: whole.components.length === 1 ? label : `${label} ${component.label.toLowerCase()}` }));
+          if (whole.components.length) warnings.push(`Whole-model vehicle: ${whole.components.map(c => c.provenance).join('; ')}.`);
+        }
       }
       // A train that stands on its own railway track runs ON it (the coaster
       // engine, driven: bedrock-coaster.ts `RAIL_TRAIN_PHYSICS`), not as a free
