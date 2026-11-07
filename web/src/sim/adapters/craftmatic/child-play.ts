@@ -21,13 +21,16 @@ import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import type { Addon } from '../../pack/pack.js';
 import { readCraftmaticPack, type CraftmaticPack } from './pack-facts.js';
 import { wandHandlers } from './wand.js';
-import { FIGURE_TYPE, playHandlers, placedOf, staticDrawn, tapPart } from './play.js';
+import { COLLIDER_SLACK, FIGURE_TYPE, playHandlers, placedOf, staticDrawn, tapPart } from './play.js';
 import { registerAppearance, vehicleCourseHandlers } from './vehicle-course.js';
-import { packAppearance } from './drawn.js';
+import { drawnReaches, drawnTopOver, packAppearance } from './drawn.js';
 import { firstPersonSnapshot } from './snapshot.js';
-import { lookAt } from '../../input/touch.js';
-import { rayBox } from '../../core/vec.js';
-import { PLAYER_EYE_HEIGHT } from '../../physics/body.js';
+import { lookAt, pick } from '../../input/touch.js';
+import { pickBoxes } from '../../input/ray.js';
+import { rayBox, type Vec3 } from '../../core/vec.js';
+import { PLAYER_EYE_HEIGHT, PLAYER_HEIGHT } from '../../physics/body.js';
+import { quirkValue } from '../../quirks/registry.js';
+import { rayParallelepiped } from '../../../engine/oriented-box.js';
 import type { SimEntity } from '../../entity/entity.js';
 import type { DrawnBox } from './drawn.js';
 import type { AddonAppearance } from './appearance.js';
@@ -82,6 +85,13 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
         const label = pack.interactives?.items[idx]?.label ?? part.typeId;
         const state = (): string => JSON.stringify([part.dynamic.get(IX_KEYS.open), part.properties.get('craftmatic:angle')]);
         const before = state();
+        // No spot over the pack's colliders picks the part: when the MODEL itself offers none either (no drawn floor
+        // within reach with a clear line to it), the part is out of reach by the model's own geometry - noted, never
+        // tapped from wherever the child happens to stand (that tap picks whatever is in front, a second false finding).
+        if (!ctx.player.ridingOn && pick(ctx.sim.engine, ctx.player).entity !== part && !findApproach(ctx.sim.engine, ctx.player, part)) {
+          const why = outOfReachByModel(ctx, part, staticDrawn(ctx, appearance, pack), parts);
+          if (why) { ctx.note(`${label}: no standing spot within reach picks it - the MODEL's: ${why}`); await ctx.run(8); continue; }
+        }
         if (!await tapPart(ctx, part, label, () => state() !== before, pack)) {
           const refused = part.dynamic.get('craftmatic:ix_refused');
           const text = `no tap on ${label} from any spot within reach changed it${refused ? ` (the part refused: ${String(refused)})` : ''}`;
@@ -150,6 +160,65 @@ function hiddenByModel(ctx: StepContext, part: SimEntity, drawn: readonly DrawnB
     if (!opaque.some(b => rayBox(eye, u, b, len - SIGHT_MARGIN) !== undefined)) return undefined;
   }
   return spots.length;
+}
+
+/** The lattice step (blocks) `outOfReachByModel` stands the child on, across the reach round a part. */
+export const MODEL_REACH_STEP = 0.25;
+
+/**
+ * Why no child could tap `part` whatever the pack's colliders did, judged over what the MODEL draws: every standing
+ * spot within tap reach - a lattice over the reach round the part's pick boxes, on every drawn opaque top and the
+ * ground the model stands on, with a player's box free of drawn opaque geometry - either has its eye out of reach of
+ * the nearest pick box or something between the eye and it: an opaque static drawn cube, or ANOTHER moving part's
+ * pick box (a tap is picked by hit box: it takes that part). Returns the reason, or undefined when some spot sees the part in reach: the
+ * pack then denies a spot the model offers, its own fault (`tap-target-reachable` stands).
+ *
+ * The census case (2026-11-07): two recon_v3 brick-tub reconstructions stack 9-11 windows in one column, a block
+ * apart (5482's Windows 1-11, 5508's 5-13): the upper ones hang over no floor, and from the floors in reach of them
+ * the windows below stand in the line.
+ */
+export function outOfReachByModel(ctx: StepContext, part: SimEntity, statics: readonly DrawnBox[], parts: readonly SimEntity[]): string | undefined {
+  const boxes = pickBoxes(part);
+  if (!boxes.length) return undefined;
+  const reach = quirkValue('tap-is-hit', 'reachBlocks') - 0.5;
+  const lo = { x: Math.min(...boxes.map(b => b.x0)) - reach, y: Math.min(...boxes.map(b => b.y0)) - reach - PLAYER_EYE_HEIGHT, z: Math.min(...boxes.map(b => b.z0)) - reach };
+  const hi = { x: Math.max(...boxes.map(b => b.x1)) + reach, y: Math.max(...boxes.map(b => b.y1)) + reach, z: Math.max(...boxes.map(b => b.z1)) + reach };
+  const near = (b: DrawnBox['box']): boolean => b.x1 > lo.x && b.x0 < hi.x && b.y1 > lo.y && b.y0 < hi.y && b.z1 > lo.z && b.z0 < hi.z;
+  const opaque = statics.filter(d => !d.glass && near(d.box));
+  // Another moving part takes a tap aimed through its PICK box (the tap is picked by hit box, glass or not).
+  const others = parts.filter(e => e !== part && e.valid).flatMap(e => pickBoxes(e)).filter(near);
+  const ground = placedOf(ctx).from.y;
+  const blocks = (eye: Vec3, aim: Vec3): boolean => {
+    const d = { x: aim.x - eye.x, y: aim.y - eye.y, z: aim.z - eye.z }, len = Math.hypot(d.x, d.y, d.z);
+    if (len <= SIGHT_MARGIN) return false;
+    const u = { x: d.x / len, y: d.y / len, z: d.z / len }, max = len - SIGHT_MARGIN;
+    const hit = (b: DrawnBox): boolean => b.solid ? rayParallelepiped([eye.x, eye.y, eye.z], [u.x, u.y, u.z], b.solid, max) !== undefined : rayBox(eye, u, b.box, max) !== undefined;
+    return opaque.some(hit) || others.some(b => rayBox(eye, u, b, max) !== undefined);
+  };
+  let floors = 0, inReach = 0;
+  for (let x = lo.x; x <= hi.x + 1e-9; x += MODEL_REACH_STEP) for (let z = lo.z; z <= hi.z + 1e-9; z += MODEL_REACH_STEP) {
+    const tops = new Set<number>([ground]);
+    for (const d of opaque) { const t = drawnTopOver(d, x - 0.3, x + 0.3, z - 0.3, z + 0.3); if (t !== undefined && t >= lo.y && t <= hi.y) tops.add(t); }
+    for (const t of tops) {
+      // The player's box with the colliders' superset slack round it: a spot the drawn cubes leave free only by less
+      // than a collider's slack is the model's to deny, as a doorway stop is (`COLLIDER_SLACK`, `modelsObstacle`).
+      const g = COLLIDER_SLACK;
+      const body = { x0: x - 0.3 - g, x1: x + 0.3 + g, y0: t + 0.01, y1: t + PLAYER_HEIGHT, z0: z - 0.3 - g, z1: z + 0.3 + g };
+      if (opaque.some(d => drawnReaches(d, body, 0.001))) continue;
+      floors++;
+      const eye = { x, y: t + PLAYER_EYE_HEIGHT, z };
+      // The finger lands on the nearest pick box, inside it (as `nearPickPoint` aims).
+      for (const b of boxes) {
+        const aim = { x: Math.max(b.x0, Math.min(eye.x, b.x1)), y: Math.max(b.y0, Math.min(eye.y, b.y1)), z: Math.max(b.z0, Math.min(eye.z, b.z1)) };
+        if (Math.hypot(aim.x - eye.x, aim.y - eye.y, aim.z - eye.z) > reach) continue;
+        inReach++;
+        if (!blocks(eye, aim)) return undefined;
+      }
+    }
+  }
+  return inReach
+    ? `from all ${inReach} spots on a floor the model draws within reach of it, the model's own geometry or another moving part stands between the eye and it`
+    : `no floor the model draws puts the eye within reach of it (${floors} floors searched round it)`;
 }
 
 /** What child play builds: `quick` (short drives and lives), `shots` (pictures), `sizes` (the wand sizes placed; default 100 and 150). */
