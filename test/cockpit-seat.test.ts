@@ -14,7 +14,7 @@ import { extractFile } from '../web/src/engine/zip-utils.js';
 import { simHost } from './_sim-host.js';
 import { shippedSeatBoxes } from '../web/src/engine/ldraw-entity-compiler.js';
 import { parallelepipedFromCorners } from '../web/src/engine/oriented-box.js';
-import { ROOF_BODY_CLEAR, ROOF_MAX_LIFT, roofMap, surfaceOnTop, AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
+import { PASSENGER_DECK, passengerSurface, ROOF_BODY_CLEAR, ROOF_MAX_LIFT, roofMap, surfaceOnTop, AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const box = (min: Vec3, max: Vec3): BoxBlocks => ({ min, max });
@@ -298,6 +298,42 @@ describe('surfaceOnTop: what a rider on top sits on below 100 % (VEH-18)', () =>
     const lintel = roofMap([box([-2, 0, -4], [2, 1, 4]), box([-2, 1 + ROOF_BODY_CLEAR / 0.5 + 0.1, -4], [2, 1 + ROOF_BODY_CLEAR / 0.5 + 0.3, 4])])!;
     expect(surfaceOnTop(lintel, 0, 0, 1, 0.5)).toBeCloseTo(1, 3);
     expect(surfaceOnTop(lintel, 0, 0, 1, 0.25)).toBeCloseTo(1 + ROOF_BODY_CLEAR / 0.5 + 0.3, 3);
+  });
+});
+
+describe('passengerSurface: a passenger with no seat mould sits on the model (census 2026-11-06, VEH-20)', () => {
+  // A ship (entity frame, blocks at 100 %): a waist deck 4 wide with its top at 1, a
+  // quarterdeck aft (z 3..5) with its top at 3 where the helm is, a bow narrowing to 1 wide (z -5..-3), a mast
+  // at the waist's middle rising to 9. Until 2026-11-07 passengers were laid at the helm's height and x along
+  // the length: 2 over the waist, over open water beside the bow (4768, 6243), on the mast.
+  const ship = roofMap([
+    box([-2, 0, -3], [2, 1, 3]),
+    box([-1.5, 0, 3], [1.5, 3, 5]),
+    box([-0.5, 0, -5], [0.5, 1, -3]),
+    box([-0.125, 1, -0.125], [0.125, 9, 0.125]),
+  ])!;
+  const helmPan = 3;
+  it('sits a passenger on the waist deck under a raised helm, on the helm\'s own deck beside it', () => {
+    expect(passengerSurface(ship, 1, -1.5, helmPan)).toBeCloseTo(1, 3);
+    expect(passengerSurface(ship, 0.75, 4, helmPan)).toBeCloseTo(3, 3);
+  });
+  it('offers no seat where nothing is under the body (beside the narrowing bow) or the body has no air (the mast)', () => {
+    expect(passengerSurface(ship, 1.5, -4, helmPan)).toBeNull();
+    expect(passengerSurface(ship, 0, -4, helmPan)).toBeCloseTo(1, 3);
+    expect(passengerSurface(ship, 0, 0, helmPan)).toBeNull();
+  });
+  it('keeps a passenger within PASSENGER_DECK of the driver\'s pan: a deck further down is not the driver\'s', () => {
+    expect(passengerSurface(ship, 1, -1.5, 1 + PASSENGER_DECK.below + 0.5)).toBeNull();
+    expect(passengerSurface(ship, 1, -1.5, 1 + PASSENGER_DECK.below - 0.5)).toBeCloseTo(1, 3);
+  });
+  it('takes the surface nearest the driver\'s pan where a cabin roof stands over the deck', () => {
+    // A closed cabin over the waist: its roof (top 2.2) has air over it, the deck under it (1) has 1.0 of air - not
+    // ROOF_BODY_CLEAR; both lie within reach of a pan at 1.3, and only the roof is a seat.
+    const cabinShip = roofMap([box([-2, 0, -3], [2, 1, 3]), box([-1, 2, -1], [1, 2.2, 1])])!;
+    expect(passengerSurface(cabinShip, 0, 0, 1.3)).toBeCloseTo(2.2, 3);
+    // With room under the cabin roof the deck is the nearer.
+    const tall = roofMap([box([-2, 0, -3], [2, 1, 3]), box([-1, 1 + ROOF_BODY_CLEAR + 0.2, -1], [1, 1 + ROOF_BODY_CLEAR + 0.4, 1])])!;
+    expect(passengerSurface(tall, 0, 0, 1.3)).toBeCloseTo(1, 3);
   });
 });
 

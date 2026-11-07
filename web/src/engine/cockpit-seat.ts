@@ -825,6 +825,24 @@ export function roofMap(boxes: readonly BoxBlocks[], cell = ROOF_CELL): RoofMap 
  * body.
  */
 export function surfaceOnTop(map: RoofMap, x: number, z: number, from: number, f: number): number | null {
+  const col = bodyColumn(map, x, z, f);
+  if (!col) return null;
+  const { spans, support, room } = col;
+  // The pan itself, if the model holds it up (a span reaching it) or it is the floor.
+  if (room(from) && (from <= 0.02 || spans.some(([a, b]) => a <= from + 0.02 && b >= from - 0.02))) return from;
+  for (const [, top] of support) if (top >= from - 0.02 && top <= from + ROOF_MAX_LIFT && room(top)) return top;
+  return from;
+}
+
+/**
+ * The model's column under a seated body at (x, z), wand factor `f` (the
+ * body 1/f as big in the model's frame): `spans`, everything in any cell the
+ * body's footprint (`ROOF_BODY_HALF`) touches; `support`, only the cells
+ * whose centre lies under the body (an edge cell holds parts wholly beside
+ * it); `room(y)`, whether the body sits on `y` with nothing in its air
+ * (`ROOF_BODY_CLEAR`). null: nothing of the map under the footprint.
+ */
+function bodyColumn(map: RoofMap, x: number, z: number, f: number): { spans: Array<[number, number]>; support: Array<[number, number]>; room: (y: number) => boolean } | null {
   const half = ROOF_BODY_HALF / f, clear = ROOF_BODY_CLEAR / f;
   const i0 = Math.max(0, Math.floor((x - half - map.x0) / map.cell)), i1 = Math.min(map.nx - 1, Math.floor((x + half - map.x0) / map.cell));
   const k0 = Math.max(0, Math.floor((z - half - map.z0) / map.cell)), k1 = Math.min(map.nz - 1, Math.floor((z + half - map.z0) / map.cell));
@@ -844,10 +862,40 @@ export function surfaceOnTop(map: RoofMap, x: number, z: number, from: number, f
   const spans = mergeSpans(pairs), support = mergeSpans(held);
   /** Whether the body sits on `y` with nothing of the model in the air over it (a hair of overlap allowed). */
   const room = (y: number): boolean => !spans.some(([a, b]) => b > y + 0.02 && a < y + clear - 0.02);
-  // The pan itself, if the model holds it up (a span reaching it) or it is the floor.
-  if (room(from) && (from <= 0.02 || spans.some(([a, b]) => a <= from + 0.02 && b >= from - 0.02))) return from;
-  for (const [, top] of support) if (top >= from - 0.02 && top <= from + ROOF_MAX_LIFT && room(top)) return top;
-  return from;
+  return { spans, support, room };
+}
+
+/**
+ * How far from the driver's seat pan (blocks at 100 %) a passenger with no
+ * seat mould may sit, down and up: a ship's deck stands a few blocks under its
+ * helm on a raised stern (31109's main deck 2-3 under the quarterdeck, 4768's
+ * waist 2.9 under its helm), and up no further than a rider on top is lifted
+ * (`ROOF_MAX_LIFT`).
+ */
+export const PASSENGER_DECK = { below: 4, above: ROOF_MAX_LIFT } as const;
+
+/**
+ * Where a passenger with no seat mould sits at (x, z) (entity frame, blocks at
+ * 100 %): on a surface the model holds up under the body's own footprint, with
+ * room for the seated body over it, within `PASSENGER_DECK` of the driver's
+ * seat pan `pan` - the one nearest that pan, so passengers share the driver's
+ * deck. Returns the surface's top (the hips sit `ROOF_SEAT_BELOW_SURFACE`
+ * under it, as on top); null where there is none: that passenger is not
+ * offered. Until 2026-11-07 such seats were laid at the driver's own height
+ * and x along the length, blind to the model: over open water beside a ship's
+ * narrowing hull (4768, 6243), 6-9 blocks over the deck behind a driver whose
+ * eye had left the cabin (31109), or over a car's open back (5585; census
+ * 2026-11-06, VEH-20).
+ */
+export function passengerSurface(map: RoofMap, x: number, z: number, pan: number): number | null {
+  const col = bodyColumn(map, x, z, 1);
+  if (!col) return null;
+  let best: number | null = null;
+  for (const [, top] of col.support) {
+    if (top < pan - PASSENGER_DECK.below - 1e-9 || top > pan + PASSENGER_DECK.above + 1e-9 || !col.room(top)) continue;
+    if (best === null || Math.abs(top - pan) < Math.abs(best - pan)) best = top;
+  }
+  return best;
 }
 
 /**
