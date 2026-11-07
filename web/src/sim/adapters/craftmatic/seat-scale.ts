@@ -47,7 +47,7 @@ import type { Box, Vec3 } from '../../core/vec.js';
 import { EntityDefinitions, type Components, type EntityDefinition } from '../../entity/definitions.js';
 import { packFiles, type Pack } from '../../pack/pack.js';
 import { quirkValue } from '../../quirks/registry.js';
-import { ROOF_BODY_CLEAR, ROOF_CELL, ROOF_MAX_LIFT, ROOF_SEAT_BELOW_SURFACE, ridesOnTopAt } from '../../../engine/cockpit-seat.js';
+import { ROOF_BODY_CLEAR, ROOF_BODY_HALF, ROOF_CELL, ROOF_MAX_LIFT, ROOF_SEAT_BELOW_SURFACE, ridesOnTopAt } from '../../../engine/cockpit-seat.js';
 import type { AddonAppearance } from './appearance.js';
 import { drawnBoxes, drawnTopOver, type DrawnBox } from './drawn.js';
 
@@ -158,12 +158,16 @@ export function seatOnTop(seat: Vec3, place: SeatPlace, drift: SeatDrift, scale:
   // Lifted no further than `ROOF_MAX_LIFT` (scaled) over the seat scaled once: never onto a ship's masthead.
   if (seat.y - drift.yBand[1] > ROOF_MAX_LIFT * scale + tolerance.drift) return false;
   const fp = tolerance.footprint + ROOF_CELL * scale, hips = seat.y + ROOF_SEAT_BELOW_SURFACE, tol = tolerance.drift;
-  const under = drawn.filter(({ box: b }) => b.x1 > seat.x - fp && b.x0 < seat.x + fp && b.z1 > seat.z - fp && b.z0 < seat.z + fp);
-  const sits = hips <= tol || under.some(d => {
+  const within = (half: number) => drawn.filter(({ box: b }) => b.x1 > seat.x - half && b.x0 < seat.x + half && b.z1 > seat.z - half && b.z0 < seat.z + half);
+  // The surface may be found a map cell wide of the body (lenient: the pack's map reads whole cells) ...
+  const sits = hips <= tol || within(fp).some(d => {
     const t = drawnTopOver(d, seat.x - fp, seat.x + fp, seat.z - fp, seat.z + fp);
     return Math.abs(d.box.y1 - hips) <= tol || (t !== undefined && Math.abs(t - hips) <= tol);
   });
-  const clear = !under.some(({ box: b }) => b.y1 > hips + tol && b.y0 < hips + ROOF_BODY_CLEAR - 0.05);
+  // ... but the body's air is the BODY's (`ROOF_BODY_HALF`): widened by the cell too, the ring outside a 0.6-block
+  // body made the test stricter than the rule. Census 2026-11-06: 10 sets' on-top seats were refused only on
+  // parts in that ring (a rail, a mirror beside the seat), none inside the body.
+  const clear = !within(ROOF_BODY_HALF).some(({ box: b }) => b.y1 > hips + tol && b.y0 < hips + ROOF_BODY_CLEAR - 0.05);
   return sits && clear;
 }
 
