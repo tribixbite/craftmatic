@@ -25,7 +25,11 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
      (2263, 31060, 3366, 3648, 42075, 6753, 7345, 7476, 76915, 8898, 8969); favourites unchanged. Guards: over a quarter
      of the model, >= 4 wheels spread over half its length, not taller than long, no scenery title. Still OPEN:
      planes on wheels ride as cars (31060, 7345: `TODO(whole-plane)`), a train with no track (4841), a 3-wheel
-     chopper (6866), a 2-wheel bike with no title word.
+     chopper (6866), a 2-wheel bike with no title word, and a plane inside a scene: 6863 Batwing stays static, because
+     its title also names a city and no plane finder exists for scenes. Rebuilt on the branch
+     (`.worktrees/gen-veh-1106/output/gen-veh-1106-sim.md`): 12 of the 13 now ride, and 6 pass every scenario. The rest
+     fail known classes: seat drift below 100 % (3648, 76915, 8898, 8969), seats beside the hull (7345), and the
+     driver view (31060).
   2. **The driver sees out** (`driver-sees-ahead`): 10 sets plus 8638's third jet. Branch `gen-view-1106`
      (worktree `.worktrees/gen-view-1106`, NOT merged) has these fixes:
      - `2e736edf` (the sim read a turned cube by its corner box; this cleared 9396);
@@ -42,7 +46,7 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
      shape-aware ray test, since 8487 car 4's eye moved 0.58 block on corner boxes. The full suite has not been run on
      the branch. The base-commit worktree `.worktrees/gen-view-base` is left in place, because removing it would be a
      recursive delete.
-  3. **Seat drifts below 100 %** (`seat-on-vehicle` DRIFTS at 75/50 %): 7 sets, 3222, 41681, 42229, 4997, 5489, 5887
+  3. (A fork agent is investigating, on branch `gen-view-1106`.) **Seat drifts below 100 %** (`seat-on-vehicle` DRIFTS at 75/50 %): 7 sets, 3222, 41681, 42229, 4997, 5489, 5887
      and 7213, plus the favourite 910047. The same class as the baseline's only failure.
   4. **Extra seats beside the hull or over the drawn top**: 5 sets, 31109, 41681, 4768, 5585 and 6243. Mostly ships:
      the passenger seats run off the deck.
