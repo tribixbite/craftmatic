@@ -46,6 +46,28 @@ export function parallelepipedFromCorners(k: readonly (readonly number[])[]): Pa
   return parallelepiped(o, [edge(1), edge(2), edge(4)]);
 }
 
+/**
+ * Where a ray from `o` along `d` first meets a parallelepiped, within `maxDistance` (the units of `d`), or
+ * undefined when it misses: the slab test in the parallelepiped's own unit frame (`inv`, where it is the unit
+ * cube). An origin inside it meets it at 0. A TURNED cube's corner box holds air beside the cube, so a line of
+ * sight read against that box is blocked where the cube is not (census 2026-11-06: 9396's helicopter, yaw
+ * -168, saw the horizon along 4 of 6 rays by corner boxes and 6 of 6 by the cubes).
+ */
+export function rayParallelepiped(o: readonly number[], d: readonly number[], p: Parallelepiped, maxDistance = Infinity): number | undefined {
+  const m = p.inv, rel = [o[0]! - p.o[0], o[1]! - p.o[1], o[2]! - p.o[2]];
+  let t0 = 0, t1 = maxDistance;
+  for (let r = 0; r < 3; r++) {
+    const lo = m[r * 3]! * rel[0]! + m[r * 3 + 1]! * rel[1]! + m[r * 3 + 2]! * rel[2]!;
+    const ld = m[r * 3]! * d[0]! + m[r * 3 + 1]! * d[1]! + m[r * 3 + 2]! * d[2]!;
+    if (Math.abs(ld) < 1e-12) { if (lo < 0 || lo > 1) return undefined; continue; }
+    let a = -lo / ld, c = (1 - lo) / ld;
+    if (a > c) [a, c] = [c, a];
+    t0 = Math.max(t0, a); t1 = Math.min(t1, c);
+    if (t0 > t1) return undefined;
+  }
+  return t0;
+}
+
 /** Whether a parallelepiped's edges all lie along the axes (it IS its corner box). */
 export function isAxisAligned(p: Parallelepiped, eps = 1e-6): boolean {
   return p.e.every(v => {
