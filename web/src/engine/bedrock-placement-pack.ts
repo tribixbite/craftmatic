@@ -4,6 +4,7 @@ import { WalkWorld, tickPlayer, type PlayerState } from './addon-walk.js';
 import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
 import { IDENTITY, boneTransforms, cubeCorners, drawnCubeBox } from './bedrock-geometry-faces.js';
 import type { BoxBlocks } from './cockpit-seat.js';
+import { isAxisAligned, parallelepipedFromCorners } from './oriented-box.js';
 import { BOARD, type BoardPoint } from './bedrock-vehicle.js';
 
 declare const world: any;
@@ -498,7 +499,9 @@ export function geometryEntityBoxes(geometry: unknown): BoxBlocks[] {
       const d = drawnCubeBox(cube);
       const corners = cubeCorners({ bone: bone.name, origin: d.origin, size: d.size, ...(cube.rotation && cube.pivot ? { rotation: cube.rotation, pivot: cube.pivot } : {}) }, transforms.get(bone.name) ?? IDENTITY);
       const xs = corners.map(p => p[0] / 16), ys = corners.map(p => p[1] / 16), zs = corners.map(p => (p[2] === 0 ? 0 : -p[2] / 16));
-      out.push({ min: [Math.min(...xs), Math.min(...ys), Math.min(...zs)], max: [Math.max(...xs), Math.max(...ys), Math.max(...zs)] });
+      // A turned cube also carries itself (`solid`, the same Z mirror): its corner box is not where it is.
+      const solid = parallelepipedFromCorners(corners.map((_, i) => [xs[i]!, ys[i]!, zs[i]!]));
+      out.push({ min: [Math.min(...xs), Math.min(...ys), Math.min(...zs)], max: [Math.max(...xs), Math.max(...ys), Math.max(...zs)], ...(solid && !isAxisAligned(solid) ? { solid } : {}) });
     }
   }
   return out;

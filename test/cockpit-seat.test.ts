@@ -13,6 +13,7 @@ import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile } from '../web/src/engine/zip-utils.js';
 import { simHost } from './_sim-host.js';
 import { shippedSeatBoxes } from '../web/src/engine/ldraw-entity-compiler.js';
+import { parallelepipedFromCorners } from '../web/src/engine/oriented-box.js';
 import { ROOF_BODY_CLEAR, ROOF_MAX_LIFT, roofMap, surfaceOnTop, AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -236,6 +237,25 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
 });
 
 describe('surfaceOnTop: what a rider on top sits on below 100 % (VEH-18)', () => {
+  it('reads a turned part by its shape: its corner box over the seat is no seat (8969 at 75 %: the rider 1.04 over the drawn top)', () => {
+    // A deck 0..1 and a beam turned 45 degrees about y, 2.83 long and 0.2 thick, standing 1..2 on the line x + z = 1.3:
+    // its corner box (x and z -0.42..1.72) covers the seat at the origin, the beam itself passes 0.92 block away -
+    // past the body (0.4 either side at 75 %).
+    const a = Math.PI / 4, c = Math.cos(a), sn = Math.sin(a), cx = 0.65, cz = 0.65;
+    const corners = [0, 1, 2, 3, 4, 5, 6, 7].map(i => {
+      const lx = i & 1 ? Math.SQRT2 : -Math.SQRT2, lz = i & 4 ? 0.1 : -0.1;
+      return [cx + c * lx + sn * lz, i & 2 ? 2 : 1, cz - sn * lx + c * lz];
+    });
+    const xs = corners.map(q => q[0]!), zs = corners.map(q => q[2]!);
+    const beam: BoxBlocks = { min: [Math.min(...xs), 1, Math.min(...zs)], max: [Math.max(...xs), 2, Math.max(...zs)], solid: parallelepipedFromCorners(corners)! };
+    const deck = box([-2, 0, -4], [2, 1, 4]);
+    // Its corner box reaches over the seat ...
+    expect(beam.min[0]).toBeLessThan(-0.4);
+    expect(beam.min[2]).toBeLessThan(-0.4);
+    // ... read as a box it is a roof 2 over the deck; read by its shape the rider stays on the deck.
+    expect(surfaceOnTop(roofMap([deck, { min: beam.min, max: beam.max }])!, 0, 0, 1, 0.75)).toBeCloseTo(2, 3);
+    expect(surfaceOnTop(roofMap([deck, beam])!, 0, 0, 1, 0.75)).toBeCloseTo(1, 3);
+  });
   it('never sits on a part beside the body that only shares an edge map cell (8969, 910047: riders floated 1.04-1.09 over the top under them)', () => {
     // At 75 % the body is 0.4 (model) either side of its seat: a seat at x 0.1 reaches 0.5, so its footprint touches
     // the cell 0.5..0.75 (cells from the deck's edge at -2). A rail 0.55..0.6 standing to 2.0 lies wholly beside the
