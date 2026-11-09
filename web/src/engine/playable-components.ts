@@ -277,7 +277,7 @@ function discoverTitled(
   // the file may carry the vehicle's display and driver beside it: a named
   // vehicle submodel is preferred when it dominates, and everything that does
   // not physically touch the vehicle is left behind.
-  if (mode === 'auto' && isWholeVehicleLabel(label)) {
+  if (heuristics && mode === 'auto' && isWholeVehicleLabel(label)) {
     const named = dominantNamedGroup(bricks, kind);
     if (!named) return { components: [withBounds({ id: kind, label, kind, bricks, provenance: 'whole model identified by source title' })], warnings: [] };
     const name = named.name.replace(/\.(ldr|mpd|dat)$/i, '');

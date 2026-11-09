@@ -812,6 +812,7 @@ export async function runSchemPipeline(
         if (d.skippedSmall) warnings.push(`${d.skippedSmall} door lea${d.skippedSmall === 1 ? 'f' : 'ves'} under two blocks tall left as blocks.`);
         if (d.skippedOutside) warnings.push(`${d.skippedOutside} door lea${d.skippedOutside === 1 ? 'f' : 'ves'} fell outside the export bounds.`);
       }
+      // X-17: `input` carries the packProfile; knownScreenAnchors applies labelHeuristicsAllowed to it.
       if (sourceOrigin) for (const anchor of knownScreenAnchors(label, input)) {
         const [x, y, z] = sceneGridPoint(sourceOrigin, [anchor.ldraw[0], anchor.ldraw[1], anchor.ldraw[2]]);
         screens.push({ id: anchor.id, label: anchor.label, x, y, z });

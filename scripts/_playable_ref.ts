@@ -7,7 +7,7 @@
  * Usage: bun scripts/_playable_ref.ts <model.io|.mpd|.ldr> [out.mcaddon]
  *          [--quality=balanced|high|ultra] [--mode=auto|car|plane|boat]
  *          [--track-grain=N]  (coaster/train track kept at N LDU over the shell budget, FID-02; default 2 like the LEGO tab, 0 = the budget decides)
- *          [--facing=auto|+x|-x|+z|-z] [--label=<text>] [--no-pbr] [--camera=orbit|boom] [--main-only]
+ *          [--facing=auto|+x|-x|+z|-z] [--label=<text>] [--no-pbr] [--profile=<PackProfile.json>] [--camera=orbit|boom] [--main-only]
  *          [--buildings=bricks|blocks]   (bricks: the building as a brick-accurate shell entity over colliders)
  *          [--scale=auto|0.25|0.5|0.75|1|1.5|2|3|4]   (model scale as a multiplier of the minifig scale, engine/addon-scale.ts)
  *          [--lod=none|hull] [--lod-distance=N]   (default hull: a resident per-colour surface hull the client draws past N; engine/bedrock-lod-hull.ts)
@@ -21,6 +21,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { basename, join } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { seedFaceArt } from '../web/src/engine/head-face.ts';
+import type { PackProfile } from '../web/src/engine/pack-profile.ts';
+import pako from 'pako';
 import { createHash } from 'node:crypto';
 import { extractIoModel } from '../web/src/engine/io-extractor.ts';
 import { embeddedPartTexts, parseLDrawDocument } from '../web/src/engine/ldraw-parser.ts';
@@ -92,6 +94,13 @@ function decodePngRgba(bytes: Buffer): { width: number; height: number; rgba: Ui
 // LDraw library prints, one `<part>.png` per head name (`3626cpb3484.png`).
 // The compiler draws it on the head as a texture (engine/head-face.ts).
 const facesDir = process.argv.find(a => a.startsWith('--faces='))?.slice('--faces='.length);
+// `--profile=<json>`: a `PackProfile` (web/src/engine/pack-profile.ts) as JSON; the deflate is injected here (pako, the same
+// bytes on every machine), because JSON cannot carry a function. A release profile refuses `--faces` (no face art).
+const profileFile = process.argv.find(a => a.startsWith('--profile='))?.slice('--profile='.length);
+const packProfile: PackProfile | undefined = profileFile
+  ? { ...(JSON.parse(readFileSync(profileFile, 'utf8')) as PackProfile), deflate: (d: Uint8Array) => pako.deflateRaw(d, { level: 9 }) }
+  : undefined;
+if (facesDir && packProfile?.flags?.faceArt === false) { console.error('--faces conflicts with a profile that sets flags.faceArt=false'); process.exit(2); }
 if (facesDir) {
   const art = readdirSync(facesDir).filter(n => /^[0-9a-z]+\.png$/i.test(n))
     .map(n => [n.replace(/\.png$/i, ''), decodePngRgba(readFileSync(join(facesDir, n)))] as [string, { width: number; height: number; rgba: Uint8Array }]);
@@ -252,6 +261,7 @@ const result = await runSchemPipeline({
   ...(flag('figure-collision-height') ? { figureCollisionHeight: Number(flag('figure-collision-height')) } : {}),
   pipelineStamp,
   sourceProvenance,
+  ...(packProfile ? { packProfile } : {}),
 }, (phase, pct) => { if (process.env.VERBOSE) console.error(`  ${phase}${pct !== undefined ? ` ${pct}%` : ''}`); });
 const ms = Date.now() - t0;
 
