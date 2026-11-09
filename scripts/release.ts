@@ -52,10 +52,14 @@ import { spawnSync } from 'node:child_process';
 import { PRODUCT_ID_PATTERN, parseProduct, validateProduct } from '../web/src/release/product.js';
 import { sha256Hex, sha256sumsText } from '../web/src/release/checksums.js';
 import {
-  applyWaivers, approvalItems, brickBlockProblems, placementProblems, RELEASE_PROFILE_FLAGS, channelStub, CHANNELS, openGates, pendingGates, preconditionProblems, profileProblems, renderApproval, renderNotice,
+  applyWaivers, approvalItems, brickBlockProblems, pinProblems, placementProblems, RELEASE_PROFILE_FLAGS, channelStub, CHANNELS, openGates, pendingGates, preconditionProblems, profileProblems, renderApproval, renderNotice,
   resolveVersion, type ApprovalAction, type Gate, type GateWaiver, type ValidationFile,
 } from '../web/src/release/prepare.js';
-import { packIds } from '../web/src/release/prepare-rebuild.js';
+import {
+  compareArtifacts, ledgerEntryFor, packIds, releaseStatus, releaseTag, renderStatus, tagProblems,
+  type FinalizeRecord, type PackIds, type PreparedFolder,
+} from '../web/src/release/prepare-rebuild.js';
+import { appendLedgerEntry, checkLedgerAppend } from '../web/src/release/identity-ledger.js';
 import { compareSemVer, formatSemVer, parseSemVer, toManifestTriple } from '../web/src/release/semver.js';
 import type { IdentityLedgerEntry, ProductRecord, ReleasedVersion, SemVer } from '../web/src/release/types.js';
 
@@ -318,8 +322,9 @@ function prepare(productId: string | undefined, argv: string[]): number {
       gates.push({ id: 'mct', title: 'mct validate (Minecraft Creator Tools)', status: 'not-run', detail: 'skipped by CRAFTMATIC_RELEASE_MCT=skip-for-test (test runs do not start bunx); run it for a real release (needs U13: the EULA)' });
     } else {
       const m = runBun(wt.path, [join(wt.path, 'scripts', 'release-mctools.ts'), archives[0]!, '--json'], {}, 15 * 60_000);
-      let report: { status: string; errors?: number; warnings?: number; reason?: string } | null = null;
-      try { report = JSON.parse(m.stdout) as typeof report; } catch { report = null; }
+      type MctReport = { status: string; errors?: number; warnings?: number; reason?: string };
+      const parseReport = (text: string): MctReport | null => { try { return JSON.parse(text) as MctReport; } catch { return null; } };
+      const report = parseReport(m.stdout);
       if (!report) gates.push({ id: 'mct', title: 'mct validate', status: 'not-run', detail: `mct output was not JSON (exit ${m.status}): ${lastLines(m.stdout + m.stderr)}` });
       else if (report.status === 'not-run') gates.push({ id: 'mct', title: 'mct validate', status: 'not-run', detail: report.reason ?? 'mct did not run' });
       else gates.push({ id: 'mct', title: 'mct validate', status: (report.errors ?? 1) === 0 ? 'pass' : 'fail', detail: `${report.errors} error(s), ${report.warnings} warning(s)` });
@@ -573,13 +578,170 @@ async function make(specFile: string): Promise<void> {
 }
 
 /* ------------------------------------------------------------------------------------------------------------- */
+/* finalize / verify: rebuild a prepared release from its tag and compare every sha256                          */
+/* ------------------------------------------------------------------------------------------------------------- */
+
+const SEMVER_DIR = /^\d+\.\d+\.\d+$/;
+
+/** Where prepared releases live: `<releases>/<product>/<version>/`. */
+const releasesDir = (): string => resolve(process.env.CRAFTMATIC_RELEASES_DIR ?? join(ROOT, 'output', 'releases'));
+
+/** The commit a tag points at, or null when there is no such tag. Never creates or moves a tag. */
+function tagCommitOf(tag: string): string | null {
+  const r = spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}^{commit}`], { cwd: ROOT, encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim() : null;
+}
+
+/** The first free `<dir>/<version>-<n>` folder (never reused, never removed). */
+function freshRebuildDir(dir: string, versionText: string): string {
+  for (let n = 1; ; n++) {
+    const path = join(dir, `${versionText}-${n}`);
+    if (!existsSync(path)) return path;
+  }
+}
+
+/** Value of `--name <value>` in `argv`. */
+const flagOf = (argv: string[], name: string): string | undefined => { const i = argv.indexOf(`--${name}`); return i >= 0 ? argv[i + 1] : undefined; };
+
+/**
+ * `finalize <product> <version>` and `verify <product> <version>`: rebuild the prepared release in a NEW worktree of its
+ * tag and require every artifact's sha256 to equal the prepared one.
+ *
+ * - `finalize` needs the tag the USER created (this script never makes one); a tag on another commit than the one the
+ *   release was prepared from is refused. On a match it writes `finalize.json` and `ledger-entry.json` beside the
+ *   prepared release (never overwriting), and with `--write-ledger` appends the entry to the identity ledger and the
+ *   product's `versions` (files for the user to commit).
+ * - `verify` is read-only: it rebuilds from the tag (or, while there is none, the prepared commit) and compares. It
+ *   writes only its rebuild folder.
+ */
+function rebuild(mode: 'finalize' | 'verify', productId: string | undefined, versionText: string | undefined, argv: string[]): number {
+  const usage = `usage: release.ts ${mode} <product> <version> [--prepared <dir>] [--tag <name>]${mode === 'finalize' ? ' [--device-evidence <id>] [--write-ledger]' : ''}`;
+  if (!productId || !PRODUCT_ID_PATTERN.test(productId) || !versionText) { console.error(usage); return 2; }
+  const refuse = (...lines: string[]): number => { console.error(`${mode} ${productId} ${versionText} refused:\n${lines.map(l => `  - ${l}`).join('\n')}`); return 1; };
+  let version: SemVer;
+  try { version = parseSemVer(versionText); } catch (e) { return refuse((e as Error).message); }
+  versionText = formatSemVer(version);
+
+  const dataRoot = resolve(process.env.CRAFTMATIC_RELEASE_DATA ?? join(ROOT, 'release'));
+  const fixture = dataRoot !== resolve(join(ROOT, 'release'));
+  const prepared = resolve(flagOf(argv, 'prepared') ?? join(releasesDir(), productId, versionText));
+  const releaseFile = join(prepared, 'release.json');
+  if (!existsSync(releaseFile)) return refuse(`no prepared release at ${prepared} (release.json is missing); run prepare, or pass --prepared <dir>`);
+  const record = readJson<ReleasedVersion>(releaseFile);
+  if (formatSemVer(record.version) !== versionText) return refuse(`${releaseFile} is version ${formatSemVer(record.version)}`);
+  if (mode === 'finalize' && existsSync(join(prepared, 'finalize.json'))) return refuse(`already finalized (${join(prepared, 'finalize.json')} exists; nothing is overwritten)`);
+
+  // The tag: the user's, never ours. `verify` falls back to the prepared commit while nobody has tagged it.
+  const tag = flagOf(argv, 'tag') ?? releaseTag(productId, version);
+  const tagCommit = tagCommitOf(tag);
+  if (mode === 'finalize' || tagCommit !== null) {
+    const bad = tagProblems(tag, tagCommit, record.commit);
+    if (bad.length > 0) return refuse(...bad);
+  }
+  const ref = tagCommit ?? record.commit;
+  if (tagCommit === null) console.log(`note: tag ${tag} does not exist; verifying the prepared commit ${record.commit}`);
+
+  // ---- a NEW worktree of the tag; the data, pins and build description are the TAG's own ----
+  const wt = newWorktree(productId, versionText, ref);
+  const wtData = fixture ? dataRoot : join(wt.path, 'release');
+  const productFile = join(wtData, 'products', `${productId}.json`);
+  const buildFile = join(wtData, 'builds', `${productId}.json`);
+  if (!existsSync(productFile) || !existsSync(buildFile)) return refuse(`${ref} has no product record or build description for ${productId} (${productFile}, ${buildFile})`);
+  const product = parseProduct(readFileSync(productFile, 'utf8'));
+  const build = readJson<BuildSidecar>(buildFile);
+  const ldrawRef = ldrawRefDir();
+  const archive = ldrawRef ? join(ldrawRef, '_archives', product.toolchain.ldrawLibrary.archive) : null;
+  const lockFile = join(wt.path, 'bun.lock');
+  const pins = pinProblems(product, {
+    bunVersion: bunVersion(),
+    lockfileSha256: existsSync(lockFile) ? sha256Hex(readFileSync(lockFile)) : null,
+    ldrawArchiveSha256: archive && existsSync(archive) ? sha256Hex(readFileSync(archive)) : null,
+  });
+  if (pins.length > 0) return refuse(...pins);
+
+  // ---- rebuild, offline, from the tag's own code ----
+  const out = resolve(flagOf(argv, 'out') ?? freshRebuildDir(join(dirname(prepared), 'rebuilds'), versionText));
+  if (existsSync(out) && readdirSync(out).length > 0) return refuse(`${out} already holds files (use --out <new folder>)`);
+  mkdirSync(out, { recursive: true });
+  const ran = runMake(wt, { product, version, dataRoot: wtData, build, ldrawRef: ldrawRef!, out, clockMs: wt.commitSeconds * 1000, rebuild: true });
+  if ('crash' in ran) return refuse(ran.crash);
+  const failedGates = ran.made.gates.filter(g => g.status === 'fail');
+  if (failedGates.length > 0) return refuse(...failedGates.map(g => `rebuild gate ${g.id} failed: ${g.detail}`));
+  const rebuilt = ran.made.artifacts.map(n => {
+    const data = new Uint8Array(readFileSync(join(out, 'dist', n)));
+    return { file: `dist/${n}`, sha256: sha256Hex(data), bytes: data.length };
+  });
+  const differences = compareArtifacts(record.artifacts, rebuilt);
+  if (differences.length > 0) return refuse(...differences, `rebuild kept in ${out}; worktree ${wt.path}`);
+  console.log(`rebuild from ${tagCommit === null ? `commit ${ref}` : `tag ${tag} (${ref})`} is identical: ${rebuilt.map(a => `${a.file} ${a.sha256}`).join(', ')}`);
+  console.log(`  rebuild folder: ${out}`);
+  if (mode === 'verify') return 0;
+
+  // ---- finalize: record it for the user's commit ----
+  const ids = readJson<PackIds>(join(out, 'pack-ids.json'));
+  const entry = ledgerEntryFor(product, versionText, ids, rebuilt);
+  const ledgerFile = join(dataRoot, 'identity-ledger.json');
+  const ledger = existsSync(ledgerFile) ? readJson<IdentityLedgerEntry[]>(ledgerFile) : [];
+  const ledgerBad = checkLedgerAppend(ledger, entry, product);
+  if (ledgerBad.length > 0) return refuse(...ledgerBad.map(p => `identity ledger: ${p}`));
+  const deviceEvidence = flagOf(argv, 'device-evidence') ?? null;
+  const finalize: FinalizeRecord = { product: productId, version: versionText, tag, tagCommit: tagCommit!, preparedCommit: record.commit, rebuild: out, artifacts: rebuilt, deviceEvidence };
+  writeFileSync(join(prepared, 'finalize.json'), `${JSON.stringify(finalize, null, 2)}\n`, { flag: 'wx' });
+  writeFileSync(join(prepared, 'ledger-entry.json'), `${JSON.stringify(entry, null, 2)}\n`, { flag: 'wx' });
+  console.log(`finalized ${productId} ${versionText}: ${join(prepared, 'finalize.json')}`);
+  if (deviceEvidence === null) console.log('  no --device-evidence given: the release records no device round (U16); say so before publishing');
+  if (argv.includes('--write-ledger')) {
+    writeFileSync(ledgerFile, `${JSON.stringify(appendLedgerEntry(ledger, entry, product), null, 2)}\n`);
+    // The registry mirrors the ledger (types.ts: ProductRecord.versions).
+    const registry = readJson<ProductRecord>(join(dataRoot, 'products', `${productId}.json`));
+    registry.versions = [...registry.versions, { ...record, tag, deviceEvidence }];
+    writeFileSync(join(dataRoot, 'products', `${productId}.json`), `${JSON.stringify(registry, null, 2)}\n`);
+    console.log(`  appended to ${ledgerFile} and products/${productId}.json: review and commit them`);
+  } else {
+    console.log(`  to freeze the identity, re-run with --write-ledger, or append ${join(prepared, 'ledger-entry.json')} to ${ledgerFile} yourself, then commit`);
+  }
+  return 0;
+}
+
+/* ------------------------------------------------------------------------------------------------------------- */
+/* status                                                                                                         */
+/* ------------------------------------------------------------------------------------------------------------- */
+
+/** `status [<product>]`: every product's prepared, finalized and released versions. */
+function status(productId: string | undefined): number {
+  const dataRoot = resolve(process.env.CRAFTMATIC_RELEASE_DATA ?? join(ROOT, 'release'));
+  const dir = join(dataRoot, 'products');
+  const products = productId ? [productId] : existsSync(dir) ? readdirSync(dir).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5)).sort() : [];
+  const ledgerFile = join(dataRoot, 'identity-ledger.json');
+  const ledger = existsSync(ledgerFile) ? readJson<IdentityLedgerEntry[]>(ledgerFile) : [];
+  const folders: PreparedFolder[] = [];
+  for (const product of products) {
+    const base = join(releasesDir(), product);
+    if (!existsSync(base)) continue;
+    for (const version of readdirSync(base).filter(n => SEMVER_DIR.test(n))) {
+      const release = join(base, version, 'release.json');
+      const finalize = join(base, version, 'finalize.json');
+      folders.push({
+        product, version,
+        ...(existsSync(release) ? { release: readJson<ReleasedVersion>(release) } : {}),
+        ...(existsSync(finalize) ? { finalize: readJson<FinalizeRecord>(finalize) } : {}),
+      });
+    }
+  }
+  process.stdout.write(renderStatus(releaseStatus(products, ledger, folders)));
+  return 0;
+}
+
+/* ------------------------------------------------------------------------------------------------------------- */
 
 const [command, arg, ...rest] = process.argv.slice(2);
 try {
   if (command === 'init-product') process.exit(initProduct(arg));
   if (command === 'prepare') process.exit(prepare(arg, rest));
+  if (command === 'finalize' || command === 'verify') process.exit(rebuild(command, arg, rest[0], rest.slice(1)));
+  if (command === 'status') process.exit(status(arg));
   if (command === '_make') { await make(arg!); process.exit(0); }
-  console.error(`unknown command ${JSON.stringify(command)}; implemented: init-product, prepare (finalize/verify/status are TODO d08-finalize)`);
+  console.error(`unknown command ${JSON.stringify(command)}; commands: init-product, prepare, finalize, verify, status`);
   process.exit(2);
 } catch (e) {
   console.error((e as Error).stack ?? (e as Error).message);
