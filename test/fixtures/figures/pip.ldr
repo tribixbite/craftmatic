@@ -1,0 +1,106 @@
+0 pip
+0 Name: pip
+0 Author: craftmatic F01b figure study (BIZ-21)
+0 !LICENSE Redistributable under CC BY 4.0 : see http://www.ldraw.org/documentation/ldraw-org-license
+0 // Candidate PIP: a bobblehead. A 3x3x2 head turning on one jumper stud over a short 2x2 body, arms on Technic pin hinges
+0 // set low with round-plate hands, round 1x1 legs on hip hanger plates (toddler stance), plate shoes.
+0 // Generic official parts only; no minifigure or mini-doll mould. Origin: sole at y = 0, faces -Z, right = -X.
+0 // Frame notes: a front-row brick at z = -10 has its face at z = -20; a part seated on a side stud has its origin
+0 // at the far end of its body (plate -28, brick -44). FIGPART other = joint hardware fixed in the torso (pins).
+
+0 // hip: 1x2 plate along x, inner stud in the torso, the leg under its outer stud
+0 !CRAFTMATIC FIGPART leg_right
+1 73 -20 -48 10 1 0 0 0 1 0 0 0 1 3023b.dat
+0 // leg: 1x1 round brick
+0 !CRAFTMATIC FIGPART leg_right
+1 73 -30 -40 10 1 0 0 0 1 0 0 0 1 3062b.dat
+0 // sock: 1x1 plate
+0 !CRAFTMATIC FIGPART leg_right
+1 19 -30 -16 10 1 0 0 0 1 0 0 0 1 3024.dat
+0 // shoe: 1x2 plate along z, toe stud forward
+0 !CRAFTMATIC FIGPART leg_right
+1 0 -30 -8 0 0 0 1 0 1 0 -1 0 0 3023b.dat
+0 // hip: 1x2 plate along x, inner stud in the torso, the leg under its outer stud
+0 !CRAFTMATIC FIGPART leg_left
+1 73 20 -48 10 1 0 0 0 1 0 0 0 1 3023b.dat
+0 // leg: 1x1 round brick
+0 !CRAFTMATIC FIGPART leg_left
+1 73 30 -40 10 1 0 0 0 1 0 0 0 1 3062b.dat
+0 // sock: 1x1 plate
+0 !CRAFTMATIC FIGPART leg_left
+1 19 30 -16 10 1 0 0 0 1 0 0 0 1 3024.dat
+0 // shoe: 1x2 plate along z, toe stud forward
+0 !CRAFTMATIC FIGPART leg_left
+1 0 30 -8 0 0 0 1 0 1 0 -1 0 0 3023b.dat
+0 // hip-row right: Technic 1x1, hole along x (low-set arm)
+0 !CRAFTMATIC FIGPART torso
+1 73 -10 -72 -10 0 0 1 0 1 0 -1 0 0 6541.dat
+0 // hip-row left
+0 !CRAFTMATIC FIGPART torso
+1 73 10 -72 -10 0 0 1 0 1 0 -1 0 0 6541.dat
+0 // row back: 1x2 brick
+0 !CRAFTMATIC FIGPART torso
+1 73 0 -72 10 1 0 0 0 1 0 0 0 1 3004.dat
+0 // torso: 2x2 plate
+0 !CRAFTMATIC FIGPART torso
+1 73 0 -80 0 1 0 0 0 1 0 0 0 1 3022.dat
+0 // neck: 2x2 jumper, one centre stud the head turns on
+0 !CRAFTMATIC FIGPART torso
+1 73 0 -88 0 1 0 0 0 1 0 0 0 1 87580.dat
+0 // Technic friction pin: the shoulder hinge, half in the torso hole, half in the arm
+0 !CRAFTMATIC FIGPART other
+1 72 -20 -62 -10 1 0 0 0 1 0 0 0 1 2780.dat
+0 // upper arm: inverted Technic 1x1 on the pin, stud down
+0 !CRAFTMATIC FIGPART arm_right
+1 73 -30 -52 -10 0 0 -1 0 -1 0 -1 0 0 6541.dat
+0 // hand: inverted 1x1 round plate on the arm stud
+0 !CRAFTMATIC FIGPART arm_right
+1 19 -30 -44 -10 1 0 0 0 -1 0 0 0 -1 6141.dat
+0 // Technic friction pin: the shoulder hinge, half in the torso hole, half in the arm
+0 !CRAFTMATIC FIGPART other
+1 72 20 -62 -10 1 0 0 0 1 0 0 0 1 2780.dat
+0 // upper arm: inverted Technic 1x1 on the pin, stud down
+0 !CRAFTMATIC FIGPART arm_left
+1 73 30 -52 -10 0 0 -1 0 -1 0 -1 0 0 6541.dat
+0 // hand: inverted 1x1 round plate on the arm stud
+0 !CRAFTMATIC FIGPART arm_left
+1 19 30 -44 -10 1 0 0 0 -1 0 0 0 -1 6141.dat
+0 // head lower front
+0 !CRAFTMATIC FIGPART head
+1 19 -20 -112 -20 1 0 0 0 1 0 0 0 1 3005.dat
+0 // head lower front
+0 !CRAFTMATIC FIGPART head
+1 19 0 -112 -20 1 0 0 0 1 0 0 0 1 87087.dat
+0 // head lower front
+0 !CRAFTMATIC FIGPART head
+1 19 20 -112 -20 1 0 0 0 1 0 0 0 1 3005.dat
+0 // head upper front
+0 !CRAFTMATIC FIGPART head
+1 19 -20 -136 -20 1 0 0 0 1 0 0 0 1 87087.dat
+0 // head upper front
+0 !CRAFTMATIC FIGPART head
+1 19 0 -136 -20 1 0 0 0 1 0 0 0 1 3005.dat
+0 // head upper front
+0 !CRAFTMATIC FIGPART head
+1 19 20 -136 -20 1 0 0 0 1 0 0 0 1 87087.dat
+0 // head: 1x3 brick
+0 !CRAFTMATIC FIGPART head
+1 19 0 -112 0 1 0 0 0 1 0 0 0 1 3622.dat
+0 // head: 1x3 brick
+0 !CRAFTMATIC FIGPART head
+1 19 0 -112 20 1 0 0 0 1 0 0 0 1 3622.dat
+0 // head: 1x3 brick
+0 !CRAFTMATIC FIGPART head
+1 19 0 -136 0 1 0 0 0 1 0 0 0 1 3622.dat
+0 // head: 1x3 brick
+0 !CRAFTMATIC FIGPART head
+1 19 0 -136 20 1 0 0 0 1 0 0 0 1 3622.dat
+0 // right eye: 1x1 round plate
+0 !CRAFTMATIC FIGPART head
+1 0 -20 -126 -38 1 0 0 0 0 -1 0 1 0 6141.dat
+0 // left eye
+0 !CRAFTMATIC FIGPART head
+1 0 20 -126 -38 1 0 0 0 0 -1 0 1 0 6141.dat
+0 // nose: 1x1 round plate
+0 !CRAFTMATIC FIGPART head
+1 4 0 -102 -38 1 0 0 0 0 -1 0 1 0 6141.dat

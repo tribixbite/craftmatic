@@ -1,6 +1,6 @@
 /**
- * Our own figure, design study (BIZ-21, WP-F01): the three candidate figures in
- * test/fixtures/figures/*.ldr are built only from generic official parts and are
+ * Our own figure, design study (BIZ-21, WP-F01 + F01b): the candidate figures in
+ * test/fixtures/figures/*.ldr (both passes) are built only from generic official parts and are
  * measurably not a minifigure (silhouette IoU below 0.6 in front and side view,
  * head/height and shoulder/height ratios differing by at least 25 %), and each
  * has the separable body groups a walk, sit and ride rig needs.
@@ -13,8 +13,8 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
-  DISTINCTNESS_GATE, bestShiftIou, compatibilityProblems, draftCanon, figureHeight, flattenFigure, measureDistinctness,
-  minifigReferenceLdr, passesDistinctness, silhouetteIou, silhouetteOf, type FigTri, type PartResolver,
+  DISTINCTNESS_GATE, FIGURE_CANDIDATES, bestShiftIou, compatibilityProblems, draftCanon, figureHeight, flattenFigure,
+  measureDistinctness, minifigReferenceLdr, passesDistinctness, silhouetteIou, silhouetteOf, type FigTri, type PartResolver,
 } from '../web/src/engine/figure-brickling.js';
 
 const REF = process.env.CRAFTMATIC_LDRAW_REF ?? 'C:/git/clego/ldraw_ref';
@@ -30,16 +30,19 @@ const resolver: PartResolver = name => {
   return null;
 };
 
-/** The candidate names, read from the fixture folder (no library needed). */
-const STEMS = readdirSync(FIXTURES).filter(f => f.endsWith('.ldr')).map(f => f.replace(/\.ldr$/, '')).sort();
+/** Every candidate of every pass; the fixture folder must hold exactly these (no library needed to check). */
+const STEMS = [...FIGURE_CANDIDATES.f01, ...FIGURE_CANDIDATES.f01b];
 
 describe.skipIf(!HAS_LIBRARY)('figure-brickling: the candidate figures are not minifigures', () => {
   // Loaded lazily inside the first test that needs them (a skipped describe still runs its body).
   const load = (stem: string): FigTri[] => flattenFigure(readFileSync(join(FIXTURES, `${stem}.ldr`), 'utf8'), resolver);
   const minifig = (): FigTri[] => flattenFigure(minifigReferenceLdr(), resolver);
 
-  it('there are three candidates', () => {
-    expect(STEMS).toEqual(['bell', 'pebble', 'toadstool']);
+  it('the fixture folder holds exactly the six candidates: three from F01 and three from F01b', () => {
+    const onDisk = readdirSync(FIXTURES).filter(f => f.endsWith('.ldr')).map(f => f.replace(/\.ldr$/, '')).sort();
+    expect(onDisk).toEqual([...STEMS].sort());
+    expect(FIGURE_CANDIDATES.f01).toEqual(['bell', 'pebble', 'toadstool']);
+    expect(FIGURE_CANDIDATES.f01b).toHaveLength(3);
   });
 
   for (const stem of STEMS) {

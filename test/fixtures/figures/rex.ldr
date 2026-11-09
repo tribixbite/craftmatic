@@ -1,0 +1,88 @@
+0 rex
+0 Name: rex
+0 Author: craftmatic F01b figure study (BIZ-21)
+0 !LICENSE Redistributable under CC BY 4.0 : see http://www.ldraw.org/documentation/ldraw-org-license
+0 // Candidate REX: a little dinosaur. Wide waddling stance (1x1 legs under hip hanger plates, 1x3 plate feet), a stub tail
+0 // and T-rex arms on side studs, a 3-wide head on a jumper neck with a snout brick (nostril studs), round-plate eyes, crest.
+0 // Generic official parts only; no minifigure or mini-doll mould. Origin: sole at y = 0, faces -Z, right = -X.
+0 // Frame notes: a front-row brick at z = -10 has its face at z = -20; a part seated on a side stud has its origin
+0 // at the far end of its body (plate -28, brick -44). FIGPART other = joint hardware fixed in the torso (pins).
+
+0 // hip: 1x2 plate along x, inner stud in the torso, the leg under its outer stud
+0 !CRAFTMATIC FIGPART leg_right
+1 2 -20 -40 10 1 0 0 0 1 0 0 0 1 3023b.dat
+0 // leg: 1x1 brick
+0 !CRAFTMATIC FIGPART leg_right
+1 2 -30 -32 10 1 0 0 0 1 0 0 0 1 3005.dat
+0 // foot: 1x3 plate along z, leg on its back stud, two toe studs forward
+0 !CRAFTMATIC FIGPART leg_right
+1 2 -30 -8 -10 0 0 1 0 1 0 -1 0 0 3623.dat
+0 // hip: 1x2 plate along x, inner stud in the torso, the leg under its outer stud
+0 !CRAFTMATIC FIGPART leg_left
+1 2 20 -40 10 1 0 0 0 1 0 0 0 1 3023b.dat
+0 // leg: 1x1 brick
+0 !CRAFTMATIC FIGPART leg_left
+1 2 30 -32 10 1 0 0 0 1 0 0 0 1 3005.dat
+0 // foot: 1x3 plate along z, leg on its back stud, two toe studs forward
+0 !CRAFTMATIC FIGPART leg_left
+1 2 30 -8 -10 0 0 1 0 1 0 -1 0 0 3623.dat
+0 // chest: 1x2 with two side studs forward (the arms)
+0 !CRAFTMATIC FIGPART torso
+1 10 0 -64 -10 1 0 0 0 1 0 0 0 1 11211.dat
+0 // back: 1x2 with two side studs backward (the tail)
+0 !CRAFTMATIC FIGPART torso
+1 2 0 -64 10 -1 0 0 0 1 0 0 0 -1 11211.dat
+0 // tail: 1x2 brick seated on the back studs, pointing back
+0 !CRAFTMATIC FIGPART torso
+1 2 0 -54 44 1 0 0 0 0 1 0 -1 0 3004.dat
+0 // neck: 1x2 jumper (centre stud) on the front row
+0 !CRAFTMATIC FIGPART torso
+1 2 0 -72 -10 1 0 0 0 1 0 0 0 1 15573.dat
+0 // neck: 1x2 jumper on the back row
+0 !CRAFTMATIC FIGPART torso
+1 2 0 -72 10 1 0 0 0 1 0 0 0 1 15573.dat
+0 // right arm: 1x1 round brick on a chest stud, pointing forward
+0 !CRAFTMATIC FIGPART arm_right
+1 10 -10 -54 -44 1 0 0 0 0 -1 0 1 0 3062b.dat
+0 // left arm
+0 !CRAFTMATIC FIGPART arm_left
+1 10 10 -54 -44 1 0 0 0 0 -1 0 1 0 3062b.dat
+0 // head lower front: side stud for the snout
+0 !CRAFTMATIC FIGPART head
+1 2 -20 -96 -10 1 0 0 0 1 0 0 0 1 87087.dat
+0 // head lower front: side stud for the snout
+0 !CRAFTMATIC FIGPART head
+1 2 0 -96 -10 1 0 0 0 1 0 0 0 1 87087.dat
+0 // head lower front: side stud for the snout
+0 !CRAFTMATIC FIGPART head
+1 2 20 -96 -10 1 0 0 0 1 0 0 0 1 87087.dat
+0 // head lower back: 1x3 brick
+0 !CRAFTMATIC FIGPART head
+1 2 0 -96 10 1 0 0 0 1 0 0 0 1 3622.dat
+0 // head upper front right: side stud for the eye
+0 !CRAFTMATIC FIGPART head
+1 2 -20 -120 -10 1 0 0 0 1 0 0 0 1 87087.dat
+0 // head upper front centre
+0 !CRAFTMATIC FIGPART head
+1 2 0 -120 -10 1 0 0 0 1 0 0 0 1 3005.dat
+0 // head upper front left: side stud for the eye
+0 !CRAFTMATIC FIGPART head
+1 2 20 -120 -10 1 0 0 0 1 0 0 0 1 87087.dat
+0 // head upper back: 1x3 brick
+0 !CRAFTMATIC FIGPART head
+1 2 0 -120 10 1 0 0 0 1 0 0 0 1 3622.dat
+0 // snout: 1x3 brick seated on the three side studs, nostril studs forward
+0 !CRAFTMATIC FIGPART head
+1 10 0 -86 -44 1 0 0 0 0 -1 0 1 0 3622.dat
+0 // right eye: 1x1 round plate
+0 !CRAFTMATIC FIGPART head
+1 15 -20 -110 -28 1 0 0 0 0 -1 0 1 0 6141.dat
+0 // left eye
+0 !CRAFTMATIC FIGPART head
+1 15 20 -110 -28 1 0 0 0 0 -1 0 1 0 6141.dat
+0 // crest: cheese slope
+0 !CRAFTMATIC FIGPART head
+1 14 0 -120 -10 1 0 0 0 1 0 0 0 1 54200.dat
+0 // crest: cheese slope
+0 !CRAFTMATIC FIGPART head
+1 14 0 -120 10 -1 0 0 0 1 0 0 0 -1 54200.dat
