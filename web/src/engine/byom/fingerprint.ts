@@ -28,6 +28,7 @@
 import { parseLDraw, type ParsedBrick } from '../ldraw-parser.js';
 import { partStem } from '../part-id.js';
 import { sourceHash12 } from '../pipeline-version.js';
+import type { CleanroomResult } from '../../brickgen/types.js';
 
 /** The screen's answer. `review` is a flag for a human, never an automatic pass or fail. */
 export type Verdict = 'clear' | 'review' | 'blocked';
@@ -255,9 +256,13 @@ const packCell = (x: number, y: number, z: number): number => ((x + 2048) * 4096
 /** Cells of `placement` after an orientation, as `[x, y, z, stem]` arrays of plain numbers. */
 function orientedCells(placement: PlacementCells, orient: (x: number, z: number) => readonly [number, number]): number[][] {
   const out: number[][] = [];
+  const seen = new Set<number>(); // distinct cells only: two parts in one cell must not count twice in an IoU
   const c = placement.cells;
   for (let i = 0; i < c.length; i += 4) {
     const [x, z] = orient(c[i]!, c[i + 2]!);
+    const key = packCell(x, c[i + 1]!, z);
+    if (seen.has(key)) continue;
+    seen.add(key);
     out.push([x, c[i + 1]!, z, c[i + 3]!]);
   }
   return out;
@@ -340,7 +345,7 @@ export function compareFingerprints(a: Fingerprint, b: Fingerprint): Similarity 
  * `blocked` at or above `block`; `review` at or above `review`. See TASKS-BUSINESS.md for the distributions.
  * TODO(fingerprint-thresholds): re-measure after the official-set database grows beyond the local corpus (U10).
  */
-export const FINGERPRINT_THRESHOLDS = { review: 0.3, block: 0.6 } as const;
+export const FINGERPRINT_THRESHOLDS = { review: 0.2, block: 0.5 } as const;
 
 export interface Thresholds { review: number; block: number }
 
@@ -429,5 +434,45 @@ export function parseStored(stored: StoredFingerprint): Fingerprint {
   return {
     count: stored.count, ...(stored.hash12 ? { hash12: stored.hash12 } : {}),
     inventory: fromBase64(stored.inventory), layout: stored.layout.map(fromBase64), histogram: stored.histogram,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------- clean room
+
+/** The slice of the models index the denylist reads. */
+export interface DenylistIndex {
+  sets: Record<string, { name: string; models: Array<{ src: string; path: string }> }>;
+}
+
+export interface DenylistEntry { setId: string; name: string; paths: string[] }
+
+/** Lower-case letters and digits only, so "Notre-Dame de Paris" contains "notre dame". */
+const squash = (text: string): string => text.toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+/**
+ * Every set whose name contains ANY keyword (case, spaces and punctuation ignored), with every corpus path the index
+ * lists for it. The clean-room brief gives a designer this list as "never open".
+ */
+export function matchDenylist(index: DenylistIndex, keywords: readonly string[]): DenylistEntry[] {
+  const needles = keywords.map(squash).filter((k) => k.length > 0);
+  return Object.entries(index.sets)
+    .filter(([, set]) => needles.some((needle) => squash(set.name).includes(needle)))
+    .map(([setId, set]) => ({ setId, name: set.name, paths: set.models.map((m) => m.path) }))
+    .sort((a, b) => (a.setId < b.setId ? -1 : 1));
+}
+
+/**
+ * The `CleanroomResult` row of a provenance log for one comparison. The compared path is stored HASHED so the log a
+ * designer may read does not name the file; `partHistogramCosine` and `alignedVoxelIoU` are the contract's field names
+ * (the IoU is the placement-cell IoU, 0 when no cells were available). A blocked or review verdict reads `review`: a
+ * flag for the user and a lawyer, never an automatic fail.
+ */
+export function cleanroomResult(sim: Similarity, corpusPath: string, by: string, at: string): CleanroomResult {
+  return {
+    checkedAgainst: sourceHash12(new TextEncoder().encode(corpusPath.replace(/\\/g, '/'))),
+    partHistogramCosine: sim.cosine,
+    alignedVoxelIoU: sim.placementIoU ?? 0,
+    verdict: verdictOf(sim) === 'clear' ? 'independent' : 'review',
+    by, at,
   };
 }
