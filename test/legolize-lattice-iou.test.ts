@@ -12,7 +12,8 @@ import { existsSync, readFileSync } from 'fs';
 import * as THREE from 'three';
 import { parseLDraw } from '../web/src/engine/ldraw-parser.js';
 import { __debugWorldTris, setLDrawRoot } from '../web/src/engine/ldraw-geometry.js';
-import { meshToLattice, latticeFromBricks, type BrickLike } from '../web/src/engine/legolize/lattice.js';
+import { meshToLattice, latticeFromBricks, latticeFromFootprints, type BrickLike } from '../web/src/engine/legolize/lattice.js';
+import { voxelIoU as alignedIoU } from '../web/src/engine/legolize/metrics.js';
 import type { IntentLattice } from '../web/src/engine/legolize/types.js';
 import { latticeIndex } from '../web/src/engine/legolize/types.js';
 
@@ -99,6 +100,17 @@ describe.skipIf(!RUN)('legolize-lattice IoU measurement', () => {
       console.log(`IOU-CROSS ${name}: winding mesh vs parity truth ${voxelIoU(mesh2, truth).toFixed(3)}`);
       expect(iouW).toBeGreaterThanOrEqual(0.85);
       expect(iouW).toBeGreaterThanOrEqual(iou - 0.01);
+
+      // V-02: the TRUE reference. Each brick's own footprint cells (vocabulary occupancy, placed by position and
+      // turn); only parts outside the vocabulary use their mesh. Both inside tests are scored against it, with the
+      // best +-2 cell alignment (the mesh lattice starts at its own minimum corner, studs included).
+      const { lattice: fp, stats } = await latticeFromFootprints(bricks);
+      const par = alignedIoU(fp, mesh), win = alignedIoU(fp, mesh2);
+      const meshShare = stats.meshCells / Math.max(1, stats.vocabCells + stats.meshCells);
+      console.log(`IOU-TRUTH ${name}: parity ${par.iou.toFixed(3)} (unshifted ${par.iouUnshifted.toFixed(3)}) winding ${win.iou.toFixed(3)} (unshifted ${win.iouUnshifted.toFixed(3)}) | `
+        + `bricks vocab=${stats.vocabBricks} mesh=${stats.meshBricks} meshCellShare=${meshShare.toFixed(3)} truth=${fp.dims.join('x')} meshParts=${JSON.stringify(stats.meshParts)}`);
+      expect(stats.vocabBricks + stats.meshBricks).toBe(bricks.length);
+      expect(win.iou).toBeGreaterThan(0);
     }, 300_000);
   }
 });
