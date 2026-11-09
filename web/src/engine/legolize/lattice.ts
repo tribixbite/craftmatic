@@ -32,6 +32,8 @@ import { threeToGridAsync, type InsideTest, type TextureSampler, type VoxelizeMo
 import type { RGB } from '@craft/types/index.js';
 import { LDRAW_COLOR_RGB } from '../ldraw-colors.js';
 import { capPlanarHoles } from './hole-cap.js';
+import { elementFor, frameFor } from '../../brickgen/vocab/index.js';
+import { partStem } from '../part-id.js';
 import { createNearest, type NearestColour, type PaletteColour } from './palette.js';
 import { latticeIndex, type IntentLabel, type IntentLattice } from './types.js';
 
@@ -363,4 +365,148 @@ export async function latticeFromBricks(bricks: readonly BrickLike[], options: B
   const cc = await voxeliseAndColour(root, 1, options.mode ?? 'solid', undefined, options.maxCells ?? DEFAULT_MAX_CELLS, options.onProgress, options.insideTest);
   // Snap over only the colours the model uses: each brick colour maps back to itself.
   return packLattice(cc, createNearest([...used.values()]));
+}
+
+type AbsCell = readonly [x: number, p: number, z: number, colour: number];
+
+/** True when `m` (row-major 3x3) is a signed permutation matrix: every row and column holds one +-1, the rest 0. */
+function isSignedPermutation(m: readonly number[]): boolean {
+  const near = (v: number, t: number): boolean => Math.abs(v - t) < 1e-3;
+  for (let r = 0; r < 3; r++) {
+    let ones = 0;
+    for (let c = 0; c < 3; c++) {
+      const v = m[r * 3 + c]!;
+      if (near(v, 1) || near(v, -1)) ones++; else if (!near(v, 0)) return false;
+    }
+    if (ones !== 1) return false;
+  }
+  for (let c = 0; c < 3; c++) {
+    let ones = 0;
+    for (let r = 0; r < 3; r++) if (Math.abs(m[r * 3 + c]!) > 0.5) ones++;
+    if (ones !== 1) return false;
+  }
+  return true;
+}
+
+/**
+ * The cells a vocabulary brick occupies, or null when it has no vocabulary entry or is turned off the axes
+ * (a tilted brick's footprint cells are not an axis-aligned stud grid: it takes the mesh route instead).
+ *
+ * Each footprint cell (column i, row j, plate layer k, from the element's occupancy mask, or every cell for a
+ * full cuboid) is placed by the brick's body frame (`frameFor`: where the body sits against the part origin),
+ * turned by the brick's rotation and moved by its position; the cell centre is then snapped to the nearest
+ * lattice cell. Studs are not part of the body, so they are not cells.
+ */
+function footprintCells(brick: BrickLike): AbsCell[] | null {
+  const name = `${partStem(brick.part).toLowerCase()}.dat`;
+  const el = elementFor(name);
+  const frame = frameFor(name);
+  if (!el || !frame) return null;
+  const m = brick.rot ?? [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  if (m.length !== 9 || !isSignedPermutation(m)) return null;
+  const [fx, fz] = el.footprint;
+  const out: AbsCell[] = [];
+  for (let k = 0; k < el.heightPlates; k++) for (let j = 0; j < fz; j++) for (let i = 0; i < fx; i++) {
+    if (el.occupancy && el.occupancy[i + fx * (j + fz * k)] === 0) continue;
+    // Cell centre in the part's frame (LDU, y down): body centre +- stud steps, mid height of plate layer k.
+    const lx = frame.centreX + (i - (fx - 1) / 2) * 20;
+    const lz = frame.centreZ + (j - (fz - 1) / 2) * 20;
+    const ly = frame.bottomY - (k + 0.5) * 8;
+    const wx = brick.x + m[0]! * lx + m[1]! * ly + m[2]! * lz;
+    const wy = brick.y + m[3]! * lx + m[4]! * ly + m[5]! * lz;
+    const wz = brick.z + m[6]! * lx + m[7]! * ly + m[8]! * lz;
+    out.push([Math.round(wx / 20 - 0.5), Math.round(-wy / 8 - 0.5), Math.round(wz / 20 - 0.5), brick.color]);
+  }
+  return out;
+}
+
+/** Counts from {@link latticeFromFootprints}: how the truth was built. */
+export interface FootprintStats {
+  /** Bricks whose cells came from the vocabulary's occupancy. */
+  vocabBricks: number;
+  /** Bricks voxelised from their mesh (part not in the vocabulary, or turned off the quarter-turn grid). */
+  meshBricks: number;
+  /** Mesh-fallback bricks by part stem, for reading what the vocabulary lacks. */
+  meshParts: Record<string, number>;
+  /** Filled cells that came from the vocabulary / from the mesh fallback (before overlaps are merged). */
+  vocabCells: number;
+  meshCells: number;
+}
+
+/** Options for {@link latticeFromFootprints}. */
+export interface FootprintsOptions {
+  /** World triangles of a fallback brick (see {@link BricksToLatticeOptions.partTriangles}); default: the part library. */
+  partTriangles?: (brick: BrickLike) => Promise<TriangleLike[]>;
+  /** Inside test for the fallback bricks' voxelisation. */
+  insideTest?: InsideTest;
+}
+
+/**
+ * The TRUTH lattice of an LDraw model: every brick contributes the stud x plate cells it really occupies, read
+ * from the X-08 vocabulary's occupancy (`brickgen/vocab`) and placed by its position and quarter-turn, instead
+ * of a voxelisation of its mesh. A mesh voxelisation is a model of the brick, not the brick (parity leaves a
+ * brick's underside cavity empty, winding fills it), so it cannot be the reference a mesh lattice is scored
+ * against. Only parts the vocabulary lacks (or bricks turned off the axes) fall back to their mesh, through
+ * {@link latticeFromBricks}; `stats` says how many, so a score can state what share of its truth is exact.
+ *
+ * Frame: absolute (cell = 20 x 8 x 20 LDU anchored at the LDraw origin, Y up), cropped to the filled extent; the
+ * mesh fallback's own origin (its minimum corner) is rounded onto that grid. Colour: one `solid` label per
+ * distinct brick colour code, in first-seen order. Later bricks overwrite earlier ones where they overlap.
+ */
+export async function latticeFromFootprints(bricks: readonly BrickLike[], options: FootprintsOptions = {}): Promise<{ lattice: IntentLattice; stats: FootprintStats }> {
+  if (bricks.length === 0) throw new Error('latticeFromFootprints: no bricks');
+  const stats: FootprintStats = { vocabBricks: 0, meshBricks: 0, meshParts: {}, vocabCells: 0, meshCells: 0 };
+  const cells: AbsCell[] = [];
+  const fallback: BrickLike[] = [];
+  for (const brick of bricks) {
+    const own = footprintCells(brick);
+    if (own) { stats.vocabBricks++; stats.vocabCells += own.length; for (const c of own) cells.push(c); continue; }
+    stats.meshBricks++;
+    const stem = partStem(brick.part).toLowerCase();
+    stats.meshParts[stem] = (stats.meshParts[stem] ?? 0) + 1;
+    fallback.push(brick);
+  }
+
+  if (fallback.length > 0) {
+    const source = options.partTriangles ?? libraryTriangles;
+    const tris = new Map<BrickLike, TriangleLike[]>();
+    let minX = Infinity, maxY = -Infinity, minZ = Infinity;
+    for (const b of fallback) {
+      const t = await source(b);
+      tris.set(b, t);
+      for (const tri of t) for (const v of tri) { minX = Math.min(minX, v[0]); maxY = Math.max(maxY, v[1]); minZ = Math.min(minZ, v[2]); }
+    }
+    if (Number.isFinite(minX)) {
+      const mesh = await latticeFromBricks(fallback, {
+        partTriangles: async (b) => tris.get(b) ?? [],
+        mode: 'solid',
+        ...(options.insideTest ? { insideTest: options.insideTest } : {}),
+      });
+      // The fallback lattice starts at its mesh's minimum corner: x/20, -maxY/8 (Y flipped up), z/20 cells.
+      const ox = Math.round(minX / 20), oy = Math.round(-maxY / 8), oz = Math.round(minZ / 20);
+      const [nx, ny, nz] = mesh.dims;
+      for (let p = 0; p < ny; p++) for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) {
+        const c = mesh.cells[latticeIndex(mesh.dims, x, p, z)]!;
+        if (c === 0) continue;
+        stats.meshCells++;
+        cells.push([ox + x, oy + p, oz + z, mesh.labels[c - 1]!.colour]);
+      }
+    }
+  }
+  if (cells.length === 0) throw new Error('latticeFromFootprints: no brick produced any cells');
+
+  let x0 = Infinity, p0 = Infinity, z0 = Infinity, x1 = -Infinity, p1 = -Infinity, z1 = -Infinity;
+  for (const [x, p, z] of cells) {
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); p0 = Math.min(p0, p); p1 = Math.max(p1, p); z0 = Math.min(z0, z); z1 = Math.max(z1, z);
+  }
+  const dims: IntentLattice['dims'] = [x1 - x0 + 1, p1 - p0 + 1, z1 - z0 + 1];
+  const out = new Uint16Array(dims[0] * dims[1] * dims[2]);
+  const labels: IntentLabel[] = [];
+  const labelOf = new Map<number, number>();
+  for (const [x, p, z, colour] of cells) {
+    let id = labelOf.get(colour);
+    if (id === undefined) { id = labels.push({ role: 'solid', colour }); labelOf.set(colour, id); }
+    out[latticeIndex(dims, x - x0, p - p0, z - z0)] = id;
+  }
+  return { lattice: { dims, cells: out, labels }, stats };
 }
