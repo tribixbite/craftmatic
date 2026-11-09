@@ -15,7 +15,12 @@
  * Known limits (also in docs/plans, X-11):
  * - The lattice origin is the mesh's minimum corner, so a mesh whose lowest point
  *   is not on a plate multiple (e.g. LDraw studs, 4 LDU) can gain a sparse extra layer.
- *   TODO(X-12): add an optional lattice origin so two lattices can be aligned.
+ *   X-12's `metrics.ts` aligns two lattices by a best integer shift instead (no lattice origin option needed yet).
+ * - 'solid' mode is an even-odd ray fill, so a shell must be closed: planar boundary loops (LDraw studs have no
+ *   base) are capped first (`hole-cap.ts`). Shells with open loops that are not planar and convex (about 17 of the
+ *   120 part moulds in the batcave fixture, e.g. 3048, 17485, 64799) still leave a column of "inside" cells above
+ *   them: batcave car voxel IoU is 0.66, the rest of the corpus fixtures are >= 0.99. TODO(X-12): a winding-number
+ *   inside test in the shared voxeliser would fix those; `src/convert/voxelizer.ts` is not edited here.
  * - 'solid' mode needs a watertight mesh; if it finds nothing (an open mesh) we
  *   fall back to 'surface' rather than return an empty model.
  * - Triangle counts in the millions are slow: the colour pass is one BVH query per filled cell.

@@ -59,3 +59,32 @@ describe('legolize-lattice open studs', () => {
     expect(cell(lat, 0, 7, 0)).not.toBe(0);
   });
 });
+
+import { capPlanarHoles } from '../web/src/engine/legolize/hole-cap.js';
+
+describe('hole-cap', () => {
+  const flat = (tris: TriangleLike[]): Float32Array => Float32Array.from(tris.flatMap((t) => t.flatMap((v) => [...v])));
+
+  it('a closed box has no loop to cap', () => {
+    expect(capPlanarHoles(flat(box(0, 0, 0, 4, 4, 4)))).toBeNull();
+  });
+
+  it('an open-bottomed stud is closed by one cap', () => {
+    const r = capPlanarHoles(flat(stud(0, 0, 5, 0, 4, 16)))!;
+    expect(r.closed).toBe(1);
+    expect(r.positions.length).toBe(16 * 9);
+  });
+
+  it('a concave planar loop is left open and counted', () => {
+    // An L-shaped prism wall with no floor and no roof: both rims are concave.
+    const L: V3[] = [p(0, 0, 0), p(2, 0, 0), p(2, 0, 1), p(1, 0, 1), p(1, 0, 2), p(0, 0, 2)];
+    const tris: TriangleLike[] = [];
+    for (let i = 0; i < L.length; i++) {
+      const a = L[i]!, b = L[(i + 1) % L.length]!;
+      tris.push([a, b, p(b[0], 1, b[2])], [a, p(b[0], 1, b[2]), p(a[0], 1, a[2])]);
+    }
+    const r = capPlanarHoles(flat(tris))!;
+    expect(r.closed).toBe(0);
+    expect(r.skipped).toBe(2);
+  });
+});
