@@ -71,6 +71,16 @@ export interface ApproachOptions {
   notWhere?: (feet: Vec3) => boolean;
 }
 
+/**
+ * The rings (blocks from the target's pick point) a child stepping IN FRONT of a part also stands on (`inFront`),
+ * inside the first ring of the ordinary search. A window set in a recess has its only clear view from right before
+ * its pane: 3600's Window 8 refused every tap from the four spots the 1.2-block ring gave (each saw it past a wall's
+ * edge) while a tap from 0.9 in front of it, in the room it looks into, opened it (`_ix_tap_probe`, census
+ * 2026-11-07). Only the retry after a refusal searches them, so a part tapped from the ordinary first spot is
+ * tapped from where it always was.
+ */
+export const IN_FRONT_RINGS: readonly number[] = [0.6, 0.9];
+
 /** The last stretch (blocks) of a sight line that is the target's own frame, never a wall. */
 export const SIGHT_MARGIN = 0.5;
 
@@ -107,7 +117,7 @@ export function findApproach(engine: SimEngine, player: SimEntity, target: SimEn
 export function approachSpots(engine: SimEngine, player: SimEntity, target: SimEntity, reach = quirkValue('tap-is-hit', 'reachBlocks') - 0.5, exclude: readonly Vec3[] = [], options: ApproachOptions = {}, limit = Infinity): ApproachSpot[] {
   const saved = { loc: { ...player.location }, rot: { ...player.rotation } };
   const a = boxCentreAim(player, target);
-  const rings = [1.2, 1.8, 2.5, 3.2, 4].filter(r => r <= reach);
+  const rings = [...(options.inFront ? IN_FRONT_RINGS : []), 1.2, 1.8, 2.5, 3.2, 4].filter(r => r <= reach);
   let found = searchSpots(engine, player, target, reach, exclude, options, limit, saved.loc, { centre: a, rings, top: a.y + APPROACH_LEVELS.above, bottom: a.y - PLAYER_EYE_HEIGHT - APPROACH_LEVELS.below, aim: boxCentreAim });
   if (!found.length) {
     // A part BIGGER than the reach (a 400 % door: a 10-block box whose middle stands 5 blocks over its floor; 60380's

@@ -26,10 +26,12 @@ import { STEP16 } from '../web/src/engine/bedrock-collider-scale.js';
 import { FLAT_GROUND_Y } from '../web/src/sim/world/voxel-world.js';
 import { pickBoxes, raycastEntities } from '../web/src/sim/input/ray.js';
 import { REGRESSIONS, regressionVerdict } from '../web/src/sim/adapters/craftmatic/regressions.js';
-import { craftmaticHandlers, figureMode } from '../web/src/sim/adapters/craftmatic/child-play.js';
+import { craftmaticHandlers, figureMode, outOfReachByModel } from '../web/src/sim/adapters/craftmatic/child-play.js';
+import { PLACED_KEY } from '../web/src/sim/adapters/craftmatic/wand.js';
+import type { DrawnBox } from '../web/src/sim/adapters/craftmatic/drawn.js';
 import { FLOOR_LEVEL_TOLERANCE, floorLevelInRecordedCell, judgeSide, onRunout } from '../web/src/sim/adapters/craftmatic/play.js';
 import { relayRounding } from '../web/src/engine/bedrock-collider-scale.js';
-import { findApproach } from '../web/src/sim/scenario/approach.js';
+import { findApproach, IN_FRONT_RINGS } from '../web/src/sim/scenario/approach.js';
 import { NO_MARGIN, modelCorner, readCraftmaticPack, type PlacementFacts } from '../web/src/sim/adapters/craftmatic/pack-facts.js';
 import { swapTreeRuntimes } from '../web/src/sim/adapters/craftmatic/runtime-swap.js';
 import { extractJsonAfter } from '../web/src/sim/pack/script-config.js';
@@ -340,6 +342,49 @@ describe('the script host', () => {
     expect(out).toBeDefined();
     expect(Math.hypot(out!.feet.x - 12.5, out!.feet.z - 0.5)).toBeGreaterThanOrEqual(2);
     expect(findApproach(sim.engine, p, target, undefined, [], { notWhere: () => true })).toBeUndefined();
+  });
+
+  it('steps in front of a refused part from inside the first ring, and only then (IN_FRONT_RINGS, 3600 Window 8, census 2026-11-07, IX-05)', async () => {
+    // 3600's window is seen clear only from the room right before its pane, under a block from it; the ordinary
+    // search starts at 1.2 and stood the child past a wall's edge four times over.
+    const pane = entityJson('x:pane', { 'minecraft:custom_hit_test': { hitboxes: [{ width: 0.4, height: 1, pivot: [0, 1, 0] }] }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
+    const sim = new Simulation();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'pane.json': pane }), 'mini'));
+    const p = sim.addPlayer('Child', { x: 0.5, y: FLAT_GROUND_Y, z: 0.5 });
+    const target = sim.engine.spawnEntity('x:pane', 'overworld', { x: 12.5, y: FLAT_GROUND_Y, z: 0.5 });
+    await sim.run(2);
+    const flat = (s: { feet: { x: number; z: number } }): number => Math.hypot(s.feet.x - 12.5, s.feet.z - 0.5);
+    // The ordinary search keeps its first ring: a part any ring serves is tapped from where it always was.
+    const ordinary = findApproach(sim.engine, p, target);
+    expect(ordinary).toBeDefined();
+    expect(flat(ordinary!)).toBeGreaterThan(1.2 - 1e-6);
+    // Told to step in front of it, the child also stands inside that ring, nearest first.
+    const inFront = findApproach(sim.engine, p, target, undefined, [], { inFront: true });
+    expect(inFront).toBeDefined();
+    expect(flat(inFront!)).toBeLessThanOrEqual(IN_FRONT_RINGS[IN_FRONT_RINGS.length - 1]! + 1e-6);
+    p.location = { ...inFront!.feet };
+    expect(tap(sim.engine, p, target).entity).toBe(target);
+  });
+
+  it('calls a part no floor the model draws can reach the MODEL\'s, and one the model offers a clear spot for the pack\'s (outOfReachByModel, 5482/5508 window stacks, census 2026-11-07, IX-05)', async () => {
+    const pane = entityJson('x:pane', { 'minecraft:custom_hit_test': { hitboxes: [{ width: 0.4, height: 1, pivot: [0, 0.5, 0] }] }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
+    const crate = entityJson('x:crate', { 'minecraft:custom_hit_test': { hitboxes: [{ width: 4, height: 4, pivot: [0, 2, 0] }] }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
+    const sim = new Simulation();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'pane.json': pane, 'crate.json': crate }), 'mini'));
+    const p = sim.addPlayer('Child', { x: 0.5, y: FLAT_GROUND_Y, z: 0.5 });
+    // A window hung 8 blocks over the ground, over nothing the model draws.
+    const g = FLAT_GROUND_Y;
+    const target = sim.engine.spawnEntity('x:pane', 'overworld', { x: 12.5, y: g + 8, z: 0.5 });
+    await sim.run(2);
+    const ctx = { sim, player: p, state: { [PLACED_KEY]: { from: { x: 0, y: g, z: 0 } } } } as unknown as Parameters<typeof outOfReachByModel>[0];
+    expect(outOfReachByModel(ctx, target, [], [target])).toMatch(/no floor the model draws puts the eye within reach/);
+    // A floor the model draws 2.5 under it: a child standing there sees it in reach - the pack's to serve.
+    const floor: DrawnBox = { box: { x0: 10, x1: 15, y0: g + 5.3, y1: g + 5.5, z0: -2, z1: 3 }, glass: false };
+    expect(outOfReachByModel(ctx, target, [floor], [target])).toBeUndefined();
+    // Another moving part's pick box round it takes every tap aimed at it from that floor: the model's again.
+    const around = sim.engine.spawnEntity('x:crate', 'overworld', { x: 12.5, y: g + 6.5, z: 0.5 });
+    await sim.run(1);
+    expect(outOfReachByModel(ctx, target, [floor], [target, around])).toMatch(/another moving part stands between the eye and it/);
   });
 
   it('reads a hit-test box as declared under minecraft:scale, where the collision box is scaled (quirk custom-hit-test-pick, VEH-17)', async () => {
