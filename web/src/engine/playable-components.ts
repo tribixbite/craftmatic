@@ -23,6 +23,10 @@ export interface PlayableBrickComponent {
   forwardDirection?: Exclude<VehicleFacing, 'auto'>;
   /** Driver's feet as fractions of the component grid, before entity reorientation. */
   seatAnchor?: { x: number; y: number; z: number };
+  /** Explicit motion class (a creator hint, byom/hints.ts): wins over the label's hover / rotor words. */
+  motion?: import('./bedrock-vehicle.js').VehicleMotion;
+  /** Explicit seat layout (1, 2 or 4) for THIS component; absent: the export's `seatCount`. */
+  seatCount?: number;
 }
 
 const CAR_WORDS = /\b(car|truck|bus|buggy|racer|roadster|batmobile|tumbler|vehicle|tractor|loader|motorcycle|motorbike|bike|kart|delorean|de lorean|time machine|ferrari|porsche|lamborghini|mclaren|bugatti|koenigsegg|corvette|mustang|mercedes|audi|bmw|formula 1|f1|jeep|suv|van|pickup|dragster|hot rod|hotrod|rover|speed champions|speed champion|hypercar|supercar|automobile|limo|limousine|cab|taxi|crawler|quad|atv|go-kart|speedster|hovercraft|locomotive|camper|convertible|coupe|sedan|mini cooper|aston martin|land rover|defender|volkswagen|caterham|ecto-1|ecto 1)\b/i;

@@ -13,6 +13,7 @@
  *          [--lod=none|hull] [--lod-distance=N]   (default hull: a resident per-colour surface hull the client draws past N; engine/bedrock-lod-hull.ts)
  *          [--faces=<dir>]   (face art for heads no LDraw library prints: <part>.png per head, scripts/gen-face-art.py)
  *          [--mirror=<url>]   (part mirror for names the local library lacks; default prod)
+ *          [--hints=<file.byom.json>]   (creator hints, engine/byom/hints.ts: vehicles, doors, seats by selector; default: <model stem>.byom.json beside the model when it exists. Runs in explicit mode: no title or set number decides anything)
  *          [--figure-collision-height=N]   (experimental override for a figure NPC's minecraft:collision_box.height, default computed/clamped 1.0-1.8; device-919 roaming experiment)
  *
  * Output defaults to output/bedrock-entity-qa/<stem>.mcaddon (gitignored).
@@ -37,6 +38,7 @@ import { modelExportStem } from '../web/src/engine/export-name.ts';
 import { SMOOTH_TRACK_GRAIN_LDU } from '../web/src/engine/coaster-track.ts';
 import { sourceHash12, type SourceProvenance } from '../web/src/engine/pipeline-version.ts';
 import { computePipelineStamp } from './pipeline-stamp.ts';
+import { byomHintsPathFor, parseByomHints, type ByomHints } from '../web/src/engine/byom/hints.ts';
 
 const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
 setLDrawRoot(LDRAW_ROOT);
@@ -120,7 +122,17 @@ const setMatch = /(\d{4,6})(?:-\d)?/.exec(basename(file));
 // outside both tsconfigs, so no excess-property check caught it) and every
 // Hogwarts set exported as the bare stem `Hogwarts`, pack id `hogwarts`.
 const stem = modelExportStem({ name: flag('label') ?? basename(file).replace(/\.[^.]+$/, ''), setNum: setMatch?.[0] });
-const label = flag('label') ?? basename(file).replace(/\.[^.]+$/, '');
+// Creator hints (B03): `--hints=` or `<stem>.byom.json` beside the model. Parsed now so a bad file stops before a long export.
+const hintsFile = flag('hints') ?? (existsSync(byomHintsPathFor(file)) ? byomHintsPathFor(file) : undefined);
+let byomHints: ByomHints | undefined;
+if (hintsFile) {
+  const parsedHints = parseByomHints(JSON.parse(readFileSync(hintsFile, 'utf8')));
+  if (!parsedHints.ok) { console.error(`${hintsFile}: the creator hints were refused:\n${parsedHints.errors.map(e => `  - ${e}`).join('\n')}`); process.exit(2); }
+  byomHints = parsedHints.hints;
+}
+const label = byomHints?.title ?? flag('label') ?? basename(file).replace(/\.[^.]+$/, '');
+/** Hints run in explicit mode (X-17): no title or set number decides beside the creator's word. */
+const runProfile: PackProfile | undefined = byomHints ? { ...packProfile, flags: { ...packProfile?.flags, explicitOnly: true } } : packProfile;
 const out = positional[1] ?? `output/bedrock-entity-qa/${stem}.mcaddon`;
 mkdirSync(out.replace(/[\\/][^\\/]*$/, ''), { recursive: true });
 
@@ -230,7 +242,7 @@ if (/\.lxf(ml)?$/i.test(file)) {
 }
 
 // One plan drives the block cell AND the entity scale (ui/schem-export.ts does the same).
-const scalePlan = planAddonScale(bricks, (flag('scale') as AddonScaleChoice | undefined) ?? 'auto', label);
+const scalePlan = planAddonScale(bricks, (flag('scale') as AddonScaleChoice | undefined) ?? byomHints?.scale ?? 'auto', label, { packProfile: runProfile });
 const resolutionFlag = flag('resolution') as 'auto' | 'minifig' | undefined;
 const plan = resolutionFlag && resolutionFlag !== 'auto' && resolutionFlag !== 'minifig'
   ? planResolution(spanOfBricks(bricks), resolutionFlag)
@@ -261,7 +273,8 @@ const result = await runSchemPipeline({
   ...(flag('figure-collision-height') ? { figureCollisionHeight: Number(flag('figure-collision-height')) } : {}),
   pipelineStamp,
   sourceProvenance,
-  ...(packProfile ? { packProfile } : {}),
+  ...(runProfile ? { packProfile: runProfile } : {}),
+  ...(byomHints ? { byomHints } : {}),
 }, (phase, pct) => { if (process.env.VERBOSE) console.error(`  ${phase}${pct !== undefined ? ` ${pct}%` : ''}`); });
 const ms = Date.now() - t0;
 

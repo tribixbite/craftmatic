@@ -20,7 +20,7 @@ export const FIXED_STAMP: PipelineStamp = {
   dirty: false, dirtyFiles: [], treeDirty: false, shallow: false, computedAt: '2026-09-21T14:30:59.000Z',
 };
 
-const box6 = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): string[] => {
+export const box6 = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): string[] => {
   const q = (a: number[], b: number[], c: number[], d: number[]): string => `4 16 ${[...a, ...b, ...c, ...d].join(' ')}`;
   return [
     q([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]), q([x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]),
@@ -29,7 +29,7 @@ const box6 = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: nu
   ];
 };
 /** Box stand-ins at the library's own extents (the same table test/nimbus-fixture.test.ts seeds). */
-const PARTS: Record<string, string> = {
+export const PARTS: Record<string, string> = {
   '3958': ['0 Plate  6 x  6', ...box6(-60, 60, 0, 8, -60, 60)].join('\n'),
   '3003': ['0 Brick  2 x  2', ...box6(-20, 20, 0, 24, -20, 20)].join('\n'),
   '3004': ['0 Brick  1 x  2', ...box6(-20, 20, 0, 24, -10, 10)].join('\n'),
@@ -51,12 +51,17 @@ const PARTS: Record<string, string> = {
   '3820': ['0 Minifig Hand', ...box6(-6, 6, -4, 10, -6, 6)].join('\n'),
 };
 
+/** Seed the box stand-ins (and any `extra` parts: id -> .dat text) as the library's answer for those part ids. */
+export function seedBoxParts(extra: Record<string, string> = {}): void {
+  seedDatTexts(Object.entries({ ...PARTS, ...extra }).map(([id, t]) => [`${id}.dat`, t] as const));
+}
+
 export const NIMBUS_LABEL = 'Dragon Ball: Shenron & Goku (11390-1)';
 export const NIMBUS_STEM = 'DragonBallShenron';
 
 /** Build the stand-in pack; `packProfile` is the only thing a profile test varies. */
 export async function buildNimbusPack(packProfile?: PackProfile, label = NIMBUS_LABEL): Promise<Uint8Array> {
-  seedDatTexts(Object.entries(PARTS).map(([id, t]) => [`${id}.dat`, t] as const));
+  seedBoxParts();
   const doc = parseLDrawDocument(readFileSync('test/fixtures/nimbus-fixture.ldr', 'utf8'));
   const result = await runSchemPipeline({
     source: { kind: 'bricks', bricks: doc.bricks, colorSpace: 'ldraw', options: { cellLDU: LDU_PER_BLOCK, maxDim: 700 } },
