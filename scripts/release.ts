@@ -209,7 +209,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
 
   // ---- 1. preconditions -------------------------------------------------------------------------------------
   const version = resolveVersion(productId, ledger, flag('version'));
-  const dirtyFiles = git(ROOT, 'status', '--porcelain', '--untracked-files=no').split(/\r?\n/).filter(Boolean).map(l => l.replace(/^s*S+s+/, ''));
+  const dirtyFiles = git(ROOT, 'status', '--porcelain', '--untracked-files=no').split(/\r?\n/).filter(Boolean).map(l => l.replace(/^\s*\S+\s+/, ''));
   const lockFile = join(ROOT, 'bun.lock');
   const ref = ldrawRefDir();
   const archive = ref ? join(ref, '_archives', product.toolchain.ldrawLibrary.archive) : null;
@@ -260,18 +260,25 @@ function prepare(productId: string | undefined, argv: string[]): number {
   const evidence: Record<string, unknown> = { ...made.evidence };
   const failed = (): boolean => gates.some(g => g.status === 'fail');
 
+  // A tool-judged gate: problems a product waives (data, with a reason) make it `waived` (open), any other makes it `fail`.
+  const waiversFile = join(wtData, 'gate-waivers.json');
+  const waivers = existsSync(waiversFile) ? readJson<GateWaiver[]>(waiversFile) : [];
+  const settle = (id: string, title: string, problems: string[], passDetail: string): Gate => {
+    if (problems.length === 0) return { id, title, status: 'pass', detail: passDetail };
+    const { uncovered, waived } = applyWaivers(id, problems, waivers);
+    if (uncovered.length > 0) return { id, title, status: 'fail', detail: uncovered.join('; ') };
+    return { id, title, status: 'waived', detail: waived.map(w => `${w.problem} [waived: ${w.reason}]`).join('; ') };
+  };
+
   // ---- 4. gates that run a tool over the finished archives -------------------------------------------------
   const dist = join(out, 'dist');
   const archives = made.artifacts.map(n => join(dist, n));
   if (!failed()) {
     const py = spawnSync('python', ['-I', join(wt, 'scripts', '_mcaddon_check.py'), '--release', ...archives], { cwd: wt, encoding: 'utf8' });
     const problemLines = py.stdout.split(/\r?\n/).filter(l => l.includes('!! ')).map(l => l.slice(l.indexOf('!! ') + 3));
-    const waiversFile = join(fixture ? dataRoot : join(wt, 'release'), 'gate-waivers.json');
-    const { uncovered, waived } = applyWaivers('release-validator', problemLines, existsSync(waiversFile) ? readJson<GateWaiver[]>(waiversFile) : []);
     const title = 'X-06 _mcaddon_check.py --release on .mcaddon and .zip';
-    if (py.status === 0) gates.push({ id: 'release-validator', title, status: 'pass', detail: 'every archive passes the dev and release rules' });
-    else if (problemLines.length === 0 || uncovered.length > 0) gates.push({ id: 'release-validator', title, status: 'fail', detail: (uncovered.length ? uncovered : [lastLines(py.stdout + (py.stderr ?? ''), 12)]).join('; ') });
-    else gates.push({ id: 'release-validator', title, status: 'waived', detail: waived.map(w => `${w.problem} [waived: ${w.reason}]`).join('; ') });
+    if (py.status !== 0 && problemLines.length === 0) gates.push({ id: 'release-validator', title, status: 'fail', detail: lastLines(py.stdout + (py.stderr ?? ''), 12) });
+    else gates.push(settle('release-validator', title, problemLines, 'every archive passes the dev and release rules'));
     evidence['release-validator'] = py.stdout;
   }
   if (!failed()) {
@@ -296,7 +303,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
       evidence.budget = row;
       const rows = row!.report.rows;
       const failedRows = rows.filter(r => r.status === 'fail').map(r => r.metric);
-      gates.push({ id: 'budget', title: 'M06 static budget rows (standard tier)', status: failedRows.length ? 'fail' : 'pass', detail: failedRows.length ? `over the limit: ${failedRows.join(', ')}` : `${rows.filter(r => r.status === 'pass').length} rows within the limit` });
+      gates.push(settle('budget', 'M06 static budget rows (standard tier)', failedRows.map(m => `over the limit: ${m}`), `${rows.filter(r => r.status === 'pass').length} rows within the limit`));
       const notMeasured = rows.filter(r => r.status === 'not-measured').map(r => r.metric);
       if (notMeasured.length) gates.push({ id: 'budget-runtime', title: 'M06 runtime rows (resident entities, script ms)', status: 'skipped', detail: `${notMeasured.join(', ')} not measured: ${row!.report.runtimeReason ?? 'the simulator could not place the pack'} (needs M14)` });
     }
