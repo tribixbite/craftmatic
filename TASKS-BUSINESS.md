@@ -113,7 +113,12 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
     likely bug `GameMode.survival` in the GameTest script; M06: 3 of 4 favourites fail only on 11,008 permutations
     (M03); X-13 thresholds review 0.2 / block 0.5 (recall 94 %); V-01's 1.000 IoU is self-consistency only -> NEXT
     a truth from each brick's footprint cells (winding fills a brick's cavity, which is right for bricks).
-  - F01b DONE on `biz-f01b` (not yet merged): rex (dinosaur), rivet (robot), pip (bobblehead kid); all pass the gate
+  - WAVE 3 IN FLIGHT 2026-11-09 (10 Sonnet agents; ownership + pack contract in `docs/plans/wave3-brief.md`): X-10 bricker
+    (+ first plain Notre-Dame), X-07 TS pack-check, M03 own brick blocks + collider permutations < 10k, M07 air-only
+    placement + undo, M14 sim reads the namespace, B03 BYOM hints, A09 landmark features (Notre-Dame sidecar from
+    CC/PD sources, clean room), D-08 `release.ts prepare`, D-09 channel bundles, V-02 brick-footprint truth metric.
+    Waiting on the user: B08 (U9 free tier), F02 (U4 figure pick), D-13/X-15 (approval merges), C02 after B03.
+  - F01b MERGED 2026-11-09 (`biz-f01b`): rex (dinosaur), rivet (robot), pip (bobblehead kid); all pass the gate
     with attached limbs and faces; sheet `.worktrees/biz-f01b/output/f01b/candidates.jpg`; designer recommends rex.
     The user picks (U4).
     (Superseded list:) Wave 2b, still to start: M15, X-14, D-06, D-16, M06 (default: one budget tier), X-13 (the clean-room half
