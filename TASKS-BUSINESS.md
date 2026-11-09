@@ -75,13 +75,22 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
   START HERE: `docs/plans/README.md` (the master plan: merged packages, waves, the user's ranked questions U1..,
   handoff in its section 7); review in `docs/plans/business-review.md`; source plans `business-{A,B,D}-*.md`.
   REQUIREMENTS rows BIZ-05..BIZ-64 added 2026-11-09.
-  - WAVE 1 MERGED into main 2026-11-09 (suite 3,672 passed, CI green): D-03, X-01, X-06 (+ a fix: fixture zips
-    take a local-time mtime). Done on branches, under review: X-08, X-11 (IoU only 3/5 models >= 0.85: wall 0.75,
-    batcave car 0.57 - follow-up before X-12 builds on it; voxeliser surface mode returns 0 cells under a scaled
-    node, worked around), B01 (needs a browser check of the LEGO tab upload + indexed pick before merge), B29
-    (230 files / 75 MB in its worktree's gitignored `data/byom-corpus/`; 34 items need the user's logins).
-    X-06 note: `bunx @minecraft/creator-tools@0.21.0` crashes at start (ink/react peer mismatch); its output
-    parser is unconfirmed (`TODO(mct-format)`).
+  - WAVE 1 ALL MERGED into main 2026-11-09 (suite 3,766 passed): D-03, X-01, X-06, X-08, X-11, B29, B01, X-04, C01.
+    Ledger rows set PARTIAL with guards; their gap cells name what is left. Follow-ups found in review:
+    - X-11: voxel IoU >= 0.85 on only 3/5 models (wall 0.75, batcave car 0.57); the voxeliser's surface mode
+      returns 0 cells under a scaled node (worked around in lattice.ts, not fixed at the source).
+    - X-04: official mode does not hard-fail a CLI export (schem-pipeline catches the error into a warning, exit
+      0); a release build must call `assertOfficialLibrary()`. LEGO face art is not refused yet; no pack writes
+      CREDITS.txt yet.
+    - X-06: `bunx @minecraft/creator-tools@0.21.0` crashes at start (ink/react peer mismatch); parser unconfirmed.
+    - X-08: its colour/writer tests were written after the code; no bars, round bricks or 4032a in the vocabulary;
+      the quarter-turn convention (turn 1 = `0 0 1 0 1 0 -1 0 0`) must be confirmed by X-10.
+    - C01: cobra roll stalls (left out of the sketch); handedness vs Bedrock's Z mirror unconfirmed (C02).
+    - B29: 34 corpus items need the user's logins; the fetch ran in the b29 worktree, so `data/byom-corpus/` is at
+      `.worktrees/biz-b29/data/byom-corpus/` (re-run `bun scripts/byom-corpus-fetch.ts` in main to get it there).
+    - Pre-existing (not B01): after an upload the LEGO tab's source badge stays "loading... (no progress)".
+    - The X-11 agent ran `rm -r` on its own new scratch folder (rule breach; brief now leads with the rule).
+  - NEXT: Wave 2 per `docs/plans/README.md` section 4, choosing only packages with no user decision.
   - WAVE 1 (original list) 2026-11-09 (one agent each, worktree `.worktrees/biz-<id>`, branch `biz-<id>`, not merged until
     reviewed + full suite green): X-08 brick core, X-01 identity registry, X-04 part-source ledger + credits, X-06
     release validator, D-03 deterministic zip, C01 coaster design -> path, X-11 mesh -> stud lattice, B29 corpus
