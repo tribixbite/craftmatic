@@ -78,7 +78,9 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
   - WAVE 1 IN FLIGHT 2026-11-09 (one agent each, worktree `.worktrees/biz-<id>`, branch `biz-<id>`, not merged until
     reviewed + full suite green): X-08 brick core, X-01 identity registry, X-04 part-source ledger + credits, X-06
     release validator, D-03 deterministic zip, C01 coaster design -> path, X-11 mesh -> stud lattice, B29 corpus
-    fetcher, B01 model-import service.
+    fetcher, B01 model-import service. Agents are Sonnet, briefed with `docs/plans/implementer-brief.md` + their README
+    section 3 brief; each reports, then the orchestrator reviews the diff, merges into main (merge commit), runs
+    `bun run test`, pushes and checks CI. To see state: `git branch --list 'biz-*'` and `git log main..biz-<id>`.
   - Waiting on the user: U1 brand/namespace, U2 private designs repo, U3 lawyer batch, U4 figure, U5 landmarks +
     show-stoppers (README section 5); the live LEGO-named `craftmatic.click/downloads/Craftmatic-Lego-Pack.mcpack`
     (rename/take down?).
