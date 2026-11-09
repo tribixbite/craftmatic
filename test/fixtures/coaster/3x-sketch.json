@@ -1,0 +1,150 @@
+{
+  "name": "3x-sketch (numbers only; genre layout of plan A section 5.1)",
+  "heartlineB": 0.8,
+  "trains": 2,
+  "carsPerTrain": 6,
+  "limits": {
+    "maxSpeedBps": 52,
+    "gVertical": [
+      -1.0,
+      4.5
+    ],
+    "gLateral": 1.5,
+    "maxJerk": 80
+  },
+  "elements": [
+    {
+      "kind": "station",
+      "lengthB": 16
+    },
+    {
+      "kind": "straight",
+      "lengthB": 24,
+      "driveBps": 5
+    },
+    {
+      "kind": "turn",
+      "radiusB": 12,
+      "angleDeg": 90,
+      "driveBps": 5
+    },
+    {
+      "kind": "straight",
+      "lengthB": 24,
+      "driveBps": 5
+    },
+    {
+      "kind": "launch",
+      "lengthB": 70,
+      "toSpeedBps": 52
+    },
+    {
+      "kind": "loop",
+      "radiusB": 14
+    },
+    {
+      "kind": "zero-g-roll",
+      "lengthB": 30
+    },
+    {
+      "kind": "turn",
+      "radiusB": 22,
+      "angleDeg": -180,
+      "driveBps": 22
+    },
+    {
+      "kind": "launch",
+      "lengthB": 28,
+      "toSpeedBps": 52
+    },
+    {
+      "kind": "corkscrew",
+      "lengthB": 36,
+      "hand": "L"
+    },
+    {
+      "kind": "launch",
+      "lengthB": 28,
+      "toSpeedBps": 52
+    },
+    {
+      "kind": "corkscrew",
+      "lengthB": 36,
+      "hand": "R"
+    },
+    {
+      "kind": "turn",
+      "radiusB": 22,
+      "angleDeg": 180,
+      "driveBps": 22
+    },
+    {
+      "kind": "launch",
+      "lengthB": 28,
+      "toSpeedBps": 52
+    },
+    {
+      "kind": "zero-g-roll",
+      "lengthB": 30
+    },
+    {
+      "kind": "turn",
+      "radiusB": 22,
+      "angleDeg": -180,
+      "driveBps": 22
+    },
+    {
+      "kind": "launch",
+      "lengthB": 28,
+      "toSpeedBps": 52
+    },
+    {
+      "kind": "loop",
+      "radiusB": 14
+    },
+    {
+      "kind": "turn",
+      "radiusB": 30,
+      "angleDeg": -90,
+      "driveBps": 8
+    },
+    {
+      "kind": "cable-lift",
+      "riseB": 145,
+      "angleDeg": 55,
+      "speedBps": 8
+    },
+    {
+      "kind": "drop",
+      "fallB": 145,
+      "angleDeg": 84
+    },
+    {
+      "kind": "loop",
+      "radiusB": 10
+    },
+    {
+      "kind": "block-brake",
+      "lengthB": 90,
+      "toSpeedBps": 4
+    }
+  ],
+  "overlays": [
+    {
+      "kind": "tunnel",
+      "fromElement": 0,
+      "toElement": 4
+    },
+    {
+      "kind": "dark",
+      "fromElement": 1,
+      "toElement": 3
+    },
+    {
+      "kind": "cloud",
+      "fromElement": 19,
+      "toElement": 20
+    }
+  ],
+  "shows": []
+}
