@@ -15,7 +15,12 @@
  * Known limits (also in docs/plans, X-11):
  * - The lattice origin is the mesh's minimum corner, so a mesh whose lowest point
  *   is not on a plate multiple (e.g. LDraw studs, 4 LDU) can gain a sparse extra layer.
- *   TODO(X-12): add an optional lattice origin so two lattices can be aligned.
+ *   X-12's `metrics.ts` aligns two lattices by a best integer shift instead (no lattice origin option needed yet).
+ * - 'solid' mode is an even-odd ray fill, so a shell must be closed: planar boundary loops (LDraw studs have no
+ *   base) are capped first (`hole-cap.ts`). Shells with open loops that are not planar and convex (about 17 of the
+ *   120 part moulds in the batcave fixture, e.g. 3048, 17485, 64799) still leave a column of "inside" cells above
+ *   them: batcave car voxel IoU is 0.66, the rest of the corpus fixtures are >= 0.99. TODO(X-12): a winding-number
+ *   inside test in the shared voxeliser would fix those; `src/convert/voxelizer.ts` is not edited here.
  * - 'solid' mode needs a watertight mesh; if it finds nothing (an open mesh) we
  *   fall back to 'surface' rather than return an empty model.
  * - Triangle counts in the millions are slow: the colour pass is one BVH query per filled cell.
@@ -26,6 +31,7 @@ import { MeshBVH } from 'three-mesh-bvh';
 import { threeToGridAsync, type TextureSampler, type VoxelizeMode, type VoxelizeProgress } from '@craft/convert/voxelizer.js';
 import type { RGB } from '@craft/types/index.js';
 import { LDRAW_COLOR_RGB } from '../ldraw-colors.js';
+import { capPlanarHoles } from './hole-cap.js';
 import { createNearest, type NearestColour, type PaletteColour } from './palette.js';
 import { latticeIndex, type IntentLabel, type IntentLattice } from './types.js';
 
@@ -143,6 +149,33 @@ function surfaceColour(
 }
 
 /**
+ * A copy of `meshes` whose meshes have their planar boundary loops capped (see hole-cap.ts), for the even-odd
+ * fill. Meshes without a loop are shared as they are. The copy carries positions only: it is never coloured.
+ */
+function cappedGroup(meshes: readonly THREE.Mesh[]): THREE.Group {
+  const out = new THREE.Group();
+  for (const m of meshes) {
+    const geo = m.geometry;
+    const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+    const caps = capPlanarHoles(pos.array, geo.index?.array);
+    if (!caps || caps.closed === 0) { out.add(m.clone()); continue; }
+    const idx = geo.index;
+    const n = idx ? idx.count : pos.count;
+    const flat = new Float32Array(n * 3 + caps.positions.length);
+    for (let i = 0; i < n; i++) {
+      const v = idx ? idx.getX(i) : i;
+      flat[i * 3] = pos.getX(v); flat[i * 3 + 1] = pos.getY(v); flat[i * 3 + 2] = pos.getZ(v);
+    }
+    flat.set(caps.positions, n * 3);
+    const capped = new THREE.BufferGeometry();
+    capped.setAttribute('position', new THREE.BufferAttribute(flat, 3));
+    out.add(new THREE.Mesh(capped, m.material));
+  }
+  out.updateMatrixWorld(true);
+  return out;
+}
+
+/**
  * Voxelise `source` onto the 20 x 8 x 20 LDU lattice and colour every filled
  * cell. `source` (and its geometry) is not modified or reparented.
  */
@@ -191,7 +224,10 @@ async function voxeliseAndColour(
     g.boundsTree ??= new MeshBVH(g, { indirect: true });
   }
 
-  const run = (md: VoxelizeMode) => threeToGridAsync(stretched, 1, { mode: md, onProgress, yieldInterval: 8 });
+  // Solid mode counts shell crossings, so open planar rims (LDraw studs have no base) are closed on a position-only
+  // copy; the colour pass and the surface fallback keep the original geometry.
+  const solidGroup = cappedGroup(meshes);
+  const run = (md: VoxelizeMode) => threeToGridAsync(md === 'solid' ? solidGroup : stretched, 1, { mode: md, onProgress, yieldInterval: 8 });
   let grid = await run(mode);
   // An open mesh has no inside: solid mode then finds nothing. Use its surface instead of returning air.
   if (mode === 'solid' && grid.countNonAir() === 0) grid = await run('surface');
