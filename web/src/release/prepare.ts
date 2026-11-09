@@ -13,9 +13,10 @@ export type { ApprovalAction } from './prepare-types.js';
 
 /**
  * `pass` and `fail` are verdicts. `skipped` = a dependency is not merged (the stage did not run); `not-run` = the
- * stage exists but could not run here (a missing EULA, an offline tool). Both are OPEN gates: never counted as passed.
+ * stage exists but could not run here (a missing EULA, an offline tool); `waived` = it failed only on problems the
+ * product's data explicitly waives, each with a reason. All three are OPEN gates: never counted as passed.
  */
-export type GateStatus = 'pass' | 'fail' | 'skipped' | 'not-run';
+export type GateStatus = 'pass' | 'fail' | 'skipped' | 'not-run' | 'waived';
 
 export interface Gate {
   id: string;
@@ -49,7 +50,25 @@ export function pendingGates(): Gate[] {
 }
 
 /** Gates that are not a pass and not a failure: the user must close them before any outward step. */
-export const openGates = (gates: readonly Gate[]): Gate[] => gates.filter(g => g.status === 'skipped' || g.status === 'not-run');
+export const openGates = (gates: readonly Gate[]): Gate[] => gates.filter(g => g.status === 'skipped' || g.status === 'not-run' || g.status === 'waived');
+
+/** One waiver of `<data>/gate-waivers.json`: a problem of `gate` containing `pattern` is waived, for `reason`. */
+export interface GateWaiver { gate: string; pattern: string; reason: string }
+
+/**
+ * Split a failed gate's problems into those a waiver covers and the rest. A waiver needs a non-blank reason; a
+ * problem no waiver names stays a failure, so a waiver can never hide anything it did not name.
+ */
+export function applyWaivers(gate: string, problems: readonly string[], waivers: readonly GateWaiver[]): { uncovered: string[]; waived: Array<{ problem: string; reason: string }> } {
+  for (const w of waivers) if (!w.reason.trim() || !w.pattern.trim()) throw new Error(`waiver for ${w.gate} needs a pattern and a reason`);
+  const uncovered: string[] = [];
+  const waived: Array<{ problem: string; reason: string }> = [];
+  for (const problem of problems) {
+    const hit = waivers.find(w => w.gate === gate && problem.includes(w.pattern));
+    if (hit) waived.push({ problem, reason: hit.reason }); else uncovered.push(problem);
+  }
+  return { uncovered, waived };
+}
 
 /** Everything the preconditions read; the script gathers it, tests pass literals. */
 export interface PreconditionFacts {

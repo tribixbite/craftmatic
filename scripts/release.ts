@@ -43,8 +43,8 @@ import { spawnSync } from 'node:child_process';
 import { PRODUCT_ID_PATTERN, parseProduct, validateProduct } from '../web/src/release/product.js';
 import { sha256Hex, sha256sumsText } from '../web/src/release/checksums.js';
 import {
-  approvalItems, channelStub, CHANNELS, openGates, pendingGates, preconditionProblems, profileProblems, renderApproval, renderNotice,
-  resolveVersion, type ApprovalAction, type Gate, type ValidationFile,
+  applyWaivers, approvalItems, channelStub, CHANNELS, openGates, pendingGates, preconditionProblems, profileProblems, renderApproval, renderNotice,
+  resolveVersion, type ApprovalAction, type Gate, type GateWaiver, type ValidationFile,
 } from '../web/src/release/prepare.js';
 import { formatSemVer, toManifestTriple } from '../web/src/release/semver.js';
 import type { IdentityLedgerEntry, ProductRecord, ReleasedVersion, SemVer } from '../web/src/release/types.js';
@@ -265,7 +265,14 @@ function prepare(productId: string | undefined, argv: string[]): number {
   const archives = made.artifacts.map(n => join(dist, n));
   if (!failed()) {
     const py = spawnSync('python', ['-I', join(wt, 'scripts', '_mcaddon_check.py'), '--release', ...archives], { cwd: wt, encoding: 'utf8' });
-    gates.push({ id: 'release-validator', title: 'X-06 _mcaddon_check.py --release on .mcaddon and .zip', status: py.status === 0 ? 'pass' : 'fail', detail: py.status === 0 ? 'every archive passes the dev and release rules' : lastLines(py.stdout + (py.stderr ?? ''), 12) });
+    const problemLines = py.stdout.split(/?
+/).filter(l => l.includes('!! ')).map(l => l.slice(l.indexOf('!! ') + 3));
+    const waiversFile = join(fixture ? dataRoot : join(wt, 'release'), 'gate-waivers.json');
+    const { uncovered, waived } = applyWaivers('release-validator', problemLines, existsSync(waiversFile) ? readJson<GateWaiver[]>(waiversFile) : []);
+    const title = 'X-06 _mcaddon_check.py --release on .mcaddon and .zip';
+    if (py.status === 0) gates.push({ id: 'release-validator', title, status: 'pass', detail: 'every archive passes the dev and release rules' });
+    else if (problemLines.length === 0 || uncovered.length > 0) gates.push({ id: 'release-validator', title, status: 'fail', detail: (uncovered.length ? uncovered : [lastLines(py.stdout + (py.stderr ?? ''), 12)]).join('; ') });
+    else gates.push({ id: 'release-validator', title, status: 'waived', detail: waived.map(w => `${w.problem} [waived: ${w.reason}]`).join('; ') });
     evidence['release-validator'] = py.stdout;
   }
   if (!failed()) {
