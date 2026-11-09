@@ -273,11 +273,13 @@ def check(path):
         if not cols: continue
         runs = cols.get('runs', '')
         used = {(ord(runs[k]) - 40 - 1) // 136 for k in range(0, len(runs) - 1, 2) if ord(runs[k]) - 40 > 0}
-        ids = {0: 'craftmatic:collider'}
+        # The namespace is the pack's own: the dev pack's `craftmatic`, or a rewritten product's (X-03).
+        ns = next((b.rsplit(':', 1)[0] for b in sorted(block_ids) if b.endswith(':collider')), 'craftmatic')
+        ids = {0: f'{ns}:collider'}
         for v in used:
             if v == 0: continue
             kind, shape = (v - 1) // 14, (v - 1) % 14 + 1
-            ids[v] = f'craftmatic:collider_{"wfc"[kind]}{shape}'
+            ids[v] = f'{ns}:collider_{"wfc"[kind]}{shape}'
         for v in sorted(used):
             if ids[v] not in block_ids: problems.append(f'the collider runs use {ids[v]!r} (variant {v}) but the pack defines no such block')
         if len(used) > 1: notes.append(f'{len(used) - 1} collider forms in use')
@@ -518,7 +520,7 @@ def check_release(path):
         problems.append(f'{len(overrides)} file(s) define minecraft: ids: {_brief(overrides)}')
 
     # 11. no diagnostics file.
-    diag = [n for n in names if n.rsplit('/', 1)[-1] == 'craftmatic-diagnostics.json']
+    diag = [n for n in names if n.rsplit('/', 1)[-1].endswith('-diagnostics.json')]
     if diag:
         problems.append(f'dev diagnostics shipped: {_brief(diag)}')
 
