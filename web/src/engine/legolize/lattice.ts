@@ -26,6 +26,7 @@ import { MeshBVH } from 'three-mesh-bvh';
 import { threeToGridAsync, type TextureSampler, type VoxelizeMode, type VoxelizeProgress } from '@craft/convert/voxelizer.js';
 import type { RGB } from '@craft/types/index.js';
 import { LDRAW_COLOR_RGB } from '../ldraw-colors.js';
+import { capPlanarHoles } from './hole-cap.js';
 import { createNearest, type NearestColour, type PaletteColour } from './palette.js';
 import { latticeIndex, type IntentLabel, type IntentLattice } from './types.js';
 
@@ -143,6 +144,33 @@ function surfaceColour(
 }
 
 /**
+ * A copy of `meshes` whose meshes have their planar boundary loops capped (see hole-cap.ts), for the even-odd
+ * fill. Meshes without a loop are shared as they are. The copy carries positions only: it is never coloured.
+ */
+function cappedGroup(meshes: readonly THREE.Mesh[]): THREE.Group {
+  const out = new THREE.Group();
+  for (const m of meshes) {
+    const geo = m.geometry;
+    const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+    const caps = capPlanarHoles(pos.array, geo.index?.array);
+    if (!caps || caps.closed === 0) { out.add(m.clone()); continue; }
+    const idx = geo.index;
+    const n = idx ? idx.count : pos.count;
+    const flat = new Float32Array(n * 3 + caps.positions.length);
+    for (let i = 0; i < n; i++) {
+      const v = idx ? idx.getX(i) : i;
+      flat[i * 3] = pos.getX(v); flat[i * 3 + 1] = pos.getY(v); flat[i * 3 + 2] = pos.getZ(v);
+    }
+    flat.set(caps.positions, n * 3);
+    const capped = new THREE.BufferGeometry();
+    capped.setAttribute('position', new THREE.BufferAttribute(flat, 3));
+    out.add(new THREE.Mesh(capped, m.material));
+  }
+  out.updateMatrixWorld(true);
+  return out;
+}
+
+/**
  * Voxelise `source` onto the 20 x 8 x 20 LDU lattice and colour every filled
  * cell. `source` (and its geometry) is not modified or reparented.
  */
@@ -191,7 +219,10 @@ async function voxeliseAndColour(
     g.boundsTree ??= new MeshBVH(g, { indirect: true });
   }
 
-  const run = (md: VoxelizeMode) => threeToGridAsync(stretched, 1, { mode: md, onProgress, yieldInterval: 8 });
+  // Solid mode counts shell crossings, so open planar rims (LDraw studs have no base) are closed on a position-only
+  // copy; the colour pass and the surface fallback keep the original geometry.
+  const solidGroup = cappedGroup(meshes);
+  const run = (md: VoxelizeMode) => threeToGridAsync(md === 'solid' ? solidGroup : stretched, 1, { mode: md, onProgress, yieldInterval: 8 });
   let grid = await run(mode);
   // An open mesh has no inside: solid mode then finds nothing. Use its surface instead of returning air.
   if (mode === 'solid' && grid.countNonAir() === 0) grid = await run('surface');
