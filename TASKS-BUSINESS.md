@@ -90,7 +90,11 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
       `.worktrees/biz-b29/data/byom-corpus/` (re-run `bun scripts/byom-corpus-fetch.ts` in main to get it there).
     - Pre-existing (not B01): after an upload the LEGO tab's source badge stays "loading... (no progress)".
     - The X-11 agent ran `rm -r` on its own new scratch folder (rule breach; brief now leads with the rule).
-  - NEXT: Wave 2 per `docs/plans/README.md` section 4, choosing only packages with no user decision.
+  - WAVE 2a IN FLIGHT 2026-11-09 (10 Sonnet agents; brief = `docs/plans/implementer-brief.md` +
+    `docs/plans/wave2-brief.md` (file ownership) + the package row): X-02->X-17 (one agent, `biz-x02`), X-03, X-05,
+    X-09, A05, X-12 (+ the X-11 IoU follow-up), B09, B15, F01, C03. Branches `biz-<id>`.
+    Wave 2b, still to start: M15, X-14, D-06, D-16, M06 (default: one budget tier), X-13 (the clean-room half
+    only); X-15 (its merge needs the user's approval, because every push to main deploys).
   - WAVE 1 (original list) 2026-11-09 (one agent each, worktree `.worktrees/biz-<id>`, branch `biz-<id>`, not merged until
     reviewed + full suite green): X-08 brick core, X-01 identity registry, X-04 part-source ledger + credits, X-06
     release validator, D-03 deterministic zip, C01 coaster design -> path, X-11 mesh -> stud lattice, B29 corpus
