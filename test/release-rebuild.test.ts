@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createZip } from '../web/src/engine/zip-utils.js';
-import { RELEASE_PROFILE_FLAGS, pinProblems, PENDING_STAGES } from '../web/src/release/prepare.js';
+import { RELEASE_PROFILE_FLAGS, pinProblems, PENDING_STAGES, brickBlockProblems, placementProblems } from '../web/src/release/prepare.js';
 import {
   compareArtifacts, ledgerEntryFor, packIds, releaseTag, releaseStatus, renderStatus, tagProblems,
 } from '../web/src/release/prepare-rebuild.js';
@@ -129,6 +129,35 @@ describe('release-rebuild: pins', () => {
     expect(out.join('\n')).toMatch(/bun\.lock sha256/);
     expect(out.join('\n')).toMatch(/archive not found/);
     expect(pinProblems(product, { bunVersion: '1.3.11', lockfileSha256: 'x', ldrawArchiveSha256: 'y' })).toEqual([]);
+  });
+});
+
+describe('release-rebuild: the M03 and M07 gates', () => {
+  const j = (v: unknown) => enc(JSON.stringify(v));
+  const block = (id: string, states?: Record<string, unknown>) => ({ 'minecraft:block': { description: { identifier: id, ...(states ? { states } : {}) } } });
+  const goodFiles = () => [
+    { name: 'P_BP/blocks/t/p/brick_white.json', data: j(block('t_p:brick_white')) },
+    { name: 'P_BP/blocks/t/p/plate_white.json', data: j(block('t_p:plate_white')) },
+    { name: 'P_BP/blocks/t/p/collider.json', data: j(block('t_p:collider', { 't_p:cell_a': { values: { min: 0, max: 11 } }, 't_p:cell_b': { values: { min: 0, max: 11 } } })) },
+    { name: 'P_BP/scripts/placement.js', data: enc('const CONFIG = {"id":"x","marketplace":true};') },
+  ];
+
+  it('brickBlockProblems passes a pack with every brick and plate block and 12-value collider states', () => {
+    expect(brickBlockProblems(goodFiles(), 't_p', ['white'])).toEqual([]);
+  });
+
+  it('brickBlockProblems names a missing brick block and a legacy collider state', () => {
+    const missing = brickBlockProblems(goodFiles().filter(f => !f.name.includes('plate_')), 't_p', ['white']);
+    expect(missing.join(' ')).toContain('t_p:plate_white');
+    const legacy = goodFiles();
+    legacy[2] = { name: 'P_BP/blocks/t/p/collider.json', data: j(block('t_p:collider', { 't_p:lo': { values: { min: 0, max: 135 } } })) };
+    expect(brickBlockProblems(legacy, 't_p', ['white']).join(' ')).toMatch(/t_p:lo has 136 values/);
+  });
+
+  it('placementProblems wants the marketplace key in the placement script', () => {
+    expect(placementProblems(goodFiles())).toEqual([]);
+    expect(placementProblems(goodFiles().filter(f => !f.name.endsWith('.js'))).join(' ')).toMatch(/no placement script/);
+    expect(placementProblems([{ name: 'P_BP/scripts/placement.js', data: enc('const CONFIG = {"id":"x"};') }]).join(' ')).toMatch(/not in marketplace mode/);
   });
 });
 

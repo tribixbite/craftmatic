@@ -1,7 +1,1 @@
-[
-  {
-    "gate": "release-validator",
-    "pattern": "textures/terrain_texture.json",
-    "reason": "TEST FIXTURE ONLY. The resource pack still ships textures/terrain_texture.json for the dev collider block; M03's own blocks decide whether X-06's vanilla-path rule can pass. A real release is refused while it fails."
-  }
-]
+[]

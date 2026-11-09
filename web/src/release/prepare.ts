@@ -173,6 +173,47 @@ export function profileProblems(files: readonly RawFile[], identity: ProductIden
   return out;
 }
 
+/** Most values one collider state may have under `compactColliderStates` (two states of 12: 144 combinations a block). */
+export const COMPACT_STATE_VALUES = 12;
+
+/** Number of values a block state declares: a list, or `{values: {min, max}}`. */
+function stateValueCount(state: unknown): number {
+  const values = (state as { values?: unknown } | undefined)?.values ?? state;
+  if (Array.isArray(values)) return values.length;
+  const range = values as { min?: number; max?: number } | undefined;
+  return typeof range?.min === 'number' && typeof range.max === 'number' ? range.max - range.min + 1 : 0;
+}
+
+/**
+ * M03 in the finished pack: every `<ns>:brick_<colour>` and `<ns>:plate_<colour>` block is defined, and no block
+ * declares a state with more than 12 values (the legacy `lo`/`hi` pair has 136, which is what put the dev pack over
+ * the Marketplace's 10,000 permutations). The vanilla concrete overrides are `profileProblems`' job.
+ */
+export function brickBlockProblems(files: readonly RawFile[], namespace: string, colours: readonly string[]): string[] {
+  const out: string[] = [];
+  const blocks = files.filter(f => /^[^/]+_BP\/blocks\/.*\.json$/.test(f.name))
+    .map(f => (JSON.parse(decode(f.data)) as { 'minecraft:block'?: { description?: { identifier?: string; states?: Record<string, unknown> } } })['minecraft:block']?.description);
+  const ids = new Set(blocks.map(b => b?.identifier));
+  for (const kind of ['brick', 'plate']) for (const c of colours) if (!ids.has(`${namespace}:${kind}_${c}`)) out.push(`own brick block ${namespace}:${kind}_${c} is not in the pack`);
+  for (const b of blocks) {
+    for (const [name, state] of Object.entries(b?.states ?? {})) {
+      const n = stateValueCount(state);
+      if (n > COMPACT_STATE_VALUES) out.push(`${b?.identifier}: state ${name} has ${n} values (compact collider states allow ${COMPACT_STATE_VALUES})`);
+    }
+  }
+  return out;
+}
+
+/**
+ * M07 in the finished pack: the placement script's CONFIG carries `"marketplace":true` (air-only wand, prompt, undo).
+ * A dev wand has no such key.
+ */
+export function placementProblems(files: readonly RawFile[]): string[] {
+  const scripts = files.filter(f => /^[^/]+_BP\/scripts\/placement[^/]*\.js$/.test(f.name));
+  if (scripts.length === 0) return ['no placement script in the behaviour pack'];
+  return scripts.filter(f => !/"marketplace"\s*:\s*true/.test(decode(f.data))).map(f => `${f.name} is not in marketplace mode (CONFIG has no "marketplace":true)`);
+}
+
 /** Substitute `{product}`, `{version}`, `{commit}` in an action template. */
 const fill = (s: string, v: Record<string, string>): string => s.replace(/\{(\w+)\}/g, (_, k: string) => v[k] ?? `{${k}}`);
 

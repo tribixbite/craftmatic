@@ -52,9 +52,10 @@ import { spawnSync } from 'node:child_process';
 import { PRODUCT_ID_PATTERN, parseProduct, validateProduct } from '../web/src/release/product.js';
 import { sha256Hex, sha256sumsText } from '../web/src/release/checksums.js';
 import {
-  applyWaivers, approvalItems, RELEASE_PROFILE_FLAGS, channelStub, CHANNELS, openGates, pendingGates, preconditionProblems, profileProblems, renderApproval, renderNotice,
+  applyWaivers, approvalItems, brickBlockProblems, placementProblems, RELEASE_PROFILE_FLAGS, channelStub, CHANNELS, openGates, pendingGates, preconditionProblems, profileProblems, renderApproval, renderNotice,
   resolveVersion, type ApprovalAction, type Gate, type GateWaiver, type ValidationFile,
 } from '../web/src/release/prepare.js';
+import { packIds } from '../web/src/release/prepare-rebuild.js';
 import { compareSemVer, formatSemVer, parseSemVer, toManifestTriple } from '../web/src/release/semver.js';
 import type { IdentityLedgerEntry, ProductRecord, ReleasedVersion, SemVer } from '../web/src/release/types.js';
 
@@ -509,6 +510,11 @@ async function make(specFile: string): Promise<void> {
   const dangling = findDanglingReferences(files).map(d => `${d.file}: ${d.kind} ${d.ref}`);
   if (!record('references', 'X-03 every geometry, controller, animation and texture an entity names exists', dangling, 'no dangling references')) return writeResult([]);
 
+  // ---- M03 (own brick blocks, compact collider states) and M07 (air-only wand) are in the finished pack ----
+  const { BRICK_BLOCK_COLOURS } = await import('../web/src/engine/marketplace/blocks.js');
+  if (!record('brick-blocks', 'M03 own brick and plate blocks, no state over 12 values', brickBlockProblems(files, identity.namespace, BRICK_BLOCK_COLOURS), `${BRICK_BLOCK_COLOURS.length * 2} brick and plate blocks, compact collider states`)) return writeResult([]);
+  if (!record('placement', 'M07 air-only placement (marketplace mode in the wand script)', placementProblems(files), 'the placement script runs in marketplace mode')) return writeResult([]);
+
   // ---- notices (X-05), credits (X-04), in-pack changelog (D-06) ----
   const bpRoot = files.map(f => f.name).find(n => /^[^/]+_BP\/manifest\.json$/.test(n))!.replace('manifest.json', '');
   const roots = [...new Set(files.filter(f => /(^|\/)manifest\.json$/.test(f.name)).map(f => f.name.replace('manifest.json', '')))];
@@ -560,6 +566,9 @@ async function make(specFile: string): Promise<void> {
   writeFileSync(join(out, 'CHANGELOG.md'), changelogText);
   writeFileSync(join(out, 'NOTICE.txt'), renderNotice(product.publisher));
   writeFileSync(join(out, 'CREDITS-LDRAW.txt'), credits);
+  // What the ledger freezes for this version (read by `finalize`), from the very files that were zipped.
+  writeFileSync(join(out, 'pack-ids.json'), `${JSON.stringify(packIds(files), null, 2)}
+`);
   writeResult([`${slug}.mcaddon`, `${slug}.zip`]);
 }
 
