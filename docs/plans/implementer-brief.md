@@ -14,7 +14,9 @@ Repo: C:\git\craftmatic (Windows; use Git Bash or PowerShell; bun/bunx only, nev
 2. **Worktree:** `cd /c/git/craftmatic && git worktree add .worktrees/biz-<id> -b biz-<id> main`, then
    `cd .worktrees/biz-<id> && bun install`. Work ONLY inside that worktree. Never edit files in the main checkout or
    in another agent's worktree. Eight other agents work in parallel in their own worktrees.
-3. **Fail-first TDD:** write the failing test first and run it (`bunx vitest run <file>`). Confirm it fails for the
+3. **Fail-first TDD (a MERGE CONDITION since 2026-11-09: three Wave-1/2 agents skipped it):** paste the failing run's
+   assertion output into your report, or the branch is not merged.
+   **Fail-first TDD:** write the failing test first and run it (`bunx vitest run <file>`). Confirm it fails for the
    RIGHT reason (an assertion, not a missing file or import). Then implement until it passes. Add more tests as
    you go.
 4. **Run only what is relevant:**
