@@ -1,6 +1,6 @@
 /**
  * A09 (BIZ-05): features from tags, licensed-photo annotation sidecars (authority) and mesh slices.
- * The Notre-Dame sidecar (`web/src/brickgen/features/data/notre-dame.annotations.json`) is written from a
+ * The Notre-Dame sidecar (`web/src/brickgen/features/sidecars/notre-dame.annotations.json`) is written from a
  * CC BY-SA photograph of the public west front; no LEGO set file was read for any value in it.
  */
 import { readFileSync } from 'node:fs';
@@ -363,7 +363,7 @@ describe('brickgen-features mesh slices', () => {
 
 describe('brickgen-features Notre-Dame de Paris (public west front)', () => {
   const nd = JSON.parse(readFileSync(new URL('./fixtures/osm/notre-dame.overpass.json', import.meta.url), 'utf8'));
-  const sidecarJson = JSON.parse(readFileSync(new URL('../web/src/brickgen/features/data/notre-dame.annotations.json', import.meta.url), 'utf8'));
+  const sidecarJson = JSON.parse(readFileSync(new URL('../web/src/brickgen/features/sidecars/notre-dame.annotations.json', import.meta.url), 'utf8'));
   const r = siteFromOverpass(nd, { retrieved: '2026-11-09', url: 'https://overpass-api.de/api/interpreter', buildingId: 'way/201611261' });
   const m = buildMassing(r.site, { roles: r.roles });
   const sc = parseSidecar(sidecarJson);

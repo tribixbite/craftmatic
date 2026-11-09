@@ -1,0 +1,94 @@
+{
+  "schema": "craftmatic.facade-annotations/1",
+  "site": "Notre-Dame de Paris west front",
+  "sources": [
+    {
+      "id": "commons-pezi-2013-07-24",
+      "kind": "photo",
+      "url": "https://commons.wikimedia.org/wiki/File:Notre-Dame_de_Paris_2013-07-24.jpg",
+      "retrieved": "2026-11-09",
+      "sha256": "16bbdefcc51cb4d4e21fc63c41a8c88d7758cb28d7a079c82b18fba314c2afe7",
+      "licence": "cc-by-sa",
+      "attribution": "P e z i (Wikimedia Commons), Notre-Dame de Paris 2013-07-24.jpg, CC BY-SA 3.0, https://creativecommons.org/licenses/by-sa/3.0",
+      "usedFor": ["facade marks: portals, rose windows, gallery of kings, belfry lancets, buttresses (measurement only; the photo never ships)"]
+    }
+  ],
+  "style": {
+    "wall": "#d6c6a4",
+    "trim": "#b9ad94",
+    "roof": "#8c9096",
+    "era": "gothic"
+  },
+  "facades": [
+    {
+      "id": "west-front",
+      "source": "commons-pezi-2013-07-24",
+      "volume": "way/201611270",
+      "facing": "west",
+      "image": { "widthPx": 1000, "heightPx": 1350 },
+      "calibration": {
+        "spanPx": [72, 900],
+        "groundRowPx": 1258,
+        "heightRef": { "rowPx": 138, "heightM": 69 }
+      },
+      "note": "Pixel boxes are on the 1000 px wide working copy (the 3348 x 4519 original scaled by 0.2987). Horizontal scale comes from the massing: the facade face of the 'Galerie des chimeres' part (50 m, buttress to buttress) spans image columns 72-900. Vertical scale: ground row 1258, tower-top row 138 = 69 m (OSM height of both towers).",
+      "marks": [
+        { "id": "portal-virgin", "kind": "portal", "boxPx": [150, 1000, 340, 1258], "note": "left (north) portal, Portal of the Virgin" },
+        { "id": "portal-last-judgment", "kind": "portal", "boxPx": [378, 989, 603, 1258], "note": "central portal, Portal of the Last Judgment" },
+        { "id": "portal-st-anne", "kind": "portal", "boxPx": [650, 1012, 825, 1258], "note": "right (south) portal, Portal of St Anne" },
+        { "id": "rose-west", "kind": "rose", "boxPx": [414, 722, 572, 880], "note": "west rose window, ~9.6 m; its lower arc sits behind the balustrade so the box is the full circle" },
+        { "id": "rose-blind-north", "kind": "rose", "boxPx": [231, 716, 288, 772], "note": "small blind rose over the north aisle windows" },
+        { "id": "rose-blind-south", "kind": "rose", "boxPx": [688, 716, 744, 772], "note": "small blind rose over the south aisle windows" },
+        { "id": "lancets-aisle-north", "kind": "lancet", "boxPx": [208, 788, 328, 868], "count": 2 },
+        { "id": "lancets-aisle-south", "kind": "lancet", "boxPx": [656, 794, 766, 868], "count": 2 },
+        { "id": "balustrade-rose-stage", "kind": "balustrade", "boxPx": [100, 865, 872, 892] },
+        { "id": "gallery-of-kings", "kind": "arcade", "boxPx": [94, 906, 869, 974], "count": 28, "note": "28 statue niches of the Galerie des Rois" },
+        { "id": "great-gallery-arcade", "kind": "arcade", "boxPx": [168, 522, 832, 655], "note": "open arcaded gallery between the towers" },
+        { "id": "cornice-towers", "kind": "cornice", "boxPx": [88, 478, 882, 500] },
+        { "id": "buttress-north-corner", "kind": "buttress", "boxPx": [72, 495, 155, 1258] },
+        { "id": "buttress-north-centre", "kind": "buttress", "boxPx": [338, 495, 380, 1258] },
+        { "id": "buttress-south-centre", "kind": "buttress", "boxPx": [603, 495, 650, 1258] },
+        { "id": "buttress-south-corner", "kind": "buttress", "boxPx": [805, 495, 900, 1258] }
+      ]
+    },
+    {
+      "id": "north-tower-west",
+      "source": "commons-pezi-2013-07-24",
+      "volume": "way/201754180",
+      "facing": "west",
+      "image": { "widthPx": 1000, "heightPx": 1350 },
+      "calibration": {
+        "spanPx": [112, 414],
+        "groundRowPx": 1258,
+        "heightRef": { "rowPx": 138, "heightM": 69 }
+      },
+      "note": "Left tower in the photo (looking east, north is on the left).",
+      "marks": [
+        { "id": "belfry-lancets-north", "kind": "lancet", "boxPx": [208, 262, 326, 476], "count": 2, "note": "paired belfry openings" },
+        { "id": "pinnacle-north", "kind": "pinnacle", "boxPx": [169, 106, 195, 140] }
+      ]
+    },
+    {
+      "id": "south-tower-west",
+      "source": "commons-pezi-2013-07-24",
+      "volume": "way/201611269",
+      "facing": "west",
+      "image": { "widthPx": 1000, "heightPx": 1350 },
+      "calibration": {
+        "spanPx": [572, 850],
+        "groundRowPx": 1258,
+        "heightRef": { "rowPx": 138, "heightM": 69 }
+      },
+      "note": "Right tower in the photo (south).",
+      "marks": [
+        { "id": "belfry-lancets-south", "kind": "lancet", "boxPx": [651, 268, 757, 476], "count": 2, "note": "paired belfry openings" },
+        { "id": "pinnacle-south", "kind": "pinnacle", "boxPx": [769, 112, 801, 150] }
+      ]
+    }
+  ],
+  "notes": [
+    "The flying buttresses and the 96 m spire are not visible from the west and are not marked here: they come from the OSM tags (features/tags.ts), at lower confidence.",
+    "Marked by eye on a near-frontal photograph (slight perspective: horizontal scale 0.060 m/px from the massing, vertical 0.0616 m/px from the 69 m tower height; the two agree within 2%). Positions are good to a few pixels, about 0.3 m.",
+    "No LEGO product file, instruction or image was opened for any value in this sidecar."
+  ]
+}
