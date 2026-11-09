@@ -178,13 +178,14 @@ export function pipelineStampText(stamp: PipelineStamp): string {
  * The stamp goes LAST so the model name survives Minecraft's truncation, and
  * the role keeps the behavior and resource packs distinguishable exactly as
  * before (`Playable` vs `Playable Resources`). This composes the DISPLAY name
- * only — never feed it to `packIdentity()`: the manifest UUIDs derive from the
+ * only (a null `stamp` leaves it off, for a release pack) — never feed it to `packIdentity()`: the manifest UUIDs derive from the
  * raw stem/label, and a stamp in that derivation would turn every pipeline
  * build into a NEW pack instead of an upgrade of the installed one.
  */
-export function packDisplayName(label: string, role: string | null, stamp: PipelineStamp): string {
+export function packDisplayName(label: string, role: string | null, stamp: PipelineStamp | null): string {
   const base = role ? `${label} — ${role}` : label;
-  return `${base} (${pipelineStampText(stamp)})`;
+  // A null stamp is a release pack (PackProfile `devStamp: false`): the bare name, nothing after it.
+  return stamp ? `${base} (${pipelineStampText(stamp)})` : base;
 }
 
 /**

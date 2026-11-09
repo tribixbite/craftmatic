@@ -1,4 +1,5 @@
 import type { ParsedBrick } from './ldraw-parser.js';
+import { labelHeuristicsAllowed, type LabelHeuristicsInput } from './pack-profile.js';
 import { partStem } from './part-id.js';
 import { HOVER_WORDS } from './bedrock-vehicle.js';
 
@@ -101,9 +102,11 @@ function verifiedBatmobile(bricks: ParsedBrick[]): ParsedBrick[] | null {
  * `boat` geometry, and `vehicleMotionOf` makes it float); a craft word takes
  * `partsKind` (`vehicleKindFromParts`) or stays unknown.
  */
-export function classifyVehicleKind(label: string, mode: VehicleMode, partsKind: PlayableKind | null = null): PlayableKind | null {
+export function classifyVehicleKind(label: string, mode: VehicleMode, partsKind: PlayableKind | null = null, guard: LabelHeuristicsInput = {}): PlayableKind | null {
   if (mode === 'car' || mode === 'plane' || mode === 'boat') return mode;
   if (mode === 'static') return null;
+  // X-17: an explicit-mode input has no title kind; only its hint (a mode above) decides.
+  if (!labelHeuristicsAllowed(guard)) return null;
   if (/\b(?:76252|10300)\b|batcave shadow/i.test(label)) return 'car';
   if (BOAT_WORDS.test(label)) return 'boat';
   if (PLANE_WORDS.test(label)) return 'plane';
@@ -186,11 +189,14 @@ function wheelComponents(bricks: ParsedBrick[]): ParsedBrick[][] {
 }
 
 export function discoverPlayableComponents(
-  bricks: ParsedBrick[], label: string, mode: VehicleMode = 'auto', describe?: (part: string) => string,
+  bricks: ParsedBrick[], label: string, mode: VehicleMode = 'auto', describe?: (part: string) => string, guard: LabelHeuristicsInput = {},
 ): { components: PlayableBrickComponent[]; warnings: string[] } {
+  // X-17: every title branch below reads the label; an explicit-mode input without a hint stays static.
+  const heuristics = labelHeuristicsAllowed(guard);
+  if (!heuristics && mode === 'auto') return { components: [], warnings: [] };
   // A title with only a craft word ("Destiny's Bounty", "Galaxy Explorer") is a vehicle whose kind the parts decide.
   const evidence = describe ? vehicleKindFromParts(bricks, describe) : null;
-  const kind = classifyVehicleKind(label, mode, evidence?.kind ?? null);
+  const kind = classifyVehicleKind(label, mode, evidence?.kind ?? null, guard);
   if (!kind) {
     const warnings = mode === 'auto' && CRAFT_WORDS.test(label) && !TITLE_KIND_WORDS.test(label)
       ? [`${label}: the title names a craft but its parts do not say which kind (${evidence ? evidence.reason : 'no part descriptions'}); exported static. Choose a vehicle mode to ride it.`] : [];
@@ -201,7 +207,7 @@ export function discoverPlayableComponents(
   if (craftNote && mode === 'auto') {
     return { components: [withBounds({ id: kind, label, kind, bricks, provenance: `whole model identified by source title (a craft word)${craftNote}` })], warnings: [] };
   }
-  return discoverTitled(bricks, label, mode, kind, withBounds);
+  return discoverTitled(bricks, label, mode, kind, withBounds, heuristics);
 }
 
 /**
@@ -252,8 +258,10 @@ export function withPlayableBounds(component: Omit<PlayableBrickComponent, 'boun
 function discoverTitled(
   bricks: ParsedBrick[], label: string, mode: VehicleMode, kind: PlayableKind,
   withBounds: (component: Omit<PlayableBrickComponent, 'bounds'>) => PlayableBrickComponent,
+  heuristics: boolean,
 ): { components: PlayableBrickComponent[]; warnings: string[] } {
-  if (/\b76252\b|batcave shadow/i.test(label) && kind === 'car') {
+  // `heuristics` is `labelHeuristicsAllowed` (X-17): the 76252 Batmobile / Batcave special cases are set-number heuristics.
+  if (heuristics && /\b76252\b|batcave shadow/i.test(label) && kind === 'car') {
     const car = verifiedBatmobile(bricks);
     if (car) return {
       components: [withBounds({ id: 'batmobile', label: 'Batmobile', kind: 'car', bricks: car,
@@ -269,7 +277,7 @@ function discoverTitled(
   // the file may carry the vehicle's display and driver beside it: a named
   // vehicle submodel is preferred when it dominates, and everything that does
   // not physically touch the vehicle is left behind.
-  if (mode === 'auto' && isWholeVehicleLabel(label)) {
+  if (heuristics && mode === 'auto' && isWholeVehicleLabel(label)) {
     const named = dominantNamedGroup(bricks, kind);
     if (!named) return { components: [withBounds({ id: kind, label, kind, bricks, provenance: 'whole model identified by source title' })], warnings: [] };
     const name = named.name.replace(/\.(ldr|mpd|dat)$/i, '');
@@ -286,12 +294,12 @@ function discoverTitled(
     warnings: [],
   };
 
-  if (kind === 'car' && !/\b76252\b|batcave shadow/i.test(label)) {
+  if (kind === 'car' && !(heuristics && /\b76252\b|batcave shadow/i.test(label))) {
     const wheeled = wheelComponents(bricks);
     if (wheeled.length) return {
       components: wheeled.map((group, i) => withBounds({
-        id: /76252/.test(label) ? 'batmobile' : `car_${i + 1}`,
-        label: /76252|batcave/i.test(label) ? 'Batmobile' : label,
+        id: heuristics && /76252/.test(label) ? 'batmobile' : `car_${i + 1}`,
+        label: heuristics && /76252|batcave/i.test(label) ? 'Batmobile' : label,
         kind, bricks: group,
         provenance: 'four-wheel spatial component from flattened LDraw source',
       })),
@@ -311,8 +319,9 @@ function discoverTitled(
 }
 
 /** Exact, measured interaction anchors for the verified flattened 76252 model. */
-export function knownScreenAnchors(setLabel: string): Array<{ id: string; label: string; ldraw: [number, number, number] }> {
-  if (!/\b76252\b|batcave shadow/i.test(setLabel)) return [];
+export function knownScreenAnchors(setLabel: string, guard: LabelHeuristicsInput = {}): Array<{ id: string; label: string; ldraw: [number, number, number] }> {
+  // X-17: a measured set-number anchor table: never applied to an explicit-mode input.
+  if (!labelHeuristicsAllowed(guard) || !/\b76252\b|batcave shadow/i.test(setLabel)) return [];
   return [
     { id: 'batcomputer_left', label: 'Batcomputer — systems', ldraw: [220, -526, 72] },
     { id: 'batcomputer_right', label: 'Batcomputer — security', ldraw: [400, -526, 72] },

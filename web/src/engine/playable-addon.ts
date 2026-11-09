@@ -2,7 +2,8 @@ import { BlockGrid } from '@craft/schem/types.js';
 import { getBlockColor } from '@craft/blocks/colors.js';
 import { createZip } from './zip-utils.js';
 import { deterministicUuid, packIdentity, PACK_NAMESPACE, toBedrockIdentifier } from './mcpack.js';
-import { currentPipelineStamp, packDisplayName, packProvenance, packVersionAt, provenanceSentence, type PackProvenance, type PipelineStamp, type SourceProvenance } from './pipeline-version.js';
+import { currentPipelineStamp, packDisplayName, packProvenance, packVersionAt, provenanceSentence, unstampedPipeline, type PackProvenance, type PipelineStamp, type SourceProvenance } from './pipeline-version.js';
+import { applyLangOverrides, labelHeuristicsAllowed, resolvePackFlags, type PackProfile } from './pack-profile.js';
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
@@ -268,6 +269,11 @@ export interface PlayableAddonOptions {
      * a CLI passes the one it computed from its working tree.
      */
     pipelineStamp?: PipelineStamp;
+    /**
+     * X-02: makes this a release / Marketplace / BYOM pack (frozen ids, semver, injected clock and deflate,
+     * release texts, no dev artefacts). Absent = the dev pack, unchanged. See `pack-profile.ts`.
+     */
+    packProfile?: PackProfile;
     /** The model file the pack was built from, with its sha256/12 (the index's convention). `null` when unknown. */
     source?: SourceProvenance | null;
 }
@@ -2586,17 +2592,19 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const lduPerBlock = LDU_PER_BLOCK / modelScale;
     // Figures are compiled at the CAPPED scale (never above 1×): a minifig is the player's size, not a giant.
     const figureUnitsPerLdu = BEDROCK_UNITS_PER_LDU * figureModelScale(modelScale);
-    const isTimeMachine = /\b10300\b|delorean|de lorean|time machine/i.test(`${id} ${label}`);
+    // X-17: the set-number / title heuristics below (time machine, whole-vehicle title, Batcave) are one switch.
+    const heuristics = labelHeuristicsAllowed(options);
+    const isTimeMachine = heuristics && /\b10300\b|delorean|de lorean|time machine/i.test(`${id} ${label}`);
     const shortAlias = placementAlias(id);
     const components = options.components?.slice() ?? [];
     const warnings: string[] = [];
     if (!components.length && (mode === 'car' || mode === 'plane' || mode === 'boat'))
         components.push({ id, label, kind: mode, grid, provenance: 'explicit whole-model vehicle override' });
     // A title with only a craft word ("Galaxy Explorer") has no kind without its parts: a grid-only export stays static.
-    const titleKind = mode === 'auto' && isWholeVehicleLabel(label) ? classifyVehicleKind(label, mode) : null;
+    const titleKind = heuristics && mode === 'auto' && isWholeVehicleLabel(label) ? classifyVehicleKind(label, mode) : null;
     if (!components.length && titleKind)
         components.push({ id, label, kind: titleKind, grid, provenance: 'whole model identified by source title' });
-    if (!components.length && mode === 'auto' && /76252|batcave shadow/i.test(label))
+    if (!components.length && heuristics && mode === 'auto' && /76252|batcave shadow/i.test(label))
         warnings.push('Batmobile source component was not supplied; the Batcave remains static rather than making the whole cave driveable.');
     const bp = `Craftmatic_${id}_BP/`, rp = `Craftmatic_${id}_RP/`, files: Array<{
         name: string;
@@ -2605,13 +2613,19 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // A BUILD instant, readable as a UTC date in the game's Technical details
     // (pipeline-version.ts): a re-export at another scale or quality must rank
     // newer than the installed pack even when the pipeline did not change.
-    const version = packVersionAt();
+    const profile = options.packProfile;
+    const flags = resolvePackFlags(profile);
+    const clock = profile?.clock ?? Date.now();
+    const version = profile?.version ?? packVersionAt(clock);
     // Provenance: the pipeline stamp goes in both pack NAMES so an older pack
     // is readable at a glance in Minecraft's pack list, and in full into
     // `craftmatic-provenance.json` (also spread into the diagnostics).
-    const pipelineStamp = options.pipelineStamp ?? currentPipelineStamp();
-    const source = options.source ?? null;
-    const provenance = packProvenance({ stamp: pipelineStamp, source, version });
+    // A release pack (`devStamp: false`) carries no dev stamp and no source file name; its instants come from the injected clock.
+    const builtAt = profile?.clock !== undefined ? new Date(clock).toISOString() : undefined;
+    const pipelineStamp = flags.devStamp ? options.pipelineStamp ?? currentPipelineStamp() : unstampedPipeline('release build: no dev stamp', new Date(clock).toISOString());
+    const nameStamp = flags.devStamp ? pipelineStamp : null;
+    const source = flags.devStamp ? options.source ?? null : null;
+    const provenance = packProvenance({ stamp: pipelineStamp, source, version, ...(builtAt ? { builtAt } : {}) });
     // Manifest UUIDs are keyed on the model's IDENTITY, not on `id`: `id` is the
     // 12-char name stem, so every Hogwarts set shipped one BP/RP uuid and a
     // second import could never be activated beside the first (see packIdentity).
@@ -2620,10 +2634,28 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // one instead of an upgrade, which is the stale-folder trap the stamp exists
     // to expose (pinned by "different stamps, same uuid" in playable-addon.test).
     const identity = packIdentity(options.stem, options.label);
-    const bpHeader = deterministicUuid(`craftmatic.addon.bp.header:${identity}`), rpHeader = deterministicUuid(`craftmatic.addon.rp.header:${identity}`);
-    files.push({ name: bp + 'manifest.json', data: json({ format_version: 2, header: { name: packDisplayName(label, 'Playable', pipelineStamp), description: `Place with /function ${shortAlias}; ride vehicles and use computer screens. ${provenanceSentence(pipelineStamp, source)}`, uuid: bpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'data', uuid: deterministicUuid(`craftmatic.addon.bp.data:${identity}`), version }, { type: 'script', language: 'javascript', entry: 'scripts/main.js', uuid: deterministicUuid(`craftmatic.addon.bp.script:${identity}`), version }], dependencies: [{ uuid: rpHeader, version }, { module_name: '@minecraft/server', version: '2.9.0' }, { module_name: '@minecraft/server-ui', version: '2.1.0' }] }) });
+    // A profile's frozen uuids replace the label-derived ones (a release's identity is minted once, never derived from a label).
+    const frozen = profile?.identity?.uuids;
+    const bpHeader = frozen?.bpHeader ?? deterministicUuid(`craftmatic.addon.bp.header:${identity}`), rpHeader = frozen?.rpHeader ?? deterministicUuid(`craftmatic.addon.rp.header:${identity}`);
+    const bpDataUuid = frozen?.bpData ?? deterministicUuid(`craftmatic.addon.bp.data:${identity}`), bpScriptUuid = frozen?.bpScript ?? deterministicUuid(`craftmatic.addon.bp.script:${identity}`);
+    const rpResourcesUuid = frozen?.rpResources ?? deterministicUuid(`craftmatic.addon.rp.resources:${identity}`);
+    const texts = profile?.texts;
+    files.push({ name: bp + 'manifest.json', data: json({ format_version: 2, header: { name: texts?.packName ?? packDisplayName(label, 'Playable', nameStamp), description: texts?.bpDescription ?? `Place with /function ${shortAlias}; ride vehicles and use computer screens.${nameStamp ? ` ${provenanceSentence(nameStamp, source)}` : ''}`, uuid: bpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'data', uuid: bpDataUuid, version }, { type: 'script', language: 'javascript', entry: 'scripts/main.js', uuid: bpScriptUuid, version }], dependencies: [{ uuid: rpHeader, version }, { module_name: '@minecraft/server', version: '2.9.0' }, { module_name: '@minecraft/server-ui', version: '2.1.0' }] }) });
     const pbr = options.pbr ?? true;
-    const rpManifest = { format_version: 2, header: { name: packDisplayName(label, 'Playable Resources', pipelineStamp), description: `Brick geometry from the LDraw parts, one flat 16x16 colour swatch per LEGO colour; printed faces are the only images. ${provenanceSentence(pipelineStamp, source)}`, uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${identity}`), version }] };
+    // A profile pack scopes its resources to the world and makes the two packs depend on each other (Marketplace rules, plan A 7.4); the dev pack's RP stands alone.
+    const rpManifest = {
+        format_version: 2,
+        header: {
+            name: texts?.packName ? `${texts.packName} Resources` : packDisplayName(label, 'Playable Resources', nameStamp),
+            description: texts?.rpDescription ?? (profile
+                ? 'Brick geometry from the parts, one flat 16x16 colour swatch per colour; printed faces are the only images.'
+                : `Brick geometry from the LDraw parts, one flat 16x16 colour swatch per LEGO colour; printed faces are the only images. ${provenanceSentence(pipelineStamp, source)}`),
+            uuid: rpHeader, version, min_engine_version: [1, 26, 40],
+            ...(profile ? { pack_scope: 'world' } : {}),
+        },
+        modules: [{ type: 'resources', uuid: rpResourcesUuid, version }],
+        ...(profile ? { dependencies: [{ uuid: bpHeader, version }] } : {}),
+    };
     const rpManifestFile = { name: rp + 'manifest.json', data: json(rpManifest) };
     files.push(rpManifestFile);
     files.push({ name: `${bp}craftmatic-provenance.json`, data: json(provenance) });
@@ -2651,7 +2683,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     let fallbackCuboids = 0;
     // Bundle authentic embossed LEGO stud & seam textures for Minecraft concrete blocks
     const terrainTextures: Record<string, { textures: string }> = {};
-    for (const [colorName, [r, g, b]] of Object.entries(CONCRETE_COLORS)) {
+    // The 17 concrete swatches sit at VANILLA texture paths: a Marketplace pack must not override them (`vanillaTextures: false`).
+    for (const [colorName, [r, g, b]] of flags.vanillaTextures ? Object.entries(CONCRETE_COLORS) : []) {
         files.push({ name: `${rp}textures/blocks/concrete_${colorName}.png`, data: generateStudBlockPng(r, g, b, false) });
         terrainTextures[`concrete_${colorName}`] = { textures: `textures/blocks/concrete_${colorName}` };
     }
@@ -2749,6 +2782,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
      * (the split copies the mesh), so one PNG serves them all.
      */
     const emitCompiledEntity = (ecid: string, geo: CompiledLdrawGeometry, behavior: unknown, animations?: ClientAnimations, lodEligible = false, faceAtlasName?: string): void => {
+        // `faceArt: false` REFUSES rather than dropping a face: face art / head prints are not cleared for a release pack.
+        if (!flags.faceArt && geo.meshes.some(m => m.faceAtlas)) throw new Error(`PackProfile faceArt is false but ${ecid} carries a face atlas (head print or face art).`);
         if (animations === MINIFIG_CLIENT_ANIMATIONS || animations === MINIDOLL_CLIENT_ANIMATIONS) minifigsEmitted++;
         const atlasName = faceAtlasName ?? `${ecid}_faces`;
         // Each geometry holds one LDraw colour and is textured with that
@@ -3890,7 +3925,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         warnings.push(`${label}: distance LOD dropped for ${Object.keys(lodSkipped).length} entit${Object.keys(lodSkipped).length === 1 ? 'y' : 'ies'} - the client stops drawing the whole actor before its hull could take over at ${MIN_LOD_NEAREST_CUBE_BLOCKS}+ blocks from its nearest cube, so the model pops out at that cull whether or not a hull ships: ${dropped}.`);
     }
     // Every fidelity degradation is inspectable from the pack itself.
-    if (Object.keys(diagnostics).length || coasterConfig || options.access || mountReport) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({
+    if (flags.diagnostics && (Object.keys(diagnostics).length || coasterConfig || options.access || mountReport)) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({
         // The provenance record (pipeline stamp, source file + hash, build
         // instant) is spread in whole, so one file answers "which build made this".
         ...provenance, label,
@@ -4069,7 +4104,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     langLines.push(...rideableExitHintLines(files, bp));
     files.push(
         { name: `${rp}texts/languages.json`, data: json(['en_US']) },
-        { name: `${rp}texts/en_US.lang`, data: text(langLines.join('\n')) },
+        { name: `${rp}texts/en_US.lang`, data: text(applyLangOverrides(langLines, texts?.lang).join('\n')) },
     );
     // sounds.json: vanilla's interactive `normal` block sounds plus a silent `fly` (`flySoundEvents`), for every
     // pack with an entity: silences the content log's `event type 'fly'` line from any airborne entity (Saga A/B).
@@ -4096,7 +4131,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     ].join('\n');
     // The README's flying-cloud paragraph, in the helicopter paragraph's voice, only for a pack that has a mount.
     const flyerReadme = flyerMounts.length ? ` Flying ${flyerMounts.map(m => m.label).join(' and ')}: tap the figure riding it (or the cloud under them) and a cloud of your own puffs into being beside you, with you on it. Push the joystick to fly where you look; Jump climbs straight up; pull the joystick BACK while holding Jump, or look down while holding Jump, to descend. It hovers in place when you let go. Dismount (sneak) leaves you where you are - in the air you float gently down - and the cloud waits there for you; an empty cloud fades away after a minute, and only a few can be about at once. The figure keeps its own cloud and flies a lap round the set on it.` : '';
-    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar: the first time, the preview follows wherever you look (no menu). Use the wand again, or switch away and back, for the menu - Place is at the top - to pin a position, rotate, resize or place; "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars, hover craft and boats: interact to ride (placed smaller than 100% you ride on top of it where a minifig would not fit inside either). Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive, brake and reverse; stopped, LEFT and RIGHT turn the car on the spot; press Jump for a short boost; the Dismount (sneak) button gets you out. A car does not get stuck: it slides along a wall it brushes, steps round a tree it clips and scrambles up a kerb or out of a pit up to two blocks high; a higher wall stops it - back up or turn. A hover craft floats over land and water alike. At night a light runs ahead of the nose. Planes and spaceships fly like a spaceship: push the joystick forward to fly forward and back to fly straight BACKWARDS, LEFT and RIGHT to turn (even standing still); Jump goes straight UP; hold Jump with the joystick pulled back - or drag the view to look down and then press Jump - to go straight DOWN; let go of everything and it stops and hovers in the air. Fly it into a hill or a wall and it lifts itself over. Get out in the air and it floats gently down to the ground and waits there. Every car, boat and ship: drag the screen to look around; let go and, while you are moving, the view swings back behind you after a second. Helicopters: push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump, or look down while holding Jump, to descend. Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you (drag to look around; hotbar slot 9 is the view from the seat); it clears when you dismount.${hasHop ? ' Drive or fly into something you can sit in - a chair, a roller-coaster car (even a moving one), a slide, another vehicle - with a free seat, and you hop straight onto it (onto the front-most free car of a coaster train); the one you left waits where you left it (a plane hovers in the air until you come back).' : ''}${ridesConfig?.rides.some(r => r.kind === 'slide') ? ' A slide whose foot has a car (or a coaster car, or a chair) with a free seat parked at it drops you straight into that seat.' : ''}${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''}${flyerReadme} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when a minifig would fit it at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by entities standing on invisible blocks that follow the LEGO floors and walls - a large building by several, each drawing its own ${STATIC_SHELL_CELL_BLOCKS}-block cell so no part of it is culled while you stand near it; undo removes all of them with the blocks. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(texts?.readme ?? `${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar: the first time, the preview follows wherever you look (no menu). Use the wand again, or switch away and back, for the menu - Place is at the top - to pin a position, rotate, resize or place; "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars, hover craft and boats: interact to ride (placed smaller than 100% you ride on top of it where a minifig would not fit inside either). Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive, brake and reverse; stopped, LEFT and RIGHT turn the car on the spot; press Jump for a short boost; the Dismount (sneak) button gets you out. A car does not get stuck: it slides along a wall it brushes, steps round a tree it clips and scrambles up a kerb or out of a pit up to two blocks high; a higher wall stops it - back up or turn. A hover craft floats over land and water alike. At night a light runs ahead of the nose. Planes and spaceships fly like a spaceship: push the joystick forward to fly forward and back to fly straight BACKWARDS, LEFT and RIGHT to turn (even standing still); Jump goes straight UP; hold Jump with the joystick pulled back - or drag the view to look down and then press Jump - to go straight DOWN; let go of everything and it stops and hovers in the air. Fly it into a hill or a wall and it lifts itself over. Get out in the air and it floats gently down to the ground and waits there. Every car, boat and ship: drag the screen to look around; let go and, while you are moving, the view swings back behind you after a second. Helicopters: push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump, or look down while holding Jump, to descend. Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you (drag to look around; hotbar slot 9 is the view from the seat); it clears when you dismount.${hasHop ? ' Drive or fly into something you can sit in - a chair, a roller-coaster car (even a moving one), a slide, another vehicle - with a free seat, and you hop straight onto it (onto the front-most free car of a coaster train); the one you left waits where you left it (a plane hovers in the air until you come back).' : ''}${ridesConfig?.rides.some(r => r.kind === 'slide') ? ' A slide whose foot has a car (or a coaster car, or a chair) with a free seat parked at it drops you straight into that seat.' : ''}${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''}${flyerReadme} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when a minifig would fit it at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by entities standing on invisible blocks that follow the LEGO floors and walls - a large building by several, each drawing its own ${STATIC_SHELL_CELL_BLOCKS}-block cell so no part of it is culled while you stand near it; undo removes all of them with the blocks. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     // Derive the capability from the completed resource pack. Coaster cars,
     // lift platforms and other generated actors are not necessarily present in
     // the initial component list, but their emitted texture sets still require
@@ -4106,7 +4141,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // Every script takes the pack's one shared player roster (PIN-02: one roster read a pack, not ~30 `getAllPlayers` calls a tick).
     shareScriptWorld(files, bp);
     options.onProgress?.('packaging playable .mcaddon', 90);
-    const bytes = await createZip(files, { alwaysDeflate: true });
+    // A profile build is reproducible: entries sorted, and the injected compressor when one is given (BIZ-51).
+    const bytes = await createZip(files, { alwaysDeflate: true, ...(profile ? { deterministic: true } : {}), ...(profile?.deflate ? { deflate: profile.deflate } : {}) });
     return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics, provenance, vehicleSeats, ...(mountReport ? { mounts: mountReport } : {}), ...(options.accessMargin ? { accessMarginUsed } : {}) };
 }
 
