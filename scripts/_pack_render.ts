@@ -21,9 +21,12 @@
  *   --walk-away=a..b[:step]   pictures looking back at the model from a..b blocks off its edge, each
  *                   actor full / hull / gone per distance (`<out stem>-d<NNN>.png`, a strip, a table)
  *
- * Frame: the preview's (`addon-preview.ts`): model blocks from the placement
- * corner, Y up; JSON X is not mirrored here, so the picture may be the mirror
- * image of the game's view. Good enough to judge shape, colour and faces.
+ * Frame: the game's (`worldFaces`, bedrock-geometry-faces.ts): model blocks from the placement
+ * corner, Y up. It is NOT a mirror image of the game's view: `worldFaces` mirrors Z, which together
+ * with the compiler's X mirror is a proper rotation, and the rasteriser's camera is right-handed
+ * (`test/release-media.test.ts` settles it against Bedrock's entity convention, JSON +X = the entity's left).
+ * The framing maths (actor placement, bounds, orbit) is shared with scripts/media-turntable.ts through
+ * web/src/release/media-framing.ts.
  *
  * Usage: bun scripts/_pack_render.ts <pack.mcaddon> --out=<png>
  *          [--eye=x,y,z] [--at=x,y,z] [--fov=50] [--image=900x700] [--size=100] [--far]
@@ -38,12 +41,13 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import sharp from 'sharp';
-import { buildAddonPreviewModel, readAddonPreviewFiles, placedPoint, entitySpawnsAt, entityCollisionFromSources } from '../web/src/ui/addon-preview-data.ts';
+import { buildAddonPreviewModel, readAddonPreviewFiles } from '../web/src/ui/addon-preview-data.ts';
 import { type AuditActor, type Vec3 } from '../web/src/engine/bedrock-geometry-faces.ts';
 import { actorLodState, lodFaces, rasterMetrics, renderActorsDetailed, type SnapshotEntity } from '../web/src/sim/adapters/craftmatic/snapshot.ts';
 import { paintHatch } from '../web/src/sim/render/rasterizer.ts';
 import { type UvFloorModel } from '../web/src/engine/figure-holes.ts';
-import { entityRenderCullBlocks } from '../web/src/engine/bedrock-lod-hull.ts';
+import { boundingRadius, boundsOfActors, centreOf, lookEye, orbitEye, placeActors, sphereFitDistance } from '../web/src/release/media-framing.ts';
+import { decodeFaceAtlases } from '../web/src/release/media-render.ts';
 
 const args = process.argv.slice(2);
 const flag = (n: string): string | undefined => args.find(a => a.startsWith(`--${n}=`))?.slice(n.length + 3);
@@ -79,37 +83,14 @@ if (geoFrom) {
 }
 const model = buildAddonPreviewModel(files);
 if (!model.appearance) throw new Error('pack has no appearance');
-const boxes = entityCollisionFromSources(files.appearanceSources);
-/** Every actor placed at the wand size: its appearance, its point, its yaw, its scale and its realised cull. */
-interface Placed { actor: AuditActor; cull: number }
-const placedActors: Placed[] = [];
-for (const e of model.entities) {
-  if (!entitySpawnsAt(e, sizePct)) continue;
-  if (kinds && !kinds.includes(e.kind)) continue;
-  if (typeFilter && !new RegExp(typeFilter).test(e.typeId)) continue;
-  const entry = model.appearance.byType.get(e.typeId);
-  if (!entry) continue;
-  // The realised collision box is the declared 100 % box times the size (quirk `collision-box-scales-with-entity`).
-  const box = boxes.get(e.typeId);
-  placedActors.push({ actor: { typeId: e.typeId, kind: e.kind, entry, at: placedPoint(e, model.dims, sizePct, 0), yawDeg: e.yaw, scale }, cull: entityRenderCullBlocks(box ? { width: box.width * scale, height: box.height * scale } : undefined) });
-}
+/** Every actor placed at the wand size (shared with the media renderer: web/src/release/media-framing.ts). */
+const placedActors = placeActors(model, files, sizePct, { ...(kinds ? { kinds } : {}), ...(typeFilter ? { typeFilter } : {}) });
 
 // Face atlases, decoded once.
-const atlases = new Map<string, { w: number; h: number; rgba: Uint8Array }>();
-for (const [path, png] of model.faceTextures ?? []) {
-  const { data, info } = await sharp(Buffer.from(png)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  atlases.set(path, { w: info.width, h: info.height, rgba: new Uint8Array(data) });
-}
+const atlases = await decodeFaceAtlases(model.faceTextures);
 
 /** The actors' bounds at the size, from their drawn faces (the `--frame` filter narrows it). */
-function boundsOf(filter?: string): { lo: Vec3; hi: Vec3 } {
-  const own = placedActors.filter(p => !filter || new RegExp(filter).test(p.actor.typeId));
-  if (!own.length) throw new Error(`no actor matching ${filter}`);
-  const { faces } = lodFaces(own.map(p => p.actor), []);
-  const lo: Vec3 = [Infinity, Infinity, Infinity], hi: Vec3 = [-Infinity, -Infinity, -Infinity];
-  for (const f of faces) for (const c of f.corners) for (let i = 0; i < 3; i++) { lo[i] = Math.min(lo[i]!, c[i]! / 16); hi[i] = Math.max(hi[i]!, c[i]! / 16); }
-  return { lo, hi };
-}
+const boundsOf = (filter?: string) => boundsOfActors(placedActors, filter);
 
 /** One picture from `eye` looking at `at`: the actors culled and LOD-switched from that eye, the device rules applied. */
 function picture(eye: Vec3, at: Vec3): { rgb: Uint8Array; metrics: ReturnType<typeof rasterMetrics>; entities: SnapshotEntity[]; actors: number; faces: number } {
@@ -145,15 +126,12 @@ const shots = report['shots'] as Array<Record<string, unknown>>;
 if (views > 0) {
   // N views round the model at the --dir elevation, each far enough to frame the whole model.
   const { lo, hi } = boundsOf(flag('frame'));
-  const at: Vec3 = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
-  const r = Math.max(0.5, Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2);
+  const at = centreOf({ lo, hi });
   const d = vec(flag('dir'), [1, -0.6, 1.4]);
-  const dist = r / Math.sin(fov / 2) * 1.1;
-  const horizontal = Math.hypot(d[0], d[2]), elevation = Math.atan2(-d[1], horizontal);
+  const dist = sphereFitDistance(boundingRadius({ lo, hi }), fov);
   const pics: Uint8Array[] = [];
   for (let i = 0; i < views; i++) {
-    const az = Math.atan2(d[2], d[0]) + i / views * 2 * Math.PI;
-    const eye: Vec3 = [at[0] - Math.cos(az) * Math.cos(elevation) * dist, at[1] + Math.sin(elevation) * dist, at[2] - Math.sin(az) * Math.cos(elevation) * dist];
+    const eye = orbitEye(at, d, i, views, dist);
     const p = picture(eye, at);
     const path = `${stem}-v${i}.png`;
     await writePng(path, p.rgb);
@@ -197,12 +175,8 @@ if (views > 0) {
   const frameType = flag('frame');
   if (frameType) {
     const { lo, hi } = boundsOf(frameType);
-    at = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
-    const r = Math.max(0.5, Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2);
-    const d = vec(flag('dir'), [1, -0.6, 1.4]);
-    const l = Math.hypot(...d);
-    const dist = r / Math.sin(fov / 2) * 1.1;
-    eye = [at[0] - d[0] / l * dist, at[1] - d[1] / l * dist, at[2] - d[2] / l * dist];
+    at = centreOf({ lo, hi });
+    eye = lookEye(at, vec(flag('dir'), [1, -0.6, 1.4]), sphereFitDistance(boundingRadius({ lo, hi }), fov));
   }
   const p = picture(eye, at);
   await writePng(out, p.rgb);
