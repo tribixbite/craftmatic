@@ -68,9 +68,18 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
   - the Studio EULA forbids redistributing parts of it;
   - LEGO shut down a free Bionicle fan game (May 2025);
   - Mojang's guidelines cite branded cars and movie characters as disallowed.
-- NEXT: the user chooses a scenario (asked 2026-11-06). The review doc is `docs/business-scenarios.md`
-  (2026-11-09): scenarios, risks, prices, the work each needs, and the five decisions asked. Until then nothing below
-  is decided; no listing work.
+- DECIDED 2026-11-09: the user chose A, B and D (BIZ-65) and asked for each to be FULLY built. The request:
+  >= 20 landmark designs and >= 5 other pack types, incl. a coaster >= 3x Loop with a cloud-top descent and a dark
+  in-mountain segment; a part mapper from image + footprint; and bring-your-own-model tested on real user photos and
+  files. Process:
+  1. planners write `docs/plans/business-A-original-packs.md`, `business-B-byom-converter.md` and
+     `business-D-free-releases.md` (RUNNING);
+  2. a Fable reviewer/planner merges them into one reviewed work-package plan;
+  3. implementation agents, each in its own `.worktrees/biz-*` worktree, fail-first TDD; merge after review.
+
+  Shared brief (legal guard rails + process rules): every implementer brief repeats it. Source copy:
+  `docs/plans/README.md` once written. Outward steps (uploads, pitches, sign-ups, live payment keys) stay prepared,
+  awaiting the user. A business entity and a lawyer are still the user's.
 
 ## The user's hypothesis (to test, not assume)
 "None of the original source files are used in the resulting distribution, so it is legally feasible,
@@ -114,7 +123,7 @@ Points the research must settle:
   - plus the converter sold as a tool for creators' OWN designs.
 
   Free fan releases of official sets are lower-damages but NOT safe (the Bionicle precedent).
-- Chosen scenario: PENDING the user.
+- Chosen scenario: A + B + D (2026-11-09).
 - Channel:
 - Price points:
 - Launch checklist:
