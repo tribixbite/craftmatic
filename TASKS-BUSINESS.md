@@ -107,7 +107,11 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
     - Rule breaches: X-12 ran `git checkout <file>` on its own experiment. Fail-first was skipped by B09, A05, X-03,
       X-08 (colour/writer) and F01: the brief now makes the failing run a merge condition.
     - Leftover worktree `.worktrees/biz-x02-base` (X-02's scratch, detached): never remove it (recursive delete).
-    Wave 2b, still to start: M15, X-14, D-06, D-16, M06 (default: one budget tier), X-13 (the clean-room half
+  - WAVE 2b IN FLIGHT 2026-11-09 (ownership in `docs/plans/wave2-brief.md`): M15 Script API audit, X-14 turntables
+    (+ settle the `_pack_render.ts` mirror question), D-06+D-16 (one agent, `biz-d06`), M06 budget gate (one tier),
+    X-13 clean-room similarity core, V-01 voxeliser winding-number inside test (branch from `biz-x12`, option default
+    OFF), F01b second figure design pass (Fable designer). X-15 (Worker) still waits: its merge deploys.
+    (Superseded list:) Wave 2b, still to start: M15, X-14, D-06, D-16, M06 (default: one budget tier), X-13 (the clean-room half
     only); X-15 (its merge needs the user's approval, because every push to main deploys).
   - WAVE 1 (original list) 2026-11-09 (one agent each, worktree `.worktrees/biz-<id>`, branch `biz-<id>`, not merged until
     reviewed + full suite green): X-08 brick core, X-01 identity registry, X-04 part-source ledger + credits, X-06
