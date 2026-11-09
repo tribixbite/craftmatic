@@ -4,6 +4,9 @@
  *
  *   bun scripts/release.ts init-product <id>
  *   bun scripts/release.ts prepare <product> [--version x.y.z] [--out <dir>] [--strict]
+ *   bun scripts/release.ts finalize <product> <version> [--prepared <dir>] [--tag <name>] [--device-evidence <id>] [--write-ledger]
+ *   bun scripts/release.ts verify <product> <version> [--prepared <dir>] [--tag <name>]
+ *   bun scripts/release.ts status [<product>]
  *
  * `init-product` (X-01) mints a product's frozen Bedrock identity ONCE: five random v4 uuids, written to
  * release/products/<id>.json with `namespace: null` (the brand is undecided, U1); it refuses to overwrite.
@@ -31,9 +34,15 @@
  *   CRAFTMATIC_LDRAW_REF          the local LDraw mirror (official/, unofficial/, _archives/)
  *   CRAFTMATIC_RELEASE_MCT=skip-for-test   record the mct gate as not-run without starting bunx (test runs only)
  *
- * TODO(d08-finalize): `finalize`, `verify` and `status` (plan D 3.3) are not implemented yet.
- * TODO(d08-io): the build step reads `.ldr` / `.mpd` text models only; `.io` and `.lxf` sources need the loaders
- *   `_playable_ref.ts` carries inline (extract them to a shared module first).
+ * `finalize` and `verify` (D-08b) REBUILD a prepared release in a NEW worktree of its tag (finalize: the tag the USER
+ * created; verify: that tag, or the prepared commit while no tag exists) and compare every artifact's sha256 with the
+ * prepared release.json. Any difference refuses. `finalize` then writes `finalize.json` and `ledger-entry.json` beside
+ * the prepared release (and, with --write-ledger, appends the entry to the identity ledger FILE for the user to commit);
+ * it never creates a tag and never uploads. `verify` writes nothing but its rebuild folder. `status` lists each
+ * product's prepared, finalized and released versions from the ledger and the output folders.
+ *
+ * The model may be `.ldr`, `.mpd`, `.io`, `.lxf`, `.lxfml` or `.zip`: it is read by the B01 import service.
+ *   CRAFTMATIC_RELEASES_DIR       where prepared releases live (default <root>/output/releases)
  */
 import { randomUUID, createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -43,10 +52,10 @@ import { spawnSync } from 'node:child_process';
 import { PRODUCT_ID_PATTERN, parseProduct, validateProduct } from '../web/src/release/product.js';
 import { sha256Hex, sha256sumsText } from '../web/src/release/checksums.js';
 import {
-  applyWaivers, approvalItems, channelStub, CHANNELS, openGates, pendingGates, preconditionProblems, profileProblems, renderApproval, renderNotice,
+  applyWaivers, approvalItems, RELEASE_PROFILE_FLAGS, channelStub, CHANNELS, openGates, pendingGates, preconditionProblems, profileProblems, renderApproval, renderNotice,
   resolveVersion, type ApprovalAction, type Gate, type GateWaiver, type ValidationFile,
 } from '../web/src/release/prepare.js';
-import { formatSemVer, toManifestTriple } from '../web/src/release/semver.js';
+import { compareSemVer, formatSemVer, parseSemVer, toManifestTriple } from '../web/src/release/semver.js';
 import type { IdentityLedgerEntry, ProductRecord, ReleasedVersion, SemVer } from '../web/src/release/types.js';
 
 const ROOT = resolve(process.env.CRAFTMATIC_RELEASE_ROOT ?? join(dirname(fileURLToPath(import.meta.url)), '..'));
@@ -122,7 +131,7 @@ function initProduct(id: string | undefined): number {
 
 /** What a product's build needs beyond its registry record: `<data>/builds/<id>.json`. */
 interface BuildSidecar {
-  /** Source model, relative to the data root (`.ldr` / `.mpd`). */
+  /** Source model, relative to the data root (`.ldr`, `.mpd`, `.io`, `.lxf`, `.lxfml` or `.zip`). */
   model: string;
   /** One player-facing sentence (lint-clean); the pack description and the README body. */
   summary: string;
@@ -147,6 +156,8 @@ interface MakeSpec {
   out: string;
   /** Commit time in epoch milliseconds: the one clock of the build. */
   clockMs: number;
+  /** A rebuild of an already released version: ledger entries from this version up are ignored (the rule is for the FIRST build). */
+  rebuild: boolean;
 }
 
 /** What `_make` hands back. */
@@ -192,6 +203,44 @@ function runBun(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}, timeou
 
 const lastLines = (s: string, n = 6): string => s.trim().split(/\r?\n/).slice(-n).join(' | ');
 
+/** A new detached worktree of one commit: where its bytes are built. */
+interface Worktree { path: string; commit: string; commitSeconds: number }
+
+/**
+ * `git worktree add --detach` of `commitish` into a NEW folder (never reused, never removed), with the checkout's
+ * node_modules linked in (the lockfile pin proves they match the commit).
+ */
+function newWorktree(productId: string, versionText: string, commitish: string): Worktree {
+  const commit = git(ROOT, 'rev-parse', `${commitish}^{commit}`);
+  const commitSeconds = Number(git(ROOT, 'show', '-s', '--format=%ct', commit));
+  const worktrees = resolve(process.env.CRAFTMATIC_RELEASE_WORKTREES ?? join(ROOT, '.worktrees'));
+  mkdirSync(worktrees, { recursive: true });
+  const path = freshWorktreePath(worktrees, productId, versionText);
+  git(ROOT, 'worktree', 'add', '--detach', path, commit);
+  console.log(`worktree ${path} (commit ${commit}); it is left in place`);
+  if (existsSync(join(ROOT, 'node_modules'))) symlinkSync(join(ROOT, 'node_modules'), join(path, 'node_modules'), 'junction');
+  return { path, commit, commitSeconds };
+}
+
+/**
+ * Run `_make` of the worktree's OWN scripts/release.ts (so the bytes come from that commit's code) offline, with the
+ * official library, the commit clock and the pinned toolchain. Returns its result file, or the crash text.
+ */
+function runMake(wt: Worktree, spec: MakeSpec): { made: MakeResult } | { crash: string } {
+  const specFile = join(spec.out, '.make-spec.json');
+  writeFileSync(specFile, JSON.stringify(spec));
+  const make = runBun(wt.path, [join(wt.path, 'scripts', 'release.ts'), '_make', specFile], {
+    CRAFTMATIC_RELEASE_ROOT: wt.path,
+    CRAFTMATIC_LDRAW_LIBRARY: 'official',
+    CRAFTMATIC_LDRAW_REF: spec.ldrawRef,
+    CRAFTMATIC_LDRAW_MIRROR: 'off',
+    SOURCE_DATE_EPOCH: String(wt.commitSeconds),
+  });
+  const resultFile = join(spec.out, 'make-result.json');
+  if (!existsSync(resultFile)) return { crash: `build step crashed (exit ${make.status}): ${lastLines(make.stderr)}` };
+  return { made: readJson<MakeResult>(resultFile) };
+}
+
 /** `prepare <product>`: returns the process exit code. */
 function prepare(productId: string | undefined, argv: string[]): number {
   if (!productId || !PRODUCT_ID_PATTERN.test(productId)) {
@@ -230,32 +279,14 @@ function prepare(productId: string | undefined, argv: string[]): number {
   if (existsSync(out) && readdirSync(out).length > 0) { console.error(`prepare ${productId} refused: ${out} already holds files (nothing is overwritten or deleted; use --out <new folder>)`); return 1; }
   mkdirSync(out, { recursive: true });
 
-  // ---- 2. a NEW worktree of the commit, never removed ------------------------------------------------------
+  // ---- 2 + 3. a NEW worktree of the commit (never removed), the build and its in-process gates -------------
   const commit = git(ROOT, 'rev-parse', 'HEAD');
-  const commitSeconds = Number(git(ROOT, 'show', '-s', '--format=%ct', commit));
-  const worktrees = resolve(process.env.CRAFTMATIC_RELEASE_WORKTREES ?? join(ROOT, '.worktrees'));
-  mkdirSync(worktrees, { recursive: true });
-  const wt = freshWorktreePath(worktrees, productId, versionText);
-  git(ROOT, 'worktree', 'add', '--detach', wt, commit);
-  console.log(`worktree ${wt} (commit ${commit}); it is left in place`);
-  // The worktree has no node_modules: link the checkout's (the lockfile pin above proves they match the commit).
-  if (existsSync(join(ROOT, 'node_modules'))) symlinkSync(join(ROOT, 'node_modules'), join(wt, 'node_modules'), 'junction');
-  const wtData = fixture ? dataRoot : join(wt, 'release');
-
-  // ---- 3. build + in-process gates, inside the worktree ----------------------------------------------------
-  const spec: MakeSpec = { product, version, dataRoot: wtData, build, ldrawRef: ref!, out, clockMs: commitSeconds * 1000 };
-  const specFile = join(out, '.make-spec.json');
-  writeFileSync(specFile, JSON.stringify(spec));
-  const make = runBun(wt, [join(wt, 'scripts', 'release.ts'), '_make', specFile], {
-    CRAFTMATIC_RELEASE_ROOT: wt,
-    CRAFTMATIC_LDRAW_LIBRARY: 'official',
-    CRAFTMATIC_LDRAW_REF: ref!,
-    CRAFTMATIC_LDRAW_MIRROR: 'off',
-    SOURCE_DATE_EPOCH: String(commitSeconds),
-  });
-  const resultFile = join(out, 'make-result.json');
-  if (!existsSync(resultFile)) { console.error(`build step crashed (exit ${make.status}): ${lastLines(make.stderr)}`); return 1; }
-  const made = readJson<MakeResult>(resultFile);
+  const wt = newWorktree(productId, versionText, commit);
+  const wtData = fixture ? dataRoot : join(wt.path, 'release');
+  const ran = runMake(wt, { product, version, dataRoot: wtData, build, ldrawRef: ref!, out, clockMs: wt.commitSeconds * 1000, rebuild: false });
+  if ('crash' in ran) { console.error(ran.crash); return 1; }
+  const { made } = ran;
+  const commitSeconds = wt.commitSeconds;
   const gates: Gate[] = [...made.gates];
   const evidence: Record<string, unknown> = { ...made.evidence };
   const failed = (): boolean => gates.some(g => g.status === 'fail');
@@ -274,7 +305,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
   const dist = join(out, 'dist');
   const archives = made.artifacts.map(n => join(dist, n));
   if (!failed()) {
-    const py = spawnSync('python', ['-I', join(wt, 'scripts', '_mcaddon_check.py'), '--release', ...archives], { cwd: wt, encoding: 'utf8' });
+    const py = spawnSync('python', ['-I', join(wt.path, 'scripts', '_mcaddon_check.py'), '--release', ...archives], { cwd: wt.path, encoding: 'utf8' });
     const problemLines = py.stdout.split(/\r?\n/).filter(l => l.includes('!! ')).map(l => l.slice(l.indexOf('!! ') + 3));
     const title = 'X-06 _mcaddon_check.py --release on .mcaddon and .zip';
     if (py.status !== 0 && problemLines.length === 0) gates.push({ id: 'release-validator', title, status: 'fail', detail: lastLines(py.stdout + (py.stderr ?? ''), 12) });
@@ -285,7 +316,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
     if (process.env.CRAFTMATIC_RELEASE_MCT === 'skip-for-test') {
       gates.push({ id: 'mct', title: 'mct validate (Minecraft Creator Tools)', status: 'not-run', detail: 'skipped by CRAFTMATIC_RELEASE_MCT=skip-for-test (test runs do not start bunx); run it for a real release (needs U13: the EULA)' });
     } else {
-      const m = runBun(wt, [join(wt, 'scripts', 'release-mctools.ts'), archives[0]!, '--json'], {}, 15 * 60_000);
+      const m = runBun(wt.path, [join(wt.path, 'scripts', 'release-mctools.ts'), archives[0]!, '--json'], {}, 15 * 60_000);
       let report: { status: string; errors?: number; warnings?: number; reason?: string } | null = null;
       try { report = JSON.parse(m.stdout) as typeof report; } catch { report = null; }
       if (!report) gates.push({ id: 'mct', title: 'mct validate', status: 'not-run', detail: `mct output was not JSON (exit ${m.status}): ${lastLines(m.stdout + m.stderr)}` });
@@ -296,7 +327,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
   }
   if (!failed()) {
     const jsonFile = join(out, 'budget.json');
-    const b = runBun(wt, [join(wt, 'scripts', '_marketplace_budget.ts'), archives[0]!, `--json=${jsonFile}`]);
+    const b = runBun(wt.path, [join(wt.path, 'scripts', '_marketplace_budget.ts'), archives[0]!, `--json=${jsonFile}`]);
     if (!existsSync(jsonFile)) gates.push({ id: 'budget', title: 'M06 runtime budget (standard tier)', status: 'fail', detail: `no budget report (exit ${b.status}): ${lastLines(b.stdout + b.stderr)}` });
     else {
       const [row] = readJson<Array<{ report: { verdict: 'pass' | 'fail' | 'incomplete'; runtimeReason?: string; rows: Array<{ metric: string; status: string }> } }>>(jsonFile);
@@ -310,7 +341,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
   }
   if (!failed()) {
     const jsonFile = join(out, 'script-api.json');
-    const a = runBun(wt, [join(wt, 'scripts', '_script_api_audit.ts'), archives[0]!, `--json=${jsonFile}`]);
+    const a = runBun(wt.path, [join(wt.path, 'scripts', '_script_api_audit.ts'), archives[0]!, `--json=${jsonFile}`]);
     gates.push({ id: 'script-api', title: 'M15 stable Script API audit', status: a.status === 0 ? 'pass' : 'fail', detail: a.status === 0 ? 'no beta API, no beta module' : lastLines(a.stdout + a.stderr, 10) });
     if (existsSync(jsonFile)) evidence['script-api'] = readJson<unknown>(jsonFile);
   }
@@ -320,7 +351,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
   writeFileSync(join(out, 'validation.json'), `${JSON.stringify(validation, null, 2)}\n`);
   for (const g of gates) console.log(`${g.status.toUpperCase().padEnd(7)} ${g.id}: ${g.detail.slice(0, 200)}`);
   if (failed()) {
-    console.error(`prepare ${productId} stopped: a gate failed (see ${join(out, 'validation.json')}). Worktree: ${wt}`);
+    console.error(`prepare ${productId} stopped: a gate failed (see ${join(out, 'validation.json')}). Worktree: ${wt.path}`);
     return 1;
   }
 
@@ -333,7 +364,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
     deviceEvidence: null,
   };
   writeFileSync(join(out, 'release.json'), `${JSON.stringify(record, null, 2)}\n`);
-  const actions = readJson<ApprovalAction[]>(join(wt, 'release', 'approval-actions.json'));
+  const actions = readJson<ApprovalAction[]>(join(wt.path, 'release', 'approval-actions.json'));
   const items = approvalItems(actions, { product: productId, version: versionText, commit });
   for (const channel of CHANNELS) {
     mkdirSync(join(out, 'channels', channel), { recursive: true });
@@ -345,7 +376,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
 
   const open = openGates(gates);
   console.log(`prepared ${productId} ${versionText} in ${out}`);
-  console.log(`  worktree (left in place): ${wt}`);
+  console.log(`  worktree (left in place): ${wt.path}`);
   console.log(`  open gates: ${open.length}${open.length ? ` (${open.map(g => g.id).join(', ')})` : ''}; read APPROVAL.md before doing anything outward`);
   return argv.includes('--strict') && open.length > 0 ? 4 : 0;
 }
@@ -371,7 +402,9 @@ async function make(specFile: string): Promise<void> {
 
   const { releaseBuildIdentity } = await import('../web/src/release/identity-ledger.js');
   const ledgerFile = join(spec.dataRoot, 'identity-ledger.json');
-  const ledger = existsSync(ledgerFile) ? readJson<IdentityLedgerEntry[]>(ledgerFile) : [];
+  const allLedger = existsSync(ledgerFile) ? readJson<IdentityLedgerEntry[]>(ledgerFile) : [];
+  // The "version rises" rule belongs to the FIRST build of a version; a rebuild of a released one reproduces the state before it.
+  const ledger = spec.rebuild ? allLedger.filter(e => compareSemVer(parseSemVer(e.version), version) < 0) : allLedger;
   let identity: ReturnType<typeof releaseBuildIdentity>['identity'];
   try { identity = releaseBuildIdentity(product, version, ledger).identity; }
   catch (e) { record('identity', 'X-01 frozen identity, version rises', [(e as Error).message], ''); return writeResult([]); }
@@ -387,8 +420,6 @@ async function make(specFile: string): Promise<void> {
 
   // ---- the profile build (X-02), official library only (X-04) ----
   const { setLDrawLibraryMode, setLDrawRoot, assertOfficialLibrary, getPartSourceLedger, seedDatTexts } = await import('../web/src/engine/ldraw-geometry.js');
-  const { embeddedPartTexts, parseLDrawDocument } = await import('../web/src/engine/ldraw-parser.js');
-  const { synthesizeLSynth } = await import('../web/src/engine/lsynth.js');
   const { runSchemPipeline } = await import('../web/src/engine/schem-pipeline.js');
   const { planResolutionAtCell, spanOfBricks, DEFAULT_SCHEM_SETTINGS } = await import('../web/src/engine/schem-settings.js');
   const { planAddonScale } = await import('../web/src/engine/addon-scale.js');
@@ -405,11 +436,12 @@ async function make(specFile: string): Promise<void> {
   setLDrawLibraryMode('official');
   setLDrawRoot(join(spec.ldrawRef, 'official'));
   const modelFile = join(spec.dataRoot, build.model);
-  if (!/\.(ldr|mpd)$/i.test(modelFile)) throw new Error(`prepare builds .ldr / .mpd models only (TODO d08-io): ${build.model}`);
-  const ldrDoc = parseLDrawDocument(synthesizeLSynth(readFileSync(modelFile, 'utf8')).text);
+  const { loadReleaseModel, modelProblems } = await import('../web/src/release/prepare-model.js');
+  const model = await loadReleaseModel(modelFile, join(ROOT, 'web', 'public'));
+  if (!record('model', `B01 model import (${model.format})`, modelProblems(model), `${model.bricks.length} bricks from a .${model.format}${model.warnings.length ? `; note: ${model.warnings.join(' ')}` : ''}`)) return writeResult([]);
   // Embedded sub-parts are caller-supplied text, so official mode will refuse any that a model carries (by design).
-  seedDatTexts(embeddedPartTexts(ldrDoc));
-  const bricks = ldrDoc.bricks;
+  seedDatTexts(model.embeddedParts);
+  const bricks = model.bricks;
 
   const creator = identity.namespace.split('_')[0]!;
   const summary = build.summary;
@@ -424,14 +456,14 @@ async function make(specFile: string): Promise<void> {
       readme: `${product.displayName}\n\n${summary}\n\n${disclaimerText(product.publisher, { requirePublisher: true })}\nSee CREDITS.txt and CHANGELOG.txt.\n`,
       lang: {},
     },
-    flags: { vanillaTextures: false, diagnostics: false, faceArt: false, devStamp: false, explicitOnly: true },
+    flags: { ...RELEASE_PROFILE_FLAGS },
     deflate: (d: Uint8Array) => pako.deflateRaw(d, { level: 9 }),
   };
   const scalePlan = planAddonScale(bricks, (build.scale as Parameters<typeof planAddonScale>[1] | undefined) ?? 'auto', product.displayName, { packProfile: profile });
   const plan = planResolutionAtCell(spanOfBricks(bricks), scalePlan.lduPerBlock);
   const modelScale = Math.round(LDU_PER_BLOCK / plan.cellLDU * 1000) / 1000;
   const result = await runSchemPipeline({
-    source: { kind: 'bricks', bricks, colorSpace: 'ldraw', options: { cellLDU: plan.cellLDU, maxDim: 700 } },
+    source: { kind: 'bricks', bricks, colorSpace: model.colorSpace, options: { cellLDU: plan.cellLDU, maxDim: 700 } },
     format: 'mcaddon',
     packStem: identity.namespace.slice(creator.length + 1),
     packLabel: product.displayName,

@@ -1,17 +1,7 @@
 [
   {
     "gate": "release-validator",
-    "pattern": "registered block permutations",
-    "reason": "TEST FIXTURE ONLY. The dev collider block set (11,008 permutations) is replaced by M03's own brick blocks; until M03 merges every pack exceeds the 10,000 limit and a real release is refused."
-  },
-  {
-    "gate": "release-validator",
     "pattern": "textures/terrain_texture.json",
     "reason": "TEST FIXTURE ONLY. The resource pack still ships textures/terrain_texture.json for the dev collider block; M03's own blocks decide whether X-06's vanilla-path rule can pass. A real release is refused while it fails."
-  },
-  {
-    "gate": "budget",
-    "pattern": "block permutations",
-    "reason": "TEST FIXTURE ONLY. Same cause as the validator waiver: the dev collider set counts 11,008 block permutations until M03's own brick blocks replace it. A real release is refused while this row fails."
   }
 ]
