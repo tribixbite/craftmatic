@@ -137,12 +137,19 @@ function releaseOkFiles(): Files {
   };
 }
 
+/**
+ * fflate writes the DOS timestamp from the Date's LOCAL fields, so a UTC instant gives different bytes in every
+ * time zone (CI runs in UTC; the fixtures were first built at UTC-5). A local-time Date has the same local
+ * fields everywhere.
+ */
+const LOCAL_MTIME = new Date(2026, 0, 1, 12, 0, 0);
+
 /** Deterministic zip: fixed mtime, fixed level, sorted entries. */
 function zipOf(files: Files): Uint8Array {
   const entries: Record<string, [Uint8Array, { mtime: Date; level: 6 }]> = {};
   for (const name of Object.keys(files).sort()) {
     const v = files[name];
-    entries[name] = [typeof v === 'string' ? new TextEncoder().encode(v) : v, { mtime: new Date(Date.UTC(2026, 0, 1)), level: 6 }];
+    entries[name] = [typeof v === 'string' ? new TextEncoder().encode(v) : v, { mtime: LOCAL_MTIME, level: 6 }];
   }
   return zipSync(entries);
 }
