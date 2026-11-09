@@ -72,14 +72,16 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
   >= 20 landmark designs and >= 5 other pack types, incl. a coaster >= 3x Loop with a cloud-top descent and a dark
   in-mountain segment; a part mapper from image + footprint; and bring-your-own-model tested on real user photos and
   files. Process:
-  1. planners write `docs/plans/business-A-original-packs.md`, `business-B-byom-converter.md` and
-     `business-D-free-releases.md` (RUNNING);
-  2. a Fable reviewer/planner merges them into one reviewed work-package plan;
-  3. implementation agents, each in its own `.worktrees/biz-*` worktree, fail-first TDD; merge after review.
-
-  Shared brief (legal guard rails + process rules): every implementer brief repeats it. Source copy:
-  `docs/plans/README.md` once written. Outward steps (uploads, pitches, sign-ups, live payment keys) stay prepared,
-  awaiting the user. A business entity and a lawyer are still the user's.
+  START HERE: `docs/plans/README.md` (the master plan: merged packages, waves, the user's ranked questions U1..,
+  handoff in its section 7); review in `docs/plans/business-review.md`; source plans `business-{A,B,D}-*.md`.
+  REQUIREMENTS rows BIZ-05..BIZ-64 added 2026-11-09.
+  - WAVE 1 IN FLIGHT 2026-11-09 (one agent each, worktree `.worktrees/biz-<id>`, branch `biz-<id>`, not merged until
+    reviewed + full suite green): X-08 brick core, X-01 identity registry, X-04 part-source ledger + credits, X-06
+    release validator, D-03 deterministic zip, C01 coaster design -> path, X-11 mesh -> stud lattice, B29 corpus
+    fetcher, B01 model-import service.
+  - Waiting on the user: U1 brand/namespace, U2 private designs repo, U3 lawyer batch, U4 figure, U5 landmarks +
+    show-stoppers (README section 5); the live LEGO-named `craftmatic.click/downloads/Craftmatic-Lego-Pack.mcpack`
+    (rename/take down?).
 
 ## The user's hypothesis (to test, not assume)
 "None of the original source files are used in the resulting distribution, so it is legally feasible,
