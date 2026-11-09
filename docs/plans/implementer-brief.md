@@ -27,6 +27,8 @@ Repo: C:\git\craftmatic (Windows; use Git Bash or PowerShell; bun/bunx only, nev
 
    Do NOT run the full `bun run test` suite: the machine is shared with 8 other agents, and the orchestrator runs it
    at merge time.
+4b. **`.gitignore` hides EVERY folder named `data/`** (and `output/`): a file committed there is silently left
+   out (A09's Notre-Dame sidecar was). Run `git check-ignore -v <file>` on every new non-code file before you report.
 5. **Code quality:** typed, DRY, production-level TypeScript with JSDoc and explanatory comments; a `TODO` comment for
    anything unfinished. No stubs or placeholders presented as done. No `_fixed`/`_v2` copies.
 6. **Commits:**
