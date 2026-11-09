@@ -14,7 +14,7 @@ export interface SumInput { name: string; data: Uint8Array }
 export interface SumEntry { sha256: string; name: string }
 
 /** Names a `sha256sum -c` line can carry unescaped: no backslash, no newline, no leading `*` (binary marker). */
-const SAFE_NAME = /^[^\\n*][^\\n]*$/;
+const SAFE_NAME = /^[^\\\n*][^\\\n]*$/;
 
 /** The text of a SHA256SUMS file for `files`, sorted by name (byte order, locale independent). */
 export function sha256sumsText(files: readonly SumInput[]): string {
