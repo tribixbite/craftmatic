@@ -13,11 +13,8 @@ import { BlockGrid } from '@craft/schem/types.js';
 import { parseLDraw, countSteps, type ParsedBrick } from '@engine/ldraw-parser.js';
 import { voxelizeLDraw, solidifyColumns, fillSingleVoxelGaps, keepLargestComponent, type VoxelizeOptions } from '@engine/ldraw-voxelizer.js';
 import { voxelizeLDrawGeometry } from '@engine/ldraw-geometry.js';
-import { extractIoModel, type IoModel } from '@engine/io-extractor.js';
-import { synthesizeLSynth } from '@engine/lsynth.js';
-import {
-  parseLxfWithDiagnostics, describeLxfDiagnostics, type LxfDiagnostics,
-} from '@engine/lxf-parser.js';
+import { importModelFile, type ImportedModel } from '@engine/byom/import.js';
+import { type LxfDiagnostics } from '@engine/lxf-parser.js';
 import { studioColorToBlock } from '@engine/studio-colors.js';
 import { reconstructionQuality, sourceCaveat } from '@engine/source-quality.js';
 import { modelExportStem } from '@engine/export-name.js';
@@ -56,9 +53,9 @@ import { contactCheckStatus } from '@ui/contact-check-status.js';
  * exported as translucent blue glass, LDraw 71/28 as magenta/orange terrain.
  * `undefined` means "use the default LDraw resolver".
  */
-function ioColorFn(model: IoModel): ((id: number) => string) | undefined {
-  if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
-    console.info(`[lego] .io colour space: ${model.colorSpace} — ${model.colorSpaceReason} (entry ${model.sourceEntry}); ${model.classBReframed} placement(s) re-framed from Studio's mould copy to upstream's`);
+function importedColorFn(model: ImportedModel): ((id: number) => string) | undefined {
+  if (model.io && (import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
+    console.info(`[lego] .io colour space: ${model.colorSpace} — ${model.io.colorSpaceReason} (entry ${model.io.sourceEntry}); ${model.io.classBReframed} placement(s) re-framed from Studio's mould copy to upstream's`);
   }
   return model.colorSpace === 'bl' ? studioColorToBlock : undefined;
 }
@@ -1656,8 +1653,7 @@ async function downloadDiagnostics(): Promise<void> {
 /**
  * Fetch one indexed model from /lego-models/ and display it through the same
  * direct-3D path uploads use (LDrawViewer via voxelizeAndDisplay).
- * Dispatch by extension: .ldr/.mpd → parseLDraw, .io → extractIoModel,
- * .lxf → parseLxf.
+ * Parsing is `importModelFile` (engine/byom/import.ts), shared with uploads.
  */
 async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: number, allowBroken = false): Promise<void> {
   const model = models[idx];
@@ -1712,10 +1708,7 @@ async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: numb
  * (scripts/lxf_gt_eval.py) it lands ≈93 % of parts on ground truth. So the
  * caveat is a real, quantified accuracy figure, not a vague hedge.
  */
-const LXF_ALIGNMENT_CAVEAT =
-  'LDD .lxf: placed through the Studio per-part alignment (≈93% of parts land '
-  + 'on authentic Studio ground truth, measured over 91 sets); flex parts and '
-  + 'designs Studio does not map can still sit off';
+// The .lxf accuracy caveat now lives with the import service (LXF_ALIGNMENT_CAVEAT).
 
 /**
  * Surface a `.lxf` load's alignment coverage: keep the structured record for the
@@ -1740,13 +1733,27 @@ function addSourceWarning(line: string): void {
 
 function reportLxfDiagnostics(d: LxfDiagnostics, model: string): void {
   loadDiag.lxfAlignment = d;
-  const line = describeLxfDiagnostics(d);
   if (d.table.state !== 'ok') {
     console.error('[lego] LDD alignment table unavailable', { model, ...d.table });
   } else {
     console.info('[lego] .lxf alignment coverage', { model, ...d });
   }
-  if (line) addSourceWarning(line);
+}
+
+/**
+ * Show what an import said about its source. A text source's single caveat is
+ * ASSIGNED, replacing an earlier note such as the index hash mismatch (what the
+ * two inline copies did); an .lxf's coverage line and accuracy caveat are
+ * appended. TODO: append for text sources too, so the hash-mismatch note survives.
+ */
+function applyImportWarnings(m: ImportedModel): void {
+  if (m.lxf) { for (const w of m.warnings) addSourceWarning(w); return; }
+  if (m.warnings[0]) currentSourceWarning = m.warnings[0];
+}
+
+/** The status line for flex parts the import synthesised from LSynth constraints. */
+function announceSynthesis(count: number): void {
+  if (count > 0) setStatus(`Synthesized ${count} flexible part${count > 1 ? 's' : ''} (hose/tube) from LSynth constraints.`, 'info');
 }
 
 /**
@@ -1805,66 +1812,31 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: num
   if (loadAbandoned('indexed:after-content-hash', epoch, set)) return false;
 
   const ext = model.path.split('.').pop()?.toLowerCase();
-  let bricks: ParsedBrick[];
-  let colorFn: ((id: number) => string) | undefined;
-
-  if (ext === 'io') {
-    const ioModel = await extractIoModel(buf);
-    if (loadAbandoned('indexed:after-io-extract', epoch, set)) return false;
-    const text = maybeSynthesize(ioModel.text);
-    // Some ".io" files are laundered LXF conversions (raw LDD material-id
-    // colors, no alignment) rather than authentic Studio exports — 10255's
-    // is. Same gate as the .ldr branch.
-    {
-      const ioQ = reconstructionQuality(text);
-      if (ioQ === 'broken') {
-        if (!allowBroken) throw new Error('repackaged LXFML conversion (LDD colors, unaligned) — skipped');
-        currentSourceWarning = 'this .io is a repackaged LXFML conversion — placements/colors may be wrong (defects are in the file, not the renderer)';
-      } else {
-        const caveat = sourceCaveat(text, ioQ); // e.g. laundered DBIX repack (72153's ".io")
-        if (caveat) currentSourceWarning = caveat;
-      }
-    }
-    currentMpdContent = text;
-    currentCustomParts = ioModel.customParts.size ? ioModel.customParts : undefined;
-    bricks = parseLDraw(text);
-    colorFn = ioColorFn(ioModel);
-  } else if (ext === 'lxf') {
-    const parsed = await parseLxfWithDiagnostics(buf);
-    if (loadAbandoned('indexed:after-lxf-parse', epoch, set)) return false;
-    bricks = parsed.bricks;
-    reportLxfDiagnostics(parsed.diagnostics, model.path);
-    currentMpdContent = undefined;
-    currentCustomParts = undefined;
-  } else {
-    // .ldr / .mpd (and anything else text-shaped). Decoded from the same
-    // buffer the hash covers; TextDecoder strips a BOM exactly as
-    // Response.text() would.
-    const text = maybeSynthesize(new TextDecoder().decode(buf));
-    if (loadAbandoned('indexed:after-text-decode', epoch, set)) return false;
-    // Quality gate (visual-QA finding 2026-07-20: the index ranks unaligned
-    // convert_lxf.py conversions tier1 for some sets — they render as
-    // stacked/scrambled parts with LDD-material-id colors, e.g. 10255/1924).
-    // Auto-load SKIPS them (throw → caller falls back to the classic
-    // OMR/reconstructed/BFF chain); an EXPLICIT source-picker choice still
-    // loads them, labelled via currentSourceWarning (setStatus here would be
-    // clobbered by the render-success status).
-    const q = reconstructionQuality(text);
-    if (q === 'broken' && !allowBroken) {
-      throw new Error('unaligned LXFML conversion (scrambled placements/colors) — skipped');
-    }
-    if (q === 'broken') {
-      currentSourceWarning = 'this source is an unaligned LXFML conversion — parts render scattered/stacked and colors may be wrong (defects are in the file, not the renderer)';
-    } else {
-      const caveat = sourceCaveat(text, q);
-      if (caveat) currentSourceWarning = caveat;
-    }
-    currentMpdContent = text;
-    currentCustomParts = undefined;
-    bricks = parseLDraw(text);
+  const imported = await importModelFile(new Uint8Array(buf), fileNameOf(model.path), {
+    ...(actualHash ? { hash12: actualHash } : {}), sourceNoun: 'source',
+  });
+  if (loadAbandoned('indexed:after-import', epoch, set)) return false;
+  // Quality gate (visual-QA finding 2026-07-20: the index ranks unaligned
+  // convert_lxf.py conversions tier1 for some sets - they render as
+  // stacked/scrambled parts with LDD-material-id colors, e.g. 10255/1924, and
+  // some ".io" files are laundered LXF conversions too). Auto-load SKIPS them
+  // (throw -> caller falls back to the classic OMR/reconstructed/BFF chain); an
+  // EXPLICIT source-picker choice still loads them, labelled via
+  // currentSourceWarning (setStatus here would be clobbered by the
+  // render-success status).
+  if (imported.quality === 'broken' && !allowBroken) {
+    throw new Error(ext === 'io'
+      ? 'repackaged LXFML conversion (LDD colors, unaligned) — skipped'
+      : 'unaligned LXFML conversion (scrambled placements/colors) — skipped');
   }
+  announceSynthesis(imported.lsynthCount);
+  if (imported.lxf) reportLxfDiagnostics(imported.lxf, model.path);
+  applyImportWarnings(imported);
+  currentMpdContent = imported.ldrawText; // undefined for .lxf
+  currentCustomParts = imported.customParts as Map<string, string> | undefined;
+  const bricks: ParsedBrick[] = imported.bricks;
+  const colorFn = importedColorFn(imported);
 
-  if (ext === 'lxf' && bricks.length > 150) addSourceWarning(LXF_ALIGNMENT_CAVEAT);
   if (bricks.length === 0) throw new Error(`no brick placements in ${model.path}`);
   // Index-level conversion flag (lineage metadata — catches laundered LXF
   // conversions that text-sniffing can't). Routed through currentSourceWarning
@@ -2305,19 +2277,6 @@ async function exportTurntable(): Promise<void> {
 // ─── Parse + Voxelize ────────────────────────────────────────────────────────
 
 /**
- * Synthesize any UNsynthesized LSynth flex blocks (hand-authored / editor
- * exports) into swept-tube geometry. Pre-synthesized OMR blocks and Studio
- * .io baked flex parts pass through untouched. Surfaces a status note on hit.
- */
-function maybeSynthesize(text: string): string {
-  const r = synthesizeLSynth(text);
-  if (r.count > 0) {
-    setStatus(`Synthesized ${r.count} flexible part${r.count > 1 ? 's' : ''} (hose/tube) from LSynth constraints.`, 'info');
-  }
-  return r.text;
-}
-
-/**
  * Parse + display an LDraw/Studio/LDD file. Shared by the upload zone and the
  * OMR auto-load chain (which hands it a synthetic File), so the caller names
  * the loader for the diagnostic bundle — 'upload' would misreport an OMR fetch.
@@ -2336,73 +2295,30 @@ async function parseMpdFile(file: File, loader = 'upload'): Promise<void> {
   // Provenance for a pack built from this file: the bytes as chosen, hashed
   // BEFORE any LSynth/parse rewriting, so the hash matches the file on disk.
   const origin: SourceProvenance['origin'] = loader === 'upload' ? 'upload' : 'unknown';
-  const recordSource = (buf: ArrayBuffer): void => { currentSource = { file: file.name, hash: contentHash12(buf), origin }; };
+  const recordSource = (buf: ArrayBuffer): string | null => {
+    const hash = contentHash12(buf);
+    currentSource = { file: file.name, hash, origin };
+    return hash;
+  };
 
   try {
-    const ext = file.name.split('.').pop()?.toLowerCase();
-
-    if (ext === 'lxf' || ext === 'lxfml') {
-      const buf = await file.arrayBuffer();
-      recordSource(buf);
-      const parsed = await parseLxfWithDiagnostics(buf);
-      if (loadAbandoned('upload:after-lxf-parse', epoch)) return;
-      const bricks = parsed.bricks;
-      currentMpdContent = undefined;
-      currentCustomParts = undefined;
-      if (bricks.length > 150) addSourceWarning(LXF_ALIGNMENT_CAVEAT);
-      reportLxfDiagnostics(parsed.diagnostics, file.name);
-      await voxelizeAndDisplay(bricks, file.name);
-      return;
-    }
-
-    let text: string;
-    if (ext === 'io') {
-      const buf = await file.arrayBuffer();
-      recordSource(buf);
-      const ioModel = await extractIoModel(buf);
-      if (loadAbandoned('upload:after-io-extract', epoch)) return;
-      text = maybeSynthesize(ioModel.text);
-      // User explicitly chose the file — load it, but flag laundered LXF/DBIX
-      // conversions masquerading as .io (10255's and 72153's are).
-      {
-        const upQ = reconstructionQuality(text);
-        if (upQ === 'broken') {
-          currentSourceWarning = 'this .io is a repackaged LXFML conversion — placements/colors may be wrong (defects are in the file, not the renderer)';
-        } else {
-          const caveat = sourceCaveat(text, upQ);
-          if (caveat) currentSourceWarning = caveat;
-        }
-      }
-      currentMpdContent = text;
-      currentCustomParts = ioModel.customParts.size ? ioModel.customParts : undefined;
-      const bricks = parseLDraw(text);
-      if (bricks.length === 0) throw new Error('No brick placements found in file.');
-      await voxelizeAndDisplay(bricks, file.name, ioColorFn(ioModel));
-      return;
-    }
-
-    {
-      // Read the bytes once: hashed for provenance, then decoded as UTF-8
-      // exactly as `file.text()` would (BOM stripped, no throw on bad bytes).
-      const buf = await file.arrayBuffer();
-      recordSource(buf);
-      text = maybeSynthesize(new TextDecoder().decode(buf));
-    }
-    if (loadAbandoned('upload:after-text-read', epoch)) return;
-    currentMpdContent = text; // store for 3D renderer inline sub-model resolution
-    currentCustomParts = undefined;
-    const bricks = parseLDraw(text);
-    if (bricks.length === 0) throw new Error('No brick placements found in file.');
-    // User explicitly chose this file — load it, but set expectations if it's
-    // a known-imperfect reconstruction (the defects are in the data).
-    const q = reconstructionQuality(text);
-    if (q === 'broken') {
-      currentSourceWarning = 'this file is an unaligned LXFML conversion — parts render scattered/stacked and colors may be wrong (defects are in the file, not the renderer)';
-    } else {
-      const caveat = sourceCaveat(text, q);
-      if (caveat) currentSourceWarning = caveat;
-    }
-    await voxelizeAndDisplay(bricks, file.name);
+    // Read the bytes once: hashed for provenance (before any LSynth/parse
+    // rewriting, so the hash matches the file on disk), then imported.
+    const buf = await file.arrayBuffer();
+    const hash = recordSource(buf);
+    const imported = await importModelFile(new Uint8Array(buf), file.name, {
+      ...(hash ? { hash12: hash } : {}), sourceNoun: 'file',
+    });
+    if (loadAbandoned('upload:after-import', epoch)) return;
+    announceSynthesis(imported.lsynthCount);
+    // User explicitly chose the file - load it, but flag laundered LXF/DBIX
+    // conversions and known-imperfect reconstructions (the defects are in the data).
+    if (imported.lxf) reportLxfDiagnostics(imported.lxf, file.name);
+    if (imported.bricks.length === 0 && !imported.lxf) throw new Error('No brick placements found in file.');
+    applyImportWarnings(imported);
+    currentMpdContent = imported.ldrawText; // stored for the 3D renderer's inline sub-model resolution
+    currentCustomParts = imported.customParts as Map<string, string> | undefined;
+    await voxelizeAndDisplay(imported.bricks, file.name, importedColorFn(imported));
   } catch (err) {
     setStatus(`Parse failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
   }
