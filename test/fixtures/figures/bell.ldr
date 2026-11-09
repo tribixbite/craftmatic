@@ -1,0 +1,31 @@
+0 bell
+0 Name: bell
+0 Author: craftmatic F01 figure study (BIZ-21)
+0 !LICENSE Redistributable under CC BY 4.0 : see http://www.ldraw.org/documentation/ldraw-org-license
+0 // Candidate B: a 4x4 round brick under a 2x2x2 cone body, small head of two 1x1 round plates, 1x1 round arms hung from the base.
+0 // Generic official parts only; no minifigure mould. Origin: sole at y = 0, faces -Z, right = -X.
+
+0 !CRAFTMATIC FIGPART leg_right
+1 2 -16 -8 0 0 0 1 0 1 0 -1 0 0 3023b.dat
+0 !CRAFTMATIC FIGPART leg_left
+1 2 16 -8 0 0 0 1 0 1 0 -1 0 0 3023b.dat
+0 !CRAFTMATIC FIGPART leg_right
+1 2 -16 -32 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART leg_left
+1 2 16 -32 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART torso
+1 25 0 -56 0 1 0 0 0 1 0 0 0 1 87081.dat
+0 !CRAFTMATIC FIGPART torso
+1 25 0 -104 0 1 0 0 0 1 0 0 0 1 3942c.dat
+0 !CRAFTMATIC FIGPART arm_right
+1 25 -50 -56 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART arm_left
+1 25 50 -56 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART arm_right
+1 25 -50 -80 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART arm_left
+1 25 50 -80 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART head
+1 14 0 -112 0 1 0 0 0 1 0 0 0 1 6141.dat
+0 !CRAFTMATIC FIGPART head
+1 14 0 -120 0 1 0 0 0 1 0 0 0 1 6141.dat

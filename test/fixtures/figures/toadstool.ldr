@@ -1,0 +1,33 @@
+0 toadstool
+0 Name: toadstool
+0 Author: craftmatic F01 figure study (BIZ-21)
+0 !LICENSE Redistributable under CC BY 4.0 : see http://www.ldraw.org/documentation/ldraw-org-license
+0 // Candidate C: slim 2x2 round body and 1x1 round neck under a wide cap (two 4x4 round bricks and a 6x6 plate brim).
+0 // Generic official parts only; no minifigure mould. Origin: sole at y = 0, faces -Z, right = -X.
+
+0 !CRAFTMATIC FIGPART leg_right
+1 6 -12 -8 0 0 0 1 0 1 0 -1 0 0 3023b.dat
+0 !CRAFTMATIC FIGPART leg_left
+1 6 12 -8 0 0 0 1 0 1 0 -1 0 0 3023b.dat
+0 !CRAFTMATIC FIGPART leg_right
+1 6 -12 -32 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART leg_left
+1 6 12 -32 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART torso
+1 7 0 -56 0 1 0 0 0 1 0 0 0 1 3941.dat
+0 !CRAFTMATIC FIGPART arm_right
+1 7 -50 -56 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART arm_left
+1 7 50 -56 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART arm_right
+1 7 -50 -80 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART arm_left
+1 7 50 -80 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART head
+1 14 0 -80 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART head
+1 25 0 -104 0 1 0 0 0 1 0 0 0 1 87081.dat
+0 !CRAFTMATIC FIGPART head
+1 25 0 -128 0 1 0 0 0 1 0 0 0 1 87081.dat
+0 !CRAFTMATIC FIGPART head
+1 25 0 -136 0 1 0 0 0 1 0 0 0 1 3958.dat
