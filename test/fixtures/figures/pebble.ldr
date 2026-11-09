@@ -1,0 +1,35 @@
+0 pebble
+0 Name: pebble
+0 Author: craftmatic F01 figure study (BIZ-21)
+0 !LICENSE Redistributable under CC BY 4.0 : see http://www.ldraw.org/documentation/ldraw-org-license
+0 // Candidate A: 4x4 round-brick body, stacked 4x4 round-brick head, 1x1 round limbs, plate feet.
+0 // Generic official parts only; no minifigure mould. Origin: sole at y = 0, faces -Z, right = -X.
+
+0 !CRAFTMATIC FIGPART leg_right
+1 1 -20 -8 0 0 0 1 0 1 0 -1 0 0 3023b.dat
+0 !CRAFTMATIC FIGPART leg_left
+1 1 20 -8 0 0 0 1 0 1 0 -1 0 0 3023b.dat
+0 !CRAFTMATIC FIGPART leg_right
+1 1 -20 -32 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART leg_left
+1 1 20 -32 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART leg_right
+1 1 -20 -40 0 1 0 0 0 1 0 0 0 1 6141.dat
+0 !CRAFTMATIC FIGPART leg_left
+1 1 20 -40 0 1 0 0 0 1 0 0 0 1 6141.dat
+0 !CRAFTMATIC FIGPART torso
+1 4 0 -64 0 1 0 0 0 1 0 0 0 1 87081.dat
+0 !CRAFTMATIC FIGPART arm_right
+1 4 -50 -64 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART arm_left
+1 4 50 -64 0 1 0 0 0 1 0 0 0 1 3062b.dat
+0 !CRAFTMATIC FIGPART arm_right
+1 14 -50 -40 0 1 0 0 0 1 0 0 0 1 6141.dat
+0 !CRAFTMATIC FIGPART arm_left
+1 14 50 -40 0 1 0 0 0 1 0 0 0 1 6141.dat
+0 !CRAFTMATIC FIGPART head
+1 14 0 -88 0 1 0 0 0 1 0 0 0 1 87081.dat
+0 !CRAFTMATIC FIGPART head
+1 14 0 -112 0 1 0 0 0 1 0 0 0 1 87081.dat
+0 !CRAFTMATIC FIGPART head
+1 14 0 -120 0 1 0 0 0 1 0 0 0 1 60474.dat
