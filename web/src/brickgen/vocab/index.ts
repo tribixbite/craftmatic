@@ -10,11 +10,11 @@
  */
 import { PRODUCTION_PALETTE } from '../colour.js';
 import type { BrickElement, BrickVocabulary } from '../types.js';
-import { ELEMENT_SPECS, type ElementSpec } from './elements.js';
+import { ELEMENT_SPECS, MOVED_PARTS, type ElementSpec } from './elements.js';
 import { analysePart, flattenPart, readHeader, type BodyFrame, type PartSource } from './occupancy.js';
 import { VOCAB_RECORDS, type VocabRecord } from './vocabulary.generated.js';
 
-export { ELEMENT_SPECS } from './elements.js';
+export { ELEMENT_SPECS, MOVED_PARTS } from './elements.js';
 export type { ElementSpec } from './elements.js';
 export type { BodyFrame, PartSource } from './occupancy.js';
 export { occupancyIndex } from './occupancy.js';
@@ -69,7 +69,9 @@ function recordToElement(r: VocabRecord, spec: ElementSpec): BrickElement {
 const SPEC_BY_PART = new Map(ELEMENT_SPECS.map(s => [s.part, s]));
 
 export const BRICK_VOCABULARY: BrickVocabulary = {
-  elements: VOCAB_RECORDS.map(r => recordToElement(r, SPEC_BY_PART.get(r.part)!)),
+  // A record without a spec is a stale generated file (the script that rewrites it must be able to import this
+  // module first); `buildVocabulary` + the drift test and `--check` report it.
+  elements: VOCAB_RECORDS.filter(r => SPEC_BY_PART.has(r.part)).map(r => recordToElement(r, SPEC_BY_PART.get(r.part)!)),
   palette: [...PRODUCTION_PALETTE],
   version: VOCAB_VERSION,
 };
@@ -77,12 +79,17 @@ export const BRICK_VOCABULARY: BrickVocabulary = {
 const ELEMENT_BY_PART = new Map(BRICK_VOCABULARY.elements.map(e => [e.part, e]));
 const FRAME_BY_PART = new Map<string, BodyFrame>(VOCAB_RECORDS.map(r => [r.part, r.frame]));
 
-/** The vocabulary element for a part file name (`3001.dat`), or undefined when it is not in the vocabulary. */
+/** A part file name with an official "~Moved to" alias (`3023.dat`) read as the part it points at (`3023b.dat`). */
+export function canonicalPart(part: string): string {
+  return MOVED_PARTS[part] ?? part;
+}
+
+/** The vocabulary element for a part file name (`3001.dat`, or a moved name like `3023.dat`), or undefined when it is not in the vocabulary. */
 export function elementFor(part: string): BrickElement | undefined {
-  return ELEMENT_BY_PART.get(part);
+  return ELEMENT_BY_PART.get(canonicalPart(part));
 }
 
 /** Where the body of a vocabulary part sits against its origin (LDU, LDraw axes), or undefined. */
 export function frameFor(part: string): BodyFrame | undefined {
-  return FRAME_BY_PART.get(part);
+  return FRAME_BY_PART.get(canonicalPart(part));
 }

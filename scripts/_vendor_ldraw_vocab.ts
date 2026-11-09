@@ -13,10 +13,10 @@
  * LDraw parts are licensed CC BY (see each file's `0 !LICENSE` line); LICENSE.md
  * carries the per-file authors that the attribution requires.
  */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ELEMENT_SPECS } from '../web/src/brickgen/vocab/elements.ts';
+import { ELEMENT_SPECS, MOVED_PARTS } from '../web/src/brickgen/vocab/elements.ts';
 import { buildVocabulary } from '../web/src/brickgen/vocab/index.ts';
 import { readHeader, reachableFiles, type PartSource } from '../web/src/brickgen/vocab/occupancy.ts';
 
@@ -51,7 +51,26 @@ function neededFiles(root: string): { rel: string; name: string }[] {
     if (missing.length) throw new Error(`${spec.part}: not in ${root}: ${missing.join(', ')}`);
     for (const f of files) names.add(f);
   }
+  // Moved-name aliases are vendored too (and checked below), so a test can prove each really is "~Moved to <target>".
+  for (const alias of Object.keys(MOVED_PARTS)) names.add(alias);
   return [...names].sort().map(name => ({ name, rel: path.relative(root, locate(root, name)!).split(path.sep).join('/') }));
+}
+
+/** Problems with the MOVED_PARTS table against a library-shaped root: each alias must be one identity reference to its target element. */
+function movedPartProblems(root: string): string[] {
+  const src = sourceOf(root);
+  const elements = new Set(ELEMENT_SPECS.map(s => s.part));
+  const out: string[] = [];
+  for (const [alias, target] of Object.entries(MOVED_PARTS)) {
+    const text = src(alias);
+    if (text === undefined) { out.push(`${alias}: not in ${root}`); continue; }
+    if (!elements.has(target)) out.push(`${alias} -> ${target}: target is not a vocabulary element`);
+    if (!/^0 ~Moved to /m.test(text)) out.push(`${alias}: is not a "~Moved to" file`);
+    const refs = text.split(/\r?\n/).filter(l => l.startsWith('1 ')).map(l => l.trim().split(/\s+/));
+    const identity = refs.length === 1 && refs[0]!.slice(2, 14).join(' ') === '0 0 0 1 0 0 0 1 0 0 0 1' && refs[0]!.slice(14).join(' ').toLowerCase() === target;
+    if (!identity) out.push(`${alias}: is not a single identity reference to ${target}`);
+  }
+  return out;
 }
 
 function licenceMarkdown(files: { rel: string }[]): string {
@@ -113,17 +132,21 @@ function generatedTs(): string {
 }
 
 if (!CHECK) {
+  const problems = movedPartProblems(LIBRARY);
+  if (problems.length) { for (const p of problems) console.error(p); process.exit(1); }
   const files = neededFiles(LIBRARY);
   for (const f of files) {
     const dest = path.join(FIXTURES, f.rel);
     mkdirSync(path.dirname(dest), { recursive: true });
-    copyFileSync(path.join(LIBRARY, f.rel), dest);
+    // LF on disk: the library ships CRLF, the repo's .gitattributes normalises to LF (a CRLF copy shows as modified until staged).
+    writeFileSync(dest, readFileSync(path.join(LIBRARY, f.rel), 'utf8').replace(/\r\n/g, '\n'));
   }
   writeFileSync(path.join(FIXTURES, 'LICENSE.md'), licenceMarkdown(files));
   writeFileSync(GENERATED, generatedTs());
   console.log(`vendored ${files.length} files for ${ELEMENT_SPECS.length} elements`);
 } else {
   let bad = 0;
+  for (const p of movedPartProblems(FIXTURES)) { bad++; console.error(p); }
   const src = sourceOf(FIXTURES);
   for (const spec of ELEMENT_SPECS) {
     const { missing } = reachableFiles(spec.part, src);

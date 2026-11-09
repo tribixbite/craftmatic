@@ -4953,6 +4953,1987 @@ export const VOCAB_RECORDS: readonly VocabRecord[] = [
   "author": "Brent Jackson [bjackson]"
  },
  {
+  "part": "2420.dat",
+  "footprint": [
+   2,
+   2
+  ],
+  "heightPlates": 1,
+  "frame": {
+   "centreX": 10,
+   "centreZ": 10,
+   "topY": 0,
+   "bottomY": 8
+  },
+  "occupancy": "1110",
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "26601.dat",
+  "footprint": [
+   2,
+   2
+  ],
+  "heightPlates": 1,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 8
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Magnus Forsberg [MagFors]"
+ },
+ {
+  "part": "79491.dat",
+  "footprint": [
+   2,
+   2
+  ],
+  "heightPlates": 1,
+  "frame": {
+   "centreX": 10,
+   "centreZ": 10,
+   "topY": 0,
+   "bottomY": 8
+  },
+  "occupancy": "1110",
+  "studsTop": [
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Gerald Lasser [GeraldLasser]"
+ },
+ {
+  "part": "2450.dat",
+  "footprint": [
+   3,
+   3
+  ],
+  "heightPlates": 1,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 8
+  },
+  "occupancy": "110111111",
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    2,
+    2
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    2,
+    2
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "15397.dat",
+  "footprint": [
+   3,
+   3
+  ],
+  "heightPlates": 1,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 8
+  },
+  "occupancy": "010111010",
+  "studsTop": [
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    1,
+    2
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    1,
+    2
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Max Martin Richter [MMR1988]"
+ },
+ {
+  "part": "3032.dat",
+  "footprint": [
+   6,
+   4
+  ],
+  "heightPlates": 1,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 8
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    2,
+    2
+   ],
+   [
+    3,
+    2
+   ],
+   [
+    4,
+    2
+   ],
+   [
+    5,
+    2
+   ],
+   [
+    0,
+    3
+   ],
+   [
+    1,
+    3
+   ],
+   [
+    2,
+    3
+   ],
+   [
+    3,
+    3
+   ],
+   [
+    4,
+    3
+   ],
+   [
+    5,
+    3
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    2,
+    2
+   ],
+   [
+    3,
+    2
+   ],
+   [
+    4,
+    2
+   ],
+   [
+    5,
+    2
+   ],
+   [
+    0,
+    3
+   ],
+   [
+    1,
+    3
+   ],
+   [
+    2,
+    3
+   ],
+   [
+    3,
+    3
+   ],
+   [
+    4,
+    3
+   ],
+   [
+    5,
+    3
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "3958.dat",
+  "footprint": [
+   6,
+   6
+  ],
+  "heightPlates": 1,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 8
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    2,
+    2
+   ],
+   [
+    3,
+    2
+   ],
+   [
+    4,
+    2
+   ],
+   [
+    5,
+    2
+   ],
+   [
+    0,
+    3
+   ],
+   [
+    1,
+    3
+   ],
+   [
+    2,
+    3
+   ],
+   [
+    3,
+    3
+   ],
+   [
+    4,
+    3
+   ],
+   [
+    5,
+    3
+   ],
+   [
+    0,
+    4
+   ],
+   [
+    1,
+    4
+   ],
+   [
+    2,
+    4
+   ],
+   [
+    3,
+    4
+   ],
+   [
+    4,
+    4
+   ],
+   [
+    5,
+    4
+   ],
+   [
+    0,
+    5
+   ],
+   [
+    1,
+    5
+   ],
+   [
+    2,
+    5
+   ],
+   [
+    3,
+    5
+   ],
+   [
+    4,
+    5
+   ],
+   [
+    5,
+    5
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    2,
+    2
+   ],
+   [
+    3,
+    2
+   ],
+   [
+    4,
+    2
+   ],
+   [
+    5,
+    2
+   ],
+   [
+    0,
+    3
+   ],
+   [
+    1,
+    3
+   ],
+   [
+    2,
+    3
+   ],
+   [
+    3,
+    3
+   ],
+   [
+    4,
+    3
+   ],
+   [
+    5,
+    3
+   ],
+   [
+    0,
+    4
+   ],
+   [
+    1,
+    4
+   ],
+   [
+    2,
+    4
+   ],
+   [
+    3,
+    4
+   ],
+   [
+    4,
+    4
+   ],
+   [
+    5,
+    4
+   ],
+   [
+    0,
+    5
+   ],
+   [
+    1,
+    5
+   ],
+   [
+    2,
+    5
+   ],
+   [
+    3,
+    5
+   ],
+   [
+    4,
+    5
+   ],
+   [
+    5,
+    5
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "92280.dat",
+  "footprint": [
+   2,
+   1
+  ],
+  "heightPlates": 2,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": -10,
+   "bottomY": 8
+  },
+  "occupancy": "1100",
+  "studsTop": [
+   [
+    0,
+    0
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Magnus Forsberg [MagFors]"
+ },
+ {
+  "part": "86996.dat",
+  "footprint": [
+   1,
+   1
+  ],
+  "heightPlates": 2,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 16
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    0
+   ]
+  ],
+  "antiStudsBottom": [],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Gerald Lasser [GeraldLasser]"
+ },
+ {
+  "part": "18674.dat",
+  "footprint": [
+   2,
+   2
+  ],
+  "heightPlates": 1,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 8
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    1,
+    1
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Philippe Hurbain [Philo]"
+ },
+ {
+  "part": "2357.dat",
+  "footprint": [
+   2,
+   2
+  ],
+  "heightPlates": 3,
+  "frame": {
+   "centreX": 10,
+   "centreZ": 10,
+   "topY": 0,
+   "bottomY": 24
+  },
+  "occupancy": "111011101110",
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "4070.dat",
+  "footprint": [
+   1,
+   1
+  ],
+  "heightPlates": 3,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 24
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    0
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "32952.dat",
+  "footprint": [
+   1,
+   1
+  ],
+  "heightPlates": 5,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 40
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    0
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Gerald Lasser [GeraldLasser]"
+ },
+ {
+  "part": "3700.dat",
+  "footprint": [
+   2,
+   1
+  ],
+  "heightPlates": 3,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 24
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "3701.dat",
+  "footprint": [
+   4,
+   1
+  ],
+  "heightPlates": 3,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 24
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "2730.dat",
+  "footprint": [
+   10,
+   1
+  ],
+  "heightPlates": 3,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 24
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    6,
+    0
+   ],
+   [
+    7,
+    0
+   ],
+   [
+    8,
+    0
+   ],
+   [
+    9,
+    0
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    6,
+    0
+   ],
+   [
+    7,
+    0
+   ],
+   [
+    8,
+    0
+   ],
+   [
+    9,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "32000.dat",
+  "footprint": [
+   2,
+   1
+  ],
+  "heightPlates": 3,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 24
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "73230.dat",
+  "footprint": [
+   1,
+   1
+  ],
+  "heightPlates": 3,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 24
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    0
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Vincent Messenet [Cheenzo]"
+ },
+ {
+  "part": "6541.dat",
+  "footprint": [
+   1,
+   1
+  ],
+  "heightPlates": 3,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 24
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    0
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "54200.dat",
+  "footprint": [
+   1,
+   1
+  ],
+  "heightPlates": 2,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": -15.6,
+   "bottomY": 0
+  },
+  "occupancy": "10",
+  "studsTop": [],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Orion Pobursky [OrionP]"
+ },
+ {
+  "part": "15672.dat",
+  "footprint": [
+   1,
+   2
+  ],
+  "heightPlates": 3,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": -16,
+   "bottomY": 8
+  },
+  "occupancy": "111000",
+  "studsTop": [
+   [
+    0,
+    1
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ]
+  ],
+  "licence": "Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt",
+  "author": "Remco Canten [rempie]"
+ },
+ {
+  "part": "60477.dat",
+  "footprint": [
+   1,
+   4
+  ],
+  "heightPlates": 3,
+  "frame": {
+   "centreX": 0,
+   "centreZ": -30,
+   "topY": 0,
+   "bottomY": 24
+  },
+  "occupancy": "111101110011",
+  "studsTop": [
+   [
+    0,
+    3
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    0,
+    3
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "J.C. Tchang [tchang]"
+ },
+ {
+  "part": "61678.dat",
+  "footprint": [
+   1,
+   4
+  ],
+  "heightPlates": 3,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 24
+  },
+  "occupancy": "111101110011",
+  "studsTop": [],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    0,
+    3
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Tim Gould [timgould]"
+ },
+ {
+  "part": "29119.dat",
+  "footprint": [
+   1,
+   2
+  ],
+  "heightPlates": 2,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 1.5,
+   "topY": -16,
+   "bottomY": 0
+  },
+  "occupancy": "1101",
+  "studsTop": [],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Magnus Forsberg [MagFors]"
+ },
+ {
+  "part": "29120.dat",
+  "footprint": [
+   1,
+   2
+  ],
+  "heightPlates": 2,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 1.5,
+   "topY": -16,
+   "bottomY": 0
+  },
+  "occupancy": "1101",
+  "studsTop": [],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Magnus Forsberg [MagFors]"
+ },
+ {
+  "part": "50967.dat",
+  "footprint": [
+   1,
+   8
+  ],
+  "heightPlates": 5,
+  "frame": {
+   "centreX": 0,
+   "centreZ": -60,
+   "topY": -8,
+   "bottomY": 32
+  },
+  "occupancy": "0000000010000010010000100010011100001100",
+  "studsTop": [
+   [
+    0,
+    6
+   ],
+   [
+    0,
+    7
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    0,
+    3
+   ],
+   [
+    0,
+    4
+   ],
+   [
+    0,
+    5
+   ],
+   [
+    0,
+    6
+   ],
+   [
+    0,
+    7
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Orion Pobursky [OrionP]"
+ },
+ {
+  "part": "78666.dat",
+  "footprint": [
+   2,
+   1
+  ],
+  "heightPlates": 3,
+  "frame": {
+   "centreX": 10,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 24
+  },
+  "occupancy": "111010",
+  "studsTop": [
+   [
+    0,
+    0
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Gerald Lasser [GeraldLasser]"
+ },
+ {
+  "part": "36841.dat",
+  "footprint": [
+   1,
+   2
+  ],
+  "heightPlates": 2,
+  "frame": {
+   "centreX": 0,
+   "centreZ": -2,
+   "topY": 0,
+   "bottomY": 20
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    1
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Magnus Forsberg [MagFors]"
+ },
+ {
+  "part": "36840.dat",
+  "footprint": [
+   1,
+   2
+  ],
+  "heightPlates": 2,
+  "frame": {
+   "centreX": 0,
+   "centreZ": -2,
+   "topY": -12,
+   "bottomY": 8
+  },
+  "occupancy": "1100",
+  "studsTop": [
+   [
+    0,
+    1
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Magnus Forsberg [MagFors]"
+ },
+ {
+  "part": "99780.dat",
+  "footprint": [
+   2,
+   2
+  ],
+  "heightPlates": 2,
+  "frame": {
+   "centreX": 0,
+   "centreZ": -2,
+   "topY": -12,
+   "bottomY": 8
+  },
+  "occupancy": "11110000",
+  "studsTop": [
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Magnus Forsberg [MagFors]"
+ },
+ {
+  "part": "99207.dat",
+  "footprint": [
+   2,
+   2
+  ],
+  "heightPlates": 5,
+  "frame": {
+   "centreX": 0,
+   "centreZ": -2,
+   "topY": -32,
+   "bottomY": 8
+  },
+  "occupancy": "11110000000000000000",
+  "studsTop": [
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Magnus Forsberg [MagFors]"
+ },
+ {
+  "part": "11215.dat",
+  "footprint": [
+   2,
+   5
+  ],
+  "heightPlates": 4,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 32
+  },
+  "occupancy": "1111111111000011111100001111110000111111",
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    0,
+    3
+   ],
+   [
+    1,
+    3
+   ],
+   [
+    0,
+    4
+   ],
+   [
+    1,
+    4
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    0,
+    3
+   ],
+   [
+    1,
+    3
+   ],
+   [
+    0,
+    4
+   ],
+   [
+    1,
+    4
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "J.C. Tchang [tchang]"
+ },
+ {
+  "part": "2362b.dat",
+  "footprint": [
+   2,
+   1
+  ],
+  "heightPlates": 9,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 72
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "3048b.dat",
+  "footprint": [
+   2,
+   1
+  ],
+  "heightPlates": 3,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 24
+  },
+  "occupancy": "110000",
+  "studsTop": [],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "3747a.dat",
+  "footprint": [
+   2,
+   3
+  ],
+  "heightPlates": 3,
+  "frame": {
+   "centreX": 0,
+   "centreZ": -20,
+   "topY": 0,
+   "bottomY": 24
+  },
+  "occupancy": "111111110011000011",
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    2
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    2
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "3070a.dat",
+  "footprint": [
+   1,
+   1
+  ],
+  "heightPlates": 1,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 8
+  },
+  "occupancy": null,
+  "studsTop": [],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
   "part": "3633.dat",
   "footprint": [
    4,
