@@ -1,24 +1,24 @@
 {
- "generated": "2026-11-02 16:21:23",
+ "generated": "2026-11-09 16:41:09",
  "model_index": {
   "source": "https://craftmatic.click/lego-models-index.json",
   "generated": "2026-09-20",
   "sets": 10177
  },
  "catalog": {
-  "sets": 28561,
-  "buildable": 16759
+  "sets": 28588,
+  "buildable": 16765
  },
  "channels": {
   "dbix_skulist": 1986,
   "omr_sets": 1419
  },
  "sourceless": {
-  "total": 6265,
-  "recent": 547,
+  "total": 6271,
+  "recent": 553,
   "harvestable_dbix": 29,
   "harvestable_omr": 1,
-  "no_known_channel": 6235
+  "no_known_channel": 6241
  },
  "harvest_dbix": [
   "21065-1",
@@ -124,6 +124,7 @@
   "30717-1 Fun Halloween Skeleton (2026, 71p)",
   "30718-1 Cataclaws Snow Adventure (2026, 70p)",
   "2D001187-1 Cockatoo (2026, 69p)",
+  "Build-a-Mini-2026 2026 Build-A-Minifigure Station Exclusive Parts (2026, 69p)",
   "30727-1 TIE Advanced Mini-Build (2026, 68p)",
   "L0002292-1 Motorcycle (2026, 68p)",
   "L0002293-1 Go-Cart (2026, 67p)",
@@ -133,11 +134,11 @@
   "6626051-1 Bantha (2026, 64p)",
   "6646740-1 Scarlet Passion (2026, 64p)",
   "PETSHOW-1 Pet Show (2026, 63p)",
+  "L0002295-1 Tractor (2026, 61p)",
   "42233-7 Mobile Crane (2026, 60p)",
   "L0002236-1 Republic Gunship (2026, 59p)",
   "30734-1 Mini F1 ACADEMY Car (2026, 58p)",
   "6638188-1 Trophy (2026, 57p)",
-  "Build-a-Mini-2026 2026 Build-A-Minifigure Station Exclusive Parts (2026, 57p)",
   "5010353-1 Tiny Pets: Corgi (2026, 56p)",
   "6646739-1 Dark and Bloomy (2026, 56p)",
   "6646741-1 The Rosy Crush (2026, 56p)",
@@ -145,11 +146,13 @@
   "6626047-1 Landspeeder (2026, 55p)",
   "6644870-1 Dragon on Skateboard (2026, 55p)",
   "6669168-1 Sports Car (2026, 54p)",
+  "L0002242-1 Crab Droid (2026, 54p)",
   "6644890-1 The Holiday Duo (2026, 53p)",
   "6644847-1 Web Goal Challenge (2026, 52p)",
   "6652991-1 Rock Guitar (2026, 52p)",
   "6680480-1 Jolly Roger Mosaic (2026, 52p)",
   "5702014965133-1 KNVB Box (2026, 50p)",
+  "6687605-1 Praha Tram (2026, 50p)",
   "5010005-1 Lucky Money Bag (2026, 49p)",
   "6626055-1 Monster Truck (2026, 49p)",
   "6626060-1 Sports Car (2026, 49p)",
@@ -201,6 +204,7 @@
   "6611591-1 Cresent Moon (2026, 37p)",
   "6614211-1 Treat Stand (2026, 36p)",
   "6614225-1 Baby Seahorse (2026, 36p)",
+  "6644859-1 Reindeer (2026, 36p)",
   "6644886-1 Ghost Street (2026, 36p)",
   "10466-1 Train Ride with Grandpa Pig (2026, 35p)",
   "2D001183-1 Kai with Motorcycle (2026, 35p)",
@@ -211,15 +215,16 @@
   "6614223-1 Little HeiHei (2026, 32p)",
   "6626065-1 F1 ACADEMY LEGO Race Car (2026, 32p)",
   "9788325349042-1 Falcon: Droga do Kapitana Ameryki (2026, 32p)",
+  "DATABASE-2026 2026 - Unused Parts Database Set (2026, 32p)",
   "L0002220-1 Police on Snowmobile (2026, 32p)",
   "30725-1 Spider-Man vs. Anti-Venom Heist (2026, 31p)",
   "30732-1 Alex's Campfire Conflict (2026, 31p)",
   "6644842-1 Poké Ball Smart Tag Case (2026, 31p)",
-  "DATABASE-2026 2026 - Unused Parts Database Set (2026, 31p)",
   "6636931-1 First Friendship (2026, 30p)",
   "6644880-1 Chopper's Hat (2026, 30p)",
   "6662602-1 Gnome (2026, 30p)",
   "9781837252152-1 Ninjago: Dragons Rising: Cole's Mech Mission (2026, 30p)",
+  "L0002228-1 Aeroplane (2026, 30p)",
   "RAINBOW-1 Rainbow (2026, 30p)",
   "6557640-13 Race Car (2026, 29p)",
   "L0002223-1 Street Sweeper (2026, 29p)",
@@ -249,11 +254,6 @@
   "30713-1 Fancy Restaurant with Bingo (2026, 23p)",
   "L0002248-1 Hero in Enchanted Armour + Blaze (2026, 23p)",
   "L0002277-1 Iron Man (2026, 22p)",
-  "L0002277-2 Iron Man [Helmet Tin] (2026, 22p)",
-  "6518176-1 St. Patrick's Day Hat (2026, 21p)",
-  "6626042-1 Egg-spress Yourself (2026, 21p)",
-  "6644896-1 Magenta Flower Candle (2026, 21p)",
-  "951351-1 Guard and Raptor (2026, 21p)",
-  "L0002247-1 Realm Raider with Creeper and TNT Launcher (2026, 21p)"
+  "L0002277-2 Iron Man [Helmet Tin] (2026, 22p)"
  ]
 }
