@@ -1,0 +1,8 @@
+{
+  "model": "models/fixture-cottage.ldr",
+  "summary": "A tiny cottage built from bricks, placed with a wand.",
+  "vehicleMode": "static",
+  "quality": "balanced",
+  "buildings": "bricks",
+  "lod": "hull"
+}

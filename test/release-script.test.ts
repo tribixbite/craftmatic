@@ -113,14 +113,14 @@ const treeClean = ((): boolean => {
   const s = git(REPO, 'status', '--porcelain', '--untracked-files=no');
   return s.status === 0 && s.stdout.trim() === '';
 })();
-const fixtureCommitted = git(REPO, 'ls-files', 'test/fixtures/release/data').stdout.trim() !== '';
+const fixtureCommitted = git(REPO, 'ls-files', 'test/fixtures/release/root').stdout.trim() !== '';
 const e2eReady = treeClean && fixtureCommitted && existsSync(join(LDRAW_REF, '_archives', 'complete.zip'));
 const e2eReason = !treeClean ? 'tracked tree is dirty' : !fixtureCommitted ? 'fixture not committed' : !existsSync(join(LDRAW_REF, '_archives', 'complete.zip')) ? 'no local LDraw mirror' : 'ready';
 
 /** The committed fixture data root copied to a scratch folder with this machine's pins filled in. */
 function fixtureData(): string {
   const data = freshDir('data');
-  cpSync(join(REPO, 'test', 'fixtures', 'release', 'data'), data, { recursive: true });
+  cpSync(join(REPO, 'test', 'fixtures', 'release', 'root'), data, { recursive: true });
   const file = join(data, 'products', 'fixture.json');
   const product = JSON.parse(readFileSync(file, 'utf8')) as Record<string, any>;
   product.toolchain.bun = spawnSync('bun', ['--version'], { encoding: 'utf8' }).stdout.trim();
