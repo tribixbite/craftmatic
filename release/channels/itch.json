@@ -1,0 +1,43 @@
+{
+  "channel": "itch",
+  "title": "itch.io (free download)",
+  "templateVars": "see curseforge.json",
+  "fields": [
+    {
+      "key": "title", "label": "Title", "value": "{brand} Brick Sampler", "lint": "name",
+      "limit": { "max": null, "status": "unverified", "source": "the itch form's title limit has not been read" }
+    },
+    { "key": "projectUrl", "label": "Project URL", "value": "{brandSlug}.itch.io/{slug}", "lint": "none" },
+    {
+      "key": "tagline", "label": "Short description / tagline", "value": "Drive a brick car, open brick doors, sit on brick chairs. Free Bedrock add-on.", "lint": "prose",
+      "limit": { "max": null, "status": "unverified", "source": "the itch form's short-description limit has not been read" }
+    },
+    { "key": "classification", "label": "Classification (verify the exact label in the form)", "value": "Game mods", "lint": "none" },
+    { "key": "kind", "label": "Kind of project", "value": "Downloadable", "lint": "none" },
+    { "key": "releaseStatus", "label": "Release status", "value": "Released", "lint": "none" },
+    { "key": "pricing", "label": "Pricing (U11: tips go to Ko-fi)", "value": "No payments", "lint": "none" },
+    { "key": "uploadPlatforms", "label": "Upload platform tags (itch has no iOS tag; the description covers iOS)", "value": ["Windows", "Android"], "lint": "none" },
+    { "key": "genre", "label": "Genre", "value": "Simulation", "lint": "none" },
+    {
+      "key": "tags", "label": "Tags", "value": ["minecraft-bedrock", "addon", "vehicles", "bricks", "building", "mod", "free"], "lint": "prose",
+      "limit": { "max": null, "status": "unverified", "source": "plan D 4.2: verify the tag limit on the form" }
+    },
+    { "key": "community", "label": "Community", "value": "Comments", "lint": "none" },
+    { "key": "visibility", "label": "Visibility (Draft until approval, then Public)", "value": "Draft", "lint": "none" }
+  ],
+  "descriptionFrom": "curseforge",
+  "images": [
+    { "role": "cover", "preset": "itch-cover", "outName": "cover", "min": 1, "max": 1, "exact": [630, 500], "purpose": "itch cover, 630x500", "source": "itch.io page 'Your first itch.io page', read 2026-11-09 (plan D 4.2)", "status": "verified" },
+    { "role": "cover2x", "preset": "itch-cover-2x", "outName": "cover-2x", "min": 1, "max": 1, "exact": [1260, 1000], "purpose": "itch cover at 2x for high-dpi", "source": "plan D 4.2", "status": "verified" },
+    { "role": "screenshots", "preset": "screenshot", "outName": "screenshot", "min": 1, "max": 5, "purpose": "itch screenshots, 1600x900", "source": "plan D 4.2", "status": "verified" },
+    { "role": "turntable", "preset": "turntable", "outName": "turntable", "min": 0, "max": 1, "extensions": ["gif"], "purpose": "turntable GIF, under 4 MB", "source": "plan D 4.2", "status": "verified" }
+  ],
+  "file": { "kinds": ["mcaddon"], "changelog": false, "note": "Tag the upload Windows and Android." },
+  "checklist": [
+    { "id": "itch.account", "action": "Use or create your itch.io account.", "exactCommandOrUrl": "https://itch.io/", "evidenceAfter": "the account name" },
+    { "id": "itch.page", "action": "Create the page from fields.json and description.md, as a Draft.", "exactCommandOrUrl": "https://itch.io/game/new", "evidenceAfter": "the draft page URL" },
+    { "id": "itch.upload", "action": "Upload the file in the browser, or install the command-line uploader, log in, and run the prepared command.", "exactCommandOrUrl": "butler push {distDir} <user>/{slug}:mcaddon --userversion {version}", "evidenceAfter": "the uploaded build on the page" },
+    { "id": "itch.publish", "action": "Switch the page from Draft to Public.", "exactCommandOrUrl": "https://itch.io/dashboard", "evidenceAfter": "the public page URL" },
+    { "id": "itch.record", "action": "Write the game id into release/channels/itch.json so the weekly report can read it.", "exactCommandOrUrl": "release/channels/itch.json", "evidenceAfter": "the game id" }
+  ]
+}
