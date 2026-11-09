@@ -17,7 +17,7 @@
 import type { Scenario, Step, StepContext, StepHandler, AnyStep } from '../../scenario/types.js';
 import { teleport } from '../../script-host/facades.js';
 import { approachSpots, findApproach, SIGHT_MARGIN } from '../../scenario/approach.js';
-import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
+import { DEV_NAMESPACE, ixKeys, nsId } from './namespace.js';
 import type { Addon } from '../../pack/pack.js';
 import { readCraftmaticPack, type CraftmaticPack } from './pack-facts.js';
 import { wandHandlers } from './wand.js';
@@ -79,11 +79,12 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
     async tapInteractives(_step: AnyStep, ctx: StepContext) {
       // Read the drawn geometry the static colliders stand for while every part is still as placed (closed).
       staticDrawn(ctx, appearance, pack);
-      const parts = [...ctx.sim.engine.entities.values()].filter(e => e.valid && typeof e.dynamic.get(IX_KEYS.index) === 'number');
+      const IX = ixKeys(pack.namespace);
+      const parts = [...ctx.sim.engine.entities.values()].filter(e => e.valid && typeof e.dynamic.get(IX.index) === 'number');
       for (const part of parts) {
-        const idx = e2n(part.dynamic.get(IX_KEYS.index));
+        const idx = e2n(part.dynamic.get(IX.index));
         const label = pack.interactives?.items[idx]?.label ?? part.typeId;
-        const state = (): string => JSON.stringify([part.dynamic.get(IX_KEYS.open), part.properties.get('craftmatic:angle')]);
+        const state = (): string => JSON.stringify([part.dynamic.get(IX.open), part.properties.get(nsId(pack.namespace, 'angle'))]);
         const before = state();
         // No spot over the pack's colliders picks the part: when the MODEL itself offers none either (no drawn floor
         // within reach with a clear line to it), the part is out of reach by the model's own geometry - noted, never
@@ -93,7 +94,7 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
           if (why) { ctx.note(`${label}: no standing spot within reach picks it - the MODEL's: ${why}`); await ctx.run(8); continue; }
         }
         if (!await tapPart(ctx, part, label, () => state() !== before, pack)) {
-          const refused = part.dynamic.get('craftmatic:ix_refused');
+          const refused = part.dynamic.get(nsId(pack.namespace, 'ix_refused'));
           const text = `no tap on ${label} from any spot within reach changed it${refused ? ` (the part refused: ${String(refused)})` : ''}`;
           // A refusal ("behind a wall") is the runtime's line of sight over its colliders. When the MODEL's own drawn
           // geometry stands between the eye and the part from EVERY spot a tap picks it from, the part is hidden by
@@ -114,8 +115,8 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
       // Only a figure the SOURCE sat on a chair (`craftmatic:fig` mode `seated`) takes its seat back; a walker that sat
       // down on its own stands up for the child and walks on (figures.js `sit`). Until 2026-09-30 every riding figure
       // was expected to retake, and 10303's fig4 and 910032's fig3 - walkers on a bench - failed for doing as designed.
-      const seated = [...ctx.sim.engine.entities.values()].filter(e => e.valid && FIGURE_TYPE.test(e.typeId) && e.ridingOn && figureMode(e) === 'seated');
-      const walkersSitting = [...ctx.sim.engine.entities.values()].filter(e => e.valid && FIGURE_TYPE.test(e.typeId) && e.ridingOn && figureMode(e) !== 'seated');
+      const seated = [...ctx.sim.engine.entities.values()].filter(e => e.valid && FIGURE_TYPE.test(e.typeId) && e.ridingOn && figureMode(e, pack.namespace) === 'seated');
+      const walkersSitting = [...ctx.sim.engine.entities.values()].filter(e => e.valid && FIGURE_TYPE.test(e.typeId) && e.ridingOn && figureMode(e, pack.namespace) !== 'seated');
       if (walkersSitting.length) ctx.note(`${walkersSitting.length} walking figure(s) sitting down of their own accord (${walkersSitting.map(e => e.typeId).join(', ')}): not visited, they do not retake a seat`);
       for (const fig of seated.slice(0, 4)) {
         const seat = fig.ridingOn!;
@@ -138,8 +139,8 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
 const e2n = (v: unknown): number => (typeof v === 'number' ? v : -1);
 
 /** A figure's life mode as the placement wrote it (`craftmatic:fig`): `seated` (the source sat it) or `roam`. */
-export function figureMode(e: SimEntity): string | undefined {
-  const raw = e.dynamic.get('craftmatic:fig');
+export function figureMode(e: SimEntity, namespace: string = DEV_NAMESPACE): string | undefined {
+  const raw = e.dynamic.get(nsId(namespace, 'fig'));
   if (typeof raw !== 'string') return undefined;
   try { return (JSON.parse(raw) as { mode?: string }).mode; } catch { return undefined; }
 }

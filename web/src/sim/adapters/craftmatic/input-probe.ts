@@ -40,7 +40,7 @@ import { dragRecords, dragPixels, dragReach } from '../../input/drag.js';
 import { PIXEL_VIEWPORT, projectToScreen, screenCamera, screenPick, tapScreen, touchModeOf } from '../../input/screen.js';
 import { PIXEL_LAYOUT, PhoneScreen, runDeviceScript, translateCommand, type ReplayEvent } from '../../input/device-script.js';
 import { quirkValue } from '../../quirks/registry.js';
-import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
+import { bareName, ixKeys } from './namespace.js';
 import { CRAFTMATIC_ALLOWED_LINES, CRAFTMATIC_YIELDING_LINES } from './child-play.js';
 import type { CraftmaticPack } from './pack-facts.js';
 import { FIGURE_TYPE, MOUNT_STILL_DEG_PER_TICK, MOUNT_TURN_SLACK_DEG, placedOf, viewYaw } from './play.js';
@@ -70,7 +70,7 @@ const NIMBUS_DESCEND_PITCH = 52;
 export function inputScenarios(pack: CraftmaticPack): Scenario[] {
   const common = { allowLines: [...CRAFTMATIC_ALLOWED_LINES, /CAR|HOVER|FLY|PLANE|BOAT|mph|Hotbar slot 9|CMVT/], yieldingLines: [...CRAFTMATIC_YIELDING_LINES] };
   const out: Scenario[] = [];
-  for (const t of scriptedVehicleTypes(pack)) out.push({ name: `input-${t.typeId.replace(/^craftmatic:/, '')}`, description: `${t.typeId}: mount snap, drag at rest and driving, pitch drag, player_relative inert (VEH-06).`, steps: [{ kind: 'inputVehicle', type: t.typeId }], ...common });
+  for (const t of scriptedVehicleTypes(pack)) out.push({ name: `input-${bareName(t.typeId)}`, description: `${t.typeId}: mount snap, drag at rest and driving, pitch drag, player_relative inert (VEH-06).`, steps: [{ kind: 'inputVehicle', type: t.typeId }], ...common });
   if (pack.flyers.length) out.push({ name: 'input-flyer', description: 'The flyer mount: one swipe at rest stops (FIG-08), look down + Jump descends.', steps: [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'inputFlyer' }], ...common });
   if (pack.interactives?.items.length) out.push({ name: 'tap-occlusion', description: 'Each moving part, tapped on the screen at its drawn centre from where a child taps it, picks itself (IX-01).', steps: [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'tapOcclusion' }], ...common });
   return out;
@@ -173,6 +173,7 @@ export function deviceScriptScenario(input: DeviceScriptInput): Scenario {
 
 /** The input steps' handlers for one pack (`deviceScript` needs `input`). */
 export function inputProbeHandlers(pack: CraftmaticPack, addon: Addon, device?: DeviceScriptInput): Record<string, StepHandler> {
+  const IX = ixKeys(pack.namespace);
   let appearance: ReturnType<typeof packAppearance> | undefined;
   const look = (): ReturnType<typeof packAppearance> => (appearance ??= packAppearance(addon));
   const typeOf = (step: AnyStep): ScriptedTypeFacts => {
@@ -278,10 +279,10 @@ export function inputProbeHandlers(pack: CraftmaticPack, addon: Addon, device?: 
      */
     async tapOcclusion(_step: AnyStep, ctx: StepContext) {
       const p = ctx.player, a = placedOf(ctx).anchor;
-      const parts = [...ctx.sim.engine.entities.values()].filter(e => e.valid && typeof e.dynamic.get(IX_KEYS.index) === 'number');
+      const parts = [...ctx.sim.engine.entities.values()].filter(e => e.valid && typeof e.dynamic.get(IX.index) === 'number');
       const rows: Array<Record<string, unknown>> = [];
       for (const part of parts) {
-        const idx = Number(part.dynamic.get(IX_KEYS.index));
+        const idx = Number(part.dynamic.get(IX.index));
         const label = pack.interactives?.items[idx]?.label ?? part.typeId;
         const drawn = entityDrawn(look(), part)?.filter(d => !d.glass) ?? [];
         const spot = findApproach(ctx.sim.engine, p, part, undefined, [], { inFront: true }) ?? findApproach(ctx.sim.engine, p, part);
@@ -315,11 +316,11 @@ export function inputProbeHandlers(pack: CraftmaticPack, addon: Addon, device?: 
           let via = '';
           if (r.entity && FIGURE_TYPE.test(r.entity.typeId)) {
             const past = pickAt(e => FIGURE_TYPE.test(e.typeId));
-            if (past !== 'off-screen' && past.entity && typeof past.entity.dynamic.get(IX_KEYS.index) === 'number') { r = past; via = 'via-figure:'; }
+            if (past !== 'off-screen' && past.entity && typeof past.entity.dynamic.get(IX.index) === 'number') { r = past; via = 'via-figure:'; }
           }
           if (r.entity === part) return via ? `${via}own` : 'own';
           if (r.entity) {
-            const j = r.entity.dynamic.get(IX_KEYS.index);
+            const j = r.entity.dynamic.get(IX.index);
             if (typeof j === 'number' && pairs.has(j)) return `${via}pair:${pack.interactives?.items[j]?.label ?? r.entity.typeId}`;
             return `${via}other:${typeof j === 'number' ? pack.interactives?.items[j]?.label ?? r.entity.typeId : r.entity.typeId}`;
           }
@@ -336,7 +337,7 @@ export function inputProbeHandlers(pack: CraftmaticPack, addon: Addon, device?: 
         const eye0 = p.headLocation();
         const occluders = [...ctx.sim.engine.entities.values()]
           .filter(e => e.valid && e !== part && !e.isPlayer && Math.hypot(e.location.x - part.location.x, e.location.y - part.location.y, e.location.z - part.location.z) < OCCLUDER_RANGE)
-          .flatMap(e => (entityDrawn(look(), e) ?? []).filter(d => !d.glass && !d.solid).map(d => ({ box: d.box, label: typeof e.dynamic.get(IX_KEYS.index) === 'number' ? pack.interactives?.items[Number(e.dynamic.get(IX_KEYS.index))]?.label ?? e.typeId : e.typeId })));
+          .flatMap(e => (entityDrawn(look(), e) ?? []).filter(d => !d.glass && !d.solid).map(d => ({ box: d.box, label: typeof e.dynamic.get(IX.index) === 'number' ? pack.interactives?.items[Number(e.dynamic.get(IX.index))]?.label ?? e.typeId : e.typeId })));
         const hiddenBy = (q: Vec3): string | undefined => {
           const d = { x: q.x - eye0.x, y: q.y - eye0.y, z: q.z - eye0.z }, len = Math.hypot(d.x, d.y, d.z) || 1;
           const u = { x: d.x / len, y: d.y / len, z: d.z / len };
@@ -364,7 +365,7 @@ export function inputProbeHandlers(pack: CraftmaticPack, addon: Addon, device?: 
       if (!device) throw new Error('deviceScript: no script given (--device-script=)');
       const p = ctx.player, anchor = placedOf(ctx).anchor;
       const events: ReplayEvent[] = [], effects: string[] = [];
-      const parts = (): Array<[string, boolean]> => [...ctx.sim.engine.entities.values()].filter(e => e.valid && typeof e.dynamic.get(IX_KEYS.index) === 'number').map(e => [pack.interactives?.items[Number(e.dynamic.get(IX_KEYS.index))]?.label ?? e.typeId, e.dynamic.get(IX_KEYS.open) === true]);
+      const parts = (): Array<[string, boolean]> => [...ctx.sim.engine.entities.values()].filter(e => e.valid && typeof e.dynamic.get(IX.index) === 'number').map(e => [pack.interactives?.items[Number(e.dynamic.get(IX.index))]?.label ?? e.typeId, e.dynamic.get(IX.open) === true]);
       let lastOpen = new Map(parts()), lastEvent = '(placement)', top = p.location.y;
       const watch = (): void => {
         for (const [label, open] of parts()) if (lastOpen.get(label) !== open) effects.push(`tick ${ctx.sim.engine.tick}: ${label} ${open ? 'OPENED' : 'CLOSED'} (last touch: ${lastEvent})`);
@@ -376,7 +377,7 @@ export function inputProbeHandlers(pack: CraftmaticPack, addon: Addon, device?: 
         advance: async (n: number) => { for (let i = 0; i < n; i++) { await ctx.run(1); watch(); } },
         worldTap: (x: number, y: number) => {
           const r = tapScreen(ctx.sim.engine, p, { x, y }, PIXEL_VIEWPORT, ctx.sim.host.playerState(p).camera);
-          const j = r.entity?.dynamic.get(IX_KEYS.index);
+          const j = r.entity?.dynamic.get(IX.index);
           const what = r.entity ? `${r.entity.typeId}${typeof j === 'number' ? ` (${pack.interactives?.items[j]?.label ?? '?'})` : ''} at ${r2(r.distance ?? 0)} blocks via the ${r.camera}` : r.blockedBy ? `the block ${r.blockedBy}` : r.outOfReach ? `${r.outOfReach.entity} out of reach (${r.outOfReach.eyeDistance})` : 'nothing';
           lastEvent = `tap (${x},${y}) -> ${what}`;
           return what;

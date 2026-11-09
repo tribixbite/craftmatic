@@ -34,7 +34,7 @@ import { FLAT_GROUND_Y } from '../../world/voxel-world.js';
 import { PLAYER_EYE_HEIGHT } from '../../physics/body.js';
 import type { Box, Vec3 } from '../../core/vec.js';
 import { isShellEntityId } from '../../../engine/bedrock-building-shell.js';
-import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
+import { bareName, ixKeys, nsId, sizeEventOf } from './namespace.js';
 import { REACH_GUARD_DROP16 } from '../../../engine/bedrock-collider-scale.js';
 
 /** Where the device rounds' packs are kept. */
@@ -96,14 +96,14 @@ const inside = (p: Vec3, b: Box): boolean => p.x > b.x0 && p.x < b.x1 && p.y > b
 
 /**
  * Spawn a scripted vehicle on the flat world at `at` facing `yaw` (Bedrock: 0 faces +Z), sized by its own
- * `craftmatic:size_<pct>` event, and seat the child on it (the course's `board`, with the device's facing).
+ * `<ns>:size_<pct>` event, and seat the child on it (the course's `board`, with the device's facing).
  */
 async function boardAt(ctx: StepContext, typeId: string, at: { x: number; z: number }, yaw: number, pct: number): Promise<SimEntity> {
   ctx.quiet(['player-not-in-solid', 'nothing-below-ground']);
   const v = ctx.sim.engine.spawnEntity(typeId, 'overworld', { x: at.x, y: FLAT_GROUND_Y, z: at.z });
   v.rotation = { x: 0, y: yaw };
   await ctx.run(2);
-  if (pct !== 100) v.triggerEvent(`craftmatic:size_${pct}`);
+  if (pct !== 100) v.triggerEvent(sizeEventOf(v.typeId, pct));
   const r = v.addRider(ctx.player, ctx.sim.engine.tick);
   if (!r.ok) throw new Error(`could not seat the child on ${typeId}: ${r.why}`);
   ctx.player.rotation = { x: 0, y: yaw };
@@ -586,7 +586,7 @@ function milanoMountReachCase(pct: 200 | 400): RegressionCase {
         const v = ctx.sim.engine.spawnEntity(f.typeId, 'overworld', { x: 60.5, y: FLAT_GROUND_Y, z: -1500.5 });
         v.rotation = { x: 0, y: 0 };
         await ctx.run(2);
-        v.triggerEvent(`craftmatic:size_${pct}`);
+        v.triggerEvent(sizeEventOf(v.typeId, pct));
         // The child comes within sight of the parked ship (it loads and its runtime ticks only near a player).
         teleport(ctx.sim.host, ctx.player, { x: v.location.x, y: FLAT_GROUND_Y, z: v.location.z - 10 * pct / 100 });
         await ctx.run(40);
@@ -623,7 +623,7 @@ function milanoMountReachCase(pct: 200 | 400): RegressionCase {
           tap(ctx.sim.engine, ctx.player);
           await ctx.run(8);
           const tapped = ctx.player.ridingOn === v;
-          tries.push({ at: label, rootDistance: r2(Math.hypot(feet.x - root.x, feet.z - root.z)), picked: target ? (target === v ? 'ship' : target.typeId.replace(/^craftmatic:/, '')) : 'nothing', hold, ...(res?.refused ? { holdRefused: res.refused } : {}), tap: tapped });
+          tries.push({ at: label, rootDistance: r2(Math.hypot(feet.x - root.x, feet.z - root.z)), picked: target ? (target === v ? 'ship' : bareName(target.typeId)) : 'nothing', hold, ...(res?.refused ? { holdRefused: res.refused } : {}), tap: tapped });
         };
         await stand('nose', { x: root.x, y: FLAT_GROUND_Y, z: root.z + drawnNose + 0.6 });
         await stand('wingtip', { x: root.x + drawnWing + 0.6, y: FLAT_GROUND_Y, z: wingZ });
@@ -671,14 +671,14 @@ const door3FigureInside: RegressionCase = {
   id: 'door3-figure-inside-76417-30r', title: '76417 Door 3 (30r): with a figure 0.4 block inside the hinge line the close is refused "no floor to step onto", though both sides have floor (IX-01)',
   evidence: '`output/device-round-2026-10-12r/pixel/notes.md` item 3 (trials 3x-1..3x-5, `3x-2-closed.jpg`, `3x-4-strip.jpg`, `3x-56-strip.jpg`; tool `tools/ix01.sh`): pin 16200,-60,5200, the player at 16212.4,-42.9,5214.0 taps the open leaf; a figure `/tp` to 16211.85,-42.9,5211.0 closes, to 16211.85,-42.9,5210.6 refuses',
   oldPack: `${PACKS_30R}/76417-gringotts-wizarding-bank-collectors-edition.mcaddon`, newStem: '76417-gringotts-wizarding-bank-collectors-edition', expectNew: 'pass',
-  scenario: () => ({
+  scenario: pack => ({
     name: 'door3-figure-inside-76417-30r', allowLines: allow, invariants: ['nothing-below-ground', 'actionbar-not-stolen'],
     steps: [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'expect', label: 'close Door 3 on a figure in the doorway', check: async (ctx: StepContext) => {
       const a = placedOf(ctx).corner, p = ctx.player;
       const ents = (): SimEntity[] => [...ctx.sim.engine.entities.values()].filter(e => e.valid);
       const part = ents().find(e => /_door_3$/.test(e.typeId)), other = ents().find(e => /_door_2$/.test(e.typeId));
       if (!part || !other) return 'no Door 2 / Door 3 entity';
-      const isOpen = (): boolean => part.dynamic.get(IX_KEYS.open) === true;
+      const isOpen = (): boolean => part.dynamic.get(ixKeys(pack.namespace).open) === true;
       // `ix01.sh`: the player `/tp` to 16212.4,-42.9,5214.0 facing 16211.8,-43.2,5211; the figure `/tp` to y -42.9.
       const feet = { x: a.x + 12.4, y: a.y + 17.1, z: a.z + 14.0 }, facing = { x: a.x + 11.8, y: a.y + 16.8, z: a.z + 11 };
       // The device's refusal named "door 2": its tap reached Door 2's leaf (the pair moves together). The tap acts on what
@@ -690,7 +690,7 @@ const door3FigureInside: RegressionCase = {
         lookAt(p, facing);
         const picked = pick(ctx.sim.engine, p).entity;
         hit = picked === part || picked === other ? picked : other;
-        hit.dynamic.delete('craftmatic:ix_refused');
+        hit.dynamic.delete(nsId(pack.namespace, 'ix_refused'));
         ctx.sim.engine.emit('entityHitEntity', { damagingEntity: p, hitEntity: hit });
         await ctx.run(6);
       };
@@ -704,13 +704,13 @@ const door3FigureInside: RegressionCase = {
       ];
       for (const [pose, fig, x, y, z] of poses) {
         if (!isOpen()) await tapLeaf();
-        if (!isOpen()) { ctx.note(`Door 3 (${pose}): could not open it (refusal ${String(hit.dynamic.get('craftmatic:ix_refused') ?? '-')})`); continue; }
+        if (!isOpen()) { ctx.note(`Door 3 (${pose}): could not open it (refusal ${String(hit.dynamic.get(nsId(pack.namespace, 'ix_refused')) ?? '-')})`); continue; }
         const figure = ents().find(e => new RegExp(`_${fig}$`).test(e.typeId));
         if (!figure) { ctx.note(`Door 3 (${pose}): no ${fig}`); continue; }
         const at = { x: a.x + x, y: a.y + y, z: a.z + z };
         teleport(ctx.sim.host, figure, at);
         await tapLeaf();
-        const trial: FigureCloseTrial = { pose, figure: fig, at: rel(at, a), closed: !isOpen(), refusal: String(hit.dynamic.get('craftmatic:ix_refused') ?? '-'), end: figure.valid ? rel(figure.location, a) : null };
+        const trial: FigureCloseTrial = { pose, figure: fig, at: rel(at, a), closed: !isOpen(), refusal: String(hit.dynamic.get(nsId(pack.namespace, 'ix_refused')) ?? '-'), end: figure.valid ? rel(figure.location, a) : null };
         trials.push(trial);
         ctx.note(`Door 3 closed on ${fig} at ${JSON.stringify(trial.at)} (${pose}, the tap on ${hit === part ? 'Door 3' : 'Door 2'}): ${trial.closed ? 'CLOSED' : 'NOT closed'}; figure -> ${JSON.stringify(trial.end)}; refusal ${trial.refusal}`);
       }

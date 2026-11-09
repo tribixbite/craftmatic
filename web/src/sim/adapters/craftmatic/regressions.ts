@@ -20,7 +20,7 @@ import { teleport } from '../../script-host/facades.js';
 import { lookAt, tap } from '../../input/touch.js';
 import { PIXEL_VIEWPORT, tapScreen } from '../../input/screen.js';
 import { swipeMount } from './input-probe.js';
-import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
+import { ixKeys, nsId, packFamily } from './namespace.js';
 import { REACH_GUARD_DROP16 } from '../../../engine/bedrock-collider-scale.js';
 import type { Vec3 } from '../../core/vec.js';
 
@@ -382,12 +382,12 @@ export const REGRESSIONS: RegressionCase[] = [
     id: 'coaster-car-tap-10261-30s', title: '10261 (30s): a TAP on a parked coaster car boards nothing - only a held press or the Ride button mounts (COAST-02 "tap to mount")',
     evidence: 'Pixel round 30s (`output/device-round-2026-10-14s/pixel/`, shots 37-*, 42-*, 47-*): a tap at screen centre on the car standing in the station boarded 0 of 3; a hold boarded 2 of 2 (44-*, 48-*) and the Ride button 1 of 1 (38-*); the coaster runtime had no `entityHitEntity` handler, while a tap on touch is a HIT (quirk `tap-is-hit`)',
     oldPack: `${ROUND}/device-round-2026-10-14s/packs-4f093bde/10261-roller-coaster.mcaddon`, newStem: '10261-roller-coaster', expectNew: 'pass',
-    scenario: () => ({
+    scenario: pack => ({
       name: 'coaster-car-tap-10261-30s', allowLines: allow, steps: [...place,
         { kind: 'expect', label: 'tap-boards-car', check: async ctx => {
           const p = ctx.player;
           // Every ride car carries the coaster family and a seat; the lift platform and counterweight have no seat.
-          const cars = [...ctx.sim.engine.entities.values()].filter(e => e.valid && !e.isPlayer && e.families().includes('craftmatic_coaster') && e.rideable());
+          const cars = [...ctx.sim.engine.entities.values()].filter(e => e.valid && !e.isPlayer && e.families().includes(packFamily(pack.namespace, 'coaster')) && e.rideable());
           if (!cars.length) return 'no coaster car';
           const car = cars.find(e => !e.riderList().some(r => r.isPlayer)) ?? cars[0]!;
           // The hit is handed to the car as the device's tap delivers it; the player stays where the placement left
@@ -505,7 +505,7 @@ export const REGRESSIONS: RegressionCase[] = [
     // The new pack must either refuse to close (nowhere safe to step out to) or step the player onto a FLOOR.
     // Both device poses overlap static colliders in every pack (the tap spot the f5 wall at 10,17,4, the doorway spot
     // the full cell at 11,17,3): the device let a `/tp` stand there, so player-in-solid is not run for this case.
-    scenario: () => ({
+    scenario: pack => ({
       name: 'gate1-throwout-76417', allowLines: allow, invariants: ['no-unprotected-fall', 'nothing-below-ground', 'actionbar-not-stolen'], steps: [...place,
         { kind: 'tapPartFrom', label: 'Gate 1', feet: { x: 10.5, y: 17.5, z: 4.5 }, at: { x: 10.84, y: 18.4, z: 2.17 } },
         { kind: 'expect', label: 'tap-close-in-doorway', check: async ctx => {
@@ -513,7 +513,7 @@ export const REGRESSIONS: RegressionCase[] = [
           const part = [...ctx.sim.engine.entities.values()].find(e => e.valid && /_gate_1$/.test(e.typeId));
           if (!part) return 'no Gate 1 entity';
           const rel = (v: Vec3): Vec3 => ({ x: r3(v.x - a.x), y: r3(v.y - a.y), z: r3(v.z - a.z) });
-          const isOpen = (): boolean => part.dynamic.get(IX_KEYS.open) === true;
+          const isOpen = (): boolean => part.dynamic.get(ixKeys(pack.namespace).open) === true;
           const rows: GateThrowout[] = [];
           // The device's coordinates are float32: 7511.70 / 7153.30 are 7511.7002 / 7153.2998, so the body's +x face
           // touches the wall at x 12 and its -z face reaches 0.0002 into the doorway's z 2..3 cells (which is what
@@ -541,7 +541,7 @@ export const REGRESSIONS: RegressionCase[] = [
             // `touch-screen-pick`), so it is the screen centre's pick - not a hit the case hands to the part.
             const tapped = tapScreen(ctx.sim.engine, p, { x: 45, y: 39 }, PIXEL_VIEWPORT, ctx.sim.host.playerState(p).camera);
             await ctx.run(80);
-            const row: GateThrowout = { pose: name, before: rel(before), end: rel(p.location), wasOpen: true, nowOpen: isOpen(), refusal: String(part.dynamic.get('craftmatic:ix_refused') ?? '-'), picked: tapped.entity?.typeId ?? tapped.blockedBy ?? 'nothing' };
+            const row: GateThrowout = { pose: name, before: rel(before), end: rel(p.location), wasOpen: true, nowOpen: isOpen(), refusal: String(part.dynamic.get(nsId(pack.namespace, 'ix_refused')) ?? '-'), picked: tapped.entity?.typeId ?? tapped.blockedBy ?? 'nothing' };
             rows.push(row);
             ctx.note(`Gate 1 tapped from inside the doorway (${name}; the screen tap at (45, 39) picked ${row.picked}): open -> ${row.nowOpen ? 'open' : 'closed'}; player ${JSON.stringify(row.before)} -> ${JSON.stringify(row.end)} (anchor-relative); refusal ${row.refusal}`);
             await ctx.run(6);

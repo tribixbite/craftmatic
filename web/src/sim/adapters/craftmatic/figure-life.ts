@@ -19,6 +19,7 @@
  * 0.4-block/tick drop.)
  */
 
+import { DEV_NAMESPACE, nsId, packFamily } from './namespace.js';
 import type { SourceCell } from '../../../engine/bedrock-collider-scale.js';
 import { FIGURE_HOME_PROPERTY, FIGURE_SEATING_PROPERTY, figureLifeScript, type FigureHome, type FigureLifeConfig } from '../../../engine/bedrock-figure-life.js';
 import { COLLIDER_KIT } from '../../../engine/collider-form.js';
@@ -71,12 +72,14 @@ export interface SimWorld {
 
 export interface SimSample { x: number; y: number; z: number; riding: boolean }
 
-const COLLIDER = { block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi' };
-const FIGURE_FAMILY = 'craftmatic_figure';
-const INTERACTIVE_FAMILY = 'craftmatic_interactive';
-const LEAF_TYPE = 'craftmatic:leaf';
+// This harness runs the ENGINE's figure runtime as it emits it, so its world is written in the dev namespace by design
+// (it reads no pack): every name below is the dev namespace's.
+const COLLIDER = { block: nsId(DEV_NAMESPACE, 'collider'), loState: nsId(DEV_NAMESPACE, 'lo'), hiState: nsId(DEV_NAMESPACE, 'hi') };
+const FIGURE_FAMILY = packFamily(DEV_NAMESPACE, 'figure');
+const INTERACTIVE_FAMILY = packFamily(DEV_NAMESPACE, 'interactive');
+const LEAF_TYPE = nsId(DEV_NAMESPACE, 'leaf');
 /** The draft mark the Minifig Creator wand sets on a figure it is dressing (an actor property). */
-const DRAFT_PROPERTY = 'craftmatic:draft';
+const DRAFT_PROPERTY = nsId(DEV_NAMESPACE, 'draft');
 /** How far past the placement box the world stays loaded (a figure pushed out walks back through it). */
 const LOAD_MARGIN = 48;
 
@@ -101,7 +104,7 @@ export function simulateFigureLife(world: SimWorld, config: Omit<FigureLifeConfi
   }
   for (const t of seatTypes) {
     files[entityFilePath(t)] = entityDefinition(t, {
-      components: { 'minecraft:type_family': { family: ['craftmatic_seat'] }, 'minecraft:collision_box': { width: 0.5, height: 0.5 }, 'minecraft:rideable': { seat_count: 1, seats: [{ position: [0, 0, 0] }] } },
+      components: { 'minecraft:type_family': { family: [packFamily(DEV_NAMESPACE, 'seat')] }, 'minecraft:collision_box': { width: 0.5, height: 0.5 }, 'minecraft:rideable': { seat_count: 1, seats: [{ position: [0, 0, 0] }] } },
     });
   }
   files[entityFilePath(LEAF_TYPE)] = entityDefinition(LEAF_TYPE, { components: { 'minecraft:type_family': { family: [INTERACTIVE_FAMILY] } } });

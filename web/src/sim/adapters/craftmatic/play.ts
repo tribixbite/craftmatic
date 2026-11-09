@@ -30,7 +30,7 @@ import type { SimEntity } from '../../entity/entity.js';
 import { teleport } from '../../script-host/facades.js';
 import { approachSpots, findApproach, floorBelow, standsAt, type ApproachSpot } from '../../scenario/approach.js';
 import { lookAt, pick } from '../../input/touch.js';
-import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
+import { ixKeys, nsId } from './namespace.js';
 import { JUMP_PEAK, STEP_HEIGHT } from '../../physics/body.js';
 import { LINE_MIN_OUT, LINE_OUT, doorwayGeometry, jumpHelps } from '../../../engine/interactive-walk.js';
 import type { AddonAppearance } from './appearance.js';
@@ -55,7 +55,7 @@ export function placedOf(ctx: StepContext): Placed {
 
 /** The ride seat of ride `index` (its idle seat carries the index). */
 const rideSeat = (ctx: StepContext, pack: CraftmaticPack, index: number): SimEntity | undefined =>
-  findEntity(ctx.sim, ctx.player, { type: pack.rides?.seatType ?? '-', where: e => e.dynamic.get('craftmatic:ride') === index });
+  findEntity(ctx.sim, ctx.player, { type: pack.rides?.seatType ?? '-', where: e => e.dynamic.get(nsId(pack.namespace, 'ride')) === index });
 
 /**
  * How far a point sits over the surface the model DRAWS under it: the point's
@@ -144,6 +144,7 @@ export function driverLookFrom(cam: { scripted?: boolean; eye?: [number, number,
 
 /** The ride steps, the vehicle, mount, doorway and figure steps for one pack. */
 export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Record<string, StepHandler> {
+  const IX = ixKeys(pack.namespace);
   return {
     /** Ride a slide: `{ index, board: 'tap' | 'hold' }`. */
     async rideSlide(step: AnyStep, ctx: StepContext) {
@@ -215,7 +216,7 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       const bad = rows.filter(r => !r.ok);
       for (const r of bad) ctx.violate({ invariant: 'seat-on-vehicle', message: describeSeatRow(r), evidence: { type: r.typeId, pct: r.pct, declared: pt(r.declared), seat: pt(r.seat), eye: pt(r.eye), verdict: r.place.verdict } });
       const types = new Set(rows.map(r => r.typeId)).size;
-      ctx.note(`seats at every size: ${rows.length} seat-size rows over ${types} drawn rideable(s), ${bad.length} off the vehicle${skipped.length ? `; not judged: ${skipped.map(s => `${s.typeId} (${s.why})`).join(', ')}` : ''}`);
+      ctx.note(`seats at every size: ${rows.length} seat-size rows over ${types} drawn rideable(s), ${bad.length} off the vehicle${skipped.length ? `; not judged: ${[...skipped].sort((x, y) => (x.typeId < y.typeId ? -1 : x.typeId > y.typeId ? 1 : 0)).map(s => `${s.typeId} (${s.why})`).join(', ')}` : ''}`);
       // The collision box the device realises (declared x scale, quirk `collision-box-scales-with-entity`) must
       // be the 100 % box scaled once at every step (COL-03; Saga 30l: 76286 at 200 % had 14 x 10 for 7 x 5).
       const boxes = collisionScaleAudit(pack.pack), twice = boxes.filter(r => !r.ok);
@@ -309,12 +310,14 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       const w = ctx.sim.engine.dimension(v.dimension), base = Math.floor(v.location.y + 1e-6);
       const yaw = v.rotation.y * Math.PI / 180, fx = -Math.sin(yaw), fz = Math.cos(yaw), ahead = Number(step['ahead'] ?? 6);
       const lo = Number(step['lo'] ?? 4), hi = Number(step['hi'] ?? 16), rise = Number(step['rise'] ?? 1);
-      const block = ctx.sim.host.resolvePermutation(pack.placement.colliders?.block ?? 'craftmatic:collider', { [pack.placement.colliders?.loState ?? 'craftmatic:lo']: lo, [pack.placement.colliders?.hiState ?? 'craftmatic:hi']: hi });
+      // The pack's own collider block and its state names (`<ns>:collider`, `<ns>:lo`, `<ns>:hi`).
+      const colliders = { block: pack.placement.colliders?.block ?? nsId(pack.namespace, 'collider'), loState: pack.placement.colliders?.loState ?? nsId(pack.namespace, 'lo'), hiState: pack.placement.colliders?.hiState ?? nsId(pack.namespace, 'hi') };
+      const block = ctx.sim.host.resolvePermutation(colliders.block, { [colliders.loState]: lo, [colliders.hiState]: hi });
       for (let d = 0; d < 5; d++) for (let side = -3; side <= 3; side++) {
         const x = Math.floor(v.location.x + fx * (ahead + d) - fz * side), z = Math.floor(v.location.z + fz * (ahead + d) + fx * side);
         w.setPermutation(x, base + rise, z, block);
       }
-      ctx.note(`fixture overhang: ${pack.placement.colliders?.block ?? 'craftmatic:collider'}[${lo},${hi}] at y ${base + rise}, ${ahead}-${ahead + 4} blocks ahead of ${type} at ${JSON.stringify(pt(v.location))}`);
+      ctx.note(`fixture overhang: ${colliders.block}[${lo},${hi}] at y ${base + rise}, ${ahead}-${ahead + 4} blocks ahead of ${type} at ${JSON.stringify(pt(v.location))}`);
       let lowest = v.location.y;
       for (let t = 0; t < Number(step['ticks'] ?? 120) && ctx.player.ridingOn === v; t++) {
         ctx.player.rotation.y = v.rotation.y;
@@ -405,15 +408,15 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
         const it = ix.items[i]!;
         if (only && !only.includes(i)) continue;
         if (it.passSize === undefined || !it.leaf || !it.passSize || placed.sizePct < it.passSize) continue;
-        const leafEntity = findEntity(ctx.sim, ctx.player, { where: e => e.dynamic.get(IX_KEYS.index) === i });
+        const leafEntity = findEntity(ctx.sim, ctx.player, { where: e => e.dynamic.get(IX.index) === i });
         if (!leafEntity) { ctx.note(`${it.label}: no entity`); continue; }
-        if (leafEntity.dynamic.get(IX_KEYS.open) !== true) await tapPart(ctx, leafEntity, it.label, () => leafEntity.dynamic.get(IX_KEYS.open) === true, pack);
-        if (leafEntity.dynamic.get(IX_KEYS.open) !== true) { ctx.note(`${it.label}: no tap from any spot within reach opened it; its lines are not walked`); continue; }
+        if (leafEntity.dynamic.get(IX.open) !== true) await tapPart(ctx, leafEntity, it.label, () => leafEntity.dynamic.get(IX.open) === true, pack);
+        if (leafEntity.dynamic.get(IX.open) !== true) { ctx.note(`${it.label}: no tap from any spot within reach opened it; its lines are not walked`); continue; }
         // A double door's other leaf must be open too (the pair moves together, but a leaf tapped on its own can leave it shut).
         for (const j of it.pairs ?? []) {
-          const other = findEntity(ctx.sim, ctx.player, { where: e => e.dynamic.get(IX_KEYS.index) === j });
-          if (other && other.dynamic.get(IX_KEYS.open) !== true) await tapPart(ctx, other, ix.items[j]?.label ?? `part ${j}`, () => other.dynamic.get(IX_KEYS.open) === true, pack);
-          if (other && other.dynamic.get(IX_KEYS.open) !== true) ctx.note(`${it.label}: its pair ${ix.items[j]?.label ?? j} stays shut`);
+          const other = findEntity(ctx.sim, ctx.player, { where: e => e.dynamic.get(IX.index) === j });
+          if (other && other.dynamic.get(IX.open) !== true) await tapPart(ctx, other, ix.items[j]?.label ?? `part ${j}`, () => other.dynamic.get(IX.open) === true, pack);
+          if (other && other.dynamic.get(IX.open) !== true) ctx.note(`${it.label}: its pair ${ix.items[j]?.label ?? j} stays shut`);
         }
         // The harness's doorway (`doorwayGeometry`): the columns of the leaf's closed blocks at this size and turn,
         // the doorway's floor the lowest closed bottom, the walk's normal. Until 2026-09-30 the lines read the leaf's
@@ -456,7 +459,7 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       const placed = placedOf(ctx), label = String(step['label']);
       const feet = step['feet'] as Vec3, at = step['at'] as Vec3;
       const index = pack.interactives?.items.findIndex(it => it.label === label) ?? -1;
-      const part = findEntity(ctx.sim, ctx.player, { where: e => e.dynamic.get(IX_KEYS.index) === index });
+      const part = findEntity(ctx.sim, ctx.player, { where: e => e.dynamic.get(IX.index) === index });
       if (!part) throw new Error(`tapPartFrom: no ${label}`);
       const a = placed.corner;
       const recorded = { x: a.x + feet.x, y: a.y + feet.y, z: a.z + feet.z };
@@ -466,7 +469,7 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
         : [...(legalExact ? [recorded] : []), ...floorLevelInRecordedCell(approachSpots(ctx.sim.engine, ctx.player, part), recorded).map(s => s.feet)];
       const replayIllegal = !poses.length;
       if (replayIllegal) poses.push(recorded);
-      const state = (): string => JSON.stringify([part.dynamic.get(IX_KEYS.open), part.properties.get('craftmatic:angle')]);
+      const state = (): string => JSON.stringify([part.dynamic.get(IX.open), part.properties.get(nsId(pack.namespace, 'angle'))]);
       const failures: string[] = [];
       let moved = 0;
       for (const pose of poses) {
@@ -478,7 +481,7 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
         if (picked.entity) ctx.sim.engine.emit('entityHitEntity', { damagingEntity: ctx.player, hitEntity: picked.entity });
         await ctx.run(10);
         if (state() !== before) { moved++; continue; }
-        const refused = part.dynamic.get('craftmatic:ix_refused');
+        const refused = part.dynamic.get(nsId(pack.namespace, 'ix_refused'));
         const what = picked.entity === part ? (refused ? `the runtime refused it: ${String(refused)}` : 'it did not move') : `the view picked ${picked.entity?.typeId ?? picked.blockedBy ?? 'nothing'}`;
         failures.push(`from ${JSON.stringify(rel(ctx.player.location))} - ${what}`);
       }
@@ -644,7 +647,7 @@ export function staticDrawn(ctx: StepContext, appearance: AddonAppearance, pack:
   const out: DrawnBox[] = [];
   for (const e of ctx.sim.engine.entities.values()) {
     if (!e.valid || e.isPlayer || FIGURE_TYPE.test(e.typeId)) continue;
-    const ix = e.dynamic.get(IX_KEYS.index);
+    const ix = e.dynamic.get(ixKeys(pack.namespace).index);
     if (typeof ix === 'number' && (pack.interactives?.items[ix]?.blocking.length ?? 0) > 0) continue;
     const d = entityDrawn(appearance, e);
     if (d) out.push(...d);
@@ -665,20 +668,20 @@ export function staticDrawn(ctx: StepContext, appearance: AddonAppearance, pack:
  * around a diagonal leaf (76417's Door 3 turned 90, once its yaw-turned walls stopped laying their bounding
  * boxes) all four spots stood in it.
  */
-export async function tapPart(ctx: StepContext, part: SimEntity, label: string, changed: () => boolean, pack?: CraftmaticPack): Promise<boolean> {
+export async function tapPart(ctx: StepContext, part: SimEntity, label: string, changed: () => boolean, pack: CraftmaticPack): Promise<boolean> {
   const tried: Vec3[] = [], log: string[] = [];
   await nearEnoughToLoad(ctx, part, label);
   for (let attempt = 0; attempt < 4; attempt++) {
     // After a refusal the child steps IN FRONT of the part (where nothing solid hides it), as the refusal tells it to,
     // and out of the doorway when that is what the refusal says.
-    const refused = String(part.dynamic.get('craftmatic:ix_refused') ?? '');
+    const refused = String(part.dynamic.get(nsId(pack.namespace, 'ix_refused')) ?? '');
     const notWhere = pack && /step out to close it/.test(refused) ? inDoorway(ctx, pack, part) : undefined;
     const spot = attempt === 0 ? undefined : findApproach(ctx.sim.engine, ctx.player, part, undefined, tried, { inFront: true, ...(notWhere ? { notWhere } : {}) });
     if (attempt > 0) { if (!spot) break; teleport(ctx.sim.host, ctx.player, spot.feet); await ctx.run(1); }
     // The pick is judged after the pack had its say (`expectHit: false`): a tap that lands on a FIGURE in front of the
     // part is forwarded to the part by the runtime (interactives `use`), and one on a double door's other leaf moves
     // both. A pick of anything else that leaves the part as it was is the wrong-pick failure, as before.
-    const refusedBefore = String(part.dynamic.get('craftmatic:ix_refused') ?? '');
+    const refusedBefore = String(part.dynamic.get(nsId(pack.namespace, 'ix_refused')) ?? '');
     await CORE_HANDLERS['tap']!({ kind: 'tap', target: { where: (e: SimEntity) => e === part, label }, expectHit: false }, ctx);
     tried.push({ ...ctx.player.location });
     const picked = (ctx.state['lastTap'] as { entity?: SimEntity; blockedBy?: string; distance?: number } | undefined);
@@ -691,9 +694,9 @@ export async function tapPart(ctx: StepContext, part: SimEntity, label: string, 
       // A NEW refusal on the part (its "<tick> <text>" changed) means the forwarded tap reached it and the part said why
       // it did not move (the child standing on the leaf): the pick was right, the refusal is the next attempt's to solve.
       // (2ecb8240 sweep: 76417's figure 6 resting on Door 3 with the child's eye inside its box, distance 0.)
-      const reached = String(part.dynamic.get('craftmatic:ix_refused') ?? '') !== refusedBefore;
+      const reached = String(part.dynamic.get(nsId(pack.namespace, 'ix_refused')) ?? '') !== refusedBefore;
       if (moved && picked?.entity) ctx.note(`tap on ${label} picked ${what}; the pack passed it on to ${label} (${FIGURE_TYPE.test(picked.entity.typeId) ? 'a figure in front of it, forwarded' : 'a part that moves with it: the other leaf of a double door'})`);
-      else if (reached && picked?.entity) ctx.note(`tap on ${label} picked ${what}; passed on to ${label}, which refused: ${String(part.dynamic.get('craftmatic:ix_refused'))}`);
+      else if (reached && picked?.entity) ctx.note(`tap on ${label} picked ${what}; passed on to ${label}, which refused: ${String(part.dynamic.get(nsId(pack.namespace, 'ix_refused')))}`);
       else ctx.violate({ invariant: 'tap-target-reachable', message: `tap on ${label} picked ${what}`, evidence: { target: part.typeId, targetAt: part.location, eye, distance: picked?.distance } });
     }
     if (moved) return true;
@@ -749,7 +752,7 @@ async function nearEnoughToLoad(ctx: StepContext, part: SimEntity, label: string
  * placed size and turn; undefined for a part that is no doorway.
  */
 function inDoorway(ctx: StepContext, pack: CraftmaticPack, part: SimEntity): ((feet: Vec3) => boolean) | undefined {
-  const ix = pack.interactives, index = Number(part.dynamic.get(IX_KEYS.index));
+  const ix = pack.interactives, index = Number(part.dynamic.get(ixKeys(pack.namespace).index));
   const it = ix?.items[index];
   if (!ix || !it?.leaf || !it.blocking.length) return undefined;
   const placed = placedOf(ctx), f = placed.sizePct / 100, a = placed.anchor;

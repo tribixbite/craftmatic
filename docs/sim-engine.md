@@ -639,6 +639,26 @@ and never fails: it is a trend detector, not a measurement. Not counted:
 calls made through an entity's own facade other than `teleport` (`Block`
 writes, `Player.runCommand`): `TODO(sim-cost)`.
 
+## The pack's namespace (M14, BIZ-22; `adapters/craftmatic/namespace.ts`)
+
+A dev pack writes every id `craftmatic:` (entities, blocks, dynamic-property keys, properties, events) and every
+`minecraft:type_family` `craftmatic_<role>`; X-03's rewriter (`marketplace/rewrite.ts`) renames them to
+`<creator>_<pack>`. The adapter therefore never spells the literal. `readCraftmaticPack` reads the namespace off the
+placement's wand item (`CraftmaticPack.namespace`) and every name is built from it: `nsId(ns, 'ix_refused')`,
+`packFamily(ns, 'coaster')`, `ixKeys(ns)` (the engine's `IX_KEYS` under `ns`), `retarget(ns, HOP_TAGS.rank)` for an
+engine constant written in the dev namespace. A name that belongs to an ENTITY (its size event, its `fl_pitch`
+property) takes the namespace of that entity's own identifier (`sizeEventOf`, `entityKey`). Content a rewritten pack
+moves into `<type>/<creator>/<pack>/` folders is found by the appearance readers (`APPEARANCE_FILE_PATTERN`), and a
+swatch colour is read from `..._swatch_<n>` whatever its prefix.
+
+Two harnesses build a dev-namespace world on purpose, because they run the engine's own runtime and read no pack
+(`figure-life.ts`, `coaster.ts`); they name it through `DEV_NAMESPACE`. The contract is
+`test/sim-namespace.test.ts`: a pack and its rewritten twin give the same scenarios, ticks, steps, notes and
+violations (nimbus fixture, batcave fixture where the Studio library exists, and the first two packs of
+`output/x02-compare/main`). The same holds for `--scenario=vehicles`, `input` and `regressions` (measured 2026-11-09 on
+the nimbus and batcave fixtures and the 10788, 42172, 60380 and 910004 packs; regressions on the four packs whose
+current-tree twin was available, 11 cases run, 0 differences).
+
 ## Calibrating from a device round
 
 A round's telemetry comes back into the engine three ways:

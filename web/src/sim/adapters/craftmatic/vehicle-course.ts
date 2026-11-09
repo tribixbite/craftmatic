@@ -60,6 +60,7 @@
  * hover controller is a stand-in for the device's, whose stepping is not modelled.
  */
 
+import { entityKey, sizeEventOf } from './namespace.js';
 import type { AnyStep, Scenario, StepContext, StepHandler } from '../../scenario/types.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { vehicleCameraEntry, type CraftmaticPack } from './pack-facts.js';
@@ -227,7 +228,7 @@ function bandOverlaps(v: SimEntity, f: ScriptedTypeFacts, lo: number, hi: number
   // The band tilts with the vehicle's nose-up pitch about its LOW end, as the runtime's sweep does
   // (`sweepFootprint`): a car climbing a slope carries its front band up the slope.
   // (A car's and a hover craft's band is swept LEVEL since 2026-09-30: only a ship's or a boat's tilts.)
-  const pitch = f.mode === 'plane' || f.mode === 'boat' ? Number(v.properties.get('craftmatic:fl_pitch') ?? 0) || 0 : 0;
+  const pitch = f.mode === 'plane' || f.mode === 'boat' ? Number(v.properties.get(entityKey(v.typeId, 'fl_pitch')) ?? 0) || 0 : 0;
   const tilt = Math.tan(Math.max(-60, Math.min(60, pitch)) * Math.PI / 180);
   if (v.location.y + hi + Math.max(0, f.noseReach * Math.abs(tilt)) <= cy + 1e-3 || v.location.y + lo >= cy + 1 - 1e-3) return false;
   const r = v.rotation.y * Math.PI / 180, fx = -Math.sin(r), fz = Math.cos(r), rx = -Math.cos(r), rz = -Math.sin(r);
@@ -325,7 +326,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
   return {
     /**
      * Get off on the ground at every wand size (SEAT-05): the vehicle spawned on the flat world, sized by its
-     * own `craftmatic:size_<pct>` event, the child seated, then the device's SNEAK (the engine's set-down about
+     * own `<ns>:size_<pct>` event, the child seated, then the device's SNEAK (the engine's set-down about
      * the seat, quirk `dismount-near-seat`) and whatever the pack's runtime does after it. The child must end on
      * the ground (the core `no-unprotected-fall` judges the fall: Pixel 30l dropped ~9 blocks off the 200 %
      * Milano) and outside the hull (`dismount-in-hull`: within its footprint under its top): `{ type, sizes? }`.
@@ -338,7 +339,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
       for (const [i, pct] of sizes.entries()) {
         const at = { x: 400.5 + i * 200, z: -600.5 };
         const v = await board(ctx, f, at);
-        v.triggerEvent(`craftmatic:size_${pct}`);
+        v.triggerEvent(sizeEventOf(v.typeId, pct));
         v.placeRiders();
         await ctx.run(4);
         const k = v.scale(), seatedY = r2(ctx.player.location.y - FLAT_GROUND_Y);
@@ -403,7 +404,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
           if (Math.hypot(v.location.x - last.x, v.location.z - last.z) < 0.01) stuck++;
           rose = Math.max(rose, v.location.y - FLAT_GROUND_Y);
           const hit = cells.find(c => bandOverlaps(v, f, band.lo, band.hi, c));
-          if (hit) { clip++; firstClip ??= { t, x: r2(v.location.x - sx), y: r2(v.location.y - FLAT_GROUND_Y), pitch: r2(Number(v.properties.get('craftmatic:fl_pitch') ?? 0)), cell: [hit[0] - sx, hit[1] - FLAT_GROUND_Y, hit[2] - z0] }; }
+          if (hit) { clip++; firstClip ??= { t, x: r2(v.location.x - sx), y: r2(v.location.y - FLAT_GROUND_Y), pitch: r2(Number(v.properties.get(entityKey(v.typeId, 'fl_pitch')) ?? 0)), cell: [hit[0] - sx, hit[1] - FLAT_GROUND_Y, hit[2] - z0] }; }
           last = { ...v.location };
         }
         const passed = v.location.x >= passX;
@@ -484,7 +485,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
           off = Math.max(off, Math.abs(v.location.y - line));
           keel = Math.max(keel, water.bed - (v.location.y));
           const hit = cells.find(c => bandOverlaps(v, f, band.lo, band.hi, c));
-          if (hit) { clip++; firstClip ??= { t, x: r2(v.location.x - sx), y: r2(v.location.y - line), pitch: r2(Number(v.properties.get('craftmatic:fl_pitch') ?? 0)), cell: [hit[0] - sx, hit[1] - FLAT_GROUND_Y, hit[2] - z0] }; }
+          if (hit) { clip++; firstClip ??= { t, x: r2(v.location.x - sx), y: r2(v.location.y - line), pitch: r2(Number(v.properties.get(entityKey(v.typeId, 'fl_pitch')) ?? 0)), cell: [hit[0] - sx, hit[1] - FLAT_GROUND_Y, hit[2] - z0] }; }
           last = { ...v.location };
         }
         const ahead = (v.location.x - start.x) / Math.max(1e-6, Math.cos(skewRad));
@@ -518,7 +519,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
 
     /**
      * Getting off a boat on the water at every wand size (SEAT-05 "water"): the boat afloat in a pool as deep as its
-     * draft at the size needs, sized by its own `craftmatic:size_<pct>` event, the child seated, then the device's
+     * draft at the size needs, sized by its own `<ns>:size_<pct>` event, the child seated, then the device's
      * sneak and whatever the runtime's egress does (`vehicleEgress`: a bank beside the hull, else a swim at the
      * waterline). Twice per size: on OPEN water, and with a bank a block beside the hull's +z side. The child must
      * never end under (or in) the hull (`water-egress-under-hull`); where it ended - on the bank, swimming, aboard -
@@ -538,7 +539,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
         const shoreZ = Math.ceil(at.z + half) + 1;
         if (where === 'bank') bank(ctx, { x0: Math.floor(at.x - reach) - 10, x1: Math.ceil(at.x + reach) + 10, z0: shoreZ, z1: shoreZ + 8 }, water.yTop + 1);
         const v = await board(ctx, f, { ...at, y: water.surface - f.draft });
-        v.triggerEvent(`craftmatic:size_${pct}`);
+        v.triggerEvent(sizeEventOf(v.typeId, pct));
         v.placeRiders();
         await ctx.run(10);
         ctx.quiet([]);
@@ -629,7 +630,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
       // Up again; then the child drags the view 40 degrees down (the camera reads the drag) and presses Jump: down.
       await phase('up_again', 30, { jump: true });
       await phase('look_down', 10, {}, () => { ctx.player.rotation = { x: ctx.player.rotation.x + 4, y: ctx.player.rotation.y }; });
-      out['lookPitch'] = v.dynamic.get('craftmatic:look_pitch') ?? null;
+      out['lookPitch'] = v.dynamic.get(entityKey(v.typeId, 'look_pitch')) ?? null;
       const press = await phase('look_down_jump', 30, { jump: true });
       if (!(press.dy < -1)) fail('look down + Jump', `a Jump pressed while the view looks down should go down, went dy ${press.dy} (view pitch ${String(out['lookPitch'])})`);
       ctx.state['shipControls'] = { ...((ctx.state['shipControls'] as Record<string, unknown> | undefined) ?? {}), [f.typeId]: out };

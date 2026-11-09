@@ -48,11 +48,15 @@ import { placedOf } from './play.js';
 import { animatedPoses, drawnBoxes, drawnReaches } from './drawn.js';
 import { CRAFTMATIC_ALLOWED_LINES, CRAFTMATIC_YIELDING_LINES, type Snapshot } from './child-play.js';
 import { HOP_TAGS } from '../../../engine/bedrock-ride-hop.js';
+import { bareName, packFamily, retarget } from './namespace.js';
 
-/** The family every coaster car carries (`COASTER_FAMILY` of bedrock-coaster.ts; the adapter reads the pack's JSON, not the runtime). */
-export const COASTER_CAR_FAMILY = 'craftmatic_coaster';
-/** The family every scripted vehicle carries. */
-export const SCRIPTED_VEHICLE_FAMILY = 'craftmatic_vehicle';
+/** Whether `e` carries the family `<namespace>_<role>`. */
+const hasRole = (e: SimEntity, ns: string, role: string): boolean => e.families().includes(packFamily(ns, role));
+
+/** The family role every coaster car carries (`COASTER_FAMILY` of bedrock-coaster.ts is `craftmatic_coaster`; the adapter reads the pack's JSON, not the runtime). */
+export const COASTER_CAR_ROLE = 'coaster';
+/** The family role every scripted vehicle carries. */
+export const SCRIPTED_VEHICLE_ROLE = 'vehicle';
 /** The hotbar index of the cockpit view (slot 9). */
 export const COCKPIT_SLOT = 8;
 /** Ticks the cockpit check drives at full stick (the course's `COCKPIT_DRIVE_TICKS`). */
@@ -79,13 +83,17 @@ export interface ClientStepOptions {
 /** A picture a client step took: child-play's `Snapshot` plus what it measured and the camera it was drawn from. */
 export interface ClientShot extends Snapshot { metrics: ClientSnapshotResult['metrics']; camera: { mode: string; eye: Vec3; yaw: number; pitch: number; roll: number } }
 
-/** The craftmatic seat-camera rule for `camera-on-own-seat`: a coaster car, or a scripted vehicle in the cockpit view. */
-export function craftmaticSeatCamera(): NonNullable<ClientInvariantOptions['seatCamera']> {
+/**
+ * The craftmatic seat-camera rule for `camera-on-own-seat`: a coaster car, or a scripted vehicle in the cockpit view.
+ * `namespace` is the pack's (`CraftmaticPack.namespace`); without it the rule reads the role off whatever family the
+ * mount carries (`<anything>_coaster`), for a run that has no single pack (a hop of several).
+ */
+export function craftmaticSeatCamera(namespace?: string): NonNullable<ClientInvariantOptions['seatCamera']> {
   return (player: SimEntity, mount: SimEntity, ctx: InvariantContext) => {
-    const families = mount.families();
-    if (families.includes(COASTER_CAR_FAMILY)) return true;
+    const is = (role: string): boolean => (namespace === undefined ? mount.families().some(f => f.endsWith(`_${role}`)) : hasRole(mount, namespace, role));
+    if (is(COASTER_CAR_ROLE)) return true;
     const client = ClientView.of(ctx.engine);
-    return families.includes(SCRIPTED_VEHICLE_FAMILY) && !!client && client.sim.host.playerState(player).selectedSlot === COCKPIT_SLOT;
+    return is(SCRIPTED_VEHICLE_ROLE) && !!client && client.sim.host.playerState(player).selectedSlot === COCKPIT_SLOT;
   };
 }
 
@@ -94,7 +102,7 @@ const pt = (p: Vec3): Vec3 => ({ x: r2(p.x), y: r2(p.y), z: r2(p.z) });
 
 /** Whether a pack has coaster cars (an entity declaring the coaster family). */
 export function hasCoasterCars(pack: CraftmaticPack): boolean {
-  for (const [path, data] of pack.pack.files) if (path.startsWith('entities/') && new TextDecoder().decode(data).includes(`"${COASTER_CAR_FAMILY}"`)) return true;
+  for (const [path, data] of pack.pack.files) if (path.startsWith('entities/') && new TextDecoder().decode(data).includes(`"${packFamily(pack.namespace, COASTER_CAR_ROLE)}"`)) return true;
   return false;
 }
 
@@ -107,18 +115,19 @@ export function hasCoasterCars(pack: CraftmaticPack): boolean {
  * (COAST-06) is a near miss the point test cannot see. `aheadClear` / `behindClear` split it by the other car's train
  * rank against the rider's own (`HOP_TAGS.rank`, 0 the front car): ahead is a lower rank.
  */
-export function eyeInsideCoasterCars(engine: InvariantContext['engine'] | StepContext['sim']['engine'], view: ClientView, appearance: AddonAppearance, player: SimEntity, reach = 6): { own: boolean; other: boolean; otherClear: number; aheadClear: number; behindClear: number } {
+export function eyeInsideCoasterCars(engine: InvariantContext['engine'] | StepContext['sim']['engine'], view: ClientView, appearance: AddonAppearance, player: SimEntity, namespace: string, reach = 6): { own: boolean; other: boolean; otherClear: number; aheadClear: number; behindClear: number } {
   const eye = view.drawn(player).eye, own = player.ridingOn;
   const around = (r: number) => ({ x0: eye.x - r, y0: eye.y - r, z0: eye.z - r, x1: eye.x + r, y1: eye.y + r, z1: eye.z + r });
   const probe = around(0.01);
   const out = { own: false, other: false, otherClear: Infinity, aheadClear: Infinity, behindClear: Infinity };
+  const rankTag = retarget(namespace, HOP_TAGS.rank);
   const rankOf = (e: SimEntity | undefined): number => {
-    for (const tag of e?.tags ?? []) if (tag.startsWith(HOP_TAGS.rank)) return Number(tag.slice(HOP_TAGS.rank.length));
+    for (const tag of e?.tags ?? []) if (tag.startsWith(rankTag)) return Number(tag.slice(rankTag.length));
     return NaN;
   };
   const ownRank = rankOf(own);
   for (const e of engine.loadedEntities(player.dimension)) {
-    if (e === player || !e.families().includes(COASTER_CAR_FAMILY)) continue;
+    if (e === player || !hasRole(e, namespace, COASTER_CAR_ROLE)) continue;
     const entry = appearance.byType.get(e.typeId);
     if (!entry) continue;
     const p = view.drawnPose(e);
@@ -165,7 +174,7 @@ export function clientSteps(pack: CraftmaticPack, appearance: AddonAppearance, o
     if (m.hatchNear.crossActor > 0) ctx.note(`${shot.name}: ${m.hatchNear.crossActor} cross-actor hatch pixel(s) within ${NEAR_BLOCKS} blocks (two placed actors sharing a plane: the placement's, reported as _render_fault_audit.ts counts them)`);
     if (m.droppedNearPixels > 0) ctx.violate({ invariant: 'no-dropped-face-in-view', message: `${shot.name}: ${m.droppedNearPixels} pixel(s) within ${NEAR_BLOCKS} blocks show a box-UV face the device drops (${(100 * m.droppedNearShare).toFixed(2)} percent of the near silhouette)`, evidence: { shot: shot.name, droppedNearPixels: m.droppedNearPixels, droppedNearShare: m.droppedNearShare, camera: shot.camera } });
     const disagree = m.entities.filter(e => e.cullDisagree);
-    if (disagree.length) ctx.note(`${shot.name}: ${disagree.length} actor(s) culled by the 3-D camera-to-root distance but not horizontally, or the reverse (TODO(cull), unsettled): ${disagree.slice(0, 4).map(e => `${e.typeId.replace(/^craftmatic:/, '')} 3-D ${r2(e.dist3d)} / horizontal ${r2(e.distHorizontal)} vs cull ${r2(e.cullBlocks)}`).join('; ')}`);
+    if (disagree.length) ctx.note(`${shot.name}: ${disagree.length} actor(s) culled by the 3-D camera-to-root distance but not horizontally, or the reverse (TODO(cull), unsettled): ${disagree.slice(0, 4).map(e => `${bareName(e.typeId)} 3-D ${r2(e.dist3d)} / horizontal ${r2(e.distHorizontal)} vs cull ${r2(e.cullBlocks)}`).join('; ')}`);
   };
   /** A scripted vehicle's camera config in `scripts/vehicle-camera.js`: the cockpit eye and the runtime's cockpit lag. */
   const cameraCfg = (typeId: string): { eye?: [number, number, number]; cockpitLag: number; cameraFirst: boolean } | undefined => {
@@ -209,10 +218,11 @@ export function clientSteps(pack: CraftmaticPack, appearance: AddonAppearance, o
       const laps = Number(step['laps'] ?? 3), maxTicks = Number(step['maxTicks'] ?? 9000);
       const frames = step['frames'] !== undefined ? !!step['frames'] : !!options.frames;
       const rank = step['car'] !== undefined ? Number(step['car']) : undefined;
-      const sel = { family: COASTER_CAR_FAMILY, where: (e: SimEntity) => !!e.rideable() && !e.riderList().length && (rank === undefined || e.tags.has(`${HOP_TAGS.rank}${rank}`)), label: rank === undefined ? 'a coaster car' : `coaster car ${rank + 1} from the front` };
+      const rankTag = retarget(pack.namespace, HOP_TAGS.rank);
+      const sel = { family: packFamily(pack.namespace, COASTER_CAR_ROLE), where: (e: SimEntity) => !!e.rideable() && !e.riderList().length && (rank === undefined || e.tags.has(`${rankTag}${rank}`)), label: rank === undefined ? 'a coaster car' : `coaster car ${rank + 1} from the front` };
       const car = ctx.find(sel);
       // A car asked for by rank must exist: a ride of no car would pass every camera invariant.
-      if (!car && rank !== undefined) throw new Error(`no empty ${sel.label} (no car tagged ${HOP_TAGS.rank}${rank})`);
+      if (!car && rank !== undefined) throw new Error(`no empty ${sel.label} (no car tagged ${rankTag}${rank})`);
       if (!car) { ctx.note('no empty coaster car to board'); return; }
       if (rank !== undefined) ctx.note(`boarded ${sel.label} (${car.typeId})`);
       await CORE_HANDLERS['hold']!({ kind: 'hold', target: sel, label: 'board the coaster' }, ctx);
@@ -232,7 +242,7 @@ export function clientSteps(pack: CraftmaticPack, appearance: AddonAppearance, o
       for (; t < maxTicks && ctx.player.ridingOn === car && lapsDone < laps; t++) {
         await ctx.run(1);
         const row = trace.sample();
-        const hit = eyeInsideCoasterCars(ctx.sim.engine, view, appearance, ctx.player);
+        const hit = eyeInsideCoasterCars(ctx.sim.engine, view, appearance, ctx.player, pack.namespace);
         // How much of an animation frame is drawn within NEAR_COVER_BLOCKS of the eye: the car's own body pushed over
         // the camera (Pixel 30zs: the dark-navy slab across the loops) covers most of it; the seat view only its foot.
         if (row.mode === 'animation') {
@@ -313,7 +323,7 @@ export function clientSteps(pack: CraftmaticPack, appearance: AddonAppearance, o
         const yaw = dp.yaw * Math.PI / 180, fx = -Math.sin(yaw), fz = Math.cos(yaw);
         const lead = (camera.eye.x - drawnEye.x) * fx + (camera.eye.z - drawnEye.z) * fz;
         if (speed >= SEAT_SPEED_FLOOR && Math.abs(lead) > Math.abs(worst)) { worst = lead; worstAt = { t, speed: r2(speed), lead: r2(lead) }; }
-        if (frames && t % 10 === 9) keep(ctx, 'frames', shotOf(ctx, `${typeId.replace(/^craftmatic:/, '')}-cockpit-t${String(t).padStart(3, '0')}`, FRAME_SIZE));
+        if (frames && t % 10 === 9) keep(ctx, 'frames', shotOf(ctx, `${bareName(typeId)}-cockpit-t${String(t).padStart(3, '0')}`, FRAME_SIZE));
       }
       ctx.sim.controls.set(ctx.player.id, { forward: 0, strafe: 0, jump: false });
       // The brackets re-derived: the lead this client would draw at the top speed for each candidate camera lag
