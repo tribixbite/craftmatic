@@ -75,7 +75,14 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
   START HERE: `docs/plans/README.md` (the master plan: merged packages, waves, the user's ranked questions U1..,
   handoff in its section 7); review in `docs/plans/business-review.md`; source plans `business-{A,B,D}-*.md`.
   REQUIREMENTS rows BIZ-05..BIZ-64 added 2026-11-09.
-  - WAVE 1 IN FLIGHT 2026-11-09 (one agent each, worktree `.worktrees/biz-<id>`, branch `biz-<id>`, not merged until
+  - WAVE 1 MERGED into main 2026-11-09 (suite 3,672 passed, CI green): D-03, X-01, X-06 (+ a fix: fixture zips
+    take a local-time mtime). Done on branches, under review: X-08, X-11 (IoU only 3/5 models >= 0.85: wall 0.75,
+    batcave car 0.57 - follow-up before X-12 builds on it; voxeliser surface mode returns 0 cells under a scaled
+    node, worked around), B01 (needs a browser check of the LEGO tab upload + indexed pick before merge), B29
+    (230 files / 75 MB in its worktree's gitignored `data/byom-corpus/`; 34 items need the user's logins).
+    X-06 note: `bunx @minecraft/creator-tools@0.21.0` crashes at start (ink/react peer mismatch); its output
+    parser is unconfirmed (`TODO(mct-format)`).
+  - WAVE 1 (original list) 2026-11-09 (one agent each, worktree `.worktrees/biz-<id>`, branch `biz-<id>`, not merged until
     reviewed + full suite green): X-08 brick core, X-01 identity registry, X-04 part-source ledger + credits, X-06
     release validator, D-03 deterministic zip, C01 coaster design -> path, X-11 mesh -> stud lattice, B29 corpus
     fetcher, B01 model-import service. Agents are Sonnet, briefed with `docs/plans/implementer-brief.md` + their README
