@@ -1,0 +1,85 @@
+0 rivet
+0 Name: rivet
+0 Author: craftmatic F01b figure study (BIZ-21)
+0 !LICENSE Redistributable under CC BY 4.0 : see http://www.ldraw.org/documentation/ldraw-org-license
+0 // Candidate RIVET: a tall robot. Three-row 2x2 body with a grille chest and a two-brick backpack, a flat eye-bar head
+0 // with lamp eyes, arms on Technic pin hinges at the top row ending in fists, wide-set Technic legs on 1x3 plate feet.
+0 // Generic official parts only; no minifigure or mini-doll mould. Origin: sole at y = 0, faces -Z, right = -X.
+0 // Frame notes: a front-row brick at z = -10 has its face at z = -20; a part seated on a side stud has its origin
+0 // at the far end of its body (plate -28, brick -44). FIGPART other = joint hardware fixed in the torso (pins).
+
+0 // hip: 1x2 plate along x, inner stud in the torso, the leg under its outer stud
+0 !CRAFTMATIC FIGPART leg_right
+1 72 -20 -40 10 1 0 0 0 1 0 0 0 1 3023b.dat
+0 // leg: Technic 1x1 (the hole shows as a knee joint)
+0 !CRAFTMATIC FIGPART leg_right
+1 71 -30 -32 10 1 0 0 0 1 0 0 0 1 6541.dat
+0 // foot: 1x3 plate along z, two toe studs forward
+0 !CRAFTMATIC FIGPART leg_right
+1 72 -30 -8 -10 0 0 1 0 1 0 -1 0 0 3623.dat
+0 // hip: 1x2 plate along x, inner stud in the torso, the leg under its outer stud
+0 !CRAFTMATIC FIGPART leg_left
+1 72 20 -40 10 1 0 0 0 1 0 0 0 1 3023b.dat
+0 // leg: Technic 1x1 (the hole shows as a knee joint)
+0 !CRAFTMATIC FIGPART leg_left
+1 71 30 -32 10 1 0 0 0 1 0 0 0 1 6541.dat
+0 // foot: 1x3 plate along z, two toe studs forward
+0 !CRAFTMATIC FIGPART leg_left
+1 72 30 -8 -10 0 0 1 0 1 0 -1 0 0 3623.dat
+0 // chest: 1x2 with side studs forward (grille)
+0 !CRAFTMATIC FIGPART torso
+1 25 0 -64 -10 1 0 0 0 1 0 0 0 1 11211.dat
+0 // back: side studs backward (backpack)
+0 !CRAFTMATIC FIGPART torso
+1 25 0 -64 10 -1 0 0 0 1 0 0 0 -1 11211.dat
+0 // middle row front
+0 !CRAFTMATIC FIGPART torso
+1 25 0 -88 -10 1 0 0 0 1 0 0 0 1 3004.dat
+0 // middle row back: side studs backward (backpack)
+0 !CRAFTMATIC FIGPART torso
+1 25 0 -88 10 -1 0 0 0 1 0 0 0 -1 11211.dat
+0 // shoulder right: Technic 1x1, hole along x
+0 !CRAFTMATIC FIGPART torso
+1 71 -10 -112 -10 0 0 1 0 1 0 -1 0 0 6541.dat
+0 // shoulder left
+0 !CRAFTMATIC FIGPART torso
+1 71 10 -112 -10 0 0 1 0 1 0 -1 0 0 6541.dat
+0 // shoulder row back
+0 !CRAFTMATIC FIGPART torso
+1 71 0 -112 10 1 0 0 0 1 0 0 0 1 3004.dat
+0 // grille: 1x2 grille tile over the chest studs
+0 !CRAFTMATIC FIGPART torso
+1 72 0 -54 -28 1 0 0 0 0 -1 0 1 0 2412b.dat
+0 // backpack lower: 1x2 brick seated on the back studs
+0 !CRAFTMATIC FIGPART torso
+1 72 0 -54 44 1 0 0 0 0 1 0 -1 0 3004.dat
+0 // backpack upper: 1x2 brick seated on the back studs
+0 !CRAFTMATIC FIGPART torso
+1 72 0 -78 44 1 0 0 0 0 1 0 -1 0 3004.dat
+0 // Technic friction pin: the shoulder hinge, half in the torso hole, half in the arm
+0 !CRAFTMATIC FIGPART other
+1 72 -20 -102 -10 1 0 0 0 1 0 0 0 1 2780.dat
+0 // upper arm: inverted Technic 1x1 on the pin, stud down
+0 !CRAFTMATIC FIGPART arm_right
+1 71 -30 -92 -10 0 0 -1 0 -1 0 -1 0 0 6541.dat
+0 // fist: inverted 1x1 brick, its stud the knuckle
+0 !CRAFTMATIC FIGPART arm_right
+1 25 -30 -68 -10 1 0 0 0 -1 0 0 0 -1 3005.dat
+0 // Technic friction pin: the shoulder hinge, half in the torso hole, half in the arm
+0 !CRAFTMATIC FIGPART other
+1 72 20 -102 -10 1 0 0 0 1 0 0 0 1 2780.dat
+0 // upper arm: inverted Technic 1x1 on the pin, stud down
+0 !CRAFTMATIC FIGPART arm_left
+1 71 30 -92 -10 0 0 -1 0 -1 0 -1 0 0 6541.dat
+0 // fist: inverted 1x1 brick, its stud the knuckle
+0 !CRAFTMATIC FIGPART arm_left
+1 25 30 -68 -10 1 0 0 0 -1 0 0 0 -1 3005.dat
+0 // head: 1x2 with two side studs forward
+0 !CRAFTMATIC FIGPART head
+1 71 0 -136 -10 1 0 0 0 1 0 0 0 1 11211.dat
+0 // right lamp eye: 1x1 round plate
+0 !CRAFTMATIC FIGPART head
+1 14 -10 -126 -28 1 0 0 0 0 -1 0 1 0 6141.dat
+0 // left lamp eye
+0 !CRAFTMATIC FIGPART head
+1 14 10 -126 -28 1 0 0 0 0 -1 0 1 0 6141.dat

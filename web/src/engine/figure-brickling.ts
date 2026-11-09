@@ -1,7 +1,18 @@
 /**
- * Our own figure, design study (BIZ-21, WP-F01): the geometry and the
+ * Our own figure, design study (BIZ-21, WP-F01 and F01b): the geometry and the
  * distinctness metric for candidate figures built ONLY from generic official
- * LDraw parts (round bricks, plates, cones, dishes) - no minifigure moulds.
+ * LDraw parts (bricks, plates, side-stud and Technic bricks) - no minifigure
+ * moulds. `FIGURE_CANDIDATES` names the fixtures of each pass.
+ *
+ * What the gate taught the F01b pass (2026-11-09): the minifig's front
+ * silhouette is MID-heavy (0.26 of its height wide at the head, 0.5-0.63 across
+ * the arms, 0.38 at the legs) and its side profile a 0.2-0.35 column, so a
+ * 2-wide body with arms hanging at the shoulders scores 0.7-0.77 however big
+ * its head is, and any 40 LDU deep body contains the whole side profile. A
+ * candidate passes by being wide where the minifig is narrow (legs set apart
+ * with a gap, a 3-wide head) and narrow or empty where it is wide (arms
+ * forward, low or at the very top), and by carrying real depth (a snout and
+ * tail, a backpack, a 3-deep head).
  *
  * This module is pure (no fs, no network): a part resolver is passed in, so the
  * tests and `scripts/_figure_distinctness.ts` read the same code over the same
@@ -67,6 +78,76 @@ const composeX = (outer: Xform, inner: Xform): Xform => {
 
 /** The pending-group meta a figure file puts before the part it describes. */
 const FIGPART_META = /^0\s+!CRAFTMATIC\s+FIGPART\s+(\w+)/;
+
+/**
+ * The candidate fixtures (`test/fixtures/figures/<stem>.ldr`) of each design pass.
+ * F01 (2026-11-09): three first studies that pass the gate but float their arms
+ * and carry no face. F01b: the second pass - limbs on studs and Technic pin
+ * hinges, round-plate faces, bodies at player width. The tests and
+ * `scripts/_figure_distinctness.ts` read these lists; add a pass here.
+ */
+export const FIGURE_CANDIDATES = {
+  f01: ['bell', 'pebble', 'toadstool'],
+  f01b: ['pip', 'rex', 'rivet'],
+} as const;
+
+/** A type-1 placement read back out of a figure file, with its FIGPART group. */
+export interface FigurePlacement {
+  group: FigureGroup;
+  colour: number;
+  position: V3;
+  /** Row-major rotation, as the LDraw line has it. */
+  rotation: readonly number[];
+  part: string;
+}
+
+/** The top-level placements of a figure file, in order (no expansion). */
+export function figurePlacements(ldr: string): FigurePlacement[] {
+  const out: FigurePlacement[] = [];
+  let pending: FigureGroup = 'other';
+  for (const raw of ldr.split(/\r?\n/)) {
+    const line = raw.trim();
+    const meta = FIGPART_META.exec(line);
+    if (meta) { pending = meta[1] as FigureGroup; continue; }
+    const f = line.split(/\s+/);
+    if (f[0] !== '1' || f.length < 15) continue;
+    const n = f.slice(2, 14).map(Number);
+    out.push({ group: pending, colour: Number(f[1]), position: [n[0]!, n[1]!, n[2]!], rotation: n.slice(3, 12), part: f.slice(14).join(' ').toLowerCase() });
+    pending = 'other';
+  }
+  return out;
+}
+
+/** Parts a face is made of: a 1x1 round plate or round tile reads as an eye, nose or button. */
+export const FACE_DOT_PARTS: readonly string[] = ['6141.dat', '98138.dat'];
+
+/**
+ * The eyes of a figure file: head-group face dots whose stud points FORWARD
+ * (the part's -Y axis, the second column of its rotation negated, is -Z), i.e.
+ * seated on a side stud of the face rather than lying on the crown. Two or
+ * more, at different x, make a face the player can read.
+ */
+export function faceEyes(ldr: string): FigurePlacement[] {
+  // The part's -Y (stud) axis in figure space is -(b, e, h); forward is (0, 0, -1), so (b, e, h) must be (0, 0, 1).
+  const studForward = (r: readonly number[]): boolean => Math.abs(r[1]!) < 1e-6 && Math.abs(r[4]!) < 1e-6 && Math.abs(r[7]! - 1) < 1e-6;
+  return figurePlacements(ldr).filter(q => q.group === 'head' && FACE_DOT_PARTS.includes(q.part) && studForward(q.rotation));
+}
+
+/**
+ * The `!LICENSE` line of every part a figure file places (top level), keyed by
+ * part name; a part without one maps to the empty string, a missing part throws.
+ */
+export function partLicences(ldr: string, resolve: PartResolver): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const q of figurePlacements(ldr)) {
+    if (out.has(q.part)) continue;
+    const text = resolve(q.part);
+    if (text === null) throw new Error(`figure-brickling: part "${q.part}" is not in the library`);
+    const line = text.split(/\r?\n/).find(l => /^0\s+!LICENSE\b/.test(l.trim()));
+    out.set(q.part, line?.trim() ?? '');
+  }
+  return out;
+}
 
 /**
  * Flatten an LDraw figure file to triangles. A `0 !CRAFTMATIC FIGPART <group>`
@@ -172,16 +253,25 @@ export function minifigReferenceLdr(): string {
 
 // ─── Silhouettes and the gate ───────────────────────────────────────────────
 
-export type View = 'front' | 'side' | 'back';
+/** Orthographic views: `quarter` is the three-quarter view, the camera 45 degrees toward the figure's right. */
+export type View = 'front' | 'side' | 'back' | 'quarter';
 
 /** A binary silhouette, row 0 at the TOP of the figure. */
 export interface Silhouette { w: number; h: number; data: Uint8Array }
 
+/** The camera's yaw about the figure for a view, in radians: 0 looks at the face (from -Z), 90 degrees from the figure's right (-X). */
+const VIEW_YAW: Record<View, number> = { front: 0, quarter: Math.PI / 4, side: Math.PI / 2, back: Math.PI };
+
 /** Screen u (right) and v (up) of a point for a view; the figure faces -Z. */
 const project = (p: V3, view: View): [number, number] => {
-  if (view === 'front') return [p[0], -p[1]];
-  if (view === 'back') return [-p[0], -p[1]];
-  return [-p[2], -p[1]];
+  const a = VIEW_YAW[view];
+  return [p[0] * Math.cos(a) - p[2] * Math.sin(a), -p[1]];
+};
+
+/** Unit vector from the figure toward the viewer for a view (the view's depth axis). */
+const towardViewer = (view: View): V3 => {
+  const a = VIEW_YAW[view];
+  return [-Math.sin(a), 0, -Math.cos(a)];
 };
 
 /** Figure height in LDU, sole to crown. */
@@ -400,6 +490,31 @@ const STUD_LDU = 4;
 const overlapVolume = (a: { lo: V3; hi: V3 }, b: { lo: V3; hi: V3 }): boolean =>
   [0, 1, 2].every(i => Math.min(a.hi[i]!, b.hi[i]!) - Math.max(a.lo[i]!, b.lo[i]!) > STUD_LDU + 0.5);
 
+/** The limb groups, in the order the reports list them. */
+export const LIMB_GROUPS: readonly FigureGroup[] = ['arm_right', 'arm_left', 'leg_right', 'leg_left'];
+
+/**
+ * How far each limb's box sits from the torso's box, LDU: the largest
+ * axis-separation (0 when the boxes touch or share volume). A limb hung on a
+ * stud, a side stud or a pin reads 0 at bounding-box level; the F01 figures'
+ * arms, placed a stud out from a round body, read 0 too, so this guards drift
+ * of a design, not the connection itself (the fixture's comments name that).
+ * Throws when a group is missing.
+ */
+export function limbAttachmentGaps(tris: readonly FigTri[]): Record<string, number> {
+  const torso = groupBounds(tris, 'torso');
+  if (!torso) throw new Error('figure-brickling: no torso group');
+  const out: Record<string, number> = {};
+  for (const limb of LIMB_GROUPS) {
+    const b = groupBounds(tris, limb);
+    if (!b) throw new Error(`figure-brickling: no ${limb} group`);
+    let gap = 0;
+    for (let i = 0; i < 3; i++) gap = Math.max(gap, torso.lo[i]! - b.hi[i]!, b.lo[i]! - torso.hi[i]!);
+    out[limb] = gap;
+  }
+  return out;
+}
+
 /** One failed seat / walk requirement, empty list = compatible. */
 export function compatibilityProblems(tris: readonly FigTri[]): string[] {
   const problems: string[] = [];
@@ -454,7 +569,8 @@ export function renderFigure(tris: readonly FigTri[], view: View, width: number,
   const uMid = (uLo + uHi) / 2;
   const base = height - Math.round((height - heightPx) / 2);
   // View depth: distance toward the viewer along the camera axis (larger = nearer).
-  const depthOf = (p: V3): number => view === 'side' ? -p[0] : view === 'front' ? -p[2] : p[2];
+  const toViewer = towardViewer(view);
+  const depthOf = (p: V3): number => p[0] * toViewer[0] + p[1] * toViewer[1] + p[2] * toViewer[2];
   const rgb = new Uint8Array(width * height * 3).fill(0);
   for (let i = 0; i < width * height; i++) { rgb[i * 3] = 24; rgb[i * 3 + 1] = 27; rgb[i * 3 + 2] = 33; }
   const zbuf = new Float32Array(width * height).fill(-Infinity);
@@ -472,7 +588,6 @@ export function renderFigure(tris: readonly FigTri[], view: View, width: number,
     if (nl < 1e-9) continue;
     n = [n[0] / nl, n[1] / nl, n[2] / nl];
     // Two-sided: flip toward the viewer (normal dotted with the view-depth direction).
-    const toViewer: V3 = view === 'side' ? [-1, 0, 0] : view === 'front' ? [0, 0, -1] : [0, 0, 1];
     if (n[0] * toViewer[0] + n[1] * toViewer[1] + n[2] * toViewer[2] < 0) n = [-n[0], -n[1], -n[2]];
     const head = n[0] * toViewer[0] + n[1] * toViewer[1] + n[2] * toViewer[2];
     const key = Math.max(0, -(n[0] * light[0] + n[1] * light[1] + n[2] * light[2]) / lightLen);
