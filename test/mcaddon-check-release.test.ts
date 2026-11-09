@@ -182,7 +182,9 @@ function variant(files: Files, ext = 'mcaddon'): string {
 }
 
 function run(args: string[]): { code: number; out: string } {
-  const r = spawnSync('python', ['-I', SCRIPT, ...args], { encoding: 'utf-8', cwd: ROOT });
+  // CI's ubuntu runner has `python3` only; Windows has `python`. `PYTHON` overrides both.
+  const py = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
+  const r = spawnSync(py, ['-I', SCRIPT, ...args], { encoding: 'utf-8', cwd: ROOT });
   return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
 }
 const fixture = (name: string): string => join(FIXTURES, `${name}.zip`);
