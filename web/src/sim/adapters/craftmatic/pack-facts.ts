@@ -41,7 +41,9 @@ export const NO_MARGIN: GridMargin = Object.freeze({ x0: 0, x1: 0, z0: 0, z1: 0 
 
 /** The margin the export reports in the behaviour pack's `craftmatic-diagnostics.json` (`accessMargin`), or none. */
 function marginOf(pack: Pack): GridMargin {
-  const text = packText(pack, 'craftmatic-diagnostics.json');
+  // The dev pack's `craftmatic-diagnostics.json`, or a rewritten product's `<namespace>-diagnostics.json` (X-03).
+  const path = [...pack.files.keys()].find(p => !p.includes('/') && p.endsWith('-diagnostics.json'));
+  const text = path ? packText(pack, path) : undefined;
   if (!text) return NO_MARGIN;
   try {
     const m = (JSON.parse(text) as { accessMargin?: Partial<GridMargin> }).accessMargin;
@@ -91,7 +93,8 @@ export function readCraftmaticPack(addon: Addon): CraftmaticPack | undefined {
       const id = /"identifier"\s*:\s*"([^"]+)"/.exec(text)?.[1];
       if (!id) continue;
       // A scripted vehicle carries the family `craftmatic_vehicle`; a native mount drives by the hover controller at a non-zero flying speed.
-      if (text.includes('"craftmatic_vehicle"')) vehicleTypes.push(id);
+      // The family carries the pack's own namespace (`craftmatic_vehicle`, or `<namespace>_vehicle` once rewritten, X-03).
+      if (text.includes(`"${id.split(':')[0]}_vehicle"`)) vehicleTypes.push(id);
       else if (text.includes('minecraft:free_camera_controlled')) nativeMountTypes.push(id);
     }
     return {
