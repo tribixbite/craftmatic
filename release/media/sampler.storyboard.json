@@ -1,0 +1,91 @@
+{
+  "product": "sampler",
+  "status": "draft",
+  "aspects": ["16:9", "9:16"],
+  "shots": [
+    {
+      "id": "place-car",
+      "title": "Cold open: the wand places the car",
+      "source": "device",
+      "durationSec": 3,
+      "camera": "third-person-back",
+      "packSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "wandSizePct": 100,
+      "position": { "x": 0, "y": 64, "z": 0, "yawDeg": 0 },
+      "action": "Tap the wand on flat ground: the ghost car appears, then the solid car.",
+      "framing": { "16:9": "Car centred, hand and wand at the lower right.", "9:16": "Car in the lower third, sky above." }
+    },
+    {
+      "id": "drive-kerb",
+      "title": "Drive past the camera and climb a kerb",
+      "source": "device",
+      "durationSec": 7,
+      "camera": "third-person-chase",
+      "packSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "wandSizePct": 100,
+      "position": { "x": 0, "y": 64, "z": 0, "yawDeg": 90 },
+      "action": "Drive the car forward past a fixed camera and over a one-block kerb without stopping.",
+      "framing": { "16:9": "Fixed wide shot, the car crosses left to right.", "9:16": "Fixed shot from the kerb, the car comes toward the lens." }
+    },
+    {
+      "id": "cockpit",
+      "title": "Cockpit view",
+      "source": "device",
+      "durationSec": 6,
+      "camera": "cockpit-hotbar9",
+      "packSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "wandSizePct": 100,
+      "position": { "x": 0, "y": 64, "z": 0, "yawDeg": 90 },
+      "action": "Sit in the car, switch to the cockpit view with hotbar slot 9 and steer a gentle curve.",
+      "framing": { "16:9": "Full view out of the windscreen.", "9:16": "Centre crop on the road ahead and the dashboard." }
+    },
+    {
+      "id": "door-open",
+      "title": "Walk up and tap the door",
+      "source": "device",
+      "durationSec": 6,
+      "camera": "first-person",
+      "packSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "wandSizePct": 100,
+      "position": { "x": 8, "y": 64, "z": 0, "yawDeg": 180 },
+      "action": "Walk up to the door kit and tap it once: the door swings open.",
+      "framing": { "16:9": "Door at the right third, the player's hand tapping it.", "9:16": "Door filling the frame height." }
+    },
+    {
+      "id": "seat-sit",
+      "title": "Sit on the seat kit",
+      "source": "device",
+      "durationSec": 5,
+      "camera": "third-person-front",
+      "packSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "wandSizePct": 100,
+      "position": { "x": 12, "y": 64, "z": 0, "yawDeg": 0 },
+      "action": "Walk to the seat and tap it; the player sits and the view turns third person.",
+      "framing": { "16:9": "Seat and player centred with the room behind.", "9:16": "Seat and player centred, tight." }
+    },
+    {
+      "id": "size-400",
+      "title": "Size the car to 400 percent and drive it",
+      "source": "device",
+      "durationSec": 6,
+      "camera": "third-person-chase",
+      "packSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "wandSizePct": 400,
+      "position": { "x": 0, "y": 64, "z": 20, "yawDeg": 90 },
+      "action": "Place the car with the wand at 400 percent, board it and drive away from the camera.",
+      "framing": { "16:9": "Wide chase, the player's own figure small beside the car.", "9:16": "Low chase from behind, the car towering." }
+    },
+    {
+      "id": "end-card",
+      "title": "Turntable under the end card",
+      "source": "offline",
+      "durationSec": 7,
+      "camera": "offline-turntable",
+      "packSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "wandSizePct": 100,
+      "position": { "x": 0, "y": 64, "z": 0, "yawDeg": 0 },
+      "action": "Offline turntable of the car with the product name, the word Free and the unaffiliated disclaimer.",
+      "framing": { "16:9": "Car left, card text right.", "9:16": "Car above, card text below." }
+    }
+  ]
+}
