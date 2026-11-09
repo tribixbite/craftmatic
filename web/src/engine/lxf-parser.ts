@@ -82,6 +82,7 @@ import { MINIDOLL_SLOTS } from './minidoll-slots-generated.js';
 import type { MiniDollSlot } from './minifig-rig.js';
 import { reframeClassB } from './class-b-reframe.js';
 import { partStem } from './part-id.js';
+import { parseXmlDocument, type XmlDocumentLike, type XmlElementLike, type XmlParser } from './byom/xml.js';
 
 /** 1 cm = 25 LDraw units (1 stud = 0.8cm = 20 LDU → 1cm = 25 LDU). */
 const CM_TO_LDU = 25;
@@ -1171,7 +1172,7 @@ export function normalizeDesignId(raw: string | null | undefined, fallback = '30
 }
 
 /** Lift every `<Part>` out of an LXFML document. Thin — the DOM half. */
-function readLxfParts(doc: Document): LxfPartRecord[] {
+function readLxfParts(doc: XmlDocumentLike): LxfPartRecord[] {
   const out: LxfPartRecord[] = [];
   // A <Brick> can contain MULTIPLE <Part> elements (assemblies — e.g. a hinge
   // is designID 73983 wrapping parts 2430 + 2429), each with its OWN designID,
@@ -1181,9 +1182,9 @@ function readLxfParts(doc: Document): LxfPartRecord[] {
     const brickDesign = brick.getAttribute('designID');
     const itemNos = brick.getAttribute('itemNos') ?? undefined;
     const elementIds = (itemNos ?? '').split(',').map(s => s.trim()).filter(Boolean);
-    const partEls = brick.querySelectorAll('Part');
+    const partEls: XmlElementLike[] = [...brick.querySelectorAll('Part')];
     for (const partEl of partEls) {
-      const bones = partEl.querySelectorAll('Bone');
+      const bones: XmlElementLike[] = [...partEl.querySelectorAll('Bone')];
       out.push({
         itemNos,
         brickParts: partEls.length,
@@ -1203,9 +1204,44 @@ function readLxfParts(doc: Document): LxfPartRecord[] {
   return out;
 }
 
+/** What a parse needs from outside: the XML reader and the four correction tables. */
+export interface LxfParseOptions {
+  /**
+   * XML reader. Default: the browser's `DOMParser` when there is one (the
+   * behaviour every page load has always had), else the DOM-free reader in
+   * `byom/xml.ts` so Bun, vitest and Workers can parse an `.lxf` too.
+   */
+  parseXml?: XmlParser;
+  /** Table loaders; default: fetch the shipped `/ldd-*.json` assets. Tests and the CLI inject. */
+  loaders?: Partial<{
+    partMap: () => Promise<LxfAlignmentTable>;
+    measured: () => Promise<LxfMeasuredTable>;
+    printMap: () => Promise<LxfPrintTable>;
+    elementMap: () => Promise<LxfElementTable>;
+  }>;
+}
+
+/** The browser's parser, with the error text this module has always thrown. */
+const domXmlParser: XmlParser = (text) => {
+  const doc = new DOMParser().parseFromString(text, 'text/xml');
+  const parserError = doc.querySelector('parsererror');
+  if (parserError) throw new Error(`LXFML parse error: ${parserError.textContent?.slice(0, 120)}`);
+  return doc;
+};
+
+/** The DOM-free parser, with the same error prefix. */
+const portableXmlParser: XmlParser = (text) => {
+  try {
+    return parseXmlDocument(text);
+  } catch (err) {
+    throw new Error(`LXFML parse error: ${err instanceof Error ? err.message.slice(0, 120) : String(err)}`);
+  }
+};
+
 /** `.lxf` → placements + the alignment diagnostics behind them. */
 export async function parseLxfWithDiagnostics(
   buffer: ArrayBuffer,
+  options: LxfParseOptions = {},
 ): Promise<{ bricks: ParsedBrick[]; diagnostics: LxfDiagnostics }> {
   // .lxf is a ZIP wrapping IMAGE100.LXFML; a bare .lxfml is the same XML
   // unwrapped (DBIX interactive-instruction dumps ship as .lxfml). Sniff the
@@ -1231,26 +1267,27 @@ export async function parseLxfWithDiagnostics(
   }
   const xmlText = new TextDecoder('utf-8').decode(xmlBytes);
 
-  const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
-  const parserError = doc.querySelector('parsererror');
-  if (parserError) throw new Error(`LXFML parse error: ${parserError.textContent?.slice(0, 120)}`);
+  const parseXml = options.parseXml ?? (typeof DOMParser !== 'undefined' ? domXmlParser : portableXmlParser);
+  const doc = parseXml(xmlText);
+  const load = options.loaders ?? {};
 
   // The part tables in parallel — Studio's ldraw.xml columns are primary (and
   // the LDraw filename source), the measured correction is the fallback. The
   // print table is optional: when it is missing every head draws plain.
   const [table, measured, printMap] = await Promise.all([
-    loadPartMap(), loadMeasuredAlign(), loadPrintMap().catch(() => undefined),
+    (load.partMap ?? loadPartMap)(), (load.measured ?? loadMeasuredAlign)(),
+    (load.printMap ?? loadPrintMap)().catch(() => undefined),
   ]);
   const records = readLxfParts(doc);
   // The element table only when some part can use it; a failed fetch leaves
   // those parts as `<designID>.dat`, exactly as before the fallback existed.
-  const elements = needsElementTable(records, table, measured) ? await loadElementMap() : undefined;
+  const elements = needsElementTable(records, table, measured) ? await (load.elementMap ?? loadElementMap)() : undefined;
   const result = buildLxfPlacements(records, table, measured, { elements, printMap });
   if (result.bricks.length === 0) throw new Error('No brick placements found in LXFML');
   return result;
 }
 
 /** `.lxf` → placements. Diagnostics-free wrapper for callers that don't need them. */
-export async function parseLxf(buffer: ArrayBuffer): Promise<ParsedBrick[]> {
-  return (await parseLxfWithDiagnostics(buffer)).bricks;
+export async function parseLxf(buffer: ArrayBuffer, options: LxfParseOptions = {}): Promise<ParsedBrick[]> {
+  return (await parseLxfWithDiagnostics(buffer, options)).bricks;
 }
