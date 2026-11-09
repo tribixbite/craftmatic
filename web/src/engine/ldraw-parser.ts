@@ -18,6 +18,7 @@
  */
 import { LDRAW_COLOR_RGB } from './ldraw-colors.js';
 import { resolveLdrawEntityMaterial } from './ldraw-entity-materials.js';
+import type { AuthoringMeta } from '../brickgen/types.js';
 
 export interface ParsedBrick {
   /** LDraw color ID */
@@ -44,6 +45,13 @@ export interface ParsedBrick {
    * this id (`head-face.ts`).
    */
   headPrint?: string;
+  /**
+   * The `0 !CRAFTMATIC FIGURE|SEAT|DOOR|SPAWN|DESIGN` metas written since the previous
+   * type-1 line, in file order (see `parseAuthoringMeta`). Authoring tools write
+   * them so the add-on pipeline need not guess; they ride on the next placed part
+   * like `headPrint`. The full document list is `LDrawDocument.metas`.
+   */
+  authoringMetas?: AuthoringMeta[];
   /**
    * Assembly step number (1-based) from LDraw STEP meta-commands.
    * Step 1 = bricks before the first STEP marker.
@@ -98,6 +106,8 @@ export interface LDrawDocument {
   rootSection: string;
   /** Colour codes this document defines for itself, keyed by code. */
   colours: Map<number, LDrawLocalColour>;
+  /** Every `0 !CRAFTMATIC` authoring meta in the document, in file order (positions in the frame of the section that wrote them). */
+  metas: AuthoringMeta[];
 }
 
 /**
@@ -123,14 +133,14 @@ export function parseLDrawDocument(content: string): LDrawDocument {
     if (!sectionMap.has(s.name)) sectionMap.set(s.name, { name: s.name, lines: s.lines.slice() });
   }
   const colours = parseLocalColours(content);
-  if (sections.length === 0) return { bricks: [], sections: sectionMap, rootSection: '__main__', colours };
+  if (sections.length === 0) return { bricks: [], sections: sectionMap, rootSection: '__main__', colours, metas: [] };
 
   const bricks: ParsedBrick[] = [];
   const IDENTITY = [1, 0, 0,  0, 1, 0,  0, 0, 1];
   const stepRef = { step: 1 };
-  const docState: DocumentState = { step: stepRef, buffers: new Map(), overrides: colourOverrides(colours) };
+  const docState: DocumentState = { step: stepRef, buffers: new Map(), overrides: colourOverrides(colours), metas: [] };
   expandSection(sections[0].lines, sections, IDENTITY, [0, 0, 0], bricks, 0, 16, stepRef, [sections[0].name], docState);
-  return { bricks, sections: sectionMap, rootSection: sections[0].name, colours };
+  return { bricks, sections: sectionMap, rootSection: sections[0].name, colours, metas: docState.metas };
 }
 
 /**
@@ -353,6 +363,8 @@ interface DocumentState {
    * — it loses the 30 and keeps the 5.
    */
   buffers: Map<string, ParsedBrick[]>;
+  /** Authoring metas met so far, document-wide. */
+  metas: AuthoringMeta[];
   /** Colour code → LDraw direct colour, for codes this document redefines. */
   overrides: Map<number, number>;
 }
@@ -367,7 +379,7 @@ function expandSection(
   parentColor: number = 16, // inherited color context for color-16 resolution
   stepRef: { step: number } = { step: 1 }, // shared step counter (mutated at depth 0)
   sourcePath: string[] = [],
-  doc: DocumentState = { step: stepRef, buffers: new Map(), overrides: new Map() },
+  doc: DocumentState = { step: stepRef, buffers: new Map(), overrides: new Map(), metas: [] },
 ): void {
   // Guard against runaway recursion (circular references or deep nesting)
   if (depth > 50) return;
@@ -400,6 +412,8 @@ function expandSection(
   const texmap: { pending: string[] | null; hasFallback: boolean } = { pending: null, hasFallback: false };
   /** A `0 !CRAFTMATIC HEAD_PRINT` id waiting for the next type-1 line. */
   let pendingHeadPrint: string | null = null;
+  /** Authoring metas waiting for the next type-1 line. */
+  let pendingMetas: AuthoringMeta[] = [];
 
   for (const line of lines) {
     if (!line) continue;
@@ -469,6 +483,10 @@ function expandSection(
     const headPrint = /^0\s+!CRAFTMATIC\s+HEAD_PRINT\s+(\S+)/i.exec(line);
     if (headPrint) { pendingHeadPrint = headPrint[1]!.toLowerCase(); return; }
 
+    // `0 !CRAFTMATIC FIGURE|SEAT|DOOR|SPAWN|DESIGN ...`: explicit authoring intent.
+    const authoring = parseAuthoringMeta(line);
+    if (authoring) { doc.metas.push(authoring); pendingMetas.push(authoring); return; }
+
     // `0 GHOST <type-1 line>` is a part MLCad draws faded. It is in the model.
     const ghost = /^0\s+GHOST\s+(1\s+.*)$/i.exec(line);
     if (ghost) { place(ghost[1]!); return; }
@@ -492,6 +510,8 @@ function expandSection(
     // A HEAD_PRINT belongs to the very next reference, whatever it turns out to be.
     const headPrint = pendingHeadPrint;
     pendingHeadPrint = null;
+    const authoringMetas = pendingMetas;
+    pendingMetas = [];
     if (tokens.length < 15 || tokens[0] !== '1') return;
 
     const rawColor = parseLDrawColor(tokens[1]);
@@ -561,7 +581,61 @@ function expandSection(
         color, x: wx, y: wy, z: wz, rot: childRot, part: basename,
         step: stepRef.step, sourcePath: [...sourcePath],
         ...(headPrint ? { headPrint } : {}),
+        ...(authoringMetas.length ? { authoringMetas } : {}),
       });
+    }
+  }
+}
+
+// ─── Authoring metas ─────────────────────────────────────────────────────────
+
+/** Numbers of a meta's argument list, or null if any is not finite. */
+function numbers(tokens: string[]): number[] | null {
+  const n = tokens.map(Number);
+  return n.every(Number.isFinite) ? n : null;
+}
+
+/**
+ * Read a `0 !CRAFTMATIC <KIND> ...` authoring meta (the writer is
+ * `brickgen/emit/ldraw-writer.ts`; the grammar is listed there). Positions are
+ * LDU. Returns null for any other line or a malformed one (never throws: a
+ * damaged meta must not stop a model loading).
+ *
+ *   FIGURE <system> <x> <y> <z> <facingDeg> [<seatId>]
+ *   SEAT   <id> <x> <y> <z> <facingDeg>
+ *   DOOR   <group> <hx> <hy> <hz> <axis> <openDeg>
+ *   SPAWN  <x> <y> <z>
+ *   DESIGN <slug> <version> <provenance...>
+ */
+export function parseAuthoringMeta(line: string): AuthoringMeta | null {
+  const m = /^0\s+!CRAFTMATIC\s+(FIGURE|SEAT|DOOR|SPAWN|DESIGN)\s+(.*?)\s*$/i.exec(line);
+  if (!m) return null;
+  const kind = m[1]!.toUpperCase();
+  const t = m[2]!.split(/\s+/);
+  switch (kind) {
+    case 'FIGURE': {
+      const n = numbers(t.slice(1, 5));
+      if (t[0] !== 'brickling' || !n || n.length !== 4 || (t.length !== 5 && t.length !== 6)) return null;
+      return { kind: 'FIGURE', system: 'brickling', at: [n[0]!, n[1]!, n[2]!], facingDeg: n[3]!, ...(t[5] ? { seat: t[5] } : {}) };
+    }
+    case 'SEAT': {
+      const n = numbers(t.slice(1));
+      if (!t[0] || !n || n.length !== 4) return null;
+      return { kind: 'SEAT', id: t[0], at: [n[0]!, n[1]!, n[2]!], facingDeg: n[3]! };
+    }
+    case 'DOOR': {
+      const n = numbers([...t.slice(1, 4), t[5] ?? '']);
+      if (!t[0] || t[4] !== 'y' || t.length !== 6 || !n) return null;
+      return { kind: 'DOOR', group: t[0], hinge: [n[0]!, n[1]!, n[2]!], axis: 'y', openDeg: n[3]! };
+    }
+    case 'SPAWN': {
+      const n = numbers(t);
+      if (!n || n.length !== 3) return null;
+      return { kind: 'SPAWN', at: [n[0]!, n[1]!, n[2]!] };
+    }
+    default: {
+      if (t.length < 3) return null;
+      return { kind: 'DESIGN', slug: t[0]!, version: t[1]!, provenance: t.slice(2).join(' ') };
     }
   }
 }
