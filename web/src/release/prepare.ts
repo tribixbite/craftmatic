@@ -6,6 +6,7 @@
 import { MOJANG_DISCLAIMER } from '../engine/pack-text/notices.js';
 import { assertReleasable } from './product.js';
 import { compareSemVer, formatSemVer, parseSemVer, toManifestTriple } from './semver.js';
+import type { PackProfileFlags } from '../engine/pack-profile.js';
 import type { ApprovalAction } from './prepare-types.js';
 import type { IdentityLedgerEntry, ProductIdentity, ProductRecord, SemVer } from './types.js';
 
@@ -37,10 +38,23 @@ export interface ValidationFile {
   evidence: Record<string, unknown>;
 }
 
-/** Stages named by plan D 3.3 whose dependency is not merged. Flip `landed` in the change that merges the dependency. */
+/**
+ * The profile flags every release build sets (X-02, M03, M07): no vanilla-path textures, no diagnostics, no face art,
+ * no stamp, explicit hints only, our own brick blocks instead of the concrete overrides, the compact collider states
+ * (6,192 permutations, under the Marketplace's 10,000) and the air-only wand. One object so `prepare`, `verify` and
+ * `finalize` (which all run `_make`) cannot disagree about what a release is.
+ */
+export const RELEASE_PROFILE_FLAGS: Readonly<PackProfileFlags> = Object.freeze({
+  vanillaTextures: false, diagnostics: false, faceArt: false, devStamp: false, explicitOnly: true,
+  brickBlocks: true, compactColliderStates: true, marketplacePlacement: true,
+});
+
+/**
+ * Stages named by plan D 3.3 whose dependency is not merged. Flip `landed` in the change that merges the dependency.
+ * M03 and M07 landed (their flags are in RELEASE_PROFILE_FLAGS and checked by `brickBlockProblems` / `placementProblems`);
+ * M14 did not: the sim stage stays flagged.
+ */
 export const PENDING_STAGES: ReadonlyArray<{ id: string; title: string; dependency: string; landed: boolean; reason: string }> = [
-  { id: 'brick-blocks', title: 'Own brick blocks in the pack', dependency: 'M03', landed: false, reason: 'M03 (own brick blocks, collider reader) is not merged: the pack still ships the dev collider blocks, so there is nothing to gate yet.' },
-  { id: 'placement', title: 'Air-only placement, prompt and undo', dependency: 'M07', landed: false, reason: 'M07 (bedrock-placement-pack.ts) is not merged: the placement behaviour a release must show is not in the pack.' },
   { id: 'sim', title: 'Simulator child-play and vehicles scenarios on the rewritten pack', dependency: 'M14', landed: false, reason: 'M14 (the simulator reading the namespace from the pack) is not merged: sim.ts only recognises the craftmatic: namespace, so it cannot play a rewritten pack.' },
 ];
 
@@ -84,6 +98,23 @@ export interface PreconditionFacts {
   ldrawArchiveSha256: string | null;
 }
 
+/** The toolchain facts a pin is compared with. */
+export interface PinFacts { bunVersion: string | null; lockfileSha256: string | null; ldrawArchiveSha256: string | null }
+
+/**
+ * Every toolchain pin the machine does not meet: bun, bun.lock and the LDraw archive. Shared by `prepare` (with the
+ * tree and version rules) and by `verify` / `finalize`, which rebuild an OLD commit and care about the pins only.
+ */
+export function pinProblems(product: ProductRecord, f: PinFacts): string[] {
+  const out: string[] = [];
+  const t = product.toolchain;
+  if (f.bunVersion !== t.bun) out.push(`bun is ${f.bunVersion ?? 'not runnable'} but the product pins ${t.bun}`);
+  if (f.lockfileSha256 !== t.lockfileSha256) out.push(`bun.lock sha256 ${f.lockfileSha256 ?? '(none)'} differs from the pinned ${t.lockfileSha256}`);
+  if (t.ldrawLibrary.sha256 === null) out.push('the LDraw complete.zip sha256 is not pinned in the product (toolchain.ldrawLibrary.sha256 is null)');
+  else if (f.ldrawArchiveSha256 !== t.ldrawLibrary.sha256) out.push(`LDraw ${t.ldrawLibrary.archive} sha256 ${f.ldrawArchiveSha256 ?? '(archive not found)'} differs from the pinned ${t.ldrawLibrary.sha256}`);
+  return out;
+}
+
 /** Every reason the release may not be prepared (empty = go). */
 export function preconditionProblems(f: PreconditionFacts): string[] {
   const out: string[] = [];
@@ -93,11 +124,7 @@ export function preconditionProblems(f: PreconditionFacts): string[] {
   if (!f.product.publisher) out.push(`product ${f.product.id} has no publisher name and contact (U1); the disclaimer block needs them`);
   const last = f.ledger.filter(e => e.product === f.product.id).at(-1);
   if (last && compareSemVer(f.version, parseSemVer(last.version)) <= 0) out.push(`version ${formatSemVer(f.version)} must rise above the released ${last.version}`);
-  const t = f.product.toolchain;
-  if (f.bunVersion !== t.bun) out.push(`bun is ${f.bunVersion ?? 'not runnable'} but the product pins ${t.bun}`);
-  if (f.lockfileSha256 !== t.lockfileSha256) out.push(`bun.lock sha256 ${f.lockfileSha256 ?? '(none)'} differs from the pinned ${t.lockfileSha256}`);
-  if (t.ldrawLibrary.sha256 === null) out.push('the LDraw complete.zip sha256 is not pinned in the product (toolchain.ldrawLibrary.sha256 is null)');
-  else if (f.ldrawArchiveSha256 !== t.ldrawLibrary.sha256) out.push(`LDraw ${t.ldrawLibrary.archive} sha256 ${f.ldrawArchiveSha256 ?? '(archive not found)'} differs from the pinned ${t.ldrawLibrary.sha256}`);
+  out.push(...pinProblems(f.product, { bunVersion: f.bunVersion, lockfileSha256: f.lockfileSha256, ldrawArchiveSha256: f.ldrawArchiveSha256 }));
   return out;
 }
 
