@@ -1,0 +1,57 @@
+{
+  "channel": "curseforge",
+  "title": "CurseForge (Minecraft Bedrock, Addons)",
+  "templateVars": "{brand} {email} {siteBase} {version} {slug} {product} {distDir}: filled from the prepared release; an unset brand, email or site base stays a visible <placeholder> and is listed in the report (pending U1).",
+  "fields": [
+    { "key": "game", "label": "Game", "value": "Minecraft Bedrock", "lint": "none" },
+    { "key": "class", "label": "Class", "value": "Addons", "lint": "none" },
+    {
+      "key": "name", "label": "Name (unique; no game name, no version)", "value": "{brand} Brick Sampler: Drive, Open, Sit", "lint": "name",
+      "limit": { "max": null, "status": "unverified", "source": "plan D 4.1: the form's name length limit is unmeasured; read it off the form at approval" }
+    },
+    {
+      "key": "summary", "label": "Summary (one line)", "value": "A free brick-built car you can drive, doors that swing open and chairs you can sit on, placed anywhere with one wand.", "lint": "prose",
+      "limit": { "max": null, "status": "unverified", "source": "plan D 4.1: the form's summary length limit is unmeasured; read it off the form at approval" }
+    },
+    { "key": "mainCategory", "label": "Main category", "value": "Technology", "lint": "none" },
+    {
+      "key": "additionalCategories", "label": "Additional categories (up to 4)", "value": ["Roleplay", "Utility", "Multiplayer", "Vanilla+"], "lint": "none",
+      "limit": { "max": 4, "status": "verified", "source": "plan D 4.1 [CLS 2.2]: up to 4 additional categories" }
+    },
+    {
+      "key": "categoryChoices", "label": "Measured category list (curseforge.com/minecraft-bedrock/addons, read 2026-11-09)", "lint": "none",
+      "value": ["Armor/Tools/Weapons", "Cosmetics", "Data Packs", "Fantasy", "Food", "Horror", "Magic", "Maps", "Minecraft Addon Maker", "Multiplayer", "Performance", "Roleplay", "Skins", "Survival", "Technology", "Texture Packs", "Utility", "Vanilla+"]
+    },
+    { "key": "comments", "label": "Comments", "value": true, "lint": "none" },
+    { "key": "experimental", "label": "Experimental (off: experimental projects do not sync)", "value": false, "lint": "none" },
+    { "key": "licence", "label": "Licence (proposed; the user and the lawyer decide, Q2)", "value": "All Rights Reserved", "lint": "none" },
+    { "key": "releaseType", "label": "File release type", "value": "Release", "lint": "none" },
+    { "key": "gameVersions", "label": "Supported game versions (min_engine_version)", "value": "1.26.40+", "lint": "none" },
+    { "key": "rewards", "label": "CurseForge Rewards (1 point = $0.05, PayPal from $5)", "value": true, "lint": "none" }
+  ],
+  "description": {
+    "limit": { "max": null, "status": "unverified", "source": "plan D 4.1 / R7: CurseForge description length and Markdown support are unmeasured; check the editor" },
+    "blocks": [
+      { "id": "hook", "kind": "body", "markdown": "## Drive it. Open it. Sit in it.\n\nThe **Brick Sampler** is a free taste of what brick-built builds can do in Bedrock when they are more than blocks:\n\n- **A drivable brick car**: steer with the joystick or A/D, boost with Jump, and it climbs kerbs and slides along walls instead of getting stuck. Drag to look around; the chase camera swings back behind you.\n- **A door kit**: hinged doors and windows that swing open when you tap them and stay open after a reload.\n- **A seat kit**: chairs, a bench and a sofa you can sit on (sneak to stand up).\n- **One Brick Wand** places everything: preview it as a ghost, rotate it, pick a size from 25% to 400%, place it, and undo if you change your mind. It only places into air." },
+      { "id": "install", "kind": "body", "markdown": "### Install\n1. Download the `.mcaddon` and open it; the game imports both packs.\n2. Create or edit a world, then turn on the **behaviour pack** under Add-Ons. The resources pack follows.\n3. Find the **Brick Sampler Wand** in the Creative inventory.\n\nPhones: open the file from your Downloads folder. iPhone/iPad: tap it, then \"Open in Minecraft\". Consoles cannot import add-ons directly: add it to a world on a PC and upload that world to a Realm." },
+      { "id": "works-with", "kind": "body", "markdown": "### Works with\nWorks with Minecraft Bedrock 1.26.40 or newer, alongside other add-ons. No experiments needed." },
+      { "id": "credits", "kind": "body", "markdown": "### Credits\nBrick shapes come from the LDraw.org Parts Library (CC BY 4.0); see CREDITS-LDRAW.txt in the download for every part author. Every design in this pack is our own." },
+      { "id": "more", "kind": "body", "markdown": "[All packs]({siteBase}/packs/?ref=cf)" },
+      { "id": "support", "kind": "donation", "markdown": "### Support the project\nEverything here is free and stays free; nothing is locked behind a tip.\n[Ko-fi]({siteBase}/go/kofi?ref=cf) · [Dev log]({siteBase}/go/patreon?ref=cf)" },
+      { "id": "legal", "kind": "legal", "markdown": "{disclaimer}\nPublished by {brand}, contact: {email}." }
+    ]
+  },
+  "images": [
+    { "role": "logo", "preset": "cf-logo", "outName": "logo", "min": 1, "max": 1, "squareMinSide": 400, "purpose": "CurseForge logo (PNG, 1:1, at least 400x400)", "source": "plan D 4.1 [support.curseforge.com Project Submission Guide]", "status": "verified" },
+    { "role": "screenshots", "preset": "screenshot", "outName": "screenshot", "min": 1, "max": 8, "purpose": "Images tab: 6 in-game captures plus 2 renders labelled \"offline render\" (never AI-generated)", "source": "plan D 4.1", "status": "verified" }
+  ],
+  "file": { "kinds": ["zip", "mcaddon"], "changelog": true, "note": "A .zip with no root folder is the safe form; whether CurseForge Bedrock accepts a bare .mcaddon is unverified (plan D 3.3, R7)." },
+  "checklist": [
+    { "id": "cf.account", "action": "Use or create your authors.curseforge.com account.", "exactCommandOrUrl": "https://authors.curseforge.com/", "evidenceAfter": "the account name" },
+    { "id": "cf.create-project", "action": "Create the Minecraft Bedrock Addons project from fields.json and description.md; read the unverified name and summary limits off the form first.", "exactCommandOrUrl": "https://authors.curseforge.com/", "evidenceAfter": "the project URL" },
+    { "id": "cf.images", "action": "Upload the logo and the screenshots from images/.", "exactCommandOrUrl": "images/", "evidenceAfter": "the project page showing the images" },
+    { "id": "cf.file", "action": "Upload the file from file/ as a Release with changelog.md as the changelog.", "exactCommandOrUrl": "file/", "evidenceAfter": "the file id" },
+    { "id": "cf.rewards", "action": "Opt in to CurseForge Rewards and record the PayPal payout method yourself.", "exactCommandOrUrl": "https://authors.curseforge.com/", "evidenceAfter": "rewards enabled" },
+    { "id": "cf.record", "action": "Write the project id into release/channels/curseforge.json so the weekly report can read it.", "exactCommandOrUrl": "release/channels/curseforge.json", "evidenceAfter": "the project id" }
+  ]
+}

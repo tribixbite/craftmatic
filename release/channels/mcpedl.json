@@ -1,0 +1,21 @@
+{
+  "channel": "mcpedl",
+  "title": "MCPEDL (uploads through the CurseForge project)",
+  "templateVars": "see curseforge.json",
+  "fields": [
+    { "key": "slug", "label": "MCPEDL link slug (same as the product slug)", "value": "{slug}", "lint": "none" },
+    { "key": "thumbnailFileName", "label": "Thumbnail file name (exactly MCPEDL)", "value": "MCPEDL", "lint": "none" },
+    { "key": "thirdPartySharing", "label": "Third-party sharing", "value": true, "lint": "none" },
+    { "key": "rewards", "label": "Rewards", "value": true, "lint": "none" },
+    { "key": "linkedToCurseForgeAccount", "label": "MCPEDL profile linked to the CurseForge account (connected accounts)", "value": true, "lint": "none" },
+    { "key": "directDownloadOnly", "label": "Direct download only: never an ad-gated link", "value": true, "lint": "none" }
+  ],
+  "descriptionFrom": "curseforge",
+  "images": [
+    { "role": "thumbnail", "preset": "mcpedl-thumb", "outName": "MCPEDL", "min": 1, "max": 1, "purpose": "MCPEDL thumbnail, file named exactly MCPEDL", "source": "plan D 4.1 [CLS 2.3]: the file name is stated; the preferred size is unmeasured (1280x720 prepared)", "status": "unverified" }
+  ],
+  "file": null,
+  "checklist": [
+    { "id": "mcpedl.link", "action": "Link the MCPEDL profile to the CurseForge account, set the slug, upload the MCPEDL thumbnail from images/ and turn on third-party sharing; read the thumbnail size off the form.", "exactCommandOrUrl": "https://mcpedl.com/", "evidenceAfter": "the MCPEDL page URL" }
+  ]
+}
