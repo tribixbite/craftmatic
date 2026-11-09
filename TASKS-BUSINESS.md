@@ -107,10 +107,15 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
     - Rule breaches: X-12 ran `git checkout <file>` on its own experiment. Fail-first was skipped by B09, A05, X-03,
       X-08 (colour/writer) and F01: the brief now makes the failing run a merge condition.
     - Leftover worktree `.worktrees/biz-x02-base` (X-02's scratch, detached): never remove it (recursive delete).
-  - WAVE 2b IN FLIGHT 2026-11-09 (ownership in `docs/plans/wave2-brief.md`): M15 Script API audit, X-14 turntables
-    (+ settle the `_pack_render.ts` mirror question), D-06+D-16 (one agent, `biz-d06`), M06 budget gate (one tier),
-    X-13 clean-room similarity core, V-01 voxeliser winding-number inside test (branch from `biz-x12`, option default
-    OFF), F01b second figure design pass (Fable designer). X-15 (Worker) still waits: its merge deploys.
+  - WAVE 2 MERGED 2026-11-09 (suite 4,030 passed): X-02->X-17 (4 favourites byte-identical but the stamp,
+    `output/x02-compare/`), X-12, D-06+D-16, M06, X-13, M15, X-14, V-01. Ledger rows set PARTIAL with guards.
+    Notes: X-14 proved `_pack_render.ts` is NOT mirrored (offline); M15 found no beta API in any shipped script, and a
+    likely bug `GameMode.survival` in the GameTest script; M06: 3 of 4 favourites fail only on 11,008 permutations
+    (M03); X-13 thresholds review 0.2 / block 0.5 (recall 94 %); V-01's 1.000 IoU is self-consistency only -> NEXT
+    a truth from each brick's footprint cells (winding fills a brick's cavity, which is right for bricks).
+  - F01b DONE on `biz-f01b` (not yet merged): rex (dinosaur), rivet (robot), pip (bobblehead kid); all pass the gate
+    with attached limbs and faces; sheet `.worktrees/biz-f01b/output/f01b/candidates.jpg`; designer recommends rex.
+    The user picks (U4).
     (Superseded list:) Wave 2b, still to start: M15, X-14, D-06, D-16, M06 (default: one budget tier), X-13 (the clean-room half
     only); X-15 (its merge needs the user's approval, because every push to main deploys).
   - WAVE 1 (original list) 2026-11-09 (one agent each, worktree `.worktrees/biz-<id>`, branch `biz-<id>`, not merged until
