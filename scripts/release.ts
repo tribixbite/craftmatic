@@ -265,8 +265,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
   const archives = made.artifacts.map(n => join(dist, n));
   if (!failed()) {
     const py = spawnSync('python', ['-I', join(wt, 'scripts', '_mcaddon_check.py'), '--release', ...archives], { cwd: wt, encoding: 'utf8' });
-    const problemLines = py.stdout.split(/?
-/).filter(l => l.includes('!! ')).map(l => l.slice(l.indexOf('!! ') + 3));
+    const problemLines = py.stdout.split(/\r?\n/).filter(l => l.includes('!! ')).map(l => l.slice(l.indexOf('!! ') + 3));
     const waiversFile = join(fixture ? dataRoot : join(wt, 'release'), 'gate-waivers.json');
     const { uncovered, waived } = applyWaivers('release-validator', problemLines, existsSync(waiversFile) ? readJson<GateWaiver[]>(waiversFile) : []);
     const title = 'X-06 _mcaddon_check.py --release on .mcaddon and .zip';
