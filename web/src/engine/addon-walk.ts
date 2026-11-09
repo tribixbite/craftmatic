@@ -52,7 +52,7 @@ import {
 import { NO_INPUT, tickPlayer as simTickPlayer, type Box, type Contact as SimContact, type PlayerState, type SolidQuery, type TickResult as SimTickResult, type WalkInput } from '../sim/physics/body.js';
 import { BlockPalette, VoxelWorld, type Permutation, type TerrainGenerator, type WorldSolid } from '../sim/world/voxel-world.js';
 import { BlockTypes } from '../sim/world/block-types.js';
-import { COLLIDER_KIT, COLLIDER_STATES, colliderBlockDefinition, type ColliderForm } from './collider-form.js';
+import { COLLIDER_KIT, colliderBlockDefinition, colliderStateNames, type ColliderForm, type ColliderStateEncoding } from './collider-form.js';
 
 // ─── Constants: the simulator's player physics (web/src/sim/physics/body.ts) ──
 
@@ -105,12 +105,18 @@ export interface WalkWorldOptions {
   /** Static entity collision boxes (standing figures) the LIVE player bumps
    * into; never consulted by the reach BFS. See `EntitySolid`. */
   entitySolids?: readonly EntitySolid[];
+  /**
+   * How the walk world spells its collider blocks' states (`ColliderStateEncoding`). The world is built from decoded
+   * cells, so the encoding changes no collision: the default is the dev pack's, and a compact pack's walk may name
+   * `pair` to read the very block definitions that pack ships (M03).
+   */
+  colliderEncoding?: ColliderStateEncoding;
 }
 
 /** The block under the pin plane: the player's own ground, under and around the footprint. */
 const GROUND_BLOCK = 'minecraft:grass_block';
 
-let colliderRegistry: { palette: BlockPalette; types: BlockTypes } | undefined;
+const colliderRegistries = new Map<ColliderStateEncoding, { palette: BlockPalette; types: BlockTypes }>();
 /**
  * The block registry every walk world shares: the collider kit's definitions
  * exactly as the pack ships them (`colliderBlockDefinition`), read by the
@@ -120,19 +126,21 @@ let colliderRegistry: { palette: BlockPalette; types: BlockTypes } | undefined;
  * TODO(walk-pack-blocks): a pack built before the x-mirror fix ships other
  * definitions; the walk world reads the current kit's, not the pack's own.
  */
-function walkBlockRegistry(): { palette: BlockPalette; types: BlockTypes } {
-  if (!colliderRegistry) {
+function walkBlockRegistry(encoding: ColliderStateEncoding): { palette: BlockPalette; types: BlockTypes } {
+  let registry = colliderRegistries.get(encoding);
+  if (!registry) {
     const types = new BlockTypes();
-    for (let v = 0; v < COLLIDER_KIT.VARIANTS.length; v++) types.addDefinition(`blocks/collider_${v}.json`, colliderBlockDefinition(v));
-    colliderRegistry = { palette: new BlockPalette(), types };
+    for (let v = 0; v < COLLIDER_KIT.VARIANTS.length; v++) types.addDefinition(`blocks/collider_${v}.json`, colliderBlockDefinition(v, encoding));
+    registry = { palette: new BlockPalette(), types };
+    colliderRegistries.set(encoding, registry);
   }
-  return colliderRegistry;
+  return registry;
 }
 
 /** The collider kit permutation a grid block is laid as (the runtime's lay): its form's variant and states, else the full collider over lo..hi. */
-function colliderPermutationOf(b: { lo: number; hi: number; form?: ColliderForm }): { typeId: string; states: Record<string, number> } {
-  const f = b.form;
-  return { typeId: COLLIDER_KIT.VARIANTS[f ? f.v : 0]!.id, states: { [COLLIDER_STATES.lo]: f ? f.lo : b.lo, [COLLIDER_STATES.hi]: f ? f.hi : b.hi } };
+function colliderPermutationOf(b: { lo: number; hi: number; form?: ColliderForm }, encoding: ColliderStateEncoding): { typeId: string; states: Record<string, number> } {
+  const f = b.form, names = colliderStateNames(encoding);
+  return { typeId: COLLIDER_KIT.VARIANTS[f ? f.v : 0]!.id, states: COLLIDER_KIT.encodeStates(names.lo, names.hi, f ? f.lo : b.lo, f ? f.hi : b.hi) };
 }
 
 /** A collider permutation's facts for a `SolidBox`: its vertical extent (sixteenths) and its form variant (0 = full footprint). */
@@ -191,7 +199,8 @@ export class WalkWorld {
     }
     this.treadBlocks = blocks; this.treadSource = source; this.treadPlan = plan;
     this.entitySolids = options.entitySolids ?? [];
-    const { palette, types } = walkBlockRegistry();
+    this.encoding = options.colliderEncoding ?? 'legacy';
+    const { palette, types } = walkBlockRegistry(this.encoding);
     this.palette = palette;
     const grid = this.grid;
     // The terrain IS the laid grid (with its treads) over the ground: a column's block at a row is the collider
@@ -200,11 +209,14 @@ export class WalkWorld {
       if (y < 0) return { typeId: GROUND_BLOCK };
       if (!grid.inside(x, z)) return { typeId: 'minecraft:air' };
       const b = grid.column(x, z).blocks.find(k => k.row === y);
-      return b ? colliderPermutationOf(b) : { typeId: 'minecraft:air' };
+      return b ? colliderPermutationOf(b, this.encoding) : { typeId: 'minecraft:air' };
     }, { materialiseOnRead: true });
     this.voxels = new VoxelWorld('walk', palette, types, terrain);
     this.voxels.setAllLoaded();
   }
+
+  /** The collider state spelling this world's blocks use. */
+  private readonly encoding: ColliderStateEncoding;
 
   /** The voxel world the walk collides with (the re-laid grid, treads and overlay in it). */
   private readonly voxels: VoxelWorld;
@@ -246,7 +258,7 @@ export class WalkWorld {
       if (!this.grid.inside(x, z)) continue;
       const lo = st[0]!, hi = st[1]!, v = st[2] ?? 0;
       if (!this.underOverlay.has(key)) this.underOverlay.set(key, this.voxels.permutationAt(x, row, z));
-      const perm = colliderPermutationOf({ lo, hi, ...(v ? { form: { v, lo, hi } } : {}) });
+      const perm = colliderPermutationOf({ lo, hi, ...(v ? { form: { v, lo, hi } } : {}) }, this.encoding);
       this.voxels.setPermutation(x, row, z, this.palette.intern(perm.typeId, perm.states));
       const col = `${x},${z}`;
       let rows = this.overlayRows.get(col);
@@ -273,7 +285,7 @@ export class WalkWorld {
       }
       const lo = st[0]!, hi = st[1]!, v = st[2] ?? 0;
       if (!this.underOverlay.has(key)) this.underOverlay.set(key, this.voxels.permutationAt(x, row, z));
-      const perm = colliderPermutationOf({ lo, hi, ...(v ? { form: { v, lo, hi } } : {}) });
+      const perm = colliderPermutationOf({ lo, hi, ...(v ? { form: { v, lo, hi } } : {}) }, this.encoding);
       this.voxels.setPermutation(x, row, z, this.palette.intern(perm.typeId, perm.states));
       let rows = this.overlayRows.get(col);
       if (!rows) this.overlayRows.set(col, rows = new Set());
@@ -288,7 +300,7 @@ export class WalkWorld {
     const p = this.palette.get(id), v = COLLIDER_KIT.variantOf(p.typeId);
     if (v < 0) m = null;
     else {
-      const lo = Number(p.states[COLLIDER_STATES.lo]), hi = Number(p.states[COLLIDER_STATES.hi]);
+      const names = colliderStateNames(this.encoding), [lo, hi] = COLLIDER_KIT.decodeStates(names.lo, Number(p.states[names.lo]), Number(p.states[names.hi]));
       // A clearance form's vertical extent runs over all its boxes (a floor + wall form's wall reaches the block top).
       const boxes = COLLIDER_KIT.formBoxes(v, lo, hi);
       m = v ? { lo: Math.min(...boxes.map(b => b[2])), hi: Math.max(...boxes.map(b => b[3])), v } : { lo, hi, v: 0 };

@@ -356,7 +356,22 @@ A collider cell is one of (`collider-clearance.ts`, `COLLIDER_VARIANTS`):
 - **wall + ceiling**: the shape from the bottom of the block to `lo` and full
   `lo..hi` - a wall's top under the ceiling plate in the same row.
 
-43 blocks, 5,848 condition entries in all (the old block had 136). The two
+43 blocks, 5,848 condition entries in all (the old block had 136).
+
+**State spelling and the permutation limit (M03, BIZ-23).** Bedrock counts a block's registered permutations as the
+product of its states' value counts, and the Marketplace allows 10,000 per pack. The dev pack's `craftmatic:lo` (16
+values) x `craftmatic:hi` (16) is 256 per block, 43 x 256 = **11,008**, although only 136 (lo < hi) are ever used.
+`PackProfile.flags.compactColliderStates` ships the compact spelling instead (`ColliderStateEncoding` `pair`,
+collider-form.ts): the 136 valid spans numbered in order and written as two states `craftmatic:cell_a` / `cell_b` of
+12 values (p = a x 12 + b), 144 per block, **6,192** in all, with the very same 136 condition entries, so every form's
+boxes are identical (test/marketplace-blocks.test.ts compares all 43 x 136). Two states, not plan A's single 0..135
+`pair` state, because a block state holds at most 16 values (see above). The kit's `encodeStates` / `decodeStates` are
+the one spelling (identity for `lo`/`hi`; the encoding is read from the state name, a name ending `_a` is compact) and
+every runtime that lays or reads a collider goes through them or through `ColliderBodyProbe.readSpan`; the structure
+tiles' palette is respelled by `compactColliderPalette`. NOT device-proven: the dev pack keeps `lo`/`hi`.
+Own brick blocks (`flags.brickBlocks`, marketplace/blocks.ts): `<ns>:brick_<colour>` and `<ns>:plate_<colour>`, no
+states (1 permutation each), textures `textures/blocks/craftmatic_brick_<colour>[_top].png`, replacing the vanilla
+`concrete_<colour>.png` overrides. The two
 split forms use the 1.26.0 array. `colliderCover` turns any set of boxes in a
 block into the form of least volume that CONTAINS them all; the re-lay at
 another wand size and turn, the doorway runtime, the Walk add-on, the walk

@@ -2214,6 +2214,8 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
   const C = config.colliders;
   // Where a body fits over this pack's colliders (a step-out lands only there).
   const body = bodyProbe(kit, C.loState, C.hiState);
+  /** The span a collider permutation holds (`sightClear` has its own `body` parameter, the player's box). */
+  const spanOf = (permutation: any): [number, number] => body.readSpan(permutation);
   const byType = new Map<string, number>();
   config.items.forEach((it, i) => byType.set(it.type, i));
   const lastUse = new Map<string, number>();
@@ -2297,7 +2299,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
           // Never overwrite a block that is not ours (the player built there).
           if (!ours && !air) continue;
           const id = kit.VARIANTS[st[2] || 0]!.id;
-          if (ours && b.typeId === id && Number(b.permutation.getState(C.loState)) === st[0] && Number(b.permutation.getState(C.hiState)) === st[1]) continue;
+          if (ours && b.typeId === id && spanOf(b.permutation).join() === `${st[0]},${st[1]}`) continue;
           kit.lay(b, { v: st[2] || 0, lo: st[0], hi: st[1] }, C.loState, C.hiState, (rid: string, rst: any) => BlockPermutation.resolve(rid, rst));
         } else if (ours) b.setPermutation(BlockPermutation.resolve('minecraft:air'));
       } catch { ok = false; }
@@ -2557,7 +2559,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
       try { b = dim.getBlock(p); } catch { b = undefined; }
       const v = b ? kit.variantOf(b.typeId) : -1;
       if (v < 0) continue;
-      const lo = Number(b.permutation.getState(C.loState)), hi = Number(b.permutation.getState(C.hiState));
+      const [lo, hi] = spanOf(b.permutation);
       if (!Number.isFinite(lo) || !Number.isFinite(hi)) return false;
       const fx = (q.x - p.x) * 16, fy = (q.y - p.y) * 16, fz = (q.z - p.z) * 16;
       // Overlap past a sliver (1/64 block): a player standing against a wall touches its face without entering it.

@@ -1862,7 +1862,7 @@ If your last placement is in the way, undo it first.`)
         let block: any;
         try { block = dim.getBlock(pos); } catch {}
         if (!block) continue;
-        try { block.setPermutation(BlockPermutation.resolve(c.block, { [c.loState]: tl, [c.hiState]: th })); written.add(`${pos.x},${pos.y},${pos.z}`); steps++; } catch {}
+        try { block.setPermutation(BlockPermutation.resolve(c.block, kit.encodeStates(c.loState, c.hiState, tl, th))); written.add(`${pos.x},${pos.y},${pos.z}`); steps++; } catch {}
         if (++budget % 400 === 0) {
           if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
           await wait(1);
@@ -1940,7 +1940,7 @@ If your last placement is in the way, undo it first.`)
               if (!block) continue;
               const ours = kit.variantOf(block.typeId) >= 0;
               if (!ours && !(block.isAir === true || block.typeId === 'minecraft:air' || block.typeId === 'minecraft:unknown')) continue;
-              if (ours && block.typeId === kit.VARIANTS[form.v].id && Number(block.permutation.getState(config.colliders.loState)) === form.lo && Number(block.permutation.getState(config.colliders.hiState)) === form.hi) continue;
+              if (ours && block.typeId === kit.VARIANTS[form.v].id && kit.decodeStates(config.colliders.loState, block.permutation.getState(config.colliders.loState), block.permutation.getState(config.colliders.hiState)).join() === `${form.lo},${form.hi}`) continue;
               if (!kit.lay(block, form, config.colliders.loState, config.colliders.hiState, (id: string, st2: any) => BlockPermutation.resolve(id, st2))) fellBack++;
             } catch {}
           }
@@ -2022,7 +2022,7 @@ If your last placement is in the way, undo it first.`)
                 if (!b) return null;
                 const v = kit.variantOf(b.typeId);
                 if (v >= 0) {
-                  const lo = Number(b.permutation.getState(config.colliders.loState)), hi = Number(b.permutation.getState(config.colliders.hiState));
+                  const [lo, hi] = kit.decodeStates(config.colliders.loState, b.permutation.getState(config.colliders.loState), b.permutation.getState(config.colliders.hiState));
                   if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [y, y + 1];
                   // A clearance form's vertical extent (collider-form.ts); a full collider's is lo..hi.
                   const boxes = kit.formBoxes(v, lo, hi);
@@ -2127,7 +2127,7 @@ If your last placement is in the way, undo it first.`)
           if (config.colliders) {
             const block = dim.getBlock({ x: Math.floor(q.x), y: Math.floor(q.y), z: Math.floor(q.z) });
             if (block && kit.variantOf(block.typeId) >= 0) {
-              const lo = Number(block.permutation.getState(config.colliders.loState)), hi = Number(block.permutation.getState(config.colliders.hiState));
+              const [lo, hi] = kit.decodeStates(config.colliders.loState, block.permutation.getState(config.colliders.loState), block.permutation.getState(config.colliders.hiState));
               if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi - lo >= 12) tell(p, `§eMarked seat ${k + 1} is inside a wall-height collider; stand on the chair surface and mark it again.`);
             }
           }
