@@ -68,7 +68,9 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
   - the Studio EULA forbids redistributing parts of it;
   - LEGO shut down a free Bionicle fan game (May 2025);
   - Mojang's guidelines cite branded cars and movie characters as disallowed.
-- NEXT: the user chooses a scenario (asked 2026-11-06). Until then nothing below is decided; no listing work.
+- NEXT: the user chooses a scenario (asked 2026-11-06). The review doc is `docs/business-scenarios.md`
+  (2026-11-09): scenarios, risks, prices, the work each needs, and the five decisions asked. Until then nothing below
+  is decided; no listing work.
 
 ## The user's hypothesis (to test, not assume)
 "None of the original source files are used in the resulting distribution, so it is legally feasible,

@@ -77,23 +77,39 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
 
      Rebuilt (`.worktrees/gen-seat4-veh/output/seat4-after5-sim.md`): 3 of 36 scenarios fail, none of them a passenger.
      Favourites: only 75397 moved (3 passengers that were 2.4-3.75 over the top at 100 % now sit on its deck).
-     OPEN, from class 2: 31109's driver eye is lifted 10.2 blocks over the sails to see ahead (the documented
-     hidden-rider fallback) and the sim calls it 6.14 over the drawn top. Decide: cap the lift, or exempt hidden
-     riders in the sim. The 75397 driver at 100 % was off before and still is.
+     FIXED and merged (`gen-lift-1107`): when no cabin eye sees ahead, a SCRIPTED vehicle's rider now stays drawn
+     at the helm and only the hotbar-9 camera rises (`helmSeatPlan`, sim `driverLookFrom`). This fixed 31109 (4 seat
+     failures to 0) and 75397's 100 % driver (2.84 over the top before, now on its deck), and cleared 3222, 42229,
+     5489 and 6243's seat failures. Favourites moved: 75397 (all onto the deck), 60446 (pilot 1.1 lower, drawn at
+     200 % and up), 10337. QUESTIONABLE: 10337's passenger at 100 % rose 0.28 -> 0.93 onto its drawn top while
+     hidden; add a guard if a device round dislikes it. None of these moves is device-proven.
   5. FIXED, a SIM harness gap and not a pack bug: the second aircraft of 3222, 3368, 3658 and 8638 was "missing"
      because driving the first one took the player out of loading range. `driveVehicle` now walks back to the model
      (`unloadedMatches`, runner.ts). 3658 and 3368 now pass; 8638's third jet fails `driver-sees-ahead` (class 2).
-  6. **Windows no tap reaches**: 3 sets, 3600, 5482 and 5508. Brick-box houses.
-  7. **Doorway lines**: 2 sets. On 2504 a tread blocks the porch; on 5582 a 2.1-3.2 block HOLE opens at Door 2.
+  6. **Windows no tap reaches** (merged `gen-ix-1107`, sim-only, no pack change):
+     - 3600 FIXED: the sim's retry after a "behind a wall" refusal now also tries 0.6 and 0.9 out
+       (`IN_FRONT_RINGS`).
+     - 5482 and 5508 are bad sources: recon_v3 stacks 9-11 windows in one column over no floor. The sim now notes a
+       part no drawn floor reaches as the MODEL's (`outOfReachByModel`); violations fell 40 -> 10 and 48 -> 18.
+     - OPEN sim gap: the rest are windows whose only tap spot has a walking figure in front of it. The runtime
+       passes a tap on a figure through to the part behind it; the sim's spot search does not.
+  7. **Doorway lines**, OPEN, two design questions (the agent stopped rather than patch again):
+     - 2504 at 150 %: the access stair up to Door 1 runs across Door 2's OUTSIDE approach, up to 3.75 tall (pack
+       x 15-19, z 10-11). The stair planner's "blocks nothing" check passes because Door 2's threshold is still
+       reached from inside. Options: protect each door's approach columns from other doors' stairs, or require a
+       threshold to stay reachable from every side it was reached from before. Judge either on every
+       device-proven walk route (SCALE-06 `_walk_line.ts` lines).
+     - 5582 is a bad source: Door 1 (y 0-2.25) and Door 2 (y 2.125-4.6) overlap in the same columns, with a slab
+       through Door 1's leaf, so one door's passage removes the other's landing. There is no consistent answer;
+       a candidate rule is to drop the lower door when two leaves overlap.
 
   Seat audit (`census/audit.md`): 271 seat places; the player can sit at 224; 47 have no use. Regressions at
   `4da29033`: 38 NOT TESTED. The regression set looks for round-named packs
   (`10788-gabbys-dollhouse.mcaddon`) that the sweep does not write, so run it against a round's pack dir.
 - Step 3 NEXT (`gen-veh-1106` and `gen-view-1106` are MERGED into main, full suite green; the favourites seat audit
   `output/generality-1106/fav-named/audit.md`: 161 places, 159 the player can sit at, the 2 others by design):
-  - IN FLIGHT 2026-11-07 (agents, not merged): classes 6 and 7 on branch `gen-ix-1107` (`.worktrees/gen-ix-1107`);
-    the 31109 / 75397 driver lift on `gen-lift-1107` (`.worktrees/gen-lift-1107`). If a session restarts, read
-    each branch's `git log main..<branch>` and re-run its suite before merging;
+  - `gen-ix-1107` and `gen-lift-1107` MERGED 2026-11-09 (suite green: 225 files). Next: class 7's stair rule
+    (2504), the sim's figure-in-front tap gap;
   - class 2's side-view policy (6 sets) waits on the user;
   - re-run the census (`output/generality-1106/run-census.sh`, into a NEW output dir).
 - Step 4: a per-vehicle drive check for every census vehicle: the sim's vehicles scenario (move 20 blocks, turn,
