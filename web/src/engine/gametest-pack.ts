@@ -1141,7 +1141,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       if (b.isAir === true || b.isLiquid === true || b.typeId === 'minecraft:air') return [];
       const v = col && kit ? kit.variantOf(b.typeId) : -1;
       if (v >= 0) {
-        const lo = Number(b.permutation.getState(col!.loState)), hi = Number(b.permutation.getState(col!.hiState));
+        const [lo, hi] = kit!.decodeStates(col!.loState, b.permutation.getState(col!.loState) as number, b.permutation.getState(col!.hiState) as number);
         if (Number.isFinite(lo) && Number.isFinite(hi)) return kit!.formBoxes(v, lo, hi).map(w => [bx + w[0]! / 16, bx + w[1]! / 16, by + w[2]! / 16, by + w[3]! / 16, bz + w[4]! / 16, bz + w[5]! / 16]);
       }
       return [[bx, bx + 1, by, by + 1, bz, bz + 1]];

@@ -39,6 +39,7 @@ import { driverViewWorld, drawnReaches, drawnTopOver, entityDrawn, type DrawnBox
 import { modelToWorld, vehicleCameraEntry, type CraftmaticPack, type Placed } from './pack-facts.js';
 import { cockpitCamera } from '../../../engine/vehicle-free-look.js';
 import { collisionScaleAudit, describeBoxRow, describeDrift, describePlace, describeSeatRow, seatOnDrawn, seatOnTop, seatScaleAudit, seatScaleDrift, seats100 } from './seat-scale.js';
+import { COLLIDER_KIT, COLLIDER_STATES } from '../../../engine/collider-form.js';
 import { PLACED_KEY } from './wand.js';
 import { treadBlocksFor } from '../../../engine/bedrock-placement-pack.js';
 import { relayRounding, type QuarterTurn } from '../../../engine/bedrock-collider-scale.js';
@@ -309,7 +310,9 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       const w = ctx.sim.engine.dimension(v.dimension), base = Math.floor(v.location.y + 1e-6);
       const yaw = v.rotation.y * Math.PI / 180, fx = -Math.sin(yaw), fz = Math.cos(yaw), ahead = Number(step['ahead'] ?? 6);
       const lo = Number(step['lo'] ?? 4), hi = Number(step['hi'] ?? 16), rise = Number(step['rise'] ?? 1);
-      const block = ctx.sim.host.resolvePermutation(pack.placement.colliders?.block ?? 'craftmatic:collider', { [pack.placement.colliders?.loState ?? 'craftmatic:lo']: lo, [pack.placement.colliders?.hiState ?? 'craftmatic:hi']: hi });
+      // The pack's own state spelling (the dev pack's lo/hi or M03's compact pair): the kit encodes what the pack's scripts decode.
+      const stateNames = { lo: pack.placement.colliders?.loState ?? COLLIDER_STATES.lo, hi: pack.placement.colliders?.hiState ?? COLLIDER_STATES.hi };
+      const block = ctx.sim.host.resolvePermutation(pack.placement.colliders?.block ?? 'craftmatic:collider', COLLIDER_KIT.encodeStates(stateNames.lo, stateNames.hi, lo, hi));
       for (let d = 0; d < 5; d++) for (let side = -3; side <= 3; side++) {
         const x = Math.floor(v.location.x + fx * (ahead + d) - fz * side), z = Math.floor(v.location.z + fz * (ahead + d) + fx * side);
         w.setPermutation(x, base + rise, z, block);

@@ -1413,7 +1413,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     if (PASSABLE.test(id)) return null;
     if (COL && id === COL.block) {
       let lo = 0, hi = 16;
-      try { lo = Number(b.permutation.getState(COL.loState)); hi = Number(b.permutation.getState(COL.hiState)); } catch { /* full */ }
+      try { [lo, hi] = body ? body.readSpan(b.permutation) : [Number(b.permutation.getState(COL.loState)), Number(b.permutation.getState(COL.hiState))]; } catch { /* full */ }
       return Number.isFinite(lo) && Number.isFinite(hi) && hi > lo ? [lo / 16, hi / 16] : [0, 1];
     }
     if (/_slab$/.test(id)) {

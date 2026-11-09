@@ -27,7 +27,7 @@ export interface PackProfileTexts {
   lang: Record<string, string>;
 }
 
-/** Behaviour switches; every one defaults to the dev pack's value (all true except `explicitOnly`). */
+/** Behaviour switches; every one defaults to the dev pack's value (all true except `explicitOnly`, `brickBlocks` and `compactColliderStates`). */
 export interface PackProfileFlags {
   /** Ship the 17 vanilla-path `textures/blocks/concrete_*.png` overrides (a Marketplace pack must not). */
   vanillaTextures: boolean;
@@ -39,6 +39,10 @@ export interface PackProfileFlags {
   devStamp: boolean;
   /** X-17: no title / set-number heuristic (canon, time machine, Batcave, vehicle-by-title) is applied; only explicit hints decide. */
   explicitOnly: boolean;
+  /** M03: ship our own `<ns>:brick_<colour>` / `<ns>:plate_<colour>` blocks and their textures (the replacement for the vanilla concrete overrides). Default false. */
+  brickBlocks: boolean;
+  /** M03: spell the collider blocks' span as two 12-value states (6,192 permutations, not 11,008: a Marketplace pack must stay <= 10,000). Default false: the dev pack's `lo`/`hi`. */
+  compactColliderStates: boolean;
 }
 
 export interface PackProfile {
@@ -58,7 +62,7 @@ export interface PackProfile {
 
 /** The dev pack's value for every flag. */
 export const DEV_PACK_FLAGS: Readonly<PackProfileFlags> = Object.freeze({
-  vanillaTextures: true, diagnostics: true, faceArt: true, devStamp: true, explicitOnly: false,
+  vanillaTextures: true, diagnostics: true, faceArt: true, devStamp: true, explicitOnly: false, brickBlocks: false, compactColliderStates: false,
 });
 
 /** `profile.flags` over the dev defaults: with no profile, exactly the dev pack. */

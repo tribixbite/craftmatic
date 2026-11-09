@@ -489,6 +489,8 @@ export function findLifts(bricks: readonly ParsedBrick[], meshes: ReadonlyMap<st
 // ─── Runtime ─────────────────────────────────────────────────────────────────
 
 export interface RideRuntimeConfig {
+  /** The collider blocks' two state names where the pack does not use the dev pack's `lo`/`hi` (M03's compact spelling); absent = the dev pack's. */
+  colliderStates?: { lo: string; hi: string } | undefined;
   /** The invisible rideable seat type every player ride (slide, lift) shares. */
   seatType: string;
   /**
@@ -748,5 +750,5 @@ export function ridesScript(config: RideRuntimeConfig): string {
   const hopArg = config.hop ? `, (${hopKit.toString()})(CONFIG.hop)` : '';
   // The set-down's last resort is the collider probe's own bound, filled where a config (an older pack's) lacks it.
   const shipped: RideRuntimeConfig = { ...config, escape: config.escape ?? ESCAPE_OPTIONS };
-  return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(shipped)};\n(${ridesRuntime.toString()})(CONFIG, (${colliderBodyProbe.toString()})((${colliderFormKit.toString()})(), ${JSON.stringify(COLLIDER_LO_STATE)}, ${JSON.stringify(COLLIDER_HI_STATE)})${hopArg});\n`;
+  return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(shipped)};\n(${ridesRuntime.toString()})(CONFIG, (${colliderBodyProbe.toString()})((${colliderFormKit.toString()})(), ${JSON.stringify(config.colliderStates?.lo ?? COLLIDER_LO_STATE)}, ${JSON.stringify(config.colliderStates?.hi ?? COLLIDER_HI_STATE)})${hopArg});\n`;
 }

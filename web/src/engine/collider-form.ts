@@ -50,6 +50,17 @@ export interface ColliderFormKit {
   formBoxes(v: number, lo: number, hi: number): Box16[];
   /** The form of least volume containing every box (null for none); a full-footprint result is always v = 0. */
   cover(boxes: ReadonlyArray<readonly number[]>): ColliderForm | null;
+  /** The two state names a collider block of `encoding` carries (`COLLIDER_STATES` / `COLLIDER_PAIR_STATES`). */
+  stateNames(encoding: ColliderStateEncoding): { lo: string; hi: string };
+  /**
+   * The state values that lay the span `lo..hi`, keyed by the block's two state names. The encoding is read from
+   * `loState` (`craftmatic:lo` is the legacy spelling: the values are `lo` and `hi`; a name ending `_a` is the
+   * compact pair spelling, see `COLLIDER_PAIR_STATES`). An impossible span (`hi <= lo`) encodes as an unused
+   * combination, which no permutation matches, so the block keeps its base box exactly as the legacy states did.
+   */
+  encodeStates(loState: string, hiState: string, lo: number, hi: number): Record<string, number>;
+  /** The inverse: `(lo, hi)` from the two raw state values read under `loState`'s encoding (`[NaN, NaN]` for a non-number; an unused combination reads as the base span 0..16). */
+  decodeStates(loState: string, a: number, b: number): [number, number];
   /** The form turned by a quarter turn about the vertical (the wand's placement turn). */
   turnForm(form: ColliderForm, r: number): ColliderForm;
   /**
@@ -98,6 +109,30 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
       if (q[0] <= x0 && q[1] >= x1 && q[2] <= z0 && q[3] >= z1 && area(s) < area(best)) best = s;
     }
     return best;
+  };
+  // The compact state spelling (see COLLIDER_PAIR_STATES): the 136 valid (lo, hi) pairs numbered in order, written
+  // as two states of PAIR_RADIX values each (12 x 12 = 144 registered permutations per block instead of 16 x 16).
+  const PAIR_RADIX = 12;
+  const PAIRS: Array<[number, number]> = [];
+  const PAIR_AT: number[] = [];
+  for (let l = 0; l < 16; l++) for (let h = l + 1; h <= 16; h++) { PAIR_AT[l * 17 + h] = PAIRS.length; PAIRS.push([l, h]); }
+  const isPair = (loState: string): boolean => loState.slice(-2) === '_a';
+  const stateNames: ColliderFormKit['stateNames'] = (encoding) => encoding === 'pair'
+    ? { lo: 'craftmatic:cell_a', hi: 'craftmatic:cell_b' }
+    : { lo: 'craftmatic:lo', hi: 'craftmatic:hi' };
+  const encodeStates: ColliderFormKit['encodeStates'] = (loState, hiState, lo, hi) => {
+    if (!isPair(loState)) return { [loState]: lo, [hiState]: hi };
+    const at = PAIR_AT[lo * 17 + hi];
+    const p = at === undefined ? PAIRS.length : at;
+    return { [loState]: Math.floor(p / PAIR_RADIX), [hiState]: p % PAIR_RADIX };
+  };
+  const decodeStates: ColliderFormKit['decodeStates'] = (loState, a, b) => {
+    const x = Number(a), y = Number(b);
+    if (!isPair(loState)) return [x, y];
+    const p = x * PAIR_RADIX + y;
+    if (!Number.isFinite(p)) return [NaN, NaN];
+    const pair = PAIRS[p];
+    return pair ? [pair[0], pair[1]] : [0, 16];
   };
   const formBoxes = (v: number, lo: number, hi: number): Box16[] => {
     const d = VARIANTS[v]!, q = SHAPES[d.shape]!;
@@ -200,16 +235,16 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
   };
   const lay: ColliderFormKit['lay'] = (block, form, loState, hiState, resolve) => {
     try {
-      block.setPermutation(resolve(VARIANTS[form.v]!.id, { [loState]: form.lo, [hiState]: form.hi }));
+      block.setPermutation(resolve(VARIANTS[form.v]!.id, encodeStates(loState, hiState, form.lo, form.hi)));
       return true;
     } catch (e) {
       if (!form.v) throw e;
       const boxes = formBoxes(form.v, form.lo, form.hi);
-      block.setPermutation(resolve(VARIANTS[0]!.id, { [loState]: Math.min(...boxes.map(b => b[2])), [hiState]: Math.max(...boxes.map(b => b[3])) }));
+      block.setPermutation(resolve(VARIANTS[0]!.id, encodeStates(loState, hiState, Math.min(...boxes.map(b => b[2])), Math.max(...boxes.map(b => b[3])))));
       return false;
     }
   };
-  return { SHAPES, VARIANTS, variantOf: (id: string): number => (id in byId ? byId[id]! : -1), formBoxes, cover, turnForm, cellPieces, lay };
+  return { SHAPES, VARIANTS, variantOf: (id: string): number => (id in byId ? byId[id]! : -1), formBoxes, cover, stateNames, encodeStates, decodeStates, turnForm, cellPieces, lay };
 }
 
 /** The kit, built once for the engine (the runtimes build their own from the serialised source). */
@@ -253,6 +288,8 @@ export const ESCAPE_OPTIONS: EscapeOptions = {
 
 /** What a runtime asks of a standing body over the pack's colliders (`colliderBodyProbe`). */
 export interface ColliderBodyProbe {
+  /** The (lo, hi) span a collider block's permutation holds under this pack's state spelling (`ColliderFormKit.decodeStates`). */
+  readSpan(permutation: { getState(name: string): unknown }): [number, number];
   /** Whether a 0.6 x 1.8 body with its feet at `q` meets no collider form box and no other non-air block (unloaded counts as solid). */
   bodyFree(dim: any, q: { x: number; y: number; z: number }): boolean;
   /** The highest collision top under the body's footprint at (x, z), at most `fromY` and at least `fromY - depth`; undefined for none. */
@@ -317,7 +354,7 @@ export function colliderBodyProbe(kit: ColliderFormKit, loState: string, hiState
     if (!b) return undefined;
     const v = kit.variantOf(b.typeId);
     if (v < 0) return b.isAir === false && b.isLiquid !== true ? [[bx, bx + 1, by, by + 1, bz, bz + 1]] : [];
-    const lo = Number(b.permutation.getState(loState)), hi = Number(b.permutation.getState(hiState));
+    const [lo, hi] = kit.decodeStates(loState, b.permutation.getState(loState), b.permutation.getState(hiState));
     if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [[bx, bx + 1, by, by + 1, bz, bz + 1]];
     return kit.formBoxes(v, lo, hi).map(w => [bx + w[0] / 16, bx + w[1] / 16, by + w[2] / 16, by + w[3] / 16, bz + w[4] / 16, bz + w[5] / 16]);
   };
@@ -498,13 +535,48 @@ export function colliderBodyProbe(kit: ColliderFormKit, loState: string, hiState
     }
     return at;
   };
-  return { bodyFree, floorTop, hasWalkExit, routeClear, escape, settle };
+  const readSpan: ColliderBodyProbe['readSpan'] = (permutation) => kit.decodeStates(loState, permutation.getState(loState) as number, permutation.getState(hiState) as number);
+  return { readSpan, bodyFree, floorTop, hasWalkExit, routeClear, escape, settle };
 }
 
 // ─── The blocks' definitions (the pack's `blocks/*.json`) ─────────────────────
 
 /** The two states every collider form carries: its sixteenth span (the pack writer's `COLLIDER_LO_STATE` / `_HI_STATE`). */
 export const COLLIDER_STATES = { lo: 'craftmatic:lo', hi: 'craftmatic:hi' } as const;
+
+/**
+ * How a collider block spells its span in block states.
+ *   `legacy` - `craftmatic:lo` (0..15) and `craftmatic:hi` (1..16): 16 x 16 = 256 registered permutations per block, 43
+ *              blocks, 11,008 in all: over the Marketplace's 10,000 (the dev pack, device-proven, keeps it).
+ *   `pair`   - the 136 valid (lo < hi) spans numbered 0..135 and written as two states, `craftmatic:cell_a` and
+ *              `craftmatic:cell_b`, of 12 values each (p = a x 12 + b): 144 per block, 6,192 in all. Two states, not one
+ *              of 136 values: a block state holds at most 16 values (bedrock.dev, Block States), so plan A's single
+ *              `pair` state 0..135 would be an invalid definition. The same 136 condition entries, so every form's boxes
+ *              are exactly the legacy ones (test/marketplace-blocks.test.ts).
+ */
+export type ColliderStateEncoding = 'legacy' | 'pair';
+/** The compact encoding's two state names (the kit's `stateNames('pair')`; a name ending `_a` marks the encoding). */
+export const COLLIDER_PAIR_STATES = { lo: 'craftmatic:cell_a', hi: 'craftmatic:cell_b' } as const;
+/** Values per compact state; 12 x 12 covers the 136 pairs. */
+export const COLLIDER_PAIR_RADIX = 12;
+/**
+ * A grid palette (block-state strings) with every collider entry respelled for the compact encoding:
+ * `craftmatic:collider_w2[lo=3,hi=9]` -> `craftmatic:collider_w2[cell_a=..,cell_b=..]`, so the structure tiles carry
+ * the states the pack's block definitions declare. Other entries pass through; the order (the palette indices) is kept.
+ */
+export function compactColliderPalette(palette: readonly string[]): string[] {
+  const names = COLLIDER_PAIR_STATES;
+  const bare = (n: string): string => n.slice(n.indexOf(':') + 1);
+  return palette.map(entry => {
+    const m = /^(craftmatic:collider(?:_[a-z]\d+)?)\[lo=(\d+),hi=(\d+)\]$/.exec(entry);
+    if (!m) return entry;
+    const states = COLLIDER_KIT.encodeStates(names.lo, names.hi, Number(m[2]), Number(m[3]));
+    return `${m[1]}[${bare(names.lo)}=${states[names.lo]},${bare(names.hi)}=${states[names.hi]}]`;
+  });
+}
+
+/** The state names of an encoding. */
+export const colliderStateNames = (encoding: ColliderStateEncoding): { readonly lo: string; readonly hi: string } => encoding === 'pair' ? COLLIDER_PAIR_STATES : COLLIDER_STATES;
 
 /**
  * A form box (sixteenths, world axes) as a Bedrock collision box: origin from
@@ -519,17 +591,27 @@ export const COLLIDER_STATES = { lo: 'craftmatic:lo', hi: 'craftmatic:hi' } as c
  */
 export const collisionBox = (b: readonly number[]): { origin: number[]; size: number[] } => ({ origin: [8 - b[1]!, b[2]!, b[4]! - 8], size: [b[1]! - b[0]!, b[3]! - b[2]!, b[5]! - b[4]!] });
 
-/** Every (lo, hi) pair with lo < hi: 136 permutations, each laying variant `v`'s boxes. */
-const colliderPermutations = (v = 0): unknown[] => {
+/** Every (lo, hi) pair with lo < hi: 136 permutation entries, each laying variant `v`'s boxes, conditioned on the encoding's states. */
+const colliderPermutations = (v: number, encoding: ColliderStateEncoding): unknown[] => {
   const out: unknown[] = [];
+  const names = colliderStateNames(encoding);
   for (let l = 0; l < 16; l++) for (let h = l + 1; h <= 16; h++) {
     const boxes = COLLIDER_KIT.formBoxes(v, l, h).map(collisionBox);
+    const states = COLLIDER_KIT.encodeStates(names.lo, names.hi, l, h);
     out.push({
-      condition: `q.block_state('${COLLIDER_STATES.lo}') == ${l} && q.block_state('${COLLIDER_STATES.hi}') == ${h}`,
+      condition: `q.block_state('${names.lo}') == ${states[names.lo]} && q.block_state('${names.hi}') == ${states[names.hi]}`,
       components: { 'minecraft:collision_box': boxes.length === 1 ? boxes[0] : boxes },
     });
   }
   return out;
+};
+
+/** The declared state value ranges of an encoding. */
+const colliderStateRanges = (encoding: ColliderStateEncoding): Record<string, unknown> => {
+  const names = colliderStateNames(encoding);
+  return encoding === 'pair'
+    ? { [names.lo]: { values: { min: 0, max: COLLIDER_PAIR_RADIX - 1 } }, [names.hi]: { values: { min: 0, max: COLLIDER_PAIR_RADIX - 1 } } }
+    : { [names.lo]: { values: { min: 0, max: 15 } }, [names.hi]: { values: { min: 1, max: 16 } } };
 };
 
 /**
@@ -540,8 +622,9 @@ const colliderPermutations = (v = 0): unknown[] => {
  * those blocks declare it; the others keep the format the collider has always
  * had. The pack ships exactly this; the walk worlds (addon-walk.ts) and the
  * simulator read their collision from it, so there is one reading of a form.
+ * `encoding` picks the state spelling (`ColliderStateEncoding`); the default is the dev pack's.
  */
-export function colliderBlockDefinition(v = 0): unknown {
+export function colliderBlockDefinition(v = 0, encoding: ColliderStateEncoding = 'legacy'): unknown {
   const variant = COLLIDER_KIT.VARIANTS[v]!;
   const base = COLLIDER_KIT.formBoxes(v, 0, 16).map(collisionBox);
   return {
@@ -550,10 +633,7 @@ export function colliderBlockDefinition(v = 0): unknown {
       description: {
         identifier: variant.id,
         menu_category: { category: 'none' },
-        states: {
-          [COLLIDER_STATES.lo]: { values: { min: 0, max: 15 } },
-          [COLLIDER_STATES.hi]: { values: { min: 1, max: 16 } },
-        },
+        states: colliderStateRanges(encoding),
       },
       components: {
         'minecraft:geometry': 'minecraft:geometry.full_block',
@@ -565,7 +645,7 @@ export function colliderBlockDefinition(v = 0): unknown {
         'minecraft:destructible_by_explosion': false,
         'minecraft:friction': 0.6,
       },
-      permutations: colliderPermutations(v),
+      permutations: colliderPermutations(v, encoding),
     },
   };
 }

@@ -4,6 +4,8 @@ import { createZip } from './zip-utils.js';
 import { deterministicUuid, packIdentity, PACK_NAMESPACE, toBedrockIdentifier } from './mcpack.js';
 import { currentPipelineStamp, packDisplayName, packProvenance, packVersionAt, provenanceSentence, unstampedPipeline, type PackProvenance, type PipelineStamp, type SourceProvenance } from './pipeline-version.js';
 import { applyLangOverrides, labelHeuristicsAllowed, resolvePackFlags, type PackProfile } from './pack-profile.js';
+import { compactColliderPalette, colliderStateNames, type ColliderStateEncoding } from './collider-form.js';
+import { BRICK_BLOCK_COLOURS, BRICK_BLOCK_KINDS, brickBlockDefinition, brickBlockId, brickBlockLangLines, brickBlockTextureFiles, brickBlockTextures, plateGeometry } from './marketplace/blocks.js';
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
@@ -26,7 +28,7 @@ import { creatorFigureBehavior, minifigWandScript } from './bedrock-minifig-wand
 import { MAX_PRINT_LAYERS, MINIFIG_CREATOR_COLOURS, POSE_PROPERTY, type MinifigLibrarySpec, type MinifigCreatorConfig, type CreatorSlot } from './minifig-creator-types.js';
 import { CREATOR_POSES, creatorPoseAnimations, ldrawColourName } from './minifig-creator.js';
 import { isTrackPart } from './coaster-track.js';
-import { COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior, splitStaticShell, type ShellCell, type ColliderSourceBox } from './bedrock-building-shell.js';
+import { COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior, splitStaticShell, type ShellCell, type ColliderSourceBox } from './bedrock-building-shell.js';
 import { CLEARANCE_REFUSALS, applyColliderClearance, type ClearanceReport, type GridBox } from './collider-clearance.js';
 import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
@@ -2615,6 +2617,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // newer than the installed pack even when the pipeline did not change.
     const profile = options.packProfile;
     const flags = resolvePackFlags(profile);
+    // M03: the collider blocks' state spelling (`compactColliderStates`: two 12-value states, <= 10,000 permutations) and our own brick blocks.
+    const colliderEncoding: ColliderStateEncoding = flags.compactColliderStates ? 'pair' : 'legacy';
+    const colliderStates = colliderStateNames(colliderEncoding);
     const clock = profile?.clock ?? Date.now();
     const version = profile?.version ?? packVersionAt(clock);
     // Provenance: the pipeline stamp goes in both pack NAMES so an older pack
@@ -3220,7 +3225,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     if (it.slide) item.slide = Math.round(l / LDU_PER_BLOCK * 1e5) / 1e5;
                 });
                 pairDoubleDoors(items);
-                interactiveConfig = { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label, dims: { width: colliders.grid.width, height: colliders.grid.height, length: colliders.grid.length }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items, turnProperty: INTERACTIVE_TURN_PROPERTY, sizeProperty: INTERACTIVE_SIZE_PROPERTY };
+                interactiveConfig = { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label, dims: { width: colliders.grid.width, height: colliders.grid.height, length: colliders.grid.length }, colliders: { block: COLLIDER_BLOCK_ID, loState: colliderStates.lo, hiState: colliderStates.hi }, items, turnProperty: INTERACTIVE_TURN_PROPERTY, sizeProperty: INTERACTIVE_SIZE_PROPERTY };
                 interactiveReport = compiledIx.map((c, k) => ({
                     type: c.typeId, kind: c.it.kind, part: c.it.part, label: c.label, parts: c.it.bricks.length, angleDeg: items[k]!.angle,
                     offGridDeg: c.it.offGridDeg, ...(items[k]!.opening ? { openingBlocks: items[k]!.opening } : {}),
@@ -3233,7 +3238,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             structureGrid = colliders.grid;
             plan = planStructureTiles(structureGrid, id, options.maxTile ?? BEDROCK_MAX_TILE);
             const runs = encodeColliderRuns(structureGrid, COLLIDER_BLOCK_ID);
-            placementColliders = { width: structureGrid.width, height: structureGrid.height, length: structureGrid.length, block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE, runs: runs.runs, keptCells: runs.keptCells };
+            placementColliders = { width: structureGrid.width, height: structureGrid.height, length: structureGrid.length, block: COLLIDER_BLOCK_ID, loState: colliderStates.lo, hiState: colliderStates.hi, runs: runs.runs, keptCells: runs.keptCells };
             if (colliderBoxes.length) carveSource = colliderCarveSource(colliderBoxes, options.shell.frame, placementColliders, geometryRuns);
             // The fine walk's floors through the SAME map the colliders were laid with (`buildColliderGrid`: `sceneGridPoint` over the shell's frame).
             if (options.accessReachLdu?.length) {
@@ -3253,7 +3258,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             }
             files.push(
                 // The full collider and its clearance forms (collider-form.ts): one block each.
-                ...COLLIDER_BLOCK_IDS.map((_, v) => ({ name: `${bp}blocks/${colliderBlockFile(v)}`, data: json(colliderBlockDefinition(v)) })),
+                ...COLLIDER_BLOCK_IDS.map((_, v) => ({ name: `${bp}blocks/${colliderBlockFile(v)}`, data: json(colliderBlockDefinition(v, colliderEncoding)) })),
                 // Only `sound` belongs here: the BP block already declares
                 // `minecraft:material_instances` with this texture, which wins
                 // for a data-driven block, so RP `blocks.json`'s own `textures`
@@ -3318,10 +3323,31 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         files.push({ name: `${bp}cameras/presets/${cid}_boom.json`, data: json(boom.value) });
         return { ...base, preset: cameraStyle === 'boom' ? boom.id : chase.id };
     };
+    // M03: our own brick blocks (`flags.brickBlocks`), the replacement for the vanilla concrete overrides a Marketplace pack must not ship.
+    if (flags.brickBlocks) {
+        Object.assign(terrainTextures, brickBlockTextures(PACK_NAMESPACE));
+        for (const t of brickBlockTextureFiles(PACK_NAMESPACE)) files.push({ name: `${rp}${t.path}`, data: t.data });
+        const brickSounds: Record<string, { sound: string }> = {};
+        for (const colour of BRICK_BLOCK_COLOURS) for (const kind of BRICK_BLOCK_KINDS) {
+            files.push({ name: `${bp}blocks/${kind}_${colour}.json`, data: json(brickBlockDefinition(PACK_NAMESPACE, colour, kind)) });
+            brickSounds[brickBlockId(PACK_NAMESPACE, colour, kind)] = { sound: 'stone' };
+        }
+        files.push({ name: `${rp}models/blocks/${PACK_NAMESPACE}_plate.geo.json`, data: json(plateGeometry(PACK_NAMESPACE)) });
+        // RP blocks.json is written once: merge into the collider entry's file when the shell branch already wrote it.
+        const existing = files.findIndex(f => f.name === `${rp}blocks.json`);
+        if (existing >= 0) files[existing] = { name: `${rp}blocks.json`, data: json({ ...JSON.parse(new TextDecoder().decode(files[existing]!.data)), ...brickSounds }) };
+        else files.push({ name: `${rp}blocks.json`, data: json({ format_version: COLLIDER_BLOCKS_JSON.format_version, ...brickSounds }) });
+    }
     // Registered after the shell block above, which may add the collider tile.
     files.push({ name: `${rp}textures/terrain_texture.json`, data: json({ resource_pack_name: `craftmatic_${id}`, texture_name: 'atlas.terrain', texture_data: terrainTextures }) });
+    // M03: the compact collider spelling reaches the structure tiles too (their palette entries carry the block states).
+    let tileGrid = structureGrid;
+    if (flags.compactColliderStates) {
+        const before = structureGrid.reversePalette(), after = compactColliderPalette(before);
+        if (after.some((entry, k) => entry !== before[k])) tileGrid = BlockGrid.fromRaw(structureGrid.width, structureGrid.height, structureGrid.length, structureGrid.rawData, after);
+    }
     for (let i = 0; i < plan.length; i++) {
-        const tile = plan[i]!, out = encodeMcstructureTile(structureGrid, tile);
+        const tile = plan[i]!, out = encodeMcstructureTile(tileGrid, tile);
         for (const state of out.unmapped) unmapped.add(state);
         files.push({ name: `${bp}structures/${PACK_NAMESPACE}/${tile.name}.mcstructure`, data: out.bytes });
         options.onProgress?.(`encoding structure ${i + 1}/${plan.length}`, Math.round((i + 1) / plan.length * 70));
@@ -3867,7 +3893,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             extraComponents.push({ id: `${rideSeatId}_${i + 1}`, label: rideLabel, kind: 'seat', provenance: r.kind === 'slide' ? `slide: sit at the top to slide down its chute (${r.path.length} points)` : `lift: sit in the car to ride to the next floor (${r.path.length} stops)` });
         }
         for (const o of orbitRides) rideList.push({ kind: 'orbit', carType: o.carType, seatType: o.seatType, ...(o.riderType ? { riderType: o.riderType } : {}) });
-        ridesConfig = { seatType: rideSeatType, rides: rideList, constants: RIDE, hop: hopKitConfig(PACK_NAMESPACE) };
+        ridesConfig = { seatType: rideSeatType, rides: rideList, constants: RIDE, hop: hopKitConfig(PACK_NAMESPACE), ...(flags.compactColliderStates ? { colliderStates: { lo: colliderStates.lo, hi: colliderStates.hi } } : {}) };
         if (options.rides?.items.length) warnings.push(`${label}: rides - ${rideList.filter(r => r.kind === 'slide').length} slide(s) and ${rideList.filter(r => r.kind === 'lift').length} lift(s); sit on one to ride it.`);
     }
     // scripts/flyer.js (bedrock-flyer.ts): a tap on a mount's figure, cloud or seat summons the player's own cloud; empty ones fade.
@@ -4100,6 +4126,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (e.spawnable) langLines.push(`item.spawn_egg.entity.${e.identifier}.name=${e.label} Spawn Egg`);
     }
     if (interactiveConfig) langLines.push(...interactiveLangLines());
+    if (flags.brickBlocks) langLines.push(...brickBlockLangLines(PACK_NAMESPACE));
     // Every rideable's dismount hint (seats, beds, cars, coaster cars, the pinball console), or the raw key shows.
     langLines.push(...rideableExitHintLines(files, bp));
     files.push(

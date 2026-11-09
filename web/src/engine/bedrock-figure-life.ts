@@ -730,7 +730,7 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
         if (!b) s = [y, y + 1]; // unloaded: treat as solid, never walk into it
         else {
           let lo = NaN, hi = NaN;
-          if (C && (b.typeId === C.block || b.typeId.startsWith(`${C.block}_`))) { lo = Number(b.permutation.getState(C.loState)); hi = Number(b.permutation.getState(C.hiState)); }
+          if (C && (b.typeId === C.block || b.typeId.startsWith(`${C.block}_`))) { [lo, hi] = body ? body.readSpan(b.permutation) : [Number(b.permutation.getState(C.loState)), Number(b.permutation.getState(C.hiState))]; }
           s = planner.blockSpan(b.typeId, b.isAir === true, b.isLiquid === true, y, C, lo, hi);
         }
       } catch { s = [y, y + 1]; }
@@ -1085,7 +1085,8 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
 /** `scripts/figures.js`. */
 export function figureLifeScript(config: FigureLifeConfig): string {
   const planner = `{ standFeetAt: ${standFeetAt.toString()}, exploreWalkable: ${exploreWalkable.toString()}, pathTo: ${pathTo.toString()}, blockSpan: ${blockSpan.toString()}, startCell: ${startCell.toString()}, refugeCell: ${refugeCell.toString()} }`;
-  const body = config.seatSafety
+  // The probe also decodes the compact collider spelling (M03), so a pack that uses it ships the probe to every figure runtime.
+  const body = config.seatSafety || config.colliders?.loState.slice(-2) === '_a'
     ? `(${colliderBodyProbe.toString()})((${colliderFormKit.toString()})(), ${JSON.stringify(config.colliders?.loState ?? COLLIDER_STATES.lo)}, ${JSON.stringify(config.colliders?.hiState ?? COLLIDER_STATES.hi)})`
     : 'undefined';
   // The seat watcher's bounds that are not the rides' policy: this module's own, filled in where the config (an
