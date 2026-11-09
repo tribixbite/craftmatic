@@ -1,7 +1,7 @@
 /**
  * File upload UI — drag-and-drop parsing for .schem, .litematic, and mesh files.
  *
- * Mesh files (GLB/GLTF/OBJ) are loaded and returned as raw Object3D for
+ * Mesh files (GLB/GLTF/OBJ/STL/3MF/PLY) are loaded and returned as raw Object3D for
  * immediate rendering. Voxelization is deferred — triggered by user action.
  */
 
@@ -11,10 +11,10 @@ import { BlockGrid } from '@craft/schem/types.js';
 import type { MeshInfo } from '@engine/mesh-import.js';
 
 /** Supported file extensions */
-const SUPPORTED_EXTENSIONS = ['schem', 'schematic', 'nbt', 'litematic', 'glb', 'gltf', 'obj'];
+const SUPPORTED_EXTENSIONS = ['schem', 'schematic', 'nbt', 'litematic', 'glb', 'gltf', 'obj', 'stl', '3mf', 'ply'];
 
 /** Mesh format extensions (loaded by mesh-import.ts) */
-const MESH_EXTENSIONS = ['glb', 'gltf', 'obj'];
+const MESH_EXTENSIONS = ['glb', 'gltf', 'obj', 'stl', '3mf', 'ply'];
 
 /** Mesh upload result — raw Object3D with metadata for deferred voxelization */
 export interface MeshUploadResult {
@@ -107,10 +107,13 @@ export function initUpload(
         // Mesh format — load Object3D for immediate rendering (no voxelization)
         uploadText.textContent = 'Loading mesh...';
         uploadSubtext.textContent = file.name;
-        const { loadMeshFromBytes, analyzeMesh } = await import('@engine/mesh-import.js');
+        const { loadMeshFromBytes, analyzeMesh, meshExtentLdu, meshSourceOf } = await import('@engine/mesh-import.js');
         const object = await loadMeshFromBytes(buffer, file.name);
         if (myGen !== uploadGeneration) return;
         const info = analyzeMesh(object);
+        // Real-world size under the file's unit (1 stud = 8 mm = 20 LDU); OBJ's unit is a guess.
+        const ldu = meshExtentLdu(object, { mode: 'real' });
+        const unitNote = meshSourceOf(object).guessed ? ' (unit assumed)' : '';
 
         // Show mesh info
         const { boundingBox: bb } = info;
@@ -119,6 +122,7 @@ export function initUpload(
           <div class="info-row"><span class="info-label">File</span><span class="info-value">${safeName}</span></div>
           <div class="info-row"><span class="info-label">Size</span><span class="info-value">${formatSize(file.size)}</span></div>
           <div class="info-row"><span class="info-label">Extent</span><span class="info-value">${bb.width.toFixed(1)} x ${bb.height.toFixed(1)} x ${bb.depth.toFixed(1)}m</span></div>
+          <div class="info-row"><span class="info-label">Real size</span><span class="info-value">${(ldu.x / 20).toFixed(1)} x ${(ldu.y / 8).toFixed(1)} x ${(ldu.z / 20).toFixed(1)} studs/plates${unitNote}</span></div>
           <div class="info-row"><span class="info-label">Triangles</span><span class="info-value">${info.triangleCount.toLocaleString()}</span></div>
           <div class="info-row"><span class="info-label">Meshes</span><span class="info-value">${info.meshCount}</span></div>
           <div class="info-row"><span class="info-label">Textured</span><span class="info-value">${info.hasTextures ? 'Yes' : 'No'}</span></div>
