@@ -229,6 +229,8 @@ export const LDRAW_DIRECTIVES: Readonly<Record<string, DirectiveSpec>> = {
   '!FIGURE_ASSEMBLE': d('metadata', false, 'craftmatic/clego: figure assembly stamp'),
   '!WINDOW_ASSEMBLE': d('metadata', false, 'craftmatic/clego: window assembly stamp'),
   '!ORIGIN_FIX': d('metadata', false, 'craftmatic/clego: origin correction stamp'),
+  '!ORIGIN_FIX_TURNED': d('metadata', false, 'craftmatic/clego: origin correction stamp for placements whose embedded mesh is the library part turned or re-tessellated (io_authenticity, 2026-09-25); 199 sets, found by the 2026-11-09 audit'),
+  '!CLEGO': d('metadata', false, 'craftmatic/clego: reconstruction provenance (`source`, `commit`, `created`); 3 sets (ReconGPU), found by the 2026-11-09 audit'),
   '!EMBEDDED_PRESERVED': d('metadata', false, 'craftmatic/clego: embedded geometry preserved verbatim'),
   '!CRAFTMATIC FIGURE': d('structure', true, 'brickgen (2026-11-09): `<system> <x> <y> <z> <facingDeg> [<seat>]` - a figure the add-on pipeline places explicitly instead of guessing from part names; parsed by `parseAuthoringMeta` into `LDrawDocument.metas` and the next placed part (`authoringMetas`). Corpus count 0 (written only by our own writer)'),
   '!CRAFTMATIC SEAT': d('structure', true, 'brickgen (2026-11-09): `<id> <x> <y> <z> <facingDeg>` - an explicit seat; parsed like FIGURE. Corpus count 0'),
