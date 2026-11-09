@@ -113,11 +113,22 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
     likely bug `GameMode.survival` in the GameTest script; M06: 3 of 4 favourites fail only on 11,008 permutations
     (M03); X-13 thresholds review 0.2 / block 0.5 (recall 94 %); V-01's 1.000 IoU is self-consistency only -> NEXT
     a truth from each brick's footprint cells (winding fills a brick's cavity, which is right for bricks).
-  - WAVE 3 IN FLIGHT 2026-11-09 (10 Sonnet agents; ownership + pack contract in `docs/plans/wave3-brief.md`): X-10 bricker
-    (+ first plain Notre-Dame), X-07 TS pack-check, M03 own brick blocks + collider permutations < 10k, M07 air-only
-    placement + undo, M14 sim reads the namespace, B03 BYOM hints, A09 landmark features (Notre-Dame sidecar from
-    CC/PD sources, clean room), D-08 `release.ts prepare`, D-09 channel bundles, V-02 brick-footprint truth metric.
-    Waiting on the user: B08 (U9 free tier), F02 (U4 figure pick), D-13/X-15 (approval merges), C02 after B03.
+  - WAVE 3 MERGED 2026-11-09: D-09, V-02, X-07, A09, D-08, M14, M07, B03, X-10, M03 (+ fixes: Notre-Dame sidecar moved
+    out of the ignored `data/` folder to `features/sidecars/`; the placement text's two LEGO mentions reworded and the
+    D-08 fixture waiver removed; M03 x M14 conflict in sim `play.ts` and M03 x M07 in `pack-profile.ts` resolved).
+    Checks done: M07 favourites differ only in placement.js + stamp, sim 24 scenarios identical, 7 regression cases
+    identical (`output/m07-compare/`); M03 dev packs identical but five scripts embedding the kit, passability and
+    regressions identical; B03 two favourites byte-identical but the stamp (`output/b03-compare/`).
+  - NEXT (wave 4, no user decision needed):
+    - Massing quality on Notre-Dame (X-10 render `.worktrees/biz-x10/output/x10/notre-dame-plain-iso.png`): the two west
+      towers merge into one block, east-end heights read far too tall, neighbouring buildings come along; roofs
+      are stepped hips. Fix in A05/X-10, then A07/A08 grammars (roofs, windows, the A09 features).
+    - Mesh -> bricks: `latticeFromBricks` fills ONE plate layer per brick (X-10 finding); leave studs out of the
+      lattice; teach the vocabulary moved names (3023 -> 3023b etc.) and the common missing parts (2420, 4073).
+    - C02 (coaster track + cars into a real pack; B03 merged), C04 (launches/brakes), then C05/C06 (clouds, mountain,
+      dark zone); T02 sim `--scenario=marketplace`; D-08 finalize/verify; wire M03's flags into `prepare`.
+    - A DEVICE CHECK is needed before any store pack: M03's compact collider encoding and brick blocks, and M07's
+      placement prompts, on a phone (Pixel round via a Sonnet subagent, per the device rules).
   - F01b MERGED 2026-11-09 (`biz-f01b`): rex (dinosaur), rivet (robot), pip (bobblehead kid); all pass the gate
     with attached limbs and faces; sheet `.worktrees/biz-f01b/output/f01b/candidates.jpg`; designer recommends rex.
     The user picks (U4).
