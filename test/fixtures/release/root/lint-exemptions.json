@@ -1,8 +1,1 @@
-[
-  {
-    "id": "m07-riser-message",
-    "rule": "lego-mark",
-    "pattern": "where the LEGO risers grew past",
-    "reason": "TEST FIXTURE ONLY. web/src/engine/bedrock-placement-pack.ts:1776 ships this player message with the word LEGO in every pack; the file belongs to M07 and a real release must not carry it. Remove this waiver when M07 rewords the line: a product without it is refused."
-  }
-]
+[]

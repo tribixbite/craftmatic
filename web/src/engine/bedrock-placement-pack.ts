@@ -1630,7 +1630,7 @@ If your last placement is in the way, undo it first.`)
   async function guide(p: any, page = 0): Promise<any> {
     const pages = [
       `${config.label} is placed with this wand. Pin a corner, check the preview, then choose Place. It builds only in empty space and never replaces your blocks.`,
-      'Undo last placement takes away everything the last placement added and puts back what was there. Pack made with craftmatic.click from open LEGO part data.',
+      'Undo last placement takes away everything the last placement added and puts back what was there. Pack made with craftmatic.click from open LDraw part data.',
     ];
     const f = new ActionFormData().title(`Guide ${page + 1}/${pages.length}`).body(pages[page]);
     if (page + 1 < pages.length) f.button('Next'); else f.button('Back');
@@ -1876,7 +1876,7 @@ If your last placement is in the way, undo it first.`)
   const stepsAt = (st: any): number => (config.colliders && config.colliders.treads && config.colliders.treads.counts && config.colliders.treads.counts[`${st.size}:${st.rotation}`]) || 0;
   const stepsNote = (st: any): string => {
     const n = stepsAt(st);
-    return n ? ` ${n} invisible step${n === 1 ? '' : 's'} ${n === 1 ? 'is' : 'are'} added where the LEGO risers grew past a player's jump - the model's own stairs and ledges, climbable at 100 percent; nothing that was walkable is blocked.` : '';
+    return n ? ` ${n} invisible step${n === 1 ? '' : 's'} ${n === 1 ? 'is' : 'are'} added where the brick risers grew past a player's jump - the model's own stairs and ledges, climbable at 100 percent; nothing that was walkable is blocked.` : '';
   };
   async function place(p: any) {
     if (active) return tell(p, 'Another placement is running.');
