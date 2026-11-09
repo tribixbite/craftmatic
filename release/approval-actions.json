@@ -1,0 +1,12 @@
+[
+  { "id": "git.tag", "action": "Tag the release commit (the script prints this and never runs it)", "exactCommandOrUrl": "git tag -a {product}-v{version} {commit} -m \"{product} {version}\"", "evidenceAfter": "the tag name, and the sha256 `release.ts finalize` reports for the rebuild" },
+  { "id": "r2.upload", "action": "Upload dist/ and SHA256SUMS to the downloads bucket", "exactCommandOrUrl": "see docs/deployment-guide.md (R2 section); upload dist/* of this folder", "evidenceAfter": "the object URLs and their listed sha256" },
+  { "id": "worker.deploy", "action": "Deploy the downloads Worker so /get/ serves the new catalog entry", "exactCommandOrUrl": "see docs/deployment-guide.md (Worker section)", "evidenceAfter": "the deployed Worker version id" },
+  { "id": "site.deploy", "action": "Deploy the site with site/catalog-entry.json merged into the catalog", "exactCommandOrUrl": "see docs/deployment-guide.md (site section)", "evidenceAfter": "the live page URL" },
+  { "id": "cf.create-project", "action": "Create or update the CurseForge project and add the file from channels/curseforge/", "exactCommandOrUrl": "https://www.curseforge.com/ (author console); fields in channels/curseforge/fields.json once D-09 lands", "evidenceAfter": "the project URL and file id" },
+  { "id": "mcpedl.link", "action": "Submit the MCPEDL listing linking the CurseForge file", "exactCommandOrUrl": "https://mcpedl.com/ (submit form); fields in channels/mcpedl/fields.json once D-09 lands", "evidenceAfter": "the listing URL" },
+  { "id": "itch.page", "action": "Create or update the itch.io page and upload the .zip", "exactCommandOrUrl": "https://itch.io/dashboard; fields in channels/itch/fields.json once D-09 lands", "evidenceAfter": "the page URL" },
+  { "id": "kofi.post", "action": "Post the release note on Ko-fi", "exactCommandOrUrl": "https://ko-fi.com/ (post editor); fields in channels/kofi/fields.json once D-09 lands", "evidenceAfter": "the post URL" },
+  { "id": "patreon.post", "action": "Post the release note on Patreon", "exactCommandOrUrl": "https://www.patreon.com/ (post editor); fields in channels/patreon/fields.json once D-09 lands", "evidenceAfter": "the post URL" },
+  { "id": "affiliate.links", "action": "Add affiliate links only where the programme terms allow, per channels/affiliate/", "exactCommandOrUrl": "see channels/affiliate/CHECKLIST.md", "evidenceAfter": "the programme approval reference" }
+]

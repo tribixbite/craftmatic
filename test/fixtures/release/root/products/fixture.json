@@ -1,0 +1,27 @@
+{
+  "id": "fixture",
+  "displayName": "Fixture Cottage",
+  "tier": "free",
+  "identity": {
+    "namespace": "tst_fixture",
+    "folderStem": "FixtureCottage",
+    "uuids": {
+      "bpHeader": "6f1d2a40-8c3b-4e57-9a10-2b7c5d0e1f31",
+      "bpData": "0b9e7c52-3d14-4a68-8f23-7e5a1c9d4b02",
+      "bpScript": "c3a85f17-6e29-4b90-a4d1-9f0b2e7c6a53",
+      "rpHeader": "91d4e6b8-2f70-4c35-b8a9-1d3e5f7a9c04",
+      "rpResources": "5e2a9c01-7b48-4d63-9e15-3a6c8f0b2d75"
+    }
+  },
+  "placeholders": [],
+  "designs": [],
+  "toolchain": {
+    "bun": "PIN-FILLED-BY-THE-TEST",
+    "lockfileSha256": "PIN-FILLED-BY-THE-TEST",
+    "ldrawLibrary": { "archive": "complete.zip", "sha256": "PIN-FILLED-BY-THE-TEST", "root": "ldraw_ref/official" },
+    "scriptModules": { "server": "2.9.0", "serverUi": "2.1.0" },
+    "minEngineVersion": [1, 26, 40]
+  },
+  "versions": [],
+  "publisher": { "name": "Fixture Publisher", "contactEmail": "fixture@example.invalid" }
+}
