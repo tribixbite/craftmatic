@@ -1,0 +1,10 @@
+Minecraft Creator Tools 0.21.0 - validate
+Project: release-ok (1 behavior pack, 1 resource pack)
+
+ERROR [ENTITY_MISSING_TEXTURE] acme:thing: texture "textures/entity/acme/demo/thing" was not found in the resource pack.
+Error: BLOCK_STATE_TOO_MANY_VALUES - acme:slab state acme:s0 declares 17 values (the limit is 16).
+WARNING [PACK_ICON_MISSING] behavior_packs/Acme_Demo_BP has no pack_icon.png.
+Warning: MANIFEST_MIN_ENGINE_VERSION - min_engine_version 1.26.0 is older than the current release.
+WARN [ANIMATION_UNUSED] animation.acme.thing.spin is never referenced.
+
+Validation complete: 2 errors, 3 warnings

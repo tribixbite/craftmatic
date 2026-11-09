@@ -14,6 +14,7 @@ the malformed-archive class offline, so a device round only ever sees content
 problems.
 
     python scripts/_mcaddon_check.py output/**/*.mcaddon
+    python scripts/_mcaddon_check.py --release pack.mcaddon   # + the sell-side rules (alias --marketplace)
 
 Exits non-zero if any pack fails. Verified 2026-09-18 over the seven packs of
 the named-set round (71043, 76435, 910004, 10326, 31201, 76405): all OK.
@@ -282,14 +283,279 @@ def check(path):
         if len(used) > 1: notes.append(f'{len(used) - 1} collider forms in use')
     return problems, notes
 
+# ---------------------------------------------------------------------------
+# --release: the rules a pack must meet to be SOLD (Marketplace, CurseForge,
+# MCPEDL). BIZ-24 / BIZ-54, docs/plans/README.md X-06. These are ADDITIONAL to
+# check(): the dev-mode rules above are unchanged (dev keeps 65,536 permutations
+# and the `craftmatic:` namespace; a release may use neither).
+# ---------------------------------------------------------------------------
+
+RELEASE_MAX_PERMUTATIONS = 10_000          # registered block permutations, whole pack
+RELEASE_MAX_BYTES = 25 * 1024 * 1024       # uncompressed (25 MiB)
+RELEASE_MAX_FILES = 3_500
+RELEASE_MAX_TEXTURE_PX = {'blocks': 256, 'items': 256}   # every other texture folder: the default
+RELEASE_DEFAULT_TEXTURE_PX = 2048
+RELEASE_FORBIDDEN_NAMESPACES = ('craftmatic', 'minecraft')
+RELEASE_EXAMPLES = 4                       # how many offending paths one message names
+
+# Content-type folders: a file inside one must sit at <folder>/<creator>/<pack>/...
+# `models` and `textures` nest one level further (models/entity, textures/blocks).
+RELEASE_CONTENT_FOLDERS = (
+    'entities', 'blocks', 'items', 'structures', 'functions', 'animations', 'animation_controllers',
+    'loot_tables', 'recipes', 'trading', 'spawn_rules', 'features', 'feature_rules', 'biomes',
+    'entity', 'render_controllers', 'particles', 'attachables', 'materials', 'fogs',
+    'models/entity', 'models/blocks', 'textures/blocks', 'textures/items', 'textures/entity',
+    'textures/ui', 'textures/particle', 'textures/environment', 'textures/colormap',
+)
+# Vanilla texture paths a pack must not overwrite. A pattern list, not a full
+# resource-pack inventory. TODO(vanilla-list): regenerate from the vanilla
+# resource pack once the Marketplace review confirms the exact set.
+RELEASE_VANILLA_TEXTURE_PATTERNS = (
+    re.compile(r'^textures/blocks/(concrete|concrete_powder|wool_colored|stained_glass|glazed_terracotta|hardened_clay_stained)_[a-z_]+\.(png|tga)$'),
+    re.compile(r'^textures/blocks/(stone|dirt|grass_(top|side|side_carried)|cobblestone|sand|gravel|bedrock|glass|brick|bookshelf|obsidian|netherrack|'
+               r'iron_block|gold_block|diamond_block|emerald_block|coal_block|planks_[a-z_]+|log_[a-z_]+|leaves_[a-z_]+|sandstone_[a-z_]+|water_still|lava_still)\.(png|tga)$'),
+    re.compile(r'^textures/items/(apple|stick|diamond|iron_ingot|gold_ingot|coal|bread|bucket_[a-z]+)\.(png|tga)$'),
+    re.compile(r'^textures/entity/(steve|alex|creeper|zombie|skeleton|pig|cow|sheep|chicken|villager|enderman|horse|wolf|cat|boat)(/.*|\.(png|tga))$'),
+    re.compile(r'^textures/(terrain_texture|item_texture|flipbook_textures)\.json$'),
+)
+# Download hosts / words that make a link an "external download" (CurseForge, MCPEDL).
+RELEASE_DOWNLOAD_LINK = re.compile(
+    r'https?://\S*(mediafire|mega\.nz|dropbox|drive\.google|1drv\.ms|adf\.ly|linkvertise|anonfiles|gofile|sharemods)\S*|https?://\S*download\S*',
+    re.I)
+RELEASE_TEXT_SUFFIXES = ('.txt', '.md', '.lang')
+
+
+def _image_size(head):
+    """(width, height) from the first bytes of a PNG or TGA, or None when neither."""
+    if head[:8] == b'\x89PNG\r\n\x1a\n' and len(head) >= 24:
+        return int.from_bytes(head[16:20], 'big'), int.from_bytes(head[20:24], 'big')
+    if len(head) >= 16 and head[2] in (2, 3, 10, 11):               # uncompressed/RLE true-colour or grey TGA
+        return int.from_bytes(head[12:14], 'little'), int.from_bytes(head[14:16], 'little')
+    return None
+
+
+def _brief(items, limit=RELEASE_EXAMPLES):
+    """'a, b, c, d (+N more)' for a message."""
+    items = sorted(items)
+    more = f' (+{len(items) - limit} more)' if len(items) > limit else ''
+    return ', '.join(items[:limit]) + more
+
+
+def _json(z, name):
+    return json.loads(z.read(name).decode('utf-8-sig'))
+
+
+def _pack_namespaces(z, names):
+    """{namespace: [file, ...]} over every entity/block/item/geometry/animation/render-controller id."""
+    found = {}
+    def add(ns, where):
+        found.setdefault(ns, []).append(where)
+    for n in names:
+        if not n.endswith('.json'):
+            continue
+        try:
+            d = _json(z, n)
+        except ValueError:
+            continue
+        if not isinstance(d, dict):
+            continue
+        for key in ('minecraft:entity', 'minecraft:client_entity', 'minecraft:block', 'minecraft:item'):
+            body = d.get(key)
+            desc = body.get('description') if isinstance(body, dict) else None
+            ident = desc.get('identifier') if isinstance(desc, dict) else None
+            if isinstance(ident, str) and ':' in ident:
+                add(ident.split(':', 1)[0], n)
+        for g in d.get('minecraft:geometry') or []:
+            gid = (g.get('description') or {}).get('identifier', '') if isinstance(g, dict) else ''
+            if gid.startswith('geometry.') and gid.count('.') >= 2:
+                add(gid.split('.')[1], n)
+        for key, prefix in (('animations', 'animation.'), ('animation_controllers', 'controller.animation.'),
+                            ('render_controllers', 'controller.render.')):
+            table = d.get(key)
+            for ident in (table if isinstance(table, dict) else ()):
+                if ident.startswith(prefix) and '.' in ident[len(prefix):]:
+                    add(ident[len(prefix):].split('.')[0], n)
+    return found
+
+
+def _owner(name, roots):
+    """The pack root (deepest) that prefixes `name`, or None."""
+    hits = [r for r in roots if name.startswith(r)]
+    return max(hits, key=len) if hits else None
+
+
+def check_release(path):
+    """The release-only rules over one archive -> (problems, notes)."""
+    z = zipfile.ZipFile(path)
+    infos = [i for i in z.infolist() if not i.filename.endswith('/')]
+    names = [i.filename for i in infos]
+    problems, notes = [], []
+    manifests = [n for n in names if n.endswith('manifest.json')]
+    roots = [pack_root(m) for m in manifests]
+    mans = {}
+    for m in manifests:
+        try:
+            mans[m] = _json(z, m)
+        except ValueError:
+            problems.append(f'{m}: manifest is not JSON')
+    kind = lambda d: {mo.get('type') for mo in d.get('modules', [])}
+    bp = next((m for m, d in mans.items() if kind(d) & {'data', 'script'}), None)
+    rp = next((m for m, d in mans.items() if 'resources' in kind(d)), None)
+
+    # 1. pack_scope, 2. mutual dependencies.
+    if rp:
+        scope = (mans[rp].get('header') or {}).get('pack_scope')
+        if scope != 'world':
+            problems.append(f'{rp}: header.pack_scope is {scope!r}, a release resource pack must declare "world"')
+    deps_of = lambda d: {str(x.get('uuid')) for x in d.get('dependencies', []) if isinstance(x, dict) and 'uuid' in x}
+    if bp and rp:
+        bp_uuid, rp_uuid = (mans[bp].get('header') or {}).get('uuid'), (mans[rp].get('header') or {}).get('uuid')
+        if bp_uuid not in deps_of(mans[rp]):
+            problems.append(f'{rp}: resource pack does not depend on the behaviour pack header uuid {bp_uuid}')
+        if rp_uuid not in deps_of(mans[bp]):
+            problems.append(f'{bp}: behaviour pack does not depend on the resource pack header uuid {rp_uuid}')
+    elif manifests:
+        problems.append('release needs one behaviour pack (data/script module) and one resource pack (resources module)')
+
+    # 3. one namespace, not craftmatic / minecraft.
+    spaces = _pack_namespaces(z, names)
+    if len(spaces) > 1:
+        problems.append('more than one namespace across entity/block/item/geometry/animation/render-controller ids: '
+                        + '; '.join(f'{ns!r} in {len(set(w))} file(s)' for ns, w in sorted(spaces.items())))
+    for ns in RELEASE_FORBIDDEN_NAMESPACES:
+        if ns in spaces:
+            why = 'redefines vanilla content' if ns == 'minecraft' else 'is the development namespace'
+            problems.append(f'namespace {ns!r} {why} ({len(set(spaces[ns]))} file(s), e.g. {_brief(set(spaces[ns]), 2)}); a release uses its own')
+    if len(spaces) == 1:
+        notes.append(f'namespace {next(iter(spaces))!r}')
+
+    # 4. <type>/<creator>/<pack>/ folders, no loose files, one creator/pack pair.
+    loose, pairs = [], set()
+    for n in names:
+        owner = _owner(n, roots)
+        if owner is None:
+            continue
+        rel = n[len(owner):]
+        folder = next((f for f in RELEASE_CONTENT_FOLDERS if rel.startswith(f + '/')), None)
+        if folder is None:
+            continue
+        parts = rel[len(folder) + 1:].split('/')
+        if len(parts) < 3:
+            loose.append(rel)
+        else:
+            pairs.add((parts[0], parts[1]))
+    if loose:
+        problems.append(f'{len(loose)} file(s) not under <type>/<creator>/<pack>/: {_brief(loose)}')
+    if len(pairs) > 1:
+        problems.append(f'content folders use {len(pairs)} different <creator>/<pack> pairs: {_brief({"/".join(p) for p in pairs})}')
+
+    # 5. vanilla texture paths.
+    vanilla = []
+    for n in names:
+        owner = _owner(n, roots)
+        rel = n[len(owner):] if owner is not None else n
+        if any(p.match(rel) for p in RELEASE_VANILLA_TEXTURE_PATTERNS):
+            vanilla.append(rel)
+    if vanilla:
+        problems.append(f'{len(vanilla)} file(s) at a vanilla texture path: {_brief(vanilla)}')
+
+    # 6. registered permutations (dev mode allows 65,536).
+    registered = 0
+    for n in [x for x in names if '/blocks/' in x and x.endswith('.json')]:
+        try:
+            blk = _json(z, n).get('minecraft:block')
+        except ValueError:
+            continue
+        if not isinstance(blk, dict):
+            continue
+        perms = 1
+        for sdef in ((blk.get('description') or {}).get('states') or {}).values():
+            vals = sdef.get('values') if isinstance(sdef, dict) else sdef
+            count = (vals['max'] - vals['min'] + 1) if isinstance(vals, dict) else len(vals or [])
+            perms *= max(1, count)
+        registered += perms
+    if registered > RELEASE_MAX_PERMUTATIONS:
+        problems.append(f'{registered} registered block permutations (a release allows {RELEASE_MAX_PERMUTATIONS:,})')
+    notes.append(f'{registered} permutations')
+
+    # 7. size and file count.
+    total = sum(i.file_size for i in infos)
+    if total > RELEASE_MAX_BYTES:
+        problems.append(f'{total / 1048576:.1f} MiB uncompressed (a release allows {RELEASE_MAX_BYTES // 1048576} MiB)')
+    if len(infos) > RELEASE_MAX_FILES:
+        problems.append(f'{len(infos)} files (a release allows {RELEASE_MAX_FILES:,})')
+    notes.append(f'{total / 1048576:.1f} MiB, {len(infos)} files')
+
+    # 8. texture dimensions.
+    oversize = []
+    for i in infos:
+        if not i.filename.endswith(('.png', '.tga')):
+            continue
+        rel = i.filename[len(_owner(i.filename, roots) or ''):]
+        if not rel.startswith('textures/') or rel.count('/') < 2:
+            continue
+        with z.open(i) as fh:
+            size = _image_size(fh.read(32))
+        if size is None:
+            problems.append(f'{rel}: not a readable PNG/TGA')
+            continue
+        limit = RELEASE_MAX_TEXTURE_PX.get(rel.split('/')[1], RELEASE_DEFAULT_TEXTURE_PX)
+        if max(size) > limit:
+            oversize.append(f'{rel} {size[0]}x{size[1]} > {limit}')
+    if oversize:
+        problems.append(f'{len(oversize)} texture(s) over the size limit (block/item {RELEASE_MAX_TEXTURE_PX["blocks"]} px, others {RELEASE_DEFAULT_TEXTURE_PX}): {_brief(oversize)}')
+
+    # 9. no -beta script modules.
+    for m, d in mans.items():
+        beta = [f'{x.get("module_name")}@{x.get("version")}' for x in d.get('dependencies', [])
+                if isinstance(x, dict) and 'beta' in str(x.get('version', '')).lower()]
+        if beta:
+            problems.append(f'{m}: beta script module(s) {", ".join(beta)} (a release uses stable modules only)')
+
+    # 10. no minecraft: definitions (the namespace rule names the ids; this names the files).
+    overrides = sorted(set(spaces.get('minecraft', [])))
+    if overrides:
+        problems.append(f'{len(overrides)} file(s) define minecraft: ids: {_brief(overrides)}')
+
+    # 11. no diagnostics file.
+    diag = [n for n in names if n.rsplit('/', 1)[-1] == 'craftmatic-diagnostics.json']
+    if diag:
+        problems.append(f'dev diagnostics shipped: {_brief(diag)}')
+
+    # 12. zip without root (CurseForge / MCPEDL): a .zip must not wrap everything in one folder.
+    if str(path).lower().endswith('.zip'):
+        tops = {n.split('/', 1)[0] for n in names}
+        if names and all('/' in n for n in names) and len(tops) == 1:
+            problems.append(f'zip is wrapped in one root folder {next(iter(tops))!r}; zip the pack folders themselves')
+
+    # 13. no external download links (BIZ-54).
+    links = []
+    for n in names:
+        if n.endswith(RELEASE_TEXT_SUFFIXES) or n.endswith('manifest.json'):
+            for ln in z.read(n).decode('utf-8-sig', 'replace').splitlines():
+                if RELEASE_DOWNLOAD_LINK.search(ln):
+                    links.append(f'{n.rsplit("/", 1)[-1]}: {ln.strip()[:60]}')
+    if links:
+        problems.append(f'{len(links)} external download link(s): {_brief(links)}')
+    return problems, notes
+
+
 def main() -> int:
-    if len(sys.argv) < 2:
+    # `--release` (alias `--marketplace`) adds the sell-side rules; without it the
+    # run is exactly the dev-mode gate it always was.
+    args = sys.argv[1:]
+    release = any(a in ('--release', '--marketplace') for a in args)
+    packs = [a for a in args if a not in ('--release', '--marketplace')]
+    if not packs:
         print(__doc__)
         return 2
     bad = 0
-    for p in sys.argv[1:]:
+    for p in packs:
         try:
             probs, notes = check(p)
+            if release:
+                rprobs, rnotes = check_release(p)
+                probs, notes = probs + [f'[release] {x}' for x in rprobs], notes + rnotes
         except Exception as exc:                       # a corrupt archive is a failure too
             print(f'FAIL {Path(p).name:28s} unreadable: {type(exc).__name__}: {exc}')
             bad += 1
@@ -299,7 +565,7 @@ def main() -> int:
             print(f'       !! {x}')
         bad += bool(probs)
     print()
-    print(f'{len(sys.argv) - 1 - bad}/{len(sys.argv) - 1} packs structurally valid')
+    print(f'{len(packs) - bad}/{len(packs)} packs structurally valid{" (release rules)" if release else ""}')
     return 1 if bad else 0
 
 
