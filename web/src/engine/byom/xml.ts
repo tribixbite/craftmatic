@@ -21,8 +21,10 @@ export interface XmlElementLike {
   querySelectorAll(tagName: string): Iterable<XmlElementLike>;
 }
 
-/** A parsed document; the root element is the only child. */
-export type XmlDocumentLike = XmlElementLike;
+/** A parsed document: all the parser needs is to find elements in it (`Document` satisfies this). */
+export interface XmlDocumentLike {
+  querySelectorAll(tagName: string): Iterable<XmlElementLike>;
+}
 
 /** Turns XML text into a document, or throws an `Error` whose message says what is wrong. */
 export type XmlParser = (text: string) => XmlDocumentLike;
