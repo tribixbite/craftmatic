@@ -21,3 +21,12 @@ with the label `Dragon Ball: Shenron & Goku (11390-1)` so the set's canon
 read the cloud as the flyer mount with that figure. LDraw part origins sit at
 the top stud plane with the body extending to +Y, except 54200, whose origin
 is at its bottom; the generator's y arithmetic follows that.
+
+`omr-1869-1-flag.mpd` (South African Flag, 82 bricks, Merlijn Wissink) and
+`omr-566-1-elephant.mpd` (Elephant, Takeshi Takahashi) are copies of two Official
+Model Repository files from clego's `lego_sets/OMR/`, kept unchanged with their
+`0 Author:` and `0 !LICENSE Redistributable under CCAL version 2.0` lines. Every part
+they use is in the brick vocabulary, so `test/brickgen-verify.test.ts` reads them back
+onto the stud lattice (`brickgen/verify/ldraw-import.ts`) and verifies them against the
+vendored official parts in `ldraw-vocab/`: real, hand-built models that must come out as
+one connected component, and the base for the deliberately broken variants.
