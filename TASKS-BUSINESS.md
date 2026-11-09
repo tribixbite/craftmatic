@@ -90,9 +90,23 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
       `.worktrees/biz-b29/data/byom-corpus/` (re-run `bun scripts/byom-corpus-fetch.ts` in main to get it there).
     - Pre-existing (not B01): after an upload the LEGO tab's source badge stays "loading... (no progress)".
     - The X-11 agent ran `rm -r` on its own new scratch folder (rule breach; brief now leads with the rule).
-  - WAVE 2a IN FLIGHT 2026-11-09 (10 Sonnet agents; brief = `docs/plans/implementer-brief.md` +
-    `docs/plans/wave2-brief.md` (file ownership) + the package row): X-02->X-17 (one agent, `biz-x02`), X-03, X-05,
-    X-09, A05, X-12 (+ the X-11 IoU follow-up), B09, B15, F01, C03. Branches `biz-<id>`.
+  - WAVE 2a 2026-11-09: MERGED + pushed (suite 3,932 passed, CI green): X-03, X-05, X-09, A05, B09, B15, F01, C03.
+    Done, held for checks: X-02->X-17 (`biz-x02`; default-profile builds must match main file for file: 4 favourites
+    building into `output/x02-compare/{main,x02}`), X-12 (`biz-x12`; stud-rim cap: wall/plate/tower 1.00, nimbus 0.99,
+    batcave car 0.66 because 17 moulds have non-planar open shells -> a winding-number inside test in the shared
+    voxeliser is a separate package).
+    Review notes:
+    - F01's three figures pass the minifig-overlap gate (<0.6) but are crude (floating arms, no face); recommended a
+      second design pass (Fable designer) before the user picks (U4). Sheet: `.worktrees/biz-f01/output/f01/candidates.jpg`.
+    - B15 ran for real: 3 photos of a Bag End build -> 4.8 MB mesh in 279 s (`.worktrees/biz-b15/output/photo3d-b15/`),
+      not yet viewed or graded. DINOv3 encoder licence is unread: blocks any public photo route (lawyer batch U3).
+    - X-03: the sim hard-codes `craftmatic:` ids (IX_KEYS etc.), so a rewritten pack's turnable is not tapped (M14).
+    - B09: Draco decoding never executed (needs a browser); the corpus has no STL/3MF/PLY/GLB files.
+    - C03: the full rail profile is 11,276 cubes for the 3x sketch (lean 4,702); resident memory unmeasured.
+    - X-09: side connections (clips, bars, SNOT) are not modelled: 7 of ~27 on-lattice OMR models read as 1 component.
+    - Rule breaches: X-12 ran `git checkout <file>` on its own experiment. Fail-first was skipped by B09, A05, X-03,
+      X-08 (colour/writer) and F01: the brief now makes the failing run a merge condition.
+    - Leftover worktree `.worktrees/biz-x02-base` (X-02's scratch, detached): never remove it (recursive delete).
     Wave 2b, still to start: M15, X-14, D-06, D-16, M06 (default: one budget tier), X-13 (the clean-room half
     only); X-15 (its merge needs the user's approval, because every push to main deploys).
   - WAVE 1 (original list) 2026-11-09 (one agent each, worktree `.worktrees/biz-<id>`, branch `biz-<id>`, not merged until
