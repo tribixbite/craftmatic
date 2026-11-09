@@ -656,8 +656,9 @@ export async function prefetchPartGeometry(
     done++;
     onProgress?.('loading part geometry', (done / total) * 100);
   })));
-  // Official mode fails the export here, with every offending name, before anything is voxelized.
-  assertOfficialLibrary(unique);
+  // Official mode does NOT throw here: schem-pipeline wraps this call in a bare catch that falls back to a
+  // coloured-block export, which would swallow the error and ship a pack silently. The entity compiler and
+  // `assertOfficialLibrary` (called by the writer) fail the export instead.
 }
 
 /**
