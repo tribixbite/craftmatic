@@ -78,10 +78,24 @@ export async function unzipAll(bytes: Uint8Array): Promise<Map<string, Uint8Arra
   return out;
 }
 
+/**
+ * The bytes a golden compares. The diagnostics file carries one wall-clock field per verifier run
+ * (`millis`: how long the build took), which is not a property of the pack, so it is dropped.
+ */
+function stable(name: string, data: Uint8Array): Uint8Array {
+  if (!name.endsWith('craftmatic-diagnostics.json')) return data;
+  const drop = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(drop);
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).filter(([k]) => k !== 'millis').map(([k, v]) => [k, drop(v)]));
+    return value;
+  };
+  return new TextEncoder().encode(JSON.stringify(drop(JSON.parse(text(data)))));
+}
+
 /** name -> sha256/12 of the content, the form the golden file stores. */
 export async function contentHashes(bytes: Uint8Array): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
-  for (const [name, data] of [...(await unzipAll(bytes))].sort(([a], [b]) => (a < b ? -1 : 1))) out[name] = createHash('sha256').update(data).digest('hex').slice(0, 12);
+  for (const [name, data] of [...(await unzipAll(bytes))].sort(([a], [b]) => (a < b ? -1 : 1))) out[name] = createHash('sha256').update(stable(name, data)).digest('hex').slice(0, 12);
   return out;
 }
 

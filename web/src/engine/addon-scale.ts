@@ -32,6 +32,7 @@
 import type { ParsedBrick } from './ldraw-parser.js';
 import { LDU_PER_BLOCK } from './lego-scale.js';
 import { classifyVehicleKind, isWholeVehicleLabel, type PlayableKind } from './playable-components.js';
+import { labelHeuristicsAllowed, type LabelHeuristicsInput } from './pack-profile.js';
 import { extractCoasterTrackRoutes } from './coaster-track.js';
 
 /** `auto` or a multiplier of the minifig scale rendered as a string (a `<select>` value). */
@@ -136,7 +137,7 @@ function sizeAt(extent: { x: number; y: number; z: number }, scale: number): { x
  * Decide the add-on's model scale for a brick list. Pure: the same bricks and
  * choice always give the same plan, so the popover preview and the export agree.
  */
-export function planAddonScale(bricks: readonly ParsedBrick[], choice: AddonScaleChoice = 'auto', label = ''): AddonScalePlan {
+export function planAddonScale(bricks: readonly ParsedBrick[], choice: AddonScaleChoice = 'auto', label = '', guard: LabelHeuristicsInput = {}): AddonScalePlan {
   const extent = modelExtentLdu(bricks);
   const explicit = choice === 'auto' ? undefined : Number(choice);
   if (explicit !== undefined && Number.isFinite(explicit) && explicit > 0) {
@@ -169,7 +170,8 @@ export function planAddonScale(bricks: readonly ParsedBrick[], choice: AddonScal
       reason: 'minifig scale (1×): the set stands on LEGO railway track, whose gauge is the minifig railway\'s',
     };
   }
-  const kind = isWholeVehicleLabel(label) ? classifyVehicleKind(label, 'auto') : null;
+  // X-17: a display vehicle is shrunk by its TITLE; an explicit-mode input has no title heuristics.
+  const kind = labelHeuristicsAllowed(guard) && isWholeVehicleLabel(label) ? classifyVehicleKind(label, 'auto') : null;
   if (kind) {
     const longestBlocks = Math.max(extent.x, extent.z) / LDU_PER_BLOCK;
     const target = VEHICLE_TARGET_BLOCKS[kind];

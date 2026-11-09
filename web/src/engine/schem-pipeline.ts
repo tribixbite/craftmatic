@@ -20,6 +20,7 @@
  */
 
 import { withoutBuildTools } from './build-tools.js';
+import { labelHeuristicsAllowed, type PackProfile } from './pack-profile.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 import type { LdrawPartMesh } from './ldraw-part-geometry.js';
 import { voxelizeLDrawGeometry, seedDatTexts } from './ldraw-geometry.js';
@@ -164,6 +165,11 @@ export interface SchemWorkerInput {
    * the pack builders fall back to `currentPipelineStamp()`.
    */
   pipelineStamp?: PipelineStamp;
+  /**
+   * `.mcaddon`: X-02's `PackProfile` (frozen ids, release texts, `explicitOnly` ...), forwarded to `buildPlayableAddon`.
+   * It holds functions (`deflate`), so it cannot cross a Worker boundary: set it only on an in-thread build (CLI, tests).
+   */
+  packProfile?: PackProfile;
   /** `.mcpack` / `.mcaddon`: the model file the bytes came from, with its sha256/12. */
   sourceProvenance?: SourceProvenance | null;
 }
@@ -256,7 +262,7 @@ function packProvenanceFields(input: SchemWorkerInput): { pipelineStamp?: Pipeli
  */
 function addonSettingsFromInput(input: SchemWorkerInput, railOnly: boolean): Pick<PlayableAddonOptions,
   'stem' | 'vehicleMode' | 'vehicleFacing' | 'seatCount' | 'entityQuality' | 'trackGrainLdu' | 'cameraStyle' | 'lod'
-  | 'lodDistance' | 'mainVehicleOnly' | 'modelScale' | 'figureCollisionHeight'> {
+  | 'lodDistance' | 'mainVehicleOnly' | 'modelScale' | 'figureCollisionHeight' | 'packProfile'> {
   return {
     stem: input.packStem ?? 'model',
     vehicleMode: railOnly ? 'static' : input.vehicleMode,
@@ -270,6 +276,7 @@ function addonSettingsFromInput(input: SchemWorkerInput, railOnly: boolean): Pic
     mainVehicleOnly: input.mainVehicleOnly,
     modelScale: input.modelScale,
     figureCollisionHeight: input.figureCollisionHeight,
+    ...(input.packProfile ? { packProfile: input.packProfile } : {}),
   };
 }
 
@@ -443,20 +450,22 @@ export async function runSchemPipeline(
       if (repaired.repairs.length) warnings.push(`${repaired.repairs.length} figure torso${repaired.repairs.length === 1 ? '' : 's'} the source placed away from the figure's own limbs and head ${repaired.repairs.length === 1 ? 'was' : 'were'} moved to them: ${describeTorsoRepairs(repaired.repairs)} (a converted torso with no alignment row sits at its raw origin).`);
       const source = { ...input.source, bricks: repaired.bricks };
       census.source = { bricks: source.bricks, meshes: sourceMeshes };
-      const found = discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto', part => sourceMeshes.get(part)?.description ?? '');
+      // X-17: `labelHeuristicsAllowed(input)` gates every title / set-number site in this function.
+      const heuristics = labelHeuristicsAllowed(input);
+      const found = discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto', part => sourceMeshes.get(part)?.description ?? '', input);
       warnings.push(...found.warnings);
       // A scene (a title naming no vehicle): the cars on its street and the
       // boats at its quay are found from the geometry (scene-vehicles.ts) and
       // become rideable where they stand; ride cars and trains stay the rail
       // engine's. Only in auto mode, and never for a title that IS a vehicle.
-      if ((input.vehicleMode ?? 'auto') === 'auto' && !found.components.length && !isWholeVehicleLabel(label)) {
+      if ((input.vehicleMode ?? 'auto') === 'auto' && !found.components.length && !(heuristics && isWholeVehicleLabel(label))) {
         const { findSceneVehicles, findWholeModelVehicles } = await import('./scene-vehicles.js');
         const inScene = findSceneVehicles(source.bricks, sourceMeshes);
         for (const component of inScene.components) found.components.push(withPlayableBounds({ ...component, label: `${label} ${component.label.toLowerCase()}` }));
         const judged = inScene.candidates.filter(c => c.kind || c.wheels || c.oars || c.hull);
         if (judged.length) warnings.push(`Scene vehicles: ${judged.map(c => `${c.kind ?? 'not a vehicle'} (${c.parts} placements at ${c.centre.join(', ')} LDU: ${c.reason})`).join('; ')}.`);
         // Nothing small in a scene: the model may BE the car its title does not name (VEH-20).
-        if (!found.components.length && !isSceneryLabel(label)) {
+        if (!found.components.length && !(heuristics && isSceneryLabel(label))) {
           const whole = findWholeModelVehicles(source.bricks, sourceMeshes);
           for (const component of whole.components) found.components.push(withPlayableBounds({ ...component, label: whole.components.length === 1 ? label : `${label} ${component.label.toLowerCase()}` }));
           if (whole.components.length) warnings.push(`Whole-model vehicle: ${whole.components.map(c => c.provenance).join('; ')}.`);
@@ -634,7 +643,7 @@ export async function runSchemPipeline(
           // The canon is keyed on the set number in the label (the LEGO tab's
           // `Name (11390-1)`, the CLI's `--label`), the stem or the provenance.
           const { canonFor } = await import('./set-canon.js');
-          const canon = canonFor(label, input.packStem, input.sourceProvenance?.setNum);
+          const canon = heuristics ? canonFor(label, input.packStem, input.sourceProvenance?.setNum) : undefined;
           /** Figures that are a mount's companion, by mount index (left out of the walkers below). */
           const mountFigures = new Map<import('./bedrock-scene-actors.js').SceneFigure, number>();
           if (canon?.mounts?.length) {
@@ -803,7 +812,7 @@ export async function runSchemPipeline(
         if (d.skippedSmall) warnings.push(`${d.skippedSmall} door lea${d.skippedSmall === 1 ? 'f' : 'ves'} under two blocks tall left as blocks.`);
         if (d.skippedOutside) warnings.push(`${d.skippedOutside} door lea${d.skippedOutside === 1 ? 'f' : 'ves'} fell outside the export bounds.`);
       }
-      if (sourceOrigin) for (const anchor of knownScreenAnchors(label)) {
+      if (sourceOrigin) for (const anchor of knownScreenAnchors(label, input)) {
         const [x, y, z] = sceneGridPoint(sourceOrigin, [anchor.ldraw[0], anchor.ldraw[1], anchor.ldraw[2]]);
         screens.push({ id: anchor.id, label: anchor.label, x, y, z });
       }
