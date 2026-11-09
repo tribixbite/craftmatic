@@ -121,6 +121,29 @@ export interface CreateZipOptions {
    * nothing — the entries that would have been stored are ~200 bytes.
    */
   alwaysDeflate?: boolean;
+
+  /**
+   * Compressor for every entry, replacing the host's `CompressionStream`
+   * (whose bytes differ between runtimes and zlib versions). It must return a
+   * raw DEFLATE stream (no zlib/gzip wrapper). The release injection is pako:
+   * `(d) => pako.deflateRaw(d, { level: 9 })`, which gives identical bytes on
+   * every machine (BIZ-51). When set, it is used even where `CompressionStream`
+   * is missing.
+   */
+  deflate?: (data: Uint8Array) => Uint8Array | Promise<Uint8Array>;
+
+  /**
+   * Reproducible output: entries are written sorted by name (UTF-16 code-unit
+   * order, locale independent) instead of the caller's order. The DOS
+   * timestamp is always the fixed 1980-01-01 (below). Pair with `deflate` for
+   * byte-identical archives; on its own it only fixes entry order.
+   */
+  deterministic?: boolean;
+}
+
+/** Locale-independent name order for `deterministic` archives. */
+function byName(a: ZipInputFile, b: ZipInputFile): number {
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
 
 /**
@@ -130,9 +153,11 @@ export interface CreateZipOptions {
  * Round-trip-verified against this module's own reader (test/threemf-export).
  */
 export async function createZip(
-  files: readonly ZipInputFile[],
+  inputFiles: readonly ZipInputFile[],
   options: CreateZipOptions = {},
 ): Promise<Uint8Array> {
+  // Copy before sorting: the caller's array is never reordered.
+  const files = options.deterministic ? [...inputFiles].sort(byName) : inputFiles;
   const enc = new TextEncoder();
   const localParts: Uint8Array[] = [];
   const centralParts: Uint8Array[] = [];
@@ -145,9 +170,9 @@ export async function createZip(
     const crc = crc32(f.data);
     let method = 0;
     let payload = f.data;
-    if (typeof CompressionStream !== 'undefined') {
+    if (options.deflate || typeof CompressionStream !== 'undefined') {
       try {
-        const deflated = await deflateRaw(f.data);
+        const deflated = options.deflate ? await options.deflate(f.data) : await deflateRaw(f.data);
         if (options.alwaysDeflate || deflated.length < f.data.length) { method = 8; payload = deflated; }
       } catch { /* keep stored */ }
     }
