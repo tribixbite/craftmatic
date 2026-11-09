@@ -149,7 +149,7 @@ describe.skipIf(!e2eReady)(`release-script: fixture product end to end (${e2eRea
 
   it('prepares a release and every gate passes or is flagged with a reason', () => {
     expect(first.r.stderr + first.r.stdout).not.toMatch(/Error:/);
-    expect(first.r.status).toBe(0);
+    expect(first.r.status, first.r.stdout + first.r.stderr).toBe(0);
     const v = JSON.parse(readFileSync(join(first.out, 'validation.json'), 'utf8')) as { gates: Array<{ id: string; status: string; detail: string }> };
     const bad = v.gates.filter(g => g.status === 'fail');
     expect(bad).toEqual([]);
@@ -157,7 +157,7 @@ describe.skipIf(!e2eReady)(`release-script: fixture product end to end (${e2eRea
   });
 
   it('two prepares of one commit give the identical .mcaddon sha256', () => {
-    expect(second.r.status).toBe(0);
+    expect(second.r.status, second.r.stdout + second.r.stderr).toBe(0);
     const pick = (out: string): string => sumsOf(out).split('\n').filter(l => /\.mcaddon$/.test(l)).join('');
     expect(pick(first.out)).toMatch(/^[0-9a-f]{64} {2}.*\.mcaddon$/);
     expect(pick(second.out)).toBe(pick(first.out));

@@ -209,7 +209,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
 
   // ---- 1. preconditions -------------------------------------------------------------------------------------
   const version = resolveVersion(productId, ledger, flag('version'));
-  const dirtyFiles = git(ROOT, 'status', '--porcelain', '--untracked-files=no').split(/\r?\n/).filter(Boolean).map(l => l.slice(3));
+  const dirtyFiles = git(ROOT, 'status', '--porcelain', '--untracked-files=no').split(/\r?\n/).filter(Boolean).map(l => l.replace(/^s*S+s+/, ''));
   const lockFile = join(ROOT, 'bun.lock');
   const ref = ldrawRefDir();
   const archive = ref ? join(ref, '_archives', product.toolchain.ldrawLibrary.archive) : null;
