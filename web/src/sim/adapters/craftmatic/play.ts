@@ -36,7 +36,8 @@ import { LINE_MIN_OUT, LINE_OUT, doorwayGeometry, jumpHelps } from '../../../eng
 import type { AddonAppearance } from './appearance.js';
 import type { VoxelWorld } from '../../world/voxel-world.js';
 import { driverViewWorld, drawnReaches, drawnTopOver, entityDrawn, type DrawnBox } from './drawn.js';
-import { modelToWorld, type CraftmaticPack, type Placed } from './pack-facts.js';
+import { modelToWorld, vehicleCameraEntry, type CraftmaticPack, type Placed } from './pack-facts.js';
+import { cockpitCamera } from '../../../engine/vehicle-free-look.js';
 import { collisionScaleAudit, describeBoxRow, describeDrift, describePlace, describeSeatRow, seatOnDrawn, seatOnTop, seatScaleAudit, seatScaleDrift, seats100 } from './seat-scale.js';
 import { PLACED_KEY } from './wand.js';
 import { treadBlocksFor } from '../../../engine/bedrock-placement-pack.js';
@@ -127,6 +128,18 @@ async function checkSetDown(ctx: StepContext, label: string): Promise<void> {
   await ctx.run(20);
   if (p.ridingOn) return;
   if (y0 - p.location.y > 1) ctx.violate({ invariant: 'rider-set-down', message: `after ${label} the player dropped ${r3(y0 - p.location.y)} blocks from where the ride set it down`, evidence: { setDown: r3(y0), now: pt(p.location) } });
+}
+
+/**
+ * Where a ridden vehicle's driver looks from, when it is not the rider's own head: a SCRIPTED vehicle's
+ * cockpit view is a camera at the pack's cockpit eye (hotbar 9, vehicle-free-look.ts `cockpitCamera`, here at
+ * rest), which stands over the drawn rider where the eye left the cabin to see ahead (cockpit-seat.ts
+ * `helmSeatPlan`, 2026-11-07). Undefined - the head - for a native mount, a vehicle with no cockpit eye, and
+ * below 100 % on top of the model, where the cockpit view stands at the rider's own head (VEH-18).
+ */
+export function driverLookFrom(cam: { scripted?: boolean; eye?: [number, number, number]; onTop?: unknown } | undefined, pose: { x: number; y: number; z: number; yaw: number }, scale: number): Vec3 | undefined {
+  if (!cam?.scripted || !cam.eye || (cam.onTop && scale < 1 - 1e-9)) return undefined;
+  return cockpitCamera([{ ...pose, pitch: 0 }], 0, cam.eye, scale, { yaw: 0, pitch: 0 }, 89)?.location;
 }
 
 /** The ride steps, the vehicle, mount, doorway and figure steps for one pack. */
@@ -253,12 +266,13 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
         // Judged by the compiler's own rule for every seat (`driverSeesOut`, cockpit-seat.ts): the horizon
         // ahead and the view to either side, over the DRAWN geometry. The wider `VIEW` fan (the guessed seat's
         // test) is reported beside it: a real bonnet fills its low rays (42172: 6 of 15, device-good).
-        const dv = driverViewWorld(drawn, eye, v.rotation.y);
+        const cockpit = driverLookFrom(vehicleCameraEntry(pack.pack, type), { ...v.location, yaw: v.rotation.y }, scale);
+        const dv = driverViewWorld(drawn, cockpit ?? eye, v.rotation.y);
         const { ahead, view } = dv;
         const sides = `left ${dv.left.clear} of ${dv.left.total}, right ${dv.right.clear} of ${dv.right.total}`;
         ctx.state['driverView'] = { ...view, ahead, left: dv.left, right: dv.right };
         ctx.note(`${type}: the driver's eye sees the horizon ahead along ${ahead.clear} of ${ahead.total} rays, to the sides ${sides}, and out of ${view.clear} of ${view.total} of the wider fan`);
-        if (!dv.seesOut) ctx.violate({ invariant: 'driver-sees-ahead', message: `${type}: the driver's eye sees the horizon ahead along ${ahead.clear} of ${ahead.total} rays (needs all) and to the sides ${sides} (needs 90 percent of each, nothing within a block; ${view.clear} of ${view.total} of the wider fan)`, evidence: { eye: pt(eye), yaw: r3(v.rotation.y) } });
+        if (!dv.seesOut) ctx.violate({ invariant: 'driver-sees-ahead', message: `${type}: the driver's eye sees the horizon ahead along ${ahead.clear} of ${ahead.total} rays (needs all) and to the sides ${sides} (needs 90 percent of each, nothing within a block; ${view.clear} of ${view.total} of the wider fan)`, evidence: { eye: pt(cockpit ?? eye), yaw: r3(v.rotation.y), ...(cockpit ? { from: 'cockpit camera' } : {}) } });
       }
       // First under the model's overhangs (a shelf, a balcony: a collider span starting 1-3 blocks over a floor the
       // car stands on) - 10797's car fell through the world under one on the Saga - then the open course.

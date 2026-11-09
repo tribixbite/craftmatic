@@ -62,7 +62,7 @@
 
 import type { AnyStep, Scenario, StepContext, StepHandler } from '../../scenario/types.js';
 import type { SimEntity } from '../../entity/entity.js';
-import type { CraftmaticPack } from './pack-facts.js';
+import { vehicleCameraEntry, type CraftmaticPack } from './pack-facts.js';
 import { packText } from '../../pack/pack.js';
 import { extractJsonAfter } from '../../pack/script-config.js';
 import { FLAT_GROUND_Y } from '../../world/voxel-world.js';
@@ -278,13 +278,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
     return v;
   };
   /** A scripted vehicle's camera config in `scripts/vehicle-camera.js` (the runtime's first argument): the cockpit eye. */
-  const cameraCfg = (typeId: string): { eye?: [number, number, number] } | undefined => {
-    const text = packText(pack.pack, 'scripts/vehicle-camera.js');
-    const at = text ? text.indexOf('({"vehicles":') : -1;
-    if (!text || at < 0) return undefined;
-    const cfg = extractJsonAfter(text.slice(at), '(') as { vehicles?: Array<{ typeId?: string; eye?: [number, number, number] }> } | undefined;
-    return cfg?.vehicles?.find(c => c.typeId === typeId);
-  };
+  const cameraCfg = (typeId: string): { eye?: [number, number, number] } | undefined => vehicleCameraEntry(pack.pack, typeId);
   /** The band the runtime keeps clear (bedrock-vehicle.ts: a car's over its step, a ship's whole airframe aloft, a boat's from just above its waterline). */
   const bandOf = (f: ScriptedTypeFacts): { lo: number; hi: number } => (f.mode === 'plane' ? { lo: 0.15, hi: Math.max(0.2, f.height - 0.15) }
     : f.mode === 'boat' ? { lo: f.draft + 0.05, hi: Math.max(f.draft + 0.5, Math.min(f.height, f.draft + 3)) }

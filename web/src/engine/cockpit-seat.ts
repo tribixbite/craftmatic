@@ -173,9 +173,12 @@ export interface SeatPlan {
    * after. `fallback`: no eye in the cabin saw ahead, so the eye left it
    * (`AHEAD_FALLBACK`) and the rider is hidden at every size. `cabin`: no
    * eye near the evidence saw ahead, and the eye moved along the vehicle's
-   * inside to a cockpit that does (`AHEAD_CABIN`).
+   * inside to a cockpit that does (`AHEAD_CABIN`). `helm`: with `fallback`,
+   * the seat the eye left and its measured steps, where a SCRIPTED vehicle
+   * keeps its rider (`helmSeatPlan`). `lookout`: set by `helmSeatPlan`, the
+   * eye is the cockpit camera's alone, over a rider drawn at the helm.
    */
-  ahead?: { before: number; after: number; moved: Vec3 | null; sides?: { before: SideView; after: SideView }; fallback?: boolean; cabin?: boolean };
+  ahead?: { before: number; after: number; moved: Vec3 | null; sides?: { before: SideView; after: SideView }; fallback?: boolean; cabin?: boolean; helm?: { seat: Vec3; steps: SeatPlan['steps'] }; lookout?: boolean };
 }
 
 /**
@@ -636,11 +639,30 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
         if (driverSeesOut(1, sideView(boxes, c.e))) { both = c.e; break; }
       }
       const e = both ?? near?.e;
+      const helm = { seat: best.seat, steps: best.steps };
       // Only an eye out there: the body is hidden at every size (`riderVisibleSizes` reads `fits`).
-      if (e) take(e, measure(seatOf(e)).map(s => ({ ...s, fits: false })), true);
+      if (e) { take(e, measure(seatOf(e)).map(s => ({ ...s, fits: false })), true); ahead.helm = helm; }
     }
   }
   return { eye: best.eye, seat: best.seat, fitScale: fitOf(best.steps), steps: best.steps, moved: best.moved, search, eyeMoved, ...(view ? { view } : {}), ahead };
+}
+
+/**
+ * A SCRIPTED vehicle's plan for an eye that left the cabin (`AHEAD_FALLBACK`):
+ * the rider stays at the helm the eye left, drawn where the body fits there,
+ * and the eye becomes the cockpit view's camera alone (vehicle-free-look.ts
+ * `cockpitCamera` stands at `SeatPlan.eye`, not at the rider's head). Only a
+ * scripted vehicle can split them: a native mount's cockpit view is the
+ * rider's own first person, so its seat must move with the eye. Until
+ * 2026-11-07 every fallback carried the SEAT up with the eye: 31109's helmsman
+ * sat hidden 6.1 blocks over its deck among the sails (census class 4), and
+ * the chase camera - a scripted vehicle's own view - showed a ship nobody
+ * sails. Any other plan is returned as it is.
+ */
+export function helmSeatPlan(plan: SeatPlan | undefined): SeatPlan | undefined {
+  const helm = plan?.ahead?.fallback ? plan.ahead.helm : undefined;
+  if (!plan || !helm) return plan;
+  return { ...plan, seat: helm.seat, steps: helm.steps, fitScale: helm.steps.find(s => s.fits)?.f ?? null, ahead: { ...plan.ahead!, lookout: true } };
 }
 
 /**

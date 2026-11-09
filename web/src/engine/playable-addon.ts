@@ -14,7 +14,7 @@ import { CONCRETE_COLORS, encodePngRgba, generateStudBlockPng, generateEntityLeg
 import type { ParsedBrick } from './ldraw-parser.js';
 import { compileLdrawEntityGeometry, ldrawToRenderRotation, unlevelPoint, type CompileLdrawEntityOptions, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
 import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
-import { passengerHeld, passengerSurface, renderSeatToEntity, riderVisibleSizes, roofMap, surfaceOnTop, RIDE_ON_TOP_BELOW, ROOF_SEAT_BELOW_SURFACE, RIDER_EYE_ABOVE_SEAT, seatAtOnTop, type RoofMap, type SeatPlan } from './cockpit-seat.js';
+import { helmSeatPlan, passengerHeld, passengerSurface, renderSeatToEntity, riderVisibleSizes, roofMap, surfaceOnTop, RIDE_ON_TOP_BELOW, ROOF_SEAT_BELOW_SURFACE, RIDER_EYE_ABOVE_SEAT, seatAtOnTop, type RoofMap, type SeatPlan } from './cockpit-seat.js';
 import type { VehicleSeatReport } from './seat-census.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendation, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { fineReachColumns, type FineReachColumns, type SourceCell } from './bedrock-collider-scale.js';
@@ -726,7 +726,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     const fallback: Array<[number, number, number]> = [];
     if (!measured.length && seatCount <= 1 && seatPositionOverride && (kind === 'car' || kind === 'boat') && length >= 3.5) {
         const spacing = kind === 'boat' && length >= 8 ? 2 : 1;
-        const lifted = seatPlan?.ahead?.fallback ? seatPlan.ahead.moved?.[1] ?? 0 : 0;
+        const lifted = seatPlan?.ahead?.fallback && !seatPlan.ahead.lookout ? seatPlan.ahead.moved?.[1] ?? 0 : 0;
         const pan = seatY - lifted + ROOF_SEAT_BELOW_SURFACE;
         const r2 = (v: number): number => Math.round(v * 100) / 100;
         /** The passenger at render-frame z, on the model (roof map in the entity frame), or null. */
@@ -2137,7 +2137,8 @@ export function cameraSeatFields(plan: SeatPlan | undefined, roof?: RoofMap): Pi
     }
     return {
         riderVisibleSizes: riderVisibleSizes(plan),
-        ...(plan ? { eyeY: plan.eye[1], eye: renderSeatToEntity(plan.eye) } : {}),
+        // A lookout eye (`helmSeatPlan`) stands over the drawn rider: the chase camera clears the rider's own head.
+        ...(plan ? { eyeY: plan.ahead?.lookout ? Math.round((plan.seat[1] + RIDER_EYE_ABOVE_SEAT) * 100) / 100 : plan.eye[1], eye: renderSeatToEntity(plan.eye) } : {}),
         ...(Object.keys(roofs).length ? { onTop: { below: RIDE_ON_TOP_BELOW, roofs, eyeOverRoof: Math.round((RIDER_EYE_ABOVE_SEAT - ROOF_SEAT_BELOW_SURFACE) * 1000) / 1000 } } : {}),
     };
 }
@@ -3331,6 +3332,11 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             driverVehicles.push({ typeId: fullTypeId, kind: c.kind, label: c.label });
             nativeHopSources[fullTypeId] = hopSourceOf(ldrawGeo?.sizeBlocks ?? { width: layout.width, height: layout.height, length: layout.length }, 'native');
         }
+        // A scripted vehicle whose driver's eye left the cabin keeps its rider at the helm (`helmSeatPlan`).
+        if (ldrawGeo && scripted && ldrawGeo.seatPlan !== helmSeatPlan(ldrawGeo.seatPlan)) {
+            ldrawGeo = { ...ldrawGeo, seatPlan: helmSeatPlan(ldrawGeo.seatPlan) };
+            warnings.push(`${c.label}: the driver's eye left the cabin to see ahead; the rider stays at the helm and the eye is the cockpit view's (hotbar 9) alone.`);
+        }
         if (ldrawGeo) {
             warnings.push(...ldrawGeo.warnings);
             diagnostics[cid] = ldrawGeo.diagnostics;
@@ -3367,6 +3373,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     continue;
                 }
                 recordCompiled(ecid, egeo);
+                // A second vehicle is a scripted car: its rider stays at the helm an eye left (`helmSeatPlan`).
+                if (ekind === 'car' && egeo.seatPlan !== helmSeatPlan(egeo.seatPlan)) egeo = { ...egeo, seatPlan: helmSeatPlan(egeo.seatPlan) };
                 if (ekind === 'figure') figureBodies[`${PACK_NAMESPACE}:${ecid}`] = figureCollisionBox(egeo.sizeBlocks, options.figureCollisionHeight).height;
                 const extraRoof = ekind === 'car' && egeo.seatPlan ? roofMap(geometryEntityBoxes(egeo.value)) : undefined;
                 const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks, options.figureCollisionHeight)
