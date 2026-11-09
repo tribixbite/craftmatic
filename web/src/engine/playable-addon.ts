@@ -65,6 +65,10 @@ export interface PlayableGridComponent {
     longitudinalAxis?: 'x' | 'z';
     forwardDirection?: Exclude<VehicleFacing, 'auto'>;
     seatAnchor?: { x: number; y: number; z: number };
+    /** Explicit motion class (a creator hint, byom/hints.ts): wins over the label's hover / rotor words. */
+    motion?: VehicleMotion;
+    /** Explicit seat layout for this component (a creator hint); absent: `options.seatCount`. */
+    seatCount?: number;
     /** Spawn center in the stationary model's block coordinates. */
     x?: number;
     y?: number;
@@ -3356,7 +3360,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         const layout = componentLayout(c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
         const componentIsTimeMachine = isTimeMachine && c.kind === 'car' && !timeMachineConfig;
         // A fixed wing (brick-compiled) is flown by scripts/vehicles.js; a rotorcraft and a grid-only aircraft keep the hover controller.
-        const motion: VehicleMotion = ldrawGeo ? vehicleMotionOf(c.kind, c.label) : HOVER_WORDS.test(c.label) ? 'hover' : c.kind === 'plane' ? 'rotor' : c.kind;
+        const motion: VehicleMotion = c.motion ?? (ldrawGeo ? vehicleMotionOf(c.kind, c.label) : HOVER_WORDS.test(c.label) ? 'hover' : c.kind === 'plane' ? 'rotor' : c.kind);
         // Every car is scripted (bedrock-vehicle.ts `carStep`), the time machine and a grid-only car included.
         const scripted = isScriptedVehicle(c.kind, motion);
         if (componentIsTimeMachine)
@@ -3377,7 +3381,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             diagnostics[cid] = ldrawGeo.diagnostics;
             // What a rider below 100 % sits on, read from the geometry the pack ships (VEH-18).
             const mainRoof = ldrawGeo.seatPlan ? roofMap(geometryEntityBoxes(ldrawGeo.value)) : undefined;
-            const mainBehavior = behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, ldrawGeo.seatPlan, geometryHitBox(ldrawGeo.value), mainRoof);
+            const mainBehavior = behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, c.seatCount ?? options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, ldrawGeo.seatPlan, geometryHitBox(ldrawGeo.value), mainRoof);
             emitCompiledEntity(cid, ldrawGeo, mainBehavior, emitDriveAnimation(cid, motion, ldrawGeo, scripted), true);
             vehicleSeats.push(vehicleSeatReport(c.label, cid, c.kind, c.bricks!, i => c.bricks![i]!, ldrawGeo, mainBehavior, `${scripted ? 'scripted' : 'native'} ${motion}`));
             cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(scripted ? { scripted: true } : {}), ...cameraSeatFields(ldrawGeo.seatPlan, mainRoof) });
@@ -3432,7 +3436,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             if (options.mainVehicleOnly && ldrawGeo.extras.some(e => e.role !== 'prop')) warnings.push(`${c.label}: ${ldrawGeo.extras.filter(e => e.role !== 'prop').length} separate object${ldrawGeo.extras.filter(e => e.role !== 'prop').length === 1 ? '' : 's'} beside the vehicle left out (main vehicle only).`);
             else if (left) warnings.push(`${c.label}: ${left} prop${left === 1 ? '' : 's'} beside the vehicle (a stand, a plaque) not exported.`);
         } else {
-            files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, options.seatCount ?? 1, undefined, undefined, undefined, motion)) });
+            files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, c.seatCount ?? options.seatCount ?? 1, undefined, undefined, undefined, motion)) });
             cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, { width: layout.width, height: layout.height, length: layout.length }), ...(scripted ? { scripted: true } : {}) });
             const geo = geometry(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
             fallbackCuboids += geo.cubeCount;

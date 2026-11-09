@@ -1,0 +1,8 @@
+{
+  "title": "Tunnel Demo",
+  "namespace": "demo_tunnel",
+  "components": [
+    { "select": { "submodel": "75892 - Car.ldr" }, "kind": "car", "facing": "-z", "seats": 2 }
+  ],
+  "figures": "keep"
+}

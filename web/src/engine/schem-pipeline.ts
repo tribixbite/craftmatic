@@ -39,6 +39,7 @@ import type { BorderMarginEvidence } from './bedrock-interactives.js';
 import { LDU_PER_BLOCK } from './lego-scale.js';
 import type { SeatCensus, SeatCensusContext } from './seat-census.js';
 import type { PlayableAddonOptions } from './playable-addon.js';
+import { ByomHintsError, byomComponentsFromHints, remapSceneRule, resolveByomHints, sceneRuleAllows, type ByomHints, type ResolvedByomHints } from './byom/hints.js';
 
 /**
  * `mcpack` is the Bedrock Edition target: a behavior pack of `.mcstructure`
@@ -115,6 +116,12 @@ export interface SchemWorkerInput {
   packStem?: string;
   /** Human label for the pack (`Colosseum (10276)`); defaults to `packStem`. */
   packLabel?: string;
+  /**
+   * B03 (BIZ-31): the creator's own statements about a BYOM model, already parsed (`parseByomHints`). They
+   * replace every title-derived choice - vehicles, doors, seats, figures - and so require explicit mode
+   * (`packProfile.flags.explicitOnly`); a selector that resolves to nothing refuses the export (`ByomHintsError`).
+   */
+  byomHints?: ByomHints;
   /** Explicit whole-model vehicle override; auto preserves scenery. */
   vehicleMode?: 'auto' | 'car' | 'plane' | 'boat' | 'static';
   /** Number of passenger seats (1 for single driver, 2+ for co-pilot/passengers). */
@@ -265,8 +272,9 @@ function addonSettingsFromInput(input: SchemWorkerInput, railOnly: boolean): Pic
   | 'lodDistance' | 'mainVehicleOnly' | 'modelScale' | 'figureCollisionHeight' | 'packProfile'> {
   return {
     stem: input.packStem ?? 'model',
-    vehicleMode: railOnly ? 'static' : input.vehicleMode,
-    vehicleFacing: input.vehicleFacing,
+    // Hints name the vehicles; a whole-model mode or a global nose beside them would second-guess them.
+    vehicleMode: railOnly || input.byomHints ? 'static' : input.vehicleMode,
+    vehicleFacing: input.byomHints ? 'auto' : input.vehicleFacing,
     seatCount: input.seatCount,
     entityQuality: input.entityQuality,
     ...(input.trackGrainLdu ? { trackGrainLdu: input.trackGrainLdu } : {}),
@@ -291,6 +299,16 @@ export async function runSchemPipeline(
   // A brick separator is a tool from the box, not model content
   // (build-tools.ts): left out of every format before anything reads the bricks.
   let buildToolsRemoved = 0;
+  // B03: the creator's hints are resolved over the model's placements as the creator saw them (their
+  // indices count every placement), BEFORE build tools are dropped; `finalOf` maps them on below.
+  let byom: ResolvedByomHints | undefined;
+  if (input.byomHints) {
+    if (labelHeuristicsAllowed(input)) throw new ByomHintsError(['Creator hints are only applied in explicit mode (packProfile.flags.explicitOnly = true): in dev mode a title or set number could still decide beside them.']);
+    if (input.source.kind !== 'bricks') throw new ByomHintsError(['Creator hints select parts of a brick model; this input is a block grid.']);
+    const r = resolveByomHints(input.byomHints, input.source.bricks);
+    if (!r.ok) throw new ByomHintsError(r.errors);
+    byom = r.resolved;
+  }
   if (input.source.kind === 'bricks') {
     const kept = withoutBuildTools(input.source.bricks);
     if (kept.removed) { buildToolsRemoved = kept.removed; input = { ...input, source: { ...input.source, bricks: kept.bricks } }; }
@@ -396,7 +414,7 @@ export async function runSchemPipeline(
     const { isFigurePart, isTorso, repairFigureTorsos, describeTorsoRepairs } = await import('./ldraw-entity-compiler.js');
     const { ACCESS_DOOR_MAX_OFF_GRID_DEG, accessMarginFor, borderMarginFor } = await import('./bedrock-interactives.js');
     const { createPartGeometryProvider } = await import('./ldraw-part-geometry.js');
-    const label = input.packLabel ?? input.packStem ?? 'Imported build';
+    const label = input.byomHints?.title ?? input.packLabel ?? input.packStem ?? 'Imported build';
     const components = [];
     const warnings: string[] = bedrockExportNotes(grid);
     if (buildToolsRemoved) warnings.push(`Left out ${buildToolsRemoved} brick separator${buildToolsRemoved === 1 ? '' : 's'}: a tool from the box, not part of the model.`);
@@ -449,16 +467,22 @@ export async function runSchemPipeline(
       const repaired = repairFigureTorsos(input.source.bricks, sourceMeshes);
       if (repaired.repairs.length) warnings.push(`${repaired.repairs.length} figure torso${repaired.repairs.length === 1 ? '' : 's'} the source placed away from the figure's own limbs and head ${repaired.repairs.length === 1 ? 'was' : 'were'} moved to them: ${describeTorsoRepairs(repaired.repairs)} (a converted torso with no alignment row sits at its raw origin).`);
       const source = { ...input.source, bricks: repaired.bricks };
+      /** The resolved hint placements -> the placements this export now holds (a torso may have been repaired). */
+      const finalOf = new Map(input.source.bricks.map((b, i) => [b, repaired.bricks[i]!] as const));
       census.source = { bricks: source.bricks, meshes: sourceMeshes };
       // X-17: `labelHeuristicsAllowed(input)` gates every title / set-number site in this function.
       const heuristics = labelHeuristicsAllowed(input);
-      const found = discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto', part => sourceMeshes.get(part)?.description ?? '', input);
+      // B03: with hints the creator decides what is a vehicle: no title discovery, no scene finder, no rail swap.
+      const found = byom
+        ? byomComponentsFromHints(byom, finalOf)
+        : discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto', part => sourceMeshes.get(part)?.description ?? '', input);
       warnings.push(...found.warnings);
+      if (byom?.hints.features.length) warnings.push(`${byom.hints.features.length} positional feature hint${byom.hints.features.length === 1 ? '' : 's'} (door/seat/slide/lift "at" a point) belong to mesh and photo models (the legolizer, B13) and were not applied to this brick model; select its parts with "doors"/"seats" instead.`);
       // A scene (a title naming no vehicle): the cars on its street and the
       // boats at its quay are found from the geometry (scene-vehicles.ts) and
       // become rideable where they stand; ride cars and trains stay the rail
       // engine's. Only in auto mode, and never for a title that IS a vehicle.
-      if ((input.vehicleMode ?? 'auto') === 'auto' && !found.components.length && !(heuristics && isWholeVehicleLabel(label))) {
+      if (!byom && (input.vehicleMode ?? 'auto') === 'auto' && !found.components.length && !(heuristics && isWholeVehicleLabel(label))) {
         const { findSceneVehicles, findWholeModelVehicles } = await import('./scene-vehicles.js');
         const inScene = findSceneVehicles(source.bricks, sourceMeshes);
         for (const component of inScene.components) found.components.push(withPlayableBounds({ ...component, label: `${label} ${component.label.toLowerCase()}` }));
@@ -475,7 +499,7 @@ export async function runSchemPipeline(
       // engine, driven: bedrock-coaster.ts `RAIL_TRAIN_PHYSICS`), not as a free
       // wheeled vehicle that would take the track away with it (10277 is titled
       // "Locomotive"). Only in auto mode: an explicit vehicle mode still wins.
-      if ((input.vehicleMode ?? 'auto') === 'auto' && found.components.length) {
+      if (!byom && (input.vehicleMode ?? 'auto') === 'auto' && found.components.length) {
         const before = found.components.length;
         const { extractCoasterTrackRoutes } = await import('./coaster-track.js');
         for (let k = found.components.length - 1; k >= 0; k--) {
@@ -694,13 +718,17 @@ export async function runSchemPipeline(
           // part, or its sitter is a car's rider) is that car's, not a fixed
           // seat standing where the car was parked.
           const riderOf = (i: number): boolean => scene.figures.some(f => f.seatIndex === i && f.bricks.some(b => riderBricks.has(b)));
-          const keptSeats = scene.seats.map((s, i) => ({ s, i })).filter(({ s, i }) => !(s.brick && movable.has(s.brick)) && !riderOf(i));
+          // B03: a creator's "seats" hint lists which detected seats may ship (the rest stay brick scenery).
+          const seatRule = byom ? remapSceneRule(byom.seats, finalOf) : { mode: 'detect' as const };
+          const keptSeats = scene.seats.map((s, i) => ({ s, i })).filter(({ s, i }) => !(s.brick && movable.has(s.brick)) && !riderOf(i) && sceneRuleAllows(seatRule, s.brick));
           const seatIndexOf = new Map(keptSeats.map(({ i }, k) => [i, k]));
           const sceneSeats = keptSeats.map(({ s }) => s);
           for (const f of scene.figures) {
             // A figure seated in a ride car (upright in a station, 10261) rides
             // in that car's entity, not as a wandering NPC.
             if (f.bricks.some(b => riderBricks.has(b))) continue;
+            // B03: "figures": "none" keeps every source figure as bricks in the model.
+            if (byom?.hints.figures === 'none') continue;
             const p = sceneFloorPoint(frame, groundLdu, [f.centreLdu[0], f.floorLdu, f.centreLdu[2]]);
             // A mount's companion rides its orbit seat (playable-addon.ts), never a chair.
             const mountIndex = mountFigures.get(f);
@@ -732,6 +760,11 @@ export async function runSchemPipeline(
             if (pinball) for (const brick of pinball.plan.moved) if (!owned.has(brick)) owned.set(brick, 'part of the pinball table');
             for (const m of mounts?.items ?? []) for (const brick of m.bricks) if (!owned.has(brick)) owned.set(brick, `part of the ${m.canon.label ?? m.canon.style} a figure rides`);
             for (const brick of movable) if (!owned.has(brick)) owned.set(brick, 'part of a ride car or its riders');
+            // B03: a creator's "doors" hint limits which moving parts (doors, windows, hatches, levers, turnables) may move.
+            if (byom && byom.doors.mode !== 'detect') {
+              const doorRule = remapSceneRule(byom.doors, finalOf);
+              for (const brick of source.bricks) if (!owned.has(brick) && !sceneRuleAllows(doorRule, brick)) owned.set(brick, "left static by the creator's doors hint");
+            }
             const stage = interactivityStage({
               bricks: source.bricks, meshes: scene.meshes, owned, seats: sceneSeats,
               seatPoints: seats.map(s => [s.x, s.y, s.z] as [number, number, number]), toGrid: p => sceneGridPoint(frame, p),
@@ -798,7 +831,8 @@ export async function runSchemPipeline(
         // vehicle voxel mask leaves gap-fill/bridge fragments and can erase
         // scenery where the two assemblies touch.
         onProgress('rebuilding scenery without movable components');
-        const scenery = await runSchemPipeline({ ...input, format: 'guide',
+        const { byomHints: _hintsForWholeModel, ...sceneryInput } = input;
+        const scenery = await runSchemPipeline({ ...sceneryInput, format: 'guide',
           source: { ...source, bricks: source.bricks.filter(b => !movable.has(b)) } }, onProgress);
         if (!sourceOrigin || !scenery.gridOrigin) throw new Error('Scenery alignment requires resolved source geometry.');
         grid = alignVoxelGrid(scenery.grid, scenery.gridOrigin, sourceOrigin, grid);
