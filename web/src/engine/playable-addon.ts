@@ -4024,6 +4024,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(doorCells ? { doorCells } : {}),
         ...(plannedTreads ? { plannedTreads } : {}),
         ...(timeMachineConfig ? { vehicleControls: true } : {}),
+        // M07: a release / Marketplace profile builds only into air (absent: the dev wand).
+        ...(flags.marketplacePlacement ? { marketplacePlacement: true } : {}),
         ...(options.interactionNote || ixWalkNote ? { interactionNote: bedrockInGameText([options.interactionNote, ixWalkNote].filter(Boolean).join(' ')) } : {}),
         // The wand names the measured walk-through step and quotes the reason
         // whole - spelt for Bedrock's text formatter, which deletes a bare `%`.

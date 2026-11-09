@@ -27,7 +27,7 @@ export interface PackProfileTexts {
   lang: Record<string, string>;
 }
 
-/** Behaviour switches; every one defaults to the dev pack's value (all true except `explicitOnly`). */
+/** Behaviour switches; every one defaults to the dev pack's value (all true except `explicitOnly` and `marketplacePlacement`). */
 export interface PackProfileFlags {
   /** Ship the 17 vanilla-path `textures/blocks/concrete_*.png` overrides (a Marketplace pack must not). */
   vanillaTextures: boolean;
@@ -39,6 +39,8 @@ export interface PackProfileFlags {
   devStamp: boolean;
   /** X-17: no title / set-number heuristic (canon, time machine, Batcave, vehicle-by-title) is applied; only explicit hints decide. */
   explicitOnly: boolean;
+  /** M07 (BIZ-26): the Brick Wand builds only into air (prompt, clear spot, exact Undo, action-bar text, short first-join chat). */
+  marketplacePlacement: boolean;
 }
 
 export interface PackProfile {
@@ -58,7 +60,7 @@ export interface PackProfile {
 
 /** The dev pack's value for every flag. */
 export const DEV_PACK_FLAGS: Readonly<PackProfileFlags> = Object.freeze({
-  vanillaTextures: true, diagnostics: true, faceArt: true, devStamp: true, explicitOnly: false,
+  vanillaTextures: true, diagnostics: true, faceArt: true, devStamp: true, explicitOnly: false, marketplacePlacement: false,
 });
 
 /** `profile.flags` over the dev defaults: with no profile, exactly the dev pack. */
