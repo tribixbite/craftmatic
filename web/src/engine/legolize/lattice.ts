@@ -19,8 +19,8 @@
  * - 'solid' mode is an even-odd ray fill, so a shell must be closed: planar boundary loops (LDraw studs have no
  *   base) are capped first (`hole-cap.ts`). Shells with open loops that are not planar and convex (about 17 of the
  *   120 part moulds in the batcave fixture, e.g. 3048, 17485, 64799) still leave a column of "inside" cells above
- *   them: batcave car voxel IoU is 0.66, the rest of the corpus fixtures are >= 0.99. TODO(X-12): a winding-number
- *   inside test in the shared voxeliser would fix those; `src/convert/voxelizer.ts` is not edited here.
+ *   them: batcave car voxel IoU is 0.66, the rest of the corpus fixtures are >= 0.99. V-01 added the fix
+ *   behind `insideTest: 'winding'` (default 'parity', unchanged): batcave 0.656 -> 1.000 when mesh and per-brick truth both use it.
  * - 'solid' mode needs a watertight mesh; if it finds nothing (an open mesh) we
  *   fall back to 'surface' rather than return an empty model.
  * - Triangle counts in the millions are slow: the colour pass is one BVH query per filled cell.
@@ -28,7 +28,7 @@
 
 import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
-import { threeToGridAsync, type TextureSampler, type VoxelizeMode, type VoxelizeProgress } from '@craft/convert/voxelizer.js';
+import { threeToGridAsync, type InsideTest, type TextureSampler, type VoxelizeMode, type VoxelizeProgress } from '@craft/convert/voxelizer.js';
 import type { RGB } from '@craft/types/index.js';
 import { LDRAW_COLOR_RGB } from '../ldraw-colors.js';
 import { capPlanarHoles } from './hole-cap.js';
@@ -54,6 +54,11 @@ export interface MeshToLatticeOptions {
   textureSampler?: TextureSampler;
   /** Throw before voxelising when the lattice would exceed this many cells. */
   maxCells?: number;
+  /**
+   * Inside test for 'solid' mode: 'parity' (default, even-odd ray fill after planar hole capping) or 'winding'
+   * (generalised winding number: robust to open, non-planar shells and to overlapping bodies in one mesh; slower).
+   */
+  insideTest?: InsideTest;
   onProgress?: (p: VoxelizeProgress) => void;
 }
 
@@ -79,6 +84,11 @@ export interface BricksToLatticeOptions {
   partTriangles?: (brick: BrickLike) => Promise<TriangleLike[]>;
   mode?: VoxelizeMode;
   maxCells?: number;
+  /**
+   * Inside test for 'solid' mode: 'parity' (default, even-odd ray fill after planar hole capping) or 'winding'
+   * (generalised winding number: robust to open, non-planar shells and to overlapping bodies in one mesh; slower).
+   */
+  insideTest?: InsideTest;
   onProgress?: (p: VoxelizeProgress) => void;
 }
 
@@ -181,7 +191,7 @@ function cappedGroup(meshes: readonly THREE.Mesh[]): THREE.Group {
  */
 async function voxeliseAndColour(
   source: THREE.Object3D, lduPerUnit: number, mode: VoxelizeMode, sampler: TextureSampler | undefined,
-  maxCells: number, onProgress: ((p: VoxelizeProgress) => void) | undefined,
+  maxCells: number, onProgress: ((p: VoxelizeProgress) => void) | undefined, insideTest: InsideTest = 'parity',
 ): Promise<ColouredCells> {
   if (!(lduPerUnit > 0)) throw new RangeError(`lduPerUnit must be > 0, got ${lduPerUnit}`);
 
@@ -227,7 +237,12 @@ async function voxeliseAndColour(
   // Solid mode counts shell crossings, so open planar rims (LDraw studs have no base) are closed on a position-only
   // copy; the colour pass and the surface fallback keep the original geometry.
   const solidGroup = cappedGroup(meshes);
-  const run = (md: VoxelizeMode) => threeToGridAsync(md === 'solid' ? solidGroup : stretched, 1, { mode: md, onProgress, yieldInterval: 8 });
+  // Both inside tests read the capped copy: the planar caps make an LDraw brick's hollow underside a solid
+  // (the lattice is an occupancy of bricks, not of shells), and winding then only has to cope with what is left.
+  const run = (md: VoxelizeMode) => threeToGridAsync(
+    md === 'solid' && insideTest === 'parity' ? solidGroup : stretched, 1,
+    { mode: md, onProgress, yieldInterval: 8, insideTest },
+  );
   let grid = await run(mode);
   // An open mesh has no inside: solid mode then finds nothing. Use its surface instead of returning air.
   if (mode === 'solid' && grid.countNonAir() === 0) grid = await run('surface');
@@ -293,7 +308,7 @@ function packLattice(cc: ColouredCells, nearest: NearestColour): IntentLattice {
 export async function meshToLattice(object: THREE.Object3D, options: MeshToLatticeOptions = {}): Promise<IntentLattice> {
   const cc = await voxeliseAndColour(
     object, options.lduPerUnit ?? 1, options.mode ?? 'solid', options.textureSampler,
-    options.maxCells ?? DEFAULT_MAX_CELLS, options.onProgress,
+    options.maxCells ?? DEFAULT_MAX_CELLS, options.onProgress, options.insideTest,
   );
   return packLattice(cc, options.nearest ?? createNearest());
 }
@@ -345,7 +360,7 @@ export async function latticeFromBricks(bricks: readonly BrickLike[], options: B
   }
   if (root.children.length === 0) throw new Error('latticeFromBricks: no brick produced any triangles');
   root.updateMatrixWorld(true);
-  const cc = await voxeliseAndColour(root, 1, options.mode ?? 'solid', undefined, options.maxCells ?? DEFAULT_MAX_CELLS, options.onProgress);
+  const cc = await voxeliseAndColour(root, 1, options.mode ?? 'solid', undefined, options.maxCells ?? DEFAULT_MAX_CELLS, options.onProgress, options.insideTest);
   // Snap over only the colours the model uses: each brick colour maps back to itself.
   return packLattice(cc, createNearest([...used.values()]));
 }

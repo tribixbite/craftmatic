@@ -81,11 +81,24 @@ describe.skipIf(!RUN)('legolize-lattice IoU measurement', () => {
       expect(bricks.length).toBeGreaterThan(0);
       const all: Array<ReadonlyArray<readonly [number, number, number]>> = [];
       for (const b of bricks) all.push(...(await __debugWorldTris(b)));
+      const tp0 = performance.now();
       const truth = await latticeFromBricks(bricks, { mode: 'solid' });
       const mesh = await meshToLattice(mergedMesh(all), { lduPerUnit: 1, mode: 'solid' });
+      const tParity = performance.now() - tp0;
       const iou = voxelIoU(mesh, truth);
       console.log(`IOU ${name}: ${iou.toFixed(3)}  bricks=${bricks.length} truth=${truth.dims.join('x')} mesh=${mesh.dims.join('x')}`);
       expect(iou).toBeGreaterThan(0);
+      // V-01: the same measurement with the winding-number inside test on both sides. The per-brick truth uses the
+      // same test: its own parity fill has the open-shell columns too.
+      const t0 = performance.now();
+      const mesh2 = await meshToLattice(mergedMesh(all), { lduPerUnit: 1, mode: 'solid', insideTest: 'winding' });
+      const truthW = await latticeFromBricks(bricks, { mode: 'solid', insideTest: 'winding' });
+      const iouW = voxelIoU(mesh2, truthW);
+      console.log(`IOU-WINDING ${name}: ${iouW.toFixed(3)} (parity ${iou.toFixed(3)}) winding ${Math.round(performance.now() - t0)} ms, parity ${Math.round(tParity)} ms`);
+      // Informational: the winding mesh against the PARITY per-brick truth (which carries its own open-shell columns).
+      console.log(`IOU-CROSS ${name}: winding mesh vs parity truth ${voxelIoU(mesh2, truth).toFixed(3)}`);
+      expect(iouW).toBeGreaterThanOrEqual(0.85);
+      expect(iouW).toBeGreaterThanOrEqual(iou - 0.01);
     }, 300_000);
   }
 });
