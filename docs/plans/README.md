@@ -473,6 +473,12 @@ Standing serial rules (never two at once): `playable-addon.ts` (X-02 -> X-17 -> 
 
 ---
 
+### Added by the orchestrator 2026-11-09 (lawyer batch U3)
+- U3a: the DINOv3 encoder licence ("other: DINOv3 License") under the photo-to-3D route (B15): read before any public use.
+- U3b: may a COMMERCIAL design take measurements/proportions from a CC BY-SA photo (A09's Notre-Dame sidecar) without
+  itself becoming CC BY-SA? Default until answered: cross-check every SA-derived measure against a public-domain drawing
+  or our own measurement before a paid release.
+
 ## 6. REQUIREMENTS.md rows to add (section 17), de-duplicated
 
 Status `OPEN`, guards `none`, device `—` for all. X-00 pastes them; each later commit fills guards from the tests
