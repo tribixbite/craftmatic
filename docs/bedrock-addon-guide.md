@@ -5755,3 +5755,67 @@ first" (fails on the old runtimes in the shipped order). Why the head then
 faded after ~6 s on the device is not explained (quirk
 `hop-invisibility-handoff`).
 
+
+## Coaster rails: entity chunks or blocks (WP-C03, BIZ-13, 2026-11-09)
+
+Rails and ties for a GENERATED coaster (`coaster-design.ts`) are our own geometry, built by `web/src/engine/coaster-track-mesh.ts`
+(`buildTrackMesh`). No LEGO track mould is used. Offline only; nothing here has been on a phone.
+
+**What ships.** Per rail, two crossed square bars (3.5 units, one rolled 45 degrees: an octagon-ish round bar), a 2.8-block tie
+of 3 units thickness every block of arc, and one 3-unit stud at each tie end. Rails are cut into pieces of up to 1.5 blocks
+(shorter on a curve: no sample may stray 0.04 block from its piece's chord), each cube turned by `cubeRotationFor` (solved to
+`pivotRotation`'s `Rz(-rz) Ry(ry) Rx(-rx)`; tested against `pivotRotation` itself, including the gimbal pole of a rail banked 90
+degrees). Joints are extended by the half-turn wedge so a bend leaves no gap (test: every sampled joint lies inside >= 4 rail
+cubes). Zone ties are coloured (lift orange, launch yellow, brake red).
+
+**Chunking.** Entities are drawn only while their ROOT is within ~70 blocks of the camera (round 2026-09-26a), so the course is cut on
+the shell's fixed lattice (`shellCellOf`/`shellCellRoot`, 13-block cells, root at the cell centre): at the largest wand size (400 %)
+every cube stays within `STATIC_SHELL_RADIUS_LIMIT_BLOCKS` (54) of its root. Measured on the 3x sketch: worst reach 12.07 blocks
+at 100 % (48.3 at 400 %). The test re-reads every shipped cube through `cubeCorners` and measures from the root, independent of
+the module's own figure. Chunk ids name the lattice cell (`coaster_track_c<ix>_<iy>_<iz>`), so a design edit renames nothing
+elsewhere.
+
+**3x sketch measurements** (`bun scripts/_coaster_track_render.ts`, 1,872-block circuit):
+
+| | Entity chunks (default profile) | Lean profile (`roundRails: false, studs: false`) |
+|---|---|---|
+| Cubes | 11,276 (5,660 rail, 1,872 tie, 3,744 stud) | 4,702 (2,830 rail pieces x 1 bar, 1,872 tie) |
+| Chunks | 222, at most 132 cubes each | same lattice, fewer cubes |
+| Geometry JSON | 1.70 MB | about 0.7 MB (scales with cubes) |
+
+Resident cost on a phone is the open item: CLAUDE.md measured 1-3 kB per cuboid on a Pixel 8 Pro, so 11,276 cubes is 11-34 MB
+and 4,702 is 5-14 MB. Not measured for this geometry. The shell tier budgets (M06) must decide which profile each tier takes.
+
+**What a rider has in reach** (riders every 4 blocks along the circuit, 70-block reach, 100 %): the median rider has 11.7 % of
+the chunks (12.0 % of the rail cubes) in reach, the minimum 5.4 % / 6.8 %. That is the entity route's limit, shared with every
+shell: at the crest a rider sees only the track within ~70 blocks, and the rest of the course is not drawn (`output/c03/crest-reach.png`,
+`rider-<k>-reach.png` against `-nocull.png`).
+
+**The block alternative, measured offline** (`compareRailRepresentations`): rasterise each rail's centreline into 1-block cells
+and count DISTINCT cell contents (where each rail enters and leaves the cell, the up vector to 1/8, per quantum):
+
+| Position quantum | Cells touched | Distinct permutations | Worst edge error |
+|---|---|---|---|
+| 1 block (16 u) | 4,531 | 1,779 | 0.5 block |
+| 1/2 block (8 u) | 4,531 | 2,144 | 0.25 block |
+| 1/4 block (4 u) | 4,531 | 2,548 | 0.125 block |
+| 1/8 block (2 u) | 4,531 | 2,878 | 0.063 block |
+| 1/16 block (1 u) | 4,531 | 3,398 | 0.031 block |
+
+The per-world cap (65,536 permutations, see "The 65,536 cap" above) is not the blocker: 2.5k-3.4k is well inside it, though each is
+a distinct geometry in the resource pack. What the count does not show, and why this is NOT the default:
+- a block's geometry is bounded by its own 16-unit cell, so a rail crossing a cell corner on a slope is clipped and the quantised
+  crossing leaves a step of up to the error above at every cell edge (a loop's inside would show them);
+- blocks must be SET in the world (4,531 setBlock calls into loaded chunks, the "an unloaded block is not air" trap, no wand size:
+  an entity's `minecraft:scale` scales a placed course, a block does not), while the entity route places once like every other model;
+- the draw distance of a custom block's geometry (render distance) is DOCUMENTED, not measured, and is the one real advantage
+  (a rider would see the whole circuit). TODO(C03): a device round with a 200-block straight of rail blocks would settle it.
+
+**Decision (offline, pending that round): entity chunks.** They are continuous, scale with the wand, reuse the shell lattice and
+its tests, and carry the zone colours. The cost to carry forward is the 70-block reach (a coaster hides its far track) and the cube
+budget (choose the lean profile on a low tier). Reopen if the device shows block rails drawn at render distance and the 4.5k
+permutation budget is acceptable.
+
+**Frames (for C02).** Output is in the route's frame; pass `mirror: 'x' | 'z'` if the placement maps the route into the JSON frame
+by a mirror (never mirror finished geometry: a mirror conjugates every cube rotation). `railTopOffsetB` sets the rail top above the
+route sample (default 0: the sample is the rail top); the car's datum above it is C02's.
