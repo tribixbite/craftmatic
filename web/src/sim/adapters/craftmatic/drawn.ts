@@ -37,8 +37,8 @@ export function packClientAnimations(addon: Addon, notes: string[] = []): Map<st
   const dec = new TextDecoder();
   for (const rp of resourcePacks(addon)) {
     for (const [path, data] of rp.files) {
-      if (/(^|\/)entity\/[^/]+\.entity\.json$/.test(path)) entities.set(path, dec.decode(data));
-      else if (/(^|\/)animations\/[^/]+\.json$/.test(path)) animations.set(path, dec.decode(data));
+      if (/(^|\/)entity\/(?:.+\/)?[^/]+\.entity\.json$/.test(path)) entities.set(path, dec.decode(data));
+      else if (/(^|\/)animations\/(?:.+\/)?[^/]+\.json$/.test(path)) animations.set(path, dec.decode(data));
     }
   }
   return readClientAnimations(entities, animations, notes);

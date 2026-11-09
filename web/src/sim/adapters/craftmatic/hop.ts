@@ -40,22 +40,27 @@ import { HOP, HOP_TAGS } from '../../../engine/bedrock-ride-hop.js';
 import type { Addon } from '../../pack/pack.js';
 import { CRAFTMATIC_ALLOWED_LINES, CRAFTMATIC_YIELDING_LINES, craftmaticHandlers } from './child-play.js';
 import { modelToWorld, readCraftmaticPack, type CraftmaticPack } from './pack-facts.js';
+import { DEV_NAMESPACE, nsId, packFamily, retarget } from './namespace.js';
 import { placedOf } from './play.js';
 
 const r3 = (v: number): number => Math.round(v * 1000) / 1000;
 const pt = (p: Vec3): Vec3 => ({ x: r3(p.x), y: r3(p.y), z: r3(p.z) });
-const COASTER_FAMILY = 'craftmatic_coaster';
 /** The sound `scripts/hop.js` plays on a hop (`hopRuntimeConfig`), counted to prove one hop. */
 const HOP_SOUND = 'sound note.chime';
 
 /** A tag's value after its prefix, or undefined. */
 const tagValue = (e: SimEntity, prefix: string): string | undefined => { for (const t of e.tags) if (t.startsWith(prefix)) return t.slice(prefix.length); return undefined; };
+/**
+ * The names the coaster pack's runtime writes, under ITS namespace (the hop tags `craftmatic_rank:`... and the family
+ * `craftmatic_coaster`, or `<ns>_rank:` / `<ns>_coaster` once rewritten, X-03).
+ */
+const coasterNames = (ns: string): { family: string; rank: string; train: string } => ({ family: packFamily(ns, 'coaster'), rank: retarget(ns, HOP_TAGS.rank), train: retarget(ns, HOP_TAGS.train) });
 /** A coaster car's rank from the front (its hop tag), or undefined before the coaster tagged it. */
-const rankOf = (e: SimEntity): number | undefined => { const v = tagValue(e, HOP_TAGS.rank); return v === undefined ? undefined : Number(v); };
+const rankOf = (e: SimEntity, ns: string): number | undefined => { const v = tagValue(e, coasterNames(ns).rank); return v === undefined ? undefined : Number(v); };
 /** Seats a player could still take: seat count less the players aboard (hop.ts `takeable`). */
 const freeSeats = (e: SimEntity): number => (e.rideable()?.seatCount ?? 0) - e.riderList().filter(r => r.isPlayer).length;
 /** Every coaster car that carries a rideable seat. */
-const coasterCars = (ctx: StepContext): SimEntity[] => ctx.sim.engine.loadedEntities(ctx.player.dimension).filter(e => e.families().includes(COASTER_FAMILY) && !!e.rideable());
+const coasterCars = (ctx: StepContext, ns: string): SimEntity[] => ctx.sim.engine.loadedEntities(ctx.player.dimension).filter(e => e.families().includes(coasterNames(ns).family) && !!e.rideable());
 
 /**
  * Entities a step hands to a later one (the mount the child was put on, the players filling a train), kept beside
@@ -65,7 +70,9 @@ const refs = new WeakMap<object, { source?: SimEntity; riders?: SimEntity[] }>()
 const refsOf = (ctx: StepContext): { source?: SimEntity; riders?: SimEntity[] } => { let r = refs.get(ctx.state); if (!r) refs.set(ctx.state, r = {}); return r; };
 
 /** The hop steps. `flyer`: the pack whose mount the child flies (its cloud type); `car`: the pack whose car is parked. */
-export function hopHandlers(packs: { flyer?: CraftmaticPack; car?: CraftmaticPack; slide?: CraftmaticPack }): Record<string, StepHandler> {
+export function hopHandlers(packs: { coaster?: CraftmaticPack; flyer?: CraftmaticPack; car?: CraftmaticPack; slide?: CraftmaticPack }): Record<string, StepHandler> {
+  // The coaster pack's namespace names its cars' family and hop tags (a world of several packs has one coaster).
+  const ns = packs.coaster?.namespace ?? DEV_NAMESPACE, names = coasterNames(ns);
   return {
     /**
      * Put the child on a new `type` entity (a flyer's summoned cloud) standing `ahead` blocks in front of them
@@ -86,7 +93,7 @@ export function hopHandlers(packs: { flyer?: CraftmaticPack; car?: CraftmaticPac
 
     /** Every car of the coaster gets a player of its own (`Rider<n>`), boarded as a hold would board them. */
     async fillTrain(_step: AnyStep, ctx: StepContext) {
-      const cars = coasterCars(ctx);
+      const cars = coasterCars(ctx, ns);
       if (!cars.length) throw new Error('fillTrain: no coaster car');
       const riders: SimEntity[] = [];
       for (const [i, c] of cars.entries()) {
@@ -118,7 +125,7 @@ export function hopHandlers(packs: { flyer?: CraftmaticPack; car?: CraftmaticPac
       let lead: SimEntity | undefined, t = 0;
       for (; t < 2400 && !lead; t++) {
         await ctx.run(1);
-        lead = coasterCars(ctx).find(c => rankOf(c) === 0 && c.valid);
+        lead = coasterCars(ctx, ns).find(c => rankOf(c, ns) === 0 && c.valid);
       }
       if (!lead) throw new Error('flyIntoTrain: no coaster car was ever tagged rank 0 (the train never ran)');
       // 2. Record the lead car's path for `recordTicks` of running and pick the point it passed FASTEST (the child flies
@@ -169,26 +176,26 @@ export function hopHandlers(packs: { flyer?: CraftmaticPack; car?: CraftmaticPac
         if (!expectBoard && t > 400) break;
       }
       // Which car the mount met: the one nearest it when the hop ran (the runtime boards the front-most free one).
-      const met = hopTick < 0 ? undefined : coasterCars(ctx).sort((a, b) => Math.hypot(a.location.x - left!.x, a.location.y - left!.y, a.location.z - left!.z) - Math.hypot(b.location.x - left!.x, b.location.y - left!.y, b.location.z - left!.z))[0];
+      const met = hopTick < 0 ? undefined : coasterCars(ctx, ns).sort((a, b) => Math.hypot(a.location.x - left!.x, a.location.y - left!.y, a.location.z - left!.z) - Math.hypot(b.location.x - left!.x, b.location.y - left!.y, b.location.z - left!.z))[0];
       controls.set(p.id, { forward: 0, strafe: 0, jump: false });
       p.rotation.x = 0;
       const hops = (sim.host.stats.get(HOP_SOUND) ?? 0) - hopsBefore;
-      ctx.state['hop'] = { hopTick, hops, at: pt(at), trainSpeed: r3(bestV * 20), ridden: p.ridingOn?.typeId, riddenRank: p.ridingOn ? rankOf(p.ridingOn) : undefined };
+      ctx.state['hop'] = { hopTick, hops, at: pt(at), trainSpeed: r3(bestV * 20), ridden: p.ridingOn?.typeId, riddenRank: p.ridingOn ? rankOf(p.ridingOn, ns) : undefined };
       if (!expectBoard) {
         if (hopTick >= 0) ctx.violate({ invariant: 'hop-no-full', message: `the child hopped onto ${p.ridingOn?.typeId} though every car held a player`, evidence: { ridden: p.ridingOn?.typeId } });
         const riders = refsOf(ctx).riders ?? [];
-        const moved = riders.filter(q => !q.ridingOn || !q.ridingOn.families().includes(COASTER_FAMILY));
+        const moved = riders.filter(q => !q.ridingOn || !q.ridingOn.families().includes(names.family));
         if (moved.length) ctx.violate({ invariant: 'hop-no-full', message: `${moved.length} train riders were moved off their cars` });
         ctx.note(`flyIntoTrain: flew through the full train; still on ${p.ridingOn?.typeId}`);
         return;
       }
       if (hopTick < 0) { ctx.violate({ invariant: 'hop-boards', message: `the child waited on the track at ${JSON.stringify(pt(at))} for ${maxTicks} ticks and boarded nothing`, evidence: { mount: pt(source.location), lead: pt(target.location) } }); return; }
       const car = p.ridingOn!;
-      const train = tagValue(car, HOP_TAGS.train);
-      const mates = coasterCars(ctx).filter(c => tagValue(c, HOP_TAGS.train) === train && c !== car);
-      const ahead = mates.filter(c => freeSeats(c) > 0 && (rankOf(c) ?? 1e9) < (rankOf(car) ?? 1e9));
-      if (!car.families().includes(COASTER_FAMILY)) ctx.violate({ invariant: 'hop-boards', message: `the child hopped onto ${car.typeId}, not a coaster car` });
-      if (ahead.length) ctx.violate({ invariant: 'hop-front-most', message: `the child sits in rank ${rankOf(car)} while ${ahead.length} car(s) ahead have a free seat`, evidence: { ranks: ahead.map(rankOf) } });
+      const train = tagValue(car, names.train);
+      const mates = coasterCars(ctx, ns).filter(c => tagValue(c, names.train) === train && c !== car);
+      const ahead = mates.filter(c => freeSeats(c) > 0 && (rankOf(c, ns) ?? 1e9) < (rankOf(car, ns) ?? 1e9));
+      if (!car.families().includes(names.family)) ctx.violate({ invariant: 'hop-boards', message: `the child hopped onto ${car.typeId}, not a coaster car` });
+      if (ahead.length) ctx.violate({ invariant: 'hop-front-most', message: `the child sits in rank ${rankOf(car, ns)} while ${ahead.length} car(s) ahead have a free seat`, evidence: { ranks: ahead.map(c => rankOf(c, ns)) } });
       if (hops !== 1) ctx.violate({ invariant: 'hop-once', message: `${hops} hop sounds for one hop`, evidence: { hops } });
       // The coaster's rider camera takes the view within 10 ticks, and the mount left behind stays where it was left.
       let camTick = -1;
@@ -197,8 +204,8 @@ export function hopHandlers(packs: { flyer?: CraftmaticPack; car?: CraftmaticPac
       await ctx.run(40);
       const drift = left ? Math.hypot(source.location.x - left.x, source.location.y - left.y, source.location.z - left.z) : 0;
       if (!source.valid || drift > 0.05) ctx.violate({ invariant: 'hop-source-waits', message: `the mount left behind ${source.valid ? `moved ${r3(drift)} blocks` : 'is gone'} within 2 s`, evidence: { left: left && pt(left), now: pt(source.location) } });
-      ctx.note(`flyIntoTrain: hopped at tick ${hopTick} from ${source.typeId} onto ${car.typeId} (rank ${rankOf(car)}; nearest the mount when it hopped: ${met?.typeId} rank ${met ? rankOf(met) : '-'}), camera at ${camTick}, the cloud moved ${r3(drift)} blocks in 2 s`);
-      ctx.state['hop'] = { ...(ctx.state['hop'] as object), met: met?.typeId, metRank: met ? rankOf(met) : undefined, camTick, drift: r3(drift) };
+      ctx.note(`flyIntoTrain: hopped at tick ${hopTick} from ${source.typeId} onto ${car.typeId} (rank ${rankOf(car, ns)}; nearest the mount when it hopped: ${met?.typeId} rank ${met ? rankOf(met, ns) : '-'}), camera at ${camTick}, the cloud moved ${r3(drift)} blocks in 2 s`);
+      ctx.state['hop'] = { ...(ctx.state['hop'] as object), met: met?.typeId, metRank: met ? rankOf(met, ns) : undefined, camTick, drift: r3(drift) };
       // Ride on a while: the invariants (no fall, no script error) keep running with the child aboard.
       await ctx.run(Number(step['rideTicks'] ?? 200));
       if (p.ridingOn !== car) ctx.violate({ invariant: 'hop-boards', message: `the child did not stay on ${car.typeId} (now on ${p.ridingOn?.typeId ?? 'nothing'})` });
@@ -225,7 +232,7 @@ export function hopHandlers(packs: { flyer?: CraftmaticPack; car?: CraftmaticPac
       car.rotation.y = lookAngles({ x: dir.x, y: 0, z: dir.z }).yaw;
       await ctx.run(4);
       ctx.note(`slideIntoParked: ${type} parked at ${JSON.stringify(pt(car.location))}, ${gap} block(s) past slide ${index + 1}'s set-down ${JSON.stringify(pt(end))}`);
-      const seat = findEntity(ctx.sim, ctx.player, { type: slidePack.rides.seatType, where: e => e.dynamic.get('craftmatic:ride') === index });
+      const seat = findEntity(ctx.sim, ctx.player, { type: slidePack.rides.seatType, where: e => e.dynamic.get(nsId(slidePack.namespace, 'ride')) === index });
       if (!seat) throw new Error(`slideIntoParked: no seat for slide ${index}`);
       await CORE_HANDLERS['tap']!({ kind: 'tap', target: { where: (e: SimEntity) => e === seat, label: `slide ${index + 1}'s seat` } }, ctx);
       let t = 0;
@@ -262,7 +269,7 @@ export function hopCases(addons: { coaster?: Addon; flyer?: Addon; slide?: Addon
   const out: HopCase[] = [];
   if (coaster && flyer && addons.coaster && addons.flyer) {
     const extra = addons.car ? [addons.car] : [];
-    const handlers = { ...craftmaticHandlers(coaster, addons.coaster), ...hopHandlers({ flyer, ...(car ? { car } : {}) }) };
+    const handlers = { ...craftmaticHandlers(coaster, addons.coaster), ...hopHandlers({ coaster, flyer, ...(car ? { car } : {}) }) };
     out.push({
       scenario: {
         name: 'hop-flyer-into-coaster', description: `Place ${coaster.placement.label}, summon ${flyer.placement.label}'s cloud, fly it into a car behind the front of the moving train: the child sits in the front-most car, the cloud waits where it was left, the coaster's camera takes the view, one pack acts${extra.length ? ` (${car?.placement.label} loaded too)` : ''}.`,

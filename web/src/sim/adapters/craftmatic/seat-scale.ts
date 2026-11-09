@@ -42,7 +42,8 @@
  * (`seatsEverySize`), and `scripts/_seat_scale_check.ts` prints the table.
  */
 
-import { SIZE_EVENT_PREFIX, SIZE_STEPS, collisionWorldBox, seatWorldOffset } from '../../../engine/bedrock-placement-pack.js';
+import { sizeEventOf } from './namespace.js';
+import { SIZE_STEPS, collisionWorldBox, seatWorldOffset } from '../../../engine/bedrock-placement-pack.js';
 import type { Box, Vec3 } from '../../core/vec.js';
 import { EntityDefinitions, type Components, type EntityDefinition } from '../../entity/definitions.js';
 import { packFiles, type Pack } from '../../pack/pack.js';
@@ -216,7 +217,7 @@ function seatsOf(components: Components): Vec3[] {
 
 /** An entity's components with its size group for `pct` applied, and that group's scale. */
 function atSize(def: EntityDefinition, pct: number): { components: Components; scale: number } {
-  const group = def.groups[`${SIZE_EVENT_PREFIX}${pct}`] ?? {};
+  const group = def.groups[sizeEventOf(def.identifier, pct)] ?? {};
   const components: Components = { ...def.components, ...group };
   return { components, scale: (components['minecraft:scale'] as { value?: number } | undefined)?.value ?? 1 };
 }
@@ -241,7 +242,7 @@ export function seatScaleAudit(behavior: Pack, appearance: AddonAppearance): Sea
     if (!def) continue;
     const rideableAnywhere = 'minecraft:rideable' in def.components || Object.values(def.groups).some(g => 'minecraft:rideable' in g);
     if (!rideableAnywhere) continue;
-    const steps = SIZE_STEPS.filter(pct => `${SIZE_EVENT_PREFIX}${pct}` in def.groups);
+    const steps = SIZE_STEPS.filter(pct => sizeEventOf(def.identifier, pct) in def.groups);
     if (!steps.length) { skipped.push({ typeId: def.identifier, why: 'no-size-groups' }); continue; }
     const entry = appearance.byType.get(def.identifier);
     if (!entry || !entry.cubeCount) { skipped.push({ typeId: def.identifier, why: 'no-geometry' }); continue; }
@@ -305,7 +306,7 @@ export function collisionScaleAudit(behavior: Pack): BoxScaleRow[] {
   for (const [path, data] of packFiles(behavior, 'entities/', '.json')) {
     const def = defs.load(path, dec.decode(data));
     if (!def) continue;
-    const steps = SIZE_STEPS.filter(pct => `${SIZE_EVENT_PREFIX}${pct}` in def.groups);
+    const steps = SIZE_STEPS.filter(pct => sizeEventOf(def.identifier, pct) in def.groups);
     if (!steps.length) continue;
     const at100 = atSize(def, 100), box100 = boxOf(at100.components);
     if (!box100) continue;

@@ -30,7 +30,9 @@ export interface AutoJumpLane {
   device: LaneVerdict;
 }
 
-const variant = (id: string): string => (id.startsWith('craftmatic:') ? id : `craftmatic:${id}`);
+/** The namespace the collider kit's blocks are written in (the engine's, read off its state names: this course is built from the kit as the engine emits it). */
+const KIT_NAMESPACE = COLLIDER_STATES.lo.slice(0, COLLIDER_STATES.lo.indexOf(':'));
+const variant = (id: string): string => (id.startsWith(`${KIT_NAMESPACE}:`) ? id : `${KIT_NAMESPACE}:${id}`);
 const piece = (dy: number, dz: number, id: string, lo: number, hi: number): LanePiece => ({ dy, dz, id: variant(id), lo, hi });
 /** The cell beyond every ground-level obstacle: solid to the lip's top (0.875), so a climb has somewhere to land. */
 const BEYOND = piece(0, -1, 'collider', 0, 14);

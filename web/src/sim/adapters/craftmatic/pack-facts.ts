@@ -13,6 +13,7 @@ import type { PlacementActor, PlacementColliders } from '../../../engine/bedrock
 import type { InteractiveRuntimeConfig } from '../../../engine/bedrock-interactives.js';
 import { rotatePlacementPoint, type PlacementRotation } from '../../../engine/bedrock-placement-pack.js';
 import type { Vec3 } from '../../core/vec.js';
+import { DEV_NAMESPACE } from './namespace.js';
 
 /** The placement runtime's CONFIG, the fields scenarios use. */
 export interface PlacementFacts {
@@ -60,6 +61,8 @@ export interface RideFacts { index: number; kind: string; carType?: string }
 
 export interface CraftmaticPack {
   pack: Pack;
+  /** The namespace the pack's ids are written under: `craftmatic` for a dev pack, `<creator>_<pack>` once rewritten (X-03). */
+  namespace: string;
   placement: PlacementFacts;
   interactives: InteractiveRuntimeConfig | null;
   rides: { seatType: string; rides: RideFacts[] } | null;
@@ -77,6 +80,12 @@ const config = (pack: Pack, path: string): Record<string, unknown> | undefined =
   const t = packText(pack, path);
   return t ? extractJsonAfter(t, 'const CONFIG') as Record<string, unknown> | undefined : undefined;
 };
+
+/** The namespace of the placement's wand item id (`<ns>:<id>_brick_wand`); the dev name when the id has none. */
+function namespaceOf(itemId: string): string {
+  const i = itemId.indexOf(':');
+  return i > 0 ? itemId.slice(0, i) : DEV_NAMESPACE;
+}
 
 /** Read a craftmatic add-on's facts; undefined when it has no placement script (not a craftmatic pack). */
 export function readCraftmaticPack(addon: Addon): CraftmaticPack | undefined {
@@ -99,6 +108,7 @@ export function readCraftmaticPack(addon: Addon): CraftmaticPack | undefined {
     }
     return {
       pack,
+      namespace: namespaceOf(String(placement['itemId'] ?? '')),
       placement: {
         id: String(placement['id'] ?? ''), label: String(placement['label'] ?? ''), itemId: String(placement['itemId'] ?? ''),
         width: Number(placement['width'] ?? 1), height: Number(placement['height'] ?? 1), length: Number(placement['length'] ?? 1),

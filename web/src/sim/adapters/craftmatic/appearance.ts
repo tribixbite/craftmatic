@@ -130,9 +130,12 @@ export interface AddonAppearance {
 /** The resource-pack files the appearance needs, as text keyed by archive path. */
 export type AppearanceSources = ReadonlyMap<string, string>;
 
-/** Paths worth pulling out of the archive for `buildAddonAppearance`. */
+/**
+ * Paths worth pulling out of the archive for `buildAddonAppearance`. A rewritten product (X-03) keeps its content under
+ * `<type>/<creator>/<pack>/`, so each content folder may hold sub-folders.
+ */
 export const APPEARANCE_FILE_PATTERN =
-  /(^|\/)(manifest\.json|entity\/[^/]+\.entity\.json|render_controllers\/[^/]+\.render_controllers\.json|models\/entity\/[^/]+\.geo\.json|textures\/.+\.texture_set\.json)$/;
+  /(^|\/)(manifest\.json|entity\/(?:.+\/)?[^/]+\.entity\.json|render_controllers\/(?:.+\/)?[^/]+\.render_controllers\.json|models\/entity\/(?:.+\/)?[^/]+\.geo\.json|textures\/.+\.texture_set\.json)$/;
 
 const resourcePath = (archivePath: string): string | null => /(^|\/)(textures\/.*)$/.exec(archivePath)?.[2] ?? null;
 const textureSetStem = (archivePath: string): string | null => resourcePath(archivePath)?.replace(/\.texture_set\.json$/, '') ?? null;
@@ -234,9 +237,9 @@ const optVec3 = (v: unknown): [number, number, number] | undefined =>
     ? [v[0] as number, v[1] as number, v[2] as number]
     : undefined;
 
-/** `textures/entity/craftmatic_swatch_47` -> 47. */
+/** `textures/entity/craftmatic_swatch_47` (or the rewritten `.../cmt_pack_swatch_47`, X-03) -> 47: the namespace is not read. */
 export function swatchColorId(texturePath: string): number | null {
-  const m = /craftmatic_swatch_(\d+)\b/.exec(texturePath);
+  const m = /_swatch_(\d+)\b/.exec(texturePath);
   return m ? Number(m[1]) : null;
 }
 

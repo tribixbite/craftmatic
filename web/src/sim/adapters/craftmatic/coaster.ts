@@ -9,6 +9,7 @@
  * declarations, family, seat and gravity the pack ships.
  */
 
+import { DEV_NAMESPACE, nsId } from './namespace.js';
 import { COASTER_FAMILY, coasterCartAssets, type CoasterRuntimeConfig } from '../../../engine/bedrock-coaster.js';
 import { renderSeatToEntity } from '../../../engine/cockpit-seat.js';
 
@@ -37,7 +38,7 @@ export function coasterEntityTypes(config: Pick<CoasterRuntimeConfig, 'types'>):
     // A fresh document per call (its float literals are the exporter's own objects), adjusted in place.
     const doc = coasterCartAssets(typeId).behavior as { 'minecraft:entity': { description: { properties: Record<string, unknown> }; components: Record<string, { seats?: { position: number[] } }> } };
     const entity = doc['minecraft:entity'];
-    if (type.riders) Object.assign(entity.description.properties, { 'craftmatic:rider': { type: 'int', range: [0, type.riders], default: 0, client_sync: true }, 'craftmatic:occupied': { type: 'bool', default: false, client_sync: true } });
+    if (type.riders) Object.assign(entity.description.properties, { [nsId(DEV_NAMESPACE, 'rider')]: { type: 'int', range: [0, type.riders], default: 0, client_sync: true }, [nsId(DEV_NAMESPACE, 'occupied')]: { type: 'bool', default: false, client_sync: true } });
     const seats = entity.components['minecraft:rideable']?.seats;
     // The runtime's `seat` is in the car's RENDER frame (+Z back); the declared rideable seat is the entity
     // frame's (+Z the nose), as `buildCoasterRideAssets` declares it (COAST-06: declared as it was, the
@@ -60,10 +61,11 @@ export interface CoasterPlacementEntity { id: string; typeId: string; dynamic: R
 export function coasterPlacementEntities(config: Pick<CoasterRuntimeConfig, 'typeId' | 'routes'>, scale = 1, origin: { x: number; y: number; z: number } = COASTER_TEST_ORIGIN): CoasterPlacementEntity[] {
   const out: CoasterPlacementEntity[] = [];
   config.routes.forEach((route, r) => {
-    const base = { 'craftmatic:coaster_origin': { ...origin }, 'craftmatic:coaster_rotation': 0, 'craftmatic:coaster_scale': scale, 'craftmatic:coaster_route': r };
+    const key = (name: string): string => nsId(DEV_NAMESPACE, name);
+    const base = { [key('coaster_origin')]: { ...origin }, [key('coaster_rotation')]: 0, [key('coaster_scale')]: scale, [key('coaster_route')]: r };
     const cars = route.cars as { slots?: Array<{ type: string }>; count?: number; trains?: number } | undefined;
     const slots = cars?.slots ?? Array.from({ length: (cars?.count ?? 1) * (cars?.trains ?? 1) }, () => ({ type: config.typeId }));
-    slots.forEach((slot, k) => out.push({ id: `r${r}c${k}`, typeId: slot.type, dynamic: { ...base, 'craftmatic:coaster_car': k } }));
+    slots.forEach((slot, k) => out.push({ id: `r${r}c${k}`, typeId: slot.type, dynamic: { ...base, [key('coaster_car')]: k } }));
     if (route.lift) {
       out.push({ id: `r${r}platform`, typeId: route.lift.type, dynamic: { ...base } });
       if (route.lift.counterweightType) out.push({ id: `r${r}cw`, typeId: route.lift.counterweightType, dynamic: { ...base } });
