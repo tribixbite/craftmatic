@@ -36,6 +36,7 @@ import { BlockGrid } from '../schem/types.js';
 (THREE.Mesh.prototype as unknown as { raycast: typeof acceleratedRaycast }).raycast = acceleratedRaycast;
 import { rgbToWallBlock } from '../gen/color-blocks.js';
 import type { RGB } from '../types/index.js';
+import { WindingField, WINDING_INSIDE_THRESHOLD, orientedComponents } from './winding-number.js';
 
 /** Optional texture sampler — browser provides Canvas-backed, CLI passes undefined */
 export type TextureSampler = (texture: THREE.Texture, uv: THREE.Vector2) => RGB;
@@ -83,6 +84,16 @@ export interface VoxelizeProgress {
 /** Voxelization mode */
 export type VoxelizeMode = 'solid' | 'surface';
 
+/**
+ * How 'solid' mode decides a cell centre is inside:
+ * - 'parity' (default): even-odd ray count along three axes. Exact for closed shells, but a column
+ *   above/below an OPEN shell reads as inside, and overlapping bodies merged into one mesh cancel.
+ * - 'winding': generalised winding number > 0.5 (see winding-number.ts). Robust to open shells and
+ *   overlaps; costs a BVH build over all triangles plus one tree walk per cell. The hollow cavity of an open
+ *   shell that another body closes over reads as filled (its winding is ~0.5 either way): geometry, not a bug.
+ */
+export type InsideTest = 'parity' | 'winding';
+
 interface MeshEntry {
   mesh: THREE.Mesh;
   material: THREE.MeshStandardMaterial;
@@ -117,6 +128,8 @@ export function threeToGrid(
     /** Maximum grid dimension (width/height/length). At resolution 10 a 50m building
      *  would be 500 blocks; cap prevents OOM. Default: no cap. */
     maxDimension?: number;
+    /** Inside test for 'solid' mode (default 'parity': the even-odd ray fill, unchanged). */
+    insideTest?: InsideTest;
   },
 ): BlockGrid {
   const box = new THREE.Box3().setFromObject(object);
@@ -177,7 +190,7 @@ export function threeToGrid(
   if (mode === 'surface') {
     voxelizeSurfaceTriRaster(grid, box, resolution, meshes, sampler, options?.onProgress, filterVeg);
   } else {
-    voxelizeSolid(grid, box, resolution, meshes, sampler, options?.onProgress);
+    voxelizeSolidWith(grid, box, resolution, meshes, sampler, options?.onProgress, options?.insideTest);
   }
 
   // Final progress
@@ -205,6 +218,8 @@ export async function threeToGridAsync(
     filterVegetation?: boolean;
     /** Maximum grid dimension (width/height/length). Default: no cap. */
     maxDimension?: number;
+    /** Inside test for 'solid' mode (default 'parity': the even-odd ray fill, unchanged). */
+    insideTest?: InsideTest;
   },
 ): Promise<BlockGrid> {
   const box = new THREE.Box3().setFromObject(object);
@@ -276,7 +291,7 @@ export async function threeToGridAsync(
     await voxelizeSurfaceAsync(grid, box, resolution, meshes, sampler, yieldInterval, options?.onProgress, filterVeg);
   } else {
     // Solid mode is typically fast enough to run synchronously
-    voxelizeSolid(grid, box, resolution, meshes, sampler, options?.onProgress);
+    voxelizeSolidWith(grid, box, resolution, meshes, sampler, options?.onProgress, options?.insideTest);
   }
 
   options?.onProgress?.({ progress: 1, currentY: height, totalY: height });
@@ -338,6 +353,104 @@ function voxelizeSolid(
         if (hitColor) {
           grid.set(x, y, z, rgbToWallBlock(hitColor[0], hitColor[1], hitColor[2], x, y, z));
         }
+      }
+    }
+  }
+}
+
+/** Dispatches 'solid' mode on the requested inside test (the default stays the plain parity fill). */
+function voxelizeSolidWith(
+  grid: BlockGrid, box: THREE.Box3, resolution: number, meshes: MeshEntry[],
+  sampler: TextureSampler | undefined, onProgress: ((p: VoxelizeProgress) => void) | undefined, insideTest: InsideTest | undefined,
+): void {
+  if (insideTest === 'winding') voxelizeWinding(grid, box, resolution, meshes, sampler, onProgress);
+  else voxelizeSolid(grid, box, resolution, meshes, sampler, onProgress);
+}
+
+// ─── Solid mode, winding-number inside test (V-01) ──────────────────────────
+
+/** All triangles of `meshes` in world space, 9 floats each (matrixWorld applied). */
+function worldTriangles(meshes: MeshEntry[]): Float32Array {
+  let total = 0;
+  for (const { mesh } of meshes) {
+    const g = mesh.geometry;
+    total += (g.index ? g.index.count : g.getAttribute('position').count) / 3;
+  }
+  const out = new Float32Array(total * 9);
+  const v = new THREE.Vector3();
+  let o = 0;
+  for (const { mesh } of meshes) {
+    const g = mesh.geometry;
+    const pos = g.getAttribute('position');
+    const n = g.index ? g.index.count : pos.count;
+    mesh.updateWorldMatrix(true, false);
+    for (let i = 0; i < n; i++) {
+      v.fromBufferAttribute(pos as THREE.BufferAttribute, g.index ? g.index.getX(i) : i).applyMatrix4(mesh.matrixWorld);
+      out[o++] = v.x; out[o++] = v.y; out[o++] = v.z;
+    }
+  }
+  return out;
+}
+
+/**
+ * Winding-number inside predicate over all meshes together (world space). The soup is re-oriented per connected
+ * piece first (see `orientedComponents`), because LDraw part lists and many imported meshes do not carry a
+ * consistent winding; pieces are then concatenated into ONE field, so overlapping bodies add (w = 2) rather
+ * than cancel as they do under parity.
+ */
+function windingInside(meshes: MeshEntry[]): (x: number, y: number, z: number) => boolean {
+  const pieces = orientedComponents(worldTriangles(meshes));
+  const all = new Float32Array(pieces.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of pieces) { all.set(p, o); o += p.length; }
+  const field = new WindingField(all);
+  return (x, y, z) => Math.abs(field.winding(x, y, z)) > WINDING_INSIDE_THRESHOLD;
+}
+
+/**
+ * Solid voxelisation by generalised winding number: a cell is filled when |w(centre)| > 0.5 over all meshes
+ * together (re-oriented first, see `windingInside`). Colour comes from the
+ * nearest surface point (as in surface mode), since there is no single ray hit to read it from.
+ */
+function voxelizeWinding(
+  grid: BlockGrid,
+  box: THREE.Box3,
+  resolution: number,
+  meshes: MeshEntry[],
+  sampler: TextureSampler | undefined,
+  onProgress?: (p: VoxelizeProgress) => void,
+): void {
+  const { width, height, length } = grid;
+  const insideAny = windingInside(meshes);
+  const uvCoord = new THREE.Vector2();
+  const local = new THREE.Vector3();
+  const target = { point: new THREE.Vector3(), distance: Infinity, faceIndex: 0 };
+
+  for (let y = 0; y < height; y++) {
+    onProgress?.({ progress: y / height, currentY: y, totalY: height, phase: 'voxelize' });
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const wx = box.min.x + (x + 0.5) / resolution;
+        const wy = box.min.y + (y + 0.5) / resolution;
+        const wz = box.min.z + (z + 0.5) / resolution;
+        if (!insideAny(wx, wy, wz)) continue;
+
+        let bestDist = Infinity;
+        let color: RGB | null = null;
+        for (const { mesh, material, inverseMatrix } of meshes) {
+          const geo = mesh.geometry as BVHGeometry;
+          if (!geo.boundsTree) continue;
+          local.set(wx, wy, wz).applyMatrix4(inverseMatrix);
+          target.distance = Infinity;
+          const hit = (geo.boundsTree as MeshBVHExt).closestPointToPoint(local, target, 0, bestDist);
+          if (hit && hit.distance < bestDist) {
+            bestDist = hit.distance;
+            color = sampleColorAtSurfacePoint(geo, hit.faceIndex, hit.point, material, sampler, uvCoord);
+          }
+        }
+        // Inside but no BVH to colour from (cannot happen for meshes this module built): mid grey.
+        const c = color ?? [128, 128, 128];
+        grid.set(x, y, z, rgbToWallBlock(c[0], c[1], c[2], x, y, z));
       }
     }
   }
