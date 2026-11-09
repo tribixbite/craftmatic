@@ -475,13 +475,18 @@ async function make(specFile: string): Promise<void> {
   if (!record('notices', 'X-05 the exact Mojang disclaimer and publisher block in both manifests, DISCLAIMER.txt and README', checkDisclaimer(files), 'disclaimer verbatim in every manifest, DISCLAIMER.txt and README')) return writeResult([]);
 
   // ---- the forbidden-terms lint over the pack AND every listing / copy file ----
-  const lintFindings = lintPackFiles(files, { checkIds: true, exemptions: [DISCLAIMER_EXEMPTION] }).map(f => `${f.file}:${f.line} ${f.ruleId} "${f.match}"`);
+  // Waivers are DATA of the product (`<data>/lint-exemptions.json`, each with a reason), reviewed with the product; none exists for a real product.
+  const exemptionsFile = join(spec.dataRoot, 'lint-exemptions.json');
+  const waivers: Array<{ id: string; rule: string; pattern: string; reason: string }> = existsSync(exemptionsFile) ? readJson(exemptionsFile) : [];
+  evidence.lintExemptions = waivers;
+  const exemptions = [DISCLAIMER_EXEMPTION, ...waivers];
+  const lintFindings = lintPackFiles(files, { checkIds: true, exemptions }).map(f => `${f.file}:${f.line} ${f.ruleId} "${f.match}"`);
   const copyFiles = [...(build.copy ?? []), ...readdirSync(join(spec.dataRoot, 'copy', 'common')).map(n => `copy/common/${n}`)];
   for (const rel of copyFiles) {
-    for (const f of lintText(readFileSync(join(spec.dataRoot, rel), 'utf8'), { exemptions: [DISCLAIMER_EXEMPTION] })) lintFindings.push(`${rel}:${f.line} ${f.ruleId} "${f.match}"`);
+    for (const f of lintText(readFileSync(join(spec.dataRoot, rel), 'utf8'), { exemptions })) lintFindings.push(`${rel}:${f.line} ${f.ruleId} "${f.match}"`);
   }
-  lintFindings.push(...lintText(changelogText, { exemptions: [DISCLAIMER_EXEMPTION] }).map(f => `changelog:${f.line} ${f.ruleId} "${f.match}"`));
-  if (!record('text-lint', 'X-05 forbidden-terms lint over the pack, listing copy and changelog', lintFindings, `0 findings in ${files.length} pack files and ${copyFiles.length + 1} copy files`)) return writeResult([]);
+  lintFindings.push(...lintText(changelogText, { exemptions }).map(f => `changelog:${f.line} ${f.ruleId} "${f.match}"`));
+  if (!record('text-lint', 'X-05 forbidden-terms lint over the pack, listing copy and changelog', lintFindings, `0 findings in ${files.length} pack files and ${copyFiles.length + 1} copy files${waivers.length ? `, ${waivers.length} explicit waiver(s): ${waivers.map(w => w.id).join(', ')}` : ''}`)) return writeResult([]);
 
   // ---- the deterministic zip (D-03) ----
   const zipOptions = { alwaysDeflate: true, deterministic: true, deflate: (d: Uint8Array) => pako.deflateRaw(d, { level: 9 }) };
