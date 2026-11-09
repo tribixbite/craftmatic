@@ -39,12 +39,17 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
      Rebuilt with them (`.worktrees/gen-view-1106/output/view-after-sim.md`), all 5 sets see out, and none of the
      favourite seat plans changed.
 
-     OPEN, a policy choice for 6 sets (43114, 44014, 4997, 6243, 8153, 8495): `planSeat` keeps an eye that sees ahead
-     with a panel within a block of one side ("sides are a preference"), while the sim requires both. Recommended:
-     make the sides hard, since the 42639 device report (a side panel over 35 % of the view) shows the sides matter.
-     That moves those eyes out of the cabin and hides the rider. Also open: `TODO` give the planner the sim's
-     shape-aware ray test, since 8487 car 4's eye moved 0.58 block on corner boxes. The base-commit worktree `.worktrees/gen-view-base` is left in place, because removing it would be a
-     recursive delete.
+     Side-view policy: the user said yes (2026-11-09) and asked for screenshots and the trade-offs first. Branch
+     `gen-side-1109` (worktree `.worktrees/gen-side-1109`, `5c48d918` WIP, NOT merged; 4 unit tests in
+     `test/cockpit-seat.test.ts` fail, because their cabins have solid walls beside the eye) makes the sides
+     required in `planSeat`. Rebuilt 40 vehicle sets before (main checkout, `output/generality-1106/side-before*`)
+     and after (`.worktrees/gen-side-1109/output/side-after*`). Before/after picture sheets are in
+     `output/generality-1106/side-sheets/`. Result: only 8495 cars 4 and 6 move. Their camera rises 0.5 onto the
+     roof and the sides go from 21/28 to 28/28 clear. 43114, 44014, 6243 and 60266 have no clear point within the
+     search, so they are unchanged. 4997 (ahead 4/6) and 8153 (ahead 0/6, the eye inside the red body) are a
+     DIFFERENT gap: the planner thinks they see ahead, but the shipped cubes say they do not. That is the `TODO`
+     of giving the planner the sim's shape-aware ray test on shipped cubes. Waiting on the user: merge or not,
+     after seeing the sheets.
   3. FIXED on `gen-view-1106` (full suite 3,601 passed on `a9e6f6eb`): **seat drifts below 100 %**, 12 sets
      (3222, 3648, 41681, 42229, 4997, 5489, 5887, 7213, 76915, 8898, 8969, the favourite 910047). Two causes:
      - in 10 sets the sim was too strict: `seatOnTop` judged the body's air over a whole map cell beyond the body
@@ -110,7 +115,7 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
   `output/generality-1106/fav-named/audit.md`: 161 places, 159 the player can sit at, the 2 others by design):
   - `gen-ix-1107` and `gen-lift-1107` MERGED 2026-11-09 (suite green: 225 files). Next: class 7's stair rule
     (2504), the sim's figure-in-front tap gap;
-  - class 2's side-view policy (6 sets) waits on the user;
+  - class 2's side-view policy: branch `gen-side-1109` built and shown to the user, waits on merge or no;
   - re-run the census (`output/generality-1106/run-census.sh`, into a NEW output dir).
 - Step 4: a per-vehicle drive check for every census vehicle: the sim's vehicles scenario (move 20 blocks, turn,
   camera follows, dismount gives the camera back, never inside a wall), plus `_cockpit_view.ts` renders
