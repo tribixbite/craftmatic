@@ -37,3 +37,19 @@ proves; name the edit in your report.
 - `REQUIREMENTS.md` and `TASKS-BUSINESS.md`: the orchestrator's.
 
 Branches `gen-seat4-veh` and `gen-view-veh` are build-only and are never merged; ignore them.
+
+## Wave 2b (2026-11-09) file ownership
+
+| Package | Owns |
+|---|---|
+| M15 | the Script API audit's new files |
+| X-14 | `scripts/_pack_render.ts` (alone) plus a new `scripts/media-turntable.ts` |
+| D-06 | changelog files and their checker |
+| D-16 | the storyboard schema and its checker |
+| M06 | `scripts/_marketplace_budget.ts` (default: ONE budget tier until the user answers U17) |
+| X-13 | the clean-room similarity core ONLY (no Rebrickable-fed database, which needs U10) |
+| V-01 (follow-up, new) | `src/convert/voxelizer.ts`: a winding-number or generalised inside test for open shells (the X-12 finding) |
+| F01b (follow-up, new) | new figure candidates, beside F01's in `test/fixtures/figures/` and `figure-brickling.ts` |
+
+Wave 2a's merged modules may be imported. `playable-addon.ts`, `schem-pipeline.ts` and `playable-components.ts` stay
+untouched until X-02 merges.
