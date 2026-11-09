@@ -56,6 +56,8 @@ export { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK, LDU_PER_MINIFIG, PLAYER_HEIGHT_BL
 import { BEDROCK_UNITS_PER_LDU, SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
 import { visibleBoundsFor } from './bedrock-placement-pack.js';
 import { partStem } from './part-id.js';
+import { assertOfficialLibrary, getPartSourceLedger } from './ldraw-geometry.js';
+import type { PartSourceEntry } from './part-source.js';
 import { planSeat, RIDER_EYE_ABOVE_SEAT, seesOut, type BoxBlocks, type SeatPlan } from './cockpit-seat.js';
 import { isShipWheel, isSteeringWheel } from './steering-parts.js';
 export { isShipWheel, isSteeringWheel } from './steering-parts.js';
@@ -445,6 +447,8 @@ export interface LegoGeometryDiagnostics {
   pbr: boolean;
   /** Library names served by the alias ladder (a sibling mould / unprinted base stood in). */
   substitutedParts: Array<{ part: string; alias: string }>;
+  /** Where every resolved `.dat` of this entity (and its sub-files) came from, with licence and author (BIZ-07). */
+  partSources: PartSourceEntry[];
   /** Cuboids per exposed stud (1 = square; 3-4 = a rotated fan that reads round; 0 = omitted). */
   studFacets: number;
   /** Where the driver's EYES are (model units) and which evidence chose it (findCockpit, best first). */
@@ -3156,6 +3160,8 @@ export async function compileLdrawEntityGeometry(
 
   // 9. Diagnostics.
   const report = provider.report();
+  // Official library mode: an export that used a name outside the redistributable library fails here (no-op in dev).
+  assertOfficialLibrary(uniqueParts);
   const aabbFallbackParts = [...aabbFallback].map(([part, v]) => ({ part, ...v })).sort((a, b) => b.count - a.count || a.part.localeCompare(b.part));
   const diagnostics: LegoGeometryDiagnostics = {
     sourcePartCount: bricks.length,
@@ -3181,6 +3187,7 @@ export async function compileLdrawEntityGeometry(
     quality,
     pbr: options.pbr ?? false,
     substitutedParts: report.substitutions,
+    partSources: getPartSourceLedger(uniqueParts),
     studFacets,
     cockpit: { source: cockpit.source, units: [round(cockpitUnits[0]), round(cockpitUnits[1]), round(cockpitUnits[2])], detail: cockpit.detail },
     ...(seatPlan ? { seatPlan } : {}),

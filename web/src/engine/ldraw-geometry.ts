@@ -42,6 +42,10 @@ import {
 } from './part-elements.js';
 import { getPartDims } from './ldraw-part-dims.js';
 import { partStem } from './part-id.js';
+import {
+  classifyLibraryPath, isLogoPrimitive, libraryModeFromEnv, licenceGate, OfficialLibraryError, parsePartHeader, CC_BY_LICENCE,
+  type LibraryTree, type OfficialViolation, type PartLibraryMode, type PartSourceEntry,
+} from './part-source.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -143,6 +147,8 @@ export function seedDatTexts(entries: Iterable<readonly [string, string | null]>
     if (text === null && typeof existing === 'string') continue;
     if (existing !== undefined) replaced = true;
     datTextCache.set(key, text);
+    // Caller-supplied text (an .io CustomPart, an MPD inline, the viewer's cache) has no library provenance here.
+    if (text !== null) partLedger.set(key, { part: key, kind: 'custom', file: '', ...parsePartHeader(text) });
     changed++;
   }
   // A replaced text can be embedded in an already-assembled parent, so the
@@ -185,6 +191,110 @@ export function datSubstitutionFor(id: string): string | undefined {
   return datSubstitutions.get(normId(id));
 }
 
+// ─── Part-source ledger and library mode (BIZ-07 / X-04) ─────────────────────
+
+/** Explicit library mode (`setLDrawLibraryMode`); null defers to `CRAFTMATIC_LDRAW_LIBRARY`, then `dev`. */
+let libraryModeOverride: PartLibraryMode | null = null;
+
+/** The active library mode. `dev` (the default) is the historical resolver, unchanged. */
+function libraryMode(): PartLibraryMode {
+  return libraryModeOverride ?? libraryModeFromEnv();
+}
+
+/** Every `.dat` resolved so far: normalised requested name -> where it came from. */
+const partLedger = new Map<string, PartSourceEntry>();
+/** Names `official` mode refused, with why (a plain miss is also recorded here, in that mode only). */
+const officialViolations = new Map<string, OfficialViolation>();
+
+/**
+ * Choose the library mode explicitly (`null` = follow `CRAFTMATIC_LDRAW_LIBRARY`). The text, geometry,
+ * substitution and ledger caches are cleared, because a text read in one mode must never answer in the other.
+ * Seeds (`seedDatTexts`) are dropped too: seed again after switching.
+ */
+export function setLDrawLibraryMode(mode: PartLibraryMode | null): void {
+  libraryModeOverride = mode;
+  datTextCache.clear();
+  partGeomCache.clear();
+  datSubstitutions.clear();
+  partLedger.clear();
+  officialViolations.clear();
+}
+
+/** Where a probe found a text: the tree it was read from and its library-relative path. */
+interface LibraryHit { text: string; rel: string; tree: LibraryTree | 'network' }
+
+/** Record `hit` as the source of `key` (and, when an alias served it, of the requested name). */
+function recordSource(key: string, hit: LibraryHit, servedAs?: string): void {
+  const header = parsePartHeader(hit.text);
+  const origin = hit.tree === 'network' ? 'mirror' : classifyLibraryPath(hit.rel, hit.tree);
+  partLedger.set(key, servedAs === undefined
+    ? { part: key, kind: origin, file: hit.rel, ...header }
+    : { part: key, kind: 'substituted', origin, file: hit.rel, servedAs, ...header });
+}
+
+/** Note that `official` mode refused `key`. */
+function refuse(key: string, reason: OfficialViolation['reason']): null {
+  officialViolations.set(key, { part: key, reason });
+  datTextCache.set(key, null);
+  return null;
+}
+
+/** The names a `.dat` text references (type-1 lines), normalised like cache keys. */
+function referencedNames(text: string): string[] {
+  const names: string[] = [];
+  for (const raw of text.split('\n')) {
+    const tok = raw.trim().split(/\s+/);
+    if (tok[0] === '1' && tok.length >= 15) names.push(normId(tok.slice(14).join(' ')));
+  }
+  return names;
+}
+
+/** `ids` plus every sub-file they reference, transitively, through the texts this module has cached. */
+function closureOf(ids: Iterable<string>): string[] {
+  const seen = new Set<string>();
+  const stack = [...ids].map(normId);
+  while (stack.length) {
+    const key = stack.pop()!;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const text = datTextCache.get(key);
+    if (typeof text === 'string') stack.push(...referencedNames(text));
+  }
+  return [...seen];
+}
+
+/**
+ * The ledger: one entry per resolved `.dat`. With `ids`, only those parts and the sub-files they pull in; without,
+ * everything resolved in this process. Sorted by name.
+ */
+export function getPartSourceLedger(ids?: Iterable<string>): PartSourceEntry[] {
+  const keys = ids ? closureOf(ids) : [...partLedger.keys()];
+  return keys.flatMap(k => partLedger.get(k) ?? []).sort((a, b) => a.part.localeCompare(b.part));
+}
+
+/**
+ * Official mode only: throw `OfficialLibraryError` listing every name among `ids` (and their sub-files; default
+ * everything resolved) that is not a redistributable LDraw.org file: a miss, a Studio-only mesh, a `bl_` copy, a
+ * logo stud, an alias, caller-supplied text. A no-op in dev mode.
+ */
+export function assertOfficialLibrary(ids?: Iterable<string>): void {
+  if (libraryMode() !== 'official') return;
+  const keys = ids ? closureOf(ids) : [...new Set([...partLedger.keys(), ...officialViolations.keys()])];
+  const found = new Map<string, OfficialViolation>();
+  for (const key of keys) {
+    const known = officialViolations.get(key);
+    if (known) { found.set(key, known); continue; }
+    const entry = partLedger.get(key);
+    if (entry) { if (!licenceGate([entry]).ok) found.set(key, { part: key, reason: 'not-in-official-tree' }); continue; }
+    // Never resolved through the probes: a seeded miss, or a name nobody asked for.
+    if (datTextCache.get(key) === null) found.set(key, { part: key, reason: 'not-in-official-tree' });
+  }
+  if (found.size) throw new OfficialLibraryError([...found.values()].sort((a, b) => a.part.localeCompare(b.part)));
+}
+
+/** Library-relative paths a name may live at, in probe order (exported for the dev-mode regression test). */
+export const libraryRelPathsFor = (key: string): string[] => libraryRelPaths(key);
+
 /** Library-relative paths a name may live at, in probe order (mirrors the viewer's ladder). */
 function libraryRelPaths(key: string): string[] {
   const stem = key.split('/').pop()!;
@@ -202,18 +312,47 @@ function libraryRelPaths(key: string): string[] {
 }
 
 /** One probe of the configured library (filesystem in the CLI, `fetch` in the browser); no caching. */
-async function probeLibrary(key: string): Promise<string | null> {
-  for (const rel of libraryRelPaths(key)) {
+async function probeLibrary(key: string, rels: readonly string[] = libraryRelPaths(key)): Promise<LibraryHit | null> {
+  for (const rel of rels) {
     const path = `${LDRAW_BASE}/${rel}`;
     try {
       if (useFilesystem) {
         const { readFileSync, existsSync } = await import('node:fs');
-        if (existsSync(path)) return readFileSync(path, 'utf-8');
+        if (existsSync(path)) return { text: readFileSync(path, 'utf-8'), rel, tree: 'root' };
       } else {
         const r = await fetch(path);
-        if (r.ok) return await r.text();
+        if (r.ok) return { text: await r.text(), rel, tree: 'root' };
       }
     } catch { /* try next path */ }
+  }
+  return null;
+}
+
+/**
+ * Official mode's probe: the configured root without any `UnOfficial/` path (a `parts/<name>.dat` there counts only
+ * when `<name>` is on the official list, i.e. not a Studio edit), then the local mirror copy's `official/` and
+ * `unofficial/` trees (an unofficial file must carry a CC BY `!LICENSE`). Never the network, never an alias.
+ */
+async function probeOfficial(key: string): Promise<LibraryHit | null> {
+  const rels = libraryRelPaths(key).filter(r => !/^UnOfficial\//i.test(r));
+  for (const rel of rels) {
+    const hit = await probeLibrary(key, [rel]);
+    if (hit && classifyLibraryPath(hit.rel, 'root') === 'ldraw-official') return hit;
+  }
+  const localRef = typeof process !== 'undefined' ? process.env?.['CRAFTMATIC_LDRAW_REF'] : undefined;
+  if (localRef && useFilesystem) {
+    const { readFileSync, existsSync } = await import('node:fs');
+    for (const tree of ['official', 'unofficial'] as const) {
+      for (const rel of rels) {
+        const path = `${localRef.replace(/[\\/]$/, '')}/${tree}/${rel}`;
+        try {
+          if (!existsSync(path)) continue;
+          const text = readFileSync(path, 'utf-8');
+          if (tree === 'unofficial' && !CC_BY_LICENCE.test(parsePartHeader(text).licence ?? '')) continue;
+          return { text, rel, tree: tree === 'official' ? 'ref-official' : 'ref-unofficial' };
+        } catch { /* try next */ }
+      }
+    }
   }
   return null;
 }
@@ -223,7 +362,7 @@ async function probeLibrary(key: string): Promise<string | null> {
  * transport error is retried once and then treated as a miss for this run —
  * the CLI is one-shot, and a hole is reported in the diagnostics either way.
  */
-async function probeMirror(key: string): Promise<string | null> {
+async function probeMirror(key: string): Promise<LibraryHit | null> {
   const stem = key.split('/').pop()!;
   const rels = key.includes('/')
     ? (key.startsWith('s/') ? [`parts/${key}.dat`] : [`p/${key}.dat`])
@@ -239,7 +378,7 @@ async function probeMirror(key: string): Promise<string | null> {
     for (const rel of rels) {
       for (const tree of ['official', 'unofficial']) {
         const path = `${localRef.replace(/[\\/]$/, '')}/${tree}/${rel}`;
-        try { if (existsSync(path)) return readFileSync(path, 'utf-8'); } catch { /* try next */ }
+        try { if (existsSync(path)) return { text: readFileSync(path, 'utf-8'), rel, tree: tree === 'official' ? 'ref-official' : 'ref-unofficial' }; } catch { /* try next */ }
       }
     }
   }
@@ -249,11 +388,11 @@ async function probeMirror(key: string): Promise<string | null> {
   for (const rel of rels) {
     const cached = await mirrorCacheRead(rel);
     if (cached === MIRROR_MISS) continue;
-    if (cached !== null) return cached;
+    if (cached !== null) return { text: cached, rel, tree: 'network' };
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const r = await withMirrorSlot(() => fetch(`${LDRAW_MIRROR}/${rel}`, { signal: AbortSignal.timeout(15000) }));
-        if (r.ok) { const text = await r.text(); await mirrorCacheWrite(rel, text); return text; }
+        if (r.ok) { const text = await r.text(); await mirrorCacheWrite(rel, text); return { text, rel, tree: 'network' }; }
         if (r.status === 404 || r.status === 410) { await mirrorCacheWrite(rel, MIRROR_MISS); break; }
       } catch { /* retry once */ }
       await new Promise(res => setTimeout(res, 1000));
@@ -322,16 +461,31 @@ async function fetchDatText(id: string): Promise<string | null> {
   if (datInFlight.has(key))  return datInFlight.get(key)!;
 
   const promise = (async (): Promise<string | null> => {
+    // Official mode: only redistributable LDraw.org files, no redirect, no alias, no network.
+    if (libraryMode() === 'official') {
+      if (key.split('/').pop()!.startsWith('bl_')) return refuse(key, 'bl-copy');
+      if (isLogoPrimitive(key)) return refuse(key, 'logo-primitive');
+      const hit = await probeOfficial(key);
+      if (!hit) return refuse(key, 'not-in-official-tree');
+      recordSource(key, hit);
+      datTextCache.set(key, hit.text);
+      return hit.text;
+    }
     // A name whose local Studio file is in another origin frame is read as its
     // official mould first (`STUDIO_FRAME_REDIRECTS`: 60616 hung a door height
     // over its frame). Not a near-variant substitution, so not recorded as one.
     const redirect = studioFrameRedirect(key);
     if (redirect) {
       const text = await fetchDatText(redirect);
-      if (text !== null) { datTextCache.set(key, text); return text; }
+      if (text !== null) {
+        datTextCache.set(key, text);
+        const via = partLedger.get(normId(redirect));
+        if (via) partLedger.set(key, { ...via, part: key });
+        return text;
+      }
     }
     const direct = await probeLibrary(key);
-    if (direct !== null) { datTextCache.set(key, direct); return direct; }
+    if (direct !== null) { recordSource(key, direct); datTextCache.set(key, direct.text); return direct.text; }
     // CLI only: the EXACT name at the mirror before any local alias. The local
     // snapshot is five years stale, so a part added since (every upstream-only
     // printed head: `3626cp1t`, the `92198p*` doll faces) is missing locally
@@ -339,23 +493,24 @@ async function fetchDatText(id: string): Promise<string | null> {
     // the plain `3626c` in its place.
     if (useFilesystem) {
       const exact = await probeMirror(key);
-      if (exact !== null) { datTextCache.set(key, exact); return exact; }
+      if (exact !== null) { recordSource(key, exact); datTextCache.set(key, exact.text); return exact.text; }
     }
     // The alias ladder applies to bare part names only (a `s/` or `48/` ref is
     // a primitive path, which the ladder must never shred).
     const aliases = key.includes('/') ? [] : partAliasCandidates(key);
     for (const alias of aliases) {
-      const text = await probeLibrary(alias);
-      if (text !== null) { datSubstitutions.set(key, alias); datTextCache.set(key, text); return text; }
+      const hit = await probeLibrary(alias);
+      if (hit !== null) { datSubstitutions.set(key, alias); recordSource(key, hit, alias); datTextCache.set(key, hit.text); return hit.text; }
     }
     // CLI only: the aliases at the mirror (the exact name was asked above).
     if (useFilesystem) {
       for (const name of aliases) {
-        const text = await probeMirror(name);
-        if (text !== null) {
+        const hit = await probeMirror(name);
+        if (hit !== null) {
           if (name !== key) datSubstitutions.set(key, name);
-          datTextCache.set(key, text);
-          return text;
+          recordSource(key, hit, name !== key ? name : undefined);
+          datTextCache.set(key, hit.text);
+          return hit.text;
         }
       }
     }
@@ -501,6 +656,9 @@ export async function prefetchPartGeometry(
     done++;
     onProgress?.('loading part geometry', (done / total) * 100);
   })));
+  // Official mode does NOT throw here: schem-pipeline wraps this call in a bare catch that falls back to a
+  // coloured-block export, which would swallow the error and ship a pack silently. The entity compiler and
+  // `assertOfficialLibrary` (called by the writer) fail the export instead.
 }
 
 /**
