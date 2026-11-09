@@ -199,6 +199,13 @@ export interface PlacementPackSpec {
    */
   settleTicks?: number;
   finalHoldTicks?: number;
+  /**
+   * Marketplace-safe placement (BIZ-26, WP-M07; the X-02 profile's `flags.marketplacePlacement`): the wand
+   * builds only into air. A footprint holding any foreign block gets a prompt (Find a clear spot / Move /
+   * Cancel) and is never written to; wand messages go to the action bar; chat is one short line on first
+   * join; a two-page guide is a menu button. Absent: the dev pack's wand, unchanged.
+   */
+  marketplacePlacement?: boolean;
 }
 
 export interface PlacementPackAssets {
@@ -995,7 +1002,12 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
   // A pack with no block structure (a vehicle, a figure) may turn in 15° steps; blocks turn by 90°.
   const fineTurn = config.tiles.length === 0;
   const turnStep = fineTurn ? 15 : 90;
-  const tell = (p: any, s: string) => { try { p.sendMessage(`§b[Brick Wand]§r ${s}`); } catch {} };
+  // A marketplace pack keeps chat for one short line on first join (below): everything else is the action bar.
+  const marketplace: boolean = config.marketplace === true;
+  const tell = (p: any, s: string) => {
+    if (marketplace) { try { p.onScreenDisplay.setActionBar(s); } catch {} return; }
+    try { p.sendMessage(`§b[Brick Wand]§r ${s}`); } catch {}
+  };
   const wait = (ticks: number) => new Promise(resolve => system.runTimeout(resolve, ticks));
   const show = async (p: any, form: any) => {
     if (showing.has(p.id)) return { canceled: true };
@@ -1544,13 +1556,104 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     if (!values.every((v: number) => Number.isSafeInteger(v) && Math.abs(v) < 30000000)) { tell(p, 'Use whole-number world coordinates.'); return edit(p); }
     st.anchor = { x: values[0], y: values[1], z: values[2] }; st.dimension = p.dimension.id; st.aim = false; previews.add(p.id); return menu(p);
   }
+  /**
+   * Air-only preflight: the blocks of `anchor`'s footprint (the size and turn chosen) that are neither air nor
+   * this pack's own collider blocks. Counts up to `limit` (a candidate spot stops at its first), and reports the
+   * box they span. Loads each piece through the wand's ticking area, which is always removed before this returns.
+   * TODO(U17): the ticking-area policy is undecided with the publisher; this keeps today's temporary areas.
+   * TODO(perf): one getBlock per cell; a big footprint scans slowly, `Dimension.getBlocks` would be native.
+   */
+  async function foreignBlocks(dim: any, st: any, anchor: any, limit: number) {
+    const d = dims(st), found = { count: 0, lo: undefined as any, hi: undefined as any };
+    let cells = 0;
+    try {
+      for (const b of placementBoxes(d.width, d.height, d.length)) {
+        const from = { x: anchor.x + b.x0, y: anchor.y + b.y0, z: anchor.z + b.z0 }, to = { x: anchor.x + b.x1, y: anchor.y + b.y1, z: anchor.z + b.z1 };
+        await load(dim, from, to);
+        for (let x = from.x; x <= to.x; x++) for (let z = from.z; z <= to.z; z++) for (let y = from.y; y <= to.y; y++) {
+          if (++cells % 20000 === 0) await wait(1);
+          const block = dim.getBlock({ x, y, z });
+          // An unreadable cell is not known to be air.
+          const foreign = !block || !(block.isAir === true || block.typeId === 'minecraft:air' || block.typeId === 'minecraft:unknown' || kit.variantOf(block.typeId) >= 0);
+          if (!foreign) continue;
+          found.count++;
+          found.lo = found.lo ? { x: Math.min(found.lo.x, x), y: Math.min(found.lo.y, y), z: Math.min(found.lo.z, z) } : { x, y, z };
+          found.hi = found.hi ? { x: Math.max(found.hi.x, x), y: Math.max(found.hi.y, y), z: Math.max(found.hi.z, z) } : { x, y, z };
+          if (found.count >= limit) return found;
+        }
+      }
+      return found;
+    } finally { await unload(); }
+  }
+  const FOREIGN_COUNT_CAP = 10000, CLEAR_SPOT_RINGS = 3;
+  /** Same-height anchors around the pin, nearest first, spaced half the footprint apart. */
+  const clearSpotCandidates = (st: any): any[] => {
+    const d = dims(st), step = Math.max(8, Math.ceil(Math.max(d.width, d.length) / 2)), out: any[] = [];
+    for (let dx = -CLEAR_SPOT_RINGS; dx <= CLEAR_SPOT_RINGS; dx++) for (let dz = -CLEAR_SPOT_RINGS; dz <= CLEAR_SPOT_RINGS; dz++) if (dx || dz) out.push({ dx, dz });
+    out.sort((a, b) => a.dx * a.dx + a.dz * a.dz - (b.dx * b.dx + b.dz * b.dz));
+    return out.map(o => ({ x: st.anchor.x + o.dx * step, y: st.anchor.y, z: st.anchor.z + o.dz * step }));
+  };
+  /** Runs `job` as the one active operation (a scan loads areas and must not overlap a placement). */
+  async function whileBusy<T>(p: any, job: () => Promise<T>): Promise<T | undefined> {
+    if (active) { tell(p, 'Another placement is running.'); return undefined; }
+    active = { player: p.id, cancelled: false };
+    try { return await job(); } finally { active = undefined; }
+  }
+  /** The prompt over a footprint with foreign blocks; never writes to the world. */
+  async function foreignPrompt(p: any, st: any, found: any): Promise<any> {
+    const n = found.count, capped = n >= FOREIGN_COUNT_CAP, span = `x ${found.lo.x} to ${found.hi.x}, y ${found.lo.y} to ${found.hi.y}, z ${found.lo.z} to ${found.hi.z}`;
+    const r = await show(p, new ActionFormData().title(`${capped ? 'At least ' : ''}${n} foreign block${n === 1 ? '' : 's'} in the way`)
+      .body(`The Brick Wand builds only in empty space and never replaces your blocks.
+
+Blocks in the way lie within ${span}.
+
+If your last placement is in the way, undo it first.`)
+      .button('Find a clear spot nearby').button('Move').button('Cancel'));
+    if (r.canceled || r.selection === 2) return;
+    if (r.selection === 1) return menu(p);
+    const dim = world.getDimension(st.dimension || p.dimension.id);
+    const spot = await whileBusy(p, async () => {
+      tell(p, 'Looking for a clear spot...');
+      for (const anchor of clearSpotCandidates(st)) {
+        if ((await foreignBlocks(dim, st, anchor, 1)).count === 0) return anchor;
+      }
+      return undefined;
+    });
+    if (!spot) { tell(p, 'No clear spot within reach. Use Move, or pick another place.'); return menu(p); }
+    const s0 = state(p); s0.anchor = spot; s0.aim = false; previews.add(p.id);
+    tell(p, 'Moved to a clear spot.');
+    return confirmPlace(p);
+  }
+  // The guide: two plain pages (what the pack does and how to place; Undo and credits). A Script API
+  // cannot write a written book's text, so it is a menu button rather than an item.
+  // TODO(guide-book): an item book if the platform ever allows scripts to set book pages.
+  async function guide(p: any, page = 0): Promise<any> {
+    const pages = [
+      `${config.label} is placed with this wand. Pin a corner, check the preview, then choose Place. It builds only in empty space and never replaces your blocks.`,
+      'Undo last placement takes away everything the last placement added and puts back what was there. Pack made with craftmatic.click from open LEGO part data.',
+    ];
+    const f = new ActionFormData().title(`Guide ${page + 1}/${pages.length}`).body(pages[page]);
+    if (page + 1 < pages.length) f.button('Next'); else f.button('Back');
+    f.button('Close');
+    const r = await show(p, f);
+    if (r.canceled || r.selection === 1) return menu(p);
+    return page + 1 < pages.length ? guide(p, page + 1) : guide(p, 0);
+  }
   async function confirmPlace(p: any): Promise<any> {
     const st = state(p); try { validate(p, st); } catch (e: any) { tell(p, e.message); return menu(p); }
+    if (marketplace) {
+      const dimension = world.getDimension(st.dimension || p.dimension.id);
+      let found: any;
+      try { found = await whileBusy(p, () => foreignBlocks(dimension, st, st.anchor, FOREIGN_COUNT_CAP)); }
+      catch (e: any) { tell(p, `Cannot check the area: ${e.message || e}`); return menu(p); }
+      if (!found) return;
+      if (found.count > 0) return foreignPrompt(p, st, found);
+    }
     const scripted = st.size !== 100 && config.tiles.length && config.colliders;
     // The measured walk-through size is stated here too, whenever the chosen
     // size is not it — the last moment at which changing it costs nothing.
     const walkNote = recommendedSize && st.size !== recommendedSize ? `\n\nWalk-through size is ${percent(recommendedSize)}, not ${percent(st.size)}: ${access.reason}` : '';
-    const r = await show(p, new ActionFormData().title(`Place ${config.label}?`).body(`${summary(st)}\n\nBlocks in this area will be replaced.${scripted ? `\nAt ${percent(st.size)} the invisible walkable blocks are re-laid to size; the ${config.colliders.keptCells} visible block${config.colliders.keptCells === 1 ? '' : 's'} (doors, lights) of the 100 percent export are left out.${stepsNote(st)}` : ''}${walkNote}`).button('Place now').button('Back'));
+    const r = await show(p, new ActionFormData().title(`Place ${config.label}?`).body(`${summary(st)}\n\n${marketplace ? 'Only empty space is used; nothing is replaced.' : 'Blocks in this area will be replaced.'}${scripted ? `\nAt ${percent(st.size)} the invisible walkable blocks are re-laid to size; the ${config.colliders.keptCells} visible block${config.colliders.keptCells === 1 ? '' : 's'} (doors, lights) of the 100 percent export are left out.${stepsNote(st)}` : ''}${walkNote}`).button('Place now').button('Back'));
     if (!r.canceled && r.selection === 0) return place(p);
     return menu(p);
   }
@@ -2232,6 +2335,7 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
       actions.push(['Hide preview', () => { endPreview(p); return tell(p, 'Preview hidden.'); }]);
       actions.push(['Undo last placement', () => undo(p)]);
       actions.push(['Lighting / night vision', () => lighting(p)]);
+      if (marketplace) actions.push(['Guide', () => guide(p)]);
       if (config.manualSeatTypeId) {
         actions.push([`Add seat here (${(st.manualSeats || []).length}/${manualSeatCap})`, () => {
           try {
@@ -2254,6 +2358,15 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     return actions[r.selection]?.[1]();
   }
   world.afterEvents.itemUse.subscribe((ev: any) => { if (ev.itemStack.typeId === config.itemId) system.run(() => open(ev.source).catch((e: any) => tell(ev.source, e.message || String(e)))); });
+  // First join only: one plain line of at most 28 characters (the Marketplace chat rule), remembered per player.
+  if (marketplace) {
+    const joinKey = `craftmatic:${config.id}:welcomed`;
+    world.afterEvents.playerSpawn.subscribe((ev: any) => {
+      if (!ev.initialSpawn) return;
+      const p = ev.player;
+      try { if (p.getDynamicProperty?.(joinKey)) return; p.sendMessage('Use the BrickWand to build.'); p.setDynamicProperty?.(joinKey, true); } catch {}
+    });
+  }
   console.warn(`BRICK_WAND_READY ${config.id}`);
 }
 
@@ -2269,7 +2382,9 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
   const config = { id, shortAlias, vehicleControls: spec.vehicleControls === true, label: spec.label, itemId, width: spec.width, height: spec.height, length: spec.length, tiles: spec.tiles, actors: spec.actors ?? [], previewPoints: (spec.previewPoints ?? []).slice(0, 120),
     preview: spec.preview ?? null, colliders: treads ? treads.colliders : spec.colliders ?? null, interactionNote: spec.interactionNote ?? '', access: spec.access ?? null, manualSeatTypeId: spec.manualSeatTypeId ?? '', runtimeDoorCandidates: spec.runtimeDoorCandidates ?? [], sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40,
     // Last, so a reader keying on the older fields' order (a test's regex) reads unchanged.
-    shellMigrations: spec.shellMigrations ?? [] };
+    shellMigrations: spec.shellMigrations ?? [],
+    // Only a marketplace pack names the key, so a dev pack's config is byte-identical to before.
+    ...(spec.marketplacePlacement ? { marketplace: true } : {}) };
   const controlsImport = spec.vehicleControls ? 'import { showTimeMachineControls } from "./time-machine.js";\n' : '';
   const script = `${controlsImport}import { world, system, StructureSaveMode, BlockPermutation, BlockVolume } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG, ${spec.vehicleControls ? "showTimeMachineControls" : "undefined"}, (${colliderFormKit.toString()})(), ${sizeCarveAt.toString()});\n`;
   const item = {
@@ -2283,7 +2398,7 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
       },
     },
   };
-  const grant = `give @s ${itemId} 1\ntellraw @s ${JSON.stringify({ rawtext: [{ text: `§b[BrickWand]§r Select ${spec.label} BrickWand in your hotbar: the ghost preview follows wherever you look. Use the wand again (or switch away and back) for the menu - Place is at the top; pin, rotate and size it there.` }] })}\n`;
+  const grant = spec.marketplacePlacement ? `give @s ${itemId} 1\n` : `give @s ${itemId} 1\ntellraw @s ${JSON.stringify({ rawtext: [{ text: `§b[BrickWand]§r Select ${spec.label} BrickWand in your hotbar: the ghost preview follows wherever you look. Use the wand again (or switch away and back) for the menu - Place is at the top; pin, rotate and size it there.` }] })}\n`;
   return {
     itemId, shortAlias, script,
     files: [
