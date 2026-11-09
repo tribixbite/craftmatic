@@ -1,0 +1,1094 @@
+{
+  "comment": "Metadata only. Bytes live in the gitignored data/byom-corpus/. See docs/plans/business-B-byom-converter.md section 5. Fetched sha256/fetchedAt/licence per file are recorded by scripts/byom-corpus-fetch.ts in data/byom-corpus/results.json.",
+  "generated": "2026-11-09",
+  "entries": [
+    {
+      "id": "F01",
+      "kind": "model",
+      "title": "Example Car",
+      "author": "James Jessiman",
+      "url": "https://github.com/pybricks/ldraw/blob/HEAD/models/car.ldr",
+      "licence": "LDraw library, CC BY 4.0",
+      "role": "orig",
+      "notes": ".ldr; ~60 parts; role detail: orig",
+      "fetch": {
+        "type": "direct",
+        "url": "https://raw.githubusercontent.com/pybricks/ldraw/HEAD/models/car.ldr"
+      }
+    },
+    {
+      "id": "F02",
+      "kind": "model",
+      "title": "Example Pyramid",
+      "author": "James Jessiman",
+      "url": "https://github.com/pybricks/ldraw/blob/HEAD/models/pyramid.ldr",
+      "licence": "CC BY 4.0",
+      "role": "orig",
+      "notes": ".ldr; 13 parts; role detail: orig",
+      "fetch": {
+        "type": "direct",
+        "url": "https://raw.githubusercontent.com/pybricks/ldraw/HEAD/models/pyramid.ldr"
+      }
+    },
+    {
+      "id": "F03",
+      "kind": "model",
+      "title": "Datsville town blocks (`models_source/block_base_001..033.ldr`)",
+      "author": "LUGNET community",
+      "url": "https://github.com/mjhorvath/Datsville",
+      "licence": "README: CC BY-SA 4.0 for models (some PD/\"beerware\")",
+      "role": "orig",
+      "notes": ".ldr/.dat; ~1 GB repo; role detail: orig (fetch 3-5 blocks only)",
+      "fetch": {
+        "type": "github-tree",
+        "repo": "mjhorvath/Datsville",
+        "include": "^models_source/block_base_00[1-5]\\.ldr$",
+        "max": 5
+      }
+    },
+    {
+      "id": "F04",
+      "kind": "model",
+      "title": "Floppy/MOCs",
+      "author": "Floppy",
+      "url": "https://github.com/Floppy/MOCs",
+      "licence": "not stated (no repo licence)",
+      "role": "orig",
+      "notes": "LDraw; 1.9 MB; role detail: orig",
+      "fetch": {
+        "type": "github-tree",
+        "repo": "Floppy/MOCs",
+        "include": "\\.(mpd|ldr)$",
+        "max": 8
+      }
+    },
+    {
+      "id": "F05",
+      "kind": "model",
+      "title": "Corona de Espinas 1:250",
+      "author": "VictorUceda",
+      "url": "https://github.com/VictorUceda/corona-de-espinas-lego",
+      "licence": "MIT (repo LICENSE read 2026-11-09; GitHub reports \"Other\")",
+      "role": "orig",
+      "notes": "LDraw + PDF; 4,937 pieces; role detail: orig (large-model stress)",
+      "fetch": {
+        "type": "github-tree",
+        "repo": "VictorUceda/corona-de-espinas-lego",
+        "include": "^dist/model\\.mpd$",
+        "max": 1
+      }
+    },
+    {
+      "id": "F06",
+      "kind": "model",
+      "title": "Figure Base with Marker",
+      "author": "BrickHub user",
+      "url": "https://brickhub.org/i/826",
+      "licence": "not stated",
+      "role": "orig",
+      "notes": "Figure Base with Marker.mpd, linked from the BrickHub page (data/826/); brickhub.org has no robots.txt (404)",
+      "fetch": {
+        "type": "page-link",
+        "pattern": "data/826/[^\"]*\\.mpd"
+      }
+    },
+    {
+      "id": "F07",
+      "kind": "model",
+      "title": "Swingloader Mark Two",
+      "author": "Eurobricks thread",
+      "url": "https://www.eurobricks.com/forum/forums/topic/85320-moc-swingloader-mark-two/page/4/",
+      "licence": "not stated",
+      "role": "pair",
+      "notes": "LDraw (Bricksafe link); Technic; role detail: pair (with P39)",
+      "manual": "Eurobricks/Bricksafe attachments sit behind forum or host terms: open the thread, download the LDraw/.mpd attachment yourself, and save it into data/byom-corpus/files/F07/. No licence is stated, so it is import-only."
+    },
+    {
+      "id": "F08",
+      "kind": "model",
+      "title": "Little Devil (`littled.mpd`)",
+      "author": "Eurobricks thread",
+      "url": "https://www.eurobricks.com/forum/forums/topic/38677-instructions-for-little-devil/",
+      "licence": "not stated",
+      "role": "orig",
+      "notes": ".mpd; Technic; role detail: orig",
+      "manual": "Eurobricks/Bricksafe attachments sit behind forum or host terms: open the thread, download the LDraw/.mpd attachment yourself, and save it into data/byom-corpus/files/F08/. No licence is stated, so it is import-only."
+    },
+    {
+      "id": "F09",
+      "kind": "model",
+      "title": "GMK6400 carrier (modified 42009)",
+      "author": "gerger",
+      "url": "https://www.eurobricks.com/forum/forums/topic/85388-mod-42009-mobile-crane-mods-and-improvements/page/14/",
+      "licence": "not stated",
+      "role": "mod",
+      "notes": "LDraw; large Technic; role detail: mod",
+      "manual": "Eurobricks/Bricksafe attachments sit behind forum or host terms: open the thread, download the LDraw/.mpd attachment yourself, and save it into data/byom-corpus/files/F09/. No licence is stated, so it is import-only."
+    },
+    {
+      "id": "F10",
+      "kind": "model",
+      "title": "lego-moc-builder generated MOCs",
+      "author": "ancientrain",
+      "url": "https://github.com/ancientrain/lego-moc-builder",
+      "licence": "MIT",
+      "role": "orig",
+      "notes": "LDraw (whether examples ship: UNVERIFIED); —; role detail: orig",
+      "fetch": {
+        "type": "github-tree",
+        "repo": "ancientrain/lego-moc-builder",
+        "include": "\\.(ldr|mpd|io|lxf|lxfml)$",
+        "max": 5
+      }
+    },
+    {
+      "id": "F11",
+      "kind": "model",
+      "title": "snapwright (photo/sketch → model)",
+      "author": "geastham",
+      "url": "https://github.com/geastham/snapwright",
+      "licence": "MIT",
+      "role": "orig",
+      "notes": "LDraw outputs (examples UNVERIFIED); —; role detail: orig, baseline",
+      "fetch": {
+        "type": "github-tree",
+        "repo": "geastham/snapwright",
+        "include": "\\.(ldr|mpd|io|lxf|lxfml)$",
+        "max": 5
+      }
+    },
+    {
+      "id": "F12",
+      "kind": "model",
+      "title": "Turanic Raiders Missile Corvette (MOC-125115)",
+      "author": "EverythingWasTakenSoIamJhon",
+      "url": "https://rebrickable.com/mocs/MOC-125115/EverythingWasTakenSoIamJhon/homeworld-turanic-raiders-missile-corvette/",
+      "licence": "CC BY-NC-SA 4.0 (free confirmed on page)",
+      "role": "ip",
+      "notes": ".io + PDF; 511 parts; role detail: ip",
+      "manual": "Rebrickable downloads need a signed-in free account: open the page, sign in yourself, download the .io (free designs only), and save it into data/byom-corpus/files/F12/. The designer's licence (CC BY-NC-SA 4.0) is non-commercial: local tests only."
+    },
+    {
+      "id": "F13",
+      "kind": "model",
+      "title": "Turanic Raiders Standard Corvette (MOC-125114)",
+      "author": "EverythingWasTakenSoIamJhon",
+      "url": "https://rebrickable.com/mocs/MOC-125114/EverythingWasTakenSoIamJhon/homeworld-turanic-raiders-standard-corvette/",
+      "licence": "CC BY-NC-SA 4.0 (free: not checked)",
+      "role": "ip",
+      "notes": ".io; ?; role detail: ip",
+      "manual": "Rebrickable downloads need a signed-in free account: open the page, sign in yourself, download the .io (free designs only), and save it into data/byom-corpus/files/F13/. The designer's licence (CC BY-NC-SA 4.0) is non-commercial: local tests only."
+    },
+    {
+      "id": "F14",
+      "kind": "model",
+      "title": "Taiidan Bomber (MOC-125112)",
+      "author": "EverythingWasTakenSoIamJhon",
+      "url": "https://rebrickable.com/mocs/MOC-125112/EverythingWasTakenSoIamJhon/homeworld-taiidan-bomber/",
+      "licence": "CC BY-NC-SA 4.0",
+      "role": "ip",
+      "notes": ".io; ?; role detail: ip",
+      "manual": "Rebrickable downloads need a signed-in free account: open the page, sign in yourself, download the .io (free designs only), and save it into data/byom-corpus/files/F14/. The designer's licence (CC BY-NC-SA 4.0) is non-commercial: local tests only."
+    },
+    {
+      "id": "F15",
+      "kind": "model",
+      "title": "GDI Bomber (MOC-145846)",
+      "author": "EverythingWasTakenSoIamJhon",
+      "url": "https://rebrickable.com/mocs/MOC-145846/EverythingWasTakenSoIamJhon/command-conquer-gdi-bomber/",
+      "licence": "CC BY-NC-SA 4.0",
+      "role": "ip",
+      "notes": ".io; ?; role detail: ip",
+      "manual": "Rebrickable downloads need a signed-in free account: open the page, sign in yourself, download the .io (free designs only), and save it into data/byom-corpus/files/F15/. The designer's licence (CC BY-NC-SA 4.0) is non-commercial: local tests only."
+    },
+    {
+      "id": "F16",
+      "kind": "model",
+      "title": "Emancipator Exosuit (MOC-184991)",
+      "author": "EverythingWasTakenSoIamJhon",
+      "url": "https://rebrickable.com/mocs/MOC-184991/EverythingWasTakenSoIamJhon/helldivers-2-emancipator-exosuit/",
+      "licence": "CC BY-NC-SA 4.0",
+      "role": "ip",
+      "notes": ".io; ?; role detail: ip",
+      "manual": "Rebrickable downloads need a signed-in free account: open the page, sign in yourself, download the .io (free designs only), and save it into data/byom-corpus/files/F16/. The designer's licence (CC BY-NC-SA 4.0) is non-commercial: local tests only."
+    },
+    {
+      "id": "F17",
+      "kind": "model",
+      "title": "First Order AT-ST",
+      "author": "BrickLink user",
+      "url": "https://www.bricklink.com/v3/studio/design.page?idModel=130211",
+      "licence": "not stated (BrickLink terms; login needed)",
+      "role": "ip",
+      "notes": ".io; 757 parts; role detail: ip",
+      "manual": "BrickLink Studio Gallery downloads need a BrickLink login: open the page, sign in yourself, use Download model (.io), and save it into data/byom-corpus/files/F17/. The design has no licence stated, so it is import-only."
+    },
+    {
+      "id": "F18",
+      "kind": "model",
+      "title": "Korean Hanok teahouse",
+      "author": "BrickLink user",
+      "url": "https://www.bricklink.com/v3/studio/design.page?idModel=879535",
+      "licence": "not stated",
+      "role": "pair",
+      "notes": ".io; 96 parts; role detail: pair (with P38)",
+      "manual": "BrickLink Studio Gallery downloads need a BrickLink login: open the page, sign in yourself, use Download model (.io), and save it into data/byom-corpus/files/F18/. The design has no licence stated, so it is import-only."
+    },
+    {
+      "id": "F19",
+      "kind": "model",
+      "title": "Flying Dutchman",
+      "author": "BrickLink user",
+      "url": "https://www.bricklink.com/v3/studio/design.page?idModel=37501",
+      "licence": "not stated",
+      "role": "orig",
+      "notes": ".io; ?; role detail: orig (vehicle: ship)",
+      "manual": "BrickLink Studio Gallery downloads need a BrickLink login: open the page, sign in yourself, use Download model (.io), and save it into data/byom-corpus/files/F19/. The design has no licence stated, so it is import-only."
+    },
+    {
+      "id": "F20",
+      "kind": "model",
+      "title": "Motorcycle and sidecar",
+      "author": "BrickLink user",
+      "url": "https://www.bricklink.com/v3/studio/design.page?idModel=717781",
+      "licence": "not stated",
+      "role": "orig",
+      "notes": ".io; ?; role detail: orig (vehicle: car)",
+      "manual": "BrickLink Studio Gallery downloads need a BrickLink login: open the page, sign in yourself, use Download model (.io), and save it into data/byom-corpus/files/F20/. The design has no licence stated, so it is import-only."
+    },
+    {
+      "id": "F21",
+      "kind": "model",
+      "title": "Generic Brickhead template",
+      "author": "BrickLink user",
+      "url": "https://www.bricklink.com/v3/studio/design.page?idModel=12461",
+      "licence": "not stated",
+      "role": "orig",
+      "notes": ".io; small; role detail: orig",
+      "manual": "BrickLink Studio Gallery downloads need a BrickLink login: open the page, sign in yourself, use Download model (.io), and save it into data/byom-corpus/files/F21/. The design has no licence stated, so it is import-only."
+    },
+    {
+      "id": "F22",
+      "kind": "model",
+      "title": "Lathe",
+      "author": "snakebyte (hosted by MyBricks4U)",
+      "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/lathe.io",
+      "licence": "not stated; third-party upload",
+      "role": "orig",
+      "notes": ".io; ?; role detail: orig",
+      "fetch": {
+        "type": "direct",
+        "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/lathe.io"
+      }
+    },
+    {
+      "id": "F23",
+      "kind": "model",
+      "title": "Rubik's Cube (working)",
+      "author": "puzzLEGO (hosted by MyBricks4U)",
+      "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/rubiks_cube__working_.io",
+      "licence": "not stated",
+      "role": "ip",
+      "notes": ".io; ?; role detail: ip (puzzle brand); third-party upload, no stated consent: import tests only",
+      "fetch": {
+        "type": "direct",
+        "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/rubiks_cube__working_.io"
+      }
+    },
+    {
+      "id": "F24",
+      "kind": "model",
+      "title": "John Deere",
+      "author": "LasseD (hosted by MyBricks4U)",
+      "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/john_deere.io",
+      "licence": "not stated",
+      "role": "ip",
+      "notes": ".io; ?; role detail: ip (vehicle brand: the Usage Guidelines' \"branded automobiles\" case); third-party upload, no stated consent: import tests only",
+      "fetch": {
+        "type": "direct",
+        "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/john_deere.io"
+      }
+    },
+    {
+      "id": "F25",
+      "kind": "model",
+      "title": "Mondriaan Red-Blue-Yellow",
+      "author": "MyBricks4U",
+      "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/mondriaan.lxf",
+      "licence": "site: own models \"can freely be used\"",
+      "role": "orig",
+      "notes": ".lxf; small; role detail: orig",
+      "fetch": {
+        "type": "direct",
+        "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/mondriaan.lxf"
+      }
+    },
+    {
+      "id": "F26",
+      "kind": "model",
+      "title": "Caravan Large",
+      "author": "MyBricks4U",
+      "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/caravan_large.lxf",
+      "licence": "site: own models \"can freely be used\"",
+      "role": "orig",
+      "notes": ".lxf; ?; role detail: orig (door, vehicle)",
+      "fetch": {
+        "type": "direct",
+        "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/caravan_large.lxf"
+      }
+    },
+    {
+      "id": "F27",
+      "kind": "model",
+      "title": "Grand Piano",
+      "author": "MyBricks4U",
+      "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/grand_piano.lxf",
+      "licence": "site: own models \"can freely be used\"",
+      "role": "orig",
+      "notes": ".lxf; ?; role detail: orig (hinged lid)",
+      "fetch": {
+        "type": "direct",
+        "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/grand_piano.lxf"
+      }
+    },
+    {
+      "id": "F28",
+      "kind": "model",
+      "title": "Old Style Pick-up",
+      "author": "MyBricks4U",
+      "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/pick_up.lxf",
+      "licence": "site: own models \"can freely be used\"",
+      "role": "orig",
+      "notes": ".lxf; ?; role detail: orig (vehicle)",
+      "fetch": {
+        "type": "direct",
+        "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/pick_up.lxf"
+      }
+    },
+    {
+      "id": "F29",
+      "kind": "model",
+      "title": "Esscher",
+      "author": "MyBricks4U",
+      "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/esscher.lxf",
+      "licence": "site: own models \"can freely be used\"",
+      "role": "orig",
+      "notes": ".lxf; ?; role detail: orig",
+      "fetch": {
+        "type": "direct",
+        "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/esscher.lxf"
+      }
+    },
+    {
+      "id": "F30",
+      "kind": "model",
+      "title": "Old Style Radio",
+      "author": "Chris McVeigh (hosted by MyBricks4U)",
+      "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/radio.lxf",
+      "licence": "not stated; third-party",
+      "role": "orig",
+      "notes": ".lxf; small; role detail: orig",
+      "fetch": {
+        "type": "direct",
+        "url": "https://www.mybricks4u.com/uploads/6/7/8/0/6780867/radio.lxf"
+      }
+    },
+    {
+      "id": "F31",
+      "kind": "model",
+      "title": "MOC Rock Crawler",
+      "author": "zumaidi",
+      "url": "https://sketchfab.com/3d-models/e7071116498c403dbd8cf53d84dd08e4",
+      "licence": "CC BY 4.0 (download needs a login)",
+      "role": "orig",
+      "notes": "glb; 1.21M faces; role detail: orig (mesh)",
+      "manual": "Open the Sketchfab page, sign in with YOUR account, press Download 3D model, choose glTF/GLB, and save the file into data/byom-corpus/files/F31/. Keep the credit exactly as the page gives it (author, title, CC licence). Sketchfab downloads need a signed-in account; the fetcher never logs in."
+    },
+    {
+      "id": "F32",
+      "kind": "model",
+      "title": "MOC WALL-E",
+      "author": "zumaidi",
+      "url": "https://sketchfab.com/3d-models/3d972cc147d549a7a72a207911df660b",
+      "licence": "CC BY 4.0",
+      "role": "ip",
+      "notes": "glb; 571k faces; role detail: ip (film character)",
+      "manual": "Open the Sketchfab page, sign in with YOUR account, press Download 3D model, choose glTF/GLB, and save the file into data/byom-corpus/files/F32/. Keep the credit exactly as the page gives it (author, title, CC licence). Sketchfab downloads need a signed-in account; the fetcher never logs in."
+    },
+    {
+      "id": "F33",
+      "kind": "model",
+      "title": "MOC The Bench",
+      "author": "zumaidi",
+      "url": "https://sketchfab.com/3d-models/b4e0005a8a234c408a82d5027cf31c0e",
+      "licence": "CC BY 4.0",
+      "role": "orig",
+      "notes": "glb; 227k faces; role detail: orig (seat)",
+      "manual": "Open the Sketchfab page, sign in with YOUR account, press Download 3D model, choose glTF/GLB, and save the file into data/byom-corpus/files/F33/. Keep the credit exactly as the page gives it (author, title, CC licence). Sketchfab downloads need a signed-in account; the fetcher never logs in."
+    },
+    {
+      "id": "F34",
+      "kind": "model",
+      "title": "MOC M3 Half Track",
+      "author": "zumaidi",
+      "url": "https://sketchfab.com/3d-models/7e5f96f7ea2a428d9d6afe6d59584e00",
+      "licence": "CC BY 4.0",
+      "role": "orig",
+      "notes": "glb; 3.0M faces; role detail: orig (vehicle; decimation stress)",
+      "manual": "Open the Sketchfab page, sign in with YOUR account, press Download 3D model, choose glTF/GLB, and save the file into data/byom-corpus/files/F34/. Keep the credit exactly as the page gives it (author, title, CC licence). Sketchfab downloads need a signed-in account; the fetcher never logs in."
+    },
+    {
+      "id": "F35",
+      "kind": "model",
+      "title": "MOC Blackwing Starfighter",
+      "author": "raenfox",
+      "url": "https://sketchfab.com/3d-models/b3f18cc3bc374020b00278e2dec20381",
+      "licence": "CC BY 4.0",
+      "role": "orig",
+      "notes": "glb; 4.1M faces; role detail: orig (flyer; size stress)",
+      "manual": "Open the Sketchfab page, sign in with YOUR account, press Download 3D model, choose glTF/GLB, and save the file into data/byom-corpus/files/F35/. Keep the credit exactly as the page gives it (author, title, CC licence). Sketchfab downloads need a signed-in account; the fetcher never logs in."
+    },
+    {
+      "id": "F36",
+      "kind": "model",
+      "title": "MOC High Speed Racing Mech",
+      "author": "Dominik",
+      "url": "https://sketchfab.com/3d-models/95c8a99e99eb4e669bbacca7948acab5",
+      "licence": "CC BY 4.0",
+      "role": "orig",
+      "notes": "glb; 936k faces; role detail: orig",
+      "manual": "Open the Sketchfab page, sign in with YOUR account, press Download 3D model, choose glTF/GLB, and save the file into data/byom-corpus/files/F36/. Keep the credit exactly as the page gives it (author, title, CC licence). Sketchfab downloads need a signed-in account; the fetcher never logs in."
+    },
+    {
+      "id": "F37",
+      "kind": "model",
+      "title": "Medieval Tower (MOC)",
+      "author": "Awesome",
+      "url": "https://sketchfab.com/3d-models/5ac7eec0da274747b9d2316cb71fcbcf",
+      "licence": "CC BY 4.0",
+      "role": "orig",
+      "notes": "glb; 984k faces; role detail: orig (door tagging)",
+      "manual": "Open the Sketchfab page, sign in with YOUR account, press Download 3D model, choose glTF/GLB, and save the file into data/byom-corpus/files/F37/. Keep the credit exactly as the page gives it (author, title, CC licence). Sketchfab downloads need a signed-in account; the fetcher never logs in."
+    },
+    {
+      "id": "F38",
+      "kind": "model",
+      "title": "Tan Van MOC",
+      "author": "WAI",
+      "url": "https://sketchfab.com/3d-models/4a6fcc164730425ead7ca164f7ad1c68",
+      "licence": "CC BY 4.0",
+      "role": "orig",
+      "notes": "glb; 1.56M faces; role detail: orig (vehicle)",
+      "manual": "Open the Sketchfab page, sign in with YOUR account, press Download 3D model, choose glTF/GLB, and save the file into data/byom-corpus/files/F38/. Keep the credit exactly as the page gives it (author, title, CC licence). Sketchfab downloads need a signed-in account; the fetcher never logs in."
+    },
+    {
+      "id": "F39",
+      "kind": "model",
+      "title": "City Park MOC #0069",
+      "author": "The Bobby Brix Channel",
+      "url": "https://sketchfab.com/3d-models/lego-city-park-moc-0069-9df0ddcc59af42c98e69a6775d64bfab",
+      "licence": "CC BY (a sibling page says \"Do not distribute\")",
+      "role": "orig",
+      "notes": "glb; ?; role detail: orig (import only; licence conflict)",
+      "manual": "Open the Sketchfab page, sign in with YOUR account, press Download 3D model, choose glTF/GLB, and save the file into data/byom-corpus/files/F39/. Keep the credit exactly as the page gives it (author, title, CC licence). Sketchfab downloads need a signed-in account; the fetcher never logs in.",
+      "importOnly": true
+    },
+    {
+      "id": "F40",
+      "kind": "model",
+      "title": "Blue Bionicle scan (photogrammetry)",
+      "author": "Seth Berrier",
+      "url": "https://sketchfab.com/3d-models/9e743126714247b58ea96c1d7ab903d1",
+      "licence": "CC BY 4.0",
+      "role": "scan",
+      "notes": "glb, 8K textures; 543k faces; role detail: scan, off",
+      "manual": "Open the Sketchfab page, sign in with YOUR account, press Download 3D model, choose glTF/GLB, and save the file into data/byom-corpus/files/F40/. Keep the credit exactly as the page gives it (author, title, CC licence). Sketchfab downloads need a signed-in account; the fetcher never logs in."
+    },
+    {
+      "id": "F41",
+      "kind": "model",
+      "title": "Mix of bricks with constructions (scan)",
+      "author": "archiwum_xyz",
+      "url": "https://sketchfab.com/3d-models/cb695100286343f297d6fd6ca83d9893",
+      "licence": "CC BY-NC 4.0",
+      "role": "scan",
+      "notes": "glb; 100k faces; role detail: scan",
+      "manual": "Open the Sketchfab page, sign in with YOUR account, press Download 3D model, choose glTF/GLB, and save the file into data/byom-corpus/files/F41/. Keep the credit exactly as the page gives it (author, title, CC licence). Sketchfab downloads need a signed-in account; the fetcher never logs in."
+    },
+    {
+      "id": "P01",
+      "kind": "photos",
+      "title": "Crankshaft from Lego",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Crankshaft_from_Lego",
+      "licence": "CC BY-SA 3.0 (60 checked)",
+      "role": "orig",
+      "notes": "82 images; multi-view: yes, one build; role detail: orig",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Crankshaft from Lego",
+        "max": 8
+      }
+    },
+    {
+      "id": "P02",
+      "kind": "photos",
+      "title": "Falkirk Wheel gears replica",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_Falkirk_Wheel_Gears_Replica",
+      "licence": "public domain",
+      "role": "orig",
+      "notes": "19 images; multi-view: yes; role detail: orig",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego Falkirk Wheel Gears Replica",
+        "max": 8
+      }
+    },
+    {
+      "id": "P03",
+      "kind": "photos",
+      "title": "Bag End diorama, Adam Purves 2014",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Bag_End_hobbit_house_Lego_diorama,_by_Adam_Purves,_2014",
+      "licence": "CC BY 2.0 (8), CC0 (1)",
+      "role": "ip",
+      "notes": "9 images; multi-view: yes; role detail: ip",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Bag End hobbit house Lego diorama, by Adam Purves, 2014",
+        "max": 8
+      }
+    },
+    {
+      "id": "P04",
+      "kind": "photos",
+      "title": "Dinotopia diorama, Bricks Cascade 2018",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Dinotopia_Lego_diorama_at_Bricks_Cascade_2018",
+      "licence": "CC BY 2.0",
+      "role": "ip",
+      "notes": "10 images; multi-view: yes; role detail: ip",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Dinotopia Lego diorama at Bricks Cascade 2018",
+        "max": 8
+      }
+    },
+    {
+      "id": "P05",
+      "kind": "photos",
+      "title": "The Hobbit diorama, Bricks Cascade 2017",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_diorama_of_The_Hobbit_-_Bricks_Cascade_2017",
+      "licence": "CC BY 2.0",
+      "role": "ip",
+      "notes": "11 images; multi-view: yes; role detail: ip",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego diorama of The Hobbit - Bricks Cascade 2017",
+        "max": 8
+      }
+    },
+    {
+      "id": "P06",
+      "kind": "photos",
+      "title": "Trojan War diorama, BrickCon 2012",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Trojan_War_diorama_-_BrickCon_2012",
+      "licence": "CC BY 2.0",
+      "role": "orig",
+      "notes": "10 images; multi-view: yes; role detail: orig",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Trojan War diorama - BrickCon 2012",
+        "max": 8
+      }
+    },
+    {
+      "id": "P07",
+      "kind": "photos",
+      "title": "Poseidon, Guardian of Atlantis, BrickCon 2012",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Poseidon,_Guardian_of_Atlantis_Lego_diorama_at_BrickCon_2012",
+      "licence": "CC BY 2.0",
+      "role": "orig",
+      "notes": "5 images; multi-view: yes; role detail: orig",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Poseidon, Guardian of Atlantis Lego diorama at BrickCon 2012",
+        "max": 8
+      }
+    },
+    {
+      "id": "P08",
+      "kind": "photos",
+      "title": "Last March of the Ents, BrickCon 2011",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:The_Last_March_of_the_Ents_Lego_diorama_-_BrickCon_2011",
+      "licence": "CC BY-SA 2.0",
+      "role": "ip",
+      "notes": "5 images; multi-view: yes; role detail: ip",
+      "fetch": {
+        "type": "commons-category",
+        "category": "The Last March of the Ents Lego diorama - BrickCon 2011",
+        "max": 8
+      }
+    },
+    {
+      "id": "P09",
+      "kind": "photos",
+      "title": "Helm's Deep, Timothy Shortell, 2017",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Battle_of_Helm's_Deep_Lego_diorama_by_Timothy_Shortell_-_Bricks_Cascade_2017",
+      "licence": "CC BY 2.0",
+      "role": "ip",
+      "notes": "5 images; multi-view: yes; role detail: ip",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Battle of Helm's Deep Lego diorama by Timothy Shortell - Bricks Cascade 2017",
+        "max": 8
+      }
+    },
+    {
+      "id": "P10",
+      "kind": "photos",
+      "title": "Laketown, Cole Blood and Timothy Shortell",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Laketown_Lego_diorama_by_Cole_Blood_and_Timothy_Shortell",
+      "licence": "CC BY 2.0",
+      "role": "ip",
+      "notes": "3 images; multi-view: partial; role detail: ip",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Laketown Lego diorama by Cole Blood and Timothy Shortell",
+        "max": 8
+      }
+    },
+    {
+      "id": "P11",
+      "kind": "photos",
+      "title": "Small Middle-earth scene, Jeff Johnson",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Small_Middle-Earth_scene_(The_Hobbit),_Lego_diorama,_by_Jeff_Johnson",
+      "licence": "CC BY 2.0",
+      "role": "ip",
+      "notes": "3 images; multi-view: partial; role detail: ip",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Small Middle-Earth scene (The Hobbit), Lego diorama, by Jeff Johnson",
+        "max": 8
+      }
+    },
+    {
+      "id": "P12",
+      "kind": "photos",
+      "title": "Tatooine diorama, Skærbæk 2024",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_Star_Wars_Tatooine_diorama_-_Skærbæk_Fan_Weekend_2024",
+      "licence": "CC BY 4.0",
+      "role": "ip",
+      "notes": "7 images; multi-view: yes; role detail: ip",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego Star Wars Tatooine diorama - Skærbæk Fan Weekend 2024",
+        "max": 8
+      }
+    },
+    {
+      "id": "P13",
+      "kind": "photos",
+      "title": "Frankfurt Hauptbahnhof model",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Frankfurt_Hauptbahnhof_(Lego_model)",
+      "licence": "CC BY-SA 3.0",
+      "role": "orig",
+      "notes": "11 images; multi-view: yes; role detail: orig (landmark; also useful to Plan A's part mapper)",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Frankfurt Hauptbahnhof (Lego model)",
+        "max": 8
+      }
+    },
+    {
+      "id": "P14",
+      "kind": "photos",
+      "title": "Praha hlavní nádraží model",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Praha_hlavní_nádraží_(Lego_model)",
+      "licence": "CC0 / CC BY-SA 3.0 / 4.0",
+      "role": "orig",
+      "notes": "30 images; multi-view: yes; role detail: orig (landmark)",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Praha hlavní nádraží (Lego model)",
+        "max": 8
+      }
+    },
+    {
+      "id": "P15",
+      "kind": "photos",
+      "title": "Technic model assembly",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_Technic_model_assembly",
+      "licence": "CC0 (11), CC BY / BY-SA",
+      "role": "orig",
+      "notes": "18 images; multi-view: build stages; role detail: orig",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego Technic model assembly",
+        "max": 8
+      }
+    },
+    {
+      "id": "P16",
+      "kind": "photos",
+      "title": "Technic MOCs",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_Technic_MOCs",
+      "licence": "CC BY / BY-SA / PD mix",
+      "role": "orig",
+      "notes": "36 images; multi-view: several builds; role detail: orig",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego Technic MOCs",
+        "max": 8
+      }
+    },
+    {
+      "id": "P17",
+      "kind": "photos",
+      "title": "Models of ships",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_models_of_ships",
+      "licence": "mostly CC BY 2.0 (Bill Ward)",
+      "role": "orig",
+      "notes": "64 images; multi-view: several builds; role detail: orig (boats)",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego models of ships",
+        "max": 8
+      }
+    },
+    {
+      "id": "P18",
+      "kind": "photos",
+      "title": "Space (BrickCon MOCs)",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_Space",
+      "licence": "CC BY 2.0 / CC0 / BY-SA",
+      "role": "orig",
+      "notes": "42 images; multi-view: several builds; role detail: orig (flyers)",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego Space",
+        "max": 8
+      }
+    },
+    {
+      "id": "P19",
+      "kind": "photos",
+      "title": "Models of automobiles",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_models_of_automobiles",
+      "licence": "CC BY / BY-SA / CC0 mix",
+      "role": "mixed",
+      "notes": "54 images; multi-view: several builds; role detail: mixed: per-file brand check",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego models of automobiles",
+        "max": 8
+      }
+    },
+    {
+      "id": "P20",
+      "kind": "photos",
+      "title": "Models of Ferrari F1",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_models_of_Ferrari_F1",
+      "licence": "CC BY-SA 3.0 / 4.0",
+      "role": "ip",
+      "notes": "12 images; multi-view: yes; role detail: ip (car brand)",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego models of Ferrari F1",
+        "max": 8
+      }
+    },
+    {
+      "id": "P21",
+      "kind": "photos",
+      "title": "Model cars",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_model_cars",
+      "licence": "CC BY-SA mix",
+      "role": "mixed",
+      "notes": "12 images; multi-view: partial; role detail: mixed",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego model cars",
+        "max": 8
+      }
+    },
+    {
+      "id": "P22",
+      "kind": "photos",
+      "title": "Models of loaders",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_models_of_loaders",
+      "licence": "CC BY / BY-SA",
+      "role": "orig",
+      "notes": "6 images; multi-view: partial; role detail: orig",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego models of loaders",
+        "max": 8
+      }
+    },
+    {
+      "id": "P23",
+      "kind": "photos",
+      "title": "Pompeii model",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Pompeii_Lego_model",
+      "licence": "CC BY-SA 4.0",
+      "role": "orig",
+      "notes": "3 images; multi-view: partial; role detail: orig (landmark)",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Pompeii Lego model",
+        "max": 8
+      }
+    },
+    {
+      "id": "P24",
+      "kind": "photos",
+      "title": "Llandudno exhibition, Aug 2023",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_exhibition_at_St_John's_Methodist_Church,_Llandudno,_August_2023",
+      "licence": "CC BY-SA 4.0",
+      "role": "mixed",
+      "notes": "14 images; multi-view: several builds; role detail: mixed",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego exhibition at St John's Methodist Church, Llandudno, August 2023",
+        "max": 8
+      }
+    },
+    {
+      "id": "P25",
+      "kind": "photos",
+      "title": "Life-size Technic Bugatti Chiron",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Life-size_Lego_Technic_Bugatti_Chiron",
+      "licence": "CC BY-SA 4.0",
+      "role": "off",
+      "notes": "33 images; multi-view: yes, ~360°; role detail: off + ip (best multi-view input)",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Life-size Lego Technic Bugatti Chiron",
+        "max": 8
+      }
+    },
+    {
+      "id": "P26",
+      "kind": "photos",
+      "title": "Elizabeth Tower, store build London",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_model_of_Elizabeth_Tower_in_Lego_store_(London)",
+      "licence": "CC BY-SA 4.0 / CC BY 2.0",
+      "role": "off",
+      "notes": "14 images; multi-view: yes; role detail: off",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego model of Elizabeth Tower in Lego store (London)",
+        "max": 8
+      }
+    },
+    {
+      "id": "P27",
+      "kind": "photos",
+      "title": "Life-size Renault R.S.17",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Life-size_Lego_Renault_R.S.17",
+      "licence": "per file, not checked",
+      "role": "off",
+      "notes": "9 images; multi-view: yes; role detail: off + ip",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Life-size Lego Renault R.S.17",
+        "max": 8
+      }
+    },
+    {
+      "id": "P28",
+      "kind": "photos",
+      "title": "Models of Cologne Cathedral",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_models_of_Cologne_Cathedral",
+      "licence": "per file, not checked",
+      "role": "mixed",
+      "notes": "12 images; multi-view: yes; role detail: mixed (landmark)",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego models of Cologne Cathedral",
+        "max": 8
+      }
+    },
+    {
+      "id": "P29",
+      "kind": "photos",
+      "title": "Gothia Towers model",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_model_of_Gothia_Towers",
+      "licence": "not checked (API rate limit)",
+      "role": "mixed",
+      "notes": "13 images; multi-view: yes; role detail: mixed",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego model of Gothia Towers",
+        "max": 8
+      }
+    },
+    {
+      "id": "P30",
+      "kind": "photos",
+      "title": "Alberta Legislature model",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Lego_model_of_Alberta_Legislature_building",
+      "licence": "not checked",
+      "role": "mixed",
+      "notes": "5 images; multi-view: partial; role detail: mixed",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Lego model of Alberta Legislature building",
+        "max": 8
+      }
+    },
+    {
+      "id": "P31",
+      "kind": "photos",
+      "title": "Piece of Peace, Tokyo 2008",
+      "author": "per-file credit read from the Commons imageinfo API",
+      "url": "https://commons.wikimedia.org/wiki/Category:Piece_of_Peace_Lego_exhibition_Tokyo_2008",
+      "licence": "not checked",
+      "role": "mixed",
+      "notes": "9 images; multi-view: several builds; role detail: mixed (landmarks)",
+      "fetch": {
+        "type": "commons-category",
+        "category": "Piece of Peace Lego exhibition Tokyo 2008",
+        "max": 8
+      }
+    },
+    {
+      "id": "P32",
+      "kind": "photos",
+      "title": "Bill Ward photostream (convention MOCs)",
+      "author": "see per-file credit",
+      "url": "https://www.flickr.com/photos/billward/8061807778/",
+      "licence": "CC BY 2.0 (read on the photo page)",
+      "role": "orig",
+      "notes": "hundreds images; multi-view: many builds, several angles; role detail: orig",
+      "manual": "flickr.com/robots.txt disallows all automated access (measured 2026-11-09) and its API needs a key, so by hand: open the photo page, read the licence in the right-hand panel (accept CC BY, CC BY-SA, CC0 only), download the Original size of several angles of ONE build, and save into data/byom-corpus/photos/P32/ with the photographer and licence noted in a credits.txt beside them."
+    },
+    {
+      "id": "P33",
+      "kind": "photos",
+      "title": "Pascal (pasukaru76) photostream",
+      "author": "see per-file credit",
+      "url": "https://www.flickr.com/photos/pasukaru76/5666246358/",
+      "licence": "CC0 (Flickr licence code 9)",
+      "role": "orig",
+      "notes": "hundreds images; multi-view: often; role detail: orig",
+      "manual": "flickr.com/robots.txt disallows all automated access (measured 2026-11-09) and its API needs a key, so by hand: open the photo page, read the licence in the right-hand panel (accept CC BY, CC BY-SA, CC0 only), download the Original size of several angles of ONE build, and save into data/byom-corpus/photos/P33/ with the photographer and licence noted in a credits.txt beside them."
+    },
+    {
+      "id": "P34",
+      "kind": "photos",
+      "title": "wiredforsound23 photostream",
+      "author": "see per-file credit",
+      "url": "https://www.flickr.com/photos/wiredforsound23/6207682525/",
+      "licence": "CC BY-SA 2.0",
+      "role": "orig",
+      "notes": "many images; multi-view: yes; role detail: orig",
+      "manual": "flickr.com/robots.txt disallows all automated access (measured 2026-11-09) and its API needs a key, so by hand: open the photo page, read the licence in the right-hand panel (accept CC BY, CC BY-SA, CC0 only), download the Original size of several angles of ONE build, and save into data/byom-corpus/photos/P34/ with the photographer and licence noted in a credits.txt beside them."
+    },
+    {
+      "id": "P35",
+      "kind": "photos",
+      "title": "legozilla photostream",
+      "author": "see per-file credit",
+      "url": "https://www.flickr.com/photos/legozilla/200280990/",
+      "licence": "CC BY 2.0",
+      "role": "orig",
+      "notes": "many images; multi-view: partial; role detail: orig",
+      "manual": "flickr.com/robots.txt disallows all automated access (measured 2026-11-09) and its API needs a key, so by hand: open the photo page, read the licence in the right-hand panel (accept CC BY, CC BY-SA, CC0 only), download the Original size of several angles of ONE build, and save into data/byom-corpus/photos/P35/ with the photographer and licence noted in a credits.txt beside them."
+    },
+    {
+      "id": "P36",
+      "kind": "photos",
+      "title": "Adam Purves (S3ISOR) photostream",
+      "author": "see per-file credit",
+      "url": "https://www.flickr.com/photos/59263516@N08/15793078362/",
+      "licence": "CC BY 2.0",
+      "role": "mixed",
+      "notes": "many images; multi-view: yes; role detail: mixed",
+      "manual": "flickr.com/robots.txt disallows all automated access (measured 2026-11-09) and its API needs a key, so by hand: open the photo page, read the licence in the right-hand panel (accept CC BY, CC BY-SA, CC0 only), download the Original size of several angles of ONE build, and save into data/byom-corpus/photos/P36/ with the photographer and licence noted in a credits.txt beside them."
+    },
+    {
+      "id": "P37",
+      "kind": "photos",
+      "title": "Ryan McNaught \"Wonders of the World\" album",
+      "author": "see per-file credit",
+      "url": "https://www.flickr.com/photos/ryanmcnaught/albums/72157673365575463/",
+      "licence": "UNVERIFIED",
+      "role": "mixed",
+      "notes": "dozens images; multi-view: partial; role detail: mixed (landmarks)",
+      "manual": "flickr.com/robots.txt disallows all automated access (measured 2026-11-09) and its API needs a key, so by hand: open the photo page, read the licence in the right-hand panel (accept CC BY, CC BY-SA, CC0 only), download the Original size of several angles of ONE build, and save into data/byom-corpus/photos/P37/ with the photographer and licence noted in a credits.txt beside them."
+    },
+    {
+      "id": "P38",
+      "kind": "photos",
+      "title": "Eurobricks: Korean Hanok teahouse (96 pcs)",
+      "author": "see per-file credit",
+      "url": "https://www.eurobricks.com/forum/forums/topic/214361-my-first-hands-on-moc-creation-on-bricklink-studio-traditional-korean-teahouse-96-pieces/",
+      "licence": "not stated",
+      "role": "pair",
+      "notes": "few images; multi-view: few; role detail: pair (with F18)",
+      "manual": "Eurobricks forum images are hosted per post and no licence is stated: open the thread, save the photos of the build yourself into data/byom-corpus/photos/P38/. Local, import-only."
+    },
+    {
+      "id": "P39",
+      "kind": "photos",
+      "title": "Eurobricks: Swingloader Mark Two",
+      "author": "see per-file credit",
+      "url": "https://www.eurobricks.com/forum/forums/topic/85320-moc-swingloader-mark-two/page/4/",
+      "licence": "not stated",
+      "role": "pair",
+      "notes": "several images; multi-view: yes; role detail: pair (with F07)",
+      "manual": "Eurobricks forum images are hosted per post and no licence is stated: open the thread, save the photos of the build yourself into data/byom-corpus/photos/P39/. Local, import-only."
+    },
+    {
+      "id": "P40",
+      "kind": "photos",
+      "title": "MobileBrick (CVPR 2023)",
+      "author": "see per-file credit",
+      "url": "https://github.com/ActiveVisionLab/MobileBrick",
+      "licence": "code MIT; dataset licence not stated",
+      "role": "mixed",
+      "notes": "153 sequences (135 random shapes + 18 curated) images; multi-view: posed RGB-D + masks + **ground-truth meshes**; role detail: the best measured photo→shape benchmark",
+      "manual": "MobileBrick (ActiveVisionLab): read the DATASET licence on the project page first (not stated in the repo; code is MIT), then download via the links in the repo README into data/byom-corpus/photos/P40/. Large; start with the 18 curated sequences. Local research use only until the licence is read."
+    },
+    {
+      "id": "P41",
+      "kind": "photos",
+      "title": "Mip-NeRF 360 \"kitchen\" (a real brick bulldozer)",
+      "author": "see per-file credit",
+      "url": "https://jonbarron.info/mipnerf360/",
+      "licence": "not stated on the page",
+      "role": "off",
+      "notes": "~279 (from memory, not checked) images; multi-view: 360° posed; role detail: off (an official set)",
+      "manual": "Mip-NeRF 360 scenes: download the 360_v2 scene archive from the project page, extract only the \"kitchen\" scene into data/byom-corpus/photos/P41/. The page states no licence and the archive is large; it is an official LEGO set (photo-to-3D input only)."
+    }
+  ]
+}
