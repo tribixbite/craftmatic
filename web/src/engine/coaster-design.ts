@@ -169,6 +169,8 @@ export const COASTER_DESIGN = {
   DROP_LIP_RADIUS_B: 20,
   /** Vertical load of a drop's pull-out, g. */
   DROP_PULLOUT_G: 3.4,
+  /** Vertical load entering a downgrade (a crest: light) and leaving one or climbing one (a dip: heavy), g: helices and graded straights. */
+  SLOPE_ENTRY_G: 0.4, SLOPE_EXIT_G: 1.8,
   /** Vertical load on the ramps of a zero-g roll, g. */
   HILL_RAMP_G: 1.6,
   /** Vertical load at a zero-g roll's crest, g. */
@@ -183,8 +185,8 @@ export const COASTER_DESIGN = {
   LOOP_SHIFT_B: 2.6,
   /** Length of a cobra's half-roll straight, blocks. */
   COBRA_ROLL_LENGTH_B: 10,
-  /** Corkscrew vertical load target, g, and the cone half-angle range, degrees. */
-  CORKSCREW_G: 2.4, CORKSCREW_TILT_MIN_DEG: 8, CORKSCREW_TILT_MAX_DEG: 38,
+  /** Corkscrew centripetal load target, g, the lateral load its unbanked lead-in/out turns may carry, g, and the cone half-angle range, degrees. */
+  CORKSCREW_G: 1.8, CORKSCREW_LEAD_G: 0.9, CORKSCREW_TILT_MIN_DEG: 8, CORKSCREW_TILT_MAX_DEG: 38,
   /** Top hat's pitch transitions load, g, and crest load, g. */
   TOP_HAT_ARC_G: 2.2, TOP_HAT_CREST_G: -0.4,
   /** Largest curvature a load-controlled piece may take, rad/block (a guard against slow-speed blow-ups). */
@@ -196,7 +198,7 @@ export const COASTER_DESIGN = {
   /** The return connector is a powered transfer at this speed, blocks/s, with a trim over its last `RETURN_TRIM_LENGTH_B` blocks down to the platform speed. */
   RETURN_DRIVE_BPS: 10, RETURN_TRIM_LENGTH_B: 12,
   /** Radius and pitch-arc length of the generated return connector, blocks. */
-  RETURN_RADIUS_B: 24, RETURN_PITCH_ARC_B: 26, RETURN_MAX_PITCH_RAD: 0.6,
+  RETURN_RADIUS_B: 24, RETURN_PITCH_ARC_B: 8, RETURN_MAX_PITCH_RAD: 0.6,
   /** A rider is inverted below this up.y; a stretch of at least `MIN_INVERSION_SAMPLES` samples is one inversion. */
   INVERTED_UP_Y: -0.5, MIN_INVERSION_SAMPLES: 3,
   /** Rail samples closer than this, blocks, between parts of the track further apart than `CLEARANCE_SKIP_ARC_B` along it, are a collision. */
@@ -303,6 +305,7 @@ interface Step {
   dYaw: number;         // about yawAxis
   dAxis: number;        // about a fixed world axis (corkscrew)
   dShift: number;       // lateral translation along the pitch axis (a helical loop's offset), blocks
+  dRoll: number;        // rotation of the PATH frame about t (not a bank): after it the next pitch piece turns the other way up
   beta: number;         // absolute bank after the step
   end: boolean;
 }
@@ -321,7 +324,7 @@ const MAX_STEPS_PER_SEG = 200000;
 /** A fixed-length piece driven by exact angle profiles. `balanced` banks to `atan(v^2 kappa / G)` against the yaw rate. */
 function fixedSeg(o: {
   len: number; zone?: ZoneSpec; pitch?: Profile; yaw?: Profile; beta?: Profile; yawAxis?: 'nv' | 'world';
-  balanced?: boolean; axisProf?: Profile; axisDir?: () => V3; yawCos?: number;
+  balanced?: boolean; axisProf?: Profile; axisDir?: () => V3; yawCos?: number; frameRoll?: Profile;
 }): Seg {
   let s = 0;
   return {
@@ -336,7 +339,7 @@ function fixedSeg(o: {
       else if (o.balanced && ds > 0) beta = s1 >= o.len - 1e-12 ? 0 : Math.sign(dYaw) * Math.atan(st.v2 * Math.abs(dYaw / ds) * (o.yawCos ?? 1) / G);
       return {
         ds, dPitch: o.pitch ? o.pitch.a(s1) - o.pitch.a(s) : 0, dYaw,
-        dAxis: o.axisProf ? o.axisProf.a(s1) - o.axisProf.a(s) : 0, dShift: 0, beta, end: s1 >= o.len - 1e-12,
+        dAxis: o.axisProf ? o.axisProf.a(s1) - o.axisProf.a(s) : 0, dShift: 0, dRoll: o.frameRoll ? o.frameRoll.a(s1) - o.frameRoll.a(s) : 0, beta, end: s1 >= o.len - 1e-12,
       };
     },
     commit(step) { s += step.ds; },
@@ -358,8 +361,9 @@ function loadSeg(o: { angle: number; g: (p: number) => number; zone?: ZoneSpec; 
     yawAxis: 'nv',
     plan(st, maxDs): Step {
       const p = acc / o.angle;
-      const u = upOf(st);
-      let kappa = G * (o.g(p) - u[1]) / Math.max(st.v2, COASTER_PHYSICS.MIN_SPEED ** 2);
+      // The load is measured along the PATH-up axis (the seat's up with the bank taken out), so a roll about the
+      // heartline (zero-g roll) leaves the heart on its ballistic arc instead of chasing the rolling seat.
+      let kappa = G * (o.g(p) - st.nv[1]) / Math.max(st.v2, COASTER_PHYSICS.MIN_SPEED ** 2);
       // The curvature must carry the angle the right way; a load that cannot (wrong sign) still creeps forward.
       if (kappa * sign <= 1e-4) kappa = sign * 1e-4;
       kappa = clamp(kappa, -COASTER_DESIGN.KAPPA_MAX, COASTER_DESIGN.KAPPA_MAX);
@@ -368,7 +372,7 @@ function loadSeg(o: { angle: number; g: (p: number) => number; zone?: ZoneSpec; 
       if (Math.abs(dPitch) >= Math.abs(remaining)) { dPitch = remaining; ds = remaining / kappa; end = true; }
       const p1 = (acc + dPitch) / o.angle;
       return {
-        ds, dPitch, dYaw: 0, dAxis: 0, dShift: o.shift ? o.shift.a(p1) - o.shift.a(p) : 0,
+        ds, dPitch, dYaw: 0, dAxis: 0, dRoll: 0, dShift: o.shift ? o.shift.a(p1) - o.shift.a(p) : 0,
         beta: o.roll ? o.roll.a(p1) : st.beta, end,
       };
     },
@@ -464,6 +468,7 @@ function applyStep(st: State, step: Step, seg: Seg): State {
   const yawAxis: V3 = seg.yawAxis === 'world' ? [0, 1, 0] : st.nv;
   let w: V3 = add(mul(n, step.dPitch), mul(yawAxis, step.dYaw));
   if (step.dAxis !== 0 && seg.axis) w = add(w, mul(seg.axis(), step.dAxis));
+  if (step.dRoll !== 0) w = add(w, mul(st.t, step.dRoll));
   const tMid = rotate(st.t, mul(w, 0.5));
   let t = unit(rotate(st.t, w));
   let nv = rotate(st.nv, w);
@@ -522,23 +527,32 @@ const pitchArc = (angle: number, r: number, zone?: ZoneSpec): Seg => {
  * The loop-shaped half/full turn solved so its top is `height` over its start: the constant load `g` is searched from
  * the tightest allowed (the design's maximum) toward gentler ones, and the FIRST bracket that crosses the target is
  * bisected. Height is not monotone in g (a very gentle load never turns the track over before the speed is gone), so a
- * plain bisection over the whole range would land on that stalled branch.
+ * plain bisection over the whole range would land on that stalled branch. With `fit`, a target outside the reachable
+ * band is clamped into it (a cobra's second half loop starts slower than its first and takes what the speed allows).
  */
-function solveLoopG(c: BuildCtx, angle: number, height: number, what: string, shift?: Profile): number {
+function solveLoopG(c: BuildCtx, angle: number, height: number, what: string, shift?: Profile, fit = false): number {
   const f = (g: number): number => c.run([loadSeg({ angle, g: () => g, shift })]).maxY - c.st.h[1];
   const hi = gMax(c), lo = COASTER_DESIGN.LOOP_G_MIN, steps = 24;
-  let prevG = hi, prevH = f(hi), tallest = prevH;
-  const tight = prevH;
-  if (prevH > height + 5e-3) {
-    throw new CoasterDesignError(`${what}: even the tightest allowed loop (${hi.toFixed(2)} g) is ${tight.toFixed(1)} blocks tall at this speed (loop radius >= ${(tight / 2).toFixed(1)} here); ask for a larger radius or enter slower`);
-  }
-  for (let i = 1; i <= steps; i++) {
+  const gs: number[] = [], hs: number[] = [];
+  for (let i = 0; i <= steps; i++) {
     const g = hi + (lo - hi) * i / steps, h = f(g);
-    if (h >= height) return solveMonotone(f, prevG, g, height, what, 5e-3);
-    if (h < prevH && h < tallest - 0.3) break; // past the tallest loop this speed can turn over: the stalled branch
-    prevG = g; prevH = h; tallest = Math.max(tallest, h);
+    // Past the tallest loop this speed can turn over the height falls again: the stalled branch.
+    if (i > 0 && h < hs[i - 1]! && h < Math.max(...hs) - 0.3) break;
+    gs.push(g); hs.push(h);
   }
-  throw new CoasterDesignError(`${what}: not enough speed for a loop ${height.toFixed(1)} tall: the tallest this entry speed turns over is ${tallest.toFixed(1)} (radius ${(tallest / 2).toFixed(1)})`);
+  const tight = hs[0]!, tallest = Math.max(...hs), top = hs.indexOf(tallest);
+  let target = height;
+  if (target < tight - 5e-3) {
+    if (!fit) throw new CoasterDesignError(`${what}: even the tightest allowed loop (${hi.toFixed(2)} g) is ${tight.toFixed(1)} blocks tall at this speed (loop radius >= ${(tight / 2).toFixed(1)} here); ask for a larger radius or enter slower`);
+    return hi;
+  }
+  if (target > tallest) {
+    if (!fit) throw new CoasterDesignError(`${what}: not enough speed for a loop ${height.toFixed(1)} tall: the tallest this entry speed turns over is ${tallest.toFixed(1)} (radius ${(tallest / 2).toFixed(1)})`);
+    target = 0.92 * tallest;
+    if (target < tight) return hi;
+  }
+  for (let i = 1; i <= top; i++) if (hs[i]! >= target) return solveMonotone(f, gs[i - 1]!, gs[i]!, target, what, 5e-3);
+  return gs[top]!;
 }
 
 function buildElement(el: CoasterElement, c: BuildCtx): BuiltElement {
@@ -600,16 +614,17 @@ function buildElement(el: CoasterElement, c: BuildCtx): BuiltElement {
     case 'cobra-roll': {
       // Two half loops, each followed by a half roll back upright: two inversions, heading kept, +4 r of height.
       const shift = smooth(C.LOOP_SHIFT_B, 1);
-      const half = (cc: BuildCtx): Seg[] => {
-        const g = solveLoopG(cc, Math.PI, 2 * el.radiusB, what, shift);
-        return [loadSeg({ angle: Math.PI, g: () => g, shift }),
-          fixedSeg({ len: C.COBRA_ROLL_LENGTH_B, beta: smooth(Math.PI, C.COBRA_ROLL_LENGTH_B) })];
+      // Segments are single use (they keep their own progress): each half is a factory over a solved load.
+      const half = (cc: BuildCtx): (() => Seg[]) => {
+        const g = solveLoopG(cc, Math.PI, 2 * el.radiusB, what, shift, true);
+        return () => [loadSeg({ angle: Math.PI, g: () => g, shift }),
+          fixedSeg({ len: C.COBRA_ROLL_LENGTH_B, frameRoll: smooth(Math.PI, C.COBRA_ROLL_LENGTH_B) })];
       };
       const first = half(c);
       // The second half loop starts from where the first ended, at the speed it ends with.
-      const mid = c.run(first).end;
+      const mid = c.run(first()).end;
       const second = half({ ...c, st: mid, run: segs => runSegs(mid, segs, { heartline: c.heartline, limits: c.limits }) });
-      return { segs: [...first, ...second] };
+      return { segs: [...first(), ...second()] };
     }
     default:
       return buildOther(el, c, what);
@@ -621,14 +636,12 @@ function buildOther(el: CoasterElement, c: BuildCtx, what: string): BuiltElement
   const C = COASTER_DESIGN;
   switch (el.kind) {
     case 'top-hat': {
-      const r = clamp(el.heightB / 5, 3, 10);
       const arc = { angle: Math.PI / 2, g: (): number => Math.min(C.TOP_HAT_ARC_G, gMax(c)) };
       const make = (up: number, down: number): Seg[] => [
         loadSeg(arc), fixedSeg({ len: Math.max(up, 1e-6) }),
         loadSeg({ angle: -Math.PI, g: () => C.TOP_HAT_CREST_G }),
         fixedSeg({ len: Math.max(down, 1e-6) }), loadSeg(arc),
       ];
-      void r;
       const up = solveMonotone(v => c.run(make(v, 0)).maxY - c.st.h[1], 0, el.heightB * 2, el.heightB, `${what} height`, 5e-3);
       const down = solveMonotone(v => c.run(make(up, v)).end.h[1] - c.st.h[1], 0, el.heightB * 3, 0, `${what} descent`, 5e-3);
       return { segs: make(up, down) };
@@ -637,10 +650,10 @@ function buildOther(el: CoasterElement, c: BuildCtx, what: string): BuiltElement
       const A = el.turns * TWO_PI, bank = el.bankDeg;
       const make = (phi: number): Seg[] => {
         const body = A * el.radiusB / (Math.cos(phi) * (1 - C.RAMP_FRACTION));
-        return [pitchArc(-phi, C.LIFT_BLEND_RADIUS_B),
+        return [loadSeg({ angle: -phi, g: () => C.SLOPE_ENTRY_G }),
           fixedSeg({ len: body, yaw: shaped(A, body), yawAxis: 'world', yawCos: Math.cos(phi),
             balanced: bank === undefined, beta: bank === undefined ? undefined : bump(bank * D2R, body) }),
-          pitchArc(phi, C.LIFT_BLEND_RADIUS_B)];
+          loadSeg({ angle: phi, g: () => Math.min(C.SLOPE_EXIT_G, gMax(c)) })];
       };
       const phi = solveMonotone(p => c.st.h[1] - c.run(make(p)).end.h[1], 0.5 * D2R, 60 * D2R, el.dropB, what, 5e-3);
       return { segs: make(phi) };
@@ -654,8 +667,9 @@ function buildOther(el: CoasterElement, c: BuildCtx, what: string): BuiltElement
     case 'straight': {
       const zone: ZoneSpec | undefined = el.driveBps ? { kind: 'lift', speed: el.driveBps } : undefined;
       if (!el.slopeDeg) return { segs: [straightSeg(el.lengthB, zone)] };
+      if (el.slopeDeg < 0) throw new CoasterDesignError(`${what}: slopeDeg must be positive (a graded straight climbs, then levels)`);
       const a = el.slopeDeg * D2R;
-      const make = (x: number): Seg[] => [pitchArc(a, 16, zone), straightSeg(x, zone), pitchArc(-a, 16, zone)];
+      const make = (x: number): Seg[] => [loadSeg({ angle: a, g: () => C.SLOPE_EXIT_G, zone }), straightSeg(x, zone), loadSeg({ angle: -a, g: () => C.SLOPE_ENTRY_G, zone })];
       const x = solveMonotone(v => c.run(make(v)).length, 0, el.lengthB, el.lengthB, what, 1e-3);
       return { segs: make(x) };
     }
@@ -667,7 +681,10 @@ function buildOther(el: CoasterElement, c: BuildCtx, what: string): BuiltElement
       const hand = el.hand === 'L' ? 1 : -1, Lc = el.lengthB, omega = TWO_PI / Lc;
       const sinE = clamp(C.CORKSCREW_G * G / (Math.max(c.st.v2, 1) * omega),
         Math.sin(C.CORKSCREW_TILT_MIN_DEG * D2R), Math.sin(C.CORKSCREW_TILT_MAX_DEG * D2R));
-      const eps = Math.asin(sinE), Lt = Math.max(5, 0.15 * Lc);
+      const eps = Math.asin(sinE);
+      // The lead-in/out is an unbanked sideways turn of `eps`: long enough that its lateral load stays under
+      // `CORKSCREW_LEAD_G` at the entry speed (peak curvature = eps / (0.7 Lt) for the clothoid shape).
+      const Lt = clamp(eps * Math.max(c.st.v2, 1) / ((1 - C.RAMP_FRACTION) * G * C.CORKSCREW_LEAD_G), 5, 120);
       const axis = unit([c.st.t[0], 0, c.st.t[2]]);
       return { segs: [
         fixedSeg({ len: Lt, yaw: shaped(hand * eps, Lt) }),
@@ -712,6 +729,15 @@ function solve3(m: number[][], b: number[]): number[] | undefined {
  * Both turns together carry the heading change `dPsi`; the connector is a speed-trim zone down to the platform speed.
  */
 function solveReturn(end: State, start: State, heartline: number, limits: CoasterDesign['limits'], radius: number): { segs: () => Seg[]; length: number } {
+  // A tighter connector turn is tried when the asked radius leaves no room (a station close to the end of the layout).
+  let failure: CoasterDesignError | undefined;
+  for (const k of [1, 0.7, 0.5, 0.35]) {
+    try { return solveReturnAt(end, start, heartline, limits, radius * k); } catch (e) { if (!(e instanceof CoasterDesignError)) throw e; failure ??= e; }
+  }
+  throw failure!;
+}
+
+function solveReturnAt(end: State, start: State, heartline: number, limits: CoasterDesign['limits'], radius: number): { segs: () => Seg[]; length: number } {
   const C = COASTER_DESIGN;
   const zone: ZoneSpec = { kind: 'lift', speed: C.RETURN_DRIVE_BPS };
   const trimZone: ZoneSpec = { kind: 'trim', speed: COASTER_PHYSICS.DEPART_SPEED, decel: COASTER_PHYSICS.STATION_BRAKE };
@@ -758,16 +784,19 @@ function solveReturn(end: State, start: State, heartline: number, limits: Coaste
   const distance = Math.hypot(start.h[0] - end.h[0], start.h[2] - end.h[2]);
   let best: { x: number[]; total: number; length: number } | undefined;
   for (const total of [dPsi, dPsi + TWO_PI, dPsi - TWO_PI]) {
-    for (const a1 of [0.5 * total, -0.5 * total, Math.PI / 2, -Math.PI / 2, Math.PI, -Math.PI, total, 0.2]) {
+    for (const a1 of [0.5 * total, -0.5 * total, Math.PI / 2, -Math.PI / 2, Math.PI, -Math.PI, total, 0.2, 2 * Math.PI, -2 * Math.PI, 1.5 * Math.PI, -1.5 * Math.PI]) {
       const coarse = newton([a1, Math.max(distance, 10), 0], total, 1.5, 25);
-      if (coarse.r > 0.05) continue;
+      if (coarse.r > 0.5) continue;
       const fine = newton(coarse.x, total, C.STEP_TARGET_B, 12);
       if (fine.r > 1e-8 || fine.x[1]! < 0.5) continue;
       const length = runSegs(end, build(fine.x, total), { heartline, limits }).length;
       if (!best || length < best.length) best = { x: fine.x, total, length };
     }
   }
-  if (!best) throw new CoasterDesignError('the design cannot be closed: no return connector (turn, graded straight, turn) reaches the station; end the design nearer the station, or add turns');
+  if (!best) {
+    const d = sub(start.h, end.h);
+    throw new CoasterDesignError(`the design cannot be closed: no return connector (turn, graded straight, turn; turn radius ${radius}) reaches the station from ${d.map(v => v.toFixed(1)).join(', ')} blocks away (dx, dy, dz) with a ${(dPsi / D2R).toFixed(0)} degree heading change; end the design nearer the station, or add turns`);
+  }
   const { x, total } = best;
   return { segs: () => build(x, total), length: best.length };
 }

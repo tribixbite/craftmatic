@@ -242,6 +242,37 @@ preview's own state machine. The second train is drawn parked, and the
 platform lift is a visual analogue. A railway route (`route.physics`) is
 drawn parked: nobody drives a preview train.
 
+### 4.2a Coaster design generator — `web/src/engine/coaster-design.ts`
+
+Pure math (WP-C01, BIZ-13): `generateCoaster(design)` turns elements into the closed route a pack would carry,
+at most 0.4 blocks between samples, with an explicit up per sample, zones by arc distance and a report. It does not
+touch the runtime (`bedrock-coaster.ts` is unchanged; C02 wires the route in).
+
+- **Frame and heartline.** The track is integrated as a moving frame (tangent, path-up, bank). The integrated point
+  is the HEARTLINE; the rail sample is `heart - heartlineB * up`, so a roll about the heartline orbits the rail round
+  a straight heart path.
+- **Load-controlled geometry.** The running speed is integrated while the track is built (the runtime's own terms:
+  `COASTER_PHYSICS.GRAVITY` 19.6, `DRAG`, `ROLLING`, `MIN_SPEED` floor, the design's speed ceiling; lifts hold their
+  speed, launches ramp in v², brakes shed at a fixed deceleration). A loop, a drop's pull-out, an airtime crest, a
+  zero-g crest and a graded straight take the curvature that gives their target vertical load at that speed,
+  `kappa = G (g - n_y) / v²`. A loop's radius is a target HEIGHT (2 r) solved over the load, so it is a teardrop;
+  height is not monotone in the load (a gentle load stalls), so the solver takes the first bracket from the tight end.
+  Banked turns take the balanced bank `atan(v² kappa / G)`.
+- **Closure.** Every element starts and ends level and upright, so the circuit is closed by a generated return (a
+  level turn, a graded straight, a level turn, a trim to the platform speed), its three parameters solved by damped
+  Newton over the same integrator. The return is a powered transfer (`RETURN_DRIVE_BPS`): a gravity-only return would
+  stall (rolling alone removes a 4 blocks/s train in 30 blocks).
+- **Helical loops** are a TRANSLATION of the heart along the pitch axis, not a sideways tilt: a tilt does not commute
+  with the pitch and leaves the track pitched after the element. Consequently the supplied up is perpendicular to the
+  generated tangent, and within about 0.05 rad of perpendicular to the sampled direction of travel there.
+- **Known limits.** The loop and cobra heights a design can ask for are bounded by the entry speed, because the
+  drag term `DRAG v²` removes about 60 % of v² in 60 blocks (a 145-block drop reaches 40 blocks/s, not 70); a cobra's
+  second half runs slower than its first and is fitted to what the speed allows (a stall flag in the validator when it
+  does not). Self-clearance is checked against the track itself only, not scenery (C06). The handedness against
+  Bedrock's Z mirror is unconfirmed (C02).
+
+Tests: `test/coaster-design.test.ts`; the 3x sketch is `test/fixtures/coaster/3x-sketch.json`.
+
 ### 4.1a Rail vehicles — the coaster engine with a driver
 
 `rideSubstep(speed, direction, gradeArc, dt, input, P)` in
@@ -1412,6 +1443,16 @@ literal inside a function body (`§` marks the number).
 | `HOP.DEFAULT_EXTENT_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 0.5 | blocks | A target's half extent when `getAABB` gives none: a one-block seat. |
 | `FLYER_BOB.AMPLITUDE_UNITS` | `web/src/engine/bedrock-vehicle.ts` | 1 | geometry units (1/16 block) | The idle bob's amplitude: visible, never enough to move the seat visibly under the rider. |
 | `FLYER_BOB.DEGREES_PER_SECOND` | `web/src/engine/bedrock-vehicle.ts` | 120 | degrees/s of the sine | One breath every 3 s. |
+| `COASTER_DESIGN.MAX_SAMPLE_SPACING_B` | `web/src/engine/coaster-design.ts` | 0.4 | blocks | The route contract: neighbouring samples at most this far apart (the 25 LDU rule). |
+| `COASTER_DESIGN.STEP_TARGET_B` | `web/src/engine/coaster-design.ts` | 0.34 | blocks | The integration's rail chord, under the contract so rounding never breaks it. |
+| `COASTER_DESIGN.RAMP_FRACTION` | `web/src/engine/coaster-design.ts` | 0.3 | fraction | Clothoid ramp: curvature rises linearly over this share of a fixed-shape piece, holds, and falls again. |
+| `COASTER_DESIGN.DROP_PULLOUT_G` | `web/src/engine/coaster-design.ts` | 3.4 | g | Vertical load of a drop's pull-out: under the design's 4.5 with room for the loop after it. |
+| `COASTER_DESIGN.LOOP_G_MIN` | `web/src/engine/coaster-design.ts` | 1.1 | g | Gentlest load the loop solver tries; below it a loop never turns over before the speed is gone. |
+| `COASTER_DESIGN.G_MARGIN` | `web/src/engine/coaster-design.ts` | 0.15 | g | Kept inside the design's g limits when a load is chosen. |
+| `COASTER_DESIGN.CORKSCREW_G` | `web/src/engine/coaster-design.ts` | 1.8 | g | Centripetal load of a corkscrew's helix; its cone angle follows from the entry speed. |
+| `COASTER_DESIGN.BLOCK_BRAKE_DECEL` | `web/src/engine/coaster-design.ts` | 14 | blocks/s² | Twice the station brake (`COASTER_PHYSICS.STATION_BRAKE`, 7). |
+| `COASTER_DESIGN.RETURN_DRIVE_BPS` | `web/src/engine/coaster-design.ts` | 10 | blocks/s | The generated return is a powered transfer at this speed. |
+| `COASTER_DESIGN.CLEARANCE_B` | `web/src/engine/coaster-design.ts` | 1.2 | blocks | Two rail samples closer than this, far apart along the track, are a collision. |
 <!-- /physics-spec:constants -->
 
 ## 10. Measured facts
@@ -1704,6 +1745,24 @@ one of these files fails the check until its row is written.
 | `coasterCarEyePoint` | function | The rider's eye for the preview's board camera. |
 | `CoasterPreviewRouteInput`, `CoasterPreviewCarType`, `CoasterPreviewCarFrame`, `CoasterPreviewState`, `StepCoasterPreviewResult` | interface | Types. |
 | `CoasterLiftPhase` | type | `track` / `lifting` / `delivered`. |
+<!-- /physics-spec:exports -->
+
+<!-- physics-spec:exports web/src/engine/coaster-design.ts -->
+| Export | Kind | Role |
+|---|---|---|
+| `CoasterElement` | type | The design vocabulary: station, lifts, launch, drop, airtime hill, loop, zero-g roll, corkscrew, cobra roll, top hat, helix, turn, straight, brakes (§4.2a). |
+| `CoasterZone` | interface | A kind (station / lift / launch / block-brake / trim / dark / show / tunnel / cloud) over an arc range, with params. |
+| `ShowCue` | type | A scheduled show cue (darkness, fade, light, sound, particles); carried by the design, not yet run. |
+| `CoasterOverlay` | interface | A dark / show / tunnel / cloud zone laid over a span of elements. |
+| `CoasterDesign` | interface | Elements, heartline offset, train size, limits (speed, vertical and lateral g, jerk), shows, overlays, return radius. |
+| `CoasterSpan` | interface | Per-element results: arc range, g extremes, speeds, inversions, height gain. |
+| `CoasterAnalysis` | interface | The per-sample series the validator reads: arc, speed, g, jerk, up.y, stalls, brake shortfalls, closure residuals. |
+| `GeneratedCoaster` | interface | The closed route, one up per sample, zones, report, spans, analysis. |
+| `CoasterIssue` | interface | One validator finding (code, message, arc). |
+| `CoasterDesignError` | class | Thrown for a design that cannot be built or fails validation; carries the issues. |
+| `COASTER_DESIGN` | const | Every generator constant (§9). |
+| `generateCoaster` | function | Elements to a closed route: load-controlled geometry, energy model, return connector, validation. |
+| `validateCoaster` | function | Closure, spacing, vertical / lateral g, jerk, stalls, brakes, arrival speed, world height, self-clearance. |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/pinball-physics.ts -->
