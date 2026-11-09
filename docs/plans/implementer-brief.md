@@ -1,4 +1,9 @@
 ## How every Wave-1 implementer works (binding)
+
+**ABSOLUTE RULE, checked after every package: NO recursive delete of ANY kind, not even of a scratch folder you
+created a minute ago (`rm -r`, `rm -rf`, `Remove-Item -Recurse`, `rmdir /s`, `find -delete`, `shutil.rmtree`,
+`fs.rmSync(..., {recursive})`, `git worktree remove`). A Wave-1 agent broke this on 2026-11-09. Leave scratch
+folders in place and use a NEW name next time.**
 Repo: C:\git\craftmatic (Windows; use Git Bash or PowerShell; bun/bunx only, never npm/npx/node package installs).
 
 1. **Read first:**
