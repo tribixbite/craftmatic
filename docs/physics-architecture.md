@@ -273,6 +273,18 @@ touch the runtime (`bedrock-coaster.ts` is unchanged; C02 wires the route in).
 
 Tests: `test/coaster-design.test.ts`; the 3x sketch is `test/fixtures/coaster/3x-sketch.json`.
 
+### 4.2b Coaster rail geometry — `web/src/engine/coaster-track-mesh.ts` (not physics; WP-C03)
+
+Not a physics module: it adds no motion, force or constant the runtime reads. It is listed here because its name matches
+the physics pattern and its INPUT is the generator's route. `buildTrackMesh(gen)` turns a `GeneratedCoaster`'s route and
+`ups` into rails (two crossed square bars each, one rolled 45 degrees), ties and studs as Bedrock entity geometry,
+chunked on the building shell's lattice (`shellCellOf`/`shellCellRoot`, `STATIC_SHELL_CELL_BLOCKS`) so every chunk root
+is within `STATIC_SHELL_RADIUS_LIMIT_BLOCKS` of its cubes at `STATIC_SHELL_CULL_MAX_SCALE`. Dimensions
+(`COASTER_TRACK_MESH`: gauge 1.5 blocks, bar 3.5 units, a tie per block) are look, not physics: the car's datum over the
+rail top is C02's to set (`railTopOffsetB`). `compareRailRepresentations` is the offline entity-vs-block measurement; the
+decision and numbers are in the add-on guide, "Coaster rails: entity chunks or blocks". Tests:
+`test/coaster-track-mesh.test.ts`; render: `bun scripts/_coaster_track_render.ts`.
+
 ### 4.1a Rail vehicles — the coaster engine with a driver
 
 `rideSubstep(speed, direction, gradeArc, dt, input, P)` in
@@ -1952,6 +1964,7 @@ Physics-named files that are not physics:
 |---|---|
 | `web/src/engine/coaster-track.ts` | Extracts track centrelines from the parts (geometry). |
 | `web/src/engine/coaster-assemblies.ts` | Detects cars, lifts, counterweights and chain drives (geometry). |
+| `web/src/engine/coaster-track-mesh.ts` | Rails, ties and studs along a generated route, chunked within draw reach (geometry; section 4.2b). |
 | `web/src/engine/playable-components.ts` | Classifies bricks into vehicle components. |
 | `web/src/engine/scene-vehicles.ts` | Finds the vehicles standing in a scene (geometry: clusters, wheels, oars). |
 | `web/src/engine/vehicle-facing.ts` | Infers which end of a vehicle is its nose. |
