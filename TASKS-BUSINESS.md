@@ -119,7 +119,10 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
     Checks done: M07 favourites differ only in placement.js + stamp, sim 24 scenarios identical, 7 regression cases
     identical (`output/m07-compare/`); M03 dev packs identical but five scripts embedding the kit, passability and
     regressions identical; B03 two favourites byte-identical but the stamp (`output/b03-compare/`).
-  - NEXT (wave 4, no user decision needed):
+  - WAVE 4 IN FLIGHT 2026-11-09 (6 Sonnet agents; `docs/plans/wave4-brief.md`): MQ massing quality (`biz-mq`), A07+A08
+    grammars (`biz-a07`), L mesh->bricks accuracy (`biz-l01`), C02 coaster into a pack (`biz-c02`), T02 marketplace sim
+    scenario (`biz-t02`), D-08b release finalize/verify/status + M03/M07 flags (`biz-d08b`).
+  - (Wave 4 plan, as briefed:)
     - Massing quality on Notre-Dame (X-10 render `.worktrees/biz-x10/output/x10/notre-dame-plain-iso.png`): the two west
       towers merge into one block, east-end heights read far too tall, neighbouring buildings come along; roofs
       are stepped hips. Fix in A05/X-10, then A07/A08 grammars (roofs, windows, the A09 features).
