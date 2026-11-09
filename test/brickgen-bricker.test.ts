@@ -337,7 +337,7 @@ describe('brickgen-bricker', () => {
       const site = siteFromOverpass(json, { name: 'Notre-Dame massing', retrieved: '2026-11-09', buildingId: 'way/201611261' });
       const { massing } = buildMassing(site.site, { roles: site.roles });
       const { lattice: l, notes } = plainMassingLattice(massing);
-      expect(l.dims[0]).toBeGreaterThan(150);
+      expect(l.dims[0]).toBeGreaterThan(120); // the cathedral alone (~128 m), no neighbours
       const r = brickLattice(l);
       mkdirSync(OUT, { recursive: true });
       writeFileSync(path.join(OUT, 'notre-dame-plain.ldr'), writeLdraw(r.plan, { slug: 'notre-dame-plain', title: 'Notre-Dame massing, plain bricks (X-10)', author: 'brickgen bricker', licence: 'Redistributable under CC BY 4.0' }));

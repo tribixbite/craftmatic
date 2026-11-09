@@ -36,7 +36,11 @@ describe('brickgen-osm Notre-Dame de Paris (real OSM)', () => {
   it('reads the outline and every building:part with its tags', () => {
     expect(r.site.name).toBe('Cathedral of Notre Dame');
     const partCount = notreDame.elements.filter((e: { tags?: Record<string, string> }) => e.tags?.['building:part']).length;
-    expect(r.site.footprint).toHaveLength(partCount + 1);
+    // Every part of the cathedral, plus the outline; the three parts of neighbouring buildings the query also returned
+    // (MQ: way/248494141, way/248494146, way/576110029) are left out and reported.
+    const neighbours = r.warnings.filter(w => /left out as a neighbouring building/.test(w));
+    expect(neighbours.map(w => w.split(':')[0]).sort()).toEqual(['way/248494141', 'way/248494146', 'way/576110029']);
+    expect(r.site.footprint).toHaveLength(partCount + 1 - neighbours.length);
     const tour = r.site.parts.find(p => p.partId === 'way/201611269')!;
     expect(tour.heightM).toBe(69);
     expect(r.roles['way/201611269']).toBe('tower'); // "Tour Sud", man_made=tower
