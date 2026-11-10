@@ -13,7 +13,7 @@
  */
 import type { FeatureSet, IntentLattice, Massing, MassVolume } from '../types.js';
 import { Canvas } from './canvas.js';
-import { applyFeatures, type FacadeStats } from './facade.js';
+import { applyFeatures, strutVolumeIds, type FacadeStats } from './facade.js';
 import { rasterise, type Mask } from './footprint.js';
 import { styleKeyOf, STYLE_RULES } from './rules.js';
 import { isSpire } from './spire.js';
@@ -106,8 +106,10 @@ export function buildGrammarLattice(massing: Massing, features: FeatureSet, opti
   const volumes = [...massing.volumes].sort((a, b) => a.topM - b.topM || a.baseM - b.baseM);
   const stats: GrammarStats = { volumes: 0, roofs: {}, slopeCells: 0, facade: { openings: 0, relief: 0, skipped: 0, byKind: {} }, stranded: 0, clipped: 0 };
   let dropped = 0;
+  const struts = strutVolumeIds(features);
   for (const v of volumes) {
     const mask = masks.get(v.id);
+    if (struts.has(v.id)) continue; // drawn as a flying buttress by the facade grammar
     const baseP = Math.round(v.baseM * ppm) + BASE_PLATES, topP = Math.round(v.topM * ppm) + BASE_PLATES;
     if (!mask || topP <= baseP) { dropped++; continue; }
     stats.volumes++;
