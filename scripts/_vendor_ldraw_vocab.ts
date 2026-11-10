@@ -16,7 +16,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ELEMENT_SPECS, MOVED_PARTS } from '../web/src/brickgen/vocab/elements.ts';
+import { READ_SPECS, MOVED_PARTS } from '../web/src/brickgen/vocab/elements.ts';
 import { buildVocabulary } from '../web/src/brickgen/vocab/index.ts';
 import { readHeader, reachableFiles, type PartSource } from '../web/src/brickgen/vocab/occupancy.ts';
 
@@ -46,7 +46,7 @@ const sourceOf = (root: string): PartSource => name => {
 function neededFiles(root: string): { rel: string; name: string }[] {
   const src = sourceOf(root);
   const names = new Set<string>();
-  for (const spec of ELEMENT_SPECS) {
+  for (const spec of READ_SPECS) {
     const { files, missing } = reachableFiles(spec.part, src);
     if (missing.length) throw new Error(`${spec.part}: not in ${root}: ${missing.join(', ')}`);
     for (const f of files) names.add(f);
@@ -59,7 +59,7 @@ function neededFiles(root: string): { rel: string; name: string }[] {
 /** Problems with the MOVED_PARTS table against a library-shaped root: each alias must be one identity reference to its target element. */
 function movedPartProblems(root: string): string[] {
   const src = sourceOf(root);
-  const elements = new Set(ELEMENT_SPECS.map(s => s.part));
+  const elements = new Set(READ_SPECS.map(s => s.part));
   const out: string[] = [];
   for (const [alias, target] of Object.entries(MOVED_PARTS)) {
     const text = src(alias);
@@ -143,12 +143,12 @@ if (!CHECK) {
   }
   writeFileSync(path.join(FIXTURES, 'LICENSE.md'), licenceMarkdown(files));
   writeFileSync(GENERATED, generatedTs());
-  console.log(`vendored ${files.length} files for ${ELEMENT_SPECS.length} elements`);
+  console.log(`vendored ${files.length} files for ${READ_SPECS.length} elements`);
 } else {
   let bad = 0;
   for (const p of movedPartProblems(FIXTURES)) { bad++; console.error(p); }
   const src = sourceOf(FIXTURES);
-  for (const spec of ELEMENT_SPECS) {
+  for (const spec of READ_SPECS) {
     const { missing } = reachableFiles(spec.part, src);
     if (missing.length) { bad++; console.error(`${spec.part}: missing ${missing.join(', ')}`); }
   }

@@ -8,8 +8,8 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { BRICK_VOCABULARY, buildVocabulary, frameFor } from '../web/src/brickgen/vocab/index.js';
-import { ELEMENT_SPECS } from '../web/src/brickgen/vocab/elements.js';
+import { BRICK_VOCABULARY, buildVocabulary, elementFor, frameFor } from '../web/src/brickgen/vocab/index.js';
+import { ELEMENT_SPECS, READ_SPECS } from '../web/src/brickgen/vocab/elements.js';
 import { analysePart, flattenPart, occupancyIndex, reachableFiles, type PartSource } from '../web/src/brickgen/vocab/occupancy.js';
 
 const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'fixtures/ldraw-vocab');
@@ -116,8 +116,11 @@ describe('brickgen-vocab', () => {
 
   it('the committed vocabulary equals a rebuild from the vendored geometry', () => {
     const rebuilt = buildVocabulary(fixtureSource);
-    expect(rebuilt.map(r => r.element.part)).toEqual(ELEMENT_SPECS.map(s => s.part));
-    expect(rebuilt.map(r => r.element)).toEqual(BRICK_VOCABULARY.elements);
+    // L-01: the rebuild covers every readable part; the bricker's palette is the picked subset of it.
+    expect(rebuilt.map(r => r.element.part)).toEqual(READ_SPECS.map(s => s.part));
+    expect(rebuilt.map(r => r.element)).toEqual(READ_SPECS.map(s => elementFor(s.part)));
+    const picked = new Set(ELEMENT_SPECS.map(s => s.part));
+    expect(rebuilt.map(r => r.element).filter(e => picked.has(e.part))).toEqual(BRICK_VOCABULARY.elements);
     // Frames are stored rounded to 4 decimals.
     for (const r of rebuilt) {
       const f = frameFor(r.element.part)!;

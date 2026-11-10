@@ -10,11 +10,11 @@
  */
 import { PRODUCTION_PALETTE } from '../colour.js';
 import type { BrickElement, BrickVocabulary } from '../types.js';
-import { ELEMENT_SPECS, MOVED_PARTS, type ElementSpec } from './elements.js';
+import { ELEMENT_SPECS, MOVED_PARTS, READ_SPECS, type ElementSpec } from './elements.js';
 import { analysePart, flattenPart, readHeader, type BodyFrame, type PartSource } from './occupancy.js';
 import { VOCAB_RECORDS, type VocabRecord } from './vocabulary.generated.js';
 
-export { ELEMENT_SPECS, MOVED_PARTS } from './elements.js';
+export { ELEMENT_SPECS, MOVED_PARTS, READ_SPECS } from './elements.js';
 export type { ElementSpec } from './elements.js';
 export type { BodyFrame, PartSource } from './occupancy.js';
 export { occupancyIndex } from './occupancy.js';
@@ -25,9 +25,9 @@ export const VOCAB_VERSION = '1';
 /** One element together with where its body sits against the part origin. */
 export interface VocabBuild { element: BrickElement; frame: BodyFrame; spec: ElementSpec }
 
-/** Derive every element from part geometry. `source` resolves library file names. Throws on an unreadable part. */
+/** Derive every readable element (`READ_SPECS`: the bricker's palette plus the lookup-only parts) from part geometry. `source` resolves library file names. Throws on an unreadable part. */
 export function buildVocabulary(source: PartSource): VocabBuild[] {
-  return ELEMENT_SPECS.map(spec => {
+  return READ_SPECS.map(spec => {
     const text = source(spec.part);
     if (text === undefined) throw new Error(`vocabulary part ${spec.part} is not in the source`);
     const header = readHeader(text);
@@ -66,18 +66,24 @@ function recordToElement(r: VocabRecord, spec: ElementSpec): BrickElement {
   };
 }
 
-const SPEC_BY_PART = new Map(ELEMENT_SPECS.map(s => [s.part, s]));
+const SPEC_BY_PART = new Map(READ_SPECS.map(s => [s.part, s]));
+const PICKED_PARTS = new Set(ELEMENT_SPECS.map(s => s.part));
 
-export const BRICK_VOCABULARY: BrickVocabulary = {
+/** Every element a record exists for, picked or lookup-only. */
+const READ_ELEMENTS: readonly BrickElement[] =
   // A record without a spec is a stale generated file (the script that rewrites it must be able to import this
   // module first); `buildVocabulary` + the drift test and `--check` report it.
-  elements: VOCAB_RECORDS.filter(r => SPEC_BY_PART.has(r.part)).map(r => recordToElement(r, SPEC_BY_PART.get(r.part)!)),
+  VOCAB_RECORDS.filter(r => SPEC_BY_PART.has(r.part)).map(r => recordToElement(r, SPEC_BY_PART.get(r.part)!));
+
+/** The bricker's palette: the plain parts it may PICK (lookup-only parts are read by `elementFor`, never placed by the packer). */
+export const BRICK_VOCABULARY: BrickVocabulary = {
+  elements: READ_ELEMENTS.filter(e => PICKED_PARTS.has(e.part)),
   palette: [...PRODUCTION_PALETTE],
   version: VOCAB_VERSION,
 };
 
-const ELEMENT_BY_PART = new Map(BRICK_VOCABULARY.elements.map(e => [e.part, e]));
-const FRAME_BY_PART = new Map<string, BodyFrame>(VOCAB_RECORDS.map(r => [r.part, r.frame]));
+const ELEMENT_BY_PART = new Map(READ_ELEMENTS.map(e => [e.part, e]));
+const FRAME_BY_PART = new Map<string, BodyFrame>(VOCAB_RECORDS.filter(r => SPEC_BY_PART.has(r.part)).map(r => [r.part, r.frame]));
 
 /** A part file name with an official "~Moved to" alias (`3023.dat`) read as the part it points at (`3023b.dat`). */
 export function canonicalPart(part: string): string {

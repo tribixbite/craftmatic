@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
-import { BRICK_VOCABULARY, ELEMENT_SPECS, MOVED_PARTS, elementFor, frameFor } from '../web/src/brickgen/vocab/index.js';
+import { BRICK_VOCABULARY, MOVED_PARTS, READ_SPECS, elementFor, frameFor } from '../web/src/brickgen/vocab/index.js';
 import { latticeFromFootprints } from '../web/src/engine/legolize/lattice.js';
 
 const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'fixtures/ldraw-vocab/parts');
@@ -23,7 +23,7 @@ describe('vocabulary moved-name aliases', () => {
   });
 
   it('every alias is a vendored one-line "~Moved to" identity reference to a vocabulary element', () => {
-    const parts = new Set(ELEMENT_SPECS.map((s) => s.part));
+    const parts = new Set(READ_SPECS.map((s) => s.part));
     for (const [alias, target] of Object.entries(MOVED_PARTS)) {
       const file = path.join(FIXTURES, alias);
       expect(existsSync(file), `${alias} is vendored`).toBe(true);
@@ -40,7 +40,10 @@ describe('vocabulary moved-name aliases', () => {
   it('carries the frequent official parts of the batcave car (2420 plate 2x2 corner, 54200 slope, 3958 plate 6x6)', () => {
     for (const p of ['2420.dat', '54200.dat', '3958.dat', '3032.dat', '26601.dat', '2357.dat', '3700.dat']) expect(elementFor(p), p).toBeDefined();
     expect(elementFor('2420.dat')!.occupancy).toEqual(Uint8Array.from([1, 1, 1, 0]));
-    expect(BRICK_VOCABULARY.elements.length).toBeGreaterThanOrEqual(115);
+    expect(READ_SPECS.length).toBeGreaterThanOrEqual(115);
+    // ...but they are lookup-only: the bricker's palette (and its goldens) is unchanged.
+    expect(BRICK_VOCABULARY.elements.some(e => e.part === '2420.dat')).toBe(false);
+    expect(BRICK_VOCABULARY.elements).toHaveLength(84);
   });
 
   it('a moved-name brick is a vocabulary brick in the truth lattice, not a mesh fallback', async () => {

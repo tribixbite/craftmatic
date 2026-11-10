@@ -4953,6 +4953,176 @@ export const VOCAB_RECORDS: readonly VocabRecord[] = [
   "author": "Brent Jackson [bjackson]"
  },
  {
+  "part": "3633.dat",
+  "footprint": [
+   4,
+   1
+  ],
+  "heightPlates": 3,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 24
+  },
+  "occupancy": "111100000000",
+  "studsTop": [],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "3185.dat",
+  "footprint": [
+   4,
+   1
+  ],
+  "heightPlates": 6,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 48
+  },
+  "occupancy": "111100000000000000000000",
+  "studsTop": [],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "30055.dat",
+  "footprint": [
+   4,
+   1
+  ],
+  "heightPlates": 6,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 48
+  },
+  "occupancy": "111100000000000000001111",
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    3,
+    0
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "Steve Bliss [sbliss]"
+ },
+ {
+  "part": "30077.dat",
+  "footprint": [
+   6,
+   1
+  ],
+  "heightPlates": 6,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": -0.0004,
+   "bottomY": 48
+  },
+  "occupancy": "111111100001100001100001100001111111",
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    5,
+    0
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
   "part": "2420.dat",
   "footprint": [
    2,
@@ -5742,6 +5912,752 @@ export const VOCAB_RECORDS: readonly VocabRecord[] = [
    [
     5,
     5
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "3029.dat",
+  "footprint": [
+   12,
+   4
+  ],
+  "heightPlates": 1,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 8
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    6,
+    0
+   ],
+   [
+    7,
+    0
+   ],
+   [
+    8,
+    0
+   ],
+   [
+    9,
+    0
+   ],
+   [
+    10,
+    0
+   ],
+   [
+    11,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    6,
+    1
+   ],
+   [
+    7,
+    1
+   ],
+   [
+    8,
+    1
+   ],
+   [
+    9,
+    1
+   ],
+   [
+    10,
+    1
+   ],
+   [
+    11,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    2,
+    2
+   ],
+   [
+    3,
+    2
+   ],
+   [
+    4,
+    2
+   ],
+   [
+    5,
+    2
+   ],
+   [
+    6,
+    2
+   ],
+   [
+    7,
+    2
+   ],
+   [
+    8,
+    2
+   ],
+   [
+    9,
+    2
+   ],
+   [
+    10,
+    2
+   ],
+   [
+    11,
+    2
+   ],
+   [
+    0,
+    3
+   ],
+   [
+    1,
+    3
+   ],
+   [
+    2,
+    3
+   ],
+   [
+    3,
+    3
+   ],
+   [
+    4,
+    3
+   ],
+   [
+    5,
+    3
+   ],
+   [
+    6,
+    3
+   ],
+   [
+    7,
+    3
+   ],
+   [
+    8,
+    3
+   ],
+   [
+    9,
+    3
+   ],
+   [
+    10,
+    3
+   ],
+   [
+    11,
+    3
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    6,
+    0
+   ],
+   [
+    7,
+    0
+   ],
+   [
+    8,
+    0
+   ],
+   [
+    9,
+    0
+   ],
+   [
+    10,
+    0
+   ],
+   [
+    11,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    6,
+    1
+   ],
+   [
+    7,
+    1
+   ],
+   [
+    8,
+    1
+   ],
+   [
+    9,
+    1
+   ],
+   [
+    10,
+    1
+   ],
+   [
+    11,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    2,
+    2
+   ],
+   [
+    3,
+    2
+   ],
+   [
+    4,
+    2
+   ],
+   [
+    5,
+    2
+   ],
+   [
+    6,
+    2
+   ],
+   [
+    7,
+    2
+   ],
+   [
+    8,
+    2
+   ],
+   [
+    9,
+    2
+   ],
+   [
+    10,
+    2
+   ],
+   [
+    11,
+    2
+   ],
+   [
+    0,
+    3
+   ],
+   [
+    1,
+    3
+   ],
+   [
+    2,
+    3
+   ],
+   [
+    3,
+    3
+   ],
+   [
+    4,
+    3
+   ],
+   [
+    5,
+    3
+   ],
+   [
+    6,
+    3
+   ],
+   [
+    7,
+    3
+   ],
+   [
+    8,
+    3
+   ],
+   [
+    9,
+    3
+   ],
+   [
+    10,
+    3
+   ],
+   [
+    11,
+    3
+   ]
+  ],
+  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
+  "author": "James Jessiman"
+ },
+ {
+  "part": "3030.dat",
+  "footprint": [
+   10,
+   4
+  ],
+  "heightPlates": 1,
+  "frame": {
+   "centreX": 0,
+   "centreZ": 0,
+   "topY": 0,
+   "bottomY": 8
+  },
+  "occupancy": null,
+  "studsTop": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    6,
+    0
+   ],
+   [
+    7,
+    0
+   ],
+   [
+    8,
+    0
+   ],
+   [
+    9,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    6,
+    1
+   ],
+   [
+    7,
+    1
+   ],
+   [
+    8,
+    1
+   ],
+   [
+    9,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    2,
+    2
+   ],
+   [
+    3,
+    2
+   ],
+   [
+    4,
+    2
+   ],
+   [
+    5,
+    2
+   ],
+   [
+    6,
+    2
+   ],
+   [
+    7,
+    2
+   ],
+   [
+    8,
+    2
+   ],
+   [
+    9,
+    2
+   ],
+   [
+    0,
+    3
+   ],
+   [
+    1,
+    3
+   ],
+   [
+    2,
+    3
+   ],
+   [
+    3,
+    3
+   ],
+   [
+    4,
+    3
+   ],
+   [
+    5,
+    3
+   ],
+   [
+    6,
+    3
+   ],
+   [
+    7,
+    3
+   ],
+   [
+    8,
+    3
+   ],
+   [
+    9,
+    3
+   ]
+  ],
+  "antiStudsBottom": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    0
+   ],
+   [
+    4,
+    0
+   ],
+   [
+    5,
+    0
+   ],
+   [
+    6,
+    0
+   ],
+   [
+    7,
+    0
+   ],
+   [
+    8,
+    0
+   ],
+   [
+    9,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    6,
+    1
+   ],
+   [
+    7,
+    1
+   ],
+   [
+    8,
+    1
+   ],
+   [
+    9,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    2,
+    2
+   ],
+   [
+    3,
+    2
+   ],
+   [
+    4,
+    2
+   ],
+   [
+    5,
+    2
+   ],
+   [
+    6,
+    2
+   ],
+   [
+    7,
+    2
+   ],
+   [
+    8,
+    2
+   ],
+   [
+    9,
+    2
+   ],
+   [
+    0,
+    3
+   ],
+   [
+    1,
+    3
+   ],
+   [
+    2,
+    3
+   ],
+   [
+    3,
+    3
+   ],
+   [
+    4,
+    3
+   ],
+   [
+    5,
+    3
+   ],
+   [
+    6,
+    3
+   ],
+   [
+    7,
+    3
+   ],
+   [
+    8,
+    3
+   ],
+   [
+    9,
+    3
    ]
   ],
   "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
@@ -6927,176 +7843,6 @@ export const VOCAB_RECORDS: readonly VocabRecord[] = [
   "antiStudsBottom": [
    [
     0,
-    0
-   ]
-  ],
-  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
-  "author": "James Jessiman"
- },
- {
-  "part": "3633.dat",
-  "footprint": [
-   4,
-   1
-  ],
-  "heightPlates": 3,
-  "frame": {
-   "centreX": 0,
-   "centreZ": 0,
-   "topY": 0,
-   "bottomY": 24
-  },
-  "occupancy": "111100000000",
-  "studsTop": [],
-  "antiStudsBottom": [
-   [
-    0,
-    0
-   ],
-   [
-    1,
-    0
-   ],
-   [
-    2,
-    0
-   ],
-   [
-    3,
-    0
-   ]
-  ],
-  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
-  "author": "James Jessiman"
- },
- {
-  "part": "3185.dat",
-  "footprint": [
-   4,
-   1
-  ],
-  "heightPlates": 6,
-  "frame": {
-   "centreX": 0,
-   "centreZ": 0,
-   "topY": 0,
-   "bottomY": 48
-  },
-  "occupancy": "111100000000000000000000",
-  "studsTop": [],
-  "antiStudsBottom": [
-   [
-    0,
-    0
-   ],
-   [
-    1,
-    0
-   ],
-   [
-    2,
-    0
-   ],
-   [
-    3,
-    0
-   ]
-  ],
-  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
-  "author": "James Jessiman"
- },
- {
-  "part": "30055.dat",
-  "footprint": [
-   4,
-   1
-  ],
-  "heightPlates": 6,
-  "frame": {
-   "centreX": 0,
-   "centreZ": 0,
-   "topY": 0,
-   "bottomY": 48
-  },
-  "occupancy": "111100000000000000001111",
-  "studsTop": [
-   [
-    0,
-    0
-   ],
-   [
-    3,
-    0
-   ]
-  ],
-  "antiStudsBottom": [
-   [
-    0,
-    0
-   ],
-   [
-    1,
-    0
-   ],
-   [
-    2,
-    0
-   ],
-   [
-    3,
-    0
-   ]
-  ],
-  "licence": "Licensed under CC BY 4.0 : see CAreadme.txt",
-  "author": "Steve Bliss [sbliss]"
- },
- {
-  "part": "30077.dat",
-  "footprint": [
-   6,
-   1
-  ],
-  "heightPlates": 6,
-  "frame": {
-   "centreX": 0,
-   "centreZ": 0,
-   "topY": -0.0004,
-   "bottomY": 48
-  },
-  "occupancy": "111111100001100001100001100001111111",
-  "studsTop": [
-   [
-    0,
-    0
-   ],
-   [
-    5,
-    0
-   ]
-  ],
-  "antiStudsBottom": [
-   [
-    0,
-    0
-   ],
-   [
-    1,
-    0
-   ],
-   [
-    2,
-    0
-   ],
-   [
-    3,
-    0
-   ],
-   [
-    4,
-    0
-   ],
-   [
-    5,
     0
    ]
   ],

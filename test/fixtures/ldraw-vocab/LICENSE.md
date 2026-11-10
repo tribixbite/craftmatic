@@ -114,6 +114,8 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | parts/3023.dat | Orion Pobursky [OrionP] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3023b.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3024.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3029.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3030.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3031.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3032.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3034.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |

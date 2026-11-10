@@ -13,9 +13,13 @@
  * injected `nearest`.
  *
  * Known limits (also in docs/plans, X-11):
- * - The lattice origin is the mesh's minimum corner, so a mesh whose lowest point
- *   is not on a plate multiple (e.g. LDraw studs, 4 LDU) can gain a sparse extra layer.
- *   X-12's `metrics.ts` aligns two lattices by a best integer shift instead (no lattice origin option needed yet).
+ * - The lattice origin is the mesh's minimum corner, so a mesh whose lowest point is not on a plate multiple can gain a sparse
+ *   extra layer. X-12's `metrics.ts` aligns two lattices by a best integer shift instead (no lattice origin option needed yet).
+ *   Tilted models are anchored to a corner that is not a whole cell from any other lattice's: the integer shift cannot fix that.
+ * - L-01: LDraw studs (stud-sized connected components, `cullStuds`) are left out of the occupancy, and a brick's underside
+ *   cavity (a pocket with a roof within 3 cells above and a wall within 10 cells on all four sides, `fillUndersideCavities`)
+ *   is filled: a brick is 3 solid plate layers, not a roof slab over air. Both are on by default (`ignoreStuds`,
+ *   `fillUndersides`). Single-brick truth: 3001 reads 4x3x2 with 8 cells in each layer.
  * - 'solid' mode is an even-odd ray fill, so a shell must be closed: planar boundary loops (LDraw studs have no
  *   base) are capped first (`hole-cap.ts`). Shells with open loops that are not planar and convex (about 17 of the
  *   120 part moulds in the batcave fixture, e.g. 3048, 17485, 64799) still leave a column of "inside" cells above

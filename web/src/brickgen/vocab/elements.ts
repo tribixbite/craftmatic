@@ -66,12 +66,20 @@ export const ELEMENT_SPECS: readonly ElementSpec[] = [
   ...['60596', '60599'].map(p => S(p, 'door-frame', ['window'], 'parity')),
   // Brackets (side studs: TODO(X-09) model SNOT connections once the verifier reads them)
   S('99781', 'bracket', ['detail', 'support']), S('44728', 'bracket', ['detail', 'support']),
-  // L-01 (BIZ-33): the most frequent official parts the batcave car and the nimbus fixture place that the list
-  // above lacked (counted by scripts/_vendor_ldraw_vocab.ts's parent task, 2026-11-09), so the V-02 truth reads
-  // their footprint instead of their mesh. Obsolete ("~") and alias ("=") library entries are left out.
-  // Plates: 2x2 corner, 2x2 without / with round corner, 3x3 without corner, 3x3 cross, 4x6, 6x6, 1x2 with clip, 1x1 x 2/3
+  // Lattice and spindled fences
+  ...['3633', '3185', '30055', '30077'].map(p => S(p, 'fence', ['detail', 'trim'], 'parity')),
+];
+
+/**
+ * L-01 (BIZ-33): official parts that are READ (the V-02 truth lattice, the verifier, the LDraw import) but never
+ * PICKED by the bricker, whose goldens and part counts depend on its palette staying the plain list above. They
+ * are the most frequent official parts the batcave car and the nimbus fixture place that the list above lacked
+ * (counted 2026-11-09). Obsolete ("~") and alias ("=") library entries are left out.
+ */
+const LOOKUP_ONLY_SPECS: readonly ElementSpec[] = [
+  // (3811, the 32x32 baseplate, is 4 LDU thick: half a plate reads as an all-empty occupancy, so it stays a mesh part.)
   // (1x2 with handle 60478, with door rail 32028 and curved 1x8 85970 were tried: their sideways parts made the footprint read one stud too wide)
-  ...['2420', '26601', '79491', '2450', '15397', '3032', '3958', '92280', '86996'].map(p => S(p, 'plate', PLATE)),
+  ...['2420', '26601', '79491', '2450', '15397', '3032', '3958', '3029', '3030', '92280', '86996'].map(p => S(p, 'plate', PLATE)),
   S('18674', 'round', ['roof-flat', 'detail']),
   // Bricks: 2x2 corner, 1x1 with headlight, 1x1x1 2/3 with side studs, Technic bricks with holes
   ...['2357', '4070', '32952', '3700', '3701', '2730', '32000', '73230', '6541'].map(p => S(p, 'brick', BRICK)),
@@ -84,9 +92,10 @@ export const ELEMENT_SPECS: readonly ElementSpec[] = [
   // The real parts behind more "~Moved to" names (see MOVED_PARTS)
   S('2362b', 'brick', BRICK), S('3048b', 'slope', SLOPE), S('3747a', 'slope-inverted', SLOPE_INV),
   S('3070a', 'tile', TILE),
-  // Lattice and spindled fences
-  ...['3633', '3185', '30055', '30077'].map(p => S(p, 'fence', ['detail', 'trim'], 'parity')),
 ];
+
+/** Every part the vocabulary can read; `ELEMENT_SPECS` is the subset the bricker may pick. */
+export const READ_SPECS: readonly ElementSpec[] = [...ELEMENT_SPECS, ...LOOKUP_ONLY_SPECS];
 
 /**
  * Official "~Moved to" library entries: a model (an LDraw file, an OMR set) may place the OLD name of a part
