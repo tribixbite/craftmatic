@@ -125,7 +125,8 @@ const STUD_MAX_Y = 0.6;
 const COMPONENT_WELD = 1e4;
 
 /**
- * Removes LDraw studs from a geometry given in lattice space (cells); returns a new non-indexed geometry, or the input when there is nothing to remove.
+ * Removes LDraw studs from geometries given in lattice space (cells). Returns one geometry per input, in order: a
+ * new non-indexed geometry, or the input itself when it loses nothing.
  *
  * Why: a stud is 4 LDU tall, half a plate, and stands on every top face, so a merged mesh reads one partial
  * layer taller than the bricks it came from (V-02: the 3-course wall read 8x10x2 against a true 8x9x2). The
@@ -135,75 +136,92 @@ const COMPONENT_WELD = 1e4;
  * a top disc, joined to nothing: the LDraw stud has no base) no bigger than a stud, so every connected
  * component of that size is dropped. Only studs this size are lost: a 1x1 round plate is 20 LDU across.
  *
- * Limits: a mesh whose studs are welded into the brick (one component) keeps them; a geometry with material
- * groups is left alone (the index rewrite would break them); a mesh made only of stud-sized pieces is kept
- * whole rather than emptied.
+ * Components are found over ALL the geometries together (one weld map), so the same studs go whether the parts
+ * arrive as one merged mesh or as one mesh each: otherwise a stud welded to a neighbouring part (about one in ten
+ * in the nimbus fixture, where round parts sit on studs with a ring of the same radius) is kept in the merged mesh
+ * and dropped in the per-brick one, and the two lattices stop agreeing.
+ *
+ * Limits: a stud welded to a neighbour is kept (above: about one in ten) and costs at most the half-layer it
+ * stands in; a geometry with material groups is left alone (the rewrite would break them); a set made only of
+ * stud-sized pieces is kept whole rather than emptied.
  */
-function cullStuds(source: THREE.BufferGeometry): THREE.BufferGeometry {
-  if (source.groups.length > 0) return source;
+function cullStuds(sources: readonly THREE.BufferGeometry[]): THREE.BufferGeometry[] {
   // Work on the non-indexed form: the result must also lose the stud VERTICES, or Box3.setFromObject (which reads
   // the position attribute, not the index) would still see the studs' height.
-  const geo = source.index ? source.toNonIndexed() : source;
-  const pos = geo.getAttribute('position') as THREE.BufferAttribute;
-  const triCount = Math.floor(pos.count / 3);
-  if (triCount < 2) return source;
-  const vertexAt = (k: number): number => k;
+  const geos = sources.map((g) => (g.groups.length > 0 ? g : g.index ? g.toNonIndexed() : g));
+  const skip = sources.map((g) => g.groups.length > 0);
 
-  // Weld by position (a raw triangle soup shares no indices), then union the three corners of every triangle.
+  // One weld map over every geometry (a raw triangle soup shares no indices), then union the corners of each triangle.
   const weldIds = new Map<string, number>();
-  const weldOf = new Int32Array(pos.count).fill(-1);
   const parent: number[] = [];
   const find = (a: number): number => { while (parent[a] !== a) { parent[a] = parent[parent[a]!]!; a = parent[a]!; } return a; };
-  const weld = (v: number): number => {
-    let w = weldOf[v]!;
+  const weldOf = geos.map((g) => new Int32Array(g.getAttribute('position').count).fill(-1));
+  const weld = (gi: number, v: number): number => {
+    let w = weldOf[gi]![v]!;
     if (w >= 0) return w;
+    const pos = geos[gi]!.getAttribute('position') as THREE.BufferAttribute;
     const key = `${Math.round(pos.getX(v) * COMPONENT_WELD)},${Math.round(pos.getY(v) * COMPONENT_WELD)},${Math.round(pos.getZ(v) * COMPONENT_WELD)}`;
     const known = weldIds.get(key);
     if (known !== undefined) w = known;
     else { w = parent.length; parent.push(w); weldIds.set(key, w); }
-    weldOf[v] = w;
+    weldOf[gi]![v] = w;
     return w;
   };
-  const triRoot = new Int32Array(triCount);
-  for (let t = 0; t < triCount; t++) {
-    const a = weld(vertexAt(t * 3)), b = weld(vertexAt(t * 3 + 1)), c = weld(vertexAt(t * 3 + 2));
-    parent[find(b)] = find(a);
-    parent[find(c)] = find(a);
-  }
+  geos.forEach((g, gi) => {
+    if (skip[gi]) return;
+    const triCount = Math.floor((g.getAttribute('position') as THREE.BufferAttribute).count / 3);
+    for (let t = 0; t < triCount; t++) {
+      const a = weld(gi, t * 3), b = weld(gi, t * 3 + 1), c = weld(gi, t * 3 + 2);
+      parent[find(b)] = find(a);
+      parent[find(c)] = find(a);
+    }
+  });
+
   // Bounds per component.
   const lo = new Map<number, [number, number, number]>();
   const hi = new Map<number, [number, number, number]>();
-  for (let t = 0; t < triCount; t++) {
-    const root = find(weld(vertexAt(t * 3)));
-    triRoot[t] = root;
-    const l = lo.get(root) ?? lo.set(root, [Infinity, Infinity, Infinity]).get(root)!;
-    const h = hi.get(root) ?? hi.set(root, [-Infinity, -Infinity, -Infinity]).get(root)!;
-    for (let k = 0; k < 3; k++) {
-      const v = vertexAt(t * 3 + k);
-      const p = [pos.getX(v), pos.getY(v), pos.getZ(v)] as const;
-      for (let a = 0; a < 3; a++) { l[a] = Math.min(l[a]!, p[a]); h[a] = Math.max(h[a]!, p[a]); }
+  const rootOf = geos.map((g, gi) => {
+    if (skip[gi]) return new Int32Array(0);
+    const pos = g.getAttribute('position') as THREE.BufferAttribute;
+    const roots = new Int32Array(Math.floor(pos.count / 3));
+    for (let t = 0; t < roots.length; t++) {
+      const root = find(weld(gi, t * 3));
+      roots[t] = root;
+      const l = lo.get(root) ?? lo.set(root, [Infinity, Infinity, Infinity]).get(root)!;
+      const h = hi.get(root) ?? hi.set(root, [-Infinity, -Infinity, -Infinity]).get(root)!;
+      for (let k = 0; k < 3; k++) {
+        const p = [pos.getX(t * 3 + k), pos.getY(t * 3 + k), pos.getZ(t * 3 + k)] as const;
+        for (let a = 0; a < 3; a++) { l[a] = Math.min(l[a]!, p[a]); h[a] = Math.max(h[a]!, p[a]); }
+      }
     }
-  }
+    return roots;
+  });
   const studRoots = new Set<number>();
   for (const [root, l] of lo) {
     const h = hi.get(root)!;
     const sx = h[0]! - l[0]!, sy = h[1]! - l[1]!, sz = h[2]! - l[2]!;
     if (sx >= STUD_MIN_XZ && sx <= STUD_MAX_XZ && sz >= STUD_MIN_XZ && sz <= STUD_MAX_XZ && sy > 0 && sy <= STUD_MAX_Y) studRoots.add(root);
   }
-  if (studRoots.size === 0 || studRoots.size === lo.size) return source;
-  const keptTris: number[] = [];
-  for (let t = 0; t < triCount; t++) if (!studRoots.has(triRoot[t]!)) keptTris.push(t);
-  const out = new THREE.BufferGeometry();
-  for (const [name, attr] of Object.entries(geo.attributes)) {
-    const a = attr as THREE.BufferAttribute;
-    const Ctor = a.array.constructor as new (n: number) => THREE.TypedArray;
-    const data = new Ctor(keptTris.length * 3 * a.itemSize);
-    keptTris.forEach((t, i) => {
-      for (let k = 0; k < 3; k++) for (let c = 0; c < a.itemSize; c++) data[(i * 3 + k) * a.itemSize + c] = a.getComponent(t * 3 + k, c);
-    });
-    out.setAttribute(name, new THREE.BufferAttribute(data, a.itemSize, a.normalized));
-  }
-  return out;
+  if (studRoots.size === 0 || studRoots.size === lo.size) return [...sources];
+
+  return geos.map((g, gi) => {
+    if (skip[gi]) return sources[gi]!;
+    const roots = rootOf[gi]!;
+    const keptTris: number[] = [];
+    for (let t = 0; t < roots.length; t++) if (!studRoots.has(roots[t]!)) keptTris.push(t);
+    if (keptTris.length === roots.length) return sources[gi]!;
+    const out = new THREE.BufferGeometry();
+    for (const [name, attr] of Object.entries(g.attributes)) {
+      const a = attr as THREE.BufferAttribute;
+      const Ctor = a.array.constructor as new (n: number) => THREE.TypedArray;
+      const data = new Ctor(keptTris.length * 3 * a.itemSize);
+      keptTris.forEach((t, i) => {
+        for (let k = 0; k < 3; k++) for (let c = 0; c < a.itemSize; c++) data[(i * 3 + k) * a.itemSize + c] = a.getComponent(t * 3 + k, c);
+      });
+      out.setAttribute(name, new THREE.BufferAttribute(data, a.itemSize, a.normalized));
+    }
+    return out;
+  });
 }
 
 /** How far above a pocket cell its roof may be (cells): a brick's cavity is 20 LDU = 2.5 plates deep. */
@@ -370,12 +388,15 @@ async function voxeliseAndColour(
   const lattice = new THREE.Matrix4().makeScale(s, s * Y_STRETCH, s);
   const stretched = new THREE.Group();
   const meshes: THREE.Mesh[] = [];
+  const sourceMeshes: Array<{ mesh: THREE.Mesh; geo: THREE.BufferGeometry }> = [];
   source.traverse((o) => {
     if (!(o instanceof THREE.Mesh) || !o.geometry.getAttribute('position')) return;
-    const dbl = (m: THREE.Material): THREE.Material => { const c = m.clone(); c.side = THREE.DoubleSide; return c; };
-    const baked = o.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(lattice, o.matrixWorld));
-    const geo = cleanup.ignoreStuds ? cullStuds(baked) : baked;
-    const m = new THREE.Mesh(geo, Array.isArray(o.material) ? o.material.map(dbl) : dbl(o.material));
+    sourceMeshes.push({ mesh: o, geo: o.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(lattice, o.matrixWorld)) });
+  });
+  const dbl = (m: THREE.Material): THREE.Material => { const c = m.clone(); c.side = THREE.DoubleSide; return c; };
+  const geometries = cleanup.ignoreStuds ? cullStuds(sourceMeshes.map((s) => s.geo)) : sourceMeshes.map((s) => s.geo);
+  sourceMeshes.forEach(({ mesh: o }, i) => {
+    const m = new THREE.Mesh(geometries[i]!, Array.isArray(o.material) ? o.material.map(dbl) : dbl(o.material));
     meshes.push(m);
     stretched.add(m);
   });
