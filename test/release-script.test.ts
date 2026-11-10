@@ -229,10 +229,18 @@ function cloneRepo(): string {
   return dir;
 }
 
-function releaseCmd(root: string, args: string[], env: Record<string, string>): SpawnSyncReturns<string> {
-  return spawnSync('bun', [SCRIPT, ...args], {
-    cwd: REPO, encoding: 'utf8', timeout: 600_000,
-    env: { ...process.env, CRAFTMATIC_RELEASE_ROOT: root, CRAFTMATIC_LDRAW_REF: LDRAW_REF, CRAFTMATIC_RELEASE_WORKTREES: join(SCRATCH, 'worktrees'), CRAFTMATIC_RELEASE_MCT: 'skip-for-test', ...env },
+/** Any release.ts command, asynchronously (see `prepareAsync`). */
+function releaseCmd(root: string, args: string[], env: Record<string, string>): Promise<SpawnSyncReturns<string>> {
+  return new Promise(done => {
+    const child = spawn('bun', [SCRIPT, ...args], {
+      cwd: REPO,
+      env: { ...process.env, CRAFTMATIC_RELEASE_ROOT: root, CRAFTMATIC_LDRAW_REF: LDRAW_REF, CRAFTMATIC_RELEASE_WORKTREES: join(SCRATCH, 'worktrees'), CRAFTMATIC_RELEASE_MCT: 'skip-for-test', ...env },
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', d => { stdout += String(d); });
+    child.stderr.on('data', d => { stderr += String(d); });
+    child.on('close', status => done({ status, stdout, stderr } as SpawnSyncReturns<string>));
   });
 }
 
@@ -242,7 +250,7 @@ describe.skipIf(!e2eReady)(`release-script: finalize, verify and status on a tag
   const releases = e2eReady ? freshDir('releases') : '';
   const env = { CRAFTMATIC_RELEASE_DATA: data, CRAFTMATIC_RELEASES_DIR: releases };
   const prepared = join(releases, 'fixture', '1.0.0');
-  const run = (args: string[]): SpawnSyncReturns<string> => releaseCmd(root, args, env);
+  const run = (args: string[]): Promise<SpawnSyncReturns<string>> => releaseCmd(root, args, env);
   const tags = (): string[] => git(root, 'tag', '--list').stdout.split('\n').filter(Boolean);
   const out = (r: SpawnSyncReturns<string>): string => `${r.stdout}\n${r.stderr}`;
   let tampered = '';
@@ -263,23 +271,23 @@ describe.skipIf(!e2eReady)(`release-script: finalize, verify and status on a tag
     writeFileSync(file, JSON.stringify(record, null, 2));
   }, 600_000);
 
-  it('status lists the prepared version before anything is finalized', () => {
-    const r = run(['status']);
+  it('status lists the prepared version before anything is finalized', async () => {
+    const r = await run(['status']);
     expect(r.status, out(r)).toBe(0);
     expect(r.stdout).toMatch(/^fixture 1\.0\.0\s+prepared\s+-\s+-/m);
   });
 
-  it('finalize refuses while the user has not created the tag, and creates none', () => {
-    const r = run(['finalize', 'fixture', '1.0.0']);
+  it('finalize refuses while the user has not created the tag, and creates none', async () => {
+    const r = await run(['finalize', 'fixture', '1.0.0']);
     expect(r.status).toBe(1);
     expect(r.stderr).toMatch(/tag fixture-v1\.0\.0 does not exist/);
     expect(tags()).toEqual([]);
     expect(existsSync(join(prepared, 'finalize.json'))).toBe(false);
   });
 
-  it('finalize rebuilds from the tag, finds identical bytes and records it, creating no tag', () => {
+  it('finalize rebuilds from the tag, finds identical bytes and records it, creating no tag', async () => {
     expect(git(root, 'tag', 'fixture-v1.0.0', 'HEAD').status).toBe(0);
-    const r = run(['finalize', 'fixture', '1.0.0', '--device-evidence', 'round-test']);
+    const r = await run(['finalize', 'fixture', '1.0.0', '--device-evidence', 'round-test']);
     expect(r.status, out(r)).toBe(0);
     expect(r.stdout).toMatch(/identical/i);
     const fin = JSON.parse(readFileSync(join(prepared, 'finalize.json'), 'utf8')) as { tag: string; deviceEvidence: string; artifacts: unknown[] };
@@ -291,34 +299,34 @@ describe.skipIf(!e2eReady)(`release-script: finalize, verify and status on a tag
     expect(readdirSync(join(releases, 'fixture', 'rebuilds')).length).toBe(1);
   });
 
-  it('finalize refuses a tag whose rebuild differs by one byte', () => {
-    const r = run(['finalize', 'fixture', '1.0.0', '--prepared', tampered]);
+  it('finalize refuses a tag whose rebuild differs by one byte', async () => {
+    const r = await run(['finalize', 'fixture', '1.0.0', '--prepared', tampered]);
     expect(r.status).toBe(1);
     expect(r.stderr).toMatch(/differs: prepared sha256 [0-9a-f]{64}/);
     expect(existsSync(join(tampered, 'finalize.json'))).toBe(false);
     expect(existsSync(join(tampered, 'ledger-entry.json'))).toBe(false);
   });
 
-  it('finalize --write-ledger appends the entry to the ledger file, and verify still passes afterwards', () => {
-    const r = run(['finalize', 'fixture', '1.0.0', '--prepared', ledgerRun, '--write-ledger']);
+  it('finalize --write-ledger appends the entry to the ledger file, and verify still passes afterwards', async () => {
+    const r = await run(['finalize', 'fixture', '1.0.0', '--prepared', ledgerRun, '--write-ledger']);
     expect(r.status, out(r)).toBe(0);
     const ledger = JSON.parse(readFileSync(join(data, 'identity-ledger.json'), 'utf8')) as Array<{ product: string; version: string; sha256: Record<string, string>; blockIds: string[] }>;
     expect(ledger.map(e => `${e.product} ${e.version}`)).toEqual(['fixture 1.0.0']);
     expect(Object.keys(ledger[0]!.sha256).sort()).toEqual(['fixture-1.0.0.mcaddon', 'fixture-1.0.0.zip']);
     expect(ledger[0]!.blockIds.some(id => id.includes(':brick_white'))).toBe(true);
-    const v = run(['verify', 'fixture', '1.0.0']);
+    const v = await run(['verify', 'fixture', '1.0.0']);
     expect(v.status, out(v)).toBe(0);
     expect(v.stdout).toMatch(/identical/i);
   });
 
-  it('status then lists the version as finalized and released', () => {
-    const r = run(['status', 'fixture']);
+  it('status then lists the version as finalized and released', async () => {
+    const r = await run(['status', 'fixture']);
     expect(r.stdout).toMatch(/^fixture 1\.0\.0\s+prepared\s+finalized\s+released\s+tag fixture-v1\.0\.0/m);
   });
 
-  it('verify refuses a prepared release whose hashes do not match the rebuild, and writes nothing into it', () => {
+  it('verify refuses a prepared release whose hashes do not match the rebuild, and writes nothing into it', async () => {
     const before = readdirSync(tampered).sort();
-    const r = run(['verify', 'fixture', '1.0.0', '--prepared', tampered]);
+    const r = await run(['verify', 'fixture', '1.0.0', '--prepared', tampered]);
     expect(r.status).toBe(1);
     expect(r.stderr).toMatch(/differs/);
     expect(readdirSync(tampered).sort()).toEqual(before);
