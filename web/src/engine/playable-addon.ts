@@ -3688,6 +3688,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         coasterCuboids = coasterRide.cartCuboids;
     }
     // A generated coaster's rails: lattice chunks of our own geometry, each a static entity at its root (coaster-pack.ts).
+    let coasterTrackEntities = 0;
     if (options.coasterTrack) {
         const track = buildCoasterTrackPack(options.coasterTrack.gen, { ...options.coasterTrack, idPrefix: entityId(`${id}_track`, 'c'), label, namespace: PACK_NAMESPACE });
         for (const entity of track.entities) {
@@ -3695,6 +3696,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             addEntityName(`${PACK_NAMESPACE}:${entity.id}`, entity.label, false);
             coasterCuboids += entity.cuboids;
         }
+        coasterTrackEntities = track.entities.length;
         actors.push(...track.actors);
         warnings.push(...track.warnings, `${label}: ${track.mesh.stats.chunks} rail chunks, ${track.mesh.stats.cubes} cuboids (${track.mesh.stats.ties} ties, ${track.mesh.stats.railPieces} rail pieces).`);
     }
@@ -3961,7 +3963,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // chunks' cubes once; the old whole-model type ships as a definition with
     // no geometry, so it is an entity in the count and no cuboid.
     const packCuboids = Object.values(diagnostics).reduce((n, d) => n + d.cubeCount, 0) + fallbackCuboids + lodCuboids + coasterCuboids;
-    const entityCount = Object.keys(diagnostics).length + (spatialShell ? spatialShell.actors.length : 0) + (fallbackCuboids ? 1 : 0) + (coasterRide?.cartTypeUsed ? 1 : 0);
+    const entityCount = Object.keys(diagnostics).length + (spatialShell ? spatialShell.actors.length : 0) + (fallbackCuboids ? 1 : 0) + (coasterRide?.cartTypeUsed ? 1 : 0) + coasterTrackEntities;
     const budget = packCuboidBudget(label, packCuboids, entityCount);
     if (budget.warning) warnings.push(budget.warning);
     if (lodCuboids) {
