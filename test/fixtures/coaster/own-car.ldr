@@ -1,0 +1,36 @@
+0 Craftmatic Coaster Car (own design, 4 wheels, one rider)
+0 Name: own-car.ldr
+0 Author: craftmatic
+0 !LICENSE Redistributable under CCAL version 2.0 : see CAreadme.txt
+0 !CRAFTMATIC DESIGN own-coaster-car 1 hand-built from LDraw official parts only (4600, 4624, 3641, 3795, 2456, 3032, 3009, 3004); not a LEGO set's car
+0
+0 CANONICAL CAR FRAME (what `coaster-pack.ts` reads, what `canonicalCoasterCar` writes for a source's car):
+0   travel along +X (the red front wall), up along -Y (LDraw), lateral Z, in LDU.
+0   The ORIGIN is the RUNNING DATUM: the plane the wheels touch (the tyres' lowest point is y = 0),
+0   so the datum placed on a rail sample rides on the rail top (`railTopOffsetB` 0, docs/bedrock-addon-guide.md "A generated coaster in a pack").
+0   Axles at x = +-40 (wheelbase 80 LDU), wheel centres z = +-28 (56 LDU apart, the track gauge), car 120 LDU long.
+0
+0 Seat: the rider's hips joint (x y z facingDeg), 12 LDU over the floor top (y -63).
+0 !CRAFTMATIC SEAT rider -10 -75 0 0
+0
+0 Axle plates 2 x 2 with 2 wheel pins, their pins turned along Z (top face y -23 so the 36 LDU tyres touch y 0)
+1 72 40 -23 0 0 0 -1 0 1 0 1 0 0 4600.dat
+1 72 -40 -23 0 0 0 -1 0 1 0 1 0 0 4600.dat
+0 Wheels: rim 4624 + tyre 3641 at the pin height (y -18), four corners
+1 71 40 -18 28 1 0 0 0 1 0 0 0 1 4624.dat
+1 0 40 -18 28 1 0 0 0 1 0 0 0 1 3641.dat
+1 71 40 -18 -28 1 0 0 0 1 0 0 0 1 4624.dat
+1 0 40 -18 -28 1 0 0 0 1 0 0 0 1 3641.dat
+1 71 -40 -18 28 1 0 0 0 1 0 0 0 1 4624.dat
+1 0 -40 -18 28 1 0 0 0 1 0 0 0 1 3641.dat
+1 71 -40 -18 -28 1 0 0 0 1 0 0 0 1 4624.dat
+1 0 -40 -18 -28 1 0 0 0 1 0 0 0 1 3641.dat
+0 Chassis: plate 2 x 6, brick 2 x 6, then the 4 x 6 floor plate (wide enough to clear the wheels' top at y -36)
+1 72 0 -31 0 1 0 0 0 1 0 0 0 1 3795.dat
+1 71 0 -55 0 1 0 0 0 1 0 0 0 1 2456.dat
+1 71 0 -63 0 1 0 0 0 1 0 0 0 1 3032.dat
+0 Tub: two side walls, a yellow rear wall behind the seat, a red front wall (the nose)
+1 25 0 -87 30 1 0 0 0 1 0 0 0 1 3009.dat
+1 25 0 -87 -30 1 0 0 0 1 0 0 0 1 3009.dat
+1 14 -50 -87 0 0 0 -1 0 1 0 1 0 0 3004.dat
+1 4 50 -87 0 0 0 -1 0 1 0 1 0 0 3004.dat

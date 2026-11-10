@@ -34,9 +34,11 @@ import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import { generateLegoMaterialSwatch, legoMaterialSwatchName } from './ldraw-entity-atlas.js';
 import { MATERIAL_PBR, resolveLdrawEntityMaterial, type LdrawEntityMaterial } from './ldraw-entity-materials.js';
-import { ACTOR_DRAW_CEILING_BLOCKS, buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_LARGEST_SIZE_FACTOR, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID, MIN_LOD_NEAREST_CUBE_BLOCKS, planLodSwitch, RENDER_CULL_BLOCKS_PER_UNIT, RENDER_CULL_MIN_UNITS, type CollisionBox } from './bedrock-lod-hull.js';
+import { ACTOR_DRAW_CEILING_BLOCKS, buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_LARGEST_SIZE_FACTOR, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID, MIN_LOD_NEAREST_CUBE_BLOCKS, planLodSwitch, RENDER_CULL_BLOCKS_PER_UNIT, RENDER_CULL_MIN_UNITS, type CollisionBox, type LodHullInput } from './bedrock-lod-hull.js';
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
+import { buildCoasterTrackPack, type TrackPackOptions } from './coaster-pack.js';
+import type { GeneratedCoaster } from './coaster-design.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
 import { RIDE, ridesScript, type RideKind, type RideRuntimeConfig } from './bedrock-rides.js';
 import { HOP, HOP_TAGS, hopKitConfig, hopRuntimeConfig, hopScript, type HopSource, type HopVacate } from './bedrock-ride-hop.js';
@@ -132,6 +134,11 @@ export interface PlayableAddonOptions {
     seats?: Array<{ x: number; y: number; z: number; yaw: number; label: string }>;
     /** Continuous measured 3D track routes; open routes safely reverse at their ends. */
     coasterRoutes?: CoasterRoute[];
+    /**
+     * The rails of a GENERATED coaster (`coaster-pack.ts`, WP-C02): the design the route in `coasterRoutes` came from,
+     * built into lattice-chunk entities and their placement actors. Absent for every source model (their track is in the shell).
+     */
+    coasterTrack?: Pick<TrackPackOptions, 'car' | 'profile' | 'marginB' | 'groundB'> & { gen: GeneratedCoaster };
     /** A LEGO pinball machine read from the model (bedrock-pinball.ts): flippers, ball and console become a playable game. */
     pinball?: { plan: PinballPlan; frame: SceneGridFrame };
     /**
@@ -2583,6 +2590,9 @@ function palettePng(palette: string[]): Uint8Array { const w = 16, h = Math.max(
     blocks.push(Uint8Array.of(last ? 1 : 0, len & 255, len >>> 8, (~len) & 255, ((~len) >>> 8) & 255), raw.slice(p, p + len));
     p += len;
 } const z = concat(Uint8Array.of(0x78, 0x01), ...blocks, u32((b << 16) | a)); return concat(Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10), pngChunk('IHDR', concat(u32(w), u32(h), Uint8Array.of(8, 6, 0, 0, 0))), pngChunk('IDAT', z), pngChunk('IEND', new Uint8Array())); }
+/** What `emitCompiledEntity` reads of a compiled entity: a `CompiledLdrawGeometry` is one; so is a rail chunk (`coaster-pack.ts`). */
+export type EmittableGeometry = LodHullInput & { diagnostics: { cubeCount: number } };
+
 export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddonOptions): Promise<PlayableAddonResult> {
     // A pack of figures alone (a custom minifig from minifigFromSpec) has no blocks and is still a pack.
     if (!grid.countNonAir() && !options.components?.some(c => c.grid.countNonAir()) && !options.figures?.length && !options.minifigCreator)
@@ -2790,7 +2800,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
      * entity's own: a split shell's chunks each carry the SAME atlas bytes
      * (the split copies the mesh), so one PNG serves them all.
      */
-    const emitCompiledEntity = (ecid: string, geo: CompiledLdrawGeometry, behavior: unknown, animations?: ClientAnimations, lodEligible = false, faceAtlasName?: string): void => {
+    const emitCompiledEntity = (ecid: string, geo: EmittableGeometry, behavior: unknown, animations?: ClientAnimations, lodEligible = false, faceAtlasName?: string): void => {
         // `faceArt: false` REFUSES rather than dropping a face: face art / head prints are not cleared for a release pack.
         if (!flags.faceArt && geo.meshes.some(m => m.faceAtlas)) throw new Error(`PackProfile faceArt is false but ${ecid} carries a face atlas (head print or face art).`);
         if (animations === MINIFIG_CLIENT_ANIMATIONS || animations === MINIDOLL_CLIENT_ANIMATIONS) minifigsEmitted++;
@@ -3676,6 +3686,17 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         actors.push(...coasterRide.actors);
         warnings.push(...coasterRide.warnings);
         coasterCuboids = coasterRide.cartCuboids;
+    }
+    // A generated coaster's rails: lattice chunks of our own geometry, each a static entity at its root (coaster-pack.ts).
+    if (options.coasterTrack) {
+        const track = buildCoasterTrackPack(options.coasterTrack.gen, { ...options.coasterTrack, idPrefix: entityId(`${id}_track`, 'c'), label, namespace: PACK_NAMESPACE });
+        for (const entity of track.entities) {
+            emitCompiledEntity(entity.id, entity.geo, entity.behavior);
+            addEntityName(`${PACK_NAMESPACE}:${entity.id}`, entity.label, false);
+            coasterCuboids += entity.cuboids;
+        }
+        actors.push(...track.actors);
+        warnings.push(...track.warnings, `${label}: ${track.mesh.stats.chunks} rail chunks, ${track.mesh.stats.cubes} cuboids (${track.mesh.stats.ties} ties, ${track.mesh.stats.railPieces} rail pieces).`);
     }
     // Pinball: flippers and the ball as their own entities, a console seat in
     // front, and the game runtime (bedrock-pinball.ts).
