@@ -16,7 +16,7 @@ import { brickLattice } from '../web/src/brickgen/bricker/index.js';
 import { plainMassingLattice } from '../web/src/brickgen/bricker/plain-massing.js';
 import { ldrawRgb } from '../web/src/brickgen/colour.js';
 import { buildFeatureSet, parseSidecar, tagPartsFromOverpass } from '../web/src/brickgen/features/index.js';
-import { buildGrammarLattice } from '../web/src/brickgen/grammar/index.js';
+import { buildGrammarModel } from '../web/src/brickgen/grammar/index.js';
 import { buildMassing } from '../web/src/brickgen/massing/index.js';
 import { siteFromOverpass } from '../web/src/brickgen/site/osm.js';
 import type { BrickPlan } from '../web/src/brickgen/types.js';
@@ -43,16 +43,50 @@ function png(w: number, h: number, rgb: Uint8Array): Buffer {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw, { level: 6 })), chunk('IEND', Buffer.alloc(0))]);
 }
 
-type View = 'se' | 'sw' | 'ne' | 'nw';
+const PH_E = 0.4; // plate height in studs
+type View = 'se' | 'sw' | 'ne' | 'nw' | 'w' | 'e' | 'n' | 's';
 
 /** Isometric render of a plan's body cells from one corner. Returns the PNG and its size. */
-function renderPlan(plan: BrickPlan, view: View, maxPx: number): { png: Buffer; w: number; h: number } {
+function renderPlan(plan: BrickPlan, view: View, maxPx: number, region?: number[]): { png: Buffer; w: number; h: number } {
   const { world } = placeAll(plan.elements, VOCABULARY_LOOKUP);
+  // `region` = [x0, z0, x1, z1] in lattice studs, optionally [.., p0, p1] plates: render only that part, shifted to the origin.
+  const [rx0, rz0, rx1, rz1, rp0 = 0, rp1 = 1e9] = region ?? [0, 0, 1e9, 1e9];
   let X = 0, P = 0, Z = 0;
-  for (const e of world) for (const [x, p, z] of e.body) { X = Math.max(X, x + 1); P = Math.max(P, p + 1); Z = Math.max(Z, z + 1); }
   const colour = new Map<string, number>();
   const key = (x: number, p: number, z: number): string => `${x},${p},${z}`;
-  for (const e of world) for (const [x, p, z] of e.body) colour.set(key(x, p, z), e.placed.colour);
+  for (const e of world) for (const [x, p, z] of e.body) {
+    if (x < rx0! || x >= rx1! || z < rz0! || z >= rz1! || p < rp0! || p >= rp1!) continue;
+    X = Math.max(X, x - rx0! + 1); P = Math.max(P, p - rp0! + 1); Z = Math.max(Z, z - rz0! + 1);
+    colour.set(key(x - rx0!, p - rp0!, z - rz0!), e.placed.colour);
+  }
+  if (view === 'w' || view === 'e' || view === 'n' || view === 's') {
+    // Elevation: the nearest cell of every (across, plate) column seen from the named side, flat-shaded by depth.
+    const alongZ = view === 'w' || view === 'e';
+    const across = alongZ ? Z : X, depthMax = alongZ ? X : Z;
+    const near = new Map<string, { c: number; d: number }>();
+    for (const [k, c] of colour) {
+      const [x, p, z] = k.split(',').map(Number) as [number, number, number];
+      const a = alongZ ? (view === 'w' ? z : Z - 1 - z) : (view === 's' ? x : X - 1 - x);
+      const d = view === 'w' ? x : view === 'e' ? X - 1 - x : view === 'n' ? z : Z - 1 - z;
+      const kk = `${a},${p}`, have = near.get(kk);
+      if (!have || d < have.d) near.set(kk, { c, d });
+    }
+    const sc = Math.min((maxPx - 8) / across, (maxPx - 8) / (P * PH_E));
+    const w = Math.ceil(across * sc) + 8, h = Math.ceil(P * PH_E * sc) + 8;
+    const img = new Uint8Array(w * h * 3).fill(22);
+    for (const [kk, { c, d }] of near) {
+      const [a, p] = kk.split(',').map(Number) as [number, number];
+      const rgb = ldrawRgb(c) ?? [128, 128, 128];
+      // Darker the deeper the cell lies behind the nearest surface around it: an opening shows the interior darker.
+      let lo = d;
+      for (let da = -8; da <= 8; da++) for (let dp = -8; dp <= 8; dp++) { const o = near.get(`${a + da},${p + dp}`); if (o && o.d < lo) lo = o.d; }
+      const f = 1 - 0.65 * Math.min(1, (d - lo) / 4);
+      void depthMax;
+      const x0 = Math.floor(a * sc) + 4, x1 = Math.floor((a + 1) * sc) + 4, y1 = Math.floor((P - p) * PH_E * sc) + 4, y0 = Math.floor((P - p - 1) * PH_E * sc) + 4;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const o = (y * w + x) * 3; img[o] = rgb[0] * f; img[o + 1] = rgb[1] * f; img[o + 2] = rgb[2] * f; }
+    }
+    return { png: png(w, h, img), w, h };
+  }
   // Turn the model so the chosen corner faces the viewer.
   const flipX = view === 'nw' || view === 'sw', flipZ = view === 'nw' || view === 'ne';
   const tx = (x: number): number => (flipX ? X - 1 - x : x), tz = (z: number): number => (flipZ ? Z - 1 - z : z);
@@ -106,11 +140,10 @@ try { sidecars = [parseSidecar(JSON.parse(readFileSync(sidecarPath, 'utf8')))]; 
 const featureSet = buildFeatureSet({ site: site.site, massing: massed, sidecars, tagParts: tagPartsFromOverpass(overpass.elements) });
 
 const t0 = Date.now();
-let lattice, stats: unknown, notes: string[];
-if (args.includes('--plain')) { const p = plainMassingLattice(massed.massing); lattice = p.lattice; notes = p.notes; stats = {}; }
-else { const g = buildGrammarLattice(massed.massing, featureSet.set); lattice = g.lattice; notes = g.notes; stats = g.stats; }
+let lattice, stats: unknown, notes: string[], brick;
+if (args.includes('--plain')) { const p = plainMassingLattice(massed.massing); lattice = p.lattice; notes = p.notes; stats = {}; brick = brickLattice(lattice, { scale: massed.massing.scale }); }
+else { const g = buildGrammarModel(massed.massing, featureSet.set); lattice = g.lattice; notes = g.notes; stats = { ...g.stats, pruned: g.pruned, rounds: g.rounds }; brick = { plan: g.plan, report: g.report, repairs: 0, openings: 0 }; }
 const t1 = Date.now();
-const brick = brickLattice(lattice, { scale: massed.massing.scale });
 const t2 = Date.now();
 if (args.includes('--diag')) {
   // Where the model is not one piece: the parts of every component but the largest, and of every unsupported element.
@@ -125,7 +158,8 @@ const hist: Record<string, number> = {};
 for (const e of brick.plan.elements) hist[e.part] = (hist[e.part] ?? 0) + 1;
 mkdirSync(path.dirname(outBase), { recursive: true });
 for (const v of flag('views', 'se,nw').split(',') as View[]) {
-  const r = renderPlan(brick.plan, v, 1900);
+  const regionArg = flag('region', '');
+  const r = renderPlan(brick.plan, v, 1900, regionArg ? regionArg.split(',').map(Number) : undefined);
   writeFileSync(`${outBase}-${v}.png`, r.png);
   console.log(`${outBase}-${v}.png ${r.w}x${r.h}`);
 }

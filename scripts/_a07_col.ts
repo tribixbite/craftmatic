@@ -13,3 +13,5 @@ const [W, H, D] = g.lattice.dims; const x = Number(process.argv[2]), z = Number(
 const out: string[] = [];
 for (let p = 0; p < H; p++) { const v = g.lattice.cells[(p * D + z) * W + x]!; out.push(v ? `${p}:${g.lattice.labels[v - 1]!.role}${g.lattice.labels[v - 1]!.feature ?? ''}` : `${p}:-`); }
 console.log(out.filter(o => !o.endsWith(':-')).join(' '));
+const sv = m.massing.volumes.find(v => v.id === 'vol-way-1299835416')!;
+console.log(JSON.stringify(sv.outer), sv.baseM, sv.topM, JSON.stringify(sv.roof));

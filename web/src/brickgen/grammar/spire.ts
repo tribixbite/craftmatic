@@ -20,7 +20,7 @@ export function isSpire(shape: string, pitchDeg: number | undefined, features: R
   return pointed && ((pitchDeg ?? 0) >= SPIRE_MIN_PITCH_DEG || features.some(f => f.kind === 'spire' && f.volume === id));
 }
 
-/** A straight taper to `apex` plates over `rings` rings. */
+/** A straight taper to `apex` plates over `rings` rings; the last ring reaches the apex (a needle has no flat top). */
 export function spireTarget(rings: number, apex: number): (ring: number) => number {
-  return ring => apex * Math.min(1, (ring + 0.5) / rings);
+  return ring => apex * Math.min(1, (ring + 1) / rings);
 }

@@ -46,16 +46,9 @@ export interface RingSurface {
   group: number;
 }
 
-/**
- * Surface of every ring `0..ringMax` of one run.
- * @param ringMax index of the innermost ring (the ridge, or the apex ring)
- * @param target target surface height in plates at a ring index (the centre of that stud column)
- * @param limit cap on any column's height, plates (the lattice's room); undefined = none
- */
-export function stairRings(ringMax: number, pattern: StairPattern, target: (ring: number) => number, limit?: number): RingSurface[] {
+/** The rings of one run for a given alignment `shift` (see `stairRings`). */
+function ringsWithShift(ringMax: number, pattern: StairPattern, target: (ring: number) => number, limit: number | undefined, shift: number): RingSurface[] {
   const len = pattern.depths.length;
-  const N = ringMax + 1;
-  const shift = (((len - N) % len) + len) % len;
   const groups = Math.floor((ringMax + shift) / len) + 1;
   const meanDepth = pattern.depths.reduce((a, b) => a + b, 0) / len;
   const bases: number[] = [0];
@@ -73,4 +66,29 @@ export function stairRings(ringMax: number, pattern: StairPattern, target: (ring
     out.push({ base: bases[g]!, height: bases[g]! + pattern.depths[j]!, j, group: g });
   }
   return out;
+}
+
+/**
+ * Surface of every ring `0..ringMax` of one run.
+ * @param ringMax index of the innermost ring (the ridge, or the apex ring)
+ * @param target target surface height in plates at a ring index (the centre of that stud column)
+ * @param limit cap on any column's height, plates (the lattice's room); undefined = none
+ *
+ * The alignment puts a high column at the last ring. When that leaves the apex more than a brick short of the target
+ * (a steep roof over only two rings is one pair: 3 plates), the other alignments are tried and the closest wins.
+ */
+export function stairRings(ringMax: number, pattern: StairPattern, target: (ring: number) => number, limit?: number): RingSurface[] {
+  const len = pattern.depths.length;
+  const preferred = (((len - (ringMax + 1)) % len) + len) % len;
+  let best = ringsWithShift(ringMax, pattern, target, limit, preferred);
+  const aim = limit === undefined ? target(ringMax) : Math.min(limit, target(ringMax));
+  const error = (r: RingSurface[]): number => Math.abs(r[ringMax]!.height - aim);
+  if (error(best) > 3) {
+    for (let shift = 0; shift < len; shift++) {
+      if (shift === preferred) continue;
+      const alt = ringsWithShift(ringMax, pattern, target, limit, shift);
+      if (error(alt) < error(best)) best = alt;
+    }
+  }
+  return best;
 }

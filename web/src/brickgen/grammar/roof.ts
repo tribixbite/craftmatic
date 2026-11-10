@@ -31,12 +31,18 @@ export interface RoofInput {
   spec: RoofSpec;
   /** True for a spire (a very steep pyramid or cone). */
   spire?: boolean;
-  /** Apex height in plates when the shape does not come from a pitch (domes, onions). */
+  /** Apex height in plates when it is known better than the pitch gives it (a spire's measured rise, a dome's height). */
   apexPlates?: number;
   /** Plates of rise per stud of run at 45 degrees: `platesPerMetre / studsPerMetre` (2.5 at the default scale). */
   platesPerStud: number;
   /** Highest plate the canvas has room for above the roof's base (clips are counted, never thrown). */
   room: number;
+  /**
+   * Cap on the roof's rise in plates. The massing's pitch is measured over the part's ORIGINAL half span, so a sub-stud
+   * footprint widened to a stud keeps a pitch of 85 degrees and would rise like a tower: the caller caps it by the
+   * volume's own wall height.
+   */
+  maxRise?: number;
 }
 
 export interface RoofResult {
@@ -60,6 +66,8 @@ interface Field {
   flat: Uint8Array;
   /** Ridge axis for gables (0 = along x), so the gable ends can be recognised. */
   ridgeAxis?: 0 | 1;
+  /** Half span in studs (the largest ring + 1, before a one-stud ridge is taken out): what a profile is scaled to. */
+  span: number;
 }
 
 /** Descent direction of a cell towards the neighbour with the smallest distance (outside counts 0), if lower than its own. */
@@ -98,7 +106,7 @@ function distanceField(m: Mask): Field {
     if (isRidge[k] && max > 0) { flat[k] = 1; ring[k] = slopeMax; continue; }
     dir[k] = lowestNeighbour(m, dist, i, j);
   }
-  return { ring, ringMax, dir, flat };
+  return { ring, ringMax, dir, flat, span: max + 1 };
 }
 
 /**
@@ -124,7 +132,9 @@ function runField(m: Mask, cross: 0 | 1, gable: boolean): Field {
     ringMax[k] = len % 2 === 1 ? half - 2 : half - 1;
     dir[k] = before < after ? down : up;
   }
-  return { ring, ringMax, dir, flat, ridgeAxis: cross === 0 ? 1 : 0 };
+  let span = 1;
+  for (let k = 0; k < n; k++) span = Math.max(span, ringMax[k]! + 1);
+  return { ring, ringMax, dir, flat, ridgeAxis: cross === 0 ? 1 : 0, span };
 }
 
 /** Longest side of the mask's box: 0 when it runs along x. */
@@ -137,6 +147,7 @@ function longAxis(m: Mask): 0 | 1 { return m.w >= m.d ? 0 : 1; }
 export function buildRoof(canvas: Canvas, mask: Mask, baseP: number, input: RoofInput, colours: RoofColours): RoofResult {
   const { spec } = input;
   const none: RoofResult = { cells: 0, slopeCells: 0, apex: 0, shape: 'none' };
+  const limit = Math.max(1, Math.min(input.room, input.maxRise ?? input.room));
   if (spec.shape === 'flat') return none;
   const pitch = spec.pitchDeg ?? 30;
   const platesPerStud = Math.tan((Math.min(pitch, 88.5) * Math.PI) / 180) * input.platesPerStud;
@@ -153,30 +164,33 @@ export function buildRoof(canvas: Canvas, mask: Mask, baseP: number, input: Roof
       targetOf = () => ring => platesPerStud * (ring + 0.5);
       break;
     }
-    case 'shed':
+    case 'shed': {
+      // The massing's pitch is measured over HALF the short span (its roof rise = tan(pitch) * half span), and a shed
+      // rises over the whole span: half the per-stud pitch, or a 1-stud strip at 88 degrees becomes a tower.
       field = runField(mask, longAxis(mask) === 0 ? 1 : 0, false);
-      targetOf = () => ring => platesPerStud * (ring + 0.5);
+      targetOf = () => ring => (platesPerStud / 2) * (ring + 0.5);
       break;
+    }
     case 'dome': case 'onion': {
       field = distanceField(mask);
-      targetOf = rings => {
-        const apex = input.apexPlates ?? Math.max(3, (rings + 1) * input.platesPerStud * 0.8);
-        return shape === 'dome' ? domeTarget(rings + 1, apex) : onionTarget(rings + 1, apex);
+      targetOf = () => {
+        const apex = input.apexPlates ?? Math.max(3, field.span * input.platesPerStud * 0.8);
+        return shape === 'dome' ? domeTarget(field.span, apex) : onionTarget(field.span, apex);
       };
       break;
     }
     case 'mansard': {
       field = distanceField(mask);
       const steep = Math.tan((70 * Math.PI) / 180) * input.platesPerStud, shallow = Math.tan((20 * Math.PI) / 180) * input.platesPerStud;
-      targetOf = rings => {
-        const knee = Math.max(1, Math.round((rings + 1) * 0.4));
+      targetOf = () => {
+        const knee = Math.max(1, Math.round(field.span * 0.4));
         return ring => (ring < knee ? steep * (ring + 0.5) : steep * knee + shallow * (ring - knee + 0.5));
       };
       break;
     }
     case 'spire':
       field = distanceField(mask);
-      targetOf = rings => spireTarget(rings + 1, platesPerStud * (rings + 1));
+      targetOf = () => spireTarget(field.span, input.apexPlates ?? platesPerStud * field.span);
       break;
     default: // hipped, pyramidal, conical
       field = distanceField(mask);
@@ -201,8 +215,8 @@ export function buildRoof(canvas: Canvas, mask: Mask, baseP: number, input: Roof
   const surfacesFor = (ringMax: number): { rings: RingSurface[]; pattern: StairPattern } => {
     let s = surfaces.get(ringMax);
     if (!s) {
-      const pattern = patternFor(platesPerStud);
-      s = { rings: stairRings(ringMax, pattern, targetOf(ringMax), input.room), pattern };
+      const pattern = patternFor(shape === 'shed' ? platesPerStud / 2 : platesPerStud);
+      s = { rings: stairRings(ringMax, pattern, targetOf(ringMax), limit), pattern };
       surfaces.set(ringMax, s);
     }
     return s;
@@ -216,7 +230,9 @@ export function buildRoof(canvas: Canvas, mask: Mask, baseP: number, input: Roof
     const x = mask.x0 + i, z = mask.z0 + j;
     const { rings, pattern } = surfacesFor(field.ringMax[k]!);
     const s = rings[Math.min(field.ring[k]!, rings.length - 1)]!;
-    const height = Math.min(s.height, input.room);
+    // A one-stud ridge or apex is one ring past the last slope ring: it rises to the target there.
+    const flatTop = field.flat[k] ? Math.round(targetOf(field.ringMax[k]!)(field.ringMax[k]! + 1)) : 0;
+    const height = Math.min(Math.max(s.height, flatTop), limit);
     apex = Math.max(apex, height);
     // A gable end: the fill whose neighbour along the ridge is outside the footprint shows the wall's colour.
     let endWall = false;

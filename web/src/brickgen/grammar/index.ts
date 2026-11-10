@@ -11,7 +11,9 @@
  * Everything is data-driven: shapes come from `RoofSpec` and `FeatureSpec`, idioms from `rules.ts`. No stage names a
  * building.
  */
-import type { FeatureSet, IntentLattice, Massing, MassVolume } from '../types.js';
+import { brickLattice, type BrickerOptions } from '../bricker/index.js';
+import type { BrickPlan, FeatureSet, IntentLattice, Massing, MassVolume, VerifyReport } from '../types.js';
+import { verifyPlanDetailed } from '../verify/index.js';
 import { Canvas } from './canvas.js';
 import { applyFeatures, strutVolumeIds, type FacadeStats } from './facade.js';
 import { rasterise, type Mask } from './footprint.js';
@@ -63,6 +65,15 @@ function roofRiseEstimate(v: MassVolume, mask: Mask, platesPerStud: number): num
   const pitch = Math.min(v.roof.pitchDeg ?? 30, 88.5);
   const half = Math.max(1, Math.min(mask.w, mask.d) / 2);
   return Math.ceil(Math.tan((pitch * Math.PI) / 180) * Math.max(0, half - 0.5) * platesPerStud) + 6;
+}
+
+/**
+ * Cap on a roof's rise in plates: a roof steeper than 60 degrees may rise at most 0.8 of its walls' height (a shed at
+ * most half), because the pitch of a footprint the massing had to widen is not a rise (see `RoofInput.maxRise`).
+ */
+function roofRiseCap(v: MassVolume, wallPlates: number): number | undefined {
+  if ((v.roof.pitchDeg ?? 0) <= 60) return undefined;
+  return Math.max(6, Math.round(wallPlates * (v.roof.shape === 'shed' ? 0.5 : 0.8)));
 }
 
 /** Build the lattice of a massing and its features. */
@@ -125,9 +136,10 @@ export function buildGrammarLattice(massing: Massing, features: FeatureSet, opti
     }
     if (v.role === 'terrain') continue;
     const spire = isSpire(v.roof.shape, v.roof.pitchDeg, features.features, v.id);
-    const dome = features.features.find(f => f.kind === 'dome' && f.volume === v.id);
+    // A spire or dome feature carries the rise A9 measured: it beats the pitch, which is read over the unsnapped span.
+    const dome = features.features.find(f => (f.kind === 'dome' || (spire && f.kind === 'spire')) && f.volume === v.id);
     const r = buildRoof(canvas, mask, topP, {
-      spec: v.roof, spire, platesPerStud, room: H - topP,
+      spec: v.roof, spire, platesPerStud, room: H - topP, maxRise: roofRiseCap(v, topP - baseP),
       ...(dome ? { apexPlates: Math.max(3, Math.round(dome.sizeM[1] * ppm)) } : {}),
     }, { slope: v.roof.colour ?? colours.roof, fill: v.roof.colour ?? colours.roof, gable: colours.wall });
     if (r.shape !== 'none') { stats.roofs[r.shape] = (stats.roofs[r.shape] ?? 0) + 1; stats.slopeCells += r.slopeCells; }
@@ -141,4 +153,39 @@ export function buildGrammarLattice(massing: Massing, features: FeatureSet, opti
   if (canvas.clipped) notes.push(`${canvas.clipped} cell(s) above the lattice ceiling were dropped`);
   notes.push(`${stats.volumes} volumes; roofs: ${Object.entries(stats.roofs).map(([k, n]) => `${n} ${k}`).join(', ') || 'none'}; ${stats.slopeCells} slope cells`);
   return { lattice: canvas.toLattice(), notes, stats, frame };
+}
+
+export interface GrammarModel extends GrammarResult {
+  plan: BrickPlan;
+  report: VerifyReport;
+  /** Filled cells removed because the bricker could not join the pieces they became to the model. */
+  pruned: number;
+  /** Bricker runs (1 when the first plan was already one piece). */
+  rounds: number;
+}
+
+/** Most re-brick rounds `buildGrammarModel` spends removing stray pieces. */
+export const MAX_PRUNE_ROUNDS = 4;
+
+/**
+ * Grammar, then bricker, then verify: the whole path from a massing to a plan. When the plan is not one piece, the
+ * pieces the bricker could not join (a one-cell leftover on an odd-shaped ceiling, which a stud join cannot reach) are
+ * removed from the lattice and it is bricked again, a few rounds at most; what was removed is counted in `pruned`.
+ */
+export function buildGrammarModel(massing: Massing, features: FeatureSet, options: GrammarOptions = {}, bricker: BrickerOptions = {}): GrammarModel {
+  const g = buildGrammarLattice(massing, features, options);
+  const { lattice } = g;
+  const [W, , D] = lattice.dims;
+  let pruned = 0, rounds = 0;
+  for (;;) {
+    rounds++;
+    const r = brickLattice(lattice, { scale: massing.scale, ...bricker });
+    const { detail } = verifyPlanDetailed(r.plan);
+    // `label` 0 is the largest component (see `verify/connect.ts`).
+    const stray = detail.world.filter((_, i) => detail.connectivity.label[i] !== 0);
+    if (stray.length === 0 || rounds > MAX_PRUNE_ROUNDS) {
+      return { ...g, notes: pruned ? [...g.notes, `${pruned} cell(s) the bricker could not join to the model were removed`] : g.notes, plan: r.plan, report: r.report, pruned, rounds };
+    }
+    for (const w of stray) for (const [x, p, z] of w.body) { lattice.cells[(p * D + z) * W + x] = 0; pruned++; }
+  }
 }
