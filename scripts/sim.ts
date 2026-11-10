@@ -19,6 +19,9 @@
  *   bun scripts/sim.ts <packs> --scenario=child-play --sneak-toggle      (only the doorway scenarios, sneak left ON)
  *   bun scripts/sim.ts <packs> --scenario=vehicles|input|child-play --cost (predicted ms/tick per phone)
  *
+ *   marketplace  a STORE pack (X-02 profile + `_marketplace_pack.ts`) as a reviewer and a child play it: first join, wand into air only
+ *                (prompt, clear spot, Cancel), exact Undo, no ticking area, two players, no trademark text; `--reference=<dir>`
+ *                adds the collider-encoding parity (T02).
  *   child-play   (default) every craftmatic pack's generated scenarios: place at
  *                100/150 percent and turns 0/90, tap every part, walk every
  *                doorway, ride, drive, fly, let figures live 5 minutes, Undo.
@@ -89,6 +92,7 @@ import { childPlay, craftmaticHandlers, type Snapshot } from '../web/src/sim/ada
 import { readCraftmaticPack, type CraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.ts';
 import { REGRESSIONS, regressionVerdict } from '../web/src/sim/adapters/craftmatic/regressions.ts';
 import { swapTreeRuntimes } from '../web/src/sim/adapters/craftmatic/runtime-swap.ts';
+import { runMarketplace } from '../web/src/sim/adapters/craftmatic/marketplace.ts';
 import { hopCases } from '../web/src/sim/adapters/craftmatic/hop.ts';
 import { courseMarkdown, vehicleCourseHandlers, vehicleScenarios, type CourseRow } from '../web/src/sim/adapters/craftmatic/vehicle-course.ts';
 import type { Scenario, StepHandler } from '../web/src/sim/scenario/types.ts';
@@ -386,6 +390,42 @@ if (mode === 'coaster-camera' || mode === 'walk-away') {
   if (flag('md')) writeFileSync(flag('md')!, `${table}\n${markdownReport(reports)}`);
   if (flag('json')) writeFileSync(flag('json')!, JSON.stringify(reports, null, 1));
   if (!reports.some(r => r.results.length)) console.error(`${mode}: NOT TESTED — no scenarios ran`);
+  process.exit(failed || !reports.some(r => r.results.length) ? 1 : 0);
+}
+
+
+if (mode === 'marketplace') {
+  // T02: a store-ready pack played as a Marketplace reviewer and a child would (adapters/craftmatic/marketplace.ts).
+  // `--reference=<dir>`: the same models built without brickBlocks / compactColliderStates, matched by file name, for the collider parity scenario.
+  const referenceDir = flag('reference');
+  const reports: PackReport[] = [];
+  for (const file of packs) {
+    const t0 = performance.now();
+    const report: PackReport = { pack: basename(file), results: [], ms: 0 };
+    try {
+      const b = readFileSync(file);
+      const refFile = referenceDir ? join(referenceDir, basename(file)) : undefined;
+      if (refFile && !existsSync(refFile)) console.log(`${report.pack}: no reference twin at ${refFile}; collider parity NOT TESTED`);
+      const { pack, results } = await runMarketplace(new Uint8Array(b), { source: file, ...(only ? { only } : {}), ...(quick ? { quick: true } : {}), ...(refFile && existsSync(refFile) ? { reference: new Uint8Array(readFileSync(refFile)) } : {}) });
+      report.label = pack?.placement.label;
+      console.log(`${report.pack}: ${results.length} marketplace scenarios`);
+      for (const r of results) {
+        report.results.push(r);
+        if (r.status !== 'pass') failed++;
+        console.log(statusLine(r));
+        for (const v of r.violations) console.log(`      [${v.invariant}] ${v.message.slice(0, 260)}`);
+        for (const st of r.steps.filter(x => !x.ok)) console.log(`      step ${st.label} ERROR: ${st.error}`);
+        for (const n of r.notes) console.log(`      note: ${n.slice(0, 200)}`);
+      }
+    } catch (e) { failed++; report.error = (e as Error).message; console.log(`${report.pack}: ERROR ${report.error}`); }
+    report.ms = Math.round(performance.now() - t0);
+    reports.push(report);
+  }
+  console.log(`
+${reports.length} packs; ${reports.flatMap(r => r.results).length} scenarios; ${failed} failed.`);
+  if (flag('md')) writeFileSync(flag('md')!, markdownReport(reports));
+  if (flag('json')) writeFileSync(flag('json')!, JSON.stringify(reports.map(r => ({ ...r, results: r.results.map(x => { const { timeline: _t, ...rest } = x; return rest; }) })), null, 1));
+  if (!reports.some(r => r.results.length)) console.error('marketplace: NOT TESTED — no scenarios ran');
   process.exit(failed || !reports.some(r => r.results.length) ? 1 : 0);
 }
 

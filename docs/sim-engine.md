@@ -19,6 +19,8 @@ bun scripts/sim.ts <pack.mcaddon | dir>…                 # child play over eve
 bun scripts/sim.ts <packs> --md=out.md --json=out.json   # with reports
 bun scripts/sim.ts <packs> --shots=<dir>                 # plus first-person PNGs
 bun scripts/sim.ts --scenario=regressions --new=<dir>    # the device-bug regression set
+bun scripts/sim.ts <store packs> --scenario=marketplace [--reference=<dir>]
+                                                         # a store pack as a reviewer and a child play it (T02): first join, wand into air only, exact Undo, no ticking area, two players, no trademark text
 bun scripts/sim.ts <packs> --scenario=vehicles             # every scripted vehicle on the stuck course + controls + free look
 bun scripts/sim.ts <packs> --scenario=my-scenarios.ts    # your own scenarios
 bun scripts/sim.ts --scenario=hop --coaster=<10261> --flyer=<nimbus> [--car=<42639>|same] [--slide=<10788>]
@@ -366,6 +368,15 @@ device realises it - declared x scale, quirk `collision-box-scales-with-entity`
 `figuresLive`, `visitSeatedFigures`, `snapshot`;
 the hop's (`adapters/craftmatic/hop.ts`): `mountSpawned`, `fillTrain`,
 `flyIntoTrain`, `slideIntoParked`.
+
+**Marketplace scenario** (`adapters/craftmatic/marketplace.ts`, T02, BIZ-26/29). Packs are built with the X-02 store
+profile (`flags` `marketplacePlacement`, `brickBlocks`, `compactColliderStates`, `explicitOnly`, no `vanillaTextures` /
+`diagnostics` / `devStamp`) and rewritten with `scripts/_marketplace_pack.ts`. Scenarios: `mp-install`, `mp-first-join`
+(one chat line <= 28 characters per player, the Guide), `mp-clear-ground`, `mp-cluttered` (foreign-block prompt, Cancel,
+Move, Find a clear spot, no replaced block, exact Undo), `mp-two-players`, `mp-collider-parity` (needs `--reference=<dir>`:
+the same model built with `brickBlocks` and `compactColliderStates` off, same file name), and the pack's own child play at
+100 %. The `player-text-lint` invariant (X-05's `lintText`) reads every form title, body and button, chat, action-bar and
+title line in every scenario. A dev pack fails it on purpose (`foreign-block-replaced`).
 
 ### Adding a scenario
 

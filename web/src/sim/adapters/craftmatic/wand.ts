@@ -22,15 +22,15 @@ import type { PlacementRotation } from '../../../engine/bedrock-placement-pack.j
 /** The adapter's scenario state key for the placement. */
 export const PLACED_KEY = 'craftmatic.placed';
 /** Where the player stood to place (Undo is taken from there). */
-const START_KEY = 'craftmatic.start';
+export const START_KEY = 'craftmatic.start';
 /** The snapshot of the placement's box taken before placing (for the Undo check). */
-const SNAPSHOT_KEY = 'craftmatic.snapshot';
+export const SNAPSHOT_KEY = 'craftmatic.snapshot';
 
 /** How long a placement may take before the step gives up (ticks). */
 const PLACE_TIMEOUT_TICKS = 6000;
 
 /** A wand menu's state, read from its form like a player reads it. */
-function menuState(f: ShownForm): { rotation?: number; size?: number } {
+export function menuState(f: ShownForm): { rotation?: number; size?: number } {
   const rot = /·\s*(\d+)°/.exec(plainText(f.body));
   const sizeButton = f.buttons.map(plainText).find(b => /^Size \d+ percent/.test(b));
   const size = sizeButton ? Number(/^Size (\d+) percent/.exec(sizeButton)![1]) : undefined;
@@ -38,19 +38,22 @@ function menuState(f: ShownForm): { rotation?: number; size?: number } {
 }
 
 /** Parse the confirm form's summary: `W × H × L blocks` and `Origin: x, y, z`. */
-function confirmSummary(f: ShownForm): { dims?: { w: number; h: number; l: number }; origin?: { x: number; y: number; z: number } } {
+export function confirmSummary(f: ShownForm): { dims?: { w: number; h: number; l: number }; origin?: { x: number; y: number; z: number } } {
   const body = plainText(f.body);
   const d = /(\d+) × (\d+) × (\d+) blocks/.exec(body), o = /Origin: (-?\d+), (-?\d+), (-?\d+)/.exec(body);
   return { ...(d ? { dims: { w: Number(d[1]), h: Number(d[2]), l: Number(d[3]) } } : {}), ...(o ? { origin: { x: Number(o[1]), y: Number(o[2]), z: Number(o[3]) } } : {}) };
 }
 
-/** Wait until a chat line matches, or the timeout. */
-async function waitForChat(ctx: StepContext, re: RegExp, maxTicks: number, since: number, stop: () => boolean = () => false): Promise<string | undefined> {
+/**
+ * Wait until a chat OR action-bar line matches, or the timeout. A store pack (the X-02 profile's
+ * `marketplacePlacement`) keeps chat for one first-join line and tells everything else on the action bar (M07).
+ */
+export async function waitForChat(ctx: StepContext, re: RegExp, maxTicks: number, since: number, stop: () => boolean = () => false): Promise<string | undefined> {
   // Scanned from where the last tick left off: a long placement's timeline is not re-read every tick.
   let from = since;
   for (let t = 0; t < maxTicks && !stop(); t++) {
     const entries = ctx.sim.engine.timeline.entries;
-    for (; from < entries.length; from++) { const e = entries[from]!; if (e.kind === 'chat' && re.test(plainText(e.text))) return plainText(e.text); }
+    for (; from < entries.length; from++) { const e = entries[from]!; if ((e.kind === 'chat' || e.kind === 'actionbar') && re.test(plainText(e.text))) return plainText(e.text); }
     await ctx.run(1);
   }
   return undefined;
@@ -72,7 +75,7 @@ const MAX_PLACE_PRESSES = 3;
 const WAND_AIM_REACH = 90;
 
 /** Select the wand in the hotbar (slot 0) or put it away (slot 1). */
-function holdWand(ctx: StepContext, pack: CraftmaticPack, hold: boolean): void {
+export function holdWand(ctx: StepContext, pack: CraftmaticPack, hold: boolean): void {
   const st = ctx.sim.host.playerState(ctx.player);
   st.items[0] = pack.placement.itemId;
   st.selectedSlot = hold ? 0 : 1;
@@ -83,7 +86,7 @@ function holdWand(ctx: StepContext, pack: CraftmaticPack, hold: boolean): void {
  * selection itself opens the menu; a fresh wand only starts following the
  * aim), then use it if no menu came up. The chooser answers what opens.
  */
-async function openMenu(ctx: StepContext, pack: CraftmaticPack, since: number): Promise<void> {
+export async function openMenu(ctx: StepContext, pack: CraftmaticPack, since: number): Promise<void> {
   const menuShown = (): boolean => ctx.sim.engine.timeline.entries.slice(since).some(e => e.kind === 'form' && / · Brick Wand \|/.test(plainText(e.text)));
   holdWand(ctx, pack, true);
   await ctx.run(12);
@@ -91,6 +94,21 @@ async function openMenu(ctx: StepContext, pack: CraftmaticPack, since: number): 
     ctx.sim.engine.emit('itemUse', { source: ctx.player, itemTypeId: pack.placement.itemId });
     await ctx.run(4);
   }
+}
+
+/**
+ * Stand the child where it is, facing +X, and aim the wand at the ground's TOP face `ahead` blocks away (the spot the
+ * model is centred on). Remembers where it stood: Undo is taken from there. Returns the aimed point.
+ */
+export function aimAtGround(ctx: StepContext, ahead: number): { x: number; y: number; z: number } {
+  const p = ctx.player;
+  ctx.state[START_KEY] = { ...p.location };
+  p.rotation = { x: 0, y: -90 };
+  // Aim at the ground's TOP face: a point inside the block (y - 0.5) is met by the grazing view ray where it
+  // first crosses the top, 11 blocks short at 45 ahead, and 76457 (77 wide) was placed over the child's feet.
+  const target = { x: Math.floor(p.location.x) + ahead + 0.5, y: FLAT_GROUND_Y, z: Math.floor(p.location.z) + 0.5 };
+  lookAt(p, target);
+  return target;
 }
 
 /** The wand steps for one craftmatic pack. */
@@ -103,12 +121,7 @@ export function wandHandlers(pack: CraftmaticPack): Record<string, StepHandler> 
       // Stand clear of the footprint: aim at a ground block far enough ahead (+X) that the model, centred there, misses the player.
       const ahead = Number(step['distance'] ?? Math.ceil(Math.max(turned.w, turned.l) * f / 2) + 6);
       const p = ctx.player;
-      ctx.state[START_KEY] = { ...p.location };
-      p.rotation = { x: 0, y: -90 };
-      // Aim at the ground's TOP face: a point inside the block (y - 0.5) is met by the grazing view ray where it
-      // first crosses the top, 11 blocks short at 45 ahead, and 76457 (77 wide) was placed over the child's feet.
-      const target = { x: Math.floor(p.location.x) + ahead + 0.5, y: FLAT_GROUND_Y, z: Math.floor(p.location.z) + 0.5 };
-      lookAt(p, target);
+      const target = aimAtGround(ctx, ahead);
       let confirmed: ShownForm | undefined;
       let presses = 0, refused = false, entered = false;
       // Beyond the aim's reach, the origin is entered as coordinates (the runtime anchors at the block under the aim).
