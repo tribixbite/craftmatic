@@ -28,10 +28,10 @@ const volume = (id: string, outer: Vec2m[], topM: number, roof: RoofSpec, role: 
 const SLOPE_PARTS = new Set(['3040b.dat', '3039.dat', '3038.dat', '3037.dat', '3298.dat', '3297.dat', '4286.dat', '11477.dat', '85984.dat', '15068.dat']);
 
 /** Grammar -> bricker, the whole path a roof takes. */
-function build(volumes: MassVolume[]): { lattice: IntentLattice; plan: BrickPlan; clean: boolean } {
-  const { lattice } = buildGrammarLattice(massingOf(volumes), NO_FEATURES);
+function build(volumes: MassVolume[]): { lattice: IntentLattice; plan: BrickPlan; clean: boolean; pad: number } {
+  const { lattice, frame } = buildGrammarLattice(massingOf(volumes), NO_FEATURES);
   const r = brickLattice(lattice);
-  return { lattice, plan: r.plan, clean: isClean(r.report) };
+  return { lattice, plan: r.plan, clean: isClean(r.report), pad: frame.pad };
 }
 
 /** Slope elements with the cell-space centre of their body and the direction their roof descends. */
@@ -53,18 +53,18 @@ function columnTop(l: IntentLattice, x: number, z: number): number {
 
 describe('brickgen-grammar-roof gabled', () => {
   const walls = 6; // metres of wall under the roof
-  const { lattice, plan, clean } = build([volume('a', rect(0, 0, 10, 24), walls, { shape: 'gabled', pitchDeg: 45, ridgeAxis: 'long' })]);
+  const { lattice, plan, clean, pad } = build([volume('a', rect(0, 0, 10, 24), walls, { shape: 'gabled', pitchDeg: 45, ridgeAxis: 'long' })]);
 
   it('a gabled roof over a 10-stud span at 45 degrees uses slope elements on both faces and closes at the ridge', () => {
     const s = slopes(plan);
-    const west = s.filter(e => e.cx < 5), east = s.filter(e => e.cx > 5);
+    const west = s.filter(e => e.cx - pad < 5), east = s.filter(e => e.cx - pad > 5);
     expect(west.length).toBeGreaterThanOrEqual(4);
     expect(east.length).toBeGreaterThanOrEqual(4);
     // Slopes face outward: the west face descends towards -x (dir 1), the east face towards +x (dir 0).
     expect(west.every(e => e.dir === 1)).toBe(true);
     expect(east.every(e => e.dir === 0)).toBe(true);
     // Closes at the ridge: the two centre columns are the highest, level with each other, and the roof falls away from them.
-    const mid = (x: number): number => columnTop(lattice, x, 12);
+    const mid = (x: number): number => columnTop(lattice, pad + x, pad + 12);
     expect(mid(4)).toBe(mid(5));
     for (let x = 0; x < 4; x++) expect(mid(x)).toBeLessThanOrEqual(mid(x + 1));
     for (let x = 6; x < 10; x++) expect(mid(x)).toBeLessThanOrEqual(mid(x - 1));
@@ -72,9 +72,9 @@ describe('brickgen-grammar-roof gabled', () => {
   });
 
   it('rises at the pitch the massing asked for (45 degrees: 5 studs of half span = 12.5 plates, within a brick)', () => {
-    const base = columnTop(lattice, 0, 12);
-    const rise = columnTop(lattice, 4, 12) - base;
-    expect(Math.abs(rise - 12.5)).toBeLessThanOrEqual(3);
+    // Roof base = the ceiling's top: 6 m of wall is 15 plates over the 2-plate base plate.
+    const apex = columnTop(lattice, pad + 4, pad + 12) + 1 - (15 + 2);
+    expect(Math.abs(apex - 12.5)).toBeLessThanOrEqual(3);
   });
 
   it('verifies as one clean component', () => { expect(clean).toBe(true); });
