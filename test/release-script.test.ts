@@ -9,11 +9,11 @@
  * Nothing here deletes anything: scratch repos, worktrees and output folders are left in place under `output/`
  * (gitignored) with a NEW name per run.
  */
-import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
+import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 const REPO = resolve(__dirname, '..');
 const SCRIPT = join(REPO, 'scripts', 'release.ts');
@@ -47,6 +47,21 @@ function prepare(root: string, args: string[], env: Record<string, string> = {})
   return spawnSync('bun', [SCRIPT, 'prepare', ...args], {
     cwd: REPO, encoding: 'utf8', timeout: 600_000,
     env: { ...process.env, CRAFTMATIC_RELEASE_ROOT: root, ...env },
+  });
+}
+
+/**
+ * `prepare` without blocking the worker's event loop: a describe body that spawns several 15 s builds synchronously
+ * holds the loop past vitest's 60 s RPC timeout ("Timeout calling onTaskUpdate") with every test green.
+ */
+function prepareAsync(root: string, args: string[], env: Record<string, string> = {}): Promise<SpawnSyncReturns<string>> {
+  return new Promise(done => {
+    const child = spawn('bun', [SCRIPT, 'prepare', ...args], { cwd: REPO, env: { ...process.env, CRAFTMATIC_RELEASE_ROOT: root, ...env } });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', d => { stdout += String(d); });
+    child.stderr.on('data', d => { stderr += String(d); });
+    child.on('close', status => done({ status, stdout, stderr } as SpawnSyncReturns<string>));
   });
 }
 
@@ -234,8 +249,8 @@ describe.skipIf(!e2eReady)(`release-script: finalize, verify and status on a tag
   let ledgerRun = '';
 
   // Copies of the prepared release, made BEFORE anything is finalized: one with a single hex digit changed.
-  if (e2eReady) {
-    const prep = prepare(root, ['fixture', '--version', '1.0.0', '--out', prepared], env);
+  beforeAll(async () => {
+    const prep = await prepareAsync(root, ['fixture', '--version', '1.0.0', '--out', prepared], env);
     expect(prep.status, out(prep)).toBe(0);
     tampered = join(freshDir('tampered'), '1.0.0');
     ledgerRun = join(freshDir('ledgerrun'), '1.0.0');
@@ -246,7 +261,7 @@ describe.skipIf(!e2eReady)(`release-script: finalize, verify and status on a tag
     const sha = record.artifacts[0]!.sha256;
     record.artifacts[0]!.sha256 = `${sha[0] === 'a' ? 'b' : 'a'}${sha.slice(1)}`;
     writeFileSync(file, JSON.stringify(record, null, 2));
-  }
+  }, 600_000);
 
   it('status lists the prepared version before anything is finalized', () => {
     const r = run(['status']);
@@ -317,8 +332,7 @@ const LXFML_TWO = '<?xml version="1.0" encoding="UTF-8" standalone="no" ?>\n<LXF
   + '<Brick refID="1" designID="3020"><Part refID="1" designID="3020" materials="24,0"><Bone refID="1" transformation="1,0,0,0,1,0,0,0,1,0,1,0"/></Part></Brick>'
   + '</Bricks></LXFML>';
 
-describe.skipIf(!e2eReady)(`release-script: .io and .lxf models end to end (${e2eReason})`, async () => {
-  const { createZip } = await import('../web/src/engine/zip-utils.js');
+describe.skipIf(!e2eReady)(`release-script: .io and .lxf models end to end (${e2eReason})`, () => {
   const enc = (t: string): Uint8Array => new TextEncoder().encode(t);
   const cottage = readFileSync(join(REPO, 'test', 'fixtures', 'release', 'root', 'models', 'fixture-cottage.ldr'), 'utf8');
 
@@ -331,9 +345,23 @@ describe.skipIf(!e2eReady)(`release-script: .io and .lxf models end to end (${e2
     return dir;
   }
   const sha = (out: string): string => readFileSync(join(out, 'SHA256SUMS'), 'utf8').split('\n').filter(l => /\.mcaddon$/.test(l)).join('');
-  const reference = e2eReady ? runFixture(fixtureData()) : null!;
-  const io = e2eReady ? runFixture(dataFor('fixture-cottage.io', await createZip([{ name: 'model.ldr', data: enc(cottage) }]))) : null!;
-  const lxf = e2eReady ? runFixture(dataFor('two-bricks.lxf', await createZip([{ name: 'IMAGE100.LXFML', data: enc(LXFML_TWO) }]))) : null!;
+  let reference: { r: SpawnSyncReturns<string>; out: string };
+  let io: typeof reference;
+  let lxf: typeof reference;
+  /** `runFixture`, asynchronously. */
+  const runAsync = async (data: string): Promise<typeof reference> => {
+    const out = join(freshDir('out'), 'release');
+    const r = await prepareAsync(REPO, ['fixture', '--version', '1.0.0', '--out', out], {
+      CRAFTMATIC_RELEASE_DATA: data, CRAFTMATIC_RELEASE_WORKTREES: join(SCRATCH, 'worktrees'), CRAFTMATIC_LDRAW_REF: LDRAW_REF, CRAFTMATIC_RELEASE_MCT: 'skip-for-test',
+    });
+    return { r, out };
+  };
+  beforeAll(async () => {
+    const { createZip } = await import('../web/src/engine/zip-utils.js');
+    reference = await runAsync(fixtureData());
+    io = await runAsync(dataFor('fixture-cottage.io', await createZip([{ name: 'model.ldr', data: enc(cottage) }])));
+    lxf = await runAsync(dataFor('two-bricks.lxf', await createZip([{ name: 'IMAGE100.LXFML', data: enc(LXFML_TWO) }])));
+  }, 900_000);
 
   it('an .io of the same model builds the byte-identical archive as the .ldr', () => {
     expect(io.r.status, io.r.stdout + io.r.stderr).toBe(0);
