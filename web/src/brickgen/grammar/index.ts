@@ -139,7 +139,7 @@ export function buildGrammarLattice(massing: Massing, features: FeatureSet, opti
     // A spire or dome feature carries the rise A9 measured: it beats the pitch, which is read over the unsnapped span.
     const dome = features.features.find(f => (f.kind === 'dome' || (spire && f.kind === 'spire')) && f.volume === v.id);
     const r = buildRoof(canvas, mask, topP, {
-      spec: v.roof, spire, platesPerStud, room: H - topP, maxRise: roofRiseCap(v, topP - baseP),
+      spec: v.roof, spire, platesPerStud, room: H - topP, ...(dome ? {} : { maxRise: roofRiseCap(v, topP - baseP) }), // a measured rise needs no cap
       ...(dome ? { apexPlates: Math.max(3, Math.round(dome.sizeM[1] * ppm)) } : {}),
     }, { slope: v.roof.colour ?? colours.roof, fill: v.roof.colour ?? colours.roof, gable: colours.wall });
     if (r.shape !== 'none') { stats.roofs[r.shape] = (stats.roofs[r.shape] ?? 0) + 1; stats.slopeCells += r.slopeCells; }

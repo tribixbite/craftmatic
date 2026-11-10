@@ -8,6 +8,7 @@
  * below. A relief that stands on the ground (a buttress) is also joined through the base plate.
  */
 import type { MassVolume } from '../types.js';
+import { elementFor, occupancyIndex } from '../vocab/index.js';
 import type { Canvas } from './canvas.js';
 import { plateOf, type Frame } from './frame.js';
 import type { Mask } from './footprint.js';
@@ -51,23 +52,36 @@ export function buttressDepth(depthMax: number): (row: number, rows: number) => 
   };
 }
 
+/** The cone part for a square cap of `side` studs (1, 2 or 4): the part and its height in plates. */
+const CONE_PARTS: Readonly<Record<number, string>> = { 1: '4589.dat', 2: '3942c.dat', 4: '272.dat' };
+
 /**
  * A pinnacle: a square shaft with a cone on top, standing on the wall top. `w` studs square (1, 2 or 4 get a real cone
- * part; other sizes a stepped box), centred on stud `uCentre` of the edge and inside the wall line.
+ * part; another size is capped by the largest cone that fits, centred), centred on stud `uCentre` of the edge and
+ * inside the wall line.
+ *
+ * Only the cone's BODY cells carry the cone label (read from the part's own occupancy); the cells above them, where the
+ * cone narrows, stay empty. The bricker refuses a slope or cone with anything labelled over its body, and labelling the
+ * part's whole envelope would do just that.
  */
 export function placePinnacle(ctx: ReliefContext, ef: EdgeFrame, uCentre: number, w: number, p0: number, heightPlates: number, shaft: number, cone: number): number {
   const side = Math.max(1, w);
   const capSide = side >= 4 ? 4 : side >= 2 ? 2 : 1;
-  const capH = capSide === 4 ? 9 : capSide === 2 ? 6 : 3;
-  const shaftH = Math.max(0, heightPlates - capH);
+  const element = elementFor(CONE_PARTS[capSide]!)!;
+  const [fx, fz] = element.footprint;
+  const shaftH = Math.max(0, heightPlates - element.heightPlates);
   let n = 0;
   const u0 = Math.round(uCentre - side / 2);
-  const inset = (s: number): number => Math.floor((side - s) / 2);
   for (let a = 0; a < side; a++) for (let b = 0; b < side; b++) {
     const [x, z] = ef.cell(u0 + a, -b);
     for (let p = p0; p < p0 + shaftH; p++) { ctx.canvas.set(x, p, z, shaft); n++; }
-    const ca = a - inset(capSide), cb = b - inset(capSide);
-    if (ca >= 0 && ca < capSide && cb >= 0 && cb < capSide) for (let p = p0 + shaftH; p < p0 + shaftH + capH; p++) { ctx.canvas.set(x, p, z, cone); n++; }
+    // The cap sits in the middle of the shaft: its cell (ca, cb) within the cone's footprint.
+    const ca = a - Math.floor((side - capSide) / 2), cb = b - Math.floor((side - capSide) / 2);
+    if (ca < 0 || ca >= fx || cb < 0 || cb >= fz) continue;
+    for (let layer = 0; layer < element.heightPlates; layer++) {
+      if (element.occupancy && element.occupancy[occupancyIndex(fx, fz, ca, cb, layer)] === 0) continue;
+      ctx.canvas.set(x, p0 + shaftH + layer, z, cone); n++;
+    }
   }
   return n;
 }

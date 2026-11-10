@@ -20,6 +20,9 @@ import { distanceToOutside, maskHas, runAround, STEPS, type Mask } from './footp
 import { spireTarget } from './spire.js';
 import { patternFor, stairRings, type RingSurface, type StairPattern } from './stair.js';
 
+/** Fill within this many studs of the footprint's edge stays solid: a narrow spire must not be hollowed into pieces. */
+const SOLID_EDGE_STUDS = 3.5;
+
 /** Plates of solid fill kept at the bottom and under the surface when a roof's fill is hollowed. */
 const HOLLOW_SKIN = 2;
 
@@ -208,7 +211,7 @@ export function buildRoof(canvas: Canvas, mask: Mask, baseP: number, input: Roof
   const gableFill = canvas.label({ role: 'wall', colour: colours.gable });
   const edgeDist = distanceToOutside(mask);
   const near = new Uint8Array(edgeDist.length);
-  for (let k = 0; k < near.length; k++) near[k] = edgeDist[k]! <= 2.5 ? 1 : 0;
+  for (let k = 0; k < near.length; k++) near[k] = edgeDist[k]! <= SOLID_EDGE_STUDS ? 1 : 0;
   const cap = canvas.label({ role: 'roof-flat', colour: colours.slope });
 
   const surfaces = new Map<number, { rings: RingSurface[]; pattern: StairPattern }>();
