@@ -336,10 +336,11 @@ export async function buildLegoResourcePack(): Promise<Uint8Array> {
   const manifest = {
     format_version: 2,
     header: {
-      name: 'Craftmatic LEGO HD Textures',
-      description: 'Authentic glossy ABS plastic finishes and beveled brick seams for Minecraft concrete blocks.',
+      // No LEGO mark in a public download (U14, the user 2026-11-12); 1.0.1 so an installed 1.0.0 is replaced.
+      name: 'Craftmatic Brick HD Textures',
+      description: 'Glossy plastic-brick finishes, embossed top studs and beveled brick seams for Minecraft concrete blocks.',
       uuid: 'd8a39120-e2b4-4b5c-a294-b19736c92041',
-      version: [1, 0, 0],
+      version: [1, 0, 1],
       min_engine_version: [1, 20, 0],
     },
     modules: [

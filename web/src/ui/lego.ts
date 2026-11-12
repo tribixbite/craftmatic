@@ -592,7 +592,7 @@ function buildUI(): void {
           <option value="live">Send to Minecraft Planner (experimental)</option>
           <option value="mcaddon">Add-on — controls detected or selected components (.mcaddon)</option>
           <option value="mcpack">Static structure pack (.mcpack)</option>
-          <option value="lego-mcpack">Craftmatic LEGO Texture Pack (.mcpack)</option>
+          <option value="lego-mcpack">Craftmatic Brick Texture Pack (.mcpack)</option>
         </optgroup>
         <optgroup label="Minecraft: any edition">
           <option value="guide">Build guide, layer-by-layer (.html)</option>
@@ -2151,20 +2151,20 @@ async function exportLoadedModel(fmt: string): Promise<void> {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'Craftmatic-Lego-Pack.mcpack';
+        a.download = 'Craftmatic-Brick-Textures.mcpack';
         document.body.appendChild(a);
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
-        setStatus('Downloaded Craftmatic-Lego-Pack.mcpack — double-click to install LEGO ABS plastic textures into Minecraft Bedrock.', 'success');
+        setStatus('Downloaded Craftmatic-Brick-Textures.mcpack — double-click to install the brick textures into Minecraft Bedrock.', 'success');
       } catch {
         const a = document.createElement('a');
-        a.href = '/downloads/Craftmatic-Lego-Pack.mcpack';
-        a.download = 'Craftmatic-Lego-Pack.mcpack';
+        a.href = '/downloads/Craftmatic-Brick-Textures.mcpack';
+        a.download = 'Craftmatic-Brick-Textures.mcpack';
         document.body.appendChild(a);
         a.click();
         a.remove();
-        setStatus('Downloaded Craftmatic-Lego-Pack.mcpack — double-click to install into Minecraft Bedrock.', 'success');
+        setStatus('Downloaded Craftmatic-Brick-Textures.mcpack — double-click to install into Minecraft Bedrock.', 'success');
       }
       return;
     }

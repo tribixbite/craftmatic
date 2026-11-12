@@ -45,7 +45,11 @@ describe('LEGO Resource Pack Generator', () => {
     const manifestData = await extractFile(ab, 'manifest.json');
     const manifest = JSON.parse(new TextDecoder().decode(manifestData));
     expect(manifest.format_version).toBe(2);
-    expect(manifest.header.name).toContain('Craftmatic LEGO');
+    // U14 (the user, 2026-11-12): the public texture pack carries no LEGO mark in its name or description.
+    expect(manifest.header.name).toBe('Craftmatic Brick HD Textures');
+    expect(`${manifest.header.name} ${manifest.header.description}`).not.toMatch(/LEGO|ABS/);
+    // A version above the published 1.0.0, so Minecraft replaces an installed copy with the renamed one.
+    expect(manifest.header.version).toEqual([1, 0, 1]);
     expect(manifest.modules[0].type).toBe('resources');
   });
 
