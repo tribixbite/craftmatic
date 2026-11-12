@@ -140,6 +140,13 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
     `Craftmatic-Brick-Textures.mcpack` with no LEGO text (deploys on push); private repo `tribixbite/craftmatic-designs`
     created (clone `C:/git/craftmatic-designs`); sampler product = `cmt_sampler`, publisher Techneesh, LLC (display
     name stays a placeholder until the trade-mark search).
+  - WAVE 4 PUSHED 2026-11-12 (suite 4,355 passed, CI + deploy green; `Craftmatic-Brick-Textures.mcpack` live, old URL 404).
+    Post-merge fixes: TS pack-check ports D-08b's atlas-by-content rule; prepare tests and the sim stage's reason updated.
+    C02 pack contract for 76417/42703 RUNNING: `output/c02-coaster-compare.sh` (worktrees `cmp-prec02` at 90aed2e2,
+    `cmp-postc02` at 370aa7cd) into `output/c02-compare/{before,after}`; compare with the zip diff (only stamp files
+    may differ).
+  - WAVE 5 IN FLIGHT 2026-11-12 (8 agents): F01c (Fable), L00, T02-fix, SV, RIDE, SPIRE, C04, MCT. The Pixel round
+    (approved) runs after T02-fix merges, on packs built from that commit.
   - WAVE 5 (brief `docs/plans/wave5-brief.md`): F01c humanoid alien figure (teal/purple, distinct proportions; rex/
     rivet/pip stay as extras), T02-fix, SV (seat planner on shipped cubes, then re-render the side-rule screenshots),
     RIDE (drop tower + sky swing), SPIRE (tapering spires), C04 (launches/brakes/trims), L00 (OSM inputs for the 22
