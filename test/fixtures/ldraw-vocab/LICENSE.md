@@ -8,8 +8,12 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | File | Author | Licence |
 |---|---|---|
 | p/1-16chrd.dat | Philippe Hurbain [Philo] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/1-16cyli.dat | Marc Klein [marckl] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/1-16edge.dat | Marc Klein [marckl] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/1-16ndis.dat | Niels Karsdorp [nielsk] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/1-16tndis.dat | Massimo Maso [Sirio] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/1-4chrd.dat | Max Martin Richter [MMR1988] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/1-4cylc.dat | Mark Kennedy [mkennedy] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/1-4cyli.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/1-4cylo.dat | Max Martin Richter [MMR1988] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/1-4cyls.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -27,6 +31,8 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | p/1-8ring19.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/1-8ring8.dat | Paul Easter [pneaster] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/1-8sphe.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/101.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/11215.dat | J.C. Tchang [tchang] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/11477.dat | Owen Burgoyne [C3POwen] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/12939.dat | Jude Parrill [theJudeAbides] | Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt |
 | parts/13547.dat | Owen Burgoyne [C3POwen] | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -35,6 +41,10 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | parts/14769.dat | Max Martin Richter [MMR1988] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/15068.dat | Owen Burgoyne [C3POwen] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/15395.dat | Philippe Hurbain [Philo] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/15397.dat | Max Martin Richter [MMR1988] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/15672.dat | Remco Canten [rempie] | Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt |
+| parts/157.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/18674.dat | Philippe Hurbain [Philo] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/2-4chrd.dat | Philippe Hurbain [Philo] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/2-4cylc.dat | Alex Taylor [anathema] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/2-4cyli.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -47,11 +57,29 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | p/2-4ring4.dat | Paul Easter [pneaster] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/2-4ring5.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/2339.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/234.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/2357.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/2362.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/2362b.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/238.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/2420.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/24201.dat | Philippe Hurbain [Philo] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/2431.dat | Santeri Piippo [arezey] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/2431b.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/2450.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/2456.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/248.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/26601.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/272.dat | Niels Karsdorp [nielsk] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/2730.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/278.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/28.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/29119.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/29120.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/299.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/3-16chrd.dat | Niels Karsdorp [nielsk] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/3-16cyli.dat | Mark Kennedy [mkennedy] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/3-16cylo.dat | J.C. Tchang [tchang] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/3-16cys2.dat | Donald Sutter [technog] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/3-16edge.dat | Donald Sutter [technog] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/3-16ndis.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -61,8 +89,10 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | p/3-4edge.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/3-4ndis.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/3-8cyli.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/3-8cylo.dat | J.C. Tchang [tchang] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/3-8cyls.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/3-8edge.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/3-8ring3.dat | Niels Karsdorp [nielsk] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/3-8ring5.dat | Niels Karsdorp [nielsk] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3001.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3002.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -81,21 +111,36 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | parts/3020.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3021.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3022.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3023.dat | Orion Pobursky [OrionP] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3023b.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3024.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3029.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3030.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3031.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3032.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3034.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3037.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3038.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3039.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3040.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3040b.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3045.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3046.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3048.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3048a.dat | Philippe Hurbain [Philo] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3048b.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3062.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3062b.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3068.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3068b.dat | Takeshi Takahashi [RainbowDolphin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3069.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3069b.dat | Santeri Piippo [arezey] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3070.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3070a.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3070b.dat | Chris Dee [cwdee] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3185.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/32000.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/32952.dat | Gerald Lasser [GeraldLasser] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3297.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3298.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3460.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -103,14 +148,22 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | parts/3623.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3633.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3659.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3665.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3665a.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3666.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3676.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/36840.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/36841.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3700.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3701.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3710.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3747.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3747a.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3747b.dat | Max Martin Richter [MMR1988] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3795.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3832.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/3942c.dat | Michael Heidemann [mikeheide] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/3958.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/4-4con0.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/4-4con1.dat | Steve Bliss [sbliss] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/4-4con2.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -127,6 +180,7 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | p/4-4disc.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/4-4edge.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/4-4ndis.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/4-4ring1.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/4-4ring2.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/4-4ring3.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/4-4ring4.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -134,14 +188,23 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | p/4-4ring8.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/4-4ring9.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/4-8sphe.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/40.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/404.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/4070.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/4073.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/4150.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/4286.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/4287.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/4287a.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/44728.dat | Brent Jackson [bjackson] | Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt |
 | parts/4477.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/4490.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/4589.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/47.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/4743.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/48/1-12chrd.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/48/1-12cyli.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/48/1-12edge.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/48/1-16cyli.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/48/1-4cyli.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/48/1-4cylo.dat | Max Martin Richter [MMR1988] | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -159,6 +222,10 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | p/48/2-4cylo.dat | Philippe Hurbain [Philo] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/48/2-4edge.dat | Paul Easter [pneaster] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/48/2-4ndis.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/48/3-16cyli.dat | Mark Kennedy [mkennedy] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/48/3-16cylo.dat | Max Martin Richter [MMR1988] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/48/3-16edge.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/48/3-16ndis.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/48/3-16tang.dat | Gerald Lasser [GeraldLasser] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/48/4-4con1.dat | Niels Karsdorp [nielsk] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/48/4-4con2.dat | Niels Karsdorp [nielsk] | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -176,7 +243,12 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | p/48/7-48cyli.dat | Philippe Hurbain [Philo] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/48/7-48edge.dat | Philippe Hurbain [Philo] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/5-8edge.dat | Mark Kennedy [mkennedy] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/50967.dat | Orion Pobursky [OrionP] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/54200.dat | Orion Pobursky [OrionP] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/57.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/6005.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/602.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/60477.dat | J.C. Tchang [tchang] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/60592.dat | Michael Heidemann [mikeheide] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/60593.dat | Alex Taylor [anathema] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/60594.dat | J.C. Tchang [tchang] | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -186,8 +258,10 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | parts/6111.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/6112.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/6141.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/61678.dat | Tim Gould [timgould] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/6182.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/63864.dat | Tim Gould [timgould] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/6541.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/6636.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/7-16cyli.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/7-16disc.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -196,14 +270,23 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | p/7-8cyli.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/7-8edge.dat | Mark Kennedy [mkennedy] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/7-8ring1.dat | Alex Taylor [anathema] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/73230.dat | Vincent Messenet [Cheenzo] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/78666.dat | Gerald Lasser [GeraldLasser] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/79491.dat | Gerald Lasser [GeraldLasser] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/85984.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/86996.dat | Gerald Lasser [GeraldLasser] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/9.dat | [PTadmin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/92280.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/98138.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/99207.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/99780.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/99781.dat | Tim Gould [timgould] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/axl5ho10.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/axl5hol8.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/axl5hol9.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/axlehol2.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/axlehol3.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/axlehol4.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/axlehole.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/box.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/box0.dat | Santeri Piippo [arezey] | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -211,10 +294,13 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | p/box2-5.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/box2-7.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/box2-9.dat | Mark Kennedy [mkennedy] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/box2-9p.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/box3-7a.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/box3u2p.dat | Niels Karsdorp [nielsk] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/box3u4a.dat | Niels Karsdorp [nielsk] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/box3u4p.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/box3u5p.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/box3u6.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/box3u7a.dat | Chris Dee [cwdee] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/box3u8p.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/box4-1.dat | Tore Eriksson [Tore_Eriksson] | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -225,11 +311,15 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | p/box4o4a.dat | Donald Sutter [technog] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/box4o8a.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/box4t.dat | Tore Eriksson [Tore_Eriksson] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/box5-1.dat | J.C. Tchang [tchang] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/box5-4a.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/box5.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/boxjcyl4.dat | Philippe Hurbain [Philo] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/bump5000.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/clip8.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/cylj4x8.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/empty.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/peghole.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/rect.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/rect1.dat | Chris Dee [cwdee] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/rect2a.dat | Chris Dee [cwdee] | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -237,10 +327,12 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | p/rect3.dat | Mark Kennedy [mkennedy] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/recte3.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/recte4.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/ribt45.dat | Mark Kennedy [mkennedy] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/s/11477s01.dat | Owen Burgoyne [C3POwen] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/s/14769s01.dat | Max Martin Richter [MMR1988] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/s/15068s01.dat | Owen Burgoyne [C3POwen] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/s/15535s02.dat | Max Martin Richter [MMR1988] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/s/2362s01.dat | Orion Pobursky [OrionP] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/s/2431s01.dat | Santeri Piippo [arezey] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/s/3001s01.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/s/3002s01.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -273,15 +365,21 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | parts/s/4150s01.dat | Andy Westrate [westrate] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/s/4286s01.dat | Chris Böhnke [KnightOfTarenta] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/s/4490s01.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/s/54200s01.dat | Orion Pobursky [OrionP] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/s/60477s01.dat | J.C. Tchang [tchang] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/s/60599s01.dat | Owen Burgoyne [C3POwen] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/s/61678s01.dat | Philippe Hurbain [Philo] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/s/63864s01.dat | Ulrich Röder [UR] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/s/6636s01.dat | Takeshi Takahashi [RainbowDolphin] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| parts/s/79180s01.dat | Gerald Lasser [GeraldLasser] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/s/85984s01.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/s/98138s01.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | parts/s/98138s02.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/st4jfil3.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stud.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stud12.dat | Tore Eriksson [Tore_Eriksson] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stud2.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/stud23.dat | Philippe Hurbain [Philo] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stud2a.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stud2s.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stud2s2.dat | Owen Burgoyne [C3POwen] | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -290,6 +388,7 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | p/stud3a.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stud4.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stud4a.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/stud4f2s.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stud4o.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stud4od.dat | Philippe Hurbain [Philo] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stud4s.dat | Willy Tschager [Holly-Wood] | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -300,6 +399,8 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | p/stug-1x8.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stug-2x1.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stug-2x2.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/stug-3x3.dat | Steve Bliss [sbliss] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/stug-6x6.dat | Tore Eriksson [Tore_Eriksson] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stug2-1x2.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stug2-1x4.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stug2-2x1.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
@@ -311,6 +412,14 @@ Not endorsed by LDraw.org. Regenerate with `bun scripts/_vendor_ldraw_vocab.ts`.
 | p/stug3-1x5.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stug3-1x7.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stug4-1x3.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/stug4-1x4.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/stug4-1x5.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/stug4-1x7.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/stug4-2x2.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/stug4-4x4.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/stug4-5x5.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/tri3.dat | James Jessiman | Licensed under CC BY 4.0 : see CAreadme.txt |
 | p/tri3a1.dat | Mark Kennedy [mkennedy] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/tri3a4.dat | Magnus Forsberg [MagFors] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/tri3u1.dat | Mark Kennedy [mkennedy] | Licensed under CC BY 4.0 : see CAreadme.txt |
+| p/triangle.dat | Steffen [Steffen] | Licensed under CC BY 4.0 : see CAreadme.txt |

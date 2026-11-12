@@ -69,3 +69,48 @@ export const ELEMENT_SPECS: readonly ElementSpec[] = [
   // Lattice and spindled fences
   ...['3633', '3185', '30055', '30077'].map(p => S(p, 'fence', ['detail', 'trim'], 'parity')),
 ];
+
+/**
+ * L-01 (BIZ-33): official parts that are READ (the V-02 truth lattice, the verifier, the LDraw import) but never
+ * PICKED by the bricker, whose goldens and part counts depend on its palette staying the plain list above. They
+ * are the most frequent official parts the batcave car and the nimbus fixture place that the list above lacked
+ * (counted 2026-11-09). Obsolete ("~") and alias ("=") library entries are left out.
+ */
+const LOOKUP_ONLY_SPECS: readonly ElementSpec[] = [
+  // (3811, the 32x32 baseplate, is 4 LDU thick: half a plate reads as an all-empty occupancy, so it stays a mesh part.)
+  // (1x2 with handle 60478, with door rail 32028 and curved 1x8 85970 were tried: their sideways parts made the footprint read one stud too wide)
+  ...['2420', '26601', '79491', '2450', '15397', '3032', '3958', '3029', '3030', '92280', '86996'].map(p => S(p, 'plate', PLATE)),
+  S('18674', 'round', ['roof-flat', 'detail']),
+  // Bricks: 2x2 corner, 1x1 with headlight, 1x1x1 2/3 with side studs, Technic bricks with holes
+  ...['2357', '4070', '32952', '3700', '3701', '2730', '32000', '73230', '6541'].map(p => S(p, 'brick', BRICK)),
+  // Slopes: 31 degree 1x1x2/3 (origin at its bottom), 45 degree 2x1 plate, 18 degree 4x1, curved 4x1 / 2x1 cutouts / 8x1 arch
+  ...['54200', '15672', '60477'].map(p => S(p, 'slope', SLOPE)),
+  ...['61678', '29119', '29120'].map(p => S(p, 'slope-curved', SLOPE)),
+  S('50967', 'slope-curved', SLOPE, 'parity'), S('78666', 'arch', ARCH, 'parity'),
+  // Brackets
+  ...['36841', '36840', '99780', '99207', '11215'].map(p => S(p, 'bracket', ['detail', 'support'])),
+  // The real parts behind more "~Moved to" names (see MOVED_PARTS)
+  S('2362b', 'brick', BRICK), S('3048b', 'slope', SLOPE), S('3747a', 'slope-inverted', SLOPE_INV),
+  S('3070a', 'tile', TILE),
+];
+
+/** Every part the vocabulary can read; `ELEMENT_SPECS` is the subset the bricker may pick. */
+export const READ_SPECS: readonly ElementSpec[] = [...ELEMENT_SPECS, ...LOOKUP_ONLY_SPECS];
+
+/**
+ * Official "~Moved to" library entries: a model (an LDraw file, an OMR set) may place the OLD name of a part
+ * (`3023.dat`, 23 times in the batcave car) whose library file is one line, an identity reference to the real
+ * part (`3023b.dat`). The vocabulary reads such a name as the part it points at, with the same frame (the
+ * reference is the identity). `scripts/_vendor_ldraw_vocab.ts` vendors each alias file, fails when one is not a
+ * single identity reference to the target below, or when the target is not an element, and credits its author
+ * in LICENSE.md. Derived 2026-11-09 by scanning the official library for `0 ~Moved to` files whose single
+ * reference is a vocabulary part.
+ */
+export const MOVED_PARTS: Readonly<Record<string, string>> = {
+  '101.dat': '3623.dat', '157.dat': '4070.dat', '234.dat': '4286.dat', '2362.dat': '2362b.dat', '238.dat': '3048b.dat',
+  '2431b.dat': '2431.dat', '248.dat': '3676.dat', '278.dat': '4490.dat', '28.dat': '3062b.dat', '299.dat': '4589.dat',
+  '3023.dat': '3023b.dat', '3040.dat': '3040b.dat', '3048.dat': '3048b.dat', '3062.dat': '3062b.dat', '3068.dat': '3068b.dat',
+  '3069.dat': '3069b.dat', '3070.dat': '3070a.dat', '3665.dat': '3665a.dat', '3747.dat': '3747a.dat', '40.dat': '3046.dat',
+  '404.dat': '6541.dat', '4073.dat': '6141.dat', '4287.dat': '4287a.dat', '47.dat': '3659.dat', '57.dat': '3045.dat',
+  '602.dat': '32000.dat', '9.dat': '3460.dat',
+};

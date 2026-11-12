@@ -13,9 +13,13 @@
  * injected `nearest`.
  *
  * Known limits (also in docs/plans, X-11):
- * - The lattice origin is the mesh's minimum corner, so a mesh whose lowest point
- *   is not on a plate multiple (e.g. LDraw studs, 4 LDU) can gain a sparse extra layer.
- *   X-12's `metrics.ts` aligns two lattices by a best integer shift instead (no lattice origin option needed yet).
+ * - The lattice origin is the mesh's minimum corner, so a mesh whose lowest point is not on a plate multiple can gain a sparse
+ *   extra layer. X-12's `metrics.ts` aligns two lattices by a best integer shift instead (no lattice origin option needed yet).
+ *   Tilted models are anchored to a corner that is not a whole cell from any other lattice's: the integer shift cannot fix that.
+ * - L-01: LDraw studs (stud-sized connected components, `cullStuds`) are left out of the occupancy, and a brick's underside
+ *   cavity (a pocket with a roof within 3 cells above and a wall within 10 cells on all four sides, `fillUndersideCavities`)
+ *   is filled: a brick is 3 solid plate layers, not a roof slab over air. Both are on by default (`ignoreStuds`,
+ *   `fillUndersides`). Single-brick truth: 3001 reads 4x3x2 with 8 cells in each layer.
  * - 'solid' mode is an even-odd ray fill, so a shell must be closed: planar boundary loops (LDraw studs have no
  *   base) are capped first (`hole-cap.ts`). Shells with open loops that are not planar and convex (about 17 of the
  *   120 part moulds in the batcave fixture, e.g. 3048, 17485, 64799) still leave a column of "inside" cells above
@@ -61,6 +65,10 @@ export interface MeshToLatticeOptions {
    * (generalised winding number: robust to open, non-planar shells and to overlapping bodies in one mesh; slower).
    */
   insideTest?: InsideTest;
+  /** Leave LDraw studs (small stud-sized components) out of the occupancy. Default true; see {@link cullStuds}. */
+  ignoreStuds?: boolean;
+  /** Fill the open underside cavity of a brick (a closed pocket under a roof). Default true; see {@link fillUndersideCavities}. */
+  fillUndersides?: boolean;
   onProgress?: (p: VoxelizeProgress) => void;
 }
 
@@ -91,6 +99,10 @@ export interface BricksToLatticeOptions {
    * (generalised winding number: robust to open, non-planar shells and to overlapping bodies in one mesh; slower).
    */
   insideTest?: InsideTest;
+  /** See {@link MeshToLatticeOptions.ignoreStuds}. */
+  ignoreStuds?: boolean;
+  /** See {@link MeshToLatticeOptions.fillUndersides}. */
+  fillUndersides?: boolean;
   onProgress?: (p: VoxelizeProgress) => void;
 }
 
@@ -101,6 +113,177 @@ interface ColouredCells {
   dims: [number, number, number];
   /** Filled cells in plate-major order, with their sRGB colour. */
   filled: Array<{ index: number; rgb: RGB }>;
+}
+
+/** Cleanups applied to a lattice before it is read (L-01): both default on, both can be switched off. */
+interface LatticeCleanup { ignoreStuds: boolean; fillUndersides: boolean }
+
+const cleanupOf = (o: { ignoreStuds?: boolean; fillUndersides?: boolean }): LatticeCleanup =>
+  ({ ignoreStuds: o.ignoreStuds ?? true, fillUndersides: o.fillUndersides ?? true });
+
+/** A stud is 12 x 4 x 12 LDU: 0.6 cells across (x, z are 20 LDU) and 0.5 cells tall (y is 8 LDU). Bounds with slack for stud variants. */
+const STUD_MIN_XZ = 0.3;
+const STUD_MAX_XZ = 0.65;
+const STUD_MAX_Y = 0.6;
+/** Vertex weld resolution (cells) when finding connected components. */
+const COMPONENT_WELD = 1e4;
+
+/**
+ * Removes LDraw studs from geometries given in lattice space (cells). Returns one geometry per input, in order: a
+ * new non-indexed geometry, or the input itself when it loses nothing.
+ *
+ * Why: a stud is 4 LDU tall, half a plate, and stands on every top face, so a merged mesh reads one partial
+ * layer taller than the bricks it came from (V-02: the 3-course wall read 8x10x2 against a true 8x9x2). The
+ * options were (a) ignore geometry within stud height above a part's top plane, or (b) stud-primitive
+ * awareness. A merged mesh has no part boundaries, so (a) cannot be applied; (b) needs the library's
+ * primitives. This takes the geometric form of (b): a stud is a small connected component (a side wall plus
+ * a top disc, joined to nothing: the LDraw stud has no base) no bigger than a stud, so every connected
+ * component of that size is dropped. Only studs this size are lost: a 1x1 round plate is 20 LDU across.
+ *
+ * Components are found over ALL the geometries together (one weld map), so the same studs go whether the parts
+ * arrive as one merged mesh or as one mesh each: otherwise a stud welded to a neighbouring part (about one in ten
+ * in the nimbus fixture, where round parts sit on studs with a ring of the same radius) is kept in the merged mesh
+ * and dropped in the per-brick one, and the two lattices stop agreeing.
+ *
+ * Limits: a stud welded to a neighbour is kept (above: about one in ten) and costs at most the half-layer it
+ * stands in; a geometry with material groups is left alone (the rewrite would break them); a set made only of
+ * stud-sized pieces is kept whole rather than emptied.
+ */
+function cullStuds(sources: readonly THREE.BufferGeometry[]): THREE.BufferGeometry[] {
+  // Work on the non-indexed form: the result must also lose the stud VERTICES, or Box3.setFromObject (which reads
+  // the position attribute, not the index) would still see the studs' height.
+  const geos = sources.map((g) => (g.groups.length > 0 ? g : g.index ? g.toNonIndexed() : g));
+  const skip = sources.map((g) => g.groups.length > 0);
+
+  // One weld map over every geometry (a raw triangle soup shares no indices), then union the corners of each triangle.
+  const weldIds = new Map<string, number>();
+  const parent: number[] = [];
+  const find = (a: number): number => { while (parent[a] !== a) { parent[a] = parent[parent[a]!]!; a = parent[a]!; } return a; };
+  const weldOf = geos.map((g) => new Int32Array(g.getAttribute('position').count).fill(-1));
+  const weld = (gi: number, v: number): number => {
+    let w = weldOf[gi]![v]!;
+    if (w >= 0) return w;
+    const pos = geos[gi]!.getAttribute('position') as THREE.BufferAttribute;
+    const key = `${Math.round(pos.getX(v) * COMPONENT_WELD)},${Math.round(pos.getY(v) * COMPONENT_WELD)},${Math.round(pos.getZ(v) * COMPONENT_WELD)}`;
+    const known = weldIds.get(key);
+    if (known !== undefined) w = known;
+    else { w = parent.length; parent.push(w); weldIds.set(key, w); }
+    weldOf[gi]![v] = w;
+    return w;
+  };
+  geos.forEach((g, gi) => {
+    if (skip[gi]) return;
+    const triCount = Math.floor((g.getAttribute('position') as THREE.BufferAttribute).count / 3);
+    for (let t = 0; t < triCount; t++) {
+      const a = weld(gi, t * 3), b = weld(gi, t * 3 + 1), c = weld(gi, t * 3 + 2);
+      parent[find(b)] = find(a);
+      parent[find(c)] = find(a);
+    }
+  });
+
+  // Bounds per component.
+  const lo = new Map<number, [number, number, number]>();
+  const hi = new Map<number, [number, number, number]>();
+  const rootOf = geos.map((g, gi) => {
+    if (skip[gi]) return new Int32Array(0);
+    const pos = g.getAttribute('position') as THREE.BufferAttribute;
+    const roots = new Int32Array(Math.floor(pos.count / 3));
+    for (let t = 0; t < roots.length; t++) {
+      const root = find(weld(gi, t * 3));
+      roots[t] = root;
+      const l = lo.get(root) ?? lo.set(root, [Infinity, Infinity, Infinity]).get(root)!;
+      const h = hi.get(root) ?? hi.set(root, [-Infinity, -Infinity, -Infinity]).get(root)!;
+      for (let k = 0; k < 3; k++) {
+        const p = [pos.getX(t * 3 + k), pos.getY(t * 3 + k), pos.getZ(t * 3 + k)] as const;
+        for (let a = 0; a < 3; a++) { l[a] = Math.min(l[a]!, p[a]); h[a] = Math.max(h[a]!, p[a]); }
+      }
+    }
+    return roots;
+  });
+  const studRoots = new Set<number>();
+  for (const [root, l] of lo) {
+    const h = hi.get(root)!;
+    const sx = h[0]! - l[0]!, sy = h[1]! - l[1]!, sz = h[2]! - l[2]!;
+    if (sx >= STUD_MIN_XZ && sx <= STUD_MAX_XZ && sz >= STUD_MIN_XZ && sz <= STUD_MAX_XZ && sy > 0 && sy <= STUD_MAX_Y) studRoots.add(root);
+  }
+  if (studRoots.size === 0 || studRoots.size === lo.size) return [...sources];
+
+  return geos.map((g, gi) => {
+    if (skip[gi]) return sources[gi]!;
+    const roots = rootOf[gi]!;
+    const keptTris: number[] = [];
+    for (let t = 0; t < roots.length; t++) if (!studRoots.has(roots[t]!)) keptTris.push(t);
+    if (keptTris.length === roots.length) return sources[gi]!;
+    const out = new THREE.BufferGeometry();
+    for (const [name, attr] of Object.entries(g.attributes)) {
+      const a = attr as THREE.BufferAttribute;
+      const Ctor = a.array.constructor as new (n: number) => THREE.TypedArray;
+      const data = new Ctor(keptTris.length * 3 * a.itemSize);
+      keptTris.forEach((t, i) => {
+        for (let k = 0; k < 3; k++) for (let c = 0; c < a.itemSize; c++) data[(i * 3 + k) * a.itemSize + c] = a.getComponent(t * 3 + k, c);
+      });
+      out.setAttribute(name, new THREE.BufferAttribute(data, a.itemSize, a.normalized));
+    }
+    return out;
+  });
+}
+
+/** How far above a pocket cell its roof may be (cells): a brick's cavity is 20 LDU = 2.5 plates deep. */
+const POCKET_ROOF_GAP = 3;
+/** How far (cells, x/z) the four side walls of a pocket may be: a 2 x 16 brick's middle cell is 8 cells from each end. */
+const POCKET_WALL_REACH = 10;
+/** The probe starts a hair below the cell centre so a roof lying exactly on the centre plane is hit, not skipped. */
+const POCKET_PROBE_DROP = 0.05;
+
+/**
+ * Fills the underside cavity of a brick in `occ` (flat plate-major occupancy, modified in place).
+ *
+ * Why: an LDraw brick is a closed bowl: a 4 LDU roof, 4 LDU walls and a 20 LDU cavity open to the ground. A
+ * cell centre in that cavity is air, so a shell fill leaves layers 0..1 of every brick empty and keeps only the
+ * roof layer (X-10: a single 3001 filled 1 layer of 3). The lattice is an occupancy of bricks, and a brick
+ * occupies its whole envelope.
+ *
+ * What: an empty cell is a pocket cell when (1) a roof lies within {@link POCKET_ROOF_GAP} cells straight above
+ * it and (2) a wall lies within {@link POCKET_WALL_REACH} cells in each of the four horizontal directions, i.e.
+ * it is closed on every side but the bottom. A bridge or an arch tunnel is open to at least two sides, so it
+ * stays air; a window opening is open through the wall.
+ * TODO(L-01): a plate roofing a courtyard no more than 3 plates high and walled on all four sides is filled too;
+ * telling it from a brick's cavity needs the part boundaries a merged mesh does not carry.
+ */
+function fillUndersideCavities(
+  occ: Uint8Array, dims: readonly [number, number, number], meshes: readonly THREE.Mesh[], origin: THREE.Vector3,
+): void {
+  const [nx, ny, nz] = dims;
+  const ray = new THREE.Ray();
+  const dir = new THREE.Vector3();
+  const from = new THREE.Vector3();
+  /** Distance to the nearest surface along `d` within `far`, or null. */
+  const reach = (d: readonly [number, number, number], far: number): number | null => {
+    ray.origin.copy(from);
+    ray.direction.copy(dir.set(d[0], d[1], d[2]));
+    let best: number | null = null;
+    for (const m of meshes) {
+      const tree = (m.geometry as BvhGeometry).boundsTree;
+      const h = tree?.raycastFirst(ray, THREE.DoubleSide, 0, far);
+      if (h && (best === null || h.distance < best)) best = h.distance;
+    }
+    return best;
+  };
+  const WALLS: ReadonlyArray<readonly [number, number, number]> = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]];
+  const pockets: number[] = [];
+  for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) {
+    // Only cells with something above them in the column can be under a roof.
+    let top = -1;
+    for (let y = ny - 1; y >= 0; y--) if (occ[latticeIndex(dims as [number, number, number], x, y, z)] !== 0) { top = y; break; }
+    for (let y = 0; y < top; y++) {
+      const i = latticeIndex(dims as [number, number, number], x, y, z);
+      if (occ[i] !== 0) continue;
+      from.set(origin.x + x + 0.5, origin.y + y + 0.5 - POCKET_PROBE_DROP, origin.z + z + 0.5);
+      if (reach([0, 1, 0], POCKET_ROOF_GAP + POCKET_PROBE_DROP) === null) continue;
+      if (WALLS.every((d) => reach(d, POCKET_WALL_REACH) !== null)) pockets.push(i);
+    }
+  }
+  for (const i of pockets) occ[i] = 1;
 }
 
 /** Linear-working-space RGB (0-1) to sRGB 0-255, clamped and rounded. */
@@ -194,6 +377,7 @@ function cappedGroup(meshes: readonly THREE.Mesh[]): THREE.Group {
 async function voxeliseAndColour(
   source: THREE.Object3D, lduPerUnit: number, mode: VoxelizeMode, sampler: TextureSampler | undefined,
   maxCells: number, onProgress: ((p: VoxelizeProgress) => void) | undefined, insideTest: InsideTest = 'parity',
+  cleanup: LatticeCleanup = { ignoreStuds: true, fillUndersides: true },
 ): Promise<ColouredCells> {
   if (!(lduPerUnit > 0)) throw new RangeError(`lduPerUnit must be > 0, got ${lduPerUnit}`);
 
@@ -208,11 +392,15 @@ async function voxeliseAndColour(
   const lattice = new THREE.Matrix4().makeScale(s, s * Y_STRETCH, s);
   const stretched = new THREE.Group();
   const meshes: THREE.Mesh[] = [];
+  const sourceMeshes: Array<{ mesh: THREE.Mesh; geo: THREE.BufferGeometry }> = [];
   source.traverse((o) => {
     if (!(o instanceof THREE.Mesh) || !o.geometry.getAttribute('position')) return;
-    const dbl = (m: THREE.Material): THREE.Material => { const c = m.clone(); c.side = THREE.DoubleSide; return c; };
-    const geo = o.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(lattice, o.matrixWorld));
-    const m = new THREE.Mesh(geo, Array.isArray(o.material) ? o.material.map(dbl) : dbl(o.material));
+    sourceMeshes.push({ mesh: o, geo: o.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(lattice, o.matrixWorld)) });
+  });
+  const dbl = (m: THREE.Material): THREE.Material => { const c = m.clone(); c.side = THREE.DoubleSide; return c; };
+  const geometries = cleanup.ignoreStuds ? cullStuds(sourceMeshes.map((s) => s.geo)) : sourceMeshes.map((s) => s.geo);
+  sourceMeshes.forEach(({ mesh: o }, i) => {
+    const m = new THREE.Mesh(geometries[i]!, Array.isArray(o.material) ? o.material.map(dbl) : dbl(o.material));
     meshes.push(m);
     stretched.add(m);
   });
@@ -246,11 +434,19 @@ async function voxeliseAndColour(
     { mode: md, onProgress, yieldInterval: 8, insideTest },
   );
   let grid = await run(mode);
+  let surfaceFallback = false;
   // An open mesh has no inside: solid mode then finds nothing. Use its surface instead of returning air.
-  if (mode === 'solid' && grid.countNonAir() === 0) grid = await run('surface');
+  if (mode === 'solid' && grid.countNonAir() === 0) { grid = await run('surface'); surfaceFallback = true; }
   if (grid.width !== dims[0] || grid.height !== dims[1] || grid.length !== dims[2]) {
     throw new Error(`meshToLattice: voxeliser grid ${grid.width}x${grid.height}x${grid.length} disagrees with ${dims.join('x')}`);
   }
+
+  // Occupancy: the voxeliser's cells, plus (solid mode) the closed underside pockets of bricks.
+  const occ = new Uint8Array(dims[0] * dims[1] * dims[2]);
+  for (let y = 0; y < dims[1]; y++) for (let z = 0; z < dims[2]; z++) for (let x = 0; x < dims[0]; x++) {
+    if (grid.getIndex(x, y, z) !== 0) occ[latticeIndex(dims, x, y, z)] = 1;
+  }
+  if (cleanup.fillUndersides && mode === 'solid' && !surfaceFallback) fillUndersideCavities(occ, dims, meshes, box.min);
 
   // Colour pass: nearest surface point to each filled cell centre.
   const boxes = meshes.map((m) => new THREE.Box3().setFromObject(m));
@@ -260,7 +456,7 @@ async function voxeliseAndColour(
   for (let y = 0; y < dims[1]; y++) {
     for (let z = 0; z < dims[2]; z++) {
       for (let x = 0; x < dims[0]; x++) {
-        if (grid.getIndex(x, y, z) === 0) continue;
+        if (occ[latticeIndex(dims, x, y, z)] === 0) continue;
         centre.set(box.min.x + x + 0.5, box.min.y + y + 0.5, box.min.z + z + 0.5);
         let bestD = Infinity;
         let rgb: RGB | null = null;
@@ -310,7 +506,7 @@ function packLattice(cc: ColouredCells, nearest: NearestColour): IntentLattice {
 export async function meshToLattice(object: THREE.Object3D, options: MeshToLatticeOptions = {}): Promise<IntentLattice> {
   const cc = await voxeliseAndColour(
     object, options.lduPerUnit ?? 1, options.mode ?? 'solid', options.textureSampler,
-    options.maxCells ?? DEFAULT_MAX_CELLS, options.onProgress, options.insideTest,
+    options.maxCells ?? DEFAULT_MAX_CELLS, options.onProgress, options.insideTest, cleanupOf(options),
   );
   return packLattice(cc, options.nearest ?? createNearest());
 }
@@ -362,7 +558,7 @@ export async function latticeFromBricks(bricks: readonly BrickLike[], options: B
   }
   if (root.children.length === 0) throw new Error('latticeFromBricks: no brick produced any triangles');
   root.updateMatrixWorld(true);
-  const cc = await voxeliseAndColour(root, 1, options.mode ?? 'solid', undefined, options.maxCells ?? DEFAULT_MAX_CELLS, options.onProgress, options.insideTest);
+  const cc = await voxeliseAndColour(root, 1, options.mode ?? 'solid', undefined, options.maxCells ?? DEFAULT_MAX_CELLS, options.onProgress, options.insideTest, cleanupOf(options));
   // Snap over only the colours the model uses: each brick colour maps back to itself.
   return packLattice(cc, createNearest([...used.values()]));
 }
