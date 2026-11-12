@@ -52,7 +52,8 @@ export const COASTER_ZONES = {
   BLOCK_GAP: 0.5,
   /**
    * The fastest a generated route's train may run, world blocks/s, replacing the global `COASTER_PHYSICS.MAX_SPEED`.
-   * # TODO(C04): value set from the sim measurement below.
+   * 52 is the 3x sketch's design limit and the fastest the sim ran (2.6 blocks a tick) without an unloaded-block fault; a phone's
+   * teleport and chunk loading at that speed is not measured. # TODO(C04-device): measure on a phone and lower it if they do not hold.
    */
   SPEED_CAP_BPS: 52,
 } as const;

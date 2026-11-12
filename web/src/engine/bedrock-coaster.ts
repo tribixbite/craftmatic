@@ -2824,9 +2824,26 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     const smooth = (x: number) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
     const views: any[] = [];
     let track: any = null, ownYaw = NaN, ownPitch = NaN;
+    // A stretch that turns the car over by ROLLING it (a corkscrew, a zero-g roll: the nose never nears the zenith) is
+    // drawn in the nose's own chart: its yaw and pitch and the roll about the view axis, exact and continuous. The `over`
+    // chart (the right axis' heading, a pitch fitted to both axes) is the loop's: through a roll the right axis goes
+    // vertical, its heading is held and clamped, and the fitted pitch swings round to make up for it - the sim drew
+    // 41-57 degrees in one frame there where the car's frame turned 5-20 (C04, the 3x sketch's zero-g rolls and corkscrews,
+    // `camera-continuous`). A stretch whose view comes within ~18 degrees of the zenith (every loop, every steep drop
+    // that is not rolled) keeps `over`, so a coaster without a roll plans exactly as before.
+    const rolledOver = poses.some(pose => pose.up[1] < 0);
+    let rollTrack: any[] | null = null;
+    if (rolledOver) {
+      rollTrack = [];
+      let chain: any = null;
+      for (let k = 0; k <= length && rollTrack; k++) {
+        chain = riderView(poses[k].nose, poses[k].up, look, chain, 'roll', 40);
+        if (Math.abs(chain.direction[1]) > 0.95) rollTrack = null; else rollTrack.push(chain);
+      }
+    }
     for (let k = 0; k <= length; k++) {
       const pose = poses[k];
-      track = riderView(pose.nose, pose.up, look, track, 'over', 40);
+      track = rollTrack ? rollTrack[k] : riderView(pose.nose, pose.up, look, track, 'over', 40);
       const yawNow = (Number.isFinite(pose.yaw) ? pose.yaw : track.yaw - look.yaw) + look.yaw;
       ownYaw = Number.isFinite(ownYaw) ? ownYaw + wrap(yawNow - ownYaw) : track.yaw + wrap(yawNow - track.yaw);
       ownPitch = Number.isFinite(ownPitch) ? ownPitch : track.pitch + wrap(look.pitch - track.pitch);

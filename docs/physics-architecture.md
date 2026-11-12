@@ -332,7 +332,7 @@ without `zones` carries no plan and its runtime path is the one that shipped: `s
   Other trains' positions are read from the placement's sibling trains each tick.
 - **Per-route speed cap.** `CoasterRoute.maxSpeedBps` (a generated route: the design's `limits.maxSpeedBps`, bounded by
   `COASTER_ZONES.SPEED_CAP_BPS`) replaces `COASTER_PHYSICS.MAX_SPEED` (28.28) for that route's integration, stored-speed clamp,
-  planner reach and the ceiling clamp. Source routes keep the global ceiling. SPEED_CAP_MEASUREMENT
+  planner reach and the ceiling clamp. Source routes keep the global ceiling. The cap is 52, the 3x sketch's design limit: in the simulator (`scripts/_coaster_zones_scenarios.ts`, `_coaster_zones_camera.ts`) two trains lap at a peak of 52 blocks/s (2.6 blocks a tick, 37 ticks inside the 96-block simulation distance, quirk `simulation-distance`) with no unloaded-block fault, no rider ejection and no `camera-continuous` violation. The sim's loaded area follows the ticking areas and the rider, so it cannot show whether a PHONE's teleports and chunk loading hold at 35-45 blocks/s (plan A section 5.1, Q10): that stays a device measurement, `TODO(C04-device)`, and the cap is the design's own limit until then.
 - **Prediction.** The rider camera's planner integrates the same arithmetic ahead; it copies the train's launch memo, so a
   prediction never writes the ride's state.
 
@@ -1520,7 +1520,7 @@ literal inside a function body (`§` marks the number).
 | `COASTER_DESIGN.RETURN_DRIVE_BPS` | `web/src/engine/coaster-design.ts` | 10 | blocks/s | The generated return is a powered transfer at this speed. |
 | `COASTER_DESIGN.CLEARANCE_B` | `web/src/engine/coaster-design.ts` | 1.2 | blocks | Two rail samples closer than this, far apart along the track, are a collision. |
 | `COASTER_ZONES.BLOCK_GAP` | `web/src/engine/coaster-zones.ts` | 0.5 | blocks | How far short of a gated block's entry a held train's front stops. |
-| `COASTER_ZONES.SPEED_CAP_BPS` | `web/src/engine/coaster-zones.ts` | 52 | world blocks/s | A generated route's own ceiling (replaces `MAX_SPEED` 28.28 for it). CAP_NOTE |
+| `COASTER_ZONES.SPEED_CAP_BPS` | `web/src/engine/coaster-zones.ts` | 52 | world blocks/s | A generated route's own ceiling (replaces `MAX_SPEED` 28.28 for it). Measured in the sim only (section 4.2d); not on a device. |
 <!-- /physics-spec:constants -->
 
 ## 10. Measured facts
