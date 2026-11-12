@@ -27,7 +27,7 @@
  */
 
 import { SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
-import { clipParallelepiped, type Parallelepiped } from './oriented-box.js';
+import { clipParallelepiped, rayParallelepiped, type Parallelepiped } from './oriented-box.js';
 
 export type Vec3 = [number, number, number];
 /** A model box (entity frame, blocks). `glass`: a translucent part, seen through (the eye and the view ignore it). */
@@ -305,7 +305,9 @@ function rayHitsBox(o: Vec3, d: Vec3, b: BoxBlocks, reach = Infinity): boolean {
     t0 = Math.max(t0, a); t1 = Math.min(t1, c);
     if (t0 > t1) return false;
   }
-  return true;
+  // A TURNED cube holds air inside its corner box: the ray must meet the cube itself, as the simulator's
+  // `forwardViewWorld` (drawn.ts) and `_cockpit_view.ts` cast it (`rayParallelepiped`).
+  return !b.solid || rayParallelepiped(o, d, b.solid, reach) !== undefined;
 }
 
 /**
@@ -626,9 +628,13 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
       // No eye in the cabin sees ahead: leave it, the nearest point up or back that does (`AHEAD_FALLBACK`).
       const f = AHEAD_FALLBACK, zs = boxes.flatMap(b => [b.min[2], b.max[2]]), tail = Math.max(...zs);
       const out: Array<{ e: Vec3; move: number }> = [];
-      for (let j = 0; from[1] + j * f.step <= modelTop + VIEW.overTop + 1e-9; j++) for (let k = 0; k * f.step <= f.back + 1e-9; k++) {
-        const e: Vec3 = [from[0], r2(from[1] + j * f.step), r2(from[2] + k * f.step)];
-        if ((j || k) && e[2] <= tail) out.push({ e, move: Math.hypot(j, k) * f.step });
+      // A seat the evidence put BEHIND the tail (8153's canopy-parts seat is 0.11 past it) has no point 'back' that is
+      // still over the model: the search starts from the tail, else it finds no eye at all and the camera stays
+      // inside the body (the view solid red, 0 of 6 rays ahead).
+      const base = Math.min(from[2], tail);
+      for (let j = 0; from[1] + j * f.step <= modelTop + VIEW.overTop + 1e-9; j++) for (let k = 0; base + k * f.step <= Math.min(tail, from[2] + f.back) + 1e-9; k++) {
+        const e: Vec3 = [from[0], r2(from[1] + j * f.step), r2(base + k * f.step)];
+        if (j || k || e[2] !== from[2]) out.push({ e, move: Math.hypot(e[1] - from[1], e[2] - from[2]) });
       }
       out.sort((a, b) => a.move - b.move);
       let near: { e: Vec3; move: number } | null = null, both: Vec3 | null = null;
@@ -645,6 +651,30 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
     }
   }
   return { eye: best.eye, seat: best.seat, fitScale: fitOf(best.steps), steps: best.steps, moved: best.moved, search, eyeMoved, ...(view ? { view } : {}), ahead };
+}
+
+/** How well an eye sees out over `boxes`, best first when compared as a tuple: sees out, the horizon ahead, the two sides. */
+const outlook = (boxes: readonly BoxBlocks[], eye: Vec3): [number, number, number] => {
+  const ahead = fanView(boxes, eye, AHEAD), sides = sideView(boxes, eye);
+  return [driverSeesOut(ahead, sides) ? 1 : 0, ahead, sides.left + sides.right];
+};
+
+/**
+ * A driver plan judged on the cubes the pack SHIPS (VEH-20). `planSeat` runs on the part boxes of the model; the
+ * shipped cubes differ (`separateCoplanarFaces` grows the winning face of a coplanar pair, the box-UV inflate
+ * grows a thin cube, a turned cube is its own shape), and the simulator and `_cockpit_view.ts` judge those. A plan
+ * whose eye does not `seesOut` on them is asked again on them, and the new plan replaces it only if its eye sees
+ * out BETTER there (sees out, else a wider horizon ahead, else clearer sides): a model that nothing in reach helps
+ * keeps the plan it had. Until 2026-11-12 the re-ask ran only for a plan that saw out on the planned boxes, which
+ * skipped every plan that had settled for an eye seeing ahead only (4997: 6 of 6 rays on the planned boxes, 4 of
+ * 6 on the shipped ones, its camera in a hull plank).
+ */
+export function replanOnShipped(shipped: readonly BoxBlocks[], ask: { eye: Vec3; seat: Vec3; evidence?: SeatEvidence }, plan: SeatPlan): { plan: SeatPlan; replanned: boolean } {
+  if (seesOut(shipped, plan.eye)) return { plan, replanned: false };
+  const again = planSeat(shipped, ask.eye, ask.seat, ask.evidence);
+  const was = outlook(shipped, plan.eye), now = outlook(shipped, again.eye);
+  const better = now.some((v, i) => now.slice(0, i).every((q, j) => Math.abs(q - was[j]!) < 1e-9) && v > was[i]! + 1e-9);
+  return better ? { plan: again, replanned: true } : { plan, replanned: false };
 }
 
 /**
@@ -677,7 +707,16 @@ export function forwardClear(boxes: readonly BoxBlocks[], eye: Vec3): boolean {
 /** How far a hidden rider's eye may move to reach air (blocks: toward the tail, up, down). */
 export const EYE_CLEAR_SEARCH = { back: 0.9, up: 0.6, down: 0.3 } as const;
 
-/** Share of a 0.2-block box around the eye that lies inside the model (0 = the camera is in air). */
+/** Whether a point is inside a turned cube (its edge-matrix inverse takes it to the unit cube). */
+function inSolid(p: Parallelepiped, q: readonly number[]): boolean {
+  const d0 = q[0]! - p.o[0], d1 = q[1]! - p.o[1], d2 = q[2]! - p.o[2], m = p.inv;
+  return [0, 3, 6].every(r => { const a = m[r]! * d0 + m[r + 1]! * d1 + m[r + 2]! * d2; return a >= 0 && a <= 1; });
+}
+
+/**
+ * Share of a 0.2-block box around the eye that lies inside the model (0 = the camera is in air). A turned cube
+ * counts by its own shape, not its corner box.
+ */
 export function eyeOverlap(boxes: readonly BoxBlocks[], eye: Vec3): number {
   const h = 0.1, n = 4;
   const near = boxes.filter(b => !b.glass && b.max[0] > eye[0] - h && b.min[0] < eye[0] + h && b.max[1] > eye[1] - h && b.min[1] < eye[1] + h && b.max[2] > eye[2] - h && b.min[2] < eye[2] + h);
@@ -685,7 +724,7 @@ export function eyeOverlap(boxes: readonly BoxBlocks[], eye: Vec3): number {
   let inside = 0;
   for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let l = 0; l < n; l++) {
     const p = [eye[0] - h + (i + 0.5) * 2 * h / n, eye[1] - h + (j + 0.5) * 2 * h / n, eye[2] - h + (l + 0.5) * 2 * h / n];
-    if (near.some(b => p[0]! >= b.min[0] && p[0]! <= b.max[0] && p[1]! >= b.min[1] && p[1]! <= b.max[1] && p[2]! >= b.min[2] && p[2]! <= b.max[2])) inside++;
+    if (near.some(b => p[0]! >= b.min[0] && p[0]! <= b.max[0] && p[1]! >= b.min[1] && p[1]! <= b.max[1] && p[2]! >= b.min[2] && p[2]! <= b.max[2] && (!b.solid || inSolid(b.solid, p)))) inside++;
   }
   return inside / (n * n * n);
 }
