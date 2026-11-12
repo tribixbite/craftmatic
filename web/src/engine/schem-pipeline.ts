@@ -445,6 +445,8 @@ export async function runSchemPipeline(
     let pinball: { plan: import('./bedrock-pinball.js').PinballPlan; frame: NonNullable<typeof sourceOrigin> } | undefined;
     // Slides and lifts (bedrock-rides.ts): paths in grid coordinates, the lift car's own bricks.
     let rides: { frame: NonNullable<typeof sourceOrigin>; items: Array<{ kind: import('./bedrock-rides.js').RideKind; label: string; path: Array<[number, number, number]>; exits?: Array<[number, number, number]>; startStop?: number; carBricks?: ParsedBrick[] }> } | undefined;
+    // Drop towers and sky swings (rides/funfair-detect.ts): one path per rider seat in grid coordinates, the ring's own bricks.
+    let funfair: { frame: NonNullable<typeof sourceOrigin>; items: Array<{ kind: import('./rides/funfair-detect.js').FunfairKind; label: string; seats: Array<{ path: Array<[number, number, number]>; exit: [number, number, number] }>; carBricks: ParsedBrick[] }> } | undefined;
     /** The moving parts (bedrock-interactives.ts): their own hinged entities on the shell's frame. Brick-accurate buildings only. */
     let interactives: { items: import('./bedrock-interactives.js').SceneInteractive[]; frame: NonNullable<typeof sourceOrigin> } | undefined;
     /** Every interactivity candidate and its verdict (engine/interactivity-stage.ts), for the diagnostics. */
@@ -707,6 +709,18 @@ export async function runSchemPipeline(
               warnings.push(`Rides: ${found.map(r => r.kind === 'slide' ? `slide ${r.part} (${r.pathLdu.length} points)` : `lift on ${r.part} (${r.pathLdu.length} stops, car of ${r.carBricks?.length ?? 0} parts)`).join('; ')}.`);
             }
           }
+          // A drop tower or a sky swing (rides/funfair-detect.ts): a mast with a ring of seats. The ring leaves
+          // the shell and moves as one entity; every seat carries its own path (rides/funfair-runtime.ts).
+          {
+            const { findFunfairRides } = await import('./rides/funfair-detect.js');
+            const found = findFunfairRides(source.bricks.filter(b => !movable.has(b)), scene.meshes, scene.figureBricks);
+            if (found.length) {
+              funfair = { frame, items: found.map(r => ({ kind: r.kind, label: r.label, seats: r.seats.map(q => ({ path: q.pathLdu.map(grid3), exit: grid3(q.exitLdu) })), carBricks: r.carBricks })) };
+              for (const r of found) for (const b of r.carBricks) movable.add(b);
+              for (const r of found) census.owners.push({ label: r.label, use: 'ride', bricks: new Set(r.carBricks), reason: `the ring of a ${r.kind === 'drop' ? 'drop tower' : 'sky swing'}` });
+              warnings.push(`Funfair rides: ${found.map(r => `${r.label.toLowerCase()} on ${r.part} (${r.seats.length} seats, ring of ${r.carBricks.length} parts)`).join('; ')}.`);
+            }
+          }
           // A figure's feet and a seat's surface are grounded on the model's
           // UNDERSIDE (`scene.groundLdu`, the pin plane the shell and the
           // colliders stand on), not on the voxel grid's row-0 bottom: the
@@ -860,6 +874,7 @@ export async function runSchemPipeline(
       ...(coasterRoutes.length ? { coasterRoutes } : {}),
       ...(pinball ? { pinball } : {}),
       ...(rides ? { rides } : {}),
+      ...(funfair ? { funfair } : {}),
       ...(mounts ? { mounts } : {}),
       ...(mountsMissing.length ? { mountsMissing } : {}),
       // Doors, levers and the way in.
