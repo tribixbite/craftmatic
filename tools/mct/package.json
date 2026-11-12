@@ -1,0 +1,9 @@
+{
+  "name": "craftmatic-mct-validator",
+  "private": true,
+  "description": "Pinned Microsoft Minecraft Creator Tools validator (BIZ-24). react is pinned to 18 because ink 5 needs it and bunx resolves react 19.",
+  "dependencies": {
+    "@minecraft/creator-tools": "0.21.0",
+    "react": "18.3.1"
+  }
+}

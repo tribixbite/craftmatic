@@ -1,29 +1,39 @@
 /**
  * release-mctools.ts — run Microsoft's Minecraft Creator Tools validator (`mct validate`) over a release pack and
- * turn its output into one typed report (X-06, BIZ-24 / BIZ-54).
+ * turn its output into one typed report (X-06, BIZ-24 / BIZ-54, package MCT).
  *
  *   bun scripts/release-mctools.ts <pack.mcaddon | pack.zip | project-dir> [--json]
  *
  * What it does: unzips an archive into a NEW temp folder laid out as mct expects (`behavior_packs/<pack>`,
- * `resource_packs/<pack>`), runs `bunx @minecraft/creator-tools@<MCTOOLS_VERSION> validate -i <dir> -o <report dir>`
- * and parses the output into `{ errors, warnings, rules }`.
+ * `resource_packs/<pack>`), runs `mct validate main` and `mct validate addon` over it (each into its own output
+ * folder) and parses the `<project>.csv` each writes into `{ errors, warnings, rules }`. The CSV is the structured
+ * output: the console prints only `Error: ...` lines without rule ids.
+ *
+ * HOW mct is launched (MCT, 2026-11-12): `bunx @minecraft/creator-tools@0.21.0` crashes at start-up with
+ * `Cannot read properties of undefined (reading 'ReactCurrentOwner')`: its `ink@5` needs react 18 as a PEER, and a
+ * fresh bunx tree resolves react 19. `tools/mct/package.json` pins `@minecraft/creator-tools` AND `react@18.3.1`
+ * with its own `bun.lock`; this script runs `bun install --frozen-lockfile` there when `node_modules` is missing and
+ * starts the CLI with `node` (the CLI is an ESM bin; ink is verified under node 25 here, CI installs the same tree).
  *
  * It NEVER accepts Microsoft's EULA: when mct reports that the EULA is not accepted the result is
  * `{ status: 'not-run', reason: 'needs user EULA acceptance ...' }` and the user runs `eula` once themselves (U13).
- * A failed `bunx` (network, a broken dependency tree) is also `not-run` with the reason, so a release gate can tell
- * "validator found errors" from "validator could not run". It does not refuse on the Node version: the package
- * declares no `engines`.
+ * 0.21.0 did not ask for it on `validate` (2026-11-12). A failed launch (a broken dependency tree) is also `not-run`
+ * with the reason, so a release gate can tell "validator found errors" from "validator could not run".
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { unzipSync } from 'fflate';
 
 /** The one place the validator version is pinned (docs/plans/README.md X-06). */
 export const MCTOOLS_VERSION = '0.21.0';
 export const MCTOOLS_PACKAGE = `@minecraft/creator-tools@${MCTOOLS_VERSION}`;
+/** The validation suites run, in order: `main` (most checks) and `addon` (packaging / cooperative add-on checks). */
+export const MCT_SUITES = ['main', 'addon'] as const;
+/** The pinned install: package + the react 18 its ink needs (see the header). */
+export const MCT_TOOL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'tools', 'mct');
 
 export type MctSeverity = 'error' | 'warning';
 
@@ -43,6 +53,8 @@ export interface MctRunResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+  /** The text of every `*.csv` report the run wrote (the structured output). Absent for a run that wrote none. */
+  csv?: string[];
 }
 export type MctRunner = (args: string[], cwd: string) => MctRunResult;
 
@@ -57,44 +69,45 @@ export function needsEula(text: string): boolean {
 }
 
 /**
- * Parse `mct validate` console output. Recognised forms (case-insensitive):
- *  - a rule line `ERROR [RULE_ID] message`, `Warning: RULE_ID - message`, `error RULE_ID: message`;
- *  - a summary `3 errors, 1 warning` (or `Errors: 3` / `Warnings: 1`), which wins over the line count when present
- *    because mct may print each rule once with a count.
- * TODO(mct-format): verified against a hand-written fixture only; the live 0.21.0 run has not got past `bunx`
- * (see X-06 report) so the real line format is unconfirmed. Re-record test/fixtures/mctools-output.txt after U13.
+ * Parse `mct validate` CONSOLE output, the fallback when no CSV was written. Verified against the real 0.21.0
+ * recording (test/fixtures/mctools-output.txt): a finding is `Error: <message>` (or `Warning: <message>`), with no
+ * rule id; `Error: Test Fail: Found N errors in X check` is a per-test summary of the lines after it, not a finding.
  */
 export function parseMctOutput(raw: string): { errors: number; warnings: number; rules: MctRule[] } {
-  const text = raw.replace(ANSI, '');
   const rules: MctRule[] = [];
-  const lineRe = /^\s*[-*•]?\s*\[?(error|warn(?:ing)?)\]?\s*[:\-]?\s*(.+?)\s*$/i;
-  // A rule id is upper-case with digits/underscores; it is bracketed or followed by ":" / "-".
-  const idRe = /^(?:\[([A-Z][A-Z0-9_]{2,})\]\s*[:\-]?|([A-Z][A-Z0-9_]{2,})\s*[:\-])\s*(.+)$/;
-  for (const line of text.split(/\r?\n/)) {
-    const m = lineRe.exec(line);
-    if (!m) continue;
-    const rest = m[2]!;
-    // A summary line ("Errors: 3") is not a rule: its remainder is only a number.
-    if (/^\d+$/.test(rest)) continue;
-    const idm = idRe.exec(rest);
-    rules.push({
-      id: idm ? (idm[1] ?? idm[2]!) : 'unknown',
-      severity: m[1]!.toLowerCase() === 'error' ? 'error' : 'warning',
-      message: idm ? idm[3]! : rest,
-    });
+  for (const line of raw.replace(ANSI, '').split(/\r?\n/)) {
+    const m = /^\s*(error|warning):\s*(.+?)\s*$/i.exec(line);
+    if (!m || /^test (fail|success)\b/i.test(m[2]!)) continue;
+    rules.push({ id: 'unknown', severity: m[1]!.toLowerCase() === 'error' ? 'error' : 'warning', message: m[2]! });
   }
-  const counted = (word: string): number | null => {
-    const a = new RegExp(`(\\d+)\\s+${word}s?\\b`, 'i').exec(text);
-    const b = new RegExp(`\\b${word}s?\\s*[:=]\\s*(\\d+)`, 'i').exec(text);
-    const hit = a?.[1] ?? b?.[1];
-    return hit === undefined ? null : Number(hit);
-  };
-  const errors = counted('error') ?? rules.filter((r) => r.severity === 'error').length;
-  const warnings = counted('warning') ?? rules.filter((r) => r.severity === 'warning').length;
-  return { errors, warnings, rules };
+  return { errors: rules.filter((r) => r.severity === 'error').length, warnings: rules.filter((r) => r.severity === 'warning').length, rules };
 }
 
-/** Turn one finished mct process into a report. Pure: all policy about EULA / launch failure lives here. */
+/**
+ * Parse one `mct validate` CSV report. Header `Test,TestId,Type,Item,Message,Data,Path`; `Type` is one of `Error`,
+ * `Warning`, `Recommendation`, `Info`, `Test fail`, `Test success`, `Unknown`. Only Error and Warning rows are findings
+ * (`Test fail` just repeats a count). The rule id is `<Test>:<TestId>`. The Data cell is NOT quoted and may hold
+ * commas (`1,21,30`), so the row is matched from both ends: leading fields and the quoted Message, trailing quoted
+ * Path. Message and Path are folded into one text, plus Data when it carries a value.
+ */
+export function parseMctCsv(csv: string): { errors: number; warnings: number; rules: MctRule[] } {
+  const rules: MctRule[] = [];
+  const rowRe = /^([A-Z0-9_]+),(\d+),"(Error|Warning)","[^"]*","((?:[^"]|"")*)",(.*?),"([^"]*)",?\s*$/;
+  for (const line of csv.split(/\r?\n/)) {
+    const m = rowRe.exec(line);
+    if (!m) continue;
+    const [, test, id, type, message, data, path] = m;
+    const msg = [message!.replace(/""/g, '"'), data!.replace(/^"|"$/g, '')].filter(Boolean).join(': ');
+    rules.push({
+      id: `${test}:${id}`,
+      severity: type === 'Error' ? 'error' : 'warning',
+      message: path ? `${msg} (${path})` : msg,
+    });
+  }
+  return { errors: rules.filter((r) => r.severity === 'error').length, warnings: rules.filter((r) => r.severity === 'warning').length, rules };
+}
+
+/** Turn finished mct process(es) into a report. Pure: all policy about EULA / launch failure lives here. */
 export function reportFromRun(run: MctRunResult): MctReport {
   const combined = `${run.stdout}\n${run.stderr}`;
   if (needsEula(combined)) {
@@ -103,23 +116,35 @@ export function reportFromRun(run: MctRunResult): MctReport {
       reason: `needs user EULA acceptance: the user runs \`bunx ${MCTOOLS_PACKAGE} eula\` once (U13); this tool never accepts it`,
     };
   }
-  const parsed = parseMctOutput(run.stdout);
-  const sawSummary = /\d+\s+errors?\b|\berrors?\s*[:=]\s*\d+/i.test(run.stdout) || parsed.rules.length > 0;
-  if (!sawSummary && run.exitCode !== 0) {
+  const csvText = (run.csv ?? []).join('\n');
+  // mct exits 4 when it found errors, so the exit code alone cannot tell "found errors" from "did not run": a report
+  // (CSV or an `Error:` line) means it ran.
+  const parsed = csvText ? parseMctCsv(csvText) : parseMctOutput(run.stdout);
+  if (!csvText && parsed.rules.length === 0 && run.exitCode !== 0) {
     const firstError = combined.replace(ANSI, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).find((l) => /error|cannot|failed|ENOENT/i.test(l));
     return { status: 'not-run', reason: `mct did not run (exit ${run.exitCode})${firstError ? `: ${firstError}` : ''}` };
-  }
-  if (!sawSummary) {
-    // Exit 0 and no findings printed: a clean run (mct prints nothing for a project without issues).
-    return { status: 'ran', errors: 0, warnings: 0, rules: [] };
   }
   return { status: 'ran', ...parsed };
 }
 
-/** The real runner: `bunx <pinned package> <args>`. */
-export const bunxRunner: MctRunner = (args, cwd) => {
-  const r = spawnSync('bunx', [MCTOOLS_PACKAGE, ...args], { cwd, encoding: 'utf-8', shell: process.platform === 'win32', timeout: 10 * 60_000 });
-  return { exitCode: r.status ?? -1, stdout: r.stdout ?? '', stderr: `${r.stderr ?? ''}${r.error ? `\n${r.error.message}` : ''}` };
+/** The pinned CLI entry inside tools/mct (the package bin, `cli/index.mjs`). */
+const MCT_CLI = join(MCT_TOOL_DIR, 'node_modules', '@minecraft', 'creator-tools', 'cli', 'index.mjs');
+
+/**
+ * The real runner: installs tools/mct from its lockfile when needed, runs the CLI with `node`, and collects every CSV
+ * report from the `-o` folder. A failed install is returned as a non-zero run so it becomes `not-run`.
+ */
+export const mctRunner: MctRunner = (args, cwd) => {
+  if (!existsSync(MCT_CLI)) {
+    const inst = spawnSync('bun', ['install', '--frozen-lockfile'], { cwd: MCT_TOOL_DIR, encoding: 'utf-8', shell: process.platform === 'win32', timeout: 10 * 60_000 });
+    if (inst.status !== 0 || !existsSync(MCT_CLI)) {
+      return { exitCode: inst.status ?? -1, stdout: '', stderr: `bun install in ${MCT_TOOL_DIR} failed: ${inst.stderr ?? ''}${inst.error ? inst.error.message : ''}` };
+    }
+  }
+  const r = spawnSync('node', [MCT_CLI, ...args], { cwd, encoding: 'utf-8', shell: process.platform === 'win32', timeout: 10 * 60_000 });
+  const outDir = args[args.indexOf('-o') + 1];
+  const csv = outDir && existsSync(outDir) ? readdirSync(outDir).filter((f) => f.endsWith('.csv')).map((f) => readFileSync(join(outDir, f), 'utf-8')) : [];
+  return { exitCode: r.status ?? -1, stdout: r.stdout ?? '', stderr: `${r.stderr ?? ''}${r.error ? `\n${r.error.message}` : ''}`, csv };
 };
 
 /**
@@ -148,13 +173,21 @@ export function unpackForMct(archive: string, baseDir: string = tmpdir()): strin
   return dest;
 }
 
-/** Validate a pack archive or project folder. `run` is injectable for tests. */
-export function validateRelease(input: string, run: MctRunner = bunxRunner, baseDir: string = tmpdir()): MctReport {
+/** Validate a pack archive or project folder with every suite and merge the findings. `run` is injectable for tests. */
+export function validateRelease(input: string, run: MctRunner = mctRunner, baseDir: string = tmpdir()): MctReport {
   const abs = resolve(input);
   if (!existsSync(abs)) return { status: 'not-run', reason: `input not found: ${abs}` };
   const project = statSync(abs).isDirectory() ? abs : unpackForMct(abs, baseDir);
-  const reportDir = mkdtempSync(join(baseDir, 'release-mctools-out-')); // mct writes reports to ./out by default
-  return reportFromRun(run(['validate', '-i', project, '-o', reportDir], baseDir));
+  const merged = { errors: 0, warnings: 0, rules: [] as MctRule[] };
+  for (const suite of MCT_SUITES) {
+    const reportDir = mkdtempSync(join(baseDir, `release-mctools-${suite}-`)); // a NEW folder per suite: reports never mix
+    const one = reportFromRun(run(['validate', suite, '-i', project, '-o', reportDir], baseDir));
+    if (one.status === 'not-run') return one;
+    merged.errors += one.errors;
+    merged.warnings += one.warnings;
+    merged.rules.push(...one.rules);
+  }
+  return { status: 'ran', ...merged };
 }
 
 function main(argv: string[]): number {
