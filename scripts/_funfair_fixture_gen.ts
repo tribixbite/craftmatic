@@ -54,8 +54,8 @@ function mast(m: Model, count: number): number {
   return top;
 }
 
-/** The yaw whose rotation maps a part's local -Z (a seat's front) and local +X to the outward and tangent directions at azimuth `deg`. */
-const outwardYaw = (deg: number): number => Math.atan2(-Math.sin(deg * Math.PI / 180), -Math.cos(deg * Math.PI / 180)) * 180 / Math.PI;
+/** The yaw whose rotation maps a part local +Z (the minifig seat's FRONT: its backrest is at -Z, measured on 4079's mesh) and local +X to the outward and tangent directions at azimuth `deg`. */
+const outwardYaw = (deg: number): number => Math.atan2(Math.sin(deg * Math.PI / 180), Math.cos(deg * Math.PI / 180)) * 180 / Math.PI;
 
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -72,7 +72,7 @@ mkdirSync(OUT_DIR, { recursive: true });
     // A 2 x 8 arm from the mast (radius 40) out past the seat (200), its length (local x) along the radius, then the plate under the seat.
     m.place(RED, Math.cos(a * Math.PI / 180) * 120, ringPlate, Math.sin(a * Math.PI / 180) * 120, ry(-a), '3034');
     m.place(BLUE, x, ringPlate, z, ry(-a), '3958');
-    // The seat stands on the plate (foot y + 8 = plate top), its front (-Z) outward.
+    // The seat stands on the plate (foot y + 8 = plate top), its front (+Z) outward.
     m.place(YELLOW, x, ringPlate - 8, z, ry(outwardYaw(a)), '4079');
   }
   m.write('drop-tower.ldr');
