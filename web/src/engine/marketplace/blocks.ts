@@ -121,3 +121,18 @@ export function brickBlockLangLines(namespace: string): string[] {
   const title = (c: string): string => c.split('_').map(w => w[0]!.toUpperCase() + w.slice(1)).join(' ');
   return BRICK_BLOCK_COLOURS.flatMap(c => BRICK_BLOCK_KINDS.map(k => `tile.${brickBlockId(namespace, c, k)}.name=${title(c)} ${k === 'brick' ? 'Brick' : 'Plate'} Block`));
 }
+
+/**
+ * A grid palette (block-state strings) with every vanilla dyed concrete respelled as this pack's brick block of the
+ * same colour: `minecraft:red_concrete` -> `<ns>:brick_red` (T02-fix, BIZ-26; plan A 7.3). A coloured-block export
+ * writes its structure from the grid's palette, so without this a `brickBlocks` pack declares its 32 blocks and the
+ * placement still writes the vanilla concrete whose texture the pack is no longer allowed to override. Entries that
+ * are not one of the swatch colours pass through; the order (the palette indices) is kept.
+ */
+export function brickBlockPalette(palette: readonly string[], namespace: string): string[] {
+  const colours = new Set(BRICK_BLOCK_COLOURS);
+  return palette.map(entry => {
+    const m = /^minecraft:([a-z_]+)_concrete$/.exec(entry);
+    return m && colours.has(m[1]!) ? brickBlockId(namespace, m[1]!, 'brick') : entry;
+  });
+}

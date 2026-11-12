@@ -60,7 +60,7 @@ export const NIMBUS_LABEL = 'Dragon Ball: Shenron & Goku (11390-1)';
 export const NIMBUS_STEM = 'DragonBallShenron';
 
 /** Build the stand-in pack; `packProfile` is the only thing a profile test varies. */
-export async function buildNimbusPack(packProfile?: PackProfile, label = NIMBUS_LABEL): Promise<Uint8Array> {
+export async function buildNimbusPack(packProfile?: PackProfile, label = NIMBUS_LABEL, overrides: { buildingFidelity?: 'bricks' | 'blocks' } = {}): Promise<Uint8Array> {
   seedBoxParts();
   const doc = parseLDrawDocument(readFileSync('test/fixtures/nimbus-fixture.ldr', 'utf8'));
   const result = await runSchemPipeline({
@@ -68,7 +68,7 @@ export async function buildNimbusPack(packProfile?: PackProfile, label = NIMBUS_
     format: 'mcaddon', packStem: NIMBUS_STEM, packLabel: label, profile: 'default', lightFill: false, shapes: false,
     vehicleMode: 'auto', vehicleFacing: 'auto', entityQuality: 'balanced', modelScale: 1,
     pipelineStamp: FIXED_STAMP, sourceProvenance: null,
-    ...(packProfile ? { packProfile } : {}),
+    ...(packProfile ? { packProfile } : {}), ...overrides,
   });
   return result.bytes!;
 }

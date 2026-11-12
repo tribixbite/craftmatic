@@ -5,7 +5,7 @@ import { deterministicUuid, packIdentity, PACK_NAMESPACE, toBedrockIdentifier } 
 import { currentPipelineStamp, packDisplayName, packProvenance, packVersionAt, provenanceSentence, unstampedPipeline, type PackProvenance, type PipelineStamp, type SourceProvenance } from './pipeline-version.js';
 import { applyLangOverrides, labelHeuristicsAllowed, resolvePackFlags, type PackProfile } from './pack-profile.js';
 import { compactColliderPalette, colliderStateNames, type ColliderStateEncoding } from './collider-form.js';
-import { BRICK_BLOCK_COLOURS, BRICK_BLOCK_KINDS, brickBlockDefinition, brickBlockId, brickBlockLangLines, brickBlockTextureFiles, brickBlockTextures, plateGeometry } from './marketplace/blocks.js';
+import { BRICK_BLOCK_COLOURS, BRICK_BLOCK_KINDS, brickBlockDefinition, brickBlockId, brickBlockPalette, brickBlockLangLines, brickBlockTextureFiles, brickBlockTextures, plateGeometry } from './marketplace/blocks.js';
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
@@ -3356,8 +3356,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     files.push({ name: `${rp}textures/terrain_texture.json`, data: json({ resource_pack_name: `craftmatic_${id}`, texture_name: 'atlas.terrain', texture_data: terrainTextures }) });
     // M03: the compact collider spelling reaches the structure tiles too (their palette entries carry the block states).
     let tileGrid = structureGrid;
-    if (flags.compactColliderStates) {
-        const before = structureGrid.reversePalette(), after = compactColliderPalette(before);
+    {
+        const before = structureGrid.reversePalette();
+        let after = before;
+        if (flags.compactColliderStates) after = compactColliderPalette(after);
+        // M03 / T02-fix: the pack's own brick blocks stand where the dev pack places vanilla concrete.
+        if (flags.brickBlocks) after = brickBlockPalette(after, PACK_NAMESPACE);
         if (after.some((entry, k) => entry !== before[k])) tileGrid = BlockGrid.fromRaw(structureGrid.width, structureGrid.height, structureGrid.length, structureGrid.rawData, after);
     }
     for (let i = 0; i < plan.length; i++) {
@@ -4068,6 +4072,11 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // Plan the treads in yielding steps: 16 size x turn plans run for minutes on a large set.
     const doorCells = interactiveConfig ? interactiveConfig.items.flatMap(item => item.blocking) : undefined;
     const plannedTreads = placementColliders ? await withColliderTreadsAsync(placementColliders, [], doorCells ?? [], fineReach, carveSource) : undefined;
+    // Board points (bedrock-vehicle.ts `BOARD`, VEH-17): one invisible rideable type per size step for every scripted vehicle
+    // with drawn extremities. Named here, before the placement script, because Undo must remove them with their vehicle.
+    const boardIds = Object.values(scriptedTypes).some(t => t.board?.length)
+        ? Object.fromEntries(SIZE_STEPS.map(pct => [String(pct), entityId(`${id}_board_${pct}`, 'b')]))
+        : undefined;
     const placement = buildPlacementPackAssets({ stem: id, label, width: grid.width, height: grid.height, length: grid.length,
         tiles: plan.map(tile => ({ identifier: `${PACK_NAMESPACE}:${tile.name}`, dx: tile.x, dy: tile.y, dz: tile.z, width: tile.width, height: tile.height, length: tile.length, nonAir: tile.nonAir })), actors, previewPoints,
         ...(shellMigrations.length ? { shellMigrations } : {}),
@@ -4079,6 +4088,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(timeMachineConfig ? { vehicleControls: true } : {}),
         // M07: a release / Marketplace profile builds only into air (absent: the dev wand).
         ...(flags.marketplacePlacement ? { marketplacePlacement: true } : {}),
+        ...(boardIds ? { boardTypes: Object.values(boardIds).map(b => `${PACK_NAMESPACE}:${b}`), boardOwnerProperty: BOARD_OWNER_PROPERTY } : {}),
         ...(options.interactionNote || ixWalkNote ? { interactionNote: bedrockInGameText([options.interactionNote, ixWalkNote].filter(Boolean).join(' ')) } : {}),
         // The wand names the measured walk-through step and quotes the reason
         // whole - spelt for Bedrock's text formatter, which deletes a bare `%`.
@@ -4101,12 +4111,10 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const hopSources: Record<string, HopSource> = { ...nativeHopSources, ...Object.fromEntries(Object.entries(scriptedTypes).map(([t, v]) => [t, scriptedHopSource(v)])) };
     const hasHop = Object.keys(hopSources).length > 0;
     if (hasHop) files.push({ name: `${bp}scripts/hop.js`, data: text(hopScript(hopRuntimeConfig(PACK_NAMESPACE, hopSources))) });
-    // Board points (bedrock-vehicle.ts `BOARD`, VEH-17): one invisible rideable definition for every scripted vehicle
-    // with drawn extremities; the runtime places them only where an extremity lies past the interact's root reach.
+    // The runtime places a board point only where an extremity lies past the interact's root reach.
     let boardConfig: ScriptedVehicleConfig['board'];
-    if (Object.values(scriptedTypes).some(t => t.board?.length)) {
+    if (boardIds) {
         // One point type per size step, its column declared at that size (`boardPointBehavior`).
-        const boardIds = Object.fromEntries(SIZE_STEPS.map(pct => [String(pct), entityId(`${id}_board_${pct}`, 'b')]));
         boardConfig = { types: Object.fromEntries(Object.entries(boardIds).map(([pct, b]) => [pct, `${PACK_NAMESPACE}:${b}`])), ownerProperty: BOARD_OWNER_PROPERTY, params: BOARD };
         for (const [pct, boardId] of Object.entries(boardIds)) files.push(
             { name: `${bp}entities/${boardId}.json`, data: json(boardPointBehavior(boardId, Number(pct))) },
@@ -4212,7 +4220,7 @@ export function interactiveSummary(label: string, items: readonly InteractiveRun
     const bySize = new Map<number, number>();
     for (const d of doorways) bySize.set(d.passSize!, (bySize.get(d.passSize!) ?? 0) + 1);
     const pass = [...bySize].sort((a, b) => (a[0] || 1e9) - (b[0] || 1e9)).map(([size, n]) => size ? `${n} from ${size} %` : `${n} at no wand size (too small; they open but stay blocked)`).join(', ');
-    return `${label}: moving parts - ${parts}; tap to open, close or turn. ${doorways.length ? `Doorways passable (a player needs an opening a minifig fits, 0.75 x 1.8 blocks): ${pass}.` : 'No doorway to walk through.'}`;
+    return `${label}: moving parts - ${parts}; tap to open, close or turn. ${doorways.length ? `Doorways passable (a player needs an opening of 0.75 x 1.8 blocks): ${pass}.` : 'No doorway to walk through.'}`;
 }
 
 // ── Measured coaster train ───────────────────────────────────────────────────

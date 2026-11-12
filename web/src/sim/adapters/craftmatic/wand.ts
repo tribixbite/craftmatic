@@ -213,6 +213,10 @@ export function wandHandlers(pack: CraftmaticPack): Record<string, StepHandler> 
       const left = alive.filter(e => [...e.tags].some(t => t.startsWith('cmu_')));
       const others = alive.filter(e => !left.includes(e));
       if (remote.length && !left.length) ctx.note(`after Undo, loaded ${remote.length} remote placement actor chunk${remote.length === 1 ? '' : 's'}; deferred cleanup removed every actor`);
+      // A scripted vehicle's boarding points are spawned by its runtime, not tagged by the wand, yet they belong to the
+      // placement: Undo must take them away with the vehicle (T02-fix finding 4), not leave them for a later sweep.
+      const boards = others.filter(e => /_board_\d+$/.test(e.typeId));
+      if (boards.length) ctx.violate({ invariant: 'nothing-left-after-undo', message: `${boards.length} boarding point${boards.length === 1 ? '' : 's'} left after Undo: ${[...new Set(boards.map(e => e.typeId))].join(', ')}`, evidence: { entities: boards.slice(0, 10).map(e => ({ type: e.typeId, at: e.location })) } });
       if (others.length) ctx.note(`after Undo, ${others.length} entit${others.length === 1 ? 'y' : 'ies'} the placement did not spawn remain: ${[...new Set(others.map(e => e.typeId))].join(', ')}`);
       if (left.length) ctx.violate({ invariant: 'nothing-left-after-undo', message: `${left.length} entit${left.length === 1 ? 'y' : 'ies'} left after Undo: ${[...new Set(left.map(e => e.typeId))].slice(0, 6).join(', ')}`, evidence: { entities: left.slice(0, 10).map(e => ({ type: e.typeId, at: e.location })) } });
       const snap = ctx.state[SNAPSHOT_KEY] as { origin: { x: number; y: number; z: number }; dims: { w: number; h: number; l: number }; ids: number[] } | undefined;

@@ -85,7 +85,7 @@ export const SWING_SECONDS = 0.4;
  * or more (a door from 6.5 blocks, a turned door from 3.5). Shown in the wand
  * menu of every pack with moving parts.
  */
-export const INTERACTIVE_REACH_NOTE = 'Stand next to a door, window or lever to tap it: Minecraft only takes a tap on it from about 3 blocks or closer.';
+export const INTERACTIVE_REACH_NOTE = 'Stand next to a door, window or lever to tap it: it answers a tap only from about 3 blocks away or closer.';
 /**
  * How many interactives one pack ships. Each is an actor (31-48 kB idle on the
  * Pixel, docs/bedrock-addon-guide.md) and an entity type; doorways first, then

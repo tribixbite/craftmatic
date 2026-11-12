@@ -295,7 +295,7 @@ when none does. Below it the leaf still swings open but its
 colliders stay (the runtime says *"This opening is 0.8 x 1.4 blocks at 100
 percent: too small to walk through at 100 percent. Place the build at 200
 percent or larger to pass."*). The pack warnings carry one line per set
-(*"Doorways passable (a player needs an opening a minifig fits, 0.75 x 1.8
+(*"Doorways passable (a player needs an opening of 0.75 x 1.8
 blocks): 4 from 100 %, 2 from 200 %"*), the diagnostics carry every part's opening and `passSize`, and the
 Walk add-on's legend says how many are passable at the chosen size.
 

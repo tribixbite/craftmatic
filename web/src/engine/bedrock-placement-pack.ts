@@ -206,6 +206,13 @@ export interface PlacementPackSpec {
    * join; a two-page guide is a menu button. Absent: the dev pack's wand, unchanged.
    */
   marketplacePlacement?: boolean;
+  /**
+   * The boarding-point entity types a scripted vehicle of the model spawns (`bedrock-vehicle.ts` `BOARD`) and the
+   * dynamic property that names each point's vehicle. The vehicle runtime spawns them untagged, so Undo needs the
+   * list to remove the points of every vehicle it retires (T02-fix, BIZ-26). Absent or empty: no key in the config.
+   */
+  boardTypes?: readonly string[];
+  boardOwnerProperty?: string;
 }
 
 export interface PlacementPackAssets {
@@ -1228,6 +1235,19 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
         try { const id = e.id; e.remove(); missing.delete(id); } catch {}
       }
     } catch {}
+    // A scripted vehicle's boarding points are spawned (and normally swept) by the vehicle's own runtime, untagged: take
+    // those of every vehicle this Undo retired along with it, so none stands for a sweep to find (T02-fix finding 4).
+    if (Array.isArray(config.boardTypes) && config.boardOwner) {
+      const retiredIds = new Set<string>(ids.filter((v: any) => typeof v === 'string'));
+      try {
+        const dim = world.getDimension(h.dimension);
+        for (const type of config.boardTypes) {
+          let points: any[] = [];
+          try { points = dim.getEntities({ type }) || []; } catch {}
+          for (const point of points) { try { if (retiredIds.has(point.getDynamicProperty(config.boardOwner))) point.remove(); } catch {} }
+        }
+      } catch {}
+    }
     const persisted = !!h.tag && (!missing.size || persistRetirement(h.tag, missing));
     return { missing: h.tag && retirements.get(h.tag)?.ids || missing, persisted };
   };
@@ -1593,6 +1613,27 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     out.sort((a, b) => a.dx * a.dx + a.dz * a.dz - (b.dx * b.dx + b.dz * b.dz));
     return out.map(o => ({ x: st.anchor.x + o.dx * step, y: st.anchor.y, z: st.anchor.z + o.dz * step }));
   };
+  /** A standing player's body box (Bedrock: 0.6 wide, 1.8 tall), the part of a spot that a placement must not build over. */
+  const BODY_HALF_WIDTH = 0.3, BODY_HEIGHT = 1.8;
+  /**
+   * Whether the footprint at `anchor` (the size and turn chosen) overlaps the body of any player in `dim`. A clear
+   * spot built over a player puts them inside the collider blocks (T02-fix finding 3: `player-not-in-solid`), so
+   * the search skips such footprints. The footprint spans [anchor, anchor + dims) in whole blocks.
+   */
+  const coversPlayer = (dim: any, st: any, anchor: any): boolean => {
+    const d = dims(st);
+    let players: any[] = [];
+    try { players = world.getAllPlayers() || []; } catch {}
+    return players.some((q: any) => {
+      try {
+        if (q.dimension?.id !== dim.id) return false;
+        const l = q.location;
+        return l.x + BODY_HALF_WIDTH > anchor.x && l.x - BODY_HALF_WIDTH < anchor.x + d.width
+          && l.y + BODY_HEIGHT > anchor.y && l.y < anchor.y + d.height
+          && l.z + BODY_HALF_WIDTH > anchor.z && l.z - BODY_HALF_WIDTH < anchor.z + d.length;
+      } catch { return false; }
+    });
+  };
   /** Runs `job` as the one active operation (a scan loads areas and must not overlap a placement). */
   async function whileBusy<T>(p: any, job: () => Promise<T>): Promise<T | undefined> {
     if (active) { tell(p, 'Another placement is running.'); return undefined; }
@@ -1615,6 +1656,7 @@ If your last placement is in the way, undo it first.`)
     const spot = await whileBusy(p, async () => {
       tell(p, 'Looking for a clear spot...');
       for (const anchor of clearSpotCandidates(st)) {
+        if (coversPlayer(dim, st, anchor)) continue;
         if ((await foreignBlocks(dim, st, anchor, 1)).count === 0) return anchor;
       }
       return undefined;
@@ -2384,7 +2426,9 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
     // Last, so a reader keying on the older fields' order (a test's regex) reads unchanged.
     shellMigrations: spec.shellMigrations ?? [],
     // Only a marketplace pack names the key, so a dev pack's config is byte-identical to before.
-    ...(spec.marketplacePlacement ? { marketplace: true } : {}) };
+    ...(spec.marketplacePlacement ? { marketplace: true } : {}),
+    // Likewise only a pack with boarding points names them.
+    ...(spec.boardTypes?.length && spec.boardOwnerProperty ? { boardTypes: [...spec.boardTypes], boardOwner: spec.boardOwnerProperty } : {}) };
   const controlsImport = spec.vehicleControls ? 'import { showTimeMachineControls } from "./time-machine.js";\n' : '';
   const script = `${controlsImport}import { world, system, StructureSaveMode, BlockPermutation, BlockVolume } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG, ${spec.vehicleControls ? "showTimeMachineControls" : "undefined"}, (${colliderFormKit.toString()})(), ${sizeCarveAt.toString()});\n`;
   const item = {

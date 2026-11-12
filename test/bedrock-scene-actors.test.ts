@@ -457,7 +457,7 @@ describe('measureSceneAccess / recommendAccessScale', () => {
     const rec = recommendAccessScale(m);
     expect(rec).toMatchObject({ scale: 1, sizePct: 100, basis: 'apertures' });
     expect(rec.doorway).toMatchObject({ widthBlocks: 1.1, heightBlocks: 2.7, count: 1, passable: 1 });
-    expect(rec.reason).toMatch(/^Wall openings are 1\.1×2\.7 blocks at 100 %: a player walks through as exported \(1\/1 clear the 0\.75×1\.8 a minifig needs\)/);
+    expect(rec.reason).toMatch(/^Wall openings are 1\.1×2\.7 blocks at 100 %: a player walks through as exported \(1\/1 clear the 0.75×1.8 a player needs\)/);
   });
 
   it('a microscale doorway (40 × 48 LDU) needs 200 %, the size at which a minifig would walk through it, and the reason says what that makes it', async () => {
@@ -466,7 +466,7 @@ describe('measureSceneAccess / recommendAccessScale', () => {
     expect(rec).toMatchObject({ scale: 2, sizePct: 200, basis: 'apertures' });
     expect(rec.doorway).toMatchObject({ widthBlocks: 0.8, heightBlocks: 0.9, passable: 1 });
     expect(rec.doorway!.requiredScale).toBeCloseTo(96 / 48, 6);
-    expect(rec.reason).toBe("Wall openings are 0.8×0.9 blocks at 100 %; 200 % makes them 1.5×1.8 (a player needs 0.75×1.8, a minifig's doorway; 1/1 clear it); floors are 1.8 blocks under the ceiling at 200 %.");
+    expect(rec.reason).toBe("Wall openings are 0.8×0.9 blocks at 100 %; 200 % makes them 1.5×1.8 (a player needs 0.75×1.8 to walk through; 1/1 clear it); floors are 1.8 blocks under the ceiling at 200 %.");
   });
 
   it('a one-stud, one-brick gap (20 × 24 LDU), the smallest opening counted, opens at 400 %', async () => {
@@ -647,7 +647,7 @@ describe('measureSceneAccess / recommendAccessScale', () => {
     expect(rec.scale).toBe(4);
     expect(rec.climb).toMatchObject({ bestStep: 1, climbableAtScale: false });
     expect(rec.climb!.fraction).toBe(0);
-    expect(rec.reason).toMatch(/But at 400 % a player reaches only 0 % of the model's height \(its top floor is 2\.7 blocks up at 100 %\), against 67 % at 100 %: rises the player jumped at 100 % are above the 1\.25-block jump at 400 %\. 100 % keeps the floors but leaves doorways at 0\.4×0\.5 - under the 0\.75×1\.8 a minifig needs; the choice is between the doors and the stairs\.$/);
+    expect(rec.reason).toMatch(/But at 400 % a player reaches only 0 % of the model's height \(its top floor is 2\.7 blocks up at 100 %\), against 67 % at 100 %: rises the player jumped at 100 % are above the 1\.25-block jump at 400 %\. 100 % keeps the floors but leaves doorways at 0\.4×0\.5 - under the 0.75×1.8 a player needs; the choice is between the doors and the stairs\.$/);
   });
 
   it('a minifig-scale doorway with the same staircase: 100 % is recommended and nothing is lost', async () => {
@@ -707,7 +707,7 @@ describe('measureSceneAccess / recommendAccessScale', () => {
     expect(rec.doorway).toMatchObject({ count: 1, passable: 1 });
     // 40 × 144 LDU: two studs, the width of a minifig's hips - the player's doorway at 100 % (SCALE-04).
     expect(rec).toMatchObject({ scale: 1, sizePct: 100 });
-    expect(rec.reason).toMatch(/^Entrances are 0\.8×2\.7 blocks at 100 %: a player walks through as exported \(1\/1 clear the 0\.75×1\.8 a minifig needs\)/);
+    expect(rec.reason).toMatch(/^Entrances are 0\.8×2\.7 blocks at 100 %: a player walks through as exported \(1\/1 clear the 0.75×1.8 a player needs\)/);
   });
 
   it('keeps the reach walk\'s floors at the asked scale as LDraw points (the tread planner\'s fine walk)', async () => {
