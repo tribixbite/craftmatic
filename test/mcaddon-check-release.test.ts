@@ -242,6 +242,35 @@ describe('mcaddon-check-release', () => {
     expect(r.out).toMatch(/vanilla texture path: textures\/blocks\/concrete_white\.png/);
   });
 
+  // Microsoft's own custom-block tutorials put the pack's `textures/terrain_texture.json` in the resource pack: it is
+  // how a custom block gets its texture, and the game merges it with vanilla's. The file is fine; redefining a
+  // vanilla texture through it is not.
+  const atlas = (data: Record<string, unknown>, name = 'terrain_texture'): Files => ({
+    ...releaseOkFiles(),
+    [`${RP}textures/${name}.json`]: JSON.stringify({ resource_pack_name: 'acme_demo', texture_name: name === 'terrain_texture' ? 'atlas.terrain' : 'atlas.items', texture_data: data }),
+  });
+
+  it('a terrain_texture.json that names only its own blocks passes --release', () => {
+    const r = run(['--release', variant(atlas({ acme_demo_slab: { textures: 'textures/blocks/acme/demo/slab' }, acme_demo_var: { textures: { variations: [{ path: 'textures/blocks/acme/demo/slab', weight: 1 }] } } }))]);
+    expect(r.out).not.toMatch(/terrain_texture/);
+    expect(r.code).toBe(0);
+  });
+
+  it('a terrain_texture.json that redefines a vanilla texture fails --release, naming the key', () => {
+    const byKey = run(['--release', variant(atlas({ dirt: { textures: 'textures/blocks/acme/demo/slab' } }))]);
+    expect(byKey.code).toBe(1);
+    expect(byKey.out).toMatch(/terrain_texture\.json redefines vanilla texture\(s\): dirt/);
+    const byPath = run(['--release', variant(atlas({ acme_demo_slab: { textures: 'textures/blocks/concrete_white' } }))]);
+    expect(byPath.out).toMatch(/terrain_texture\.json redefines vanilla texture\(s\):.*textures\/blocks\/concrete_white/);
+  });
+
+  it('an item_texture.json is read the same way', () => {
+    expect(run(['--release', variant(atlas({ acme_wand: { textures: 'textures/items/acme/demo/wand' } }, 'item_texture'))]).code).toBe(0);
+    const bad = run(['--release', variant(atlas({ apple: { textures: 'textures/items/acme/demo/wand' } }, 'item_texture'))]);
+    expect(bad.code).toBe(1);
+    expect(bad.out).toMatch(/item_texture\.json redefines vanilla texture\(s\): apple/);
+  });
+
   it('a rule-built fixture passes --release', () => {
     const r = run(['--release', fixture('release-ok')]);
     expect(r.out).toMatch(/^OK /m);

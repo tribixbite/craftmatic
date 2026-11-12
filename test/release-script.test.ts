@@ -9,11 +9,11 @@
  * Nothing here deletes anything: scratch repos, worktrees and output folders are left in place under `output/`
  * (gitignored) with a NEW name per run.
  */
-import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
+import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 const REPO = resolve(__dirname, '..');
 const SCRIPT = join(REPO, 'scripts', 'release.ts');
@@ -47,6 +47,21 @@ function prepare(root: string, args: string[], env: Record<string, string> = {})
   return spawnSync('bun', [SCRIPT, 'prepare', ...args], {
     cwd: REPO, encoding: 'utf8', timeout: 600_000,
     env: { ...process.env, CRAFTMATIC_RELEASE_ROOT: root, ...env },
+  });
+}
+
+/**
+ * `prepare` without blocking the worker's event loop: a describe body that spawns several 15 s builds synchronously
+ * holds the loop past vitest's 60 s RPC timeout ("Timeout calling onTaskUpdate") with every test green.
+ */
+function prepareAsync(root: string, args: string[], env: Record<string, string> = {}): Promise<SpawnSyncReturns<string>> {
+  return new Promise(done => {
+    const child = spawn('bun', [SCRIPT, 'prepare', ...args], { cwd: REPO, env: { ...process.env, CRAFTMATIC_RELEASE_ROOT: root, ...env } });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', d => { stdout += String(d); });
+    child.stderr.on('data', d => { stderr += String(d); });
+    child.on('close', status => done({ status, stdout, stderr } as SpawnSyncReturns<string>));
   });
 }
 
@@ -187,12 +202,187 @@ describe.skipIf(!e2eReady)(`release-script: fixture product end to end (${e2eRea
     expect(readFileSync(join(first.out, 'NOTICE.txt'), 'utf8')).toContain('NOT AN OFFICIAL MINECRAFT PRODUCT.');
   });
 
-  it('flags the stages whose dependencies are not merged, with the reason', () => {
+  it('flags only the simulator stage as waiting (M14); M03 and M07 are real gates that pass', () => {
     const v = JSON.parse(readFileSync(join(first.out, 'validation.json'), 'utf8')) as { gates: Array<{ id: string; status: string; detail: string }> };
-    for (const id of ['brick-blocks', 'placement', 'sim']) {
-      const g = v.gates.find(x => x.id === id);
-      expect(g?.status, id).toBe('skipped');
-      expect(g?.detail).toMatch(/M03|M07|M14/);
-    }
+    const sim = v.gates.find(x => x.id === 'sim');
+    expect(sim?.status).toBe('skipped');
+    expect(sim?.detail).toMatch(/M14/);
+    for (const id of ['brick-blocks', 'placement']) expect(v.gates.find(x => x.id === id)?.status, id).toBe('pass');
+  });
+
+  it('a release profile needs no waiver: the validator and the budget pass outright', () => {
+    const v = JSON.parse(readFileSync(join(first.out, 'validation.json'), 'utf8')) as { gates: Array<{ id: string; status: string; detail: string }> };
+    expect(JSON.parse(readFileSync(join(REPO, 'test', 'fixtures', 'release', 'root', 'gate-waivers.json'), 'utf8'))).toEqual([]);
+    for (const id of ['release-validator', 'budget']) expect(v.gates.find(x => x.id === id)?.status, id).toBe('pass');
+  });
+});
+
+/* -- finalize, verify, status ------------------------------------------------------------------------------ */
+
+/**
+ * A local clone of this repo at HEAD: `finalize` needs a TAG, and a test must not leave tags in the real repo. The
+ * clone shares node_modules (a junction) so the build worktree it creates can run.
+ */
+function cloneRepo(): string {
+  const dir = join(freshDir('clone'), 'repo');
+  expect(spawnSync('git', ['clone', '-q', '--local', REPO, dir], { encoding: 'utf8' }).status).toBe(0);
+  symlinkSync(join(REPO, 'node_modules'), join(dir, 'node_modules'), 'junction');
+  return dir;
+}
+
+/** Any release.ts command, asynchronously (see `prepareAsync`). */
+function releaseCmd(root: string, args: string[], env: Record<string, string>): Promise<SpawnSyncReturns<string>> {
+  return new Promise(done => {
+    const child = spawn('bun', [SCRIPT, ...args], {
+      cwd: REPO,
+      env: { ...process.env, CRAFTMATIC_RELEASE_ROOT: root, CRAFTMATIC_LDRAW_REF: LDRAW_REF, CRAFTMATIC_RELEASE_WORKTREES: join(SCRATCH, 'worktrees'), CRAFTMATIC_RELEASE_MCT: 'skip-for-test', ...env },
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', d => { stdout += String(d); });
+    child.stderr.on('data', d => { stderr += String(d); });
+    child.on('close', status => done({ status, stdout, stderr } as SpawnSyncReturns<string>));
+  });
+}
+
+describe.skipIf(!e2eReady)(`release-script: finalize, verify and status on a tagged clone (${e2eReason})`, () => {
+  const root = e2eReady ? cloneRepo() : '';
+  const data = e2eReady ? fixtureData() : '';
+  const releases = e2eReady ? freshDir('releases') : '';
+  const env = { CRAFTMATIC_RELEASE_DATA: data, CRAFTMATIC_RELEASES_DIR: releases };
+  const prepared = join(releases, 'fixture', '1.0.0');
+  const run = (args: string[]): Promise<SpawnSyncReturns<string>> => releaseCmd(root, args, env);
+  const tags = (): string[] => git(root, 'tag', '--list').stdout.split('\n').filter(Boolean);
+  const out = (r: SpawnSyncReturns<string>): string => `${r.stdout}\n${r.stderr}`;
+  let tampered = '';
+  let ledgerRun = '';
+
+  // Copies of the prepared release, made BEFORE anything is finalized: one with a single hex digit changed.
+  beforeAll(async () => {
+    const prep = await prepareAsync(root, ['fixture', '--version', '1.0.0', '--out', prepared], env);
+    expect(prep.status, out(prep)).toBe(0);
+    tampered = join(freshDir('tampered'), '1.0.0');
+    ledgerRun = join(freshDir('ledgerrun'), '1.0.0');
+    cpSync(prepared, tampered, { recursive: true });
+    cpSync(prepared, ledgerRun, { recursive: true });
+    const file = join(tampered, 'release.json');
+    const record = JSON.parse(readFileSync(file, 'utf8')) as { artifacts: Array<{ sha256: string }> };
+    const sha = record.artifacts[0]!.sha256;
+    record.artifacts[0]!.sha256 = `${sha[0] === 'a' ? 'b' : 'a'}${sha.slice(1)}`;
+    writeFileSync(file, JSON.stringify(record, null, 2));
+  }, 600_000);
+
+  it('status lists the prepared version before anything is finalized', async () => {
+    const r = await run(['status']);
+    expect(r.status, out(r)).toBe(0);
+    expect(r.stdout).toMatch(/^fixture 1\.0\.0\s+prepared\s+-\s+-/m);
+  });
+
+  it('finalize refuses while the user has not created the tag, and creates none', async () => {
+    const r = await run(['finalize', 'fixture', '1.0.0']);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/tag fixture-v1\.0\.0 does not exist/);
+    expect(tags()).toEqual([]);
+    expect(existsSync(join(prepared, 'finalize.json'))).toBe(false);
+  });
+
+  it('finalize rebuilds from the tag, finds identical bytes and records it, creating no tag', async () => {
+    expect(git(root, 'tag', 'fixture-v1.0.0', 'HEAD').status).toBe(0);
+    const r = await run(['finalize', 'fixture', '1.0.0', '--device-evidence', 'round-test']);
+    expect(r.status, out(r)).toBe(0);
+    expect(r.stdout).toMatch(/identical/i);
+    const fin = JSON.parse(readFileSync(join(prepared, 'finalize.json'), 'utf8')) as { tag: string; deviceEvidence: string; artifacts: unknown[] };
+    expect(fin).toMatchObject({ tag: 'fixture-v1.0.0', deviceEvidence: 'round-test' });
+    expect(fin.artifacts.length).toBe(2);
+    expect(existsSync(join(prepared, 'ledger-entry.json'))).toBe(true);
+    expect(tags()).toEqual(['fixture-v1.0.0']);
+    // The rebuild went into a NEW folder beside the prepared release; the prepared one is untouched.
+    expect(readdirSync(join(releases, 'fixture', 'rebuilds')).length).toBe(1);
+  });
+
+  it('finalize refuses a tag whose rebuild differs by one byte', async () => {
+    const r = await run(['finalize', 'fixture', '1.0.0', '--prepared', tampered]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/differs: prepared sha256 [0-9a-f]{64}/);
+    expect(existsSync(join(tampered, 'finalize.json'))).toBe(false);
+    expect(existsSync(join(tampered, 'ledger-entry.json'))).toBe(false);
+  });
+
+  it('finalize --write-ledger appends the entry to the ledger file, and verify still passes afterwards', async () => {
+    const r = await run(['finalize', 'fixture', '1.0.0', '--prepared', ledgerRun, '--write-ledger']);
+    expect(r.status, out(r)).toBe(0);
+    const ledger = JSON.parse(readFileSync(join(data, 'identity-ledger.json'), 'utf8')) as Array<{ product: string; version: string; sha256: Record<string, string>; blockIds: string[] }>;
+    expect(ledger.map(e => `${e.product} ${e.version}`)).toEqual(['fixture 1.0.0']);
+    expect(Object.keys(ledger[0]!.sha256).sort()).toEqual(['fixture-1.0.0.mcaddon', 'fixture-1.0.0.zip']);
+    expect(ledger[0]!.blockIds.some(id => id.includes(':brick_white'))).toBe(true);
+    const v = await run(['verify', 'fixture', '1.0.0']);
+    expect(v.status, out(v)).toBe(0);
+    expect(v.stdout).toMatch(/identical/i);
+  });
+
+  it('status then lists the version as finalized and released', async () => {
+    const r = await run(['status', 'fixture']);
+    expect(r.stdout).toMatch(/^fixture 1\.0\.0\s+prepared\s+finalized\s+released\s+tag fixture-v1\.0\.0/m);
+  });
+
+  it('verify refuses a prepared release whose hashes do not match the rebuild, and writes nothing into it', async () => {
+    const before = readdirSync(tampered).sort();
+    const r = await run(['verify', 'fixture', '1.0.0', '--prepared', tampered]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/differs/);
+    expect(readdirSync(tampered).sort()).toEqual(before);
+  });
+});
+
+/* -- .io and .lxf models through the import service ------------------------------------------------------------ */
+
+const LXFML_TWO = '<?xml version="1.0" encoding="UTF-8" standalone="no" ?>\n<LXFML versionMajor="5" versionMinor="0" name="t"><Bricks>'
+  + '<Brick refID="0" designID="3001"><Part refID="0" designID="3001" materials="21,0"><Bone refID="0" transformation="1,0,0,0,1,0,0,0,1,0,0,0"/></Part></Brick>'
+  + '<Brick refID="1" designID="3020"><Part refID="1" designID="3020" materials="24,0"><Bone refID="1" transformation="1,0,0,0,1,0,0,0,1,0,1,0"/></Part></Brick>'
+  + '</Bricks></LXFML>';
+
+describe.skipIf(!e2eReady)(`release-script: .io and .lxf models end to end (${e2eReason})`, () => {
+  const enc = (t: string): Uint8Array => new TextEncoder().encode(t);
+  const cottage = readFileSync(join(REPO, 'test', 'fixtures', 'release', 'root', 'models', 'fixture-cottage.ldr'), 'utf8');
+
+  /** A fresh data root whose product builds `modelName` (a file the caller writes into models/). */
+  function dataFor(modelName: string, bytes: Uint8Array): string {
+    const dir = fixtureData();
+    writeFileSync(join(dir, 'models', modelName), bytes);
+    const sidecar = join(dir, 'builds', 'fixture.json');
+    writeFileSync(sidecar, JSON.stringify({ ...JSON.parse(readFileSync(sidecar, 'utf8')), model: `models/${modelName}` }, null, 2));
+    return dir;
+  }
+  const sha = (out: string): string => readFileSync(join(out, 'SHA256SUMS'), 'utf8').split('\n').filter(l => /\.mcaddon$/.test(l)).join('');
+  let reference: { r: SpawnSyncReturns<string>; out: string };
+  let io: typeof reference;
+  let lxf: typeof reference;
+  /** `runFixture`, asynchronously. */
+  const runAsync = async (data: string): Promise<typeof reference> => {
+    const out = join(freshDir('out'), 'release');
+    const r = await prepareAsync(REPO, ['fixture', '--version', '1.0.0', '--out', out], {
+      CRAFTMATIC_RELEASE_DATA: data, CRAFTMATIC_RELEASE_WORKTREES: join(SCRATCH, 'worktrees'), CRAFTMATIC_LDRAW_REF: LDRAW_REF, CRAFTMATIC_RELEASE_MCT: 'skip-for-test',
+    });
+    return { r, out };
+  };
+  beforeAll(async () => {
+    const { createZip } = await import('../web/src/engine/zip-utils.js');
+    reference = await runAsync(fixtureData());
+    io = await runAsync(dataFor('fixture-cottage.io', await createZip([{ name: 'model.ldr', data: enc(cottage) }])));
+    lxf = await runAsync(dataFor('two-bricks.lxf', await createZip([{ name: 'IMAGE100.LXFML', data: enc(LXFML_TWO) }])));
+  }, 900_000);
+
+  it('an .io of the same model builds the byte-identical archive as the .ldr', () => {
+    expect(io.r.status, io.r.stdout + io.r.stderr).toBe(0);
+    expect(sha(io.out)).toMatch(/\.mcaddon$/);
+    expect(sha(io.out)).toBe(sha(reference.out));
+    expect((JSON.parse(readFileSync(join(io.out, 'validation.json'), 'utf8')) as { gates: Array<{ id: string; detail: string }> }).gates.find(g => g.id === 'model')?.detail).toMatch(/from a \.io/);
+  });
+
+  it('an .lxf builds a release whose model gate reports the import', () => {
+    expect(lxf.r.status, lxf.r.stdout + lxf.r.stderr).toBe(0);
+    const gates = (JSON.parse(readFileSync(join(lxf.out, 'validation.json'), 'utf8')) as { gates: Array<{ id: string; status: string; detail: string }> }).gates;
+    expect(gates.find(g => g.id === 'model')).toMatchObject({ status: 'pass', detail: expect.stringMatching(/2 bricks from a \.lxf/) });
+    expect(gates.filter(g => g.status === 'fail')).toEqual([]);
   });
 });

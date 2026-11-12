@@ -4,6 +4,9 @@
  *
  *   bun scripts/release.ts init-product <id>
  *   bun scripts/release.ts prepare <product> [--version x.y.z] [--out <dir>] [--strict]
+ *   bun scripts/release.ts finalize <product> <version> [--prepared <dir>] [--tag <name>] [--device-evidence <id>] [--write-ledger]
+ *   bun scripts/release.ts verify <product> <version> [--prepared <dir>] [--tag <name>]
+ *   bun scripts/release.ts status [<product>]
  *
  * `init-product` (X-01) mints a product's frozen Bedrock identity ONCE: five random v4 uuids, written to
  * release/products/<id>.json with `namespace: null` (the brand is undecided, U1); it refuses to overwrite.
@@ -31,9 +34,15 @@
  *   CRAFTMATIC_LDRAW_REF          the local LDraw mirror (official/, unofficial/, _archives/)
  *   CRAFTMATIC_RELEASE_MCT=skip-for-test   record the mct gate as not-run without starting bunx (test runs only)
  *
- * TODO(d08-finalize): `finalize`, `verify` and `status` (plan D 3.3) are not implemented yet.
- * TODO(d08-io): the build step reads `.ldr` / `.mpd` text models only; `.io` and `.lxf` sources need the loaders
- *   `_playable_ref.ts` carries inline (extract them to a shared module first).
+ * `finalize` and `verify` (D-08b) REBUILD a prepared release in a NEW worktree of its tag (finalize: the tag the USER
+ * created; verify: that tag, or the prepared commit while no tag exists) and compare every artifact's sha256 with the
+ * prepared release.json. Any difference refuses. `finalize` then writes `finalize.json` and `ledger-entry.json` beside
+ * the prepared release (and, with --write-ledger, appends the entry to the identity ledger FILE for the user to commit);
+ * it never creates a tag and never uploads. `verify` writes nothing but its rebuild folder. `status` lists each
+ * product's prepared, finalized and released versions from the ledger and the output folders.
+ *
+ * The model may be `.ldr`, `.mpd`, `.io`, `.lxf`, `.lxfml` or `.zip`: it is read by the B01 import service.
+ *   CRAFTMATIC_RELEASES_DIR       where prepared releases live (default <root>/output/releases)
  */
 import { randomUUID, createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -43,10 +52,15 @@ import { spawnSync } from 'node:child_process';
 import { PRODUCT_ID_PATTERN, parseProduct, validateProduct } from '../web/src/release/product.js';
 import { sha256Hex, sha256sumsText } from '../web/src/release/checksums.js';
 import {
-  applyWaivers, approvalItems, channelStub, CHANNELS, openGates, pendingGates, preconditionProblems, profileProblems, renderApproval, renderNotice,
+  applyWaivers, approvalItems, brickBlockProblems, pinProblems, placementProblems, RELEASE_PROFILE_FLAGS, channelStub, CHANNELS, openGates, pendingGates, preconditionProblems, profileProblems, renderApproval, renderNotice,
   resolveVersion, type ApprovalAction, type Gate, type GateWaiver, type ValidationFile,
 } from '../web/src/release/prepare.js';
-import { formatSemVer, toManifestTriple } from '../web/src/release/semver.js';
+import {
+  compareArtifacts, ledgerEntryFor, packIds, releaseStatus, releaseTag, renderStatus, tagProblems,
+  type FinalizeRecord, type PackIds, type PreparedFolder,
+} from '../web/src/release/prepare-rebuild.js';
+import { appendLedgerEntry, checkLedgerAppend } from '../web/src/release/identity-ledger.js';
+import { compareSemVer, formatSemVer, parseSemVer, toManifestTriple } from '../web/src/release/semver.js';
 import type { IdentityLedgerEntry, ProductRecord, ReleasedVersion, SemVer } from '../web/src/release/types.js';
 
 const ROOT = resolve(process.env.CRAFTMATIC_RELEASE_ROOT ?? join(dirname(fileURLToPath(import.meta.url)), '..'));
@@ -122,7 +136,7 @@ function initProduct(id: string | undefined): number {
 
 /** What a product's build needs beyond its registry record: `<data>/builds/<id>.json`. */
 interface BuildSidecar {
-  /** Source model, relative to the data root (`.ldr` / `.mpd`). */
+  /** Source model, relative to the data root (`.ldr`, `.mpd`, `.io`, `.lxf`, `.lxfml` or `.zip`). */
   model: string;
   /** One player-facing sentence (lint-clean); the pack description and the README body. */
   summary: string;
@@ -147,6 +161,8 @@ interface MakeSpec {
   out: string;
   /** Commit time in epoch milliseconds: the one clock of the build. */
   clockMs: number;
+  /** A rebuild of an already released version: ledger entries from this version up are ignored (the rule is for the FIRST build). */
+  rebuild: boolean;
 }
 
 /** What `_make` hands back. */
@@ -192,6 +208,44 @@ function runBun(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}, timeou
 
 const lastLines = (s: string, n = 6): string => s.trim().split(/\r?\n/).slice(-n).join(' | ');
 
+/** A new detached worktree of one commit: where its bytes are built. */
+interface Worktree { path: string; commit: string; commitSeconds: number }
+
+/**
+ * `git worktree add --detach` of `commitish` into a NEW folder (never reused, never removed), with the checkout's
+ * node_modules linked in (the lockfile pin proves they match the commit).
+ */
+function newWorktree(productId: string, versionText: string, commitish: string): Worktree {
+  const commit = git(ROOT, 'rev-parse', `${commitish}^{commit}`);
+  const commitSeconds = Number(git(ROOT, 'show', '-s', '--format=%ct', commit));
+  const worktrees = resolve(process.env.CRAFTMATIC_RELEASE_WORKTREES ?? join(ROOT, '.worktrees'));
+  mkdirSync(worktrees, { recursive: true });
+  const path = freshWorktreePath(worktrees, productId, versionText);
+  git(ROOT, 'worktree', 'add', '--detach', path, commit);
+  console.log(`worktree ${path} (commit ${commit}); it is left in place`);
+  if (existsSync(join(ROOT, 'node_modules'))) symlinkSync(join(ROOT, 'node_modules'), join(path, 'node_modules'), 'junction');
+  return { path, commit, commitSeconds };
+}
+
+/**
+ * Run `_make` of the worktree's OWN scripts/release.ts (so the bytes come from that commit's code) offline, with the
+ * official library, the commit clock and the pinned toolchain. Returns its result file, or the crash text.
+ */
+function runMake(wt: Worktree, spec: MakeSpec): { made: MakeResult } | { crash: string } {
+  const specFile = join(spec.out, '.make-spec.json');
+  writeFileSync(specFile, JSON.stringify(spec));
+  const make = runBun(wt.path, [join(wt.path, 'scripts', 'release.ts'), '_make', specFile], {
+    CRAFTMATIC_RELEASE_ROOT: wt.path,
+    CRAFTMATIC_LDRAW_LIBRARY: 'official',
+    CRAFTMATIC_LDRAW_REF: spec.ldrawRef,
+    CRAFTMATIC_LDRAW_MIRROR: 'off',
+    SOURCE_DATE_EPOCH: String(wt.commitSeconds),
+  });
+  const resultFile = join(spec.out, 'make-result.json');
+  if (!existsSync(resultFile)) return { crash: `build step crashed (exit ${make.status}): ${lastLines(make.stderr)}` };
+  return { made: readJson<MakeResult>(resultFile) };
+}
+
 /** `prepare <product>`: returns the process exit code. */
 function prepare(productId: string | undefined, argv: string[]): number {
   if (!productId || !PRODUCT_ID_PATTERN.test(productId)) {
@@ -230,32 +284,14 @@ function prepare(productId: string | undefined, argv: string[]): number {
   if (existsSync(out) && readdirSync(out).length > 0) { console.error(`prepare ${productId} refused: ${out} already holds files (nothing is overwritten or deleted; use --out <new folder>)`); return 1; }
   mkdirSync(out, { recursive: true });
 
-  // ---- 2. a NEW worktree of the commit, never removed ------------------------------------------------------
+  // ---- 2 + 3. a NEW worktree of the commit (never removed), the build and its in-process gates -------------
   const commit = git(ROOT, 'rev-parse', 'HEAD');
-  const commitSeconds = Number(git(ROOT, 'show', '-s', '--format=%ct', commit));
-  const worktrees = resolve(process.env.CRAFTMATIC_RELEASE_WORKTREES ?? join(ROOT, '.worktrees'));
-  mkdirSync(worktrees, { recursive: true });
-  const wt = freshWorktreePath(worktrees, productId, versionText);
-  git(ROOT, 'worktree', 'add', '--detach', wt, commit);
-  console.log(`worktree ${wt} (commit ${commit}); it is left in place`);
-  // The worktree has no node_modules: link the checkout's (the lockfile pin above proves they match the commit).
-  if (existsSync(join(ROOT, 'node_modules'))) symlinkSync(join(ROOT, 'node_modules'), join(wt, 'node_modules'), 'junction');
-  const wtData = fixture ? dataRoot : join(wt, 'release');
-
-  // ---- 3. build + in-process gates, inside the worktree ----------------------------------------------------
-  const spec: MakeSpec = { product, version, dataRoot: wtData, build, ldrawRef: ref!, out, clockMs: commitSeconds * 1000 };
-  const specFile = join(out, '.make-spec.json');
-  writeFileSync(specFile, JSON.stringify(spec));
-  const make = runBun(wt, [join(wt, 'scripts', 'release.ts'), '_make', specFile], {
-    CRAFTMATIC_RELEASE_ROOT: wt,
-    CRAFTMATIC_LDRAW_LIBRARY: 'official',
-    CRAFTMATIC_LDRAW_REF: ref!,
-    CRAFTMATIC_LDRAW_MIRROR: 'off',
-    SOURCE_DATE_EPOCH: String(commitSeconds),
-  });
-  const resultFile = join(out, 'make-result.json');
-  if (!existsSync(resultFile)) { console.error(`build step crashed (exit ${make.status}): ${lastLines(make.stderr)}`); return 1; }
-  const made = readJson<MakeResult>(resultFile);
+  const wt = newWorktree(productId, versionText, commit);
+  const wtData = fixture ? dataRoot : join(wt.path, 'release');
+  const ran = runMake(wt, { product, version, dataRoot: wtData, build, ldrawRef: ref!, out, clockMs: wt.commitSeconds * 1000, rebuild: false });
+  if ('crash' in ran) { console.error(ran.crash); return 1; }
+  const { made } = ran;
+  const commitSeconds = wt.commitSeconds;
   const gates: Gate[] = [...made.gates];
   const evidence: Record<string, unknown> = { ...made.evidence };
   const failed = (): boolean => gates.some(g => g.status === 'fail');
@@ -274,7 +310,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
   const dist = join(out, 'dist');
   const archives = made.artifacts.map(n => join(dist, n));
   if (!failed()) {
-    const py = spawnSync('python', ['-I', join(wt, 'scripts', '_mcaddon_check.py'), '--release', ...archives], { cwd: wt, encoding: 'utf8' });
+    const py = spawnSync('python', ['-I', join(wt.path, 'scripts', '_mcaddon_check.py'), '--release', ...archives], { cwd: wt.path, encoding: 'utf8' });
     const problemLines = py.stdout.split(/\r?\n/).filter(l => l.includes('!! ')).map(l => l.slice(l.indexOf('!! ') + 3));
     const title = 'X-06 _mcaddon_check.py --release on .mcaddon and .zip';
     if (py.status !== 0 && problemLines.length === 0) gates.push({ id: 'release-validator', title, status: 'fail', detail: lastLines(py.stdout + (py.stderr ?? ''), 12) });
@@ -285,9 +321,10 @@ function prepare(productId: string | undefined, argv: string[]): number {
     if (process.env.CRAFTMATIC_RELEASE_MCT === 'skip-for-test') {
       gates.push({ id: 'mct', title: 'mct validate (Minecraft Creator Tools)', status: 'not-run', detail: 'skipped by CRAFTMATIC_RELEASE_MCT=skip-for-test (test runs do not start bunx); run it for a real release (needs U13: the EULA)' });
     } else {
-      const m = runBun(wt, [join(wt, 'scripts', 'release-mctools.ts'), archives[0]!, '--json'], {}, 15 * 60_000);
-      let report: { status: string; errors?: number; warnings?: number; reason?: string } | null = null;
-      try { report = JSON.parse(m.stdout) as typeof report; } catch { report = null; }
+      const m = runBun(wt.path, [join(wt.path, 'scripts', 'release-mctools.ts'), archives[0]!, '--json'], {}, 15 * 60_000);
+      type MctReport = { status: string; errors?: number; warnings?: number; reason?: string };
+      const parseReport = (text: string): MctReport | null => { try { return JSON.parse(text) as MctReport; } catch { return null; } };
+      const report = parseReport(m.stdout);
       if (!report) gates.push({ id: 'mct', title: 'mct validate', status: 'not-run', detail: `mct output was not JSON (exit ${m.status}): ${lastLines(m.stdout + m.stderr)}` });
       else if (report.status === 'not-run') gates.push({ id: 'mct', title: 'mct validate', status: 'not-run', detail: report.reason ?? 'mct did not run' });
       else gates.push({ id: 'mct', title: 'mct validate', status: (report.errors ?? 1) === 0 ? 'pass' : 'fail', detail: `${report.errors} error(s), ${report.warnings} warning(s)` });
@@ -296,7 +333,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
   }
   if (!failed()) {
     const jsonFile = join(out, 'budget.json');
-    const b = runBun(wt, [join(wt, 'scripts', '_marketplace_budget.ts'), archives[0]!, `--json=${jsonFile}`]);
+    const b = runBun(wt.path, [join(wt.path, 'scripts', '_marketplace_budget.ts'), archives[0]!, `--json=${jsonFile}`]);
     if (!existsSync(jsonFile)) gates.push({ id: 'budget', title: 'M06 runtime budget (standard tier)', status: 'fail', detail: `no budget report (exit ${b.status}): ${lastLines(b.stdout + b.stderr)}` });
     else {
       const [row] = readJson<Array<{ report: { verdict: 'pass' | 'fail' | 'incomplete'; runtimeReason?: string; rows: Array<{ metric: string; status: string }> } }>>(jsonFile);
@@ -310,7 +347,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
   }
   if (!failed()) {
     const jsonFile = join(out, 'script-api.json');
-    const a = runBun(wt, [join(wt, 'scripts', '_script_api_audit.ts'), archives[0]!, `--json=${jsonFile}`]);
+    const a = runBun(wt.path, [join(wt.path, 'scripts', '_script_api_audit.ts'), archives[0]!, `--json=${jsonFile}`]);
     gates.push({ id: 'script-api', title: 'M15 stable Script API audit', status: a.status === 0 ? 'pass' : 'fail', detail: a.status === 0 ? 'no beta API, no beta module' : lastLines(a.stdout + a.stderr, 10) });
     if (existsSync(jsonFile)) evidence['script-api'] = readJson<unknown>(jsonFile);
   }
@@ -320,7 +357,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
   writeFileSync(join(out, 'validation.json'), `${JSON.stringify(validation, null, 2)}\n`);
   for (const g of gates) console.log(`${g.status.toUpperCase().padEnd(7)} ${g.id}: ${g.detail.slice(0, 200)}`);
   if (failed()) {
-    console.error(`prepare ${productId} stopped: a gate failed (see ${join(out, 'validation.json')}). Worktree: ${wt}`);
+    console.error(`prepare ${productId} stopped: a gate failed (see ${join(out, 'validation.json')}). Worktree: ${wt.path}`);
     return 1;
   }
 
@@ -333,7 +370,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
     deviceEvidence: null,
   };
   writeFileSync(join(out, 'release.json'), `${JSON.stringify(record, null, 2)}\n`);
-  const actions = readJson<ApprovalAction[]>(join(wt, 'release', 'approval-actions.json'));
+  const actions = readJson<ApprovalAction[]>(join(wt.path, 'release', 'approval-actions.json'));
   const items = approvalItems(actions, { product: productId, version: versionText, commit });
   for (const channel of CHANNELS) {
     mkdirSync(join(out, 'channels', channel), { recursive: true });
@@ -345,7 +382,7 @@ function prepare(productId: string | undefined, argv: string[]): number {
 
   const open = openGates(gates);
   console.log(`prepared ${productId} ${versionText} in ${out}`);
-  console.log(`  worktree (left in place): ${wt}`);
+  console.log(`  worktree (left in place): ${wt.path}`);
   console.log(`  open gates: ${open.length}${open.length ? ` (${open.map(g => g.id).join(', ')})` : ''}; read APPROVAL.md before doing anything outward`);
   return argv.includes('--strict') && open.length > 0 ? 4 : 0;
 }
@@ -371,7 +408,9 @@ async function make(specFile: string): Promise<void> {
 
   const { releaseBuildIdentity } = await import('../web/src/release/identity-ledger.js');
   const ledgerFile = join(spec.dataRoot, 'identity-ledger.json');
-  const ledger = existsSync(ledgerFile) ? readJson<IdentityLedgerEntry[]>(ledgerFile) : [];
+  const allLedger = existsSync(ledgerFile) ? readJson<IdentityLedgerEntry[]>(ledgerFile) : [];
+  // The "version rises" rule belongs to the FIRST build of a version; a rebuild of a released one reproduces the state before it.
+  const ledger = spec.rebuild ? allLedger.filter(e => compareSemVer(parseSemVer(e.version), version) < 0) : allLedger;
   let identity: ReturnType<typeof releaseBuildIdentity>['identity'];
   try { identity = releaseBuildIdentity(product, version, ledger).identity; }
   catch (e) { record('identity', 'X-01 frozen identity, version rises', [(e as Error).message], ''); return writeResult([]); }
@@ -387,8 +426,6 @@ async function make(specFile: string): Promise<void> {
 
   // ---- the profile build (X-02), official library only (X-04) ----
   const { setLDrawLibraryMode, setLDrawRoot, assertOfficialLibrary, getPartSourceLedger, seedDatTexts } = await import('../web/src/engine/ldraw-geometry.js');
-  const { embeddedPartTexts, parseLDrawDocument } = await import('../web/src/engine/ldraw-parser.js');
-  const { synthesizeLSynth } = await import('../web/src/engine/lsynth.js');
   const { runSchemPipeline } = await import('../web/src/engine/schem-pipeline.js');
   const { planResolutionAtCell, spanOfBricks, DEFAULT_SCHEM_SETTINGS } = await import('../web/src/engine/schem-settings.js');
   const { planAddonScale } = await import('../web/src/engine/addon-scale.js');
@@ -405,11 +442,12 @@ async function make(specFile: string): Promise<void> {
   setLDrawLibraryMode('official');
   setLDrawRoot(join(spec.ldrawRef, 'official'));
   const modelFile = join(spec.dataRoot, build.model);
-  if (!/\.(ldr|mpd)$/i.test(modelFile)) throw new Error(`prepare builds .ldr / .mpd models only (TODO d08-io): ${build.model}`);
-  const ldrDoc = parseLDrawDocument(synthesizeLSynth(readFileSync(modelFile, 'utf8')).text);
+  const { loadReleaseModel, modelProblems } = await import('../web/src/release/prepare-model.js');
+  const model = await loadReleaseModel(modelFile, join(ROOT, 'web', 'public'));
+  if (!record('model', `B01 model import (${model.format})`, modelProblems(model), `${model.bricks.length} bricks from a .${model.format}${model.warnings.length ? `; note: ${model.warnings.join(' ')}` : ''}`)) return writeResult([]);
   // Embedded sub-parts are caller-supplied text, so official mode will refuse any that a model carries (by design).
-  seedDatTexts(embeddedPartTexts(ldrDoc));
-  const bricks = ldrDoc.bricks;
+  seedDatTexts(model.embeddedParts);
+  const bricks = model.bricks;
 
   const creator = identity.namespace.split('_')[0]!;
   const summary = build.summary;
@@ -424,14 +462,14 @@ async function make(specFile: string): Promise<void> {
       readme: `${product.displayName}\n\n${summary}\n\n${disclaimerText(product.publisher, { requirePublisher: true })}\nSee CREDITS.txt and CHANGELOG.txt.\n`,
       lang: {},
     },
-    flags: { vanillaTextures: false, diagnostics: false, faceArt: false, devStamp: false, explicitOnly: true },
+    flags: { ...RELEASE_PROFILE_FLAGS },
     deflate: (d: Uint8Array) => pako.deflateRaw(d, { level: 9 }),
   };
   const scalePlan = planAddonScale(bricks, (build.scale as Parameters<typeof planAddonScale>[1] | undefined) ?? 'auto', product.displayName, { packProfile: profile });
   const plan = planResolutionAtCell(spanOfBricks(bricks), scalePlan.lduPerBlock);
   const modelScale = Math.round(LDU_PER_BLOCK / plan.cellLDU * 1000) / 1000;
   const result = await runSchemPipeline({
-    source: { kind: 'bricks', bricks, colorSpace: 'ldraw', options: { cellLDU: plan.cellLDU, maxDim: 700 } },
+    source: { kind: 'bricks', bricks, colorSpace: model.colorSpace, options: { cellLDU: plan.cellLDU, maxDim: 700 } },
     format: 'mcaddon',
     packStem: identity.namespace.slice(creator.length + 1),
     packLabel: product.displayName,
@@ -476,6 +514,11 @@ async function make(specFile: string): Promise<void> {
   files = [...rewritten.files];
   const dangling = findDanglingReferences(files).map(d => `${d.file}: ${d.kind} ${d.ref}`);
   if (!record('references', 'X-03 every geometry, controller, animation and texture an entity names exists', dangling, 'no dangling references')) return writeResult([]);
+
+  // ---- M03 (own brick blocks, compact collider states) and M07 (air-only wand) are in the finished pack ----
+  const { BRICK_BLOCK_COLOURS } = await import('../web/src/engine/marketplace/blocks.js');
+  if (!record('brick-blocks', 'M03 own brick and plate blocks, no state over 12 values', brickBlockProblems(files, identity.namespace, BRICK_BLOCK_COLOURS), `${BRICK_BLOCK_COLOURS.length * 2} brick and plate blocks, compact collider states`)) return writeResult([]);
+  if (!record('placement', 'M07 air-only placement (marketplace mode in the wand script)', placementProblems(files), 'the placement script runs in marketplace mode')) return writeResult([]);
 
   // ---- notices (X-05), credits (X-04), in-pack changelog (D-06) ----
   const bpRoot = files.map(f => f.name).find(n => /^[^/]+_BP\/manifest\.json$/.test(n))!.replace('manifest.json', '');
@@ -528,7 +571,165 @@ async function make(specFile: string): Promise<void> {
   writeFileSync(join(out, 'CHANGELOG.md'), changelogText);
   writeFileSync(join(out, 'NOTICE.txt'), renderNotice(product.publisher));
   writeFileSync(join(out, 'CREDITS-LDRAW.txt'), credits);
+  // What the ledger freezes for this version (read by `finalize`), from the very files that were zipped.
+  writeFileSync(join(out, 'pack-ids.json'), `${JSON.stringify(packIds(files), null, 2)}
+`);
   writeResult([`${slug}.mcaddon`, `${slug}.zip`]);
+}
+
+/* ------------------------------------------------------------------------------------------------------------- */
+/* finalize / verify: rebuild a prepared release from its tag and compare every sha256                          */
+/* ------------------------------------------------------------------------------------------------------------- */
+
+const SEMVER_DIR = /^\d+\.\d+\.\d+$/;
+
+/** Where prepared releases live: `<releases>/<product>/<version>/`. */
+const releasesDir = (): string => resolve(process.env.CRAFTMATIC_RELEASES_DIR ?? join(ROOT, 'output', 'releases'));
+
+/** The commit a tag points at, or null when there is no such tag. Never creates or moves a tag. */
+function tagCommitOf(tag: string): string | null {
+  const r = spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}^{commit}`], { cwd: ROOT, encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim() : null;
+}
+
+/** The first free `<dir>/<version>-<n>` folder (never reused, never removed). */
+function freshRebuildDir(dir: string, versionText: string): string {
+  for (let n = 1; ; n++) {
+    const path = join(dir, `${versionText}-${n}`);
+    if (!existsSync(path)) return path;
+  }
+}
+
+/** Value of `--name <value>` in `argv`. */
+const flagOf = (argv: string[], name: string): string | undefined => { const i = argv.indexOf(`--${name}`); return i >= 0 ? argv[i + 1] : undefined; };
+
+/**
+ * `finalize <product> <version>` and `verify <product> <version>`: rebuild the prepared release in a NEW worktree of its
+ * tag and require every artifact's sha256 to equal the prepared one.
+ *
+ * - `finalize` needs the tag the USER created (this script never makes one); a tag on another commit than the one the
+ *   release was prepared from is refused. On a match it writes `finalize.json` and `ledger-entry.json` beside the
+ *   prepared release (never overwriting), and with `--write-ledger` appends the entry to the identity ledger and the
+ *   product's `versions` (files for the user to commit).
+ * - `verify` is read-only: it rebuilds from the tag (or, while there is none, the prepared commit) and compares. It
+ *   writes only its rebuild folder.
+ */
+function rebuild(mode: 'finalize' | 'verify', productId: string | undefined, versionText: string | undefined, argv: string[]): number {
+  const usage = `usage: release.ts ${mode} <product> <version> [--prepared <dir>] [--tag <name>]${mode === 'finalize' ? ' [--device-evidence <id>] [--write-ledger]' : ''}`;
+  if (!productId || !PRODUCT_ID_PATTERN.test(productId) || !versionText) { console.error(usage); return 2; }
+  const refuse = (...lines: string[]): number => { console.error(`${mode} ${productId} ${versionText} refused:\n${lines.map(l => `  - ${l}`).join('\n')}`); return 1; };
+  let version: SemVer;
+  try { version = parseSemVer(versionText); } catch (e) { return refuse((e as Error).message); }
+  versionText = formatSemVer(version);
+
+  const dataRoot = resolve(process.env.CRAFTMATIC_RELEASE_DATA ?? join(ROOT, 'release'));
+  const fixture = dataRoot !== resolve(join(ROOT, 'release'));
+  const prepared = resolve(flagOf(argv, 'prepared') ?? join(releasesDir(), productId, versionText));
+  const releaseFile = join(prepared, 'release.json');
+  if (!existsSync(releaseFile)) return refuse(`no prepared release at ${prepared} (release.json is missing); run prepare, or pass --prepared <dir>`);
+  const record = readJson<ReleasedVersion>(releaseFile);
+  if (formatSemVer(record.version) !== versionText) return refuse(`${releaseFile} is version ${formatSemVer(record.version)}`);
+  if (mode === 'finalize' && existsSync(join(prepared, 'finalize.json'))) return refuse(`already finalized (${join(prepared, 'finalize.json')} exists; nothing is overwritten)`);
+
+  // The tag: the user's, never ours. `verify` falls back to the prepared commit while nobody has tagged it.
+  const tag = flagOf(argv, 'tag') ?? releaseTag(productId, version);
+  const tagCommit = tagCommitOf(tag);
+  if (mode === 'finalize' || tagCommit !== null) {
+    const bad = tagProblems(tag, tagCommit, record.commit);
+    if (bad.length > 0) return refuse(...bad);
+  }
+  const ref = tagCommit ?? record.commit;
+  if (tagCommit === null) console.log(`note: tag ${tag} does not exist; verifying the prepared commit ${record.commit}`);
+
+  // ---- a NEW worktree of the tag; the data, pins and build description are the TAG's own ----
+  const wt = newWorktree(productId, versionText, ref);
+  const wtData = fixture ? dataRoot : join(wt.path, 'release');
+  const productFile = join(wtData, 'products', `${productId}.json`);
+  const buildFile = join(wtData, 'builds', `${productId}.json`);
+  if (!existsSync(productFile) || !existsSync(buildFile)) return refuse(`${ref} has no product record or build description for ${productId} (${productFile}, ${buildFile})`);
+  const product = parseProduct(readFileSync(productFile, 'utf8'));
+  const build = readJson<BuildSidecar>(buildFile);
+  const ldrawRef = ldrawRefDir();
+  const archive = ldrawRef ? join(ldrawRef, '_archives', product.toolchain.ldrawLibrary.archive) : null;
+  const lockFile = join(wt.path, 'bun.lock');
+  const pins = pinProblems(product, {
+    bunVersion: bunVersion(),
+    lockfileSha256: existsSync(lockFile) ? sha256Hex(readFileSync(lockFile)) : null,
+    ldrawArchiveSha256: archive && existsSync(archive) ? sha256Hex(readFileSync(archive)) : null,
+  });
+  if (pins.length > 0) return refuse(...pins);
+
+  // ---- rebuild, offline, from the tag's own code ----
+  const out = resolve(flagOf(argv, 'out') ?? freshRebuildDir(join(dirname(prepared), 'rebuilds'), versionText));
+  if (existsSync(out) && readdirSync(out).length > 0) return refuse(`${out} already holds files (use --out <new folder>)`);
+  mkdirSync(out, { recursive: true });
+  const ran = runMake(wt, { product, version, dataRoot: wtData, build, ldrawRef: ldrawRef!, out, clockMs: wt.commitSeconds * 1000, rebuild: true });
+  if ('crash' in ran) return refuse(ran.crash);
+  const failedGates = ran.made.gates.filter(g => g.status === 'fail');
+  if (failedGates.length > 0) return refuse(...failedGates.map(g => `rebuild gate ${g.id} failed: ${g.detail}`));
+  const rebuilt = ran.made.artifacts.map(n => {
+    const data = new Uint8Array(readFileSync(join(out, 'dist', n)));
+    return { file: `dist/${n}`, sha256: sha256Hex(data), bytes: data.length };
+  });
+  const differences = compareArtifacts(record.artifacts, rebuilt);
+  if (differences.length > 0) return refuse(...differences, `rebuild kept in ${out}; worktree ${wt.path}`);
+  console.log(`rebuild from ${tagCommit === null ? `commit ${ref}` : `tag ${tag} (${ref})`} is identical: ${rebuilt.map(a => `${a.file} ${a.sha256}`).join(', ')}`);
+  console.log(`  rebuild folder: ${out}`);
+  if (mode === 'verify') return 0;
+
+  // ---- finalize: record it for the user's commit ----
+  const ids = readJson<PackIds>(join(out, 'pack-ids.json'));
+  const entry = ledgerEntryFor(product, versionText, ids, rebuilt);
+  const ledgerFile = join(dataRoot, 'identity-ledger.json');
+  const ledger = existsSync(ledgerFile) ? readJson<IdentityLedgerEntry[]>(ledgerFile) : [];
+  const ledgerBad = checkLedgerAppend(ledger, entry, product);
+  if (ledgerBad.length > 0) return refuse(...ledgerBad.map(p => `identity ledger: ${p}`));
+  const deviceEvidence = flagOf(argv, 'device-evidence') ?? null;
+  const finalize: FinalizeRecord = { product: productId, version: versionText, tag, tagCommit: tagCommit!, preparedCommit: record.commit, rebuild: out, artifacts: rebuilt, deviceEvidence };
+  writeFileSync(join(prepared, 'finalize.json'), `${JSON.stringify(finalize, null, 2)}\n`, { flag: 'wx' });
+  writeFileSync(join(prepared, 'ledger-entry.json'), `${JSON.stringify(entry, null, 2)}\n`, { flag: 'wx' });
+  console.log(`finalized ${productId} ${versionText}: ${join(prepared, 'finalize.json')}`);
+  if (deviceEvidence === null) console.log('  no --device-evidence given: the release records no device round (U16); say so before publishing');
+  if (argv.includes('--write-ledger')) {
+    writeFileSync(ledgerFile, `${JSON.stringify(appendLedgerEntry(ledger, entry, product), null, 2)}\n`);
+    // The registry mirrors the ledger (types.ts: ProductRecord.versions).
+    const registry = readJson<ProductRecord>(join(dataRoot, 'products', `${productId}.json`));
+    registry.versions = [...registry.versions, { ...record, tag, deviceEvidence }];
+    writeFileSync(join(dataRoot, 'products', `${productId}.json`), `${JSON.stringify(registry, null, 2)}\n`);
+    console.log(`  appended to ${ledgerFile} and products/${productId}.json: review and commit them`);
+  } else {
+    console.log(`  to freeze the identity, re-run with --write-ledger, or append ${join(prepared, 'ledger-entry.json')} to ${ledgerFile} yourself, then commit`);
+  }
+  return 0;
+}
+
+/* ------------------------------------------------------------------------------------------------------------- */
+/* status                                                                                                         */
+/* ------------------------------------------------------------------------------------------------------------- */
+
+/** `status [<product>]`: every product's prepared, finalized and released versions. */
+function status(productId: string | undefined): number {
+  const dataRoot = resolve(process.env.CRAFTMATIC_RELEASE_DATA ?? join(ROOT, 'release'));
+  const dir = join(dataRoot, 'products');
+  const products = productId ? [productId] : existsSync(dir) ? readdirSync(dir).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5)).sort() : [];
+  const ledgerFile = join(dataRoot, 'identity-ledger.json');
+  const ledger = existsSync(ledgerFile) ? readJson<IdentityLedgerEntry[]>(ledgerFile) : [];
+  const folders: PreparedFolder[] = [];
+  for (const product of products) {
+    const base = join(releasesDir(), product);
+    if (!existsSync(base)) continue;
+    for (const version of readdirSync(base).filter(n => SEMVER_DIR.test(n))) {
+      const release = join(base, version, 'release.json');
+      const finalize = join(base, version, 'finalize.json');
+      folders.push({
+        product, version,
+        ...(existsSync(release) ? { release: readJson<ReleasedVersion>(release) } : {}),
+        ...(existsSync(finalize) ? { finalize: readJson<FinalizeRecord>(finalize) } : {}),
+      });
+    }
+  }
+  process.stdout.write(renderStatus(releaseStatus(products, ledger, folders)));
+  return 0;
 }
 
 /* ------------------------------------------------------------------------------------------------------------- */
@@ -537,8 +738,10 @@ const [command, arg, ...rest] = process.argv.slice(2);
 try {
   if (command === 'init-product') process.exit(initProduct(arg));
   if (command === 'prepare') process.exit(prepare(arg, rest));
+  if (command === 'finalize' || command === 'verify') process.exit(rebuild(command, arg, rest[0], rest.slice(1)));
+  if (command === 'status') process.exit(status(arg));
   if (command === '_make') { await make(arg!); process.exit(0); }
-  console.error(`unknown command ${JSON.stringify(command)}; implemented: init-product, prepare (finalize/verify/status are TODO d08-finalize)`);
+  console.error(`unknown command ${JSON.stringify(command)}; commands: init-product, prepare, finalize, verify, status`);
   process.exit(2);
 } catch (e) {
   console.error((e as Error).stack ?? (e as Error).message);

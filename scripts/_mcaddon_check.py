@@ -318,8 +318,15 @@ RELEASE_VANILLA_TEXTURE_PATTERNS = (
                r'iron_block|gold_block|diamond_block|emerald_block|coal_block|planks_[a-z_]+|log_[a-z_]+|leaves_[a-z_]+|sandstone_[a-z_]+|water_still|lava_still)\.(png|tga)$'),
     re.compile(r'^textures/items/(apple|stick|diamond|iron_ingot|gold_ingot|coal|bread|bucket_[a-z]+)\.(png|tga)$'),
     re.compile(r'^textures/entity/(steve|alex|creeper|zombie|skeleton|pig|cow|sheep|chicken|villager|enderman|horse|wolf|cat|boat)(/.*|\.(png|tga))$'),
-    re.compile(r'^textures/(terrain_texture|item_texture|flipbook_textures)\.json$'),
 )
+# The atlas files (terrain_texture / item_texture / flipbook_textures) are NOT listed by path: a resource pack ships its
+# own `textures/terrain_texture.json` to give its custom blocks their textures (Microsoft's custom-block tutorials do
+# exactly this; the game merges it with vanilla's). They are judged by CONTENT, `_atlas_vanilla` below.
+RELEASE_ATLAS_FILES = {
+    'terrain_texture.json': 'textures/blocks/{}.png',
+    'item_texture.json': 'textures/items/{}.png',
+    'flipbook_textures.json': None,
+}
 # Download hosts / words that make a link an "external download" (CurseForge, MCPEDL).
 RELEASE_DOWNLOAD_LINK = re.compile(
     r'https?://\S*(mediafire|mega\.nz|dropbox|drive\.google|1drv\.ms|adf\.ly|linkvertise|anonfiles|gofile|sharemods)\S*|https?://\S*download\S*',
@@ -334,6 +341,43 @@ def _image_size(head):
     if len(head) >= 16 and head[2] in (2, 3, 10, 11):               # uncompressed/RLE true-colour or grey TGA
         return int.from_bytes(head[12:14], 'little'), int.from_bytes(head[14:16], 'little')
     return None
+
+
+def _is_vanilla_texture(path):
+    """True when `path` (with or without an extension) is one of the vanilla texture paths a pack must not overwrite."""
+    candidates = [path] if re.search(r'\.(png|tga)$', path) else [path + '.png']
+    return any(p.match(c) for p in RELEASE_VANILLA_TEXTURE_PATTERNS for c in candidates)
+
+
+def _atlas_texture_paths(node):
+    """Every texture path an atlas entry names: a string, a {path} / {variations: [...]} object, or a list of them."""
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, list):
+        for x in node:
+            yield from _atlas_texture_paths(x)
+    elif isinstance(node, dict):
+        for k in ('path', 'textures', 'variations'):
+            if k in node:
+                yield from _atlas_texture_paths(node[k])
+
+
+def _atlas_vanilla(name, data):
+    """Vanilla short names and vanilla texture paths an atlas file redefines (a pack's own keys and paths are fine)."""
+    key_template = RELEASE_ATLAS_FILES[name.rsplit('/', 1)[-1]]
+    hits = []
+    if name.endswith('flipbook_textures.json'):
+        for entry in data if isinstance(data, list) else []:
+            if isinstance(entry, dict):
+                ref = entry.get('flipbook_texture')
+                if isinstance(ref, str) and _is_vanilla_texture(ref):
+                    hits.append(ref)
+        return hits
+    for key, entry in ((data.get('texture_data') if isinstance(data, dict) else None) or {}).items():
+        if key_template and _is_vanilla_texture(key_template.format(key)):
+            hits.append(key)
+        hits.extend(p for p in _atlas_texture_paths((entry or {}).get('textures') if isinstance(entry, dict) else None) if _is_vanilla_texture(p))
+    return hits
 
 
 def _brief(items, limit=RELEASE_EXAMPLES):
@@ -460,6 +504,17 @@ def check_release(path):
             vanilla.append(rel)
     if vanilla:
         problems.append(f'{len(vanilla)} file(s) at a vanilla texture path: {_brief(vanilla)}')
+    for n in names:
+        owner = _owner(n, roots)
+        rel = n[len(owner):] if owner is not None else n
+        if rel in ('textures/' + f for f in RELEASE_ATLAS_FILES):
+            try:
+                redefined = _atlas_vanilla(rel, _json(z, n))
+            except (ValueError, AttributeError):
+                problems.append(f'{rel} is not a readable texture atlas')
+                continue
+            if redefined:
+                problems.append(f'{rel} redefines vanilla texture(s): {_brief(set(redefined))}')
 
     # 6. registered permutations (dev mode allows 65,536).
     registered = 0

@@ -6,6 +6,7 @@
 import { MOJANG_DISCLAIMER } from '../engine/pack-text/notices.js';
 import { assertReleasable } from './product.js';
 import { compareSemVer, formatSemVer, parseSemVer, toManifestTriple } from './semver.js';
+import type { PackProfileFlags } from '../engine/pack-profile.js';
 import type { ApprovalAction } from './prepare-types.js';
 import type { IdentityLedgerEntry, ProductIdentity, ProductRecord, SemVer } from './types.js';
 
@@ -37,10 +38,23 @@ export interface ValidationFile {
   evidence: Record<string, unknown>;
 }
 
-/** Stages named by plan D 3.3 whose dependency is not merged. Flip `landed` in the change that merges the dependency. */
+/**
+ * The profile flags every release build sets (X-02, M03, M07): no vanilla-path textures, no diagnostics, no face art,
+ * no stamp, explicit hints only, our own brick blocks instead of the concrete overrides, the compact collider states
+ * (6,192 permutations, under the Marketplace's 10,000) and the air-only wand. One object so `prepare`, `verify` and
+ * `finalize` (which all run `_make`) cannot disagree about what a release is.
+ */
+export const RELEASE_PROFILE_FLAGS: Readonly<PackProfileFlags> = Object.freeze({
+  vanillaTextures: false, diagnostics: false, faceArt: false, devStamp: false, explicitOnly: true,
+  brickBlocks: true, compactColliderStates: true, marketplacePlacement: true,
+});
+
+/**
+ * Stages named by plan D 3.3 whose dependency is not merged. Flip `landed` in the change that merges the dependency.
+ * M03 and M07 landed (their flags are in RELEASE_PROFILE_FLAGS and checked by `brickBlockProblems` / `placementProblems`);
+ * M14 did not: the sim stage stays flagged.
+ */
 export const PENDING_STAGES: ReadonlyArray<{ id: string; title: string; dependency: string; landed: boolean; reason: string }> = [
-  { id: 'brick-blocks', title: 'Own brick blocks in the pack', dependency: 'M03', landed: false, reason: 'M03 (own brick blocks, collider reader) is not merged: the pack still ships the dev collider blocks, so there is nothing to gate yet.' },
-  { id: 'placement', title: 'Air-only placement, prompt and undo', dependency: 'M07', landed: false, reason: 'M07 (bedrock-placement-pack.ts) is not merged: the placement behaviour a release must show is not in the pack.' },
   { id: 'sim', title: 'Simulator child-play and vehicles scenarios on the rewritten pack', dependency: 'M14', landed: false, reason: 'M14 (the simulator reading the namespace from the pack) is not merged: sim.ts only recognises the craftmatic: namespace, so it cannot play a rewritten pack.' },
 ];
 
@@ -84,6 +98,23 @@ export interface PreconditionFacts {
   ldrawArchiveSha256: string | null;
 }
 
+/** The toolchain facts a pin is compared with. */
+export interface PinFacts { bunVersion: string | null; lockfileSha256: string | null; ldrawArchiveSha256: string | null }
+
+/**
+ * Every toolchain pin the machine does not meet: bun, bun.lock and the LDraw archive. Shared by `prepare` (with the
+ * tree and version rules) and by `verify` / `finalize`, which rebuild an OLD commit and care about the pins only.
+ */
+export function pinProblems(product: ProductRecord, f: PinFacts): string[] {
+  const out: string[] = [];
+  const t = product.toolchain;
+  if (f.bunVersion !== t.bun) out.push(`bun is ${f.bunVersion ?? 'not runnable'} but the product pins ${t.bun}`);
+  if (f.lockfileSha256 !== t.lockfileSha256) out.push(`bun.lock sha256 ${f.lockfileSha256 ?? '(none)'} differs from the pinned ${t.lockfileSha256}`);
+  if (t.ldrawLibrary.sha256 === null) out.push('the LDraw complete.zip sha256 is not pinned in the product (toolchain.ldrawLibrary.sha256 is null)');
+  else if (f.ldrawArchiveSha256 !== t.ldrawLibrary.sha256) out.push(`LDraw ${t.ldrawLibrary.archive} sha256 ${f.ldrawArchiveSha256 ?? '(archive not found)'} differs from the pinned ${t.ldrawLibrary.sha256}`);
+  return out;
+}
+
 /** Every reason the release may not be prepared (empty = go). */
 export function preconditionProblems(f: PreconditionFacts): string[] {
   const out: string[] = [];
@@ -93,11 +124,7 @@ export function preconditionProblems(f: PreconditionFacts): string[] {
   if (!f.product.publisher) out.push(`product ${f.product.id} has no publisher name and contact (U1); the disclaimer block needs them`);
   const last = f.ledger.filter(e => e.product === f.product.id).at(-1);
   if (last && compareSemVer(f.version, parseSemVer(last.version)) <= 0) out.push(`version ${formatSemVer(f.version)} must rise above the released ${last.version}`);
-  const t = f.product.toolchain;
-  if (f.bunVersion !== t.bun) out.push(`bun is ${f.bunVersion ?? 'not runnable'} but the product pins ${t.bun}`);
-  if (f.lockfileSha256 !== t.lockfileSha256) out.push(`bun.lock sha256 ${f.lockfileSha256 ?? '(none)'} differs from the pinned ${t.lockfileSha256}`);
-  if (t.ldrawLibrary.sha256 === null) out.push('the LDraw complete.zip sha256 is not pinned in the product (toolchain.ldrawLibrary.sha256 is null)');
-  else if (f.ldrawArchiveSha256 !== t.ldrawLibrary.sha256) out.push(`LDraw ${t.ldrawLibrary.archive} sha256 ${f.ldrawArchiveSha256 ?? '(archive not found)'} differs from the pinned ${t.ldrawLibrary.sha256}`);
+  out.push(...pinProblems(f.product, { bunVersion: f.bunVersion, lockfileSha256: f.lockfileSha256, ldrawArchiveSha256: f.ldrawArchiveSha256 }));
   return out;
 }
 
@@ -144,6 +171,47 @@ export function profileProblems(files: readonly RawFile[], identity: ProductIden
   const prov = files.find(f => /(^|\/)craftmatic-provenance\.json$/.test(f.name));
   if (prov && (JSON.parse(decode(prov.data)) as { pipeline?: { kind?: string } }).pipeline?.kind !== 'unstamped') out.push('provenance carries a pipeline stamp');
   return out;
+}
+
+/** Most values one collider state may have under `compactColliderStates` (two states of 12: 144 combinations a block). */
+export const COMPACT_STATE_VALUES = 12;
+
+/** Number of values a block state declares: a list, or `{values: {min, max}}`. */
+function stateValueCount(state: unknown): number {
+  const values = (state as { values?: unknown } | undefined)?.values ?? state;
+  if (Array.isArray(values)) return values.length;
+  const range = values as { min?: number; max?: number } | undefined;
+  return typeof range?.min === 'number' && typeof range.max === 'number' ? range.max - range.min + 1 : 0;
+}
+
+/**
+ * M03 in the finished pack: every `<ns>:brick_<colour>` and `<ns>:plate_<colour>` block is defined, and no block
+ * declares a state with more than 12 values (the legacy `lo`/`hi` pair has 136, which is what put the dev pack over
+ * the Marketplace's 10,000 permutations). The vanilla concrete overrides are `profileProblems`' job.
+ */
+export function brickBlockProblems(files: readonly RawFile[], namespace: string, colours: readonly string[]): string[] {
+  const out: string[] = [];
+  const blocks = files.filter(f => /^[^/]+_BP\/blocks\/.*\.json$/.test(f.name))
+    .map(f => (JSON.parse(decode(f.data)) as { 'minecraft:block'?: { description?: { identifier?: string; states?: Record<string, unknown> } } })['minecraft:block']?.description);
+  const ids = new Set(blocks.map(b => b?.identifier));
+  for (const kind of ['brick', 'plate']) for (const c of colours) if (!ids.has(`${namespace}:${kind}_${c}`)) out.push(`own brick block ${namespace}:${kind}_${c} is not in the pack`);
+  for (const b of blocks) {
+    for (const [name, state] of Object.entries(b?.states ?? {})) {
+      const n = stateValueCount(state);
+      if (n > COMPACT_STATE_VALUES) out.push(`${b?.identifier}: state ${name} has ${n} values (compact collider states allow ${COMPACT_STATE_VALUES})`);
+    }
+  }
+  return out;
+}
+
+/**
+ * M07 in the finished pack: the placement script's CONFIG carries `"marketplace":true` (air-only wand, prompt, undo).
+ * A dev wand has no such key.
+ */
+export function placementProblems(files: readonly RawFile[]): string[] {
+  const scripts = files.filter(f => /^[^/]+_BP\/scripts\/placement[^/]*\.js$/.test(f.name));
+  if (scripts.length === 0) return ['no placement script in the behaviour pack'];
+  return scripts.filter(f => !/"marketplace"\s*:\s*true/.test(decode(f.data))).map(f => `${f.name} is not in marketplace mode (CONFIG has no "marketplace":true)`);
 }
 
 /** Substitute `{product}`, `{version}`, `{commit}` in an action template. */
