@@ -52,7 +52,7 @@ export const FUNFAIR = {
   SWING_LATERAL_G: 1,
   /** Seconds to spin up to full speed (and, equally, to spin down). */
   SWING_SPINUP_S: 10,
-  /** Seconds the ring turns at full speed with the chairs out. */
+  /** Seconds the ring turns at full speed with the chairs out, at least: the hold is stretched to a whole number of revolutions. */
   SWING_FULL_S: 12,
   /** A chair chain, as a fraction of the ring radius. */
   SWING_CHAIN_PER_RADIUS: 0.9,
@@ -168,14 +168,18 @@ export function funfairKit(C: FunfairConstants): FunfairKit {
     const tiltAt = (w: number): number => { let th = 0; for (let i = 0; i < 100; i++) th = Math.atan(w * w * (r0 + chain * Math.sin(th)) / g); return th; };
     const lift = trapezoid(height, C.SWING_LIFT_SPEED * f, C.SWING_LIFT_ACCEL * f);
     const Tu = C.SWING_SPINUP_S;
+    // The ring turns a WHOLE number of revolutions, so the chairs come home at the azimuth they left from (the seats
+    // and the ring stop where they started, with nothing to snap back): the full-speed hold is stretched to the next one.
+    const revolutions = Math.max(1, Math.ceil(wMax * (Tu + C.SWING_FULL_S) / (2 * Math.PI)));
+    const tFull = 2 * Math.PI * revolutions / wMax - Tu;
     // Smoothstep s(x) = 3x^2 - 2x^3, its integral S(x) = x^3 - x^4 / 2 and derivative 6x(1 - x).
     const S = (x: number): number => x * x * x - x * x * x * x / 2;
-    const t1 = lift.T, t2 = t1 + Tu, t3 = t2 + C.SWING_FULL_S, t4 = t3 + Tu, t5 = t4 + lift.T, t6 = t5 + C.REST_S;
+    const t1 = lift.T, t2 = t1 + Tu, t3 = t2 + tFull, t4 = t3 + Tu, t5 = t4 + lift.T, t6 = t5 + C.REST_S;
     const spin = (phase: FunfairPhase, rise: number, w: number, alpha: number, turn: number): TripState => {
       const tilt = tiltAt(w), radius = r0 + chain * Math.sin(tilt);
       return { phase, rise, turn, out: chain * Math.sin(tilt), sag: chain * (1 - Math.cos(tilt)), tilt, omega: w, speed: 0, aHoriz: radius * Math.sqrt(w ** 4 + alpha * alpha), aVert: 0 };
     };
-    const turnTotal = wMax * Tu * 2 * S(1) + wMax * C.SWING_FULL_S;
+    const turnTotal = 2 * Math.PI * revolutions;
     return {
       duration: t6,
       at: (t: number): TripState => {
@@ -184,7 +188,7 @@ export function funfairKit(C: FunfairConstants): FunfairKit {
         if (t < t3) return spin('full', height, wMax, 0, wMax * Tu * S(1) + wMax * (t - t2));
         if (t < t4) {
           const x = (t - t3) / Tu, y = 1 - x;
-          return spin('spindown', height, wMax * (3 * y * y - 2 * y * y * y), wMax * 6 * y * x / Tu, wMax * Tu * S(1) + wMax * C.SWING_FULL_S + wMax * Tu * (S(1) - S(y)));
+          return spin('spindown', height, wMax * (3 * y * y - 2 * y * y * y), wMax * 6 * y * x / Tu, wMax * Tu * S(1) + wMax * tFull + wMax * Tu * (S(1) - S(y)));
         }
         if (t < t5) { const s = lift.at(t - t4); return { phase: 'lower', rise: height - s.pos, speed: -s.vel, aVert: -s.acc, ...zero, turn: turnTotal }; }
         return { phase: 'rest', rise: 0, speed: 0, aVert: 0, ...zero, turn: turnTotal };

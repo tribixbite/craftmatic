@@ -66,6 +66,8 @@ export interface CraftmaticPack {
   placement: PlacementFacts;
   interactives: InteractiveRuntimeConfig | null;
   rides: { seatType: string; rides: RideFacts[] } | null;
+  /** Drop towers and sky swings (`scripts/rides-funfair.js`): one seat per rider, every seat of ride `index` carrying its own path. */
+  funfair: { seatType: string; rides: RideFacts[]; /** The shipped constants (`FUNFAIR`): the checks judge the pack by its own numbers. */ constants: Record<string, number> } | null;
   /** Summonable flyer mounts: the cloud type and the types a tap on which summons it. */
   flyers: Array<{ cloudType: string; summonTypes: string[] }>;
   /** Vehicle types (family `craftmatic_vehicle`: scripted cars, boats, planes, and the native rotorcraft). */
@@ -94,6 +96,7 @@ export function readCraftmaticPack(addon: Addon): CraftmaticPack | undefined {
     if (!placement) continue;
     const ix = config(pack, 'scripts/interactives.js') as InteractiveRuntimeConfig | undefined;
     const rides = config(pack, 'scripts/rides.js') as { seatType?: string; rides?: Array<{ kind?: string; carType?: string }> } | undefined;
+    const funfair = config(pack, 'scripts/rides-funfair.js') as { seatType?: string; rides?: Array<{ kind?: string; carType?: string }>; constants?: Record<string, number> } | undefined;
     const flyer = config(pack, 'scripts/flyer.js') as { mounts?: Array<{ cloudType?: string; summonTypes?: string[]; tapTypes?: string[] }> } | undefined;
     const nativeMountTypes: string[] = [], vehicleTypes: string[] = [];
     for (const [path, data] of pack.files) {
@@ -120,6 +123,7 @@ export function readCraftmaticPack(addon: Addon): CraftmaticPack | undefined {
       },
       interactives: ix && Array.isArray(ix.items) ? ix : null,
       rides: rides?.seatType ? { seatType: rides.seatType, rides: (rides.rides ?? []).map((r, index) => ({ index, kind: String(r.kind ?? '?'), ...(r.carType ? { carType: r.carType } : {}) })) } : null,
+      funfair: funfair?.seatType ? { seatType: funfair.seatType, rides: (funfair.rides ?? []).map((r, index) => ({ index, kind: String(r.kind ?? '?'), ...(r.carType ? { carType: r.carType } : {}) })), constants: funfair.constants ?? {} } : null,
       flyers: (flyer?.mounts ?? []).map(m => ({ cloudType: String(m.cloudType ?? ''), summonTypes: m.summonTypes ?? m.tapTypes ?? [] })),
       vehicleTypes,
       nativeMountTypes,

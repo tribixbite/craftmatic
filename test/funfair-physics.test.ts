@@ -88,6 +88,18 @@ describe('sky swing', () => {
     }
   });
 
+  it('turns a whole number of revolutions, so the chairs and the ring end where they started', () => {
+    for (const [h, r] of [[60, 4], [20, 3], [90, 6]] as const) {
+      const t = kit.swing(h, r, 1);
+      const end = t.at(t.duration).turn / (2 * Math.PI);
+      expect(end).toBeCloseTo(Math.round(end), 9);
+      expect(Math.round(end)).toBeGreaterThanOrEqual(1);
+      // The hold at full speed is at least SWING_FULL_S.
+      const full = sample(t).filter(x => x.phase === 'full').length * DT;
+      expect(full).toBeGreaterThanOrEqual(FUNFAIR.SWING_FULL_S - 2 * DT);
+    }
+  });
+
   it('turns by the integral of omega and the limit holds at every wand size (omega does not depend on size)', () => {
     const s = sample(trip);
     let turn = 0;

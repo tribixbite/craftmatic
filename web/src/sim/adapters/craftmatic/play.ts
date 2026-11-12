@@ -8,6 +8,10 @@
  *   tap-boards-ride        a tap on a ride's seat or car seats the player;
  *   slide-rides-in-chute   a slide carries its rider in the chute, not on a rim;
  *   lift-car-in-model      a lift's car stays inside the model's box;
+ *   funfair-seats-on-paths every seat of a drop tower or sky swing runs its own path, up to its own top;
+ *   funfair-rider-aboard   every rider stays on their own seat the whole trip (a 100-block fall is nobody's choice);
+ *   funfair-g-limit        the load on a rider stays inside the ride's documented limits (the drop's brake, the swing's lateral g);
+ *   funfair-own-view       the rider keeps their own first person (no script camera is set on a funfair ride);
  *   rider-set-down         at a ride's end the rider stands free on a floor;
  *   driver-sees-ahead      a driver's eye sees out: the horizon ahead and
  *                          either side (`driverSeesOut` of `cockpit-seat.ts`,
@@ -174,6 +178,91 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       ctx.state['slideWorstOverDrawn'] = { worst: r3(worst), at: worstAt && pt(worstAt) };
       ctx.note(`slide ${index + 1}: rode ${ticks} ticks; the seat ran at most ${r3(worst)} blocks over the drawn chute`);
       await checkSetDown(ctx, `slide ${index + 1}`);
+    },
+
+    /**
+     * Ride a drop tower or sky swing (rides/funfair-runtime.ts) with `riders` children, each on a seat of their own: the first
+     * boards by a tap, the others are seated beside. Judges the trip tick by tick: every seat runs its own path
+     * (`funfair-seats-on-paths`), every rider stays aboard (`funfair-rider-aboard`), the load stays inside the limits the
+     * pack ships (`funfair-g-limit`), the view stays the rider's own (`funfair-own-view`), and the set-down is outside the
+     * ring on a floor (`rider-set-down`). `{ index, riders }`.
+     */
+    async rideFunfair(step: AnyStep, ctx: StepContext) {
+      const index = Number(step['index'] ?? 0), want = Math.max(1, Number(step['riders'] ?? 1));
+      const facts = pack.funfair, ride = facts?.rides[index];
+      if (!facts || !ride) throw new Error(`rideFunfair: no funfair ride ${index}`);
+      const key = (n: string): string => nsId(pack.namespace, n);
+      const seats = ctx.sim.engine.loadedEntities(ctx.player.dimension).filter(e => e.typeId === facts.seatType && e.dynamic.get(key('ride')) === index);
+      if (seats.length < want) throw new Error(`rideFunfair: ride ${index} has ${seats.length} seat(s), ${want} riders asked`);
+      const f = placedOf(ctx).sizePct / 100, C = facts.constants;
+      const G = (C['GRAVITY'] ?? 9.81) * f;
+      const flat = (e: SimEntity): number => Math.hypot(e.location.x - ctx.player.location.x, e.location.z - ctx.player.location.z);
+      const mine = [...seats].sort((a, b) => flat(a) - flat(b))[0]!;
+      if (!await board(ctx, mine, 'tap', `${ride.kind} ${index + 1}'s seat`)) return;
+      // The other riders sit as world state on seats of their own (the tap boards the first, a second child the next).
+      const riderOf = new Map<SimEntity, SimEntity>([[mine, ctx.player]]);
+      for (const seat of seats.filter(s => s !== mine).slice(0, want - 1)) {
+        const p = ctx.sim.addPlayer(`Rider ${riderOf.size + 1}`, seat.location);
+        if (!seat.addRider(p, Math.max(ctx.sim.engine.tick, seat.spawnTick, p.spawnTick) + 1).ok) throw new Error('rideFunfair: could not seat an extra rider');
+        riderOf.set(seat, p);
+      }
+      const paths = new Map<SimEntity, Vec3[]>();
+      for (const seat of seats) { try { paths.set(seat, JSON.parse(String(seat.dynamic.get(key('ride_path'))))); } catch { /* none */ } }
+      const lead = paths.get(mine);
+      if (!lead || lead.length < 3) throw new Error('rideFunfair: the seat carries no foot/top/axis path');
+      const axis = lead[2]!;
+      const r0 = Math.hypot(lead[0]!.x - axis.x, lead[0]!.z - axis.z), expectedRise = lead[1]!.y - lead[0]!.y;
+      const series: Vec3[] = [];
+      const maxRise = new Map<SimEntity, number>(seats.map(s => [s, 0]));
+      let aboardFault = false, viewFault = false, peakLoad = -Infinity, lowLoad = Infinity, peakHoriz = 0, fastestFall = 0, ticks = 0;
+      for (; ticks < 3000 && ctx.player.ridingOn; ticks++) {
+        await ctx.run(1);
+        series.push({ ...mine.location });
+        for (const seat of seats) maxRise.set(seat, Math.max(maxRise.get(seat)!, seat.location.y - (paths.get(seat)?.[0]?.y ?? seat.location.y)));
+        // (On the tick the trip ends every rider is set down beside the ring: only a rider still aboard is judged.)
+        for (const [seat, p] of ctx.player.ridingOn ? riderOf : []) {
+          const away = Math.hypot(p.location.x - seat.location.x, p.location.y - seat.location.y, p.location.z - seat.location.z);
+          if (!aboardFault && away > 2 * f) {
+            aboardFault = true;
+            ctx.violate({ invariant: 'funfair-rider-aboard', message: `${ride.kind} ${index + 1}: a rider left their seat (${r3(away)} blocks from it) mid-ride`, evidence: { seat: pt(seat.location), rider: pt(p.location) } });
+          }
+        }
+        const n = series.length;
+        if (n >= 3) {
+          const a = series[n - 1]!, b = series[n - 2]!, c = series[n - 3]!;
+          const ay = (a.y - 2 * b.y + c.y) * 400, ax = (a.x - 2 * b.x + c.x) * 400, az = (a.z - 2 * b.z + c.z) * 400;
+          peakLoad = Math.max(peakLoad, ay / G + 1); lowLoad = Math.min(lowLoad, ay / G + 1); peakHoriz = Math.max(peakHoriz, Math.hypot(ax, az) / G);
+          fastestFall = Math.max(fastestFall, (b.y - a.y) * 20);
+        }
+        if (!viewFault && ticks % 20 === 0) {
+          const cam = ctx.sim.host.playerState(ctx.player).camera;
+          if (cam.preset && cam.preset !== 'minecraft:first_person') { viewFault = true; ctx.violate({ invariant: 'funfair-own-view', message: `${ride.kind} ${index + 1}: a script camera (${cam.preset}) was set on the rider; a funfair ride keeps their own first person`, evidence: { preset: cam.preset } }); }
+        }
+      }
+      // Every seat ran its own path, to its own top.
+      for (const seat of seats) {
+        const path = paths.get(seat);
+        if (!path || path.length < 3) continue;
+        const rise = path[1]!.y - path[0]!.y;
+        if (Math.abs(maxRise.get(seat)! - rise) > 0.05 * Math.max(1, f)) ctx.violate({ invariant: 'funfair-seats-on-paths', message: `${ride.kind} ${index + 1}: a seat rose ${r3(maxRise.get(seat)!)} blocks, its path says ${r3(rise)}`, evidence: { seat: pt(seat.location), path: path.map(pt) } });
+      }
+      // The load: the brake's peak and the free-fall floor (vertical), the lateral limit (horizontal).
+      const limits = { brake: 1 + (C['DROP_BRAKE_G'] ?? 3) + 0.15, floor: 1 - (C['DROP_FALL_FRACTION'] ?? 0.9) - 0.15, lateral: (C['SWING_LATERAL_G'] ?? 1) * 1.1 };
+      const bad = ride.kind === 'drop' ? (peakLoad > limits.brake || lowLoad < limits.floor || peakHoriz > 0.05) : (peakHoriz > limits.lateral || peakLoad > 1.25 || lowLoad < 0.75);
+      if (bad) ctx.violate({ invariant: 'funfair-g-limit', message: `${ride.kind} ${index + 1}: the load left its limits (vertical ${r3(lowLoad)}..${r3(peakLoad)} g, horizontal ${r3(peakHoriz)} g; allowed ${JSON.stringify(limits)})`, evidence: { peakLoad: r3(peakLoad), lowLoad: r3(lowLoad), peakHoriz: r3(peakHoriz) } });
+      ctx.note(`${ride.kind} ${index + 1}: ${riderOf.size} rider(s), ${ticks} ticks (${r3(ticks / 20)} s), rose ${r3(Math.max(...maxRise.values()))} of ${r3(expectedRise)} blocks, fastest fall ${r3(fastestFall)} blocks/s, vertical load ${r3(lowLoad)}..${r3(peakLoad)} g, horizontal ${r3(peakHoriz)} g`);
+      if (ctx.player.ridingOn) { ctx.violate({ invariant: 'rider-set-down', message: `${ride.kind} ${index + 1}: still running after ${ticks} ticks`, evidence: {} }); return; }
+      // Set down outside the ring, standing: every rider, not only the first.
+      await ctx.run(40);
+      for (const p of riderOf.values()) {
+        const out = Math.hypot(p.location.x - axis.x, p.location.z - axis.z);
+        if (out <= r0 + 0.25 * f) ctx.violate({ invariant: 'rider-set-down', message: `${ride.kind} ${index + 1}: a rider was set down ${r3(out)} blocks from the axis, inside the ring (radius ${r3(r0)})`, evidence: { at: pt(p.location), axis: pt(axis) } });
+      }
+      await checkSetDown(ctx, `${ride.kind} ${index + 1}`);
+      for (const seat of seats) {
+        const foot = paths.get(seat)?.[0];
+        if (foot && Math.hypot(seat.location.x - foot.x, seat.location.y - foot.y, seat.location.z - foot.z) > 0.1 * f) ctx.violate({ invariant: 'funfair-seats-on-paths', message: `${ride.kind} ${index + 1}: a seat did not return to its foot`, evidence: { seat: pt(seat.location), foot: pt(foot) } });
+      }
     },
 
     /** Ride a lift from floor to floor: `{ index, trips, board: 'tap' | 'hold', on: 'car' | 'seat' }` (default: a tap on the car). */
