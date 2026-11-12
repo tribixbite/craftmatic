@@ -237,7 +237,10 @@ describe('brickgen-grammar real fixtures', () => {
     const hist = new Map<string, number>();
     for (const e of nd.built.plan.elements) hist.set(e.part, (hist.get(e.part) ?? 0) + 1);
     const slopeParts = [...SLOPE_PARTS].reduce((n, p) => n + (hist.get(p) ?? 0), 0);
-    expect(slopeParts).toBeGreaterThan(400); // measured 560 parts: 70 % of the slope-labelled cells (hip corners and one-stud ridges are bricks)
+    // Measured 360 slope parts over 7,722 slope-labelled cells after MQ (2026-11-12) dropped the three neighbouring
+    // buildings OSM had pulled in (their long gables gave 200 of the 560 parts measured before; renders compared in
+    // output/a07-merged/compare-nw.jpg). Hip corners and one-stud ridges are bricks.
+    expect(slopeParts).toBeGreaterThan(300);
     expect(nd.built.stats.roofs['gabled']).toBeGreaterThanOrEqual(10);
     expect(nd.built.stats.roofs['spire']).toBeGreaterThanOrEqual(1);
     const [W, H, D] = nd.built.lattice.dims;
