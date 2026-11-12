@@ -130,8 +130,10 @@ function renderPlan(plan: BrickPlan, view: View, maxPx: number, region?: number[
 }
 
 const FIXTURES = path.resolve(import.meta.dirname, '../test/fixtures/osm');
-const overpass = JSON.parse(readFileSync(path.join(FIXTURES, `${siteName}.overpass.json`), 'utf8'));
-const buildingId = siteName === 'notre-dame' ? 'way/201611261' : undefined;
+// `--fixture=<file>` reads an Overpass response from anywhere (the private designs repo's landmarks, L00);
+// `--building=<type/id>` names the outline element. `--maxpx` bounds each PNG's longest side.
+const overpass = JSON.parse(readFileSync(flag('fixture', path.join(FIXTURES, `${siteName}.overpass.json`)), 'utf8'));
+const buildingId = flag('building', siteName === 'notre-dame' ? 'way/201611261' : '') || undefined;
 const site = siteFromOverpass(overpass, { retrieved: '2026-11-09', url: 'https://overpass-api.de/api/interpreter', ...(buildingId ? { buildingId } : {}) });
 const massed = buildMassing(site.site, { roles: site.roles, scale: { target: Number(flag('target', '1')) } });
 const sidecarPath = path.resolve(import.meta.dirname, '../web/src/brickgen/features/sidecars', `${siteName}.annotations.json`);
@@ -159,7 +161,7 @@ for (const e of brick.plan.elements) hist[e.part] = (hist[e.part] ?? 0) + 1;
 mkdirSync(path.dirname(outBase), { recursive: true });
 for (const v of flag('views', 'se,nw').split(',') as View[]) {
   const regionArg = flag('region', '');
-  const r = renderPlan(brick.plan, v, 1900, regionArg ? regionArg.split(',').map(Number) : undefined);
+  const r = renderPlan(brick.plan, v, Number(flag('maxpx', '1900')), regionArg ? regionArg.split(',').map(Number) : undefined);
   writeFileSync(`${outBase}-${v}.png`, r.png);
   console.log(`${outBase}-${v}.png ${r.w}x${r.h}`);
 }
