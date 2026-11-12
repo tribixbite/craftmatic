@@ -5841,5 +5841,5 @@ A `CoasterDesign` becomes a playable coaster: `bun scripts/_coaster_design_pack.
   a stopped train (`scripts/_coaster_zones_camera.ts`, `_coaster_generated_scenarios.ts`); a device pack needs the publisher's
   ticking-area policy (U17). (2) The `camera-continuous` frames of 49-106 degrees were the TRACK for the zero-g rolls (the car frame
   itself turned 25-118 degrees per tick there, over the camera's 40 cap: fixed in the design, `COASTER_DESIGN.MAX_FRAME_RATE_DEG_PER_TICK`)
-  and the PLANNER for the corkscrews (the frame turned 16-18 degrees per tick, the chart drew 41-48: about 2.6x; open, C07: it stays
-  under the cap only because the corkscrews now turn 11 degrees per tick). (3) One rider per car; the design's two per car is not modelled.
+  and the PLANNER for the corkscrews and the rolls' exits (the frame turned 5-18 degrees per tick, the `over` chart drew 41-57; fixed: a rolled
+  stretch is drawn in the nose's chart, `planSection`, physics spec 4.2d). (3) One rider per car; the design's two per car is not modelled.

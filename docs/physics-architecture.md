@@ -333,6 +333,17 @@ without `zones` carries no plan and its runtime path is the one that shipped: `s
 - **Per-route speed cap.** `CoasterRoute.maxSpeedBps` (a generated route: the design's `limits.maxSpeedBps`, bounded by
   `COASTER_ZONES.SPEED_CAP_BPS`) replaces `COASTER_PHYSICS.MAX_SPEED` (28.28) for that route's integration, stored-speed clamp,
   planner reach and the ceiling clamp. Source routes keep the global ceiling. The cap is 52, the 3x sketch's design limit: in the simulator (`scripts/_coaster_zones_scenarios.ts`, `_coaster_zones_camera.ts`) two trains lap at a peak of 52 blocks/s (2.6 blocks a tick, 37 ticks inside the 96-block simulation distance, quirk `simulation-distance`) with no unloaded-block fault, no rider ejection and no `camera-continuous` violation. The sim's loaded area follows the ticking areas and the rider, so it cannot show whether a PHONE's teleports and chunk loading hold at 35-45 blocks/s (plan A section 5.1, Q10): that stays a device measurement, `TODO(C04-device)`, and the cap is the design's own limit until then.
+- **The rider camera on a rolled stretch** (the C02 finding, `camera-continuous` frames of 49-106 degrees). Two causes, one on each
+  side. TRACK: the sketch's zero-g rolls turned the car's frame 43 and 91 degrees per tick (a roll in 12 blocks of a 30-block
+  element), more than any camera can follow: `validateCoaster` now refuses a frame rate over `MAX_FRAME_RATE_DEG_PER_TICK` and the
+  sketch's rolls are 100 blocks (a launch before the first), its corkscrews 70. PLANNER: where the car rolls over with the nose
+  well off the zenith (a corkscrew, a zero-g roll) the `over` chart (the loop's: the right axis' heading, a pitch fitted to both
+  axes) draws 2.5-3.4x the frame's own rotation (41-57 degrees where the frame turned 5-20), because through a roll the right axis
+  goes vertical and its heading is held and clamped; `planSection` draws such a stretch in the nose's own chart (`roll` mode: yaw,
+  pitch, roll about the view axis). A stretch whose view comes within ~18 degrees of the zenith (every loop, every drop that is not
+  rolled) keeps `over`: the replay digests of 10261, 10303, 76417 and 42703 are unchanged. Sim, both phones, 3x sketch: worst turn
+  34.7 (Pixel) and 40.2 (Saga, own-view frames) degrees, no `camera-continuous` violation (`test/coaster-zones.test.ts`). Still open:
+  `coaster-view-clear` flags 4 (Pixel) and 8 (Saga) animation frames in the first loops where the car's own body covers the view.
 - **Prediction.** The rider camera's planner integrates the same arithmetic ahead; it copies the train's launch memo, so a
   prediction never writes the ride's state.
 
@@ -1519,6 +1530,7 @@ literal inside a function body (`§` marks the number).
 | `COASTER_DESIGN.BLOCK_BRAKE_DECEL` | `web/src/engine/coaster-design.ts` | 14 | blocks/s² | Twice the station brake (`COASTER_PHYSICS.STATION_BRAKE`, 7). |
 | `COASTER_DESIGN.RETURN_DRIVE_BPS` | `web/src/engine/coaster-design.ts` | 10 | blocks/s | The generated return is a powered transfer at this speed. |
 | `COASTER_DESIGN.CLEARANCE_B` | `web/src/engine/coaster-design.ts` | 1.2 | blocks | Two rail samples closer than this, far apart along the track, are a collision. |
+| `COASTER_DESIGN.MAX_FRAME_RATE_DEG_PER_TICK` | `web/src/engine/coaster-design.ts` | 28 | degrees per tick | Most the car's frame may rotate per 50 ms tick at the design speed: the rider camera follows 40 per frame (`COASTER_RIDER_VIEW.maxTurn`) and the runtime rides stretches up to 1.4x the design speed (28 x 1.4 = 39.2). The 3x sketch's zero-g rolls turned it 43 and 91 and the sim drew 41-106 degrees in one frame there. |
 | `COASTER_ZONES.BLOCK_GAP` | `web/src/engine/coaster-zones.ts` | 0.5 | blocks | How far short of a gated block's entry a held train's front stops. |
 | `COASTER_ZONES.SPEED_CAP_BPS` | `web/src/engine/coaster-zones.ts` | 52 | world blocks/s | A generated route's own ceiling (replaces `MAX_SPEED` 28.28 for it). Measured in the sim only (section 4.2d); not on a device. |
 <!-- /physics-spec:constants -->
@@ -1830,7 +1842,8 @@ one of these files fails the check until its row is written.
 | `CoasterDesignError` | class | Thrown for a design that cannot be built or fails validation; carries the issues. |
 | `COASTER_DESIGN` | const | Every generator constant (§9). |
 | `generateCoaster` | function | Elements to a closed route: load-controlled geometry, energy model, return connector, validation. |
-| `validateCoaster` | function | Closure, spacing, vertical / lateral g, jerk, stalls, brakes, arrival speed, world height, self-clearance. |
+| `frameRateDegPerTick` | function | How fast the car's frame (tangent and up together) rotates per sample, degrees per 50 ms tick at the design speed: the rate a roll about the heartline hides from the g limits (C04). |
+| `validateCoaster` | function | Closure, spacing, vertical / lateral g, jerk, stalls, brakes, arrival speed, world height, self-clearance, frame rate. |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/pinball-physics.ts -->

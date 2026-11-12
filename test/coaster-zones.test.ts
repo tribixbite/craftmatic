@@ -221,3 +221,22 @@ describe('the rider camera and the track (C02 finding: camera-continuous frames 
     expect(COASTER_DESIGN.MAX_FRAME_RATE_DEG_PER_TICK * 1.4).toBeLessThanOrEqual(40);
   });
 });
+
+describe.skipIf(!existsSync(LDRAW_ROOT))('the rider camera on the 3x sketch (simulator)', () => {
+  it('a train ridden once round the generated circuit draws no camera-continuous violation on either phone', async () => {
+    const { setLDrawRoot } = await import('../web/src/engine/ldraw-geometry');
+    setLDrawRoot(LDRAW_ROOT);
+    const { buildGeneratedCoasterPack } = await import('../web/src/engine/coaster-design-pack');
+    const { rideCamera } = await import('../scripts/_coaster_zones_camera');
+    const built = await buildGeneratedCoasterPack(sketch, carText);
+    for (const profile of ['pixel', 'saga'] as const) {
+      const { result } = await rideCamera(built.result.bytes, `3x-sketch-${profile}`, profile, 1);
+      const cut = result.violations.filter(v => v.invariant === 'camera-continuous').map(v => v.message);
+      expect(cut, profile).toEqual([]);
+      const ride = result.state['coasterCamera'] as { laps: number; animations: number };
+      expect(ride.laps, profile).toBe(1);
+      // The rolls and loops ARE animated: a ride with none would pass the invariant for free.
+      expect(ride.animations, profile).toBeGreaterThanOrEqual(10);
+    }
+  }, 600_000);
+});
