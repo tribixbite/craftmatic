@@ -5,11 +5,11 @@
  *   bun scripts/sim.ts <pack.mcaddon> --scenario=scripts/_coaster_generated_scenarios.ts
  *   C02_MAX_TICKS=<n> C02_TRACE=<every n ticks>   (optional: a ceiling and a progress line)
  *
- * WHY THE CHILD GOES TO THE TRAIN. An unattended train leaves the platform after its dwell, and the runtime holds
- * a train still wherever the world is not loaded around the player (`An unloaded block is not air`, CLAUDE.md): on a
- * 1,872-block circuit the lead train has stalled ~140 blocks out by the time the wand has finished placing. The
- * scenario therefore finds the lead train's front car (`craftmatic:coaster_car` 0), stands the child beside it
- * (which loads it) and boards it by a hold, exactly as a player would walk up to a stopped train.
+ * WHY THE CHILD GOES TO A STOPPED TRAIN. The wand takes ~3,400 ticks to place and the trains do not wait for it. Out of
+ * the loaded area the runtime holds a train still (`An unloaded block is not air`, CLAUDE.md), and with a launch it is
+ * frozen at 50 blocks/s, so no hold seats the child on whatever is nearest. The circuit therefore sits inside ticking areas
+ * (`loadCircuit`, the publisher's ticking-area policy), and the child is stood beside a train that is standing still
+ * (`toStoppedTrain`: a platform dwell, the bay or a block gate) and boards it by a hold, as a player would.
  *
  * PROGRESS is the lead car's own arc (`craftmatic:coaster_distance`, summed over forward steps, wrapped at the
  * route's length), so a lap is the runtime's own measure and does not depend on where the circuit was entered.
@@ -20,15 +20,15 @@ import { packFamily } from '../web/src/sim/adapters/craftmatic/namespace.ts';
 import { packText } from '../web/src/sim/pack/pack.ts';
 import { coasterScriptConfig } from '../web/src/sim/adapters/craftmatic/coaster.ts';
 import { CORE_HANDLERS } from '../web/src/sim/scenario/runner.ts';
-import { teleport } from '../web/src/sim/script-host/facades.ts';
+import { loadCircuit, toStoppedTrain } from './_coaster_zones_scenarios.ts';
 
-/** Ticks the lap may take (the design's own lap is ~3,600 ticks; with no launch zones yet the train crawls the flats: TODO(C04)). */
+/** Ticks the lap may take (the design's own lap is ~3,600 ticks; zones act since C04). */
 const MAX_TICKS = Number(process.env['C02_MAX_TICKS'] ?? 60_000);
 /** `C02_TRACE=<ticks>`: a progress line every that many ticks. */
 const TRACE_EVERY = Number(process.env['C02_TRACE'] ?? 0);
 /** The car is home when its arc is within this many blocks of the platform's stopping arc. */
 const HOME_BLOCKS = 0.5;
-const CAR = 'craftmatic:coaster_car', DISTANCE = 'craftmatic:coaster_distance', SPEED = 'craftmatic:coaster_speed';
+const DISTANCE = 'craftmatic:coaster_distance', SPEED = 'craftmatic:coaster_speed';
 
 export function scenarios(pack: CraftmaticPack): Scenario[] {
   const script = packText(pack.pack, 'scripts/coaster.js');
@@ -38,13 +38,11 @@ export function scenarios(pack: CraftmaticPack): Scenario[] {
   const family = packFamily(pack.namespace, 'coaster');
   const check = async (ctx: StepContext): Promise<string | undefined> => {
     const engine = ctx.sim.engine;
-    // The lead train's front car, wherever it stalled (loaded or not).
-    const front = [...engine.entities.values()].find(e => e.valid && e.families().includes(family) && e.dynamic.get(CAR) === 0);
-    if (!front) return 'no coaster car with index 0 (the lead train)';
-    teleport(ctx.sim.host, ctx.player, { x: front.location.x + 3, y: front.location.y + 1, z: front.location.z });
-    await ctx.run(10);
-    await CORE_HANDLERS['hold']!({ kind: 'hold', target: { family, where: e => e === front }, label: 'board the lead train' }, ctx);
-    if (ctx.player.ridingOn !== front) return `a hold on the lead car did not seat the child (it is at ${front.location.x.toFixed(0)},${front.location.z.toFixed(0)})`;
+    // The car `toStoppedTrain` stood the child beside: any train that is standing still (a platform dwell, the bay, a gate).
+    const front = [...engine.entities.values()].find(e => e.valid && e.id === ctx.state['stoppedCar']);
+    if (!front) return 'no stopped coaster car was found to board';
+    await CORE_HANDLERS['hold']!({ kind: 'hold', target: { family, where: e => e === front }, label: 'board the stopped train' }, ctx);
+    if (ctx.player.ridingOn !== front) return `a hold on the stopped car did not seat the child (it is at ${front.location.x.toFixed(0)},${front.location.z.toFixed(0)})`;
     const cars = config.routes[0]!.cars.count;
     const arc = (): number => Number(front.dynamic.get(DISTANCE));
     // Where the child boarded, measured from the platform in the ride direction: the car has already run that far
@@ -71,6 +69,6 @@ export function scenarios(pack: CraftmaticPack): Scenario[] {
     if (ctx.player.ridingOn !== front) return `the child left the car after ${t} ticks, ${Math.round(ran)} of ${Math.round(needed)} blocks`;
     return home ? undefined : `the lead car ran ${Math.round(ran)} of ${Math.round(needed)} blocks in ${t} ticks and is not back on the platform`;
   };
-  const steps: Step[] = [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'expect', label: 'full-circuit-lap', check }];
+  const steps: Step[] = [{ kind: 'expect', label: 'ticking-areas', check: loadCircuit }, { kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'expect', label: 'beside-a-stopped-train', check: toStoppedTrain(pack.namespace) }, { kind: 'expect', label: 'full-circuit-lap', check }];
   return [{ name: 'generated-coaster-full-lap', description: 'Board the lead train and ride the generated circuit once round.', steps }];
 }

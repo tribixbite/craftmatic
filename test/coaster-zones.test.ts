@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { generateCoaster, type CoasterDesign } from '../web/src/engine/coaster-design';
+import { existsSync, readFileSync } from 'node:fs';
+import { COASTER_DESIGN, CoasterDesignError, frameRateDegPerTick, generateCoaster, type CoasterDesign } from '../web/src/engine/coaster-design';
 import { COASTER_PHYSICS } from '../web/src/engine/bedrock-coaster';
 import {
   COASTER_ZONES, coasterBlockStop, coasterZoneSpeed, planCoasterZones, type CoasterZoneMemo, type CoasterZonePlan, type CoasterZoneRule,
@@ -88,18 +88,18 @@ describe('coaster-zones', () => {
     it('turns its launches, lifts, drives, block brake and trims into rules, and nothing for station, tunnel, dark or cloud', () => {
       const count = (k: string) => plan.rules.filter(r => r.kind === k).length;
       expect(count('launch')).toBe(gen.zones.filter(z => z.kind === 'launch').length);
-      expect(count("launch")).toBe(5);
+      expect(count("launch")).toBe(6);
       expect(count('hold')).toBe(gen.zones.filter(z => z.kind === 'lift').length);
       expect(count('brake')).toBe(2);
-      expect(plan.rules.length).toBe(5 + gen.zones.filter(z => z.kind === 'lift').length + 2);
+      expect(plan.rules.length).toBe(6 + gen.zones.filter(z => z.kind === 'lift').length + 2);
       const launch = plan.rules.find(r => r.kind === 'launch')!;
       expect(launch.speed).toBe(52);
-      const cable = plan.rules.find(r => r.kind === 'hold' && r.from > 1000 && r.from < 1100 && r.to > 1200)!;
+      const cable = plan.rules.find(r => r.kind === 'hold' && r.speed === 8 && r.to - r.from > 150)!;
       expect(cable.speed).toBe(8);
       const block = plan.rules.find(r => r.kind === 'brake' && r.speed === 4)!;
       expect(block.decel).toBe(2 * PHYS.stationBrake);
       const trim = plan.rules.find(r => r.kind === 'brake' && r.decel === PHYS.stationBrake)!;
-      expect(trim.from).toBeGreaterThan(1800);
+      expect(trim.to).toBeCloseTo(total, 6);
     });
 
     it('cuts the circuit into three block sections for two trains: the brake run, the course and the station block', () => {
@@ -147,5 +147,77 @@ describe('coaster-zones', () => {
       const stop = coasterBlockStop(blocks, total, 1560, extent, [1860], gap);
       expect(stop!.stopAt).toBeCloseTo(1602 - gap - extent / 2, 6);
     });
+  });
+});
+
+const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
+const carText = readFileSync('test/fixtures/coaster/own-car.ldr', 'utf8');
+
+describe.skipIf(!existsSync(LDRAW_ROOT))('coaster-zones (simulator, two trains on the 3x sketch)', () => {
+  /** Build the sketch's pack, optionally with a long platform dwell so the first train holds the station block. */
+  async function run(chase: boolean) {
+    const { setLDrawRoot } = await import('../web/src/engine/ldraw-geometry');
+    setLDrawRoot(LDRAW_ROOT);
+    const { buildGeneratedCoasterPack } = await import('../web/src/engine/coaster-design-pack');
+    const { scenarios } = await import('../scripts/_coaster_zones_scenarios');
+    const { runScenario } = await import('../web/src/sim/scenario/runner');
+    const { craftmaticHandlers } = await import('../web/src/sim/adapters/craftmatic/child-play');
+    const { readCraftmaticPack } = await import('../web/src/sim/adapters/craftmatic/pack-facts');
+    const { readAddon, packText } = await import('../web/src/sim/pack/pack');
+    const built = await buildGeneratedCoasterPack(sketch, carText);
+    const addon = await readAddon(built.result.bytes);
+    if (chase) {
+      // A long platform dwell (1,500 ticks, 75 s) keeps the first train in the station block while the second reaches
+      // the end of the brake run: only the block gate can hold it there (the dispatcher's bay is a train length
+      // before the platform, past the gate).
+      const pack = addon.packs.find(p => packText(p, 'scripts/coaster.js'))!;
+      const text = packText(pack, 'scripts/coaster.js')!;
+      expect(text).toMatch(/"DWELL_EMPTY":100,/);
+      pack.files.set('scripts/coaster.js', new TextEncoder().encode(text.replace('"DWELL_EMPTY":100,', '"DWELL_EMPTY":1500,')));
+    }
+    const pack = readCraftmaticPack(addon)!;
+    const [scenario] = scenarios(pack);
+    expect(scenario).toBeDefined();
+    const result = await runScenario(scenario!, [addon], { handlers: craftmaticHandlers(pack, addon) });
+    return { result, zones: result.state['zones'] as import('../scripts/_coaster_zones_scenarios').ZonesResult };
+  }
+
+  it('two trains run the circuit with block brakes keeping them apart, and every launch reaches its target speed', async () => {
+    const { result, zones } = await run(false);
+    expect(result.violations.map(v => `${v.invariant}: ${v.message}`)).toEqual([]);
+    expect(zones.leadLaps).toBeGreaterThanOrEqual(2);
+    expect(zones.sharedBlockTicks).toBe(0);
+    expect(zones.launches.length).toBe(6);
+    for (const l of zones.launches) expect(l.endSpeed).toBeGreaterThan(0.98 * l.target);
+    // The cable lift is 8 blocks/s, faster than the chain's 3.5, and the route's own ceiling is the design's, not the global 28.3.
+    expect(zones.peakBps).toBeGreaterThan(COASTER_PHYSICS.MAX_SPEED + 5);
+  }, 300_000);
+
+  it('a second train that reaches the end of the brake run while the station block is taken is held at the gate and never shares a gated block', async () => {
+    const { result, zones } = await run(true);
+    expect(result.violations.map(v => `${v.invariant}: ${v.message}`)).toEqual([]);
+    expect(zones.sharedBlockTicks).toBe(0);
+    expect(zones.gateHoldTicks).toBeGreaterThan(0);
+  }, 300_000);
+});
+
+describe('the rider camera and the track (C02 finding: camera-continuous frames of 49-106 degrees on the generated track)', () => {
+  // The sketch as C02 shipped it: zero-g rolls whose crest is 12-25 blocks long at 21-45 blocks/s.
+  const fastRolls = JSON.parse(readFileSync('test/fixtures/coaster/3x-sketch-fast-rolls.json', 'utf8')) as CoasterDesign;
+
+  it('a design whose car frame turns faster than the camera follows is refused by the validator, naming the element', () => {
+    let error: unknown;
+    try { generateCoaster(fastRolls); } catch (e) { error = e; }
+    expect(error).toBeInstanceOf(CoasterDesignError);
+    const issues = (error as CoasterDesignError).issues.filter(i => i.code === 'frame-rate');
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues[0]!.message).toMatch(/degrees per tick/);
+  });
+
+  it('the 3x sketch keeps the car frame under the limit everywhere (the limit leaves the runtime 1.4x the design speed under the 40-degree camera cap)', () => {
+    const gen = generateCoaster(sketch);
+    const worst = Math.max(...frameRateDegPerTick(gen));
+    expect(worst).toBeLessThanOrEqual(COASTER_DESIGN.MAX_FRAME_RATE_DEG_PER_TICK);
+    expect(COASTER_DESIGN.MAX_FRAME_RATE_DEG_PER_TICK * 1.4).toBeLessThanOrEqual(40);
   });
 });

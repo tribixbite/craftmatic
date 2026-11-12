@@ -5831,12 +5831,15 @@ A `CoasterDesign` becomes a playable coaster: `bun scripts/_coaster_design_pack.
   in two six-car trains; the cable lift as the runtime's chain; a one-block stone-brick platform. Pack 1.2 MB.
 - **Settled by test.** Handedness: no mirror, a positive design turn is a left turn (yaw -90 -> -180). Rails: mesh `mirror: 'z'`,
   actor at `(root.x, root.y, -root.z)`. Datum: car origin = wheel contact plane, `railTopOffsetB` 0, gauge = wheel spacing (1.05 blocks).
-- **Simulator** (`bun scripts/sim.ts <pack> --scenario=scripts/_coaster_generated_scenarios.ts`): the lead train runs the circuit and
-  stops on the platform, 1,871.9 of 1,872.4 blocks covered (135.7 of them unattended before boarding: the wand places for ~3,000 ticks), 6,370
-  ticks (319 s) ridden, peak 28.3 blocks/s, rise 169.1. The design's lap is 178 s: with no launch zone yet (C04) the train crawls
-  the flats at `MIN_SPEED`.
-- **Findings, not fixed here.** (1) An unattended train stalls where the world is not loaded around the player (~140 blocks out) and the
-  second train waits for it to be half a lap ahead, so `--scenario=coaster-camera` boards a stationary car on the 2-train pack; use a
-  1-train design for it. (2) `bun scripts/_coaster_crest_view.ts <pack> <dir>` rode to the crest and the client's `camera-continuous`
-  invariant flagged six animation frames turning 49-59 degrees (cap 40) on the way up (loops and corkscrews at speed): camera work for C07.
-  (3) One rider per car; the design's two per car is not modelled.
+- **Simulator** (`bun scripts/sim.ts <pack> --scenario=scripts/_coaster_generated_scenarios.ts`): the circuit sits in ticking areas
+  (`loadCircuit`), the child boards a train that stands still and rides it once round (2,111 blocks, 3,212 ticks = 161 s, peak 52.0
+  blocks/s). Since C04 (2026-11-12) the zones act (launches to 52, the 8 blocks/s cable lift, block brake, trims; section 4.2d of
+  `docs/physics-architecture.md`), so the C02 figures above (319 s, peak 28.3) are history; the sketch itself changed (a launch before
+  the first zero-g roll, both rolls 100 blocks, both corkscrews 70) because its rolls turned the car frame 43-91 degrees per tick.
+- **Findings.** (1) An unattended train stalls where the world is not loaded around the player (~96 blocks, quirk `simulation-distance`);
+  with a launch it is frozen at 50 blocks/s, so a hold on the nearest car seats nobody. The sim scenarios use ticking areas and board
+  a stopped train (`scripts/_coaster_zones_camera.ts`, `_coaster_generated_scenarios.ts`); a device pack needs the publisher's
+  ticking-area policy (U17). (2) The `camera-continuous` frames of 49-106 degrees were the TRACK for the zero-g rolls (the car frame
+  itself turned 25-118 degrees per tick there, over the camera's 40 cap: fixed in the design, `COASTER_DESIGN.MAX_FRAME_RATE_DEG_PER_TICK`)
+  and the PLANNER for the corkscrews (the frame turned 16-18 degrees per tick, the chart drew 41-48: about 2.6x; open, C07: it stays
+  under the cap only because the corkscrews now turn 11 degrees per tick). (3) One rider per car; the design's two per car is not modelled.

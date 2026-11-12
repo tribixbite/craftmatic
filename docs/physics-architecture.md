@@ -303,13 +303,41 @@ the `coasterTrack` option of `buildPlayableAddon`) and our own car (`test/fixtur
   rail's top face is the sample; the gauge is the car's wheel spacing (56 LDU = 1.05 blocks), set by `buildCoasterTrackPack`.
 - **Frame.** `placeGenerated` shifts the design by (8, 1, 8): the station by the pin, one block of platform under the rails; the circuit
   runs into negative x and z.
-- **Known limits.** Zones are carried into the runtime config but only the cable/chain lift acts on them (a launch, brake and the
-  two-train dispatcher are C04): the train crawls the flats at `MIN_SPEED` (a lap is ~319 s against the design's 178 s). An unattended
-  train stalls where the world is not loaded around the player (~140 blocks), so the second train waits at the platform until the first
-  is half a lap ahead. One rider per car (the design's 2 per car is not modelled).
+- **Known limits.** One rider per car (the design's 2 per car is not modelled). An unattended train stalls where the world is not
+  loaded around the player (~96 blocks, quirk `simulation-distance`): the sim runs the circuit inside ticking areas
+  (`scripts/_coaster_zones_scenarios.ts`), which the publisher's ticking-area policy (U17) must provide on a device.
+  The zones act since C04 (section 4.2d).
 
 Tests: `test/coaster-generated-route.test.ts`; sim: `bun scripts/sim.ts <pack> --scenario=scripts/_coaster_generated_scenarios.ts`;
 build: `bun scripts/_coaster_design_pack.ts <design.json> <out-dir>`.
+
+### 4.2d Zones that act on the ride — `web/src/engine/coaster-zones.ts` (WP-C04, BIZ-14)
+
+`planCoasterZones` turns a route's design zones into `CoasterRoute.zonePlan` (rules + block sections, in the runtime config);
+`coasterRuntime` applies them with two pure functions serialised beside `rideSubstep` (self-contained, no imports). A route
+without `zones` carries no plan and its runtime path is the one that shipped: `scripts/_coaster_replay.ts --rebuild` digests of
+10261, 10303 (two packs), 76417 and 42703 are identical to the base commit's.
+
+- **Launch.** Speed is pinned to `v^2 = v0^2 + (vt^2 - v0^2) s / L` over the zone (the design's own model: constant acceleration,
+  exactly the target at its end), `v0` the speed on entry; a launch entered faster than its target slows to it.
+- **Cable lift / drive (`hold`).** The zone's carriage speed, approached at `LIFT_ACCEL` from either side. The chain lift
+  (`LIFT_SPEED` 3.5) still only catches a slower train; a cable lift is faster (8 blocks/s on the 3x sketch).
+- **Block brake / trim (`brake`).** Sheds speed above its target at its deceleration (block brake `2 x STATION_BRAKE` = 14, trim
+  `STATION_BRAKE` = 7), never speeds a train up.
+- **Block sections and the second train.** The boundaries are the station's release and the start and end of each block brake;
+  the brake run and the station block are GATED: a train stops with its front `BLOCK_GAP` short of a gated entry while another
+  train stands in the block (`coasterBlockStop`, the stop curve `sqrt(2 a s)` of the station brake) and goes on when it is clear.
+  Two trains need three blocks (with two they deadlock), which the sketch's one block brake gives. The open course (the ungated
+  block) is spaced by the existing dispatcher's half lap, so two trains can share it; they never share a gated block.
+  Other trains' positions are read from the placement's sibling trains each tick.
+- **Per-route speed cap.** `CoasterRoute.maxSpeedBps` (a generated route: the design's `limits.maxSpeedBps`, bounded by
+  `COASTER_ZONES.SPEED_CAP_BPS`) replaces `COASTER_PHYSICS.MAX_SPEED` (28.28) for that route's integration, stored-speed clamp,
+  planner reach and the ceiling clamp. Source routes keep the global ceiling. SPEED_CAP_MEASUREMENT
+- **Prediction.** The rider camera's planner integrates the same arithmetic ahead; it copies the train's launch memo, so a
+  prediction never writes the ride's state.
+
+Tests: `test/coaster-zones.test.ts`; sim (two trains, ticking areas, launches, gate holds):
+`bun scripts/sim.ts <pack> --scenario=scripts/_coaster_zones_scenarios.ts`.
 
 ### 4.1a Rail vehicles — the coaster engine with a driver
 
@@ -1491,6 +1519,8 @@ literal inside a function body (`§` marks the number).
 | `COASTER_DESIGN.BLOCK_BRAKE_DECEL` | `web/src/engine/coaster-design.ts` | 14 | blocks/s² | Twice the station brake (`COASTER_PHYSICS.STATION_BRAKE`, 7). |
 | `COASTER_DESIGN.RETURN_DRIVE_BPS` | `web/src/engine/coaster-design.ts` | 10 | blocks/s | The generated return is a powered transfer at this speed. |
 | `COASTER_DESIGN.CLEARANCE_B` | `web/src/engine/coaster-design.ts` | 1.2 | blocks | Two rail samples closer than this, far apart along the track, are a collision. |
+| `COASTER_ZONES.BLOCK_GAP` | `web/src/engine/coaster-zones.ts` | 0.5 | blocks | How far short of a gated block's entry a held train's front stops. |
+| `COASTER_ZONES.SPEED_CAP_BPS` | `web/src/engine/coaster-zones.ts` | 52 | world blocks/s | A generated route's own ceiling (replaces `MAX_SPEED` 28.28 for it). CAP_NOTE |
 <!-- /physics-spec:constants -->
 
 ## 10. Measured facts
@@ -1967,6 +1997,21 @@ one of these files fails the check until its row is written.
 |---|---|---|
 | `simulateFigureLife` | function | Runs the SERIALISED figure runtime on the headless simulator over a pack's collider cells (the simulator's physics: `tickBody`). |
 | `SimFigure`, `SimSeat`, `SimWorld`, `SimSample` | interface | Types. |
+<!-- /physics-spec:exports -->
+
+<!-- physics-spec:exports web/src/engine/coaster-zones.ts -->
+| Export | Kind | Role |
+|---|---|---|
+| `CoasterZoneRule` | interface | One speed rule of a route's plan: a launch, a hold (cable lift or drive) or a brake (block brake, trim), by arc span. |
+| `CoasterBlock` | interface | A block section `[from, to)` of the circuit and whether entering it is gated. |
+| `CoasterZonePlan` | interface | What a route carries into its runtime config: the rules and the block sections. |
+| `CoasterZoneMemo` | interface | The per-train state of a launch (which one, its entry speed squared). |
+| `COASTER_ZONES` | const | The zone constants (`BLOCK_GAP`, `SPEED_CAP_BPS`). |
+| `PlannableZone` | interface | The design zone fields the planner reads (structural `CoasterZone`). |
+| `ZonePlanPhysics` | interface | The ride physics the planner needs, passed in (it imports nothing from the runtime). |
+| `planCoasterZones` | function | Design zones -> rules and block sections. |
+| `coasterZoneSpeed` | function | SERIALISED. The train's speed after a substep under the rules. |
+| `coasterBlockStop` | function | SERIALISED. Where a train must stop for an occupied gated block, or null. |
 <!-- /physics-spec:exports -->
 
 Files that run or host physics whose exports are not inventoried; their
