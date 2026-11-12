@@ -556,9 +556,10 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
   };
   /**
    * The nearest eye IN the vehicle, anywhere along its inside, that sees out
-   * (`AHEAD_CABIN`), else the nearest there that sees ahead; null when none.
+   * (`AHEAD_CABIN`), else (unless `sidesRequired`) the nearest there that sees
+   * ahead; null when none.
    */
-  const cabinEye = (): Vec3 | null => {
+  const cabinEye = (sidesRequired = false): Vec3 | null => {
     const c = AHEAD_CABIN, opaque = boxes.filter(b => !b.glass);
     const zs = boxes.flatMap(b => [b.min[2], b.max[2]]);
     const z0 = Math.min(...zs), z1 = Math.max(...zs), margin = (z1 - z0) * SEAT_END_MARGIN;
@@ -592,7 +593,7 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
       const view = fanView(boxes, e, VIEW);
       if (!out || view > out.view + 1e-9) out = { e, view };
     }
-    return out?.e ?? aheadOnly;
+    return out?.e ?? (sidesRequired ? null : aheadOnly);
   };
   if (!driverSeesOut(aheadBefore, sidesBefore)) {
     const n = (v: number): number => Math.round(v / AHEAD_SEARCH.step);
@@ -621,11 +622,15 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
       if (!drawn0 || drawn) break;
     }
     if (pick) take(pick.e, measure(seatOf(pick.e)), false);
-    // The sides are a preference: an eye that already saw ahead stays where it was rather than trade the cabin for them.
+    // The sides are REQUIRED (the user, 2026-11-09; 42639's raised door filled 35 % of the Saga's view): an eye
+    // that sees ahead with a panel at one side of the face moves like one that does not, to another cockpit
+    // that sees out on both sides, else out of the cabin to a point that does - never to one that only sees
+    // ahead, which it already did. Where no such point exists the eye stays where it was.
     else if (!seesAheadBefore && aheadOnly) take(aheadOnly.e, measure(seatOf(aheadOnly.e)), false);
-    else if (!seesAheadBefore && (cabin = cabinEye())) take(cabin, measure(seatOf(cabin)), false, true);
-    else if (!seesAheadBefore) {
-      // No eye in the cabin sees ahead: leave it, the nearest point up or back that does (`AHEAD_FALLBACK`).
+    else if ((cabin = cabinEye(seesAheadBefore))) take(cabin, measure(seatOf(cabin)), false, true);
+    else {
+      // No eye in the cabin sees out: leave it, the nearest point up or back that does (`AHEAD_FALLBACK`).
+      const sidesOnly = seesAheadBefore;
       const f = AHEAD_FALLBACK, zs = boxes.flatMap(b => [b.min[2], b.max[2]]), tail = Math.max(...zs);
       const out: Array<{ e: Vec3; move: number }> = [];
       // A seat the evidence put BEHIND the tail (8153's canopy-parts seat is 0.11 past it) has no point 'back' that is
@@ -639,12 +644,12 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
       out.sort((a, b) => a.move - b.move);
       let near: { e: Vec3; move: number } | null = null, both: Vec3 | null = null;
       for (const c of out) {
-        if (near && c.move > near.move + f.sideSlack + 1e-9) break;
+        if (!sidesOnly && near && c.move > near.move + f.sideSlack + 1e-9) break;
         if (eyeOverlap(boxes, c.e) > 0 || !aheadOf(c.e)) continue;
         near ??= c;
         if (driverSeesOut(1, sideView(boxes, c.e))) { both = c.e; break; }
       }
-      const e = both ?? near?.e;
+      const e = both ?? (sidesOnly ? undefined : near?.e);
       const helm = { seat: best.seat, steps: best.steps };
       // Only an eye out there: the body is hidden at every size (`riderVisibleSizes` reads `fits`).
       if (e) { take(e, measure(seatOf(e)).map(s => ({ ...s, fits: false })), true); ahead.helm = helm; }

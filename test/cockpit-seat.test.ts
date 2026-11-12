@@ -33,6 +33,18 @@ const cabin = (w: number, roofY: number): BoxBlocks[] => [
   box([-w - 0.2, roofY, -2], [w + 0.2, roofY + 0.2, 2]),
 ];
 
+/**
+ * `cabin` with WINDOWS: each wall is a sill up to `sill` and glass above it. The driver's view to either side is
+ * REQUIRED (`SIDES`, VEH-20), and a driver shut between two opaque walls a few tenths away has none: a cabin the seat
+ * search is meant to place a body in has windows, as a car's does.
+ */
+const windowed = (w: number, roofY: number, sill: number): BoxBlocks[] => [
+  box([-w - 0.2, 0, -2], [w + 0.2, 0.15, 2]),
+  box([-w - 0.2, 0, -1], [-w, sill, 2]), { ...box([-w - 0.2, sill, -1], [-w, roofY, 2]), glass: true },
+  box([w, 0, -1], [w + 0.2, sill, 2]), { ...box([w, sill, -1], [w + 0.2, roofY, 2]), glass: true },
+  box([-w - 0.2, roofY, -2], [w + 0.2, roofY + 0.2, 2]),
+];
+
 describe('riderOverlap / planSeat', () => {
   it('fits a seated player in a cabin with room, and not under a low roof', () => {
     const seat: Vec3 = [0, 0.2, 0];
@@ -51,8 +63,14 @@ describe('riderOverlap / planSeat', () => {
   });
 
   it('finds the smallest wand size at which the body fits (the model scales, the player does not)', () => {
-    // A quarter-size cabin: 0.55 blocks inside, the driver's eye 0.3 over the floor, the flanks from half a block ahead of it.
-    const small = [box([-0.5, 0, -2], [0.5, 0.03, 2]), box([-0.5, 0, -0.5], [-0.3, 0.55, 2]), box([0.3, 0, -0.5], [0.5, 0.55, 2]), box([-0.5, 0.55, -2], [0.5, 0.6, 2])];
+    // A quarter-size cabin: 0.55 blocks inside, the driver's eye 0.3 over the floor, the flanks from half a block ahead of it,
+    // each a low sill under a window (the view to either side is required: a closed flank 0.3 away ejects the eye).
+    const small = [
+      box([-0.5, 0, -2], [0.5, 0.03, 2]),
+      box([-0.5, 0, -0.5], [-0.3, 0.2, 2]), { ...box([-0.5, 0.2, -0.5], [-0.3, 0.55, 2]), glass: true },
+      box([0.3, 0, -0.5], [0.5, 0.2, 2]), { ...box([0.3, 0.2, -0.5], [0.5, 0.55, 2]), glass: true },
+      box([-0.5, 0.55, -2], [0.5, 0.6, 2]),
+    ];
     const eye: Vec3 = [0, 0.3, 0];
     const plan = planSeat(small, eye, [0, eye[1] - RIDER_EYE_ABOVE_SEAT, 0]);
     expect(plan.steps.map(s => s.f)).toEqual([1, 1.5, 2, 3, 4]);
@@ -504,7 +522,7 @@ describe('the cockpit evidence', () => {
 describe('the seat search (a canopy is a volume, not a seat)', () => {
   it('moves a windscreen-centre seat back to where the body fits, and never moves a seat mould', () => {
     // A cabin 1.9 wide, roof at 2.1, with a dashboard filling everything forward of z = 0.2.
-    const boxes = [...cabin(0.95, 2.1), box([-0.95, 0, -2], [0.95, 1.2, 0.2])];
+    const boxes = [...windowed(0.95, 2.1, 0.9), box([-0.95, 0, -2], [0.95, 1.2, 0.2])];
     const eye: Vec3 = [0.3, 1.3, 0.1];
     const seat: Vec3 = [0.3, eye[1] - RIDER_EYE_ABOVE_SEAT, 0.1];
     const volume = planSeat(boxes, eye, seat, 'volume');
@@ -642,7 +660,13 @@ describe('a guessed seat (no cockpit evidence) is judged by what its eye sees', 
     expect(open.moved).toBeNull();
     const figure = planSeat(dollTruck, [0, 1.2, -0.8], [0, 1.2 - RIDER_EYE_ABOVE_SEAT, -0.8], 'seat');
     expect(figure.view).toBeUndefined();
-    expect(figure.seat).toEqual([0, 1.2 - RIDER_EYE_ABOVE_SEAT, -0.8]);
+    // The guessed-seat search never runs for a seat with evidence; only the view rule moves it. The cab's walls
+    // (0.45 either side) shut the view to the sides (`SIDES` is REQUIRED), so the eye goes forward to the
+    // windscreen, where only 0.3 block of wall is left ahead of it: the sides clear, the seat's height kept.
+    expect(seesOut(dollTruck, [0, 1.2, -0.8])).toBe(false);
+    expect(figure.ahead!.moved).toEqual([0, 0, -0.4]);
+    expect(seesOut(dollTruck, figure.eye)).toBe(true);
+    expect(figure.seat[1]).toBeCloseTo(1.2 - RIDER_EYE_ABOVE_SEAT, 6);
   });
 });
 
@@ -734,11 +758,14 @@ describe('every seat sees the horizon ahead (AHEAD), whatever its evidence', () 
     expect(plan.steps[0]!.fits).toBe(true);
     // Only what is NEAR counts: the same wall 1.5 blocks to the side is the car's body, not a panel at the face.
     expect(sideView([box([-1, 0, -2], [1, 0.3, 2]), box([-1.7, 0, -1.0], [-1.5, 1.71, 0.3])], eye).left).toBe(1);
-    // A panel no search in the cabin clears keeps a seat that sees ahead where it was: the sides are a preference.
+    // A panel no search in the cabin clears: the sides are REQUIRED (the user, 2026-11-09), so an eye that saw ahead
+    // leaves the cabin for the nearest point over the panel that sees out, its body hidden, rather than stay beside it.
     const tall = [box([-1, 0, -2], [1, 0.3, 2]), box([-0.6, 0, -1.0], [-0.4, 3, 0.3])];
-    const kept = planSeat(tall, eye, seat, 'seat');
-    expect(kept.ahead!.moved).toBeNull();
-    expect(kept.eye).toEqual(eye);
+    const left = planSeat(tall, eye, seat, 'seat');
+    expect(left.ahead!.fallback).toBe(true);
+    expect(left.eye[1]).toBeGreaterThan(3);
+    expect(seesOut(tall, left.eye)).toBe(true);
+    expect(left.fitScale).toBeNull();
   });
 
   it('lets the eye leave a roofed cabin that cannot see ahead, over the model, and hides the body (76286, Saga 30g)', () => {
