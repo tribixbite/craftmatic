@@ -1,0 +1,151 @@
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { generateCoaster, type CoasterDesign } from '../web/src/engine/coaster-design';
+import { COASTER_PHYSICS } from '../web/src/engine/bedrock-coaster';
+import {
+  COASTER_ZONES, coasterBlockStop, coasterZoneSpeed, planCoasterZones, type CoasterZoneMemo, type CoasterZonePlan, type CoasterZoneRule,
+} from '../web/src/engine/coaster-zones';
+
+const sketch = JSON.parse(readFileSync('test/fixtures/coaster/3x-sketch.json', 'utf8')) as CoasterDesign;
+const PHYS = { stationBrake: COASTER_PHYSICS.STATION_BRAKE, holdAccel: COASTER_PHYSICS.LIFT_ACCEL };
+const fresh = (): CoasterZoneMemo => ({ launch: -1, v0sq: 0 });
+
+/** Drive one speed through `rules` along a straight track, `dt` per step, the way the runtime's substep does; returns [arc, speed] per step. */
+function run(rules: CoasterZoneRule[], total: number, arc0: number, speed0: number, until: number, dt = 0.01, start?: CoasterZoneMemo): Array<[number, number]> {
+  const memo = start ?? fresh();
+  let arc = arc0, speed = speed0;
+  const out: Array<[number, number]> = [[arc, speed]];
+  while (arc < until) {
+    speed = coasterZoneSpeed(rules, total, arc, speed, dt, memo, PHYS.holdAccel);
+    arc += speed * dt;
+    out.push([arc, speed]);
+  }
+  return out;
+}
+
+describe('coaster-zones', () => {
+  it('a launch zone takes a train from 2 to 30 blocks/s within its length', () => {
+    const rules: CoasterZoneRule[] = [{ kind: 'launch', from: 100, to: 170, speed: 30 }];
+    const trace = run(rules, 1000, 90, 2, 200);
+    const inside = trace.filter(([a]) => a >= 100 && a < 170);
+    // Pinned to the design's profile v^2 = v0^2 + (vt^2 - v0^2) s / L: constant acceleration, never above the target.
+    expect(Math.max(...trace.map(([, v]) => v))).toBeLessThanOrEqual(30 + 1e-9);
+    const atEnd = trace.find(([a]) => a >= 169.5)!;
+    expect(atEnd[1]).toBeGreaterThan(29.5);
+    const mid = trace.find(([a]) => a >= 135)!;
+    expect(mid[1]).toBeCloseTo(Math.sqrt(4 + (900 - 4) * 0.5), 0);
+    // Monotone: a launch never slows a train that is slower than its target.
+    for (let i = 1; i < inside.length; i++) expect(inside[i]![1]).toBeGreaterThanOrEqual(inside[i - 1]![1] - 1e-9);
+  });
+
+  it('a launch entered at speed starts from that speed, not from zero', () => {
+    const rules: CoasterZoneRule[] = [{ kind: 'launch', from: 0, to: 28, speed: 52 }];
+    const trace = run(rules, 500, 0, 22, 40);
+    expect(trace[1]![1]).toBeGreaterThan(21.9);
+    expect(trace[1]![1]).toBeLessThan(23);
+    expect(trace.find(([a]) => a >= 27.9)![1]).toBeGreaterThan(51.5);
+  });
+
+  it('a cable lift holds its speed above the chain lift and a slower or faster train is brought to it at the hold acceleration', () => {
+    const rules: CoasterZoneRule[] = [{ kind: 'hold', from: 0, to: 400, speed: 8 }];
+    const up = run(rules, 1000, 0, 3.5, 100);
+    expect(up.at(-1)![1]).toBeCloseTo(8, 6);
+    // 3.5 -> 8 at LIFT_ACCEL: 4.5 / 24 s, no jump in one 10 ms step.
+    expect(up[1]![1] - up[0]![1]).toBeLessThanOrEqual(PHYS.holdAccel * 0.01 + 1e-9);
+    const down = run(rules, 1000, 0, 40, 100);
+    expect(down[1]![1]).toBeCloseTo(40 - PHYS.holdAccel * 0.01, 6);
+    expect(down.at(-1)![1]).toBeCloseTo(8, 6);
+  });
+
+  it('a block brake sheds to its target at its deceleration and never speeds a slower train', () => {
+    const rules: CoasterZoneRule[] = [{ kind: 'brake', from: 0, to: 90, speed: 4, decel: 14 }];
+    const fast = run(rules, 1000, 0, 41, 90);
+    expect(fast.at(-1)![1]).toBeCloseTo(4, 1);
+    // v^2 falls by 2 a ds: 41 -> 4 takes (1681 - 16) / 28 = 59.5 blocks.
+    expect(fast.find(([, v]) => v <= 4.0001)![0]).toBeCloseTo(59.5, 0);
+    const slow = run(rules, 1000, 0, 1.5, 90);
+    expect(Math.max(...slow.map(([, v]) => v))).toBeCloseTo(1.5, 9);
+  });
+
+  it('no rule acts outside its span, and a launch forgets its entry speed when the train leaves', () => {
+    const rules: CoasterZoneRule[] = [{ kind: 'launch', from: 10, to: 20, speed: 30 }, { kind: 'launch', from: 50, to: 60, speed: 30 }];
+    const memo = fresh();
+    expect(coasterZoneSpeed(rules, 100, 5, 7, 0.05, memo, PHYS.holdAccel)).toBe(7);
+    expect(coasterZoneSpeed(rules, 100, 15, 7, 0.05, memo, PHYS.holdAccel)).toBeGreaterThan(7);
+    expect(memo.launch).toBe(0);
+    expect(coasterZoneSpeed(rules, 100, 30, 25, 0.05, memo, PHYS.holdAccel)).toBe(25);
+    expect(memo.launch).toBe(-1);
+    // The second zone records its own entry speed (4 -> the profile begins at 4, not at the first zone's 7).
+    expect(coasterZoneSpeed(rules, 100, 50, 4, 0.05, memo, PHYS.holdAccel)).toBeCloseTo(4, 5);
+    expect(memo.launch).toBe(1);
+  });
+
+  describe('the plan of the 3x sketch', () => {
+    const gen = generateCoaster(sketch);
+    const total = gen.route.points.length ? gen.report.lengthB : 0;
+    const plan = planCoasterZones(gen.zones, total, PHYS);
+
+    it('turns its launches, lifts, drives, block brake and trims into rules, and nothing for station, tunnel, dark or cloud', () => {
+      const count = (k: string) => plan.rules.filter(r => r.kind === k).length;
+      expect(count('launch')).toBe(gen.zones.filter(z => z.kind === 'launch').length);
+      expect(count("launch")).toBe(5);
+      expect(count('hold')).toBe(gen.zones.filter(z => z.kind === 'lift').length);
+      expect(count('brake')).toBe(2);
+      expect(plan.rules.length).toBe(5 + gen.zones.filter(z => z.kind === 'lift').length + 2);
+      const launch = plan.rules.find(r => r.kind === 'launch')!;
+      expect(launch.speed).toBe(52);
+      const cable = plan.rules.find(r => r.kind === 'hold' && r.from > 1000 && r.from < 1100 && r.to > 1200)!;
+      expect(cable.speed).toBe(8);
+      const block = plan.rules.find(r => r.kind === 'brake' && r.speed === 4)!;
+      expect(block.decel).toBe(2 * PHYS.stationBrake);
+      const trim = plan.rules.find(r => r.kind === 'brake' && r.decel === PHYS.stationBrake)!;
+      expect(trim.from).toBeGreaterThan(1800);
+    });
+
+    it('cuts the circuit into three block sections for two trains: the brake run, the course and the station block', () => {
+      const brake = gen.zones.find(z => z.kind === 'block-brake')!;
+      const station = gen.zones.find(z => z.kind === 'station')!;
+      expect(plan.blocks.length).toBe(3);
+      const starts = plan.blocks.map(b => b.from).sort((a, b) => a - b);
+      expect(starts[0]).toBeCloseTo(station.to, 6);
+      expect(starts[1]).toBeCloseTo(brake.from, 6);
+      expect(starts[2]).toBeCloseTo(brake.to, 6);
+      // The brake run and the block after it are gated at their entry; the course is entered at the station's release.
+      expect(plan.blocks.filter(b => b.gated).map(b => b.from).sort((a, b) => a - b)).toEqual([brake.from, brake.to].sort((a, b) => a - b));
+    });
+  });
+
+  describe('block holds', () => {
+    const blocks: CoasterZonePlan['blocks'] = [
+      { from: 16, to: 1512, gated: false }, { from: 1512, to: 1602, gated: true }, { from: 1602, to: 1872 + 16, gated: true },
+    ];
+    const total = 1872, extent = 15.5, gap = COASTER_ZONES.BLOCK_GAP;
+
+    it('stops a train short of a block another train occupies, front at the entry less the gap', () => {
+      // Train A's centre sits in the brake run; B is 100 blocks upstream.
+      const stop = coasterBlockStop(blocks, total, 1400, extent, [1550], gap);
+      expect(stop).not.toBeNull();
+      expect(stop!.stopAt).toBeCloseTo(1512 - gap - extent / 2, 6);
+      expect(stop!.toStop).toBeCloseTo(1512 - gap - extent / 2 - 1400, 6);
+    });
+
+    it('lets a train go when the block ahead is free, or when the other train is only touching its tail', () => {
+      expect(coasterBlockStop(blocks, total, 1400, extent, [800], gap)).toBeNull();
+      // The other train's tail still reaches the entry of the NEXT block only when its span overlaps it.
+      expect(coasterBlockStop(blocks, total, 1400, extent, [1512 - extent / 2 - 0.5], gap)).toBeNull();
+    });
+
+    it('holds a stopped train at the gate (no creep from rounding) until the block is free', () => {
+      const stopAt = 1512 - gap - extent / 2;
+      expect(coasterBlockStop(blocks, total, stopAt, extent, [1550], gap)!.toStop).toBeCloseTo(0, 6);
+      expect(coasterBlockStop(blocks, total, stopAt, extent, [800], gap)).toBeNull();
+    });
+
+    it('ignores a gate the train is already past, and wraps the seam', () => {
+      expect(coasterBlockStop(blocks, total, 1560, extent, [1530], gap)).toBeNull();
+      // A train 40 blocks before the seam, another train sitting in the (wrapping) station block: the gate is at 1602.
+      const stop = coasterBlockStop(blocks, total, 1560, extent, [1860], gap);
+      expect(stop!.stopAt).toBeCloseTo(1602 - gap - extent / 2, 6);
+    });
+  });
+});
