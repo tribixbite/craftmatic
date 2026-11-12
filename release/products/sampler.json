@@ -1,10 +1,10 @@
 {
   "id": "sampler",
-  "displayName": "Sampler",
+  "displayName": "Craftmatic Sampler",
   "tier": "free",
   "identity": {
-    "namespace": null,
-    "folderStem": "Sampler",
+    "namespace": "cmt_sampler",
+    "folderStem": "CraftmaticSampler",
     "uuids": {
       "bpHeader": "bfcc92b8-3632-4d62-a02f-c088e0b8d6d2",
       "bpData": "a64a2922-abd9-4c56-9dc0-e74ff8f0bb70",
@@ -14,10 +14,7 @@
     }
   },
   "placeholders": [
-    "namespace",
-    "folderStem",
-    "displayName",
-    "publisher"
+    "displayName"
   ],
   "designs": [],
   "toolchain": {
@@ -39,5 +36,5 @@
     ]
   },
   "versions": [],
-  "publisher": null
+  "publisher": "Techneesh, LLC"
 }

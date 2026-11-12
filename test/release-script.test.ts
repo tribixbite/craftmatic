@@ -64,7 +64,8 @@ describe('release-script: preconditions', () => {
   });
 
   it('prepare refuses the sampler product while its namespace is null (U1)', () => {
-    const root = scratchRepo(sampler);
+    // The committed sampler has its namespace since 2026-11-12 (U1); the refusal is pinned on a null copy.
+    const root = scratchRepo({ ...sampler, identity: { ...sampler.identity, namespace: null } });
     const r = prepare(root, ['sampler']);
     expect(r.status).toBe(1);
     expect(r.stderr).toMatch(/namespace is null/);
@@ -72,7 +73,7 @@ describe('release-script: preconditions', () => {
   });
 
   it('prepare refuses a product that still lists placeholders', () => {
-    const product = { ...sampler, identity: { ...sampler.identity, namespace: 'tst_sampler' } };
+    const product = { ...sampler, identity: { ...sampler.identity, namespace: 'tst_sampler' }, publisher: null, placeholders: ['publisher'] };
     const root = scratchRepo(product);
     const r = prepare(root, ['sampler']);
     expect(r.status).toBe(1);

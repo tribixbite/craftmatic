@@ -33,8 +33,8 @@ Repo: C:\git\craftmatic (Windows; use Git Bash or PowerShell; bun/bunx only, nev
    anything unfinished. No stubs or placeholders presented as done. No `_fixed`/`_v2` copies.
 6. **Commits:**
    - conventional commits that cite the BIZ id;
-   - the message ends with a line "— Opus 5.5" (yes, even though you are Sonnet: that is the project's signature
-     rule);
+   - the message ends with a line naming YOUR OWN model: "— Sonnet 5.5", "— Fable 5.1" or "— Opus 5.5" (the user,
+     2026-11-12);
    - NO Co-Authored-By line and never the word "Claude";
    - commit on your branch as you reach green steps;
    - do NOT merge into main and do NOT push; the orchestrator reviews and merges.

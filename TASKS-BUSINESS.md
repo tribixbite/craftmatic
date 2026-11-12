@@ -143,9 +143,8 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
     fetcher, B01 model-import service. Agents are Sonnet, briefed with `docs/plans/implementer-brief.md` + their README
     section 3 brief; each reports, then the orchestrator reviews the diff, merges into main (merge commit), runs
     `bun run test`, pushes and checks CI. To see state: `git branch --list 'biz-*'` and `git log main..biz-<id>`.
-  - Waiting on the user: U1 brand/namespace, U2 private designs repo, U3 lawyer batch, U4 figure, U5 landmarks +
-    show-stoppers (README section 5); the live LEGO-named `craftmatic.click/downloads/Craftmatic-Lego-Pack.mcpack`
-    (rename/take down?).
+  - The user answered every open question on 2026-11-12: see `docs/plans/README.md` section 5,
+    "ANSWERED by the user 2026-11-12". Still open: the lawyer review (before the first paid listing).
 
 ## The user's hypothesis (to test, not assume)
 "None of the original source files are used in the resulting distribution, so it is legally feasible,
@@ -189,7 +188,7 @@ Points the research must settle:
   - plus the converter sold as a tool for creators' OWN designs.
 
   Free fan releases of official sets are lower-damages but NOT safe (the Bionicle precedent).
-- Chosen scenario: A + B + D (2026-11-09).
+- Chosen scenario: A + B + D (2026-11-09). Brand Craftmatic (`cmt`), publisher Techneesh, LLC (2026-11-12).
 - Channel:
 - Price points:
 - Launch checklist:

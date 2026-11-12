@@ -479,6 +479,31 @@ Standing serial rules (never two at once): `playable-addon.ts` (X-02 -> X-17 -> 
   itself becoming CC BY-SA? Default until answered: cross-check every SA-derived measure against a public-domain drawing
   or our own measurement before a paid release.
 
+### ANSWERED by the user 2026-11-12 (questionnaire; these override the defaults above)
+
+| # | Decision |
+|---|---|
+| U1 | Brand **Craftmatic**, creator code **`cmt`** (namespace `cmt_<pack>:`). Publisher/seller **Techneesh, LLC**; contact admin@techneesh.com (listings only); designer credit `tribixbite` in the pack's credits file only. Trade-mark search on "Craftmatic" before the first release. |
+| U2 | Designs live in a PRIVATE GitHub repo (`tribixbite/craftmatic-designs`), created with the user's approval. |
+| U3 | Lawyer reviews the batch BEFORE THE FIRST PAID LISTING. Keep the safe defaults until then; prepare a one-page brief. |
+| U4 | The figure must be HUMANOID (rides, drives, sits, uses real buildings), with purple or teal skin to read as an alien humanoid. Its proportions must still clear the minifig distinctness gate (colour alone does not escape the 3D marks). rex, rivet and pip stay as extra fun figures. -> F01c. |
+| U5 | All 22 landmarks approved with the descriptive-name / daytime-only / hold / exclusion rules. Show-stoppers: drop tower + sky swing, water-slide tower, stunt arena (no dark ride beyond the coaster's mountain). |
+| U6 | B's SaaS layer waits until the converter is proven on the corpus. |
+| U7 | Payments through a MERCHANT OF RECORD (Paddle or Lemon Squeezy); test mode only until approval. |
+| U8 | (unchanged default) no cloud builds until demand. |
+| U9 | Free tier: any size, every feature, watermarked ("made with craftmatic.click" suffix + one sign). |
+| U11 | Release hosting: R2 via the Worker AND a GitHub Releases mirror; itch "Free, donations welcome". The Worker merge still needs approval (it deploys). |
+| U12 | Funnel at launch: Ko-fi tips and a Discord server (the user creates both accounts). No Patreon, no newsletter yet. |
+| U13 | Fix mct's start-up crash; the user runs `bunx @minecraft/creator-tools@0.21.0 eula` once if it asks. |
+| U14 | Rename the live `Craftmatic-Lego-Pack.mcpack` to a neutral name and drop "LEGO" from its text and the tab's button; deploy (approved). |
+| U15 | Sampler v1.0 = car + door kit + seat kit + a SMALL LANDMARK (moved up from v1.2). |
+| U16 | Pixel round approved now (store-pack pieces: compact colliders, brick blocks, air-only placement + Undo, generated coaster). |
+| U17 | Defaults accepted: one budget tier; coaster pace x sqrt(2); synthesised/CC0 sounds; working-title names until a TM search; agents polish, the user approves each contact sheet; converter tab "Create". |
+| U18 | Each implementing agent signs commits with ITS OWN model ("— Sonnet 5.5", "— Fable 5.1", "— Opus 5.5"). |
+| U-list | Corpus hand downloads: use Chrome (the claude-in-chrome extension, the user's own sign-ins; no account creation, no passwords) where useful. |
+| Devices | All three Sagas, the Pixel, a Note 10 5G and a Seeker are test phones; NEVER the user's S25 Ultra or the daughter's Galaxy tablet. |
+| Side view | Fix the camera-inside-the-body measurement first (planner judges the shipped cubes), re-render, then decide the side rule. |
+
 ## 6. REQUIREMENTS.md rows to add (section 17), de-duplicated
 
 Status `OPEN`, guards `none`, device `—` for all. X-00 pastes them; each later commit fills guards from the tests
