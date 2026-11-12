@@ -62,8 +62,16 @@ export const FUNFAIR = {
   BOARD_S: 6,
   /** Seconds before departure once every seat is taken. */
   BOARD_FULL_S: 1.5,
-  /** How far outside the ring the riders are set down, blocks at 100 %. */
-  SETDOWN_OUT_BLOCKS: 1.5,
+  /** A planned set-down point is lifted this far before finding a free standing spot, blocks (the slide's `SETDOWN_LIFT_BLOCKS`). */
+  SETDOWN_LIFT_BLOCKS: 0.05,
+  /** How far sideways the set-down searches for a free standing spot, blocks at 100 % (the slide's `SETDOWN_REACH_BLOCKS`). */
+  SETDOWN_REACH_BLOCKS: 2,
+  /** How far below the planned point the set-down may find a floor, blocks: the most a player falls unhurt (the slide's `SETDOWN_DROP_BLOCKS`). */
+  SETDOWN_DROP_BLOCKS: 3,
+  /** A seat belongs to a group of the same ride when its axis is within this of the first seat's, blocks at 100 %. */
+  GROUP_AXIS_TOL_BLOCKS: 0.5,
+  /** Ticks between two checks that a rider is still on their seat during a trip (one who steps off is put back). */
+  KEEP_ABOARD_TICKS: 5,
   /** Ticks between two polls for a rider sitting on an idle seat (a tap boards at once; this catches `/ride` and the hold). */
   POLL_TICKS: 4,
   /** Ticks between two sweeps for idle seats left off their start (a reload mid-ride). */
