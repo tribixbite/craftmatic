@@ -50,6 +50,11 @@ export interface CoasterZoneMemo { launch: number; v0sq: number }
 export const COASTER_ZONES = {
   /** How far short of a gated block's entry a held train's front stops, blocks. */
   BLOCK_GAP: 0.5,
+  /**
+   * The fastest a generated route's train may run, world blocks/s, replacing the global `COASTER_PHYSICS.MAX_SPEED`.
+   * # TODO(C04): value set from the sim measurement below.
+   */
+  SPEED_CAP_BPS: 52,
 } as const;
 
 /** The design zone fields `planCoasterZones` reads (`CoasterZone` of `coaster-design.ts`, structurally). */
@@ -106,7 +111,7 @@ export function planCoasterZones(zones: readonly PlannableZone[], total: number,
  * The train's speed after one substep of `dt` seconds with its centre at `arc`, under the zone rules. SERIALISED:
  * self-contained. `memo` is the train's `{ launch, v0sq }` (a planning copy for a prediction: it is written).
  */
-export function coasterZoneSpeed(rules: readonly CoasterZoneRule[], total: number, arc: number, speed: number, dt: number, memo: CoasterZoneMemo, holdAccel: number): number {
+export function coasterZoneSpeed(rules: readonly CoasterZoneRule[], arc: number, speed: number, dt: number, memo: CoasterZoneMemo, holdAccel: number): number {
   let active = -1;
   for (let i = 0; i < rules.length; i++) { const r = rules[i]!; if (arc >= r.from && arc < r.to) { active = i; break; } }
   const rule = active >= 0 ? rules[active]! : undefined;

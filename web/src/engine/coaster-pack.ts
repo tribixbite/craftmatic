@@ -31,6 +31,7 @@
 import { parseLDrawDocument, type ParsedBrick } from './ldraw-parser';
 import type { CoasterRoute, CoasterRouteCar, CoasterRouteChainLift, CoasterRouteZone } from './bedrock-coaster';
 import { COASTER_MAX_CARS } from './bedrock-coaster';
+import { COASTER_ZONES } from './coaster-zones';
 import type { CoasterDesign, GeneratedCoaster } from './coaster-design';
 import type { CoasterVec3 } from './coaster-path';
 import { buildTrackMesh, COASTER_TRACK_MESH, type TrackMesh, type TrackProfile } from './coaster-track-mesh';
@@ -152,6 +153,8 @@ export function coasterRouteFromGenerated(gen: GeneratedCoaster, design: Coaster
   const lift = placed.zones.find(z => z.kind === 'lift' && !z.params?.['drive']);
   const chain: CoasterRouteChainLift | undefined = lift ? { kind: 'chain', arcStart: lift.from, arcEnd: lift.to, climbDirection: 1, sprockets: 0 } : undefined;
   return {
+    // The route's own speed ceiling is its design limit, capped by what the sim measured the pack can hold (`COASTER_ZONES.SPEED_CAP_BPS`).
+    maxSpeedBps: Math.min(design.limits.maxSpeedBps, COASTER_ZONES.SPEED_CAP_BPS),
     label: options.label ?? design.name, points: placed.points, closed: true, maxSegmentLength: gen.route.maxSegmentLength,
     vehicles, trains: design.trains, ups: placed.ups, zones: placed.zones, station: { start: station.from, end: station.to, stop },
     ...(chain ? { lift: chain } : {}),

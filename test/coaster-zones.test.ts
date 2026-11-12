@@ -11,12 +11,12 @@ const PHYS = { stationBrake: COASTER_PHYSICS.STATION_BRAKE, holdAccel: COASTER_P
 const fresh = (): CoasterZoneMemo => ({ launch: -1, v0sq: 0 });
 
 /** Drive one speed through `rules` along a straight track, `dt` per step, the way the runtime's substep does; returns [arc, speed] per step. */
-function run(rules: CoasterZoneRule[], total: number, arc0: number, speed0: number, until: number, dt = 0.01, start?: CoasterZoneMemo): Array<[number, number]> {
+function run(rules: CoasterZoneRule[], arc0: number, speed0: number, until: number, dt = 0.01, start?: CoasterZoneMemo): Array<[number, number]> {
   const memo = start ?? fresh();
   let arc = arc0, speed = speed0;
   const out: Array<[number, number]> = [[arc, speed]];
   while (arc < until) {
-    speed = coasterZoneSpeed(rules, total, arc, speed, dt, memo, PHYS.holdAccel);
+    speed = coasterZoneSpeed(rules, arc, speed, dt, memo, PHYS.holdAccel);
     arc += speed * dt;
     out.push([arc, speed]);
   }
@@ -26,7 +26,7 @@ function run(rules: CoasterZoneRule[], total: number, arc0: number, speed0: numb
 describe('coaster-zones', () => {
   it('a launch zone takes a train from 2 to 30 blocks/s within its length', () => {
     const rules: CoasterZoneRule[] = [{ kind: 'launch', from: 100, to: 170, speed: 30 }];
-    const trace = run(rules, 1000, 90, 2, 200);
+    const trace = run(rules, 90, 2, 200);
     const inside = trace.filter(([a]) => a >= 100 && a < 170);
     // Pinned to the design's profile v^2 = v0^2 + (vt^2 - v0^2) s / L: constant acceleration, never above the target.
     expect(Math.max(...trace.map(([, v]) => v))).toBeLessThanOrEqual(30 + 1e-9);
@@ -40,7 +40,7 @@ describe('coaster-zones', () => {
 
   it('a launch entered at speed starts from that speed, not from zero', () => {
     const rules: CoasterZoneRule[] = [{ kind: 'launch', from: 0, to: 28, speed: 52 }];
-    const trace = run(rules, 500, 0, 22, 40);
+    const trace = run(rules, 0, 22, 40);
     expect(trace[1]![1]).toBeGreaterThan(21.9);
     expect(trace[1]![1]).toBeLessThan(23);
     expect(trace.find(([a]) => a >= 27.9)![1]).toBeGreaterThan(51.5);
@@ -48,35 +48,35 @@ describe('coaster-zones', () => {
 
   it('a cable lift holds its speed above the chain lift and a slower or faster train is brought to it at the hold acceleration', () => {
     const rules: CoasterZoneRule[] = [{ kind: 'hold', from: 0, to: 400, speed: 8 }];
-    const up = run(rules, 1000, 0, 3.5, 100);
+    const up = run(rules, 0, 3.5, 100);
     expect(up.at(-1)![1]).toBeCloseTo(8, 6);
     // 3.5 -> 8 at LIFT_ACCEL: 4.5 / 24 s, no jump in one 10 ms step.
     expect(up[1]![1] - up[0]![1]).toBeLessThanOrEqual(PHYS.holdAccel * 0.01 + 1e-9);
-    const down = run(rules, 1000, 0, 40, 100);
+    const down = run(rules, 0, 40, 100);
     expect(down[1]![1]).toBeCloseTo(40 - PHYS.holdAccel * 0.01, 6);
     expect(down.at(-1)![1]).toBeCloseTo(8, 6);
   });
 
   it('a block brake sheds to its target at its deceleration and never speeds a slower train', () => {
     const rules: CoasterZoneRule[] = [{ kind: 'brake', from: 0, to: 90, speed: 4, decel: 14 }];
-    const fast = run(rules, 1000, 0, 41, 90);
+    const fast = run(rules, 0, 41, 90);
     expect(fast.at(-1)![1]).toBeCloseTo(4, 1);
     // v^2 falls by 2 a ds: 41 -> 4 takes (1681 - 16) / 28 = 59.5 blocks.
     expect(fast.find(([, v]) => v <= 4.0001)![0]).toBeCloseTo(59.5, 0);
-    const slow = run(rules, 1000, 0, 1.5, 90);
+    const slow = run(rules, 0, 1.5, 90);
     expect(Math.max(...slow.map(([, v]) => v))).toBeCloseTo(1.5, 9);
   });
 
   it('no rule acts outside its span, and a launch forgets its entry speed when the train leaves', () => {
     const rules: CoasterZoneRule[] = [{ kind: 'launch', from: 10, to: 20, speed: 30 }, { kind: 'launch', from: 50, to: 60, speed: 30 }];
     const memo = fresh();
-    expect(coasterZoneSpeed(rules, 100, 5, 7, 0.05, memo, PHYS.holdAccel)).toBe(7);
-    expect(coasterZoneSpeed(rules, 100, 15, 7, 0.05, memo, PHYS.holdAccel)).toBeGreaterThan(7);
+    expect(coasterZoneSpeed(rules, 5, 7, 0.05, memo, PHYS.holdAccel)).toBe(7);
+    expect(coasterZoneSpeed(rules, 15, 7, 0.05, memo, PHYS.holdAccel)).toBeGreaterThan(7);
     expect(memo.launch).toBe(0);
-    expect(coasterZoneSpeed(rules, 100, 30, 25, 0.05, memo, PHYS.holdAccel)).toBe(25);
+    expect(coasterZoneSpeed(rules, 30, 25, 0.05, memo, PHYS.holdAccel)).toBe(25);
     expect(memo.launch).toBe(-1);
     // The second zone records its own entry speed (4 -> the profile begins at 4, not at the first zone's 7).
-    expect(coasterZoneSpeed(rules, 100, 50, 4, 0.05, memo, PHYS.holdAccel)).toBeCloseTo(4, 5);
+    expect(coasterZoneSpeed(rules, 50, 4, 0.05, memo, PHYS.holdAccel)).toBeCloseTo(4, 5);
     expect(memo.launch).toBe(1);
   });
 
