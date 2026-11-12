@@ -246,7 +246,7 @@ drawn parked: nobody drives a preview train.
 
 Pure math (WP-C01, BIZ-13): `generateCoaster(design)` turns elements into the closed route a pack would carry,
 at most 0.4 blocks between samples, with an explicit up per sample, zones by arc distance and a report. It does not
-touch the runtime (`bedrock-coaster.ts` is unchanged; C02 wires the route in).
+touch the runtime (C02 wires the route in: section 4.2c).
 
 - **Frame and heartline.** The track is integrated as a moving frame (tangent, path-up, bank). The integrated point
   is the HEARTLINE; the rail sample is `heart - heartlineB * up`, so a roll about the heartline orbits the rail round
@@ -269,7 +269,7 @@ touch the runtime (`bedrock-coaster.ts` is unchanged; C02 wires the route in).
   drag term `DRAG v²` removes about 60 % of v² in 60 blocks (a 145-block drop reaches 40 blocks/s, not 70); a cobra's
   second half runs slower than its first and is fitted to what the speed allows (a stall flag in the validator when it
   does not). Self-clearance is checked against the track itself only, not scenery (C06). The handedness against
-  Bedrock's Z mirror is unconfirmed (C02).
+  Bedrock's Z mirror is settled (C02, section 4.2c): none is needed.
 
 Tests: `test/coaster-design.test.ts`; the 3x sketch is `test/fixtures/coaster/3x-sketch.json`.
 
@@ -281,9 +281,35 @@ the physics pattern and its INPUT is the generator's route. `buildTrackMesh(gen)
 chunked on the building shell's lattice (`shellCellOf`/`shellCellRoot`, `STATIC_SHELL_CELL_BLOCKS`) so every chunk root
 is within `STATIC_SHELL_RADIUS_LIMIT_BLOCKS` of its cubes at `STATIC_SHELL_CULL_MAX_SCALE`. Dimensions
 (`COASTER_TRACK_MESH`: gauge 1.5 blocks, bar 3.5 units, a tie per block) are look, not physics: the car's datum over the
-rail top is C02's to set (`railTopOffsetB`). `compareRailRepresentations` is the offline entity-vs-block measurement; the
+rail top is settled by C02 (section 4.2c): `railTopOffsetB` stays 0. `compareRailRepresentations` is the offline entity-vs-block measurement; the
 decision and numbers are in the add-on guide, "Coaster rails: entity chunks or blocks". Tests:
 `test/coaster-track-mesh.test.ts`; render: `bun scripts/_coaster_track_render.ts`.
+
+### 4.2c A generated coaster in a pack — `coaster-pack.ts`, `coaster-design-pack.ts` (not physics; WP-C02)
+
+Assembly, not physics: nothing here adds a force or a constant the runtime reads. `buildGeneratedCoasterPack(design, carText)`
+runs `generateCoaster`, then `coasterRouteFromGenerated` (the `CoasterRoute`), `buildCoasterTrackPack` (the rail chunks, through
+the `coasterTrack` option of `buildPlayableAddon`) and our own car (`test/fixtures/coaster/own-car.ldr`, official parts only).
+
+- **Explicit ups.** `CoasterRoute.ups` (and `zones`, `station`) are consumed in `coasterRuntimeConfig`; a route without them
+  infers its ups from the rails exactly as before, and `coasterRuntime`'s source is untouched, so every source model's `coaster.js`
+  is byte-identical. A route's `ups` must be one per point.
+- **Handedness (settled).** The route frame IS the world frame (x east, y up, z south); a design's positive turn is a LEFT turn
+  (Bedrock yaw -90 -> -180) with no mirror (`test/coaster-generated-route.test.ts :: left turn`).
+- **Mirror (settled).** The chunk geometry is JSON-frame and the world is the JSON frame mirrored in Z, so the mesh is built with
+  `mirror: 'z'` and each chunk's actor stands at `(root.x, root.y, -root.z)`; the test reads the shipped pack back through
+  `worldFaces` and finds every route sample within a rail's reach of a cube (the un-mirrored root misses by > 5 blocks).
+- **Datum (settled).** The car's origin is its wheels' contact plane and the car rides a sample, so `railTopOffsetB` is 0 and the
+  rail's top face is the sample; the gauge is the car's wheel spacing (56 LDU = 1.05 blocks), set by `buildCoasterTrackPack`.
+- **Frame.** `placeGenerated` shifts the design by (8, 1, 8): the station by the pin, one block of platform under the rails; the circuit
+  runs into negative x and z.
+- **Known limits.** Zones are carried into the runtime config but only the cable/chain lift acts on them (a launch, brake and the
+  two-train dispatcher are C04): the train crawls the flats at `MIN_SPEED` (a lap is ~319 s against the design's 178 s). An unattended
+  train stalls where the world is not loaded around the player (~140 blocks), so the second train waits at the platform until the first
+  is half a lap ahead. One rider per car (the design's 2 per car is not modelled).
+
+Tests: `test/coaster-generated-route.test.ts`; sim: `bun scripts/sim.ts <pack> --scenario=scripts/_coaster_generated_scenarios.ts`;
+build: `bun scripts/_coaster_design_pack.ts <design.json> <out-dir>`.
 
 ### 4.1a Rail vehicles — the coaster engine with a driver
 
@@ -1715,7 +1741,7 @@ one of these files fails the check until its row is written.
 | `resolveCoasterCars` | function | Clamps a train to what fits the route. |
 | `COASTER_TRAINS`, `COASTER_HOLD_GAP`, `COASTER_DISPATCH_FRACTION` | const | Two-train dispatch. |
 | `COASTER_MAX_CARS` | const | Most cars per route. |
-| `CoasterRouteCar`, `CoasterRouteChainLift`, `CoasterRoutePlatformLift`, `CoasterRoute`, `CoasterCarSlot`, `CoasterDispatch`, `CoasterRuntimeLift`, `CoasterRuntimeRoute`, `CoasterRuntimeType`, `CoasterRuntimeConfig` | interface | Pipeline → pack contract: the route as measured and the JSON the runtime reads. |
+| `CoasterRouteCar`, `CoasterRouteChainLift`, `CoasterRoutePlatformLift`, `CoasterRouteZone`, `CoasterRoute`, `CoasterCarSlot`, `CoasterDispatch`, `CoasterRuntimeLift`, `CoasterRuntimeRoute`, `CoasterRuntimeType`, `CoasterRuntimeConfig` | interface | Pipeline → pack contract: the route as measured and the JSON the runtime reads. |
 | `CoasterRouteLift` | type | Chain or platform lift. |
 | `coasterRuntimeConfig` | function | Builds `CoasterRuntimeConfig` (physics, camera, routes) for the pack. |
 | `coasterScript` | function | Serialises the runtime and its pure helpers into `BP/scripts/coaster.js` (§5). |
@@ -1965,6 +1991,8 @@ Physics-named files that are not physics:
 | `web/src/engine/coaster-track.ts` | Extracts track centrelines from the parts (geometry). |
 | `web/src/engine/coaster-assemblies.ts` | Detects cars, lifts, counterweights and chain drives (geometry). |
 | `web/src/engine/coaster-track-mesh.ts` | Rails, ties and studs along a generated route, chunked within draw reach (geometry; section 4.2b). |
+| `web/src/engine/coaster-pack.ts` | A generated coaster's route, car and rail entities as pack parts (assembly; section 4.2c). |
+| `web/src/engine/coaster-design-pack.ts` | `CoasterDesign` -> add-on through `buildPlayableAddon` (assembly; section 4.2c). |
 | `web/src/engine/playable-components.ts` | Classifies bricks into vehicle components. |
 | `web/src/engine/scene-vehicles.ts` | Finds the vehicles standing in a scene (geometry: clusters, wheels, oars). |
 | `web/src/engine/vehicle-facing.ts` | Infers which end of a vehicle is its nose. |

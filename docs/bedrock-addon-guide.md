@@ -5819,3 +5819,24 @@ permutation budget is acceptable.
 **Frames (for C02).** Output is in the route's frame; pass `mirror: 'x' | 'z'` if the placement maps the route into the JSON frame
 by a mirror (never mirror finished geometry: a mirror conjugates every cube rotation). `railTopOffsetB` sets the rail top above the
 route sample (default 0: the sample is the rail top); the car's datum above it is C02's.
+
+## A generated coaster in a pack (WP-C02, BIZ-13, 2026-11-09)
+
+A `CoasterDesign` becomes a playable coaster: `bun scripts/_coaster_design_pack.ts test/fixtures/coaster/3x-sketch.json <new-dir>`
+(`coaster-design-pack.ts`). Offline only; nothing here has been on a phone.
+
+- **What ships.** The design's route (5,591 samples, 1,872.4 blocks) with its explicit ups, zones and station in `coaster.js`'s
+  CONFIG; the rail chunks of `coaster-track-mesh.ts` as static entities (234 chunks, 11,272 cuboids at the default profile); our own car
+  (`test/fixtures/coaster/own-car.ldr`: 4600/4624/3641/3795/2456/3032/3009/3004, official parts only, 80 LDU wheelbase, 56 LDU gauge)
+  in two six-car trains; the cable lift as the runtime's chain; a one-block stone-brick platform. Pack 1.2 MB.
+- **Settled by test.** Handedness: no mirror, a positive design turn is a left turn (yaw -90 -> -180). Rails: mesh `mirror: 'z'`,
+  actor at `(root.x, root.y, -root.z)`. Datum: car origin = wheel contact plane, `railTopOffsetB` 0, gauge = wheel spacing (1.05 blocks).
+- **Simulator** (`bun scripts/sim.ts <pack> --scenario=scripts/_coaster_generated_scenarios.ts`): the lead train runs the circuit and
+  stops on the platform, 1,871.9 of 1,872.4 blocks covered (135.7 of them unattended before boarding: the wand places for ~3,000 ticks), 6,370
+  ticks (319 s) ridden, peak 28.3 blocks/s, rise 169.1. The design's lap is 178 s: with no launch zone yet (C04) the train crawls
+  the flats at `MIN_SPEED`.
+- **Findings, not fixed here.** (1) An unattended train stalls where the world is not loaded around the player (~140 blocks out) and the
+  second train waits for it to be half a lap ahead, so `--scenario=coaster-camera` boards a stationary car on the 2-train pack; use a
+  1-train design for it. (2) `bun scripts/_coaster_crest_view.ts <pack> <dir>` rode to the crest and the client's `camera-continuous`
+  invariant flagged six animation frames turning 49-59 degrees (cap 40) on the way up (loops and corkscrews at speed): camera work for C07.
+  (3) One rider per car; the design's two per car is not modelled.

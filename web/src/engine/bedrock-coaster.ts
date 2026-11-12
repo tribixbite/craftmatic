@@ -265,6 +265,23 @@ export interface CoasterRoute {
    * second train, no fabricated cart. Absent: a coaster route, as before.
    */
   family?: 'train';
+  /**
+   * A GENERATED route's own banking (`coaster-design.ts` `GeneratedCoaster.ups`, WP-C02): one unit up vector per
+   * point, used as written instead of the inference `coasterTrackUps` makes from the rails of a LEGO source.
+   * Absent: inferred, as before (every route of a source model).
+   */
+  ups?: CoasterVec3[];
+  /** A generated route's zones by arc distance (lift, launch, brake, dark...), carried into the runtime config; only the chain lift acts on them today (TODO(C04): launch, brakes, dispatcher). */
+  zones?: CoasterRouteZone[];
+  /** A generated route's platform, from its design's station zone (arc span and stopping arc, blocks); absent: measured (`findCoasterStation`). */
+  station?: { start: number; end: number; stop: number };
+}
+
+/** A zone over an arc span of a route, blocks (structurally `coaster-design.ts` `CoasterZone`, which this module may not import: it imports `COASTER_PHYSICS` from here). */
+export interface CoasterRouteZone {
+  kind: string;
+  from: number; to: number;
+  params?: Record<string, number | string>;
 }
 
 /** The measured flat reload zone a cart brakes into, dwells on, and departs from. */
@@ -341,6 +358,8 @@ export interface CoasterRuntimeRoute {
    * `CoasterRuntimeConfig.physics` exactly as before.
    */
   physics?: RidePhysics;
+  /** A generated route's zones, as designed (WP-C02). Absent on every route of a source model. */
+  zones?: CoasterRouteZone[];
 }
 
 /**
@@ -1499,6 +1518,12 @@ function reverseRoute(route: CoasterRoute): CoasterRoute {
   };
 }
 
+/** A station from a design's own zone: its stop is where the train's centre halts, clamped into the span. */
+function explicitStation(path: CoasterPath, given: { start: number; end: number; stop: number }): CoasterStation {
+  const stop = Math.max(given.start, Math.min(given.end, given.stop));
+  return { start: given.start, end: given.end, stop, length: given.end - given.start, point: pointAtDistance(path, stop) };
+}
+
 /** Validate routes before putting them in an executable add-on. */
 export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): CoasterRuntimeConfig {
   if (routes.length > 16) throw new Error('At most 16 independent coaster routes are supported per pack.');
@@ -1513,7 +1538,7 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
     const lift = route.lift;
     if (lift?.kind === 'platform' && route.closed) throw new Error(`${route.label}: a platform lift belongs to an open route; this one is closed.`);
     const routePath = buildCoasterPath(route.points, route.closed, route.maxSegmentLength);
-    const routeStation = findCoasterStation(routePath);
+    const routeStation = route.station ? explicitStation(routePath, route.station) : findCoasterStation(routePath);
     const vehicles = plan.routes[index];
     // The measured train: the set's cars, or the rider-measured `cars`, or one cart.
     let cars: CoasterRuntimeRoute['cars'];
@@ -1582,7 +1607,10 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
       }
       dispatch = { hold: round3(hold), lap: round3(lap), ahead: round3(lap * COASTER_DISPATCH_FRACTION) };
     }
-    const up = coasterTrackUps(path);
+    if (route.ups && (route.ups.length !== path.points.length || lift?.kind === 'platform')) {
+      throw new Error(`${route.label}: explicit ups must be one per route point (${route.ups.length} for ${path.points.length}) and a platform lift route infers its own.`);
+    }
+    const up = route.ups ? route.ups.map((u): CoasterVec3 => [u[0], u[1], u[2]]) : coasterTrackUps(path);
     const loopRadius = coasterLoopRadius(path, up);
     return {
       label: route.label, path, up, maxSpacing: coasterMaxSpacing(path), station, cars, direction,
@@ -1590,6 +1618,7 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
       ...(dispatch ? { dispatch } : {}),
       ...(lift?.kind === 'chain' ? { chain: { start: round3(Math.min(lift.arcStart, lift.arcEnd) + deckLength), end: round3(Math.max(lift.arcStart, lift.arcEnd) + deckLength) } } : {}),
       ...(runtimeLift ? { lift: runtimeLift } : {}),
+      ...(route.zones ? { zones: route.zones } : {}),
       ...(railway ? { physics: RAIL_TRAIN_PHYSICS } : {}),
     };
   });
