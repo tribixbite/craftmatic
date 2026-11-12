@@ -701,8 +701,54 @@ const RELEASE_VANILLA_TEXTURE_PATTERNS = [
   /^textures\/blocks\/(stone|dirt|grass_(top|side|side_carried)|cobblestone|sand|gravel|bedrock|glass|brick|bookshelf|obsidian|netherrack|iron_block|gold_block|diamond_block|emerald_block|coal_block|planks_[a-z_]+|log_[a-z_]+|leaves_[a-z_]+|sandstone_[a-z_]+|water_still|lava_still)\.(png|tga)\n?$/,
   /^textures\/items\/(apple|stick|diamond|iron_ingot|gold_ingot|coal|bread|bucket_[a-z]+)\.(png|tga)\n?$/,
   /^textures\/entity\/(steve|alex|creeper|zombie|skeleton|pig|cow|sheep|chicken|villager|enderman|horse|wolf|cat|boat)(\/.*|\.(png|tga))\n?$/,
-  /^textures\/(terrain_texture|item_texture|flipbook_textures)\.json\n?$/,
 ];
+/**
+ * The atlas files are NOT listed by path: a resource pack ships its own `textures/terrain_texture.json` to give its
+ * custom blocks their textures (Microsoft's custom-block tutorials do exactly this; the game merges it with vanilla's).
+ * They are judged by CONTENT (`atlasVanilla`), as `_mcaddon_check.py` does since D-08b. Value: the vanilla texture path
+ * a short name in that atlas stands for, or null where keys are not texture names.
+ */
+const RELEASE_ATLAS_FILES: Readonly<Record<string, string | null>> = {
+  'terrain_texture.json': 'textures/blocks/{}.png',
+  'item_texture.json': 'textures/items/{}.png',
+  'flipbook_textures.json': null,
+};
+
+/** True when `path` (with or without an extension) is a vanilla texture path a pack must not overwrite. */
+function isVanillaTexture(path: string): boolean {
+  const candidates = /\.(png|tga)$/.test(path) ? [path] : [`${path}.png`];
+  return RELEASE_VANILLA_TEXTURE_PATTERNS.some((pat) => candidates.some((c) => pat.test(c)));
+}
+
+/** Every texture path an atlas entry names: a string, a {path} / {textures} / {variations} object, or a list of them. */
+function* atlasTexturePaths(node: unknown): Generator<string> {
+  if (typeof node === 'string') yield node;
+  else if (Array.isArray(node)) for (const x of node) yield* atlasTexturePaths(x);
+  else if (node && typeof node === 'object') {
+    for (const k of ['path', 'textures', 'variations']) if (k in node) yield* atlasTexturePaths((node as Record<string, unknown>)[k]);
+  }
+}
+
+/** Vanilla short names and vanilla texture paths an atlas file redefines (a pack's own keys and paths are fine). */
+function atlasVanilla(rel: string, data: unknown): string[] {
+  const hits: string[] = [];
+  if (rel.endsWith('flipbook_textures.json')) {
+    for (const entry of Array.isArray(data) ? data : []) {
+      const ref = entry && typeof entry === 'object' ? (entry as Record<string, unknown>)['flipbook_texture'] : undefined;
+      if (typeof ref === 'string' && isVanillaTexture(ref)) hits.push(ref);
+    }
+    return hits;
+  }
+  const template = RELEASE_ATLAS_FILES[rel.slice(rel.lastIndexOf('/') + 1)] ?? null;
+  const textureData = data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>)['texture_data'] : undefined;
+  const entries = textureData && typeof textureData === 'object' ? Object.entries(textureData as Record<string, unknown>) : [];
+  for (const [key, entry] of entries) {
+    if (template && isVanillaTexture(template.replace('{}', key))) hits.push(key);
+    const textures = entry && typeof entry === 'object' && !Array.isArray(entry) ? (entry as Record<string, unknown>)['textures'] : undefined;
+    for (const path of atlasTexturePaths(textures)) if (isVanillaTexture(path)) hits.push(path);
+  }
+  return hits;
+}
 /** Download hosts / words that make a link an "external download" (CurseForge, MCPEDL). */
 const RELEASE_DOWNLOAD_LINK =
   /https?:\/\/\S*(mediafire|mega\.nz|dropbox|drive\.google|1drv\.ms|adf\.ly|linkvertise|anonfiles|gofile|sharemods)\S*|https?:\/\/\S*download\S*/i;
@@ -836,6 +882,19 @@ function checkRelease(a: Archive, fileName: string): Findings {
     if (RELEASE_VANILLA_TEXTURE_PATTERNS.some((p) => p.test(rel))) vanilla.push(rel);
   }
   if (vanilla.length) problems.push(`${vanilla.length} file(s) at a vanilla texture path: ${brief(vanilla)}`);
+  for (const n of names) {
+    const own = owner(n, roots);
+    const rel = own !== null ? n.slice(own.length) : n;
+    if (!Object.keys(RELEASE_ATLAS_FILES).some((f) => rel === `textures/${f}`)) continue;
+    let redefined: string[];
+    try {
+      redefined = atlasVanilla(rel, a.json(n));
+    } catch {
+      problems.push(`${rel} is not a readable texture atlas`);
+      continue;
+    }
+    if (redefined.length) problems.push(`${rel} redefines vanilla texture(s): ${brief(new Set(redefined))}`);
+  }
 
   // 6. registered permutations (dev mode allows 65,536).
   let registered = 0n;

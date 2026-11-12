@@ -119,19 +119,32 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
     Checks done: M07 favourites differ only in placement.js + stamp, sim 24 scenarios identical, 7 regression cases
     identical (`output/m07-compare/`); M03 dev packs identical but five scripts embedding the kit, passability and
     regressions identical; B03 two favourites byte-identical but the stamp (`output/b03-compare/`).
-  - WAVE 4 IN FLIGHT 2026-11-09 (6 Sonnet agents; `docs/plans/wave4-brief.md`): MQ massing quality (`biz-mq`), A07+A08
-    grammars (`biz-a07`), L mesh->bricks accuracy (`biz-l01`), C02 coaster into a pack (`biz-c02`), T02 marketplace sim
-    scenario (`biz-t02`), D-08b release finalize/verify/status + M03/M07 flags (`biz-d08b`).
-  - (Wave 4 plan, as briefed:)
-    - Massing quality on Notre-Dame (X-10 render `.worktrees/biz-x10/output/x10/notre-dame-plain-iso.png`): the two west
-      towers merge into one block, east-end heights read far too tall, neighbouring buildings come along; roofs
-      are stepped hips. Fix in A05/X-10, then A07/A08 grammars (roofs, windows, the A09 features).
-    - Mesh -> bricks: `latticeFromBricks` fills ONE plate layer per brick (X-10 finding); leave studs out of the
-      lattice; teach the vocabulary moved names (3023 -> 3023b etc.) and the common missing parts (2420, 4073).
-    - C02 (coaster track + cars into a real pack; B03 merged), C04 (launches/brakes), then C05/C06 (clouds, mountain,
-      dark zone); T02 sim `--scenario=marketplace`; D-08 finalize/verify; wire M03's flags into `prepare`.
-    - A DEVICE CHECK is needed before any store pack: M03's compact collider encoding and brick blocks, and M07's
-      placement prompts, on a phone (Pixel round via a Sonnet subagent, per the device rules).
+  - WAVE 4 MERGED 2026-11-12 (after the machine reboot; all six agents resumed from their commits): MQ, A07+A08, L01,
+    D-08b, T02 (C02 merges after the suite). Results:
+    - MQ: no neighbour buildings (parts < 50 % inside the outline dropped), skillion rise read along the slope (east
+      end 96.4 m -> 45.2 m), towers were already separate (the X-10 render's camera hid the gap). Notre-Dame 1 component.
+    - A07+A08: real slope roofs (gabled/hipped/shed/spire/conical/pyramidal), openings, relief, flying buttresses.
+      Merged with MQ: 22,457 parts, 1 component, 360 slope parts / 7,722 slope cells (floor re-measured; renders
+      `output/a07-merged/compare-nw.jpg`). STILL WRONG: the spire is a square stick, not a taper (SPIRE in wave 5).
+    - L01: underside cavities filled, studs culled, 27 moved-name aliases + 38 parts. Truth IoU wall/tower 1.000,
+      nimbus 0.898 parity / 0.849 winding (winding rings tall stacks: cause in `src/convert` winding field, open).
+    - D-08b: `release.ts finalize|verify|status`, M03/M07 flags in release profiles, gate waivers empty, `.io`/`.lxf`
+      inputs; `terrain_texture.json` was a checker false positive (now judged by content).
+    - T02 `--scenario=marketplace` findings (T02-fix in wave 5): "minifig" in wand/confirm forms and a sentence
+      starting "Minecraft only takes a tap"; M03's brick blocks unused (placement writes vanilla concrete); "Find a
+      clear spot" can land on the player (`player-not-in-solid`); batcave Undo leaves two `batcave_board_100`.
+    - C02: generated coaster plays the full 1,872-block circuit in the sim; 10261/10303 byte-identical but the stamp,
+      their regressions identical; 76417/42703 NOT yet compared (orchestrator runs them); camera-continuous flags
+      49-59 degree frames (cap 40) on the generated track; launch/brake zones not acted on (C04).
+  - DONE by the orchestrator 2026-11-12 (the user's answers): `Craftmatic-Lego-Pack.mcpack` renamed to
+    `Craftmatic-Brick-Textures.mcpack` with no LEGO text (deploys on push); private repo `tribixbite/craftmatic-designs`
+    created (clone `C:/git/craftmatic-designs`); sampler product = `cmt_sampler`, publisher Techneesh, LLC (display
+    name stays a placeholder until the trade-mark search).
+  - WAVE 5 (brief `docs/plans/wave5-brief.md`): F01c humanoid alien figure (teal/purple, distinct proportions; rex/
+    rivet/pip stay as extras), T02-fix, SV (seat planner on shipped cubes, then re-render the side-rule screenshots),
+    RIDE (drop tower + sky swing), SPIRE (tapering spires), C04 (launches/brakes/trims), L00 (OSM inputs for the 22
+    landmarks into the private repo), MCT (validator start-up crash), the Pixel round (approved), then the water-slide
+    tower, the stunt arena and the sampler's car, kits and small landmark.
   - F01b MERGED 2026-11-09 (`biz-f01b`): rex (dinosaur), rivet (robot), pip (bobblehead kid); all pass the gate
     with attached limbs and faces; sheet `.worktrees/biz-f01b/output/f01b/candidates.jpg`; designer recommends rex.
     The user picks (U4).

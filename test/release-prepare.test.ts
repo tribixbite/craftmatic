@@ -35,7 +35,10 @@ describe('release-prepare: checksums', () => {
 });
 
 describe('release-prepare: preconditions', () => {
-  const facts = { product, ledger: [], version: { major: 1, minor: 0, patch: 0 }, dirtyFiles: [], bunVersion: product.toolchain.bun, lockfileSha256: product.toolchain.lockfileSha256, ldrawArchiveSha256: null };
+  // The committed sampler has its namespace and publisher since 2026-11-12 (U1); these refusals are pinned on a
+  // copy with them unset, the state every new product starts in.
+  const unbranded: ProductRecord = { ...product, identity: { ...product.identity, namespace: null }, placeholders: ['namespace', 'folderStem', 'displayName', 'publisher'], publisher: null };
+  const facts = { product: unbranded, ledger: [], version: { major: 1, minor: 0, patch: 0 }, dirtyFiles: [], bunVersion: product.toolchain.bun, lockfileSha256: product.toolchain.lockfileSha256, ldrawArchiveSha256: null };
 
   it('the sampler is refused for its null namespace, its placeholders and its null publisher', () => {
     const problems = preconditionProblems(facts).join('\n');
@@ -80,7 +83,8 @@ describe('release-prepare: waivers and open gates', () => {
       { id: 'a', title: '', status: 'pass', detail: '' }, { id: 'b', title: '', status: 'waived', detail: 'x' },
       { id: 'c', title: '', status: 'not-run', detail: 'x' }, ...pendingGates(),
     ];
-    expect(openGates(gates).map(g => g.id)).toEqual(['b', 'c', 'brick-blocks', 'placement', 'sim']);
+    // M03's brick blocks and M07's placement are real gates since D-08b; only the simulator stage still waits.
+    expect(openGates(gates).map(g => g.id)).toEqual(['b', 'c', 'sim']);
     for (const g of pendingGates()) expect(g.detail).toMatch(/M03|M07|M14/);
   });
 });
@@ -96,7 +100,7 @@ describe('release-prepare: approval sheet', () => {
     expect(boxes.every(l => l.startsWith('- [ ] '))).toBe(true);
     expect(text).toContain('git tag -a p-v1.0.0 abc');
     expect(text).toMatch(/TEST FIXTURE/);
-    expect(text).toMatch(/Open gates \(3\)/);
+    expect(text).toMatch(/Open gates \(1\)/);
   });
 
   it('has a stub for every channel naming D-09', () => {

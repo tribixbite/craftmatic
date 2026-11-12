@@ -55,7 +55,7 @@ export const RELEASE_PROFILE_FLAGS: Readonly<PackProfileFlags> = Object.freeze({
  * M14 did not: the sim stage stays flagged.
  */
 export const PENDING_STAGES: ReadonlyArray<{ id: string; title: string; dependency: string; landed: boolean; reason: string }> = [
-  { id: 'sim', title: 'Simulator child-play and vehicles scenarios on the rewritten pack', dependency: 'M14', landed: false, reason: 'M14 (the simulator reading the namespace from the pack) is not merged: sim.ts only recognises the craftmatic: namespace, so it cannot play a rewritten pack.' },
+  { id: 'sim', title: 'Simulator child-play and vehicles scenarios on the rewritten pack', dependency: 'T02 / M14', landed: false, reason: 'M14 is merged, but the simulator cannot yet PLACE a rewritten release pack (D-08b: no Placed line); T02\'s --scenario=marketplace places profile builds, so this stage switches to it once it runs on the rewritten archive.' },
 ];
 
 /** The gates for stages that are still waiting, each skipped with its reason. */
