@@ -222,6 +222,9 @@ export function outOfReachByModel(ctx: StepContext, part: SimEntity, statics: re
     : `no floor the model draws puts the eye within reach of it (${floors} floors searched round it)`;
 }
 
+/** The Overworld build height the wand allows, blocks (-64..319). */
+const WORLD_HEIGHT_BLOCKS = 384;
+
 /** What child play builds: `quick` (short drives and lives), `shots` (pictures), `sizes` (the wand sizes placed; default 100 and 150). */
 export interface ChildPlayOptions { quick?: boolean; shots?: boolean; sizes?: readonly number[] }
 
@@ -263,7 +266,8 @@ export function childPlayScenarios(pack: CraftmaticPack, options: ChildPlayOptio
   // length of the ride scales with the size and no time does).
   if (pack.funfair?.rides.length) {
     for (const [size, rot] of variants) {
-      if (rot !== 0) continue;
+      // The wand refuses a build taller than the world (384 blocks, -64..319): a tower of 100 blocks has no 400 percent.
+      if (rot !== 0 || pack.placement.height * size / 100 > WORLD_HEIGHT_BLOCKS) continue;
       out.push({ name: `funfair-${size}`, description: `Place at ${size} percent; ride every drop tower and sky swing with two riders by a tap; Undo.`, steps: [{ kind: 'place', size, rotation: 0 }, { kind: 'wait', ticks: 40 }, ...pack.funfair.rides.map(r => ({ kind: 'rideFunfair', index: r.index, riders: 2 }) as Step), { kind: 'undo' }], ...common });
     }
   }

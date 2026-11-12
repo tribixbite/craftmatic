@@ -98,6 +98,13 @@ export function onRunout(at: Vec3, r: { foot: Vec3; end: Vec3 }): boolean {
   return t > 1e-3 && Math.abs(at.y - r.foot.y) < 0.05;
 }
 
+/**
+ * How far a funfair rider may be from their seat while still aboard, blocks: `BASE` (a seated player hangs about a block under the
+ * seat origin whatever the wand size: the rider is not scaled) plus `PER_SIZE` of the wand factor (the seat is). A rider who
+ * stepped off a 100-block tower is metres away within a tick.
+ */
+export const ABOARD_BASE_BLOCKS = 1.25;
+export const ABOARD_PER_SIZE = 1;
 /** How far over its drawn chute a slide's seat may run (blocks at 100 %, times the size): the drawn geometry's own grain. */
 export const SLIDE_SEAT_OVER_DRAWN = 0.2;
 /** A mount turning less than this (degrees a tick, averaged over a second) after a swipe has stopped (the Saga's spin was 6.5). */
@@ -222,7 +229,7 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
         // (On the tick the trip ends every rider is set down beside the ring: only a rider still aboard is judged.)
         for (const [seat, p] of ctx.player.ridingOn ? riderOf : []) {
           const away = Math.hypot(p.location.x - seat.location.x, p.location.y - seat.location.y, p.location.z - seat.location.z);
-          if (!aboardFault && away > 2 * f) {
+          if (!aboardFault && away > ABOARD_BASE_BLOCKS + ABOARD_PER_SIZE * f) {
             aboardFault = true;
             ctx.violate({ invariant: 'funfair-rider-aboard', message: `${ride.kind} ${index + 1}: a rider left their seat (${r3(away)} blocks from it) mid-ride`, evidence: { seat: pt(seat.location), rider: pt(p.location) } });
           }
