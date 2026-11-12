@@ -17,7 +17,7 @@
  *
  * Not here: mesh-derived massing (`sliceMeshAtY`) belongs with A09's mesh adapter.
  */
-import { ROOF_RISE_PREFIX } from '../site/osm.js';
+import { ROOF_DIRECTION_PREFIX, ROOF_RISE_PREFIX } from '../site/osm.js';
 import { assertSiteLicences, type LicenceGateResult } from '../site/licence-gate.js';
 import type { Massing, MassVolume, RoofSpec, SiteEvidence, Vec2m, Vec3m } from '../types.js';
 import { areaWithHoles, coverageFraction, dominantAxisDeg, orientRing, pointInRing, ringArea, rotatePoint } from './geometry.js';
@@ -26,6 +26,19 @@ import { minFeatureSquare, simplifyRingStuds, type SimplifyOptions } from './sim
 
 /** Pitch assumed for a pitched roof with no `roof:height` (degrees). */
 export const DEFAULT_ROOF_PITCH_DEG = 30;
+
+/**
+ * A `MassVolume` that also records its roof's rise above `topM` (metres, a whole number of plates). `MassVolume`
+ * itself has no rise field (`types.ts` is X-08's), and a consumer that re-derived the rise from `pitchDeg` and its own
+ * span disagreed with this module: a skillion 15 m high over a 1.5 m wide strip (its true run is the 13 m along the
+ * slope) became a 96 m spike in the plain bricker. TODO(types): promote `roofRiseM` to `MassVolume` when X-08 allows.
+ */
+export interface RoofedVolume extends MassVolume { roofRiseM: number }
+
+/** The recorded roof rise of a volume in metres, or undefined for a massing built elsewhere that does not carry it. */
+export function volumeRoofRiseM(v: MassVolume): number | undefined {
+  return (v as Partial<RoofedVolume>).roofRiseM;
+}
 
 export interface MassingOptions {
   /** Role hint per part id (OSM adapter's `roles`); anything else is a `body`. */
@@ -73,6 +86,20 @@ interface Entry {
   heightM: number;
   roof: RoofSpec;
   riseM: number | undefined;
+  /** `roof:direction`: compass bearing the slope faces, degrees clockwise from north (site frame, before rotation). */
+  directionDeg: number | undefined;
+}
+
+/**
+ * Horizontal length of the ring along the compass bearing `bearingDeg`, in the TURNED frame (x east, z south, the site
+ * rotated by `rotationDeg`). A skillion rises over this length, not over the ring's short side: 15 m over a 13 m long
+ * strip is 49 degrees, 15 m over its 1.5 m width would be 84.
+ */
+function extentAlongBearing(outer: ReadonlyArray<Vec2m>, bearingDeg: number, rotationDeg: number): number {
+  const r = (bearingDeg * Math.PI) / 180;
+  const [dx, dz] = rotatePoint([Math.sin(r), -Math.cos(r)], -rotationDeg); // north is -z
+  const along = outer.map(([x, z]) => x * dx + z * dz);
+  return Math.max(...along) - Math.min(...along);
 }
 
 /** Half the short side of the ring's oriented bounding box: the run a roof rises over. */
@@ -90,7 +117,11 @@ export function buildMassing(site: SiteEvidence, opts: MassingOptions = {}): Mas
   const dropped: MassingResult['dropped'] = [];
 
   const riseOf = new Map<string, number>();
-  for (const m of site.measurements) if (m.what.startsWith(ROOF_RISE_PREFIX)) riseOf.set(m.what.slice(ROOF_RISE_PREFIX.length), m.valueM);
+  const directionOf = new Map<string, number>();
+  for (const m of site.measurements) {
+    if (m.what.startsWith(ROOF_RISE_PREFIX)) riseOf.set(m.what.slice(ROOF_RISE_PREFIX.length), m.valueM);
+    else if (m.what.startsWith(ROOF_DIRECTION_PREFIX)) directionOf.set(m.what.slice(ROOF_DIRECTION_PREFIX.length), m.valueM); // degrees, see the prefix
+  }
 
   // 2. pair parts with footprints; a footprint with no part entry is a plain body of unknown height (reported).
   let entries: Entry[] = [];
@@ -99,7 +130,7 @@ export function buildMassing(site: SiteEvidence, opts: MassingOptions = {}): Mas
     if (!part) { dropped.push({ partId: fp.partId ?? '(unnamed)', reason: 'footprint has no matching parts entry (no height)' }); continue; }
     entries.push({
       partId: part.partId, outer: fp.outer.map(p => [...p] as Vec2m), holes: fp.holes.map(h => h.map(p => [...p] as Vec2m)),
-      baseM: part.baseM, heightM: part.heightM, roof: part.roof ?? { shape: 'flat' }, riseM: riseOf.get(part.partId),
+      baseM: part.baseM, heightM: part.heightM, roof: part.roof ?? { shape: 'flat' }, riseM: riseOf.get(part.partId), directionDeg: directionOf.get(part.partId),
     });
   }
   if (entries.length === 0) throw new Error('massing: the site has no footprint with a height');
@@ -137,7 +168,9 @@ export function buildMassing(site: SiteEvidence, opts: MassingOptions = {}): Mas
       return { e, wallTopM: e.heightM, riseM: 0, pitchDeg: undefined };
     }
     const half = halfShortSpan(e.outer);
-    const run = e.roof.shape === 'shed' ? 2 * half : half;
+    // A shed's run is the footprint's length along its slope when OSM gives the direction, else twice the half span.
+    const run = e.roof.shape !== 'shed' ? half
+      : e.directionDeg !== undefined ? extentAlongBearing(e.outer, e.directionDeg, rotationDeg) : 2 * half;
     let rise = e.riseM ?? Math.tan((DEFAULT_ROOF_PITCH_DEG * Math.PI) / 180) * half;
     if (e.riseM === undefined) warnings.push(`${e.partId}: ${e.roof.shape} roof with no roof:height, assumed ${DEFAULT_ROOF_PITCH_DEG} deg`);
     const room = e.heightM - e.baseM;
@@ -205,9 +238,9 @@ export function buildMassing(site: SiteEvidence, opts: MassingOptions = {}): Mas
   for (const b of built) for (const [x, z] of b.outer) { minX = Math.min(minX, x); minZ = Math.min(minZ, z); }
   const shift = (r: Vec2m[]): Vec2m[] => r.map(([x, z]) => [(x - minX) / sp, (z - minZ) / sp] as Vec2m);
   const roles = opts.roles ?? {};
-  const volumes: MassVolume[] = built.map(b => ({
+  const volumes: RoofedVolume[] = built.map(b => ({
     id: b.id, outer: shift(b.outer), holes: b.holes.map(shift),
-    baseM: b.baseP / ppm, topM: b.topP / ppm, roof: b.roof, role: roles[b.partId] ?? 'body',
+    baseM: b.baseP / ppm, topM: b.topP / ppm, roof: b.roof, role: roles[b.partId] ?? 'body', roofRiseM: b.riseP / ppm,
   }));
 
   let maxX = 0, maxZ = 0, minY = Infinity, maxY = 0;

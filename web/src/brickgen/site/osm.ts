@@ -16,12 +16,20 @@
  */
 import type { OverpassElement } from '@craft/gen/api/osm';
 import { projectPolygonToLocal } from '@craft/pipeline/synthesis/features';
+import { coverageFraction } from '../massing/geometry.js';
 import type { MassVolume, RoofShape, RoofSpec, SiteEvidence, SourceRef, Vec2m } from '../types.js';
 
 /** `SiteEvidence.measurements[].what` prefix carrying a part's roof rise in metres (`roof-rise:way/123`). */
 export const ROOF_RISE_PREFIX = 'roof-rise:';
 /** Attribution string ODbL requires wherever OSM-derived data is used. */
 export const OSM_ATTRIBUTION = '© OpenStreetMap contributors (ODbL 1.0)';
+/** `SiteEvidence.measurements[].what` prefix carrying a part's `roof:direction` as a compass bearing in DEGREES (in `valueM`). */
+export const ROOF_DIRECTION_PREFIX = 'roof-direction-deg:';
+/**
+ * A `building:part` belongs to the chosen building outline when at least this fraction of its footprint lies inside
+ * it. OSM defines a part as lying within its building; an Overpass radius query also returns the neighbours' parts.
+ */
+export const PART_INSIDE_OUTLINE_MIN = 0.5;
 /** Metres per `building:levels` level when only levels are tagged (OSM 3D renderers use 3 m; 3.2 adds a floor slab). */
 export const METRES_PER_LEVEL = 3.2;
 /** Height used when neither a height nor levels is tagged anywhere (3 levels), with a warning. */
@@ -61,6 +69,19 @@ export function parseLengthM(raw: string | undefined): number | null {
   const v = parseFloat(m[1]!.replace(',', '.'));
   if (!Number.isFinite(v)) return null;
   return /^(ft|feet|')$/i.test(m[2]!) ? v * 0.3048 : v;
+}
+
+const COMPASS_POINTS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+
+/** Parses an OSM `roof:direction` / `direction` value (degrees clockwise from north, or a 16-point compass name) to degrees, or null. */
+export function parseBearingDeg(raw: string | undefined): number | null {
+  if (raw === undefined) return null;
+  const named = COMPASS_POINTS.indexOf(raw.trim().toUpperCase());
+  if (named >= 0) return named * 22.5;
+  const m = /^\s*(-?\d+(?:[.,]\d+)?)\s*$/.exec(raw);
+  if (!m) return null;
+  const v = parseFloat(m[1]!.replace(',', '.'));
+  return Number.isFinite(v) ? ((v % 360) + 360) % 360 : null;
 }
 
 /** Maps an OSM `roof:shape` value to the nearest `RoofShape`; unknown values fall back to flat (reported). */
@@ -147,7 +168,7 @@ export function siteFromOverpass(json: { elements?: OverpassElement[] }, opts: O
   const els = json.elements ?? [];
   const key = (e: OverpassElement): string => `${e.type}/${e.id}`;
   const withRings = els.flatMap(e => { const r = elementRings(e); return r ? [{ e, r }] : []; });
-  const partEls = withRings.filter(({ e }) => e.tags?.['building:part'] !== undefined && e.tags['building:part'] !== 'no');
+  const allPartEls = withRings.filter(({ e }) => e.tags?.['building:part'] !== undefined && e.tags['building:part'] !== 'no');
   const buildingEls = withRings.filter(({ e }) => e.tags?.['building'] !== undefined && e.tags['building:part'] === undefined);
   const rawArea = (r: LatLon[]): number => Math.abs(r.reduce((s, p, i) => {
     const q = r[(i + 1) % r.length]!;
@@ -157,7 +178,22 @@ export function siteFromOverpass(json: { elements?: OverpassElement[] }, opts: O
     ? buildingEls.find(({ e }) => key(e) === opts.buildingId)
     : [...buildingEls].sort((a, b) => rawArea(b.r.outer) - rawArea(a.r.outer))[0];
   if (opts.buildingId && !outline) throw new Error(`osm: ${opts.buildingId} is not in the response`);
-  if (!outline && partEls.length === 0) throw new Error('osm: no building or building:part geometry in the response');
+  if (!outline && allPartEls.length === 0) throw new Error('osm: no building or building:part geometry in the response');
+
+  // A part that lies outside the outline belongs to a neighbour the query also returned: leave it out (reported).
+  let partEls = allPartEls;
+  if (outline) {
+    const lats = outline.r.outer.map(p => p.lat), lons = outline.r.outer.map(p => p.lon);
+    const centre = { lat: (Math.min(...lats) + Math.max(...lats)) / 2, lng: (Math.min(...lons) + Math.max(...lons)) / 2 };
+    const local = (ring: LatLon[]): Vec2m[] => projectPolygonToLocal(ring, centre, 0).map(p => [p.x, p.z] as Vec2m);
+    const outer = local(outline.r.outer), holes = outline.r.holes.map(local);
+    partEls = allPartEls.filter(({ e, r }) => {
+      const inside = coverageFraction(local(r.outer), r.holes.map(local), [{ outer, holes }], 0.25);
+      if (inside >= PART_INSIDE_OUTLINE_MIN) return true;
+      warnings.push(`${key(e)}: ${Math.round(inside * 100)}% inside the outline ${key(outline.e)}; left out as a neighbouring building`);
+      return false;
+    });
+  }
 
   // Centre the frame on the bounding box of everything we use.
   const used = [...(outline ? [outline] : []), ...partEls];
@@ -201,6 +237,8 @@ export function siteFromOverpass(json: { elements?: OverpassElement[] }, opts: O
     if (role) roles[key(outline.e)] = role;
     const rise = parseLengthM(t['roof:height']);
     if (rise !== null) measurements.push({ what: `${ROOF_RISE_PREFIX}${key(outline.e)}`, valueM: rise, source: `osm-${outline.e.type}-${outline.e.id}` });
+    const dir = parseBearingDeg(t['roof:direction']);
+    if (dir !== null) measurements.push({ what: `${ROOF_DIRECTION_PREFIX}${key(outline.e)}`, valueM: dir, source: `osm-${outline.e.type}-${outline.e.id}` });
   }
 
   for (const { e, r } of partEls) {
@@ -224,7 +262,9 @@ export function siteFromOverpass(json: { elements?: OverpassElement[] }, opts: O
     if (role) roles[key(e)] = role;
     const rise = parseLengthM(t['roof:height']);
     if (rise !== null) measurements.push({ what: `${ROOF_RISE_PREFIX}${key(e)}`, valueM: rise, source: `osm-${e.type}-${e.id}` });
-    // TODO(roof-direction): roof:direction / roof:orientation (skillion slope, ridge axis) is not carried yet.
+    const dir = parseBearingDeg(t['roof:direction']);
+    if (dir !== null) measurements.push({ what: `${ROOF_DIRECTION_PREFIX}${key(e)}`, valueM: dir, source: `osm-${e.type}-${e.id}` });
+    // TODO(roof-orientation): roof:orientation (gable ridge axis, `along`/`across`) is not carried yet.
   }
 
   const tags = outline?.e.tags ?? {};

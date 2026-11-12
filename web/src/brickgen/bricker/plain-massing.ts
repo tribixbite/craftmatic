@@ -8,7 +8,9 @@
  * first, so taller volumes cut through shorter ones):
  *  - a floor of TWO plate layers over the footprint (one layer would be loose plates side by side; the second bonds them);
  *  - a one-stud wall ring from the floor to the cap (the footprint's boundary cells);
- *  - a two-layer plate cap over the footprint (the ceiling the roof sits on); a volume under five plates high is a solid
+ *  - a THREE-layer plate cap over the footprint (the ceiling the roof sits on; a brick's height). Two layers left
+ *    1-2 stud notches between wall posts (Notre-Dame's aisle deck) as a 2-plate island that no repair could bond to its
+ *    neighbours (3 unsupported, 2 components, MQ 2026-11-09); three bond. A volume under six plates high is a solid
  *    plate slab;
  *  - a stepped hip roof above the cap for every pitched roof shape: the height of a cell is its
  *    distance from the footprint's edge, scaled so the ridge reaches the volume's roof rise
@@ -19,6 +21,7 @@
  * TODO(A08): openings, bays, string courses.
  */
 import { pointInRing } from '../massing/geometry.js';
+import { volumeRoofRiseM } from '../massing/index.js';
 import type { IntentLabel, IntentLattice, Massing, MassVolume } from '../types.js';
 
 /** LDraw colours of the plain model. */
@@ -137,21 +140,26 @@ export function plainMassingLattice(massing: Massing, style: PlainStyle = PLAIN_
       }
     };
     // Floor (unless it stands on the base plate), wall ring, ceiling cap. Interior wall layers are cleared: this volume cuts through what stood there.
-    const slab = topP - baseP <= 4 && !grounded;
+    const slab = topP - baseP <= 5 && !grounded;
     each((x, z, edge) => {
       if (slab) {
         for (let p = baseP; p < topP && p < H; p++) cells[at(x, p, z)] = CAP;
         return;
       }
       if (!grounded) for (const p of [baseP, baseP + 1]) cells[at(x, p, z)] = FLOOR;
-      for (let p = grounded ? baseP : baseP + 2; p <= topP - 3 && p < H; p++) cells[at(x, p, z)] = edge === 0 ? WALL : 0;
-      for (const p of [topP - 2, topP - 1]) if (p < H) cells[at(x, p, z)] = CAP;
+      for (let p = grounded ? baseP : baseP + 2; p <= topP - 4 && p < H; p++) cells[at(x, p, z)] = edge === 0 ? WALL : 0;
+      for (const p of [topP - 3, topP - 2, topP - 1]) if (p < H) cells[at(x, p, z)] = CAP;
     });
     // Stepped hip roof.
     const pitch = v.roof.pitchDeg;
     if (v.roof.shape !== 'flat' && pitch !== undefined && pitch > 0) {
+      // The rise the massing recorded (OSM's own roof:height, over the run it really has). Re-deriving it from the pitch and
+      // this footprint's bounding box disagreed with the massing's run and made 15 m skillions 90 m spikes; the
+      // fallback serves a massing built elsewhere that carries no rise.
+      const recorded = volumeRoofRiseM(v);
       const half = Math.min(w, d) / 2;
-      const rise = Math.min(Math.tan((pitch * Math.PI) / 180) * half * (20 / 8), H - 1 - topP);
+      const wanted = recorded !== undefined ? recorded * ppm : Math.tan((pitch * Math.PI) / 180) * half * (ppm / spm);
+      const rise = Math.min(wanted, H - 1 - topP);
       if (rise >= 1) {
         roofed++;
         each((x, z, edge) => {
