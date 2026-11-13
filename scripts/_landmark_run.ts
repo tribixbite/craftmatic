@@ -53,7 +53,7 @@ for (const l of list) {
     if (run.status !== 0) { result['renderError'] = (run.stderr || run.stdout).slice(-600); }
     else {
       const j = JSON.parse(readFileSync(`${outBase}.json`, 'utf8')) as { report: Record<string, unknown>; notes: string[]; dims: unknown };
-      result['verify'] = j.report; result['grammarNotes'] = j.notes; result['dims'] = j.dims;
+      result['builtTopM'] = (j as { builtTopM?: number }).builtTopM; result['verify'] = j.report; result['grammarNotes'] = j.notes; result['dims'] = j.dims;
     }
   } catch (e) { result['error'] = (e as Error).message; }
   writeFileSync(path.join(dir, 'run.json'), JSON.stringify(result, null, 1));
