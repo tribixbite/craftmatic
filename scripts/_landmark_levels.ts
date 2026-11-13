@@ -99,7 +99,8 @@ for (const run of runs) {
   const forPack = suggestSize({ extent: extentM, costs, maxResidentCuboids: tier.maxResidentCuboids, maxUncompressedBytes: tier.maxUncompressedBytes, forPack: level });
   const detail: PlacementDetail = {
     studsPerMetre: run.level, extentM: { x: Math.round(extentM.x), y: Math.round(extentM.y), z: Math.round(extentM.z) },
-    suggestion: { pct: Math.max(25, Math.round(forPack.pct / level.studsPerMetre)), text: forPack.text },
+    // A pack of another level than the suggested one keeps its own natural size (100) as the step the room check aims for.
+    suggestion: { pct: forPack.level.studsPerMetre === level.studsPerMetre ? Math.max(25, Math.round(forPack.pct / level.studsPerMetre)) : 100, text: forPack.text },
     otherLevels: DETAIL_LEVELS.filter(l => l.studsPerMetre !== run.level && levels.includes(l)).map(l => ({ studsPerMetre: l.studsPerMetre, text: `The ${l.studsPerMetre}-stud pack has ${l.label}.` })),
   };
   writeFileSync(path.join(root, out, `detail-l${run.level}.json`), JSON.stringify(detail, null, 1));
