@@ -170,7 +170,13 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
       heights for Independence Hall, Neuschwanstein, Kinderdijk not recorded; St Basil's 67 vs 47.5 m unresolved.
   - F01c REJECTED by the user (2026-11-13); branch `biz-f01c` kept, not merged. FIG3 (custom-sculpted gen-3 figure,
     Fable) RUNNING in `.worktrees/biz-fig3`.
-  - WAVE 6 PLAN: LSCALE (landmark detail levels by size + a suggested size), MQ2 (multi-outline sites, outline-vs-parts,
+  - WAVE 5 PUSHED 2026-11-13 (CI green). Post-merge fix: release-script tests set CRAFTMATIC_RELEASE_MCT=skip-for-test
+    (the validator now runs; the fixture release has 10 real mct errors -> RB).
+  - WAVE 6 IN FLIGHT 2026-11-13 (brief `docs/plans/wave6-brief.md`): FIG3 (Fable, custom-sculpted figure), RB (release
+    build passes mct), LSCALE (landmark detail levels + size suggestion), MQ2 (multi-outline sites, outline-vs-parts,
+    Eiffel, Elizabeth Tower), RIDE2 (water-slide tower, stunt arena), DEV (Pixel round on release-profile packs,
+    evidence `output/device-round-2026-11-13-pixel/`).
+  - (Wave 6 plan as written:) LSCALE (landmark detail levels by size + a suggested size), MQ2 (multi-outline sites, outline-vs-parts,
     Eiffel lattice, Elizabeth Tower top), RIDE2 (water-slide tower, stunt arena), the Pixel round (approved; packs
     built from the pushed wave-5 commit with the release profile), release-build fixes from MCT (pack icon, path
     length, README), sampler designs (car, door kit, seat kit, small landmark) once FIG3 is picked.
