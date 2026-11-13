@@ -96,7 +96,7 @@ describe('release-mctools', () => {
     expect(seen[0]![seen[0]!.indexOf('-o') + 1]).not.toBe(seen[1]![seen[1]!.indexOf('-o') + 1]);
     expect(readdirSync(project).sort()).toEqual(['behavior_packs', 'resource_packs']);
     expect(existsSync(join(project, 'behavior_packs', 'Acme_Demo_BP', 'manifest.json'))).toBe(true);
-    expect(existsSync(join(project, 'resource_packs', 'Acme_Demo_RP', 'textures', 'entity', 'acme', 'demo', 'thing.png'))).toBe(true);
+    expect(existsSync(join(project, 'resource_packs', 'Acme_Demo_RP', 'textures', 'acme', 'demo', 'entity', 'thing.png'))).toBe(true);
     // a second unpack goes to a different NEW folder
     expect(unpackForMct(fixtureZip, base)).not.toBe(project);
   });
