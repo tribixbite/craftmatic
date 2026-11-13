@@ -25,6 +25,8 @@ export interface SuggestInput {
   availableBlocks?: number;
   /** Wand steps; default the wand's. */
   steps?: readonly number[];
+  /** The level of the pack that shows the text (its wand speaks that pack's own percent); default the suggested level's. */
+  forPack?: DetailLevel;
 }
 
 /** One wand step with what the suggestion knows about it. */
@@ -38,7 +40,7 @@ export interface SuggestedRung extends SizeRung {
 }
 
 export interface SizeSuggestion {
-  /** The suggested wand step, in percent. */
+  /** The suggested wand step, in percent of the STANDARD design (real size); a level's pack shows it divided by its studs per metre. */
   pct: number;
   level: DetailLevel;
   rungs: SuggestedRung[];
@@ -81,9 +83,17 @@ export function suggestSize(input: SuggestInput): SizeSuggestion {
     ? 'no level fits both the phone budget and the room'
     : `finest level within budget (${pick.level.studsPerMetre} studs per metre) at its smallest step`;
   const size = `${pick.blocks.x} by ${pick.blocks.z} blocks and ${pick.blocks.y} high`;
+  // In a pack of level L the wand speaks the pack's own percent: the suggested step over L (the pack's 100 percent
+  // is L times as big as the standard design's).
+  const own = input.forPack ?? pick.level;
+  const ownPct = Math.max(25, Math.round(pick.pct / own.studsPerMetre));
+  const sameLevel = own.studsPerMetre === pick.level.studsPerMetre;
+  const lead = !sameLevel
+    ? `Suggested: the ${pick.level.studsPerMetre}-stud pack at ${Math.max(25, Math.round(pick.pct / pick.level.studsPerMetre))} percent.`
+    : own.studsPerMetre === 1 ? `Suggested size: ${ownPct} percent.` : `Suggested size: ${ownPct} percent here, as big as ${pick.pct} percent of the standard design.`;
   const text = unfit
-    ? `Suggested size: ${pick.pct} percent, the largest that fits the clear space. It covers ${size}.`
-    : `Suggested size: ${pick.pct} percent. ${fine ? `At this size the design has ${pick.level.label}.` : 'This is the whole building at one stud to the metre.'} It covers ${size}${input.availableBlocks === undefined ? '' : ', which fits your clear space'}.`;
+    ? `${lead} It is the largest that fits the clear space and covers ${size}.`
+    : `${lead} ${fine ? `At this size the design has ${pick.level.label}.` : 'This is the whole building at one stud to the metre.'} It covers ${size}${input.availableBlocks === undefined ? '' : ', which fits your clear space'}.`;
   return { pct: pick.pct, level: pick.level, rungs, text, reason };
 }
 

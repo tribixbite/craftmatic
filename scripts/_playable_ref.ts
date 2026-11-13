@@ -13,6 +13,7 @@
  *          [--lod=none|hull] [--lod-distance=N]   (default hull: a resident per-colour surface hull the client draws past N; engine/bedrock-lod-hull.ts)
  *          [--faces=<dir>]   (face art for heads no LDraw library prints: <part>.png per head, scripts/gen-face-art.py)
  *          [--mirror=<url>]   (part mirror for names the local library lacks; default prod)
+ *          [--detail=<detail.json>]   (a landmark's PlacementDetail from scripts/_landmark_levels.ts: the wand shows its level and suggested size)
  *          [--hints=<file.byom.json>]   (creator hints, engine/byom/hints.ts: vehicles, doors, seats by selector; default: <model stem>.byom.json beside the model when it exists. Runs in explicit mode: no title or set number decides anything)
  *          [--figure-collision-height=N]   (experimental override for a figure NPC's minecraft:collision_box.height, default computed/clamped 1.0-1.8; device-919 roaming experiment)
  *
@@ -38,6 +39,7 @@ import { modelExportStem } from '../web/src/engine/export-name.ts';
 import { SMOOTH_TRACK_GRAIN_LDU } from '../web/src/engine/coaster-track.ts';
 import { sourceHash12, type SourceProvenance } from '../web/src/engine/pipeline-version.ts';
 import { computePipelineStamp } from './pipeline-stamp.ts';
+import type { PlacementDetail } from '../web/src/brickgen/levels/levels.ts';
 import { byomHintsPathFor, parseByomHints, type ByomHints } from '../web/src/engine/byom/hints.ts';
 
 const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
@@ -123,6 +125,8 @@ const setMatch = /(\d{4,6})(?:-\d)?/.exec(basename(file));
 // Hogwarts set exported as the bare stem `Hogwarts`, pack id `hogwarts`.
 const stem = modelExportStem({ name: flag('label') ?? basename(file).replace(/\.[^.]+$/, ''), setNum: setMatch?.[0] });
 // Creator hints (B03): `--hints=` or `<stem>.byom.json` beside the model. Parsed now so a bad file stops before a long export.
+const detailFile = flag('detail');
+const detail = detailFile ? JSON.parse(readFileSync(detailFile, 'utf8')) as PlacementDetail : undefined;
 const hintsFile = flag('hints') ?? (existsSync(byomHintsPathFor(file)) ? byomHintsPathFor(file) : undefined);
 let byomHints: ByomHints | undefined;
 if (hintsFile) {
@@ -275,6 +279,7 @@ const result = await runSchemPipeline({
   sourceProvenance,
   ...(runProfile ? { packProfile: runProfile } : {}),
   ...(byomHints ? { byomHints } : {}),
+  ...(detail ? { detail } : {}),
 }, (phase, pct) => { if (process.env.VERBOSE) console.error(`  ${phase}${pct !== undefined ? ` ${pct}%` : ''}`); });
 const ms = Date.now() - t0;
 
