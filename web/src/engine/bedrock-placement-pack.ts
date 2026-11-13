@@ -1,5 +1,6 @@
 import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type FineReachColumns, type GridDims, type LaneWalk, type QuarterTurn, type ReachTarget, type SizeCarve, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
 import { carvesAt, encodeSizeCarve, encodeTurnedCarve, planSizeCarve, sizeCarveAt, type ModelBox, type ShippedCarves } from './collider-carve.js';
+import type { PlacementDetail } from '../brickgen/levels/levels.js';
 import { WalkWorld, tickPlayer, type PlayerState } from './addon-walk.js';
 import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
 import { IDENTITY, boneTransforms, cubeCorners, drawnCubeBox } from './bedrock-geometry-faces.js';
@@ -166,6 +167,8 @@ export interface PlacementPackSpec {
   interactionNote?: string;
   /** The measured walk-through size and its reason, named (never applied) by the wand. */
   access?: PlacementAccess;
+  /** The landmark detail level of this pack and the size the wand suggests (LSCALE, `brickgen/levels`). */
+  detail?: PlacementDetail;
   /**
    * Invisible steps where a scaled-up rise the model's own figures could climb
    * has grown past the player's jump (bedrock-collider-scale.ts). Default on;
@@ -1006,6 +1009,12 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
   /** The measurement as one line for a menu body, with the reason carried whole. */
   const walkThroughLine = (): string => !access || !access.reason ? ''
     : `\n\n§aWalk-through: ${recommendedSize ? `${percent(recommendedSize)}` : 'no size fits'}§r — ${access.reason}`;
+  // The landmark's detail level (brickgen/levels): what this pack's design adds and the size the export suggests.
+  // The texts are written at export (spelt for Bedrock's formatter); this only shows them and checks the room.
+  const detail = config.detail || null;
+  /** The detail sentences for a menu body, empty for a pack with no levels. */
+  const detailLine = (): string => !detail ? ''
+    : `\n\n§bDetail: ${detail.studsPerMetre === 1 ? 'one stud' : `${detail.studsPerMetre} studs`} to the metre.${detail.studsPerMetre > 1 ? ` Here ${percent(100)} is as big as ${percent(100 * detail.studsPerMetre)} of the standard design.` : ''} ${detail.suggestion.text}${detail.otherLevels.length ? ` ${detail.otherLevels.map((o: any) => o.text).join(' ')}` : ''}§r`;
   // A pack with no block structure (a vehicle, a figure) may turn in 15° steps; blocks turn by 90°.
   const fineTurn = config.tiles.length === 0;
   const turnStep = fineTurn ? 15 : 90;
@@ -1583,6 +1592,8 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
    * TODO(U17): the ticking-area policy is undecided with the publisher; this keeps today's temporary areas.
    * TODO(perf): one getBlock per cell; a big footprint scans slowly, `Dimension.getBlocks` would be native.
    */
+  /** A block that is neither air nor this pack's own collider; an unreadable cell is not known to be air. */
+  const isForeign = (block: any): boolean => !block || !(block.isAir === true || block.typeId === 'minecraft:air' || block.typeId === 'minecraft:unknown' || kit.variantOf(block.typeId) >= 0);
   async function foreignBlocks(dim: any, st: any, anchor: any, limit: number) {
     const d = dims(st), found = { count: 0, lo: undefined as any, hi: undefined as any };
     let cells = 0;
@@ -1592,10 +1603,7 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
         await load(dim, from, to);
         for (let x = from.x; x <= to.x; x++) for (let z = from.z; z <= to.z; z++) for (let y = from.y; y <= to.y; y++) {
           if (++cells % 20000 === 0) await wait(1);
-          const block = dim.getBlock({ x, y, z });
-          // An unreadable cell is not known to be air.
-          const foreign = !block || !(block.isAir === true || block.typeId === 'minecraft:air' || block.typeId === 'minecraft:unknown' || kit.variantOf(block.typeId) >= 0);
-          if (!foreign) continue;
+          if (!isForeign(dim.getBlock({ x, y, z }))) continue;
           found.count++;
           found.lo = found.lo ? { x: Math.min(found.lo.x, x), y: Math.min(found.lo.y, y), z: Math.min(found.lo.z, z) } : { x, y, z };
           found.hi = found.hi ? { x: Math.max(found.hi.x, x), y: Math.max(found.hi.y, y), z: Math.max(found.hi.z, z) } : { x, y, z };
@@ -2335,11 +2343,48 @@ If your last placement is in the way, undo it first.`)
     if (active?.player !== p.id && !st.anchor && !st.aim && !previews.has(p.id)) return startAim(p, st);
     return menu(p);
   }
+  /**
+   * "Suggest a size here": the export's suggested size, checked against the room at the pin. Every footprint shares the
+   * pin's corner, so the largest candidate is loaded once and each smaller one is a sub-box of it. The room is SAMPLED
+   * (every `ROOM_SAMPLE_STEP` blocks across, at the base, the middle and the top) so a 200-block footprint is not a
+   * four-million-block scan; a tree or a wall between samples can be missed, and the placement's own air-only preflight
+   * (`foreignBlocks`) still runs on Place. Sets the size to the largest step that fits no bigger than the suggestion's.
+   */
+  const ROOM_SAMPLE_STEP = 4;
+  async function suggestHere(p: any, st: any): Promise<any> {
+    if (!detail) return menu(p);
+    if (!st.anchor) { tell(p, 'Pin the spot first (Follow my aim, then pin), then ask for a size: it checks the room there.'); return menu(p); }
+    const dimension = world.getDimension(st.dimension || p.dimension.id);
+    const candidates = sizes.filter((s: number) => s <= Math.max(detail.suggestion.pct, sizes[0])).sort((a: number, b: number) => b - a);
+    const clear = (s: number): boolean => {
+      const d = dims({ ...st, size: s }), range = dimension.heightRange;
+      if (st.anchor.y < range.min || st.anchor.y + d.height - 1 >= range.max) return false;
+      for (const y of [1, Math.floor(d.height / 2), d.height - 1]) for (let x = 0; x < d.width; x += ROOM_SAMPLE_STEP) for (let z = 0; z < d.length; z += ROOM_SAMPLE_STEP) {
+        if (isForeign(dimension.getBlock({ x: st.anchor.x + x, y: st.anchor.y + y, z: st.anchor.z + z }))) return false;
+      }
+      return true;
+    };
+    let fitting: number | undefined;
+    try {
+      await whileBusy(p, async () => {
+        const big = dims({ ...st, size: candidates[0] });
+        await load(dimension, st.anchor, { x: st.anchor.x + big.width, y: st.anchor.y, z: st.anchor.z + big.length });
+        try { fitting = candidates.find(clear); } finally { await unload(); }
+      });
+    } catch (e: any) { tell(p, `Cannot check the room: ${e.message || e}`); return menu(p); }
+    if (fitting === undefined) { tell(p, 'No size fits the room at this pin: move the pin to a clearer spot (Find a clear spot).'); return menu(p); }
+    st.size = fitting; if (st.anchor) previews.add(p.id);
+    const d = dims(st);
+    tell(p, fitting === detail.suggestion.pct
+      ? `Size set to ${percent(fitting)}, the suggested size: ${d.width} by ${d.length} blocks fit here.`
+      : `The suggested ${percent(detail.suggestion.pct)} does not fit here. Size set to ${percent(fitting)}, the largest that does (${d.width} by ${d.length} blocks).`);
+    return menu(p);
+  }
   async function menu(p: any): Promise<any> {
     const st = state(p), running = active?.player === p.id;
     const nextSize = sizes[(sizes.indexOf(st.size) + 1) % sizes.length];
     const interaction = config.interactionNote ? `\n\n§eInteraction scale: ${config.interactionNote}` : '';
-    const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(st)}${interaction}${walkThroughLine()}\n\nPreview first: ${config.preview ? 'a translucent ghost of the whole build stands at the pin, turned to the chosen rotation and size, with' : 'a full-size outline and model markers stay fixed at the pinned placement;'} red/green/blue marking +X/+Y/+Z and gold the model's -Z side. "Follow my aim" moves it to wherever you look until you pin. Place is always a separate confirmation.`);
+    const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(st)}${interaction}${walkThroughLine()}${detailLine()}\n\nPreview first: ${config.preview ? 'a translucent ghost of the whole build stands at the pin, turned to the chosen rotation and size, with' : 'a full-size outline and model markers stay fixed at the pinned placement;'} red/green/blue marking +X/+Y/+Z and gold the model's -Z side. "Follow my aim" moves it to wherever you look until you pin. Place is always a separate confirmation.`);
     // One list of [label, action]: the buttons are drawn from it and the
     // selection indexes it, so the order is changed here and nowhere else.
     const actions: Array<[string, () => any]> = [];
@@ -2371,6 +2416,7 @@ If your last placement is in the way, undo it first.`)
         if (recommendedSize && nextSize === recommendedSize) tell(p, `${percent(nextSize)} is the measured walk-through size: ${access.reason}`);
         return menu(p);
       }]);
+      if (detail) actions.push(['Suggest a size here', () => suggestHere(p, st)]);
       const recommendedDoorSize = nextDoorSize(st.size);
       if (recommendedDoorSize) actions.push([`Use next door size ${percent(recommendedDoorSize)}`, () => { st.size = recommendedDoorSize; if (st.anchor) previews.add(p.id); return tell(p, `Door size set to ${percent(recommendedDoorSize)}. Eligible leaves at or below this threshold become interactive; larger measured leaves remain source geometry.`); }]);
       actions.push(['View preview in world', () => { try { validate(p, st); } catch (e: any) { tell(p, e.message); return menu(p); } previews.add(p.id); return tell(p, config.preview ? "The ghost stands at the pin, turned to the chosen rotation and size, while you hold the wand. Putting the wand away hides it; select the wand again to rotate, resize or place." : "Full-size preview fixed at the pin while you hold the wand. Red/green/blue mark +X/+Y/+Z; gold marks the model's -Z side. Putting the wand away hides it; select the wand again to rotate or place."); }]);
@@ -2422,7 +2468,7 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
     ? spec.plannedTreads ?? withColliderTreads(spec.colliders, spec.reachTargets ?? [], spec.doorCells ?? [], spec.fineReach)
     : undefined;
   const config = { id, shortAlias, vehicleControls: spec.vehicleControls === true, label: spec.label, itemId, width: spec.width, height: spec.height, length: spec.length, tiles: spec.tiles, actors: spec.actors ?? [], previewPoints: (spec.previewPoints ?? []).slice(0, 120),
-    preview: spec.preview ?? null, colliders: treads ? treads.colliders : spec.colliders ?? null, interactionNote: spec.interactionNote ?? '', access: spec.access ?? null, manualSeatTypeId: spec.manualSeatTypeId ?? '', runtimeDoorCandidates: spec.runtimeDoorCandidates ?? [], sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40,
+    preview: spec.preview ?? null, colliders: treads ? treads.colliders : spec.colliders ?? null, interactionNote: spec.interactionNote ?? '', access: spec.access ?? null, detail: spec.detail ?? null, manualSeatTypeId: spec.manualSeatTypeId ?? '', runtimeDoorCandidates: spec.runtimeDoorCandidates ?? [], sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40,
     // Last, so a reader keying on the older fields' order (a test's regex) reads unchanged.
     shellMigrations: spec.shellMigrations ?? [],
     // Only a marketplace pack names the key, so a dev pack's config is byte-identical to before.
