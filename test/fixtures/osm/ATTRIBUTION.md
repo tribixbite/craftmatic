@@ -6,3 +6,5 @@ Notre-Dame file only its ways (neighbouring relations dropped); no element was e
 
 Data (c) OpenStreetMap contributors, available under the Open Database Licence (ODbL 1.0):
 https://www.openstreetmap.org/copyright
+
+`cologne-spires.overpass.json` (spire package, 2026-11-12): one Overpass request (`way[building]` and `way["building:part"]` within 90 m of 50.9413, 6.958, `out geom;`) from overpass-api.de; only the cathedral way (4532022) and the `building:part` ways are kept, none edited. Same ODbL attribution.

@@ -17,7 +17,7 @@ import type { RoofShape, RoofSpec } from '../types.js';
 import type { Canvas } from './canvas.js';
 import { domeTarget, onionTarget } from './dome.js';
 import { distanceToOutside, maskHas, runAround, STEPS, type Mask } from './footprint.js';
-import { spireTarget } from './spire.js';
+import { placeCone, spireHeight, spireTarget, spireTip } from './spire.js';
 import { patternFor, stairRings, type RingSurface, type StairPattern } from './stair.js';
 
 /** Fill within this many studs of the footprint's edge stays solid: a narrow spire must not be hollowed into pieces. */
@@ -213,6 +213,7 @@ export function buildRoof(canvas: Canvas, mask: Mask, baseP: number, input: Roof
   const near = new Uint8Array(edgeDist.length);
   for (let k = 0; k < near.length; k++) near[k] = edgeDist[k]! <= SOLID_EDGE_STUDS ? 1 : 0;
   const cap = canvas.label({ role: 'roof-flat', colour: colours.slope });
+  const coneLabel = canvas.label({ role: 'roof-slope', colour: colours.slope, feature: 'cone' });
 
   const surfaces = new Map<number, { rings: RingSurface[]; pattern: StairPattern }>();
   const surfacesFor = (ringMax: number): { rings: RingSurface[]; pattern: StairPattern } => {
@@ -225,12 +226,35 @@ export function buildRoof(canvas: Canvas, mask: Mask, baseP: number, input: Roof
     return s;
   };
 
+  // A spire is built as STAGES, not slope groups: at 70+ degrees a pair of slope columns (3 plates over 2 studs) says
+  // nothing about the taper, and the stair's group base averaged a spire's rings into one tall needle of constant width
+  // (the merged Notre-Dame render). Each ring is a column to its own height on the straight taper, so the footprint
+  // shrinks one stud a side per stage, and a square apex takes a real cone part.
+  const columnar = shape === 'spire';
+  let maxDist = 0;
+  if (columnar) for (const d of edgeDist) maxDist = Math.max(maxDist, d);
+  const tip = columnar ? spireTip(mask, edgeDist.map(d => (d >= maxDist - 1e-3 ? 1 : 0))) : undefined;
   let cells = 0, slopeCells = 0, apex = 0;
   const put = (x: number, p: number, z: number, v: number): void => { canvas.set(x, p, z, v); cells++; };
   for (let j = 0; j < mask.d; j++) for (let i = 0; i < mask.w; i++) {
     const k = i + mask.w * j;
     if (!mask.inside[k]) continue;
     const x = mask.x0 + i, z = mask.z0 + j;
+    if (columnar) {
+      // The height follows the cell's own Euclidean distance to the outside, not its rounded ring: the corners of an
+      // octagon drop a stage earlier than its flats, so the taper is round, with more stages than the footprint has rings.
+      const h = Math.min(Math.max(1, spireHeight(edgeDist[k]!, maxDist, input.apexPlates ?? platesPerStud * field.span)), limit);
+      apex = Math.max(apex, h);
+      const onTip = tip !== undefined && tip.cells.has(k) && h > tip.heightPlates + 2;
+      const top = onTip ? h - tip!.heightPlates : h - 1;
+      const solid = near[k] === 1 || ((x & 3) < 2 && (z & 3) < 2);
+      for (let p = 0; p < top; p++) {
+        if (p >= HOLLOW_SKIN && p < top - HOLLOW_SKIN && !solid) continue;
+        put(x, baseP + p, z, fill);
+      }
+      if (onTip) { const n = placeCone(canvas, x, z, tip!, baseP + top, coneLabel); cells += n; slopeCells += n; } else put(x, baseP + top, z, cap);
+      continue;
+    }
     const { rings, pattern } = surfacesFor(field.ringMax[k]!);
     const s = rings[Math.min(field.ring[k]!, rings.length - 1)]!;
     // A one-stud ridge or apex is one ring past the last slope ring: it rises to the target there.

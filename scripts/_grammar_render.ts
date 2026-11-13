@@ -131,7 +131,10 @@ function renderPlan(plan: BrickPlan, view: View, maxPx: number, region?: number[
 
 const FIXTURES = path.resolve(import.meta.dirname, '../test/fixtures/osm');
 const overpass = JSON.parse(readFileSync(path.join(FIXTURES, `${siteName}.overpass.json`), 'utf8'));
-const buildingId = siteName === 'notre-dame' ? 'way/201611261' : undefined;
+// `--building=parts`: use the `building:part` ways only (no outline). An outline as tall as its parts hides them in massing.
+if (flag('building', '') === 'parts') overpass.elements = overpass.elements.filter((e: { tags?: Record<string, string> }) => e.tags?.['building:part'] !== undefined);
+const buildingFlag = flag('building', siteName === 'notre-dame' ? 'way/201611261' : '');
+const buildingId = buildingFlag && buildingFlag !== 'parts' ? buildingFlag : undefined;
 const site = siteFromOverpass(overpass, { retrieved: '2026-11-09', url: 'https://overpass-api.de/api/interpreter', ...(buildingId ? { buildingId } : {}) });
 const massed = buildMassing(site.site, { roles: site.roles, scale: { target: Number(flag('target', '1')) } });
 const sidecarPath = path.resolve(import.meta.dirname, '../web/src/brickgen/features/sidecars', `${siteName}.annotations.json`);
