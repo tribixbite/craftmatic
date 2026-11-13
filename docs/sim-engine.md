@@ -377,6 +377,9 @@ Move, Find a clear spot, no replaced block, exact Undo), `mp-two-players`, `mp-c
 the same model built with `brickBlocks` and `compactColliderStates` off, same file name), and the pack's own child play at
 100 %. The `player-text-lint` invariant (X-05's `lintText`) reads every form title, body and button, chat, action-bar and
 title line in every scenario. A dev pack fails it on purpose (`foreign-block-replaced`).
+`nothing-left-after-undo` also fails a scripted vehicle's boarding point (`<stem>_board_<pct>`) standing after Undo; a
+`brickBlocks` pack that still places vanilla concrete fails `brick-blocks-unused`; "Find a clear spot" never chooses a
+footprint over a player (`player-not-in-solid`). Regressions for all three: `test/sim-marketplace-fix.test.ts`.
 
 ### Adding a scenario
 

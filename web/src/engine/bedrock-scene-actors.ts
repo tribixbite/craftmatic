@@ -1940,7 +1940,7 @@ export function recommendAccessScale(m: SceneAccessMeasurement): AccessScaleReco
   const leaves = entranceLeaves.length ? entranceLeaves : doorLeaves;
   const pool = leaves.length ? leaves : entrances.length ? entrances : m.openings;
   const basis: AccessScaleRecommendation['basis'] = leaves.length ? 'door-leaves' : pool.length ? 'apertures' : 'none';
-  const need = `a player needs ${DOORWAY_PASS_BLOCKS_TEXT}, a minifig's doorway`;
+  const need = `a player needs ${DOORWAY_PASS_BLOCKS_TEXT} to walk through`;
   /**
    * An enclosed interior and not one opening leading into it from outside: said first and plainly, with the
    * counts, so a size chosen for the openings inside is not read as a way in (Notre-Dame, round 30zg).
@@ -1994,10 +1994,10 @@ export function recommendAccessScale(m: SceneAccessMeasurement): AccessScaleReco
   const scale = headroomRaises && headroom?.scale !== undefined ? Math.max(doorStep, headroom.scale) : doorStep;
   const passable = pool.filter(o => o.requiredScale <= scale + 1e-9).length;
   let reason = noEntrance + (scale === 1
-    ? `${kind} are ${size(pick)} blocks at 100 %: a player walks through as exported (${passable}/${pool.length} clear the ${DOORWAY_PASS_BLOCKS_TEXT} a minifig needs)`
+    ? `${kind} are ${size(pick)} blocks at 100 %: a player walks through as exported (${passable}/${pool.length} clear the ${DOORWAY_PASS_BLOCKS_TEXT} a player needs)`
     : `${kind} are ${size(pick)} blocks at 100 %; ${pctOf(scale)} makes them ${size(pick, scale)} (${need}; ${passable}/${pool.length} clear it)`);
   if (headroom && !headroomRaises && (headroom.scale === undefined || headroom.scale > scale)) {
-    reason += `; the median floor-to-ceiling over every enclosed floor is ${blocks1(m.headroomLdu!)} blocks at 100 % (furniture and crawl spaces included) - the doors were hung for a minifig, so the rooms behind them are a minifig's`;
+    reason += `; the median floor-to-ceiling over every enclosed floor is ${blocks1(m.headroomLdu!)} blocks at 100 % (furniture and crawl spaces included) - the doors were hung for the set's figures, so the rooms behind them are sized for them`;
   } else if (headroom) {
     if (headroom.scale !== undefined && headroom.scale > doorStep) reason += `; floors are ${blocks1(m.headroomLdu!)} blocks under the ceiling at 100 %, so ${pctOf(scale)} is what gives standing room (${blocks1(m.headroomLdu!, scale)})`;
     else if (headroom.scale === undefined) reason += `; floors are only ${blocks1(m.headroomLdu!)} blocks under the ceiling at 100 % and ${blocks1(m.headroomLdu!, scale)} at ${pctOf(scale)} - stooping room, not standing`;
@@ -2010,7 +2010,7 @@ export function recommendAccessScale(m: SceneAccessMeasurement): AccessScaleReco
   if (climb && !climb.climbableAtScale) {
     const alt = climb.bestStep;
     reason += `. But at ${pctOf(scale)} a player reaches only ${pctFloors(climb.fraction)} of the model's height (its top floor is ${blocks1(m.topFloorLdu!)} blocks up at 100 %), against ${pctFloors(climb.bestFraction)} at ${pctOf(alt)}: rises the player jumped at ${pctOf(alt)} are above the ${JUMP_HEIGHT_BLOCKS}-block jump at ${pctOf(scale)}`;
-    reason += `. ${pctOf(alt)} keeps the floors but leaves doorways at ${size(pick, alt)}${alt < doorStep ? ` - under the ${DOORWAY_PASS_BLOCKS_TEXT} a minifig needs` : ''}; the choice is between the doors and the stairs`;
+    reason += `. ${pctOf(alt)} keeps the floors but leaves doorways at ${size(pick, alt)}${alt < doorStep ? ` - under the ${DOORWAY_PASS_BLOCKS_TEXT} a player needs` : ''}; the choice is between the doors and the stairs`;
   } else if (climb && scale > 1 && climb.bestFraction > 0) {
     reason += `; a player still reaches ${pctFloors(climb.fraction)} of the model's height at ${pctOf(scale)}`;
   }
