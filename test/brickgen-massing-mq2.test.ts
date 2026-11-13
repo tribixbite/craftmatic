@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { buildFeatureSet } from '../web/src/brickgen/features/index.js';
 import { buildGrammarLattice } from '../web/src/brickgen/grammar/index.js';
 import { buildMassing, OUTLINE_PREFIX, volumeRoofRiseM } from '../web/src/brickgen/massing/index.js';
+import { newMask, openMask, traceMask } from '../web/src/brickgen/massing/raster.js';
 import { siteFromOverpass } from '../web/src/brickgen/site/osm.js';
 import type { SiteEvidence, SourceRef, Vec2m } from '../web/src/brickgen/types.js';
 
@@ -42,6 +43,8 @@ describe('mq2 outline vs parts', () => {
     }));
     expect(r.massing.volumes.map(v => v.id)).toEqual(['vol-low']);
     expect(r.trueTopM).toBeCloseTo(12, 6);
+    // The model falls short of the outline's tagged 60 m, and the result says so instead of hiding it.
+    expect(r.warnings.some(w => w.startsWith('outline:') && w.includes('60') && w.includes('12'))).toBe(true);
   });
 
   it('where parts cover only half of the outline, the outline is kept over the other half only', () => {
@@ -202,5 +205,34 @@ describe('mq2 terraced skillion (a roof that is the whole body)', () => {
     g.lattice.cells.forEach((c, i) => { if (c) top = Math.max(top, Math.floor(i / (W * D))); });
     // plates = metres * platesPerMetre, over the 2-plate base plate; the tower is within a few per cent of 120 m.
     expect(top / r.massing.scale.platesPerMetre).toBeGreaterThan(110);
+  });
+});
+
+describe('mq2 cell masks to rings', () => {
+  const fill = (w: number, d: number, rows: string[]): ReturnType<typeof newMask> => {
+    const m = newMask(w, d);
+    rows.forEach((row, j) => [...row].forEach((c, i) => { if (c === '#') m.cells[i + w * j] = 1; }));
+    return m;
+  };
+
+  it('traces a rectangle with a hole into one outer ring and one hole', () => {
+    const regions = traceMask(fill(5, 5, ['#####', '#####', '##.##', '#####', '#####']));
+    expect(regions).toHaveLength(1);
+    expect(regions[0]!.outer).toHaveLength(4);
+    expect(regions[0]!.holes).toHaveLength(1);
+    expect(Math.abs(areaOf(regions[0]!.outer)) - Math.abs(areaOf(regions[0]!.holes[0]!))).toBe(24);
+  });
+
+  it('cells that touch only at a corner stay two regions', () => {
+    expect(traceMask(fill(2, 2, ['#.', '.#']))).toHaveLength(2);
+  });
+
+  it('an L-shape has six corners', () => {
+    expect(traceMask(fill(3, 3, ['#..', '#..', '###']))[0]!.outer).toHaveLength(6);
+  });
+
+  it('opening removes a strip two cells wide and keeps one three wide', () => {
+    expect(traceMask(openMask(fill(6, 4, ['######', '######', '......', '......']))).length).toBe(0);
+    expect(traceMask(openMask(fill(6, 4, ['######', '######', '######', '......'])))).toHaveLength(1);
   });
 });

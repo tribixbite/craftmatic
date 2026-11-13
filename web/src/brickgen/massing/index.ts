@@ -182,7 +182,9 @@ function outlineRemnants(
  * along `roof:direction`) to the part's top at the high edge. It is cut into `n` flat slabs, slab k holding the cells
  * whose plane height reaches the middle of its band, so the stack steps up the slope in whole plates and the highest
  * slab ends exactly at the part's top. Slab k + 1 stands on slab k (its cells are a subset), so the stack is one
- * piece. `n` is at most the run in studs (a step is never narrower than a stud) and at most the rise in bricks
+ * piece. TODO(lattice): a lattice tower is an open frame, not a solid; a frame grammar (four legs, bracing panels and
+ * platforms read from the same skillion planes, the hollow between them left empty) would draw the Eiffel Tower's arches
+ * and openings, which this solid stack only suggests at its foot. `n` is at most the run in studs (a step is never narrower than a stud) and at most the rise in bricks
  * (`TERRACE_MIN_PLATES`): a steep plane gets thick slabs, a gentle one wide steps.
  */
 function terraceSplits(s: Split, sp: number, ppm: number, rotationDeg: number): Split[] {
@@ -284,7 +286,15 @@ export function buildMassing(site: SiteEvidence, opts: MassingOptions = {}): Mas
   const survivors = ordered.filter(e => alive.has(e.partId));
   /** The parts that stand where an outline does: its remnant is what they do not cover (made once the scale is known). */
   const coverersOf = new Map<string, Entry[]>();
-  for (const o of outlineEntries) coverersOf.set(o.partId, survivors);
+  for (const o of outlineEntries) {
+    coverersOf.set(o.partId, survivors);
+    // The parts win everywhere, but an outline tagged taller than every part under it says something they do not (a
+    // quadriga, a spire left unmapped): the model then falls short of the tagged height, and says so.
+    const [ox0, oz0, ox1, oz1] = ringBounds([o.outer]);
+    const under = survivors.filter(p => { const [x0, z0, x1, z1] = ringBounds([p.outer]); return x1 >= ox0 && x0 <= ox1 && z1 >= oz0 && z0 <= oz1; });
+    const partsTop = Math.max(0, ...under.map(p => p.heightM));
+    if (o.heightM > partsTop + 1) warnings.push(`${o.partId}: the outline is tagged ${o.heightM} m but its parts reach ${partsTop} m; the parts are massed and the extra height is not`);
+  }
   entries = [...survivors, ...outlineEntries];
 
   // 5. wall top + roof rise (metres, before snapping).
@@ -313,18 +323,29 @@ export function buildMassing(site: SiteEvidence, opts: MassingOptions = {}): Mas
   };
   let splits: Split[] = entries.map(splitOf);
 
-  // 6a. scale from the unsnapped metre volumes.
-  const metreVolumes: MetreVolume[] = splits.map(s => ({ outer: s.e.outer, holes: s.e.holes, baseM: s.e.baseM, topM: s.wallTopM + s.riseM }));
-  const scale = chooseScale(metreVolumes, opts.scale);
-  const sp = scale.studsPerMetre, ppm = scale.platesPerMetre;
+  // 6a. scale from the unsnapped metre volumes. An outline that its parts replace is left out of the first estimate (its
+  // full-height box would count bricks that are never built and lower the scale); the estimate is then redone over what
+  // the split below really produces, and the split redone if that changed the scale.
+  const metreOf = (list: Split[]): MetreVolume[] => list.map(s => ({ outer: s.e.outer, holes: s.e.holes, baseM: s.e.baseM, topM: s.wallTopM + s.riseM }));
+  const replaced = splits.filter(s => coverersOf.has(s.e.partId));
+  let scale = chooseScale(metreOf(replaced.length < splits.length ? splits.filter(s => !coverersOf.has(s.e.partId)) : splits), opts.scale);
 
   // 6a'. split what only the stud grid can express: an outline's remnant beside its parts, a skillion's terraces.
-  splits = splits.flatMap(sp0 => {
-    const covers = coverersOf.get(sp0.e.partId);
-    if (covers) return outlineRemnants(sp0, covers, sp, splitOf, dropped);
-    if (sp0.terrace) return terraceSplits(sp0, sp, ppm, rotationDeg);
-    return [sp0];
+  const splitAt = (sc: typeof scale, droppedOut: MassingResult['dropped']): Split[] => splits.flatMap(s0 => {
+    const covers = coverersOf.get(s0.e.partId);
+    if (covers) return outlineRemnants(s0, covers, sc.studsPerMetre, splitOf, droppedOut);
+    if (s0.terrace) return terraceSplits(s0, sc.studsPerMetre, sc.platesPerMetre, rotationDeg);
+    return [s0];
   });
+  let pieceDropped: MassingResult['dropped'] = [];
+  let pieces = splitAt(scale, pieceDropped);
+  if (replaced.length > 0) {
+    const again = chooseScale(metreOf(pieces), opts.scale);
+    if (again.studsPerMetre !== scale.studsPerMetre) { scale = again; pieceDropped = []; pieces = splitAt(scale, pieceDropped); }
+  }
+  dropped.push(...pieceDropped);
+  splits = pieces;
+  const sp = scale.studsPerMetre, ppm = scale.platesPerMetre;
 
   // 6b. simplify + snap, in stud units.
   interface Built { id: string; partId: string; outer: Vec2m[]; holes: Vec2m[][]; baseP: number; topP: number; riseP: number; roof: RoofSpec; report: VolumeReport }
