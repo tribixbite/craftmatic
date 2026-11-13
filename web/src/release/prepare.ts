@@ -41,12 +41,13 @@ export interface ValidationFile {
 /**
  * The profile flags every release build sets (X-02, M03, M07): no vanilla-path textures, no diagnostics, no face art,
  * no stamp, explicit hints only, our own brick blocks instead of the concrete overrides, the compact collider states
- * (6,192 permutations, under the Marketplace's 10,000) and the air-only wand. One object so `prepare`, `verify` and
+ * (6,192 permutations, under the Marketplace's 10,000), the air-only wand, no notes inside the packs (they travel in the
+ * release bundle) and our own pack icon in both packs. One object so `prepare`, `verify` and
  * `finalize` (which all run `_make`) cannot disagree about what a release is.
  */
 export const RELEASE_PROFILE_FLAGS: Readonly<PackProfileFlags> = Object.freeze({
   vanillaTextures: false, diagnostics: false, faceArt: false, devStamp: false, explicitOnly: true,
-  brickBlocks: true, compactColliderStates: true, marketplacePlacement: true,
+  brickBlocks: true, compactColliderStates: true, marketplacePlacement: true, packNotes: false, packIcons: true,
 });
 
 /**
@@ -168,6 +169,9 @@ export function profileProblems(files: readonly RawFile[], identity: ProductIden
   if (!rp.m.dependencies?.some(d => d.uuid === identity.uuids.bpHeader)) out.push('resource pack does not depend on the behaviour pack');
   if (files.some(f => /(^|\/)craftmatic-diagnostics\.json$/.test(f.name))) out.push('craftmatic-diagnostics.json shipped');
   if (files.some(f => /(^|\/)textures\/blocks\/concrete_[^/]*\.png$/.test(f.name))) out.push('a vanilla-path concrete texture shipped');
+  // RB: what Microsoft's validator rejects inside a pack (README / notices, provenance, tread report) and what it wants in both.
+  for (const f of files) if (/^[^/]+\/(README|DISCLAIMER|CREDITS|CHANGELOG)[^/]*$/i.test(f.name) || /^[^/]+\/[^/]*-(provenance|treads)\.json$/.test(f.name)) out.push(`${f.name} shipped inside a pack (notes travel in the release bundle)`);
+  for (const p of [bp, rp]) if (!files.some(f => f.name === `${p.file.slice(0, p.file.length - 'manifest.json'.length)}pack_icon.png`)) out.push(`${p.file.replace('manifest.json', '')}pack_icon.png is missing`);
   const prov = files.find(f => /(^|\/)craftmatic-provenance\.json$/.test(f.name));
   if (prov && (JSON.parse(decode(prov.data)) as { pipeline?: { kind?: string } }).pipeline?.kind !== 'unstamped') out.push('provenance carries a pipeline stamp');
   return out;

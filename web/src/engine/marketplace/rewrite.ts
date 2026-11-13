@@ -42,9 +42,25 @@ export const CONTENT_FOLDERS: readonly string[] = [
   'entities', 'blocks', 'items', 'structures', 'functions', 'animations', 'animation_controllers',
   'loot_tables', 'recipes', 'trading', 'spawn_rules', 'features', 'feature_rules', 'biomes',
   'entity', 'render_controllers', 'particles', 'attachables', 'materials', 'fogs',
-  'models/entity', 'models/blocks', 'textures/blocks', 'textures/items', 'textures/entity',
-  'textures/ui', 'textures/particle', 'textures/environment', 'textures/colormap',
+  'models/entity', 'models/blocks', 'cameras/presets',
 ];
+
+/**
+ * Texture folders. Microsoft's cooperative add-on rules want `textures/<creator>/<pack>/...` (CADDONREQ102 flags a
+ * folder named `blocks` or `entity` directly under `textures/`), so a release keeps the dev folder name BELOW the
+ * pair: `textures/blocks/x.png` becomes `textures/<creator>/<pack>/blocks/x.png`. The atlas files
+ * (`terrain_texture.json`, `item_texture.json`) stay at the `textures/` root, where the validator expects them.
+ * `scripts/_mcaddon_check.py` and `byom/pack-check.ts` judge the result by shape, not by this list.
+ */
+export const TEXTURE_FOLDERS: readonly string[] = [
+  'textures/blocks', 'textures/items', 'textures/entity', 'textures/ui', 'textures/particle', 'textures/environment', 'textures/colormap',
+];
+
+/** Longest path (pack folder included) a release file may have: Microsoft's PATHLENGTH:103 limit. */
+export const MAX_PACK_PATH = 100;
+
+/** Atlas files whose `textures` values a release writes as arrays (the validator's schema, JSON:193). */
+const ATLAS_FILES: readonly string[] = ['textures/terrain_texture.json', 'textures/item_texture.json'];
 
 /** Folders whose files are addressed by an id (`/function`, `structure load`), not by a path string. */
 const ID_ADDRESSED_FOLDERS: readonly string[] = ['structures', 'functions'];
@@ -96,6 +112,32 @@ export interface RewriteReport {
   bareWords: Array<{ file: string; count: number }>;
   /** Tokens still present after the pass; the guard is that this is empty. */
   residual: ResidualToken[];
+}
+
+/** FNV-1a of a string as 8 hex digits: a stable short suffix for a shortened file name. */
+function shortHash(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0;
+  return h.toString(16).padStart(8, '0');
+}
+
+/**
+ * `relPath` (root-relative) with its file name shortened until `rootLength + relPath` fits `MAX_PACK_PATH`: the stem is
+ * cut and ends in `_<hash of the full path>`, the extension chain (`.render_controllers.json`) is kept so the game
+ * still reads the file for what it is. A path that already fits is returned as it is.
+ */
+export function fitPath(relPath: string, rootLength: number): string {
+  if (rootLength + relPath.length <= MAX_PACK_PATH) return relPath;
+  const slash = relPath.lastIndexOf('/');
+  const dir = relPath.slice(0, slash + 1);
+  const base = relPath.slice(slash + 1);
+  const dot = base.indexOf('.');
+  const stem = dot < 0 ? base : base.slice(0, dot);
+  const ext = dot < 0 ? '' : base.slice(dot);
+  const suffix = `_${shortHash(relPath)}`;
+  const room = MAX_PACK_PATH - rootLength - dir.length - ext.length - suffix.length;
+  if (room < 1) throw new RewriteError(`${relPath} cannot fit ${MAX_PACK_PATH} characters: its folders are too deep or too long`);
+  return `${dir}${stem.slice(0, room)}${suffix}${ext}`;
 }
 
 /** Escape a string for use inside a RegExp. */
@@ -318,9 +360,17 @@ export function rewritePack(files: readonly PackFile[], options: RewriteOptions)
     const root = rootOf(f.name);
     if (!root) throw new RewriteError(`${f.name} sits outside every pack folder`);
     const rel = f.name.slice(root.old.length);
-    const folder = folders.find(x => rel.startsWith(`${x}/`));
+    const textureFolder = TEXTURE_FOLDERS.find(x => rel.startsWith(`${x}/`));
+    const folder = textureFolder ? undefined : folders.find(x => rel.startsWith(`${x}/`));
     let newRel: string;
-    if (!folder) {
+    if (textureFolder) {
+      // textures/blocks/x.png -> textures/<creator>/<pack>/blocks/x.png, and every path string that names it follows.
+      const rest = rules.apply(rel.slice(textureFolder.length + 1));
+      newRel = fitPath(`textures/${folderPath}/${textureFolder.slice('textures/'.length)}/${rest}`, root.neu.length);
+      const oldRef = `${textureFolder}/${rules.apply(rel.slice(textureFolder.length + 1))}`;
+      refMap.set(oldRef, newRel);
+      refMap.set(stripExtension(oldRef), stripExtension(newRel));
+    } else if (!folder) {
       newRel = rules.apply(rel);
     } else {
       let rest = rel.slice(folder.length + 1);
@@ -330,6 +380,8 @@ export function rewritePack(files: readonly PackFile[], options: RewriteOptions)
       if (oldNs) rest = rest.slice(SOURCE_NAMESPACE.length + 1);
       rest = rules.apply(rest);
       newRel = `${folder}/${folderPath}/${rest}`;
+      // Ids address these two folders' files by name; every other file is found by its content, so a long name may shrink.
+      if (!ID_ADDRESSED_FOLDERS.includes(folder)) newRel = fitPath(newRel, root.neu.length);
       if (folder === 'functions') {
         functionIds.set(stripExtension(idRest), stripExtension(`${folderPath}/${rest}`));
       } else if (folder === 'structures' && oldNs) {
@@ -362,7 +414,7 @@ export function rewritePack(files: readonly PackFile[], options: RewriteOptions)
   // ---- 2. the text passes ------------------------------------------------------------------------------------
   const rootRenames = roots.map(r => [r.old, r.neu] as const).sort((a, b) => b[0].length - a[0].length);
   const uuids = options.uuids ? uuidMap(files, roots, options.uuids) : undefined;
-  const pathAlt = folders.filter(f => !ID_ADDRESSED_FOLDERS.includes(f)).map(escapeRe).join('|');
+  const pathAlt = [...folders.filter(f => !ID_ADDRESSED_FOLDERS.includes(f)), ...TEXTURE_FOLDERS].sort((a, b) => b.length - a.length).map(escapeRe).join('|');
   const pathRef = new RegExp(`(?<![\\w./-])((?:${pathAlt})/[\\w./-]*\\w)`, 'g');
   const functionRefs = [...functionIds.entries()].map(([from, to]) => ({
     re: new RegExp(`(\\bfunction\\s+)${escapeRe(from)}(?![\\w/-]|\\.\\w)`, 'g'), to,
@@ -395,7 +447,8 @@ export function rewritePack(files: readonly PackFile[], options: RewriteOptions)
       // an allowed file (the credits) names the tool on purpose: its text is carried over untouched
     } else if (isTextFile(f.name)) {
       const text = decoder.decode(f.data);
-      const next = rewriteText(f.name, text);
+      let next = rewriteText(f.name, text);
+      if (ATLAS_FILES.some(a => f.name.endsWith(`/${a}`))) next = atlasArrays(next);
       if (next !== text) data = encoder.encode(next);
     } else if (extensionOf(f.name) === 'mcstructure') {
       data = rewriteNbtStrings(f.data, s => rules.apply(s));
@@ -408,6 +461,17 @@ export function rewritePack(files: readonly PackFile[], options: RewriteOptions)
   const residual = scanForToken(result, tokenAllowed);
   const renamed = [...movedPath.entries()].filter(([from, to]) => from !== to).map(([from, to]) => ({ from, to })).sort((a, b) => (a.from < b.from ? -1 : 1));
   return { files: result, report: { namespace: ns, renamed, structureIds, bareWords, residual } };
+}
+
+/**
+ * `terrain_texture.json` / `item_texture.json` text with every entry's `textures` written as an array. Bedrock reads a
+ * single path either way (a one-entry array is the form the validator's schema, and vanilla's variation entries, use);
+ * `TODO(device)` a Pixel/Saga round on a release pack confirms the blocks still draw.
+ */
+export function atlasArrays(text: string): string {
+  const doc = JSON.parse(text) as { texture_data?: Record<string, { textures?: unknown }> };
+  for (const entry of Object.values(doc.texture_data ?? {})) if (typeof entry?.textures === 'string') entry.textures = [entry.textures];
+  return JSON.stringify(doc, null, /\r?\n/.test(text) ? 2 : undefined);
 }
 
 /** Every remaining `craftmatic` token (case-insensitive) in file names and bytes, except in allowed files' content. */

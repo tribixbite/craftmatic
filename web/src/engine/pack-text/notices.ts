@@ -42,9 +42,10 @@ const decode = (d: Uint8Array | string): string => (typeof d === 'string' ? d : 
 /**
  * Problems with a built pack set's notices: every `manifest.json` description must contain the disclaimer, every
  * manifest's directory must hold a `DISCLAIMER.txt` that contains it exactly, and a README must carry it. Empty
- * list means compliant.
+ * list means compliant. `manifestsOnly` (a release, RB): only the manifest descriptions are judged, because Microsoft's
+ * validator rejects a DISCLAIMER or README file inside a pack (PRJINT:101); those travel in the release bundle.
  */
-export function checkDisclaimer(files: readonly PackFile[]): string[] {
+export function checkDisclaimer(files: readonly PackFile[], opts: { manifestsOnly?: boolean } = {}): string[] {
   const problems: string[] = [];
   const byName = new Map(files.map(f => [f.name, f]));
   const manifests = files.filter(f => /(?:^|\/)manifest\.json$/.test(f.name));
@@ -53,11 +54,13 @@ export function checkDisclaimer(files: readonly PackFile[]): string[] {
     let description = '';
     try { description = (JSON.parse(decode(m.data)) as { header?: { description?: string } }).header?.description ?? ''; } catch { /* reported below */ }
     if (!description.includes(MOJANG_DISCLAIMER)) problems.push(`${m.name}: header.description lacks the Mojang disclaimer`);
+    if (opts.manifestsOnly) continue;
     const root = m.name.slice(0, m.name.length - 'manifest.json'.length);
     const d = byName.get(`${root}${DISCLAIMER_FILENAME}`);
     if (!d) problems.push(`${root}${DISCLAIMER_FILENAME}: missing`);
     else if (!decode(d.data).includes(MOJANG_DISCLAIMER)) problems.push(`${d.name}: does not contain the exact disclaimer`);
   }
+  if (opts.manifestsOnly) return problems;
   const readmes = files.filter(f => /(?:^|\/)readme[^/]*\.(?:txt|md)$/i.test(f.name));
   if (!readmes.length) problems.push('README: missing');
   for (const r of readmes) if (!decode(r.data).includes(MOJANG_DISCLAIMER)) problems.push(`${r.name}: lacks the Mojang disclaimer`);

@@ -170,7 +170,7 @@ function baseFiles(): Files {
         description: {
           identifier: 'acme:thing',
           materials: { default: 'entity' },
-          textures: { default: 'textures/entity/acme/demo/thing' },
+          textures: { default: 'textures/acme/demo/entity/thing' },
           geometry: { default: 'geometry.acme.thing' },
           render_controllers: ['controller.render.acme.thing'],
         },
@@ -185,9 +185,10 @@ function baseFiles(): Files {
       format_version: '1.8.0',
       render_controllers: { 'controller.render.acme.thing': { geometry: 'Geometry.default' } },
     }),
-    [`${RP}textures/entity/acme/demo/thing.png`]: png(64, 64),
-    [`${RP}textures/blocks/acme/demo/slab.png`]: png(16, 16),
+    [`${RP}textures/acme/demo/entity/thing.png`]: png(64, 64),
+    [`${RP}textures/acme/demo/blocks/slab.png`]: png(16, 16),
     [`${RP}pack_icon.png`]: png(256, 256),
+    [`${BP}pack_icon.png`]: png(256, 256),
     [`${RP}texts/en_US.lang`]: 'tile.acme:slab.name=Slab\n',
     [`${RP}sounds.json`]: json(FLY_OK),
   };
@@ -258,12 +259,12 @@ describe('byom-pack-check', () => {
       ['a third manifest', (f) => { f[`${BP}extra/manifest.json`] = f[`${BP}manifest.json`]; }, 'expected 2 manifests'],
       ['the behaviour pack not depending on the resource pack', (f) => patchJson(f, `${BP}manifest.json`, (d) => { d.dependencies = []; }), 'does not depend'],
       ['texture sets without the pbr capability and with a missing image', (f) => {
-        f[`${RP}textures/entity/acme/demo/thing.texture_set.json`] = json({ 'minecraft:texture_set': { color: 'thing', normal: 'thing_n', heightmap: [1, 2, 3], metalness_emissive_roughness: [0, 0, 255] } });
+        f[`${RP}textures/acme/demo/entity/thing.texture_set.json`] = json({ 'minecraft:texture_set': { color: 'thing', normal: 'thing_n', heightmap: [1, 2, 3], metalness_emissive_roughness: [0, 0, 255] } });
       }, 'texture sets but no pbr capability'],
       ['texture sets with the capability and complete images', (f) => {
         patchJson(f, `${RP}manifest.json`, (d) => { d.capabilities = ['pbr']; });
-        f[`${RP}textures/entity/acme/demo/thing.texture_set.json`] = json({ 'minecraft:texture_set': { color: 'thing', normal: 'thing_n' } });
-        f[`${RP}textures/entity/acme/demo/thing_n.tga`] = tga(8, 8);
+        f[`${RP}textures/acme/demo/entity/thing.texture_set.json`] = json({ 'minecraft:texture_set': { color: 'thing', normal: 'thing_n' } });
+        f[`${RP}textures/acme/demo/entity/thing_n.tga`] = tga(8, 8);
       }, 'PBR texture sets'],
       ['a script module whose entry is missing', (f) => patchJson(f, `${BP}manifest.json`, (d) => { d.modules.push({ type: 'script', uuid: '0d0d0d0d-0000-4000-8000-000000000003', version: [1, 0, 0], entry: 'scripts/main.js' }); }), 'script entry missing'],
       ['a script module whose entry exists', (f) => {
@@ -315,7 +316,7 @@ describe('byom-pack-check', () => {
       ['a client entity naming a geometry, a texture and materials the pack lacks', (f) => patchJson(f, `${RP}entity/acme/demo/thing.entity.json`, (d) => {
         const desc = d['minecraft:client_entity'].description;
         desc.geometry.default = 'geometry.acme.ghost';
-        desc.textures.default = 'textures/entity/acme/demo/ghost';
+        desc.textures.default = 'textures/acme/demo/entity/ghost';
         delete desc.materials;
       }), 'is not defined in the pack'],
       ['blocks: a rejected identifier, too many state values, an over-large product', (f) => {
@@ -410,12 +411,12 @@ describe('byom-pack-check', () => {
       ['a pack over 25 MiB uncompressed, 0.25 MiB tie and files over the cap', (f) => { f[`${RP}big.bin`] = new Uint8Array(26 * 1048576 + 262144); }, 'MiB uncompressed'],
       ['more than 3,500 files', (f) => { for (let i = 0; i < 3501; i++) f[`${RP}texts/n${i}.txt`] = ''; }, 'files (a release allows 3,500)'],
       ['oversize textures (png and tga), unreadable images, and a short header', (f) => {
-        f[`${RP}textures/blocks/acme/demo/huge.png`] = png(257, 4);
-        f[`${RP}textures/items/acme/demo/huge.tga`] = tga(16, 300);
-        f[`${RP}textures/entity/acme/demo/big.png`] = png(2049, 2);
-        f[`${RP}textures/entity/acme/demo/ok.tga`] = tga(2048, 2048);
-        f[`${RP}textures/entity/acme/demo/junk.png`] = new TextEncoder().encode('not an image at all, but long enough to read');
-        f[`${RP}textures/entity/acme/demo/short.png`] = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]);
+        f[`${RP}textures/acme/demo/blocks/huge.png`] = png(257, 4);
+        f[`${RP}textures/acme/demo/items/huge.tga`] = tga(16, 300);
+        f[`${RP}textures/acme/demo/entity/big.png`] = png(2049, 2);
+        f[`${RP}textures/acme/demo/entity/ok.tga`] = tga(2048, 2048);
+        f[`${RP}textures/acme/demo/entity/junk.png`] = new TextEncoder().encode('not an image at all, but long enough to read');
+        f[`${RP}textures/acme/demo/entity/short.png`] = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]);
         f[`${RP}textures/top.png`] = new Uint8Array(4);
       }, 'over the size limit'],
       ['beta script modules', (f) => patchJson(f, `${BP}manifest.json`, (d) => { d.dependencies.push({ module_name: '@minecraft/server', version: '1.17.0-BETA' }, { module_name: '@minecraft/server-ui', version: [1, 2, 'beta'] }, { module_name: '@minecraft/stable', version: '1.18.0' }); }), 'beta script module'],
@@ -426,6 +427,11 @@ describe('byom-pack-check', () => {
         f[`${RP}notes.txt`] = `fine\n   ${'x'.repeat(70)} https://dropbox.com/s/abc   \n\u2028http://drive.google.com/x`;
         patchJson(f, `${RP}manifest.json`, (d) => { d.header.description = 'https://linkvertise.com/pack'; });
       }, 'external download link'],
+      ['textures outside textures/<creator>/<pack>/ (RB)', (f) => { f[`${RP}textures/blocks/x.png`] = png(16, 16); f[`${RP}textures/entity/y/z.png`] = png(16, 16); f[`${RP}textures/other/pair/w.png`] = png(16, 16); }, 'not under textures/<creator>/<pack>/'],
+      ['extraneous files in a pack folder (RB)', (f) => { f[`${BP}README.txt`] = 'x'; f[`${BP}acme-provenance.json`] = '{}'; f[`${RP}DISCLAIMER.txt`] = 'x'; }, 'extraneous file(s) in the pack folder'],
+      ['a missing and a wrong-size pack icon (RB)', (f) => { delete f[`${BP}pack_icon.png`]; f[`${RP}pack_icon.png`] = png(300, 300); }, 'pack_icon.png is missing'],
+      ['a path over 100 characters and one over 9 segments (RB)', (f) => { f[`${RP}render_controllers/acme/demo/${'n'.repeat(80)}.render_controllers.json`] = json({}); f[`${RP}animations/acme/demo/a/b/c/d/e.json`] = json({}); }, 'over 100 characters'],
+      ['terrain_texture.json textures as a string (RB)', (f) => { f[`${RP}textures/terrain_texture.json`] = json({ texture_data: { acme_demo_slab: { textures: 'textures/acme/demo/blocks/slab' }, ok: { textures: ['textures/acme/demo/blocks/slab'] } } }); }, 'must be an array'],
       ['directory entries inside the archive', (f) => { f[`${BP}entities/`] = new Uint8Array(0); f[`${RP}`] = new Uint8Array(0); f[`${RP}textures/`] = new Uint8Array(0); }, ''],
       ['a pack at the archive root next to a nested one', (f) => {
         f['manifest.json'] = f[`${BP}manifest.json`];
