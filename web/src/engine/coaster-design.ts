@@ -135,7 +135,7 @@ export interface GeneratedCoaster {
 
 export interface CoasterIssue {
   code: 'closure' | 'spacing' | 'g-vertical' | 'g-lateral' | 'jerk' | 'world-height' | 'speed' | 'stall'
-    | 'brake' | 'arrival' | 'clearance' | 'show';
+    | 'brake' | 'arrival' | 'clearance' | 'show' | 'frame-rate';
   message: string;
   /** Arc distance of the worst sample, when it has one. */
   at?: number;
@@ -209,6 +209,14 @@ export const COASTER_DESIGN = {
   CLOSURE_POSITION_B: 1e-6, CLOSURE_DIRECTION: 5e-3,
   /** Jerk is the change of the load vector over at least this many seconds. */
   JERK_WINDOW_S: 0.2,
+  /**
+   * Most the car's frame (tangent AND up) may rotate per 50 ms tick at the design speed, degrees. The rider's camera
+   * cannot turn the drawn view more than `COASTER_RIDER_VIEW.maxTurn` (40) in one frame, and the runtime rides some
+   * stretches faster than the design's own estimate (1.4x measured on the 3x sketch's first roll), so 28 keeps 1.4x
+   * the design speed under the cap. Measured by C04 (2026-11-12): the sketch's zero-g rolls turned the frame 43 and
+   * 91 degrees per tick and the sim's camera drew 41-106 degrees in one frame there (`camera-continuous`).
+   */
+  MAX_FRAME_RATE_DEG_PER_TICK: 28,
   /** Arriving faster than this multiple of the station's depart speed at the platform is refused. */
   ARRIVAL_SPEED_FACTOR: 1.3,
 } as const;
@@ -960,6 +968,30 @@ function analyse(design: CoasterDesign, rec: Recorder, spanStart: number[], clos
 // validateCoaster
 // ---------------------------------------------------------------------------
 
+/**
+ * How fast the car's frame (tangent and up together) rotates at each sample, in degrees per 50 ms tick at the design
+ * speed: the angle between the frames two samples either side, over their arc, times the speed. A roll about the
+ * heartline shows here although the heart's path is straight, which the g limits do not see.
+ */
+export function frameRateDegPerTick(gen: GeneratedCoaster): number[] {
+  const pts = gen.route.points, ups = gen.ups, arc = gen.analysis.arc, speed = gen.analysis.speed, n = pts.length;
+  const frame = (i: number): [V3, V3, V3] => {
+    const t = unit(sub(pts[Math.min(n - 1, i + 1)] as V3, pts[Math.max(0, i - 1)] as V3));
+    const u = ups[i] as V3;
+    return [t, u, cross(t, u)];
+  };
+  const out: number[] = new Array<number>(n).fill(0);
+  for (let i = 2; i < n - 2; i++) {
+    const a = frame(i - 2), b = frame(i + 2);
+    let trace = 0;
+    for (let k = 0; k < 3; k++) trace += dot(a[k]!, b[k]!);
+    const angle = Math.acos(clamp((trace - 1) / 2, -1, 1));
+    const ds = arc[i + 2]! - arc[i - 2]!;
+    out[i] = ds > 1e-9 ? (angle / ds) * speed[i]! / 20 * (180 / Math.PI) : 0;
+  }
+  return out;
+}
+
 /** Every way a generated circuit breaks its limits; empty when it is sound. */
 export function validateCoaster(gen: GeneratedCoaster): CoasterIssue[] {
   const C = COASTER_DESIGN, a = gen.analysis, L = a.limits, pts = gen.route.points, n = pts.length;
@@ -990,6 +1022,11 @@ export function validateCoaster(gen: GeneratedCoaster): CoasterIssue[] {
     issues.push({ code: 'arrival', message: `the train reaches the station at ${a.arrivalSpeedBps.toFixed(1)} blocks/s: brake harder or longer before the return` });
   }
   for (const s of a.shows) if (!Number.isFinite(s.at) || s.at < 0 || s.at > a.arc[n - 1]!) issues.push({ code: 'show', message: `show cue at ${s.at} is outside the circuit` });
+  const rate = frameRateDegPerTick(gen), fr = worst(rate, v => v);
+  if (rate[fr]! > C.MAX_FRAME_RATE_DEG_PER_TICK) {
+    const el = gen.spans.find(sp => a.arc[fr]! >= sp.from && a.arc[fr]! < sp.to);
+    issues.push({ code: 'frame-rate', at: a.arc[fr], message: `the car's frame turns ${rate[fr]!.toFixed(0)} degrees per tick at arc ${a.arc[fr]!.toFixed(1)} (${el ? `element ${el.index}, ${el.kind}` : 'the return'}), above ${C.MAX_FRAME_RATE_DEG_PER_TICK}: the rider camera cannot follow it; lengthen the roll or give it more speed` });
+  }
   const clear = nearestApproach(pts as readonly V3[], a.arc);
   if (clear) issues.push({ code: 'clearance', at: clear.at, message: `track passes within ${clear.d.toFixed(2)} blocks of itself at arc ${clear.at.toFixed(1)} (needs ${C.CLEARANCE_B})` });
   return issues;

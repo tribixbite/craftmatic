@@ -164,7 +164,7 @@ describe.skipIf(!HAVE_LIBRARY)('coaster-generated-route (library)', () => {
 });
 
 describe.skipIf(!HAVE_LIBRARY)('coaster-generated-route (simulator)', () => {
-  it('a pack built from the 3x sketch places in the simulator and a car completes the full 1,872-block circuit', async () => {
+  it('a pack built from the 3x sketch places in the simulator and a car completes the full circuit', async () => {
     setLDrawRoot(LDRAW_ROOT);
     const { buildGeneratedCoasterPack } = await import('../web/src/engine/coaster-design-pack');
     const { scenarios } = await import('../scripts/_coaster_generated_scenarios');

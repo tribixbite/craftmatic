@@ -97,7 +97,7 @@ describe('coaster-design', () => {
 
   it('a corkscrew and a zero-g roll are one inversion each', () => {
     const gen = generateCoaster(design([{ kind: 'station', lengthB: 10 }, { kind: 'launch', lengthB: 100, toSpeedBps: 52 },
-      { kind: 'zero-g-roll', lengthB: 30 }, { kind: 'launch', lengthB: 60, toSpeedBps: 52 }, { kind: 'corkscrew', lengthB: 36, hand: 'R' },
+      { kind: 'zero-g-roll', lengthB: 100 }, { kind: 'launch', lengthB: 60, toSpeedBps: 52 }, { kind: 'corkscrew', lengthB: 36, hand: 'R' },
       { kind: 'block-brake', lengthB: 90, toSpeedBps: 4 }]));
     expect(gen.spans.filter(s => s.inversions === 1).map(s => s.kind)).toEqual(['zero-g-roll', 'corkscrew']);
     expect(Math.abs(gen.spans.find(s => s.kind === 'zero-g-roll')!.minG)).toBeLessThan(0.05); // ballistic crest: weightless

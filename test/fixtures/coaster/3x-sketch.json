@@ -1,5 +1,5 @@
 {
-  "name": "3x-sketch (numbers only; genre layout of plan A section 5.1)",
+  "name": "3x-sketch (numbers only; genre layout of plan A section 5.1; rolls lengthened and a launch before the first so the car frame turns under 28 degrees per tick, C04)",
   "heartlineB": 0.8,
   "trains": 2,
   "carsPerTrain": 6,
@@ -43,8 +43,13 @@
       "radiusB": 14
     },
     {
+      "kind": "launch",
+      "lengthB": 28,
+      "toSpeedBps": 52
+    },
+    {
       "kind": "zero-g-roll",
-      "lengthB": 30
+      "lengthB": 100
     },
     {
       "kind": "turn",
@@ -59,7 +64,7 @@
     },
     {
       "kind": "corkscrew",
-      "lengthB": 36,
+      "lengthB": 70,
       "hand": "L"
     },
     {
@@ -69,7 +74,7 @@
     },
     {
       "kind": "corkscrew",
-      "lengthB": 36,
+      "lengthB": 70,
       "hand": "R"
     },
     {
@@ -85,7 +90,7 @@
     },
     {
       "kind": "zero-g-roll",
-      "lengthB": 30
+      "lengthB": 100
     },
     {
       "kind": "turn",
@@ -142,8 +147,8 @@
     },
     {
       "kind": "cloud",
-      "fromElement": 19,
-      "toElement": 20
+      "fromElement": 20,
+      "toElement": 21
     }
   ],
   "shows": []

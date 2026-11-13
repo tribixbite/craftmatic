@@ -139,6 +139,7 @@ import { FLIGHT_INPUT_EVENT } from './bedrock-vehicle.js';
 import { HOP_TAGS } from './bedrock-ride-hop.js';
 import { FLYER } from './bedrock-flyer.js';
 import { CAMERA_OWNER_TAG, CAMERA_SWEEP_TICKS, releaseOrphanCameras } from './camera-release.js';
+import { COASTER_ZONES, coasterBlockStop, coasterZoneSpeed, planCoasterZones, type CoasterZonePlan, type CoasterZoneMemo } from './coaster-zones.js';
 
 declare const world: any;
 declare const system: any;
@@ -271,8 +272,17 @@ export interface CoasterRoute {
    * Absent: inferred, as before (every route of a source model).
    */
   ups?: CoasterVec3[];
-  /** A generated route's zones by arc distance (lift, launch, brake, dark...), carried into the runtime config; only the chain lift acts on them today (TODO(C04): launch, brakes, dispatcher). */
+  /**
+   * A generated route's zones by arc distance (lift, launch, brake, dark...), carried into the runtime config. The
+   * speed zones (launch, cable lift and drives, block brake, trim) and the block sections act on the ride
+   * (`coaster-zones.ts`); the rest (tunnel, dark, cloud) are the show's (C05).
+   */
   zones?: CoasterRouteZone[];
+  /**
+   * This route's own speed ceiling, world blocks/s, replacing `COASTER_PHYSICS.MAX_SPEED` (a generated route's
+   * design limit, bounded by `COASTER_ZONES.SPEED_CAP_BPS`). Absent: the global ceiling, as every source route.
+   */
+  maxSpeedBps?: number;
   /** A generated route's platform, from its design's station zone (arc span and stopping arc, blocks); absent: measured (`findCoasterStation`). */
   station?: { start: number; end: number; stop: number };
 }
@@ -360,6 +370,10 @@ export interface CoasterRuntimeRoute {
   physics?: RidePhysics;
   /** A generated route's zones, as designed (WP-C02). Absent on every route of a source model. */
   zones?: CoasterRouteZone[];
+  /** What the zones do to the ride (`planCoasterZones`): speed rules and block sections. Absent without zones. */
+  zonePlan?: CoasterZonePlan;
+  /** The route's own speed ceiling, world blocks/s; absent: `physics.MAX_SPEED`. */
+  maxSpeed?: number;
 }
 
 /**
@@ -381,6 +395,8 @@ export interface CoasterRuntimeConfig {
    * Optional only so a hand-built config in an older test compiles; every real
    * pack gets one from `coasterRuntimeConfig`. */
   physics?: CoasterPhysics;
+  /** How far short of a gated block's entry a held train's front stops (`COASTER_ZONES.BLOCK_GAP`); present only when a route has block sections. */
+  blockGap?: number;
   /** The rider's track-following camera (see `COASTER_RIDER_VIEW`); absent = no camera, the pre-2026-09-24 behaviour. */
   camera?: CoasterRiderViewConfig;
   /**
@@ -1618,11 +1634,13 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
       ...(dispatch ? { dispatch } : {}),
       ...(lift?.kind === 'chain' ? { chain: { start: round3(Math.min(lift.arcStart, lift.arcEnd) + deckLength), end: round3(Math.max(lift.arcStart, lift.arcEnd) + deckLength) } } : {}),
       ...(runtimeLift ? { lift: runtimeLift } : {}),
-      ...(route.zones ? { zones: route.zones } : {}),
+      ...(route.zones ? { zones: route.zones, zonePlan: planCoasterZones(route.zones, path.length, { stationBrake: COASTER_PHYSICS.STATION_BRAKE }) } : {}),
+      ...(route.maxSpeedBps !== undefined ? { maxSpeed: round3(route.maxSpeedBps) } : {}),
       ...(railway ? { physics: RAIL_TRAIN_PHYSICS } : {}),
     };
   });
-  return { typeId, routes: runtimeRoutes, types, physics: COASTER_PHYSICS, camera: { ...COASTER_RIDER_VIEW }, hopTags: { train: HOP_TAGS.train, rank: HOP_TAGS.rank },
+  return { typeId, routes: runtimeRoutes, types, physics: COASTER_PHYSICS,
+    ...(runtimeRoutes.some(route => route.zonePlan?.blocks.length) ? { blockGap: COASTER_ZONES.BLOCK_GAP } : {}), camera: { ...COASTER_RIDER_VIEW }, hopTags: { train: HOP_TAGS.train, rank: HOP_TAGS.rank },
     dismountFloat: { dropBlocks: FLYER.DISMOUNT_DROP_BLOCKS, ticks: FLYER.DISMOUNT_SLOW_FALL_TICKS },
     cameraRelease: { tag: CAMERA_OWNER_TAG, hidden: HOP_TAGS.hidden, every: CAMERA_SWEEP_TICKS },
     ...(runtimeRoutes.some(route => route.physics?.DRIVER) ? { inputEvent: FLIGHT_INPUT_EVENT } : {}) };
@@ -2337,7 +2355,7 @@ function platformRouteLift(found: CoasterPlatformLift, assemblies: CoasterAssemb
 
 // Serialized with the pure sampler into the pack. No imports may be captured,
 // so every tuning constant is declared inside this function body.
-function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoasterPath, attitude: typeof coasterCarAttitude, riderView: typeof coasterRiderView, riderLook: typeof coasterRiderLook, Spline?: any, rideStep?: typeof rideSubstep, releaseOrphans?: typeof releaseOrphanCameras) {
+function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoasterPath, attitude: typeof coasterCarAttitude, riderView: typeof coasterRiderView, riderLook: typeof coasterRiderLook, Spline?: any, rideStep?: typeof rideSubstep, releaseOrphans?: typeof releaseOrphanCameras, zoneStep?: typeof coasterZoneSpeed, blockStopOf?: typeof coasterBlockStop) {
   // ── Ride physics (see the module header for the model and its units) ──
   // Every value below comes from `config.physics` (== `COASTER_PHYSICS`,
   // JSON-serialized into CONFIG by `coasterRuntimeConfig`) rather than a
@@ -2366,6 +2384,8 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   /** Declared range of the body-offset properties, model units. */
   const BODY_RANGE = PHYSICS.BODY_RANGE ?? 320;
   /** The coaster's constants as the shared ride step (`rideSubstep`) reads them. */
+  /** How far short of a gated block's entry a held train's front stops (`config.blockGap`). */
+  const BLOCK_GAP = config.blockGap ?? 0.5;
   const COASTER_RIDE: any = { GRAVITY, ROLLING, DRAG, MIN_SPEED, MAX_SPEED, LIFT_GRADE, LIFT_SPEED, LIFT_ACCEL };
   /**
    * Stick overrides from `config.inputEvent` (a GameTest drives a train this
@@ -2804,9 +2824,26 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     const smooth = (x: number) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
     const views: any[] = [];
     let track: any = null, ownYaw = NaN, ownPitch = NaN;
+    // A stretch that turns the car over by ROLLING it (a corkscrew, a zero-g roll: the nose never nears the zenith) is
+    // drawn in the nose's own chart: its yaw and pitch and the roll about the view axis, exact and continuous. The `over`
+    // chart (the right axis' heading, a pitch fitted to both axes) is the loop's: through a roll the right axis goes
+    // vertical, its heading is held and clamped, and the fitted pitch swings round to make up for it - the sim drew
+    // 41-57 degrees in one frame there where the car's frame turned 5-20 (C04, the 3x sketch's zero-g rolls and corkscrews,
+    // `camera-continuous`). A stretch whose view comes within ~18 degrees of the zenith (every loop, every steep drop
+    // that is not rolled) keeps `over`, so a coaster without a roll plans exactly as before.
+    const rolledOver = poses.some(pose => pose.up[1] < 0);
+    let rollTrack: any[] | null = null;
+    if (rolledOver) {
+      rollTrack = [];
+      let chain: any = null;
+      for (let k = 0; k <= length && rollTrack; k++) {
+        chain = riderView(poses[k].nose, poses[k].up, look, chain, 'roll', 40);
+        if (Math.abs(chain.direction[1]) > 0.95) rollTrack = null; else rollTrack.push(chain);
+      }
+    }
     for (let k = 0; k <= length; k++) {
       const pose = poses[k];
-      track = riderView(pose.nose, pose.up, look, track, 'over', 40);
+      track = rollTrack ? rollTrack[k] : riderView(pose.nose, pose.up, look, track, 'over', 40);
       const yawNow = (Number.isFinite(pose.yaw) ? pose.yaw : track.yaw - look.yaw) + look.yaw;
       ownYaw = Number.isFinite(ownYaw) ? ownYaw + wrap(yawNow - ownYaw) : track.yaw + wrap(yawNow - track.yaw);
       ownPitch = Number.isFinite(ownPitch) ? ownPitch : track.pitch + wrap(look.pitch - track.pitch);
@@ -3202,7 +3239,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       const lead = list[0];
       const riders = list.reduce((all: any[], car: any) => all.concat(car.riders), []);
       let train = trains.get(placement);
-      if (!train) trains.set(placement, train = { dwell: 0, armed: true, boarded: false, holding: false, waiting: false, seen: 0, liftDwell: 0, progress: NaN });
+      if (!train) trains.set(placement, train = { dwell: 0, armed: true, boarded: false, holding: false, waiting: false, seen: 0, liftDwell: 0, progress: NaN, zone: { launch: -1, v0sq: 0 } });
       train.seen = ticks;
       let stage = 'restore cart progress';
       try {
@@ -3233,7 +3270,12 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         let direction: 1 | -1 = route.direction === 1 || route.direction === -1 ? route.direction
           : lead.entity.getDynamicProperty(key + 'direction') === -1 ? -1 : 1;
         // A railway route is driven: its own constants, and the stick of whoever is aboard.
-        const RIDE: any = route.physics && route.physics.DRIVER ? route.physics : COASTER_RIDE;
+        // A route's own speed ceiling (a generated route's design limit) replaces the global one for this route only.
+        const RIDE: any = route.physics && route.physics.DRIVER ? route.physics : route.maxSpeed ? { ...COASTER_RIDE, MAX_SPEED: route.maxSpeed } : COASTER_RIDE;
+        const CEILING: number = route.physics && route.physics.DRIVER ? MAX_SPEED : (route.maxSpeed ?? MAX_SPEED);
+        // The zones act along a fixed ride direction of increasing arc (a generated circuit).
+        const zoneRules = route.zonePlan && route.zonePlan.rules.length && route.direction === 1 ? route.zonePlan.rules : undefined;
+        const blocks = route.zonePlan && route.zonePlan.blocks.length && route.direction === 1 ? route.zonePlan.blocks : undefined;
         const driver: any = route.physics && route.physics.DRIVER ? route.physics.DRIVER : undefined;
         const stick = driver ? stickOf(riders, list) : NaN;
         const driven = Number.isFinite(stick);
@@ -3244,7 +3286,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         // inversion with exactly the arithmetic the ride itself runs
         // (`planInversion`); every rail vehicle steps through `rideSubstep`
         // (gravity-only for a coaster, the stick for a train).
-        const integrate = (centre: number, speed: number, direction: 1 | -1): { speed: number; advanced: number; direction: 1 | -1 } => {
+        const integrate = (centre: number, speed: number, direction: 1 | -1, zoneMemo: CoasterZoneMemo = train.zone): { speed: number; advanced: number; direction: 1 | -1 } => {
           // Integrate in substeps no longer than one authored sample spacing,
           // each sampling the grade where the train actually is: the polyline
           // bounds the integration step, never the speed.
@@ -3281,6 +3323,8 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
             // motion: a nose that turned with the motion would flip the stick's sense at every reversal.
             const moved = rideStep!(speed, direction, sum / list.length, dt, { chain: chainHere, floor, push: stick * (cars.heading || 1), driven }, RIDE);
             speed = moved.speed;
+            // The route's zones (launch, cable lift and drive, brake, trim) pin or limit the speed where the train is.
+            if (zoneRules && moved.direction === 1) speed = zoneStep!(zoneRules, ((here % total) + total) % total, speed, dt, zoneMemo, LIFT_ACCEL);
             if (moved.direction !== direction) {
               // A tick that already moved one way ends at rest; the next tick
               // starts the other way, so no advance is counted in the wrong sense.
@@ -3295,7 +3339,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         // the direction of motion for the symmetric fabricated cart.
         const facing: 1 | -1 = cars.heading === 1 || cars.heading === -1 ? cars.heading : direction;
         const storedSpeed = Number(lead.entity.getDynamicProperty(key + 'speed'));
-        let speed = Number.isFinite(storedSpeed) ? Math.max(0, Math.min(MAX_SPEED, storedSpeed)) : 0;
+        let speed = Number.isFinite(storedSpeed) ? Math.max(0, Math.min(CEILING, storedSpeed)) : 0;
         // Lift state: which phase this train is in, and (shared by the
         // placement's trains) how far the platform has travelled, 0 parked to
         // 1 delivered. Both persist across script reloads.
@@ -3421,6 +3465,19 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
             if (path.closed) { ahead %= total; if (ahead < 0) ahead += total; }
             if (ahead >= 0 && (toStop < 0 || ahead < toStop)) { toStop = ahead; stopAt = dispatch.hold; stopKind = 'hold'; }
           }
+          // A block another train stands in: stop short of its entry and go on when it is clear.
+          if (blocks && place && !driver) {
+            const others: number[] = [];
+            for (const sibling of place.groups) {
+              if (sibling === placement) continue;
+              const state = trains.get(sibling), siblingGroup = groups.get(sibling);
+              if (!state || !siblingGroup) continue;
+              const arc = Number.isFinite(state.centre) ? state.centre : Number(siblingGroup.list[0]?.entity.getDynamicProperty(key + 'distance'));
+              if (Number.isFinite(arc)) others.push(arc);
+            }
+            const held = others.length && train.dwell <= 0 && !train.holding ? blockStopOf!(blocks, total, centre, extent, others, BLOCK_GAP) : null;
+            if (held && (toStop < 0 || held.toStop < toStop)) { toStop = held.toStop; stopAt = held.stopAt; stopKind = 'block'; }
+          }
           if (lift && direction === -1) {
             // The parked deck is free when the platform is down and no other
             // train is standing on it about to rise.
@@ -3464,6 +3521,8 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           }
           if (arrived === 'station') { speed = 0; train.dwell = riders.length ? DWELL_LOADED : DWELL_EMPTY; }
           else if (arrived === 'hold') { speed = 0; train.holding = true; }
+          // Held at a block gate: at rest, and the gate is re-read every tick (no state), so it goes on when clear.
+          else if (arrived === 'block') { speed = 0; }
           else if (arrived === 'deck') {
             // The deck is one platform: the train that reaches it first takes the hoist.
             if (hoist && hoist.owner !== null && hoist.owner !== placement) { speed = 0; }
@@ -3679,7 +3738,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           within: (inverted: number[], car: any, ticks: number): boolean => {
             if (!inverted.length) return false;
             const floorSpeed = route.loopRadius > 0 ? INVERSION_MARGIN * Math.sqrt(GRAVITY * route.loopRadius * scale) : 0;
-            const fastest = Math.min(MAX_SPEED, Math.max(speed, MIN_SPEED, LIFT_SPEED, floorSpeed) + GRAVITY * ticks / 20);
+            const fastest = Math.min(CEILING, Math.max(speed, MIN_SPEED, LIFT_SPEED, floorSpeed) + GRAVITY * ticks / 20);
             const margin = wheelbaseOf(car) / 2 + 1;
             const reach = fastest * ticks / 20 / scale + margin;
             const from = carArc(next, car.slot);
@@ -3730,9 +3789,11 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
             const d = nextDirection;
             const face = cars.heading === 1 || cars.heading === -1 ? cars.heading : d;
             const centres: number[] = [], poses: any[] = [];
+            // The zones' launch memo is the train's own at the start of the plan, and the plan writes its copy only.
+            const planMemo: CoasterZoneMemo = { ...train.zone };
             for (let k = 0; k < horizon; k++) {
-              const moved = integrate(c, v, d);
-              let clamped = Math.min(moved.speed, MAX_SPEED);
+              const moved = integrate(c, v, d, planMemo);
+              let clamped = Math.min(moved.speed, CEILING);
               const toStop = throughBrake ? platformAhead(c) : -1;
               if (toStop >= 0) clamped = Math.min(clamped, Math.sqrt(2 * STATION_BRAKE * toStop * scale));
               const step = moved.speed > 0 ? moved.advanced * clamped / moved.speed : clamped / (20 * scale);
@@ -3834,5 +3895,5 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
 /** Emit the same runtime exercised by the host tests. The player model stays
  * upright in the seat; the rider's CAMERA follows the car (`coasterRiderView`). */
 export function coasterScript(config: CoasterRuntimeConfig): string {
-  return `import { world, system, LinearSpline } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${coasterRuntime.toString()})(CONFIG, ${sampleCoasterPath.toString()}, ${coasterCarAttitude.toString()}, ${coasterRiderView.toString()}, ${coasterRiderLook.toString()}, typeof LinearSpline === 'undefined' ? undefined : LinearSpline, ${rideSubstep.toString()}, ${releaseOrphanCameras.toString()});\n`;
+  return `import { world, system, LinearSpline } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${coasterRuntime.toString()})(CONFIG, ${sampleCoasterPath.toString()}, ${coasterCarAttitude.toString()}, ${coasterRiderView.toString()}, ${coasterRiderLook.toString()}, typeof LinearSpline === 'undefined' ? undefined : LinearSpline, ${rideSubstep.toString()}, ${releaseOrphanCameras.toString()}, ${coasterZoneSpeed.toString()}, ${coasterBlockStop.toString()});\n`;
 }
