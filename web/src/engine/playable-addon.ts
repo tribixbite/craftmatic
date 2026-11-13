@@ -41,6 +41,9 @@ import { buildCoasterTrackPack, type TrackPackOptions } from './coaster-pack.js'
 import type { GeneratedCoaster } from './coaster-design.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
 import { RIDE, ridesScript, type RideKind, type RideRuntimeConfig } from './bedrock-rides.js';
+import { FUNFAIR } from './rides/funfair-physics.js';
+import { funfairScript, type FunfairRuntimeConfig } from './rides/funfair-runtime.js';
+import type { FunfairKind } from './rides/funfair-detect.js';
 import { HOP, HOP_TAGS, hopKitConfig, hopRuntimeConfig, hopScript, type HopSource, type HopVacate } from './bedrock-ride-hop.js';
 import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, pressFlashOverlay, ballAnimation, ballProperties, buttonPressAnimation, consoleAssets, consoleHideAnimation, pressProperties, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
@@ -147,6 +150,12 @@ export interface PlayableAddonOptions {
      * `scripts/rides.js`.
      */
     rides?: { frame: SceneGridFrame; items: Array<{ kind: RideKind; label: string; path: Array<[number, number, number]>; exits?: Array<[number, number, number]>; startStop?: number; carBricks?: ParsedBrick[] }> };
+    /**
+     * Drop towers and sky swings (rides/funfair-detect.ts), in grid coordinates: one seat per rider, each with its
+     * own path (foot, top, axis at the top) and exit, the ring compiled from its own bricks on `frame`, and
+     * `scripts/rides-funfair.js` (a module of its own, so a pack without them is unchanged).
+     */
+    funfair?: { frame: SceneGridFrame; items: Array<{ kind: FunfairKind; label: string; seats: Array<{ path: Array<[number, number, number]>; exit: [number, number, number] }>; carBricks: ParsedBrick[] }> };
     /**
      * Flyer mounts the set's canon names (set-canon.ts) and the detector found
      * (bedrock-flyer.ts `findMounts`), in grid coordinates: each becomes a
@@ -3172,9 +3181,11 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     ...(options.seats ?? []).map(q => [q.x, q.y, q.z] as const),
                     ...(options.mounts?.items ?? []).map(m => m.top),
                     ...(options.rides?.items ?? []).flatMap(r => r.exits ?? []),
+                    ...(options.funfair?.items ?? []).flatMap(r => r.seats.map(q => q.exit)),
                 ],
                 paths: [
                     ...(options.rides?.items ?? []).map(r => r.path),
+                    ...(options.funfair?.items ?? []).flatMap(r => r.seats.map(q => q.path)),
                     ...(options.coasterRoutes ?? []).map(r => r.points),
                     ...(options.mounts?.items ?? []).map(m => m.path),
                 ],
@@ -3927,6 +3938,53 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ridesConfig = { seatType: rideSeatType, rides: rideList, constants: RIDE, hop: hopKitConfig(PACK_NAMESPACE), ...(flags.compactColliderStates ? { colliderStates: { lo: colliderStates.lo, hi: colliderStates.hi } } : {}) };
         if (options.rides?.items.length) warnings.push(`${label}: rides - ${rideList.filter(r => r.kind === 'slide').length} slide(s) and ${rideList.filter(r => r.kind === 'lift').length} lift(s); sit on one to ride it.`);
     }
+    // Drop towers and sky swings (rides/funfair-runtime.ts): one invisible seat per rider carrying its own path, the
+    // ring as its own entity of its exact bricks (a tap on it boards the nearest free seat), and scripts/rides-funfair.js.
+    let funfairConfig: FunfairRuntimeConfig | undefined;
+    if (options.funfair?.items.length) {
+        const funSeatId = entityId(`${id}_funfair`, 'f');
+        const funSeatType = `${PACK_NAMESPACE}:${funSeatId}`;
+        files.push(
+            { name: `${bp}entities/${funSeatId}.json`, data: json(rideSeatBehavior(funSeatId)) },
+            { name: `${rp}entity/${funSeatId}.entity.json`, data: json(seatClient(funSeatId)) },
+        );
+        // The seat's shared geometry and texture are written once: by the ride block above, or here.
+        if (!(manualSeatId || seatList.length) && !ridesConfig) files.push(
+            { name: `${rp}models/entity/craftmatic_seat.geo.json`, data: geoJson(SEAT_GEOMETRY) },
+            { name: `${rp}textures/entity/craftmatic_seat.png`, data: transparentPng() },
+        );
+        addEntityName(funSeatType, `${label} Ride`, true);
+        const funList: FunfairRuntimeConfig['rides'] = [];
+        for (const [i, r] of options.funfair.items.entries()) {
+            let carType: string | undefined;
+            const carId = entityId(`${id}_funfair_ring_${i + 1}`, 'g');
+            try {
+                options.onProgress?.(`compiling ${label} ${r.label.toLowerCase()} ring`, 78);
+                // The ring's origin is the ring's own (a swing turns it about that point: its ring is centred on the mast axis).
+                const geo = await compileStaticProp(carId, r.carBricks);
+                recordCompiled(carId, geo, false);
+                carType = `${PACK_NAMESPACE}:${carId}`;
+                const carBox = { width: Math.round(Math.min(3.5, Math.max(0.5, Math.min(geo.sizeBlocks.width, geo.sizeBlocks.length))) * 100) / 100, height: Math.round(Math.min(3.5, Math.max(0.3, geo.sizeBlocks.height)) * 100) / 100 };
+                emitCompiledEntity(carId, geo, pinballPropBehavior(carType, carBox));
+                addEntityName(carType, `${label} ${r.label.toLowerCase()} ring`, false);
+                const at = sceneGridPoint(options.funfair.frame, geo.originLdu);
+                actors.push({ typeId: carType, label: `${label} ${r.label.toLowerCase()} ring`, x: at[0], y: at[1] + geo.originLiftBlocks, z: at[2], yaw: 0, ride: i });
+                extraComponents.push({ id: carId, label: `${label} ${r.label.toLowerCase()} ring`, kind: 'prop', provenance: `the ring of the ${r.label.toLowerCase()}: ${r.carBricks.length} source placements carrying ${r.seats.length} seats` });
+            } catch (e) {
+                carType = undefined;
+                warnings.push(`${label}: the ${r.label.toLowerCase()} ring could not be compiled (${e instanceof Error ? e.message : String(e)}); the seats ride alone.`);
+            }
+            funList.push({ kind: r.kind, ...(carType ? { carType } : {}) });
+            for (const [k, q] of r.seats.entries()) {
+                const seatLabel = `${label} ${r.label.toLowerCase()} seat ${k + 1}`;
+                const start = q.path[0]!;
+                actors.push({ typeId: funSeatType, label: seatLabel, x: start[0], y: start[1], z: start[2], yaw: 0, ride: i, ridePath: q.path, rideExits: [q.exit] });
+                extraComponents.push({ id: `${funSeatId}_${i + 1}_${k + 1}`, label: seatLabel, kind: 'seat', provenance: `${r.label.toLowerCase()}: tap the seat or the ring to board; it departs a few seconds after the first rider sits` });
+            }
+        }
+        funfairConfig = { seatType: funSeatType, rides: funList, constants: FUNFAIR, ...(flags.compactColliderStates ? { colliderStates: { lo: colliderStates.lo, hi: colliderStates.hi } } : {}) };
+        warnings.push(`${label}: funfair rides - ${funList.filter(r => r.kind === 'drop').length} drop tower(s) and ${funList.filter(r => r.kind === 'swing').length} sky swing(s); tap a seat to board.`);
+    }
     // scripts/flyer.js (bedrock-flyer.ts): a tap on a mount's figure, cloud or seat summons the player's own cloud; empty ones fade.
     const flyerConfig: FlyerRuntimeConfig | undefined = flyerMounts.length ? {
         mounts: flyerMounts,
@@ -4139,6 +4197,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     })) });
     if (interactiveConfig) files.push({ name: `${bp}scripts/interactives.js`, data: text(interactivesScript(interactiveConfig)) });
     if (ridesConfig) files.push({ name: `${bp}scripts/rides.js`, data: text(ridesScript(ridesConfig)) });
+    if (funfairConfig) files.push({ name: `${bp}scripts/rides-funfair.js`, data: text(funfairScript(funfairConfig)) });
     // Figure life (bedrock-figure-life.ts): where every figure NPC walks, pauses and sits.
     const figureTypes = Object.keys(figureBodies);
     const scenerySeatTypes = [...new Set(actors.filter(a => /_seat$/.test(a.typeId)).map(a => a.typeId))];
@@ -4189,6 +4248,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(pinballConfig ? ["import './pinball.js';"] : []),
         ...(interactiveConfig ? ["import './interactives.js';"] : []),
         ...(ridesConfig ? ["import './rides.js';"] : []),
+        ...(funfairConfig ? ["import './rides-funfair.js';"] : []),
         ...(flyerConfig ? ["import './flyer.js';"] : []),
         ...(hasHop ? ["import './hop.js';"] : []),
         ...(figureTypes.length || scenerySeatTypes.length ? ["import './figures.js';"] : []),

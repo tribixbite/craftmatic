@@ -950,6 +950,53 @@ wand factor like the other rides. Tests: `test/bedrock-flyer.test.ts` (the
 path's radius, band, sense and closure; the runtime on the headless simulator: the
 lap, the car offset, the re-seat).
 
+### 4.7b Funfair rides: the drop tower and the sky swing — `web/src/engine/rides/`
+
+Two rides with a rider on a seat of their own (BIZ-20, 2026-11-12), found from the geometry
+(`funfair-detect.ts`: a mast of `Support`/`Pillar`/`Column` parts at least `FUNFAIR_DETECT.TOWER_MIN_LDU` tall
+and a ring of 2-24 seats round it at one height; hanging swing seats make a swing, any other seat a drop tower;
+the car is the seats and what touches them within `CAR_REACH_LDU` of the ring) and carried by
+`rides-funfair.js`. The slide/lift/orbit runtime (§4.7) is the same mechanism - an invisible rideable seat
+carried by `tryTeleport` along points the placement wrote in WORLD coordinates (`PlacementActor.ridePath`: foot,
+top, mast axis at the top, one path per seat), a tap (`entityHitEntity`) that boards, a set-down through
+`colliderBodyProbe` - with a speed that is a function of TIME. It is a module of its own ONLY because
+`rides.js` is frozen by the pack contract (10788 stays byte-identical, measured 2026-11-12: only the stamp, the
+build time and the timings differ); `TODO(rides-merge)` folds the two loops when `rides.js` next changes on purpose.
+
+Units: blocks and seconds; one block is one metre, so `FUNFAIR.GRAVITY` is 9.81. Every LENGTH, speed and
+acceleration multiplies by the wand factor `f` and no time and no angular speed does, so a ride takes the same
+seconds at every wand size and a rider feels the same g (at 300 % the drop falls at 108 blocks/s: unmeasured on a
+device, `TODO(funfair-speed)`; the coaster was measured at 35-45 blocks/s).
+
+- **Drop tower** (`funfairKit(...).drop`): a trapezoid lift (`DROP_LIFT_SPEED`, `DROP_LIFT_ACCEL`), a hold
+  (`DROP_HOLD_S`), a fall at `DROP_FALL_FRACTION` x g, then a MAGNETIC BRAKE of constant deceleration
+  `DROP_BRAKE_G` x g over the last `L = H a / (a + b)` blocks (`a` the fall, `b` the brake deceleration), which
+  stops the car exactly at the foot: the rider's peak load is 1 + `DROP_BRAKE_G` g and the load in the fall 0.1 g. A
+  100-block tower brakes over its last 23 blocks from 37 blocks/s.
+- **Sky swing** (`.swing`): a trapezoid lift, a smoothstep spin-up over `SWING_SPINUP_S` (zero angular acceleration at
+  both ends), a hold stretched to a WHOLE number of revolutions (the chairs and the ring end where they started: the
+  first runtime snapped the seats back from a quarter turn), a spin-down, a lower. Each chair hangs on a chain
+  `max(SWING_CHAIN_MIN f, SWING_CHAIN_PER_RADIUS r0)` long and balances at `tan(tilt) = omega^2 R / g`,
+  `R = r0 + L sin(tilt)`. The LATERAL G LIMIT `SWING_LATERAL_G` fixes `omega_max` (`omega^2 R = limit x g`, tilt
+  `atan(limit)`); the tangential acceleration of the spin-up adds in quadrature and the simulator measures the
+  combined peak at 1.014 g against the 1.0 limit (sampling at the tick).
+- **Multi-seat.** Seats of one ride with the same axis (`GROUP_AXIS_TOL_BLOCKS`) are one group: they depart together
+  (`BOARD_S` after the first rider sits, `BOARD_FULL_S` once every seat is taken; nobody left aboard cancels), each
+  at its own position on its own path from the one clock; the ring (`carType`) rises with them and a swing's turns
+  with the ring. A rider who steps off mid-trip is put back every `KEEP_ABOARD_TICKS`. Two towers closer than a
+  ring's diameter plus `GROUP_AXIS_TOL_BLOCKS` would still be separate groups: the axis, not the distance, is the key.
+- **Camera.** The rider's own first person; no script camera (the `native` design: a camera the server sets every
+  tick jerks against the client-interpolated seat). The simulator's `funfair-own-view` fails if one is set.
+- **Open.** A swing's chairs are part of the rigid ring, so a rider swings out past their drawn chair
+  (`TODO(swing-chairs)`: per-chair entities need a pitch animation about the tangent); the sim does not model the
+  device's draw lag on a seat moving 37 blocks/s.
+
+Tests: `test/funfair-physics.test.ts` (the profiles: phases, g, brake, lateral limit, revolutions, every wand size),
+`test/funfair-detect.test.ts`, `test/funfair-runtime.test.ts` (the serialised runtime on the headless simulator:
+every seat on its path, tap boarding, set-down), `test/funfair-fixture.test.ts` (the two fixtures through the
+pipeline, with the library and seeded as boxes); the simulator's `funfair-<size>` scenarios and `rideFunfair` step
+(`funfair-seats-on-paths`, `funfair-rider-aboard`, `funfair-g-limit`, `funfair-own-view`).
+
 ### 4.8 Hop: fly or drive into another mount — `web/src/engine/bedrock-ride-hop.ts`
 
 The user's words (2026-09-30): fly or drive into another mountable - a
@@ -1071,6 +1118,7 @@ Each device runtime is a function turned into the pack's script text with
 | vehicle scripts | `playable-addon.ts` | `vehicleDriverRuntime`, `vehicleCameraRuntime` (with `freeLookStep`, `freeLookStart`, `cockpitCamera`), `timeMachineRuntime` |
 | `BP/scripts/vehicles.js` | `scriptedVehicleScript` | `scriptedVehicleRuntime`, `carStep`, `flightStep`, `boatStep`, `sweepFootprint`, `resolveMove`, `isNightTime`, `headlightCell`, `vehicleEgress`, `colliderBodyProbe` (with `colliderFormKit`) |
 | `BP/scripts/rides.js` | `ridesScript` | `ridesRuntime` (module-private; slides, lifts and orbits) |
+| `BP/scripts/rides-funfair.js` | `funfairScript` | `funfairRuntime` (module-private; drop towers and sky swings), `funfairKit` (the profiles, also serialised) and the collider body probe |
 | `BP/scripts/flyer.js` | `flyerScript` | `flyerRuntime` (module-private; summons and fades the player's clouds, floats a rider who leaves one in the air) |
 | `BP/scripts/hop.js` | `hopScript` | `hopRuntime` (module-private), `hopKit`, `hopContact`; `rides.js` also carries `hopKit` (a slide's set-down) |
 
@@ -1491,6 +1539,29 @@ literal inside a function body (`§` marks the number).
 | `COASTER_DESIGN.BLOCK_BRAKE_DECEL` | `web/src/engine/coaster-design.ts` | 14 | blocks/s² | Twice the station brake (`COASTER_PHYSICS.STATION_BRAKE`, 7). |
 | `COASTER_DESIGN.RETURN_DRIVE_BPS` | `web/src/engine/coaster-design.ts` | 10 | blocks/s | The generated return is a powered transfer at this speed. |
 | `COASTER_DESIGN.CLEARANCE_B` | `web/src/engine/coaster-design.ts` | 1.2 | blocks | Two rail samples closer than this, far apart along the track, are a collision. |
+| `FUNFAIR.GRAVITY` | `web/src/engine/rides/funfair-physics.ts` | 9.81 | blocks/s^2 at 100 % | One block is one metre (the player is 1.8 blocks tall), so the real g. |
+| `FUNFAIR.DROP_FALL_FRACTION` | `web/src/engine/rides/funfair-physics.ts` | 0.9 | - | Rail friction and air drag: a near free fall, the rider feels 0.1 g. |
+| `FUNFAIR.DROP_BRAKE_G` | `web/src/engine/rides/funfair-physics.ts` | 3 | g | The magnetic brake decelerates at 3 g, so the rider peak load is 4 g, a roller coaster limit; it sets the brake length (23 percent of the tower). |
+| `FUNFAIR.DROP_LIFT_SPEED` | `web/src/engine/rides/funfair-physics.ts` | 4 | blocks/s at 100 % | Slow enough to look down: a 100-block tower takes about 28 s to climb. |
+| `FUNFAIR.DROP_LIFT_ACCEL` | `web/src/engine/rides/funfair-physics.ts` | 1.5 | blocks/s^2 at 100 % | Start and stop of the lift: 0.15 g. |
+| `FUNFAIR.DROP_HOLD_S` | `web/src/engine/rides/funfair-physics.ts` | 3 | s | The car hangs at the top: the view. |
+| `FUNFAIR.REST_S` | `web/src/engine/rides/funfair-physics.ts` | 2 | s | The car rests at the foot before the riders are set down. |
+| `FUNFAIR.SWING_LIFT_SPEED` | `web/src/engine/rides/funfair-physics.ts` | 4 | blocks/s at 100 % | The swing lift, as the drop. |
+| `FUNFAIR.SWING_LIFT_ACCEL` | `web/src/engine/rides/funfair-physics.ts` | 1.5 | blocks/s^2 at 100 % | Start and stop of the swing lift: 0.15 g. |
+| `FUNFAIR.SWING_LATERAL_G` | `web/src/engine/rides/funfair-physics.ts` | 1 | g | The most horizontal acceleration a seat feels: a chain at 45 degrees, 1.41 g in all. |
+| `FUNFAIR.SWING_SPINUP_S` | `web/src/engine/rides/funfair-physics.ts` | 10 | s | A long smoothstep spin-up, so the tangential acceleration stays under 0.2 g and adds little to the lateral limit. |
+| `FUNFAIR.SWING_FULL_S` | `web/src/engine/rides/funfair-physics.ts` | 12 | s | The least time at full speed with the chairs out (stretched to a whole number of revolutions). |
+| `FUNFAIR.SWING_CHAIN_PER_RADIUS` | `web/src/engine/rides/funfair-physics.ts` | 0.9 | - | A chair chain as a fraction of the ring radius: out by 0.64 of it at 45 degrees. |
+| `FUNFAIR.SWING_CHAIN_MIN` | `web/src/engine/rides/funfair-physics.ts` | 2 | blocks at 100 % | A chain is never shorter, so a small ring still swings out. |
+| `FUNFAIR.BOARD_S` | `web/src/engine/rides/funfair-physics.ts` | 6 | s | The wait for more riders after the first one sits. |
+| `FUNFAIR.BOARD_FULL_S` | `web/src/engine/rides/funfair-physics.ts` | 1.5 | s | The wait once every seat is taken. |
+| `FUNFAIR.SETDOWN_LIFT_BLOCKS` | `web/src/engine/rides/funfair-physics.ts` | 0.05 | blocks | The slide set-down lift (`RIDE.SETDOWN_LIFT_BLOCKS`), the same body probe. |
+| `FUNFAIR.SETDOWN_REACH_BLOCKS` | `web/src/engine/rides/funfair-physics.ts` | 2 | blocks at 100 % | The slide set-down reach (`RIDE.SETDOWN_REACH_BLOCKS`). |
+| `FUNFAIR.SETDOWN_DROP_BLOCKS` | `web/src/engine/rides/funfair-physics.ts` | 3 | blocks | The most a player falls unhurt (`RIDE.SETDOWN_DROP_BLOCKS`). |
+| `FUNFAIR.GROUP_AXIS_TOL_BLOCKS` | `web/src/engine/rides/funfair-physics.ts` | 0.5 | blocks at 100 % | Seats whose paths share a mast axis within this are one group. |
+| `FUNFAIR.KEEP_ABOARD_TICKS` | `web/src/engine/rides/funfair-physics.ts` | 5 | ticks | How often a rider is checked to be on their seat during a trip. |
+| `FUNFAIR.POLL_TICKS` | `web/src/engine/rides/funfair-physics.ts` | 4 | ticks | How often idle seats are polled for a rider (a tap boards at once): the cost of the runtime when no ride is running. |
+| `FUNFAIR.HOME_TICKS` | `web/src/engine/rides/funfair-physics.ts` | 100 | ticks | How often idle seats and rings left off their foot (a reload mid-ride) are sent home. |
 <!-- /physics-spec:constants -->
 
 ## 10. Measured facts
@@ -1935,6 +2006,29 @@ one of these files fails the check until its row is written.
 | `slidePathLdu`, `findSlides` | function | Host only: a slide's running line from its top surface's BED (rim cells dropped). |
 | `findLifts` | function | Host only: an elevator platform in its column of frames/guides, the stand point on it and a stop per room floor it can reach, with a step-off point on each floor. |
 | `ridesScript` | function | SERIALISED. `BP/scripts/rides.js`: the per-tick runtime (`ridesRuntime`) that carries a seated player along a slide or lift, and a figure round an orbit, with its collider body probe. Its tests run this text on the headless simulator. |
+<!-- /physics-spec:exports -->
+
+<!-- physics-spec:exports web/src/engine/rides/funfair-physics.ts -->
+| Export | Kind | Role |
+|---|---|---|
+| `FUNFAIR` | const | Every funfair number: gravity, the drop's fall and brake, the lifts, the swing's lateral g limit and spin, boarding, the set-down and the polling (§4.7b, §9). |
+| `FunfairConstants`, `FunfairPhase`, `TripState`, `Trip`, `FunfairKit` | type, interface | The constants' type, a trip's phases, a seat's state at a time, a trip and the kit that builds them. |
+| `funfairKit` | function | SERIALISED (into `rides-funfair.js`, so it names only its argument): the drop's and the swing's profiles as pure functions of time. |
+<!-- /physics-spec:exports -->
+
+<!-- physics-spec:exports web/src/engine/rides/funfair-detect.ts -->
+| Export | Kind | Role |
+|---|---|---|
+| `FUNFAIR_DETECT` | const | The detector's thresholds (LDU): mast height and gap, the ring's radius band, level and seat count, the car's reach, the top clearance (§4.7b). |
+| `FunfairKind`, `FunfairSeatPath`, `SceneFunfairRide` | type, interface | A ride's kind, a seat's path (foot, top, axis) and exit, and a found ride with its ring bricks. |
+| `findFunfairRides` | function | Host only: a mast with a ring of seats, the kind from the seats, one path per seat. |
+<!-- /physics-spec:exports -->
+
+<!-- physics-spec:exports web/src/engine/rides/funfair-runtime.ts -->
+| Export | Kind | Role |
+|---|---|---|
+| `FunfairRideKind`, `FunfairRuntimeConfig` | type, interface | A ride's kind and the runtime's config (seat type, rides, constants, the set-down's collider states and escape). |
+| `funfairScript` | function | SERIALISED. `BP/scripts/rides-funfair.js`: the per-tick runtime (`funfairRuntime`) with the profile kit and the collider body probe. Its tests run this text on the headless simulator. |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/bedrock-flyer.ts -->

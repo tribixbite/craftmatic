@@ -222,6 +222,9 @@ export function outOfReachByModel(ctx: StepContext, part: SimEntity, statics: re
     : `no floor the model draws puts the eye within reach of it (${floors} floors searched round it)`;
 }
 
+/** The Overworld build height the wand allows, blocks (-64..319). */
+const WORLD_HEIGHT_BLOCKS = 384;
+
 /** What child play builds: `quick` (short drives and lives), `shots` (pictures), `sizes` (the wand sizes placed; default 100 and 150). */
 export interface ChildPlayOptions { quick?: boolean; shots?: boolean; sizes?: readonly number[] }
 
@@ -250,6 +253,7 @@ export function childPlayScenarios(pack: CraftmaticPack, options: ChildPlayOptio
     if (r.kind === 'slide') play.push({ kind: 'rideSlide', index: r.index, board: 'tap' });
     if (r.kind === 'lift') play.push({ kind: 'rideLift', index: r.index, trips: 3 });
   }
+  for (const r of pack.funfair?.rides ?? []) play.push({ kind: 'rideFunfair', index: r.index, riders: 2 });
   // A flyer's cloud is a vehicle type too, but none is placed: it is SUMMONED by a tap, and `flyMount` flies it.
   const summoned = new Set(pack.flyers.map(f => f.cloudType));
   for (const t of pack.vehicleTypes) if (!summoned.has(t)) play.push({ kind: 'driveVehicle', type: t, ticks: options.quick ? 200 : 600 });
@@ -258,6 +262,15 @@ export function childPlayScenarios(pack: CraftmaticPack, options: ChildPlayOptio
   if (options.shots) play.push({ kind: 'snapshot', name: 'figures-lived' });
   play.push({ kind: 'visitSeatedFigures' }, { kind: 'undo' });
   out.push({ name: 'play-100-0', description: 'Ride every ride by a tap, drive every vehicle 30 s, fly the mount, let the figures live 5 minutes, visit the seated ones, Undo.', steps: play, ...common });
+  // A drop tower or sky swing at every wand size placed, with two riders each on a seat of their own (BIZ-20: every
+  // length of the ride scales with the size and no time does).
+  if (pack.funfair?.rides.length) {
+    for (const [size, rot] of variants) {
+      // The wand refuses a build taller than the world (384 blocks, -64..319): a tower of 100 blocks has no 400 percent.
+      if (rot !== 0 || pack.placement.height * size / 100 > WORLD_HEIGHT_BLOCKS) continue;
+      out.push({ name: `funfair-${size}`, description: `Place at ${size} percent; ride every drop tower and sky swing with two riders by a tap; Undo.`, steps: [{ kind: 'place', size, rotation: 0 }, { kind: 'wait', ticks: 40 }, ...pack.funfair.rides.map(r => ({ kind: 'rideFunfair', index: r.index, riders: 2 }) as Step), { kind: 'undo' }], ...common });
+    }
+  }
   // Every rideable's seat at every wand step (25-400 %), from the JSON: the fault grows with the size
   // (76286's rider was inside the hull's envelope at 150 % and six blocks over it at 200 %, Saga 30k),
   // so the sizes a scenario places at cannot stand for the rest.

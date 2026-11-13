@@ -36,6 +36,7 @@
  *          [--geo-from=<older.mcaddon>]   draw that pack's geometry under this pack's controllers
  *                                          (an older pack with the same ids higher in the world's stack)
  *          [--uvfloor=v] [--hatch] [--lod] [--views=N] [--walk-away=a..b[:step]]
+ *          [--lift=<typeId regex>:<dy>[:<yawDeg>]]   carry matching actors up dy blocks (and turn them): a ride's pose (BIZ-20)
  *   `--size=` is the WAND size in percent (100); `--image=WxH` the picture (a bare `WxH` in --size is
  *   taken as the image too, as before).
  */
@@ -85,6 +86,17 @@ const model = buildAddonPreviewModel(files);
 if (!model.appearance) throw new Error('pack has no appearance');
 /** Every actor placed at the wand size (shared with the media renderer: web/src/release/media-framing.ts). */
 const placedActors = placeActors(model, files, sizePct, { ...(kinds ? { kinds } : {}), ...(typeFilter ? { typeFilter } : {}) });
+
+// `--lift=<typeId regex>:<dy>[:<yawDeg>]`: carry the matching actors dy blocks up (and turn them), the pose a ride puts them in
+// (a drop tower's ring at the top of its mast, a swing's canopy at full height); repeatable.
+for (const spec of args.filter(a => a.startsWith('--lift=')).map(a => a.slice('--lift='.length))) {
+  const [pattern, dy, yaw] = spec.split(':');
+  const re = new RegExp(pattern!);
+  for (const p of placedActors) {
+    if (!re.test(p.actor.typeId)) continue;
+    p.actor = { ...p.actor, at: { ...p.actor.at, y: p.actor.at.y + Number(dy ?? 0) }, ...(yaw !== undefined ? { yawDeg: p.actor.yawDeg + Number(yaw) } : {}) };
+  }
+}
 
 // Face atlases, decoded once.
 const atlases = await decodeFaceAtlases(model.faceTextures);
