@@ -130,8 +130,10 @@ function renderPlan(plan: BrickPlan, view: View, maxPx: number, region?: number[
 }
 
 const FIXTURES = path.resolve(import.meta.dirname, '../test/fixtures/osm');
-const overpass = JSON.parse(readFileSync(path.join(FIXTURES, `${siteName}.overpass.json`), 'utf8'));
-// `--building=parts`: use the `building:part` ways only (no outline). An outline as tall as its parts hides them in massing.
+// `--fixture=<file>` reads an Overpass response from anywhere (the private designs repo's landmarks, L00);
+// `--building=<type/id>` names the outline element, and `--building=parts` keeps only the `building:part` ways (no
+// outline: an outline as tall as its parts hides them in massing, SPIRE). `--maxpx` bounds each PNG's longest side.
+const overpass = JSON.parse(readFileSync(flag('fixture', path.join(FIXTURES, `${siteName}.overpass.json`)), 'utf8'));
 if (flag('building', '') === 'parts') overpass.elements = overpass.elements.filter((e: { tags?: Record<string, string> }) => e.tags?.['building:part'] !== undefined);
 const buildingFlag = flag('building', siteName === 'notre-dame' ? 'way/201611261' : '');
 const buildingId = buildingFlag && buildingFlag !== 'parts' ? buildingFlag : undefined;
@@ -162,7 +164,7 @@ for (const e of brick.plan.elements) hist[e.part] = (hist[e.part] ?? 0) + 1;
 mkdirSync(path.dirname(outBase), { recursive: true });
 for (const v of flag('views', 'se,nw').split(',') as View[]) {
   const regionArg = flag('region', '');
-  const r = renderPlan(brick.plan, v, 1900, regionArg ? regionArg.split(',').map(Number) : undefined);
+  const r = renderPlan(brick.plan, v, Number(flag('maxpx', '1900')), regionArg ? regionArg.split(',').map(Number) : undefined);
   writeFileSync(`${outBase}-${v}.png`, r.png);
   console.log(`${outBase}-${v}.png ${r.w}x${r.h}`);
 }
