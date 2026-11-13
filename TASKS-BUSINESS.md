@@ -145,13 +145,35 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
     C02 pack contract for 76417/42703 RUNNING: `output/c02-coaster-compare.sh` (worktrees `cmp-prec02` at 90aed2e2,
     `cmp-postc02` at 370aa7cd) into `output/c02-compare/{before,after}`; compare with the zip diff (only stamp files
     may differ).
-  - WAVE 5 IN FLIGHT 2026-11-12 (8 agents): F01c (Fable), L00, T02-fix, SV, RIDE, SPIRE, C04, MCT. The Pixel round
-    (approved) runs after T02-fix merges, on packs built from that commit.
-  - WAVE 5 (brief `docs/plans/wave5-brief.md`): F01c humanoid alien figure (teal/purple, distinct proportions; rex/
-    rivet/pip stay as extras), T02-fix, SV (seat planner on shipped cubes, then re-render the side-rule screenshots),
-    RIDE (drop tower + sky swing), SPIRE (tapering spires), C04 (launches/brakes/trims), L00 (OSM inputs for the 22
-    landmarks into the private repo), MCT (validator start-up crash), the Pixel round (approved), then the water-slide
-    tower, the stunt arena and the sampler's car, kits and small landmark.
+  - WAVE 5 MERGED 2026-11-13 (suite running at merge time; push after green): T02-fix, SV (+ side rule, the user's
+    choice), RIDE, C04, MCT, SPIRE, L00. C02 contract finished: 76417/42703 identical but the stamp
+    (`output/c02-compare/`). Private repo `craftmatic-designs` main has the 22 landmarks' inputs (pushed, private).
+    Results and open items:
+    - T02-fix: marketplace scenario clean on nimbus (0/7) and batcave except driver-sees-ahead; regressions 36 OK, 2
+      known-unreproduced, 0 failed. Left: Guide page 2 "Pack made with craftmatic.click" flagged by the lint.
+    - SV: 8153 out of the body; seeing out 54 -> 58 of 62 with the side rule; 43114, 44014, 4997, 60266 have no spot
+      clear to both sides. `--scenario=regressions` not run by SV.
+    - RIDE: drop tower (97.5-block rise, 0.9 g fall, 3 g brake) + sky swing (1 g lateral), sim full cycles 25-300 %;
+      runs in its own `rides-funfair.js` (`TODO(rides-merge)`); swing chairs rigid (`TODO(swing-chairs)`); 300 %
+      drop reaches 108 blocks/s, unmeasured on a device (`TODO(funfair-speed)`).
+    - C04: launches, lifts, block brakes (two trains never share a block), trims, per-route cap 52; camera-continuous
+      cleared (roll planner + a 28 deg/tick frame-rate limit; the 3x sketch is now 2,111 blocks). Open: device speed,
+      trains frozen outside loaded chunks need the ticking-area policy (U17), `coaster-view-clear` frames in loops.
+    - MCT: Microsoft's validator runs (`tools/mct/`, react 18 pinned), no EULA asked. Real findings to act on in
+      release builds: no `pack_icon.png`, file paths > 100 chars (28 on 910004), an extra README, a terrain atlas
+      shape warning; dev packs fail the cooperative-add-on naming rules by design (the rewriter fixes them).
+    - SPIRE: staged tapers + cone tips; still stick-like at 1 stud/m (6-stud base) -> LSCALE. Cologne: the outline
+      as tall as its parts drops every part in massing (render uses `--building=parts`) -> MQ2.
+    - L00: 22 landmarks fetched and run, all 1 component; Eiffel loses 57k cells (disconnected leg volumes, only the
+      legs render), Elizabeth Tower top missing (63.5 vs 96.3 m), 4 sites are outline-only boxes (Himeji, Washington
+      Monument, Hall of Prayer, Kinderdijk), multi-building sites lose parts (Tower Bridge, Neuschwanstein); real
+      heights for Independence Hall, Neuschwanstein, Kinderdijk not recorded; St Basil's 67 vs 47.5 m unresolved.
+  - F01c REJECTED by the user (2026-11-13); branch `biz-f01c` kept, not merged. FIG3 (custom-sculpted gen-3 figure,
+    Fable) RUNNING in `.worktrees/biz-fig3`.
+  - WAVE 6 PLAN: LSCALE (landmark detail levels by size + a suggested size), MQ2 (multi-outline sites, outline-vs-parts,
+    Eiffel lattice, Elizabeth Tower top), RIDE2 (water-slide tower, stunt arena), the Pixel round (approved; packs
+    built from the pushed wave-5 commit with the release profile), release-build fixes from MCT (pack icon, path
+    length, README), sampler designs (car, door kit, seat kit, small landmark) once FIG3 is picked.
   - F01b MERGED 2026-11-09 (`biz-f01b`): rex (dinosaur), rivet (robot), pip (bobblehead kid); all pass the gate
     with attached limbs and faces; sheet `.worktrees/biz-f01b/output/f01b/candidates.jpg`; designer recommends rex.
     The user picks (U4).

@@ -46,7 +46,7 @@ function scratchRepo(product: object): string {
 function prepare(root: string, args: string[], env: Record<string, string> = {}): SpawnSyncReturns<string> {
   return spawnSync('bun', [SCRIPT, 'prepare', ...args], {
     cwd: REPO, encoding: 'utf8', timeout: 600_000,
-    env: { ...process.env, CRAFTMATIC_RELEASE_ROOT: root, ...env },
+    env: { ...process.env, CRAFTMATIC_RELEASE_ROOT: root, CRAFTMATIC_RELEASE_MCT: 'skip-for-test', ...env },
   });
 }
 
@@ -56,7 +56,9 @@ function prepare(root: string, args: string[], env: Record<string, string> = {})
  */
 function prepareAsync(root: string, args: string[], env: Record<string, string> = {}): Promise<SpawnSyncReturns<string>> {
   return new Promise(done => {
-    const child = spawn('bun', [SCRIPT, 'prepare', ...args], { cwd: REPO, env: { ...process.env, CRAFTMATIC_RELEASE_ROOT: root, ...env } });
+    // Test runs never start Microsoft's validator (it is slow and has its own tests, release-mctools.test.ts); the
+    // release command records it as not-run. A test that wants it passes CRAFTMATIC_RELEASE_MCT itself.
+    const child = spawn('bun', [SCRIPT, 'prepare', ...args], { cwd: REPO, env: { ...process.env, CRAFTMATIC_RELEASE_ROOT: root, CRAFTMATIC_RELEASE_MCT: 'skip-for-test', ...env } });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', d => { stdout += String(d); });

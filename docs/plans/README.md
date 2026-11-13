@@ -503,6 +503,9 @@ Standing serial rules (never two at once): `playable-addon.ts` (X-02 -> X-17 -> 
 | U-list | Corpus hand downloads: use Chrome (the claude-in-chrome extension, the user's own sign-ins; no account creation, no passwords) where useful. |
 | Devices | All three Sagas, the Pixel, a Note 10 5G and a Seeker are test phones; NEVER the user's S25 Ultra or the daughter's Galaxy tablet. |
 | Side view | Fix the camera-inside-the-body measurement first (planner judges the shipped cubes), re-render, then decide the side rule. |
+| U4 (revised 2026-11-13) | The user rejected the F01c brick-built aliens (lumo/nova/zib; branch `biz-f01c` NOT merged): "why do they need to be built with standard lego blocks? Minifigs are special pieces why can't we just build a gen 3 that improves on mini dolls but keeps the humanoid form factor and scale and remains backwards compatible with lego chair/doorway/cockpit/stairs etc?" -> FIG3: a CUSTOM-SCULPTED figure (our own geometry, not LDraw parts): humanoid, minifig/mini-doll scale and envelope (fits their chairs, doorways, cockpits, stairs), articulated, our own face art, alien teal/purple skin option. It must still be our OWN sculpt: the mini-doll is LEGO's design too, so the distinctness gate runs against BOTH the minifig and the mini-doll. rex/rivet/pip stay as extras. |
+| Landmark scale (2026-11-13) | "The landmarks should support and suggest scaling larger before placement and should support the added detail that becomes available wrt spires etc" -> LSCALE: a landmark is generated at more than one detail level (studs per metre); a larger placement size uses the finer design (real extra detail: tapering spires, pinnacles), not the same bricks scaled up; the wand suggests a size per landmark before placement. |
+| Side rule (2026-11-13) | Merge both: the camera-in-body fix AND required clear sides (`biz-sv`, 58 of 62 vehicles see out). |
 
 ## 6. REQUIREMENTS.md rows to add (section 17), de-duplicated
 
