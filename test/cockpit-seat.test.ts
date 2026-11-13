@@ -13,8 +13,10 @@ import { buildPlayableAddon, cameraSeatFields } from '../web/src/engine/playable
 import { extractFile } from '../web/src/engine/zip-utils.js';
 import { simHost } from './_sim-host.js';
 import { shippedSeatBoxes } from '../web/src/engine/ldraw-entity-compiler.js';
-import { parallelepipedFromCorners } from '../web/src/engine/oriented-box.js';
-import { PASSENGER_DECK, passengerHeld, passengerSurface, ROOF_BODY_CLEAR, ROOF_MAX_LIFT, roofMap, surfaceOnTop, AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, helmSeatPlan, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
+import { parallelepiped, parallelepipedFromCorners } from '../web/src/engine/oriented-box.js';
+import { readFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
+import { PASSENGER_DECK, passengerHeld, passengerSurface, ROOF_BODY_CLEAR, ROOF_MAX_LIFT, roofMap, surfaceOnTop, AHEAD, AHEAD_CABIN, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, helmSeatPlan, keepsTheView, planSeat, replanOnShipped, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const box = (min: Vec3, max: Vec3): BoxBlocks => ({ min, max });
@@ -28,6 +30,18 @@ const cabin = (w: number, roofY: number): BoxBlocks[] => [
   box([-w - 0.2, 0, -2], [w + 0.2, 0.15, 2]),
   box([-w - 0.2, 0, -1], [-w, roofY, 2]),
   box([w, 0, -1], [w + 0.2, roofY, 2]),
+  box([-w - 0.2, roofY, -2], [w + 0.2, roofY + 0.2, 2]),
+];
+
+/**
+ * `cabin` with WINDOWS: each wall is a sill up to `sill` and glass above it. The driver's view to either side is
+ * REQUIRED (`SIDES`, VEH-20), and a driver shut between two opaque walls a few tenths away has none: a cabin the seat
+ * search is meant to place a body in has windows, as a car's does.
+ */
+const windowed = (w: number, roofY: number, sill: number): BoxBlocks[] => [
+  box([-w - 0.2, 0, -2], [w + 0.2, 0.15, 2]),
+  box([-w - 0.2, 0, -1], [-w, sill, 2]), { ...box([-w - 0.2, sill, -1], [-w, roofY, 2]), glass: true },
+  box([w, 0, -1], [w + 0.2, sill, 2]), { ...box([w, sill, -1], [w + 0.2, roofY, 2]), glass: true },
   box([-w - 0.2, roofY, -2], [w + 0.2, roofY + 0.2, 2]),
 ];
 
@@ -49,8 +63,14 @@ describe('riderOverlap / planSeat', () => {
   });
 
   it('finds the smallest wand size at which the body fits (the model scales, the player does not)', () => {
-    // A quarter-size cabin: 0.55 blocks inside, the driver's eye 0.3 over the floor, the flanks from half a block ahead of it.
-    const small = [box([-0.5, 0, -2], [0.5, 0.03, 2]), box([-0.5, 0, -0.5], [-0.3, 0.55, 2]), box([0.3, 0, -0.5], [0.5, 0.55, 2]), box([-0.5, 0.55, -2], [0.5, 0.6, 2])];
+    // A quarter-size cabin: 0.55 blocks inside, the driver's eye 0.3 over the floor, the flanks from half a block ahead of it,
+    // each a low sill under a window (the view to either side is required: a closed flank 0.3 away ejects the eye).
+    const small = [
+      box([-0.5, 0, -2], [0.5, 0.03, 2]),
+      box([-0.5, 0, -0.5], [-0.3, 0.2, 2]), { ...box([-0.5, 0.2, -0.5], [-0.3, 0.55, 2]), glass: true },
+      box([0.3, 0, -0.5], [0.5, 0.2, 2]), { ...box([0.3, 0.2, -0.5], [0.5, 0.55, 2]), glass: true },
+      box([-0.5, 0.55, -2], [0.5, 0.6, 2]),
+    ];
     const eye: Vec3 = [0, 0.3, 0];
     const plan = planSeat(small, eye, [0, eye[1] - RIDER_EYE_ABOVE_SEAT, 0]);
     expect(plan.steps.map(s => s.f)).toEqual([1, 1.5, 2, 3, 4]);
@@ -502,7 +522,7 @@ describe('the cockpit evidence', () => {
 describe('the seat search (a canopy is a volume, not a seat)', () => {
   it('moves a windscreen-centre seat back to where the body fits, and never moves a seat mould', () => {
     // A cabin 1.9 wide, roof at 2.1, with a dashboard filling everything forward of z = 0.2.
-    const boxes = [...cabin(0.95, 2.1), box([-0.95, 0, -2], [0.95, 1.2, 0.2])];
+    const boxes = [...windowed(0.95, 2.1, 0.9), box([-0.95, 0, -2], [0.95, 1.2, 0.2])];
     const eye: Vec3 = [0.3, 1.3, 0.1];
     const seat: Vec3 = [0.3, eye[1] - RIDER_EYE_ABOVE_SEAT, 0.1];
     const volume = planSeat(boxes, eye, seat, 'volume');
@@ -640,7 +660,13 @@ describe('a guessed seat (no cockpit evidence) is judged by what its eye sees', 
     expect(open.moved).toBeNull();
     const figure = planSeat(dollTruck, [0, 1.2, -0.8], [0, 1.2 - RIDER_EYE_ABOVE_SEAT, -0.8], 'seat');
     expect(figure.view).toBeUndefined();
-    expect(figure.seat).toEqual([0, 1.2 - RIDER_EYE_ABOVE_SEAT, -0.8]);
+    // The guessed-seat search never runs for a seat with evidence; only the view rule moves it. The cab's walls
+    // (0.45 either side) shut the view to the sides (`SIDES` is REQUIRED), so the eye goes forward to the
+    // windscreen, where only 0.3 block of wall is left ahead of it: the sides clear, the seat's height kept.
+    expect(seesOut(dollTruck, [0, 1.2, -0.8])).toBe(false);
+    expect(figure.ahead!.moved).toEqual([0, 0, -0.4]);
+    expect(seesOut(dollTruck, figure.eye)).toBe(true);
+    expect(figure.seat[1]).toBeCloseTo(1.2 - RIDER_EYE_ABOVE_SEAT, 6);
   });
 });
 
@@ -732,11 +758,14 @@ describe('every seat sees the horizon ahead (AHEAD), whatever its evidence', () 
     expect(plan.steps[0]!.fits).toBe(true);
     // Only what is NEAR counts: the same wall 1.5 blocks to the side is the car's body, not a panel at the face.
     expect(sideView([box([-1, 0, -2], [1, 0.3, 2]), box([-1.7, 0, -1.0], [-1.5, 1.71, 0.3])], eye).left).toBe(1);
-    // A panel no search in the cabin clears keeps a seat that sees ahead where it was: the sides are a preference.
+    // A panel no search in the cabin clears: the sides are REQUIRED (the user, 2026-11-09), so an eye that saw ahead
+    // leaves the cabin for the nearest point over the panel that sees out, its body hidden, rather than stay beside it.
     const tall = [box([-1, 0, -2], [1, 0.3, 2]), box([-0.6, 0, -1.0], [-0.4, 3, 0.3])];
-    const kept = planSeat(tall, eye, seat, 'seat');
-    expect(kept.ahead!.moved).toBeNull();
-    expect(kept.eye).toEqual(eye);
+    const left = planSeat(tall, eye, seat, 'seat');
+    expect(left.ahead!.fallback).toBe(true);
+    expect(left.eye[1]).toBeGreaterThan(3);
+    expect(seesOut(tall, left.eye)).toBe(true);
+    expect(left.fitScale).toBeNull();
   });
 
   it('lets the eye leave a roofed cabin that cannot see ahead, over the model, and hides the body (76286, Saga 30g)', () => {
@@ -877,3 +906,87 @@ describe('a driver eye is judged on the cubes the pack ships (shippedSeatBoxes, 
   });
 });
 
+
+/**
+ * VEH-20 class 2 (2026-11-12): the driver's camera inside the body of 4997's boat and 8153's Ferrari truck, on the
+ * REAL part boxes and shipped cubes of those two packs (test/fixtures/seats/*.json.gz: every box the compiler
+ * planned on and every cube it shipped, dumped from main 370aa7cd; the corpus is not on CI).
+ */
+interface SeatFixture { label: string; ask: { eye: Vec3; seat: Vec3; evidence: 'seat' | 'steering' | 'volume' | 'none' }; planned: BoxBlocks[]; shipped: BoxBlocks[] }
+const loadSeatFixture = (name: string): SeatFixture => {
+  type Row = number[];
+  const raw = JSON.parse(gunzipSync(readFileSync(new URL(`./fixtures/seats/${name}.json.gz`, import.meta.url))).toString('utf8')) as Omit<SeatFixture, 'planned' | 'shipped'> & { planned: Row[]; shipped: Row[] };
+  const boxes = (rows: Row[]): BoxBlocks[] => rows.map(r => ({ min: [r[0]!, r[1]!, r[2]!] as Vec3, max: [r[3]!, r[4]!, r[5]!] as Vec3, ...(r[6] ? { glass: true } : {}) }));
+  return { ...raw, planned: boxes(raw.planned), shipped: boxes(raw.shipped) };
+};
+
+describe('the driver sees out over the cubes the pack ships (VEH-20 class 2)', () => {
+  it('8153: a seat behind the tail still finds an eye out of the body (the fallback started past the model)', () => {
+    const f = loadSeatFixture('8153-car-boxes');
+    // The canopy-parts seat sits 0.11 block aft of the model's tail: no point "back" of it is over the model.
+    expect(f.ask.seat[2]).toBeGreaterThan(Math.max(...f.planned.map(b => b.max[2])));
+    const plan = planSeat(f.planned, f.ask.eye, f.ask.seat, f.ask.evidence);
+    const final = replanOnShipped(f.shipped, f.ask, plan).plan;
+    expect(eyeOverlap(f.shipped, final.eye)).toBe(0);
+    expect(fanView(f.shipped, final.eye, AHEAD)).toBe(1);
+    expect(seesOut(f.shipped, final.eye)).toBe(true);
+    // The plan reports the eye it ships (the rider is hidden: it is only an eye out there).
+    expect(final.ahead?.fallback).toBe(true);
+    expect(riderVisibleAt(helmSeatPlan(final)!, 1)).toBe(false);
+  });
+
+  it('4997: a plan that saw ahead on the planned boxes only is asked again on the shipped cubes', () => {
+    const f = loadSeatFixture('4997-boat-boxes');
+    const plan = planSeat(f.planned, f.ask.eye, f.ask.seat, f.ask.evidence);
+    // The planner's own boxes say the horizon is clear ahead; the cubes the pack ships say 4 of 6 rays (the camera is in a hull plank).
+    expect(fanView(f.planned, plan.eye, AHEAD)).toBe(1);
+    expect(fanView(f.shipped, plan.eye, AHEAD)).toBeLessThan(AHEAD.minClear);
+    // d9a37549 asked again only when the plan SAW OUT on the planned boxes (sides included): this one never did.
+    expect(seesOut(f.planned, plan.eye)).toBe(false);
+    const redone = replanOnShipped(f.shipped, f.ask, plan);
+    expect(redone.replanned).toBe(true);
+    expect(fanView(f.shipped, redone.plan.eye, AHEAD)).toBe(1);
+    expect(eyeOverlap(f.shipped, redone.plan.eye)).toBe(0);
+  });
+
+  it('a plan that already sees out on the shipped cubes is returned as it is; one nothing improves keeps its plan', () => {
+    const deck = box([-1, 0, -2], [1, 0.3, 2]);
+    const eye: Vec3 = [0, 1.42, 0], ask = { eye, seat: [0, eye[1] - RIDER_EYE_ABOVE_SEAT, 0] as Vec3, evidence: 'seat' as const };
+    const plan = planSeat([deck], ask.eye, ask.seat, 'seat');
+    expect(replanOnShipped([deck], ask, plan)).toEqual({ plan, replanned: false });
+    // A closed box all round: no eye improves on the plan it had.
+    const sealed = [box([-3, -1, -3], [3, 0.1, 3]), box([-3, 0, -3], [3, 8, -2.9]), box([-3, 0, 2.9], [3, 8, 3]), box([-3, 0, -3], [-2.9, 8, 3]), box([2.9, 0, -3], [3, 8, 3]), box([-3, 7.9, -3], [3, 8, 3])];
+    const stuck = planSeat(sealed, ask.eye, ask.seat, 'seat');
+    expect(replanOnShipped(sealed, ask, stuck).plan.eye).toEqual(stuck.eye);
+  });
+
+  describe('a turned cube is its own shape, not its corner box', () => {
+    /** A flat plate 2 blocks long, 0.1 thick, 1 tall, turned 45 degrees: its corner box is a 1.5-block square, the plate its diagonal. */
+    const plate = (): BoxBlocks => {
+      const s = Math.SQRT1_2, o: Vec3 = [0.3, 0.5, -0.3];
+      const solid = parallelepiped(o, [[s * 1.4, 0, -s * 1.4], [0, 1, 0], [s * 0.1, 0, s * 0.1]])!;
+      const corners = [0, 1].flatMap(a => [0, 1].flatMap(b => [0, 1].map(c => [0, 1, 2].map(k => o[k]! + a * solid.e[0][k]! + b * solid.e[1][k]! + c * solid.e[2][k]!))));
+      const lo = [0, 1, 2].map(k => Math.min(...corners.map(p => p[k]!))), hi = [0, 1, 2].map(k => Math.max(...corners.map(p => p[k]!)));
+      return { min: lo as Vec3, max: hi as Vec3, solid };
+    };
+    const eye: Vec3 = [0, 1, 0];
+    it('the horizon ahead passes beside it when it is read as the cube, and is blocked when read as its corner box', () => {
+      const p = plate();
+      const { solid: _solid, ...cornerBox } = p;
+      expect(fanView([cornerBox], eye, AHEAD)).toBeLessThan(1);
+      expect(fanView([p], eye, AHEAD)).toBe(1);
+    });
+    it('an eye in the air inside the corner box is not inside the cube', () => {
+      const p = plate(), { solid: _solid, ...cornerBox } = p;
+      const e: Vec3 = [0.7, 1, -1.2];
+      expect(eyeOverlap([cornerBox], e)).toBeGreaterThan(0);
+      expect(eyeOverlap([p], e)).toBe(0);
+    });
+    it('shippedSeatBoxes carries the cube of a turned cube and nothing for an aligned one', () => {
+      const turned = { origin: [-8, 0, -8], size: [16, 16, 1.6], rotation: [0, 45, 0], pivot: [0, 0, 0] };
+      const boxes = shippedSeatBoxes([{ translucent: false, items: [{ bone: 'body', cube: turned }, { bone: 'body', cube: { origin: [0, 0, 0], size: [16, 16, 16] } }] }], [{ name: 'body', pivot: [0, 0, 0] }]);
+      expect(boxes[0]!.solid).toBeDefined();
+      expect(boxes[1]!.solid).toBeUndefined();
+    });
+  });
+});

@@ -58,7 +58,8 @@ import { visibleBoundsFor } from './bedrock-placement-pack.js';
 import { partStem } from './part-id.js';
 import { assertOfficialLibrary, getPartSourceLedger } from './ldraw-geometry.js';
 import type { PartSourceEntry } from './part-source.js';
-import { planSeat, RIDER_EYE_ABOVE_SEAT, seesOut, type BoxBlocks, type SeatPlan } from './cockpit-seat.js';
+import { isAxisAligned, parallelepipedFromCorners } from './oriented-box.js';
+import { planSeat, replanOnShipped, RIDER_EYE_ABOVE_SEAT, seesOut, type BoxBlocks, type SeatPlan } from './cockpit-seat.js';
 import { isShipWheel, isSteeringWheel } from './steering-parts.js';
 export { isShipWheel, isSteeringWheel } from './steering-parts.js';
 import { boneTransforms, cubeCorners, drawnCubeBox, IDENTITY as AFFINE_IDENTITY, separateCoplanarFaces, type CoplanarSeparation, type GeoEntryLike } from './bedrock-geometry-faces.js';
@@ -897,7 +898,10 @@ export function shippedSeatBoxes(
     const d = drawnCubeBox(cube);
     const k = cubeCorners({ bone, origin: d.origin, size: d.size, ...(cube.rotation && cube.pivot ? { rotation: [cube.rotation[0]!, cube.rotation[1]!, cube.rotation[2]!], pivot: [cube.pivot[0]!, cube.pivot[1]!, cube.pivot[2]!] } : {}) }, transforms.get(bone) ?? AFFINE_IDENTITY);
     const xs = k.map(p => -p[0] / 16), ys = k.map(p => p[1] / 16), zs = k.map(p => p[2] / 16);
-    out.push({ min: [Math.min(...xs), Math.min(...ys), Math.min(...zs)], max: [Math.max(...xs), Math.max(...ys), Math.max(...zs)], glass: g.translucent });
+    // A turned cube also carries itself (`solid`, in the same frame): its corner box holds air beside it, and the
+    // simulator and `_cockpit_view.ts` cast the driver's rays against the cube (`rayParallelepiped`).
+    const solid = parallelepipedFromCorners(k.map((_, i) => [xs[i]!, ys[i]!, zs[i]!]));
+    out.push({ min: [Math.min(...xs), Math.min(...ys), Math.min(...zs)], max: [Math.max(...xs), Math.max(...ys), Math.max(...zs)], glass: g.translucent, ...(solid && !isAxisAligned(solid) ? { solid } : {}) });
   }
   return out;
 }
@@ -2931,10 +2935,15 @@ export async function compileLdrawEntityGeometry(
   /** The seat planner's question (eye, seat, evidence), kept so the plan can be re-asked on the shipped cubes below. */
   let seatAsk: { eye: Vec3; seat: Vec3; evidence: Parameters<typeof planSeat>[3]; boxes: BoxBlocks[] } | undefined;
   let seatPlan: SeatPlan | undefined = kind === 'figure' || kind === 'prop' ? undefined : (() => {
-    const boxes = worldBoxes.map(wb => {
+    const boxes = worldBoxes.map((wb): BoxBlocks => {
       const r = aabbOfCorners(cornersOf(wb.min, wb.max).map(v => apply(A, v)));
       const lo = toUnits(r.min), hi = toUnits(r.max);
-      return { min: [lo[0] / 16, lo[1] / 16, lo[2] / 16] as Vec3, max: [hi[0] / 16, hi[1] / 16, hi[2] / 16] as Vec3, glass: resolveLdrawEntityMaterial(placed[wb.brick]?.color ?? 16).alpha < 1 };
+      // A TURNED part's cuboid (`obb`) also carries itself: its box above is the bounds of a cube that is not there.
+      const solid = wb.obb ? parallelepipedFromCorners(cornersOf(wb.obb.min, wb.obb.max).map(v => {
+        const q = apply(wb.obb!.R as Mat3, v), u = toUnits(apply(A, [q[0] + wb.obb!.t[0], q[1] + wb.obb!.t[1], q[2] + wb.obb!.t[2]]));
+        return [u[0] / 16, u[1] / 16, u[2] / 16];
+      })) : null;
+      return { min: [lo[0] / 16, lo[1] / 16, lo[2] / 16], max: [hi[0] / 16, hi[1] / 16, hi[2] / 16], glass: resolveLdrawEntityMaterial(placed[wb.brick]?.color ?? 16).alpha < 1, ...(solid && !isAxisAligned(solid) ? { solid } : {}) };
     });
     const eyeY = round(cockpitUnits[1] / 16);
     // A default cabin at minifig scale (a toy or doll car built round a figure) is judged by its view (cockpit-seat.ts `VIEW`).
@@ -3106,16 +3115,17 @@ export async function compileLdrawEntityGeometry(
   if (options.boxUvFloorSafe ?? true) {
     for (const group of ordered) for (const it of group.items) if (boxUvSafeCube(it.cube)) boxUvInflated++;
   }
-  // The driver's view is planned on the cuboids BEFORE the separation above grew faces (up to 4 x 1/107 block):
-  // an eye that passed by less than that can look into a face the pack ships (census 2026-11-06: 4768, 7344,
-  // 8487, 8638 passed the planner by under 0.04 block and failed the simulator on the shipped cubes). Such a
-  // plan is asked again on the shipped cubes; a plan that sees out on them is left exactly as it was.
-  if (seatPlan && seatAsk && seesOut(seatAsk.boxes, seatPlan.eye)) {
+  // The driver's view is planned on the part boxes BEFORE the separation above grew faces (up to 4 x 1/107 block) and
+  // before the box-UV inflate: an eye that passed by less than that can look into a face the pack ships (census
+  // 2026-11-06: 4768, 7344, 8487, 8638). A plan whose eye does not see out on the shipped cubes is asked again on them
+  // (`replanOnShipped`), whether or not it saw out on the planned boxes (4997 and 8153 did not); a plan that sees out
+  // on them is left exactly as it was.
+  if (seatPlan && seatAsk) {
     const shipped = shippedSeatBoxes(ordered, coplanarEntry.bones);
-    if (!seesOut(shipped, seatPlan.eye)) {
-      const again = planSeat(shipped, seatAsk.eye, seatAsk.seat, seatAsk.evidence);
-      warnings.push(`${cid}: the driver's eye at (${seatPlan.eye.join(', ')}) saw out on the planned cuboids but not on the cubes the pack ships (coplanar separation); re-planned on the shipped cubes to (${again.eye.join(', ')})${seesOut(shipped, again.eye) ? '' : ', which still does not see out to both sides'}.`);
-      seatPlan = again;
+    const redone = replanOnShipped(shipped, seatAsk, seatPlan);
+    if (redone.replanned) {
+      warnings.push(`${cid}: the driver's eye at (${seatPlan.eye.join(', ')}) does not see out on the cubes the pack ships; re-planned on them to (${redone.plan.eye.join(', ')})${seesOut(shipped, redone.plan.eye) ? '' : ', which still does not see out to both sides'}.`);
+      seatPlan = redone.plan;
     }
   }
   for (const group of ordered) {
