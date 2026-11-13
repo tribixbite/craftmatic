@@ -7,6 +7,8 @@ import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { BLOCKS_PER_STUD, DETAIL_LEVELS, WAND_STEPS, levelForSizePct, scaleRequestForLevel, sizeLadder } from '../web/src/brickgen/levels/levels.js';
 import { roseTracery, pinnacleStages } from '../web/src/brickgen/levels/detail.js';
 import { roseMask } from '../web/src/brickgen/grammar/arch.js';
+import { suggestSize } from '../web/src/brickgen/levels/suggest.js';
+import { lintText } from '../web/src/engine/pack-text/lint.js';
 import { chooseScale, type MetreVolume } from '../web/src/brickgen/massing/scale.js';
 
 /** A cathedral-sized volume: 135 x 48 m footprint, 96 m tall (Notre-Dame's real extent, metres). */
@@ -96,5 +98,42 @@ describe('brickgen-levels: rose tracery', () => {
       expect(t.bars[row * t.w + col]).toBe(t.bars[row * t.w + (t.w - 1 - col)]);
       expect(t.bars[row * t.w + col]).toBe(t.bars[(t.h - 1 - row) * t.w + col]);
     }
+  });
+});
+
+describe('brickgen-levels: size suggestion', () => {
+  const extent = { x: 135, y: 96, z: 48 };
+  const MAX = { maxResidentCuboids: 60_000, maxUncompressedBytes: 25 * 1024 * 1024 };
+  const cost = (studsPerMetre: number, residentCuboids: number, mb: number) => ({ studsPerMetre, residentCuboids, uncompressedBytes: mb * 1024 * 1024 });
+
+  it('suggests the smallest step of the finest level whose pack fits cuboids AND bytes', () => {
+    // Notre-Dame as measured: level 2 ships 28 thousand cuboids but 26 MB (over the 25 MiB limit).
+    const s = suggestSize({ extent, costs: [cost(1, 15_001, 9.4), cost(2, 28_193, 26), cost(4, 90_000, 100)], ...MAX });
+    expect(s.level.studsPerMetre).toBe(1);
+    expect(s.pct).toBe(100);
+    const fits = suggestSize({ extent, costs: [cost(1, 15_001, 9.4), cost(2, 28_193, 20)], ...MAX });
+    expect(fits.level.studsPerMetre).toBe(2);
+    expect(fits.pct).toBe(200);
+  });
+  it('never offers a level with no measured cost', () => {
+    expect(suggestSize({ extent, costs: [cost(1, 15_001, 9.4)], ...MAX }).level.studsPerMetre).toBe(1);
+  });
+  it('steps down when the clear space is smaller than the footprint, and says so', () => {
+    const costs = [cost(1, 15_001, 9.4), cost(2, 28_193, 20), cost(4, 50_000, 24)];
+    const roomy = suggestSize({ extent, costs, ...MAX, availableBlocks: 1000 });
+    expect(roomy.level.studsPerMetre).toBe(4);
+    const tight = suggestSize({ extent, costs, ...MAX, availableBlocks: 60 });
+    expect(tight.level.studsPerMetre).toBe(1);
+    expect(tight.text).toContain('fits your clear space');
+    const none = suggestSize({ extent, costs, ...MAX, availableBlocks: 10 });
+    expect(none.text).toContain('largest that fits');
+  });
+  it('speaks the pack\'s own percent and the text passes the marketplace lint', () => {
+    const costs = [cost(1, 15_001, 9.4), cost(2, 28_193, 20)];
+    const own = suggestSize({ extent, costs, ...MAX, forPack: DETAIL_LEVELS[1]! });
+    expect(own.text).toMatch(/^Suggested size: 100 percent here, as big as 200 percent of the standard design\./);
+    const other = suggestSize({ extent, costs, ...MAX, forPack: DETAIL_LEVELS[0]! });
+    expect(other.text).toMatch(/^Suggested: the 2-stud pack at 100 percent\./);
+    for (const t of [own.text, other.text]) expect(lintText(t, { surface: 'prose' })).toEqual([]);
   });
 });

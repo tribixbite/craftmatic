@@ -12,8 +12,8 @@ import { DETAIL_LEVELS, sizeLadder, type DetailLevel, type SizeRung } from './le
 /** A building's real extent in metres. */
 export interface ExtentM { x: number; y: number; z: number }
 
-/** What one level costs: cuboids the pack of that level ships resident on the phone (measured, `budget.ts` of M06). */
-export interface LevelCost { studsPerMetre: number; residentCuboids: number }
+/** What one level costs, measured on a built pack (`static` of `_marketplace_budget.ts`, M06): resident cuboids and uncompressed bytes. */
+export interface LevelCost { studsPerMetre: number; residentCuboids: number; uncompressedBytes: number }
 
 export interface SuggestInput {
   extent: ExtentM;
@@ -21,6 +21,8 @@ export interface SuggestInput {
   costs: readonly LevelCost[];
   /** Resident cuboids one pack may ship (`BUDGET_TIERS.standard.maxResidentCuboids`: 60,000). */
   maxResidentCuboids: number;
+  /** Uncompressed bytes one pack may ship (`maxUncompressedBytes`: 25 MiB). */
+  maxUncompressedBytes: number;
   /** Blocks of clear space on the longest side, when known (the pin's preflight); absent = not limited. */
   availableBlocks?: number;
   /** Wand steps; default the wand's. */
@@ -65,13 +67,15 @@ function blocksAt(extent: ExtentM, rung: SizeRung): { x: number; y: number; z: n
 export function suggestSize(input: SuggestInput): SizeSuggestion {
   const budgetOk = (l: DetailLevel): boolean => {
     const c = input.costs.find(k => k.studsPerMetre === l.studsPerMetre);
-    return c !== undefined && c.residentCuboids <= input.maxResidentCuboids;
+    return c !== undefined && c.residentCuboids <= input.maxResidentCuboids && c.uncompressedBytes <= input.maxUncompressedBytes;
   };
   const rungs: SuggestedRung[] = sizeLadder(input.steps).map(r => {
     const blocks = blocksAt(input.extent, r);
     return { ...r, blocks, withinBudget: budgetOk(r.level), fitsSpace: input.availableBlocks === undefined || Math.max(blocks.x, blocks.z) <= input.availableBlocks };
   });
-  const usable = rungs.filter(r => r.withinBudget && r.fitsSpace);
+  // A level is suggested at its own 100 percent or more; a smaller step only when the room leaves nothing else.
+  const fitting = rungs.filter(r => r.withinBudget && r.fitsSpace);
+  const usable = fitting.some(r => r.factor >= 1) ? fitting.filter(r => r.factor >= 1) : fitting;
   // Finest level first; within a level the smallest step (rungs are in step order, so the first of a level wins).
   const finest = usable.reduce<SuggestedRung | undefined>((best, r) => (best === undefined || r.level.studsPerMetre > best.level.studsPerMetre ? r : best), undefined);
   const fallback = rungs.filter(r => r.fitsSpace).pop() ?? rungs[0]!;
@@ -81,7 +85,7 @@ export function suggestSize(input: SuggestInput): SizeSuggestion {
   const unfit = !finest;
   const reason = unfit
     ? 'no level fits both the phone budget and the room'
-    : `finest level within budget (${pick.level.studsPerMetre} studs per metre) at its smallest step`;
+    : `finest level within the pack budget, cuboids and bytes (${pick.level.studsPerMetre} studs per metre) at its smallest step`;
   const size = `${pick.blocks.x} by ${pick.blocks.z} blocks and ${pick.blocks.y} high`;
   // In a pack of level L the wand speaks the pack's own percent: the suggested step over L (the pack's 100 percent
   // is L times as big as the standard design's).

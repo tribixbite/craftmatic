@@ -10,8 +10,8 @@
  * reads them back, fails (exit 1) if any level is not one component with nothing unsupported, and writes
  *   `<out>/levels.json`      per level: parts, dims, verify report, cuboid estimate, seconds, shipped cuboids (when known);
  *   `<out>/detail-l<N>.json` the `PlacementDetail` for the pack of level N (`_playable_ref.ts --detail=`).
- * The shipped (resident) cuboids per level come from `--costs` (`{"1": 15001, "2": ...}`, read off built packs by
- * `scripts/_marketplace_budget.ts --static-only`) or, with `--export`, from building each pack here. A level with no
+ * The shipped (resident) cuboids per level come from `--costs` (`{"1": {"residentCuboids": 15001, "uncompressedBytes": 9817167}}`, read off built packs by
+ * `scripts/_marketplace_budget.ts --static-only`; each value `{residentCuboids, uncompressedBytes}`) or, with `--export`, from building each pack here. A level with no
  * measured cost is not offered by the suggestion: an estimate is not a measurement (the pre-merge estimate read 78k
  * for a pack that ships 15k).
  *
@@ -49,12 +49,13 @@ const buildingArg = slug === 'cologne-cathedral' ? '--building=parts' : `--build
 interface LevelRun {
   level: number; dims: [number, number, number]; parts: number; components: number; unsupported: number;
   overlaps: number; cuboidsEstimate: number; seconds: number; verified: boolean; notes: string[];
-  /** Resident cuboids of the built pack, when measured. */
+  /** Resident cuboids and uncompressed bytes of the built pack, when measured. */
   residentCuboids?: number;
+  uncompressedBytes?: number;
 }
 
 const costsFile = flag('costs', '');
-const measured: Record<string, number> = costsFile ? JSON.parse(readFileSync(costsFile, 'utf8')) as Record<string, number> : {};
+const measured: Record<string, { residentCuboids: number; uncompressedBytes: number }> = costsFile ? JSON.parse(readFileSync(costsFile, 'utf8')) as Record<string, { residentCuboids: number; uncompressedBytes: number }> : {};
 const runs: LevelRun[] = [];
 for (const level of levels) {
   const base = path.join(out, `l${level.studsPerMetre}`);
@@ -68,7 +69,7 @@ for (const level of levels) {
   runs.push({
     level: level.studsPerMetre, dims: j.dims, parts: j.report.parts, components: j.report.components, unsupported: j.report.unsupported, overlaps: j.report.overlaps,
     cuboidsEstimate: j.report.budget.cuboidsEstimate, seconds: Math.round((Date.now() - t0) / 1000), verified, notes: j.notes,
-    ...(measured[String(level.studsPerMetre)] !== undefined ? { residentCuboids: measured[String(level.studsPerMetre)]! } : {}),
+    ...(measured[String(level.studsPerMetre)] !== undefined ? measured[String(level.studsPerMetre)]! : {}),
   });
   console.log(`level ${level.studsPerMetre}: ${j.report.parts} parts, ${j.report.components} component(s), ${j.report.unsupported} unsupported, estimate ${j.report.budget.cuboidsEstimate} cuboids, ${runs.at(-1)!.seconds}s`);
 }
@@ -79,21 +80,22 @@ if (args.includes('--export')) {
     const built = spawnSync('bun', ['scripts/_playable_ref.ts', path.join(out, `${slug}-l${run.level}.ldr`), pack, '--buildings=bricks', '--scale=1', `--label=${landmark.title} L${run.level}`], { cwd: root, encoding: 'utf8', timeout: 180 * 60_000, maxBuffer: 1 << 28, env: { ...process.env, CRAFTMATIC_LDRAW_MIRROR: 'off' } });
     if (built.status !== 0) { console.error(`level ${run.level}: export failed\n${(built.stderr || built.stdout).slice(-800)}`); process.exit(1); }
     const budget = spawnSync('bun', ['scripts/_marketplace_budget.ts', pack, '--static-only', `--json=${path.join(out, `l${run.level}-budget.json`)}`], { cwd: root, encoding: 'utf8' });
-    const m = /resident cuboids\s+([\d,]+)/.exec(budget.stdout);
-    if (m) run.residentCuboids = Number(m[1]!.replace(/,/g, ''));
+    const rep = JSON.parse(readFileSync(path.join(root, out, `l${run.level}-budget.json`), 'utf8')) as Array<{ static: { totalGeometryCuboids: number; uncompressedBytes: number } }> | { static: { totalGeometryCuboids: number; uncompressedBytes: number } };
+    const st = (Array.isArray(rep) ? rep[0]! : rep).static;
+    run.residentCuboids = st.totalGeometryCuboids; run.uncompressedBytes = st.uncompressedBytes; void budget;
   }
 }
 
 // What the wand shows. Extent in metres from the lattice (the grammar pads every side by PAD_STUDS studs).
 const finest = runs.at(-1)!;
 const extentM = { x: (finest.dims[0] - 2 * PAD_STUDS) / finest.level, y: finest.dims[1] / (finest.level * 2.5), z: (finest.dims[2] - 2 * PAD_STUDS) / finest.level };
-const costs: LevelCost[] = runs.filter(r => r.residentCuboids !== undefined).map(r => ({ studsPerMetre: r.level, residentCuboids: r.residentCuboids! }));
+const costs: LevelCost[] = runs.filter(r => r.residentCuboids !== undefined && r.uncompressedBytes !== undefined).map(r => ({ studsPerMetre: r.level, residentCuboids: r.residentCuboids!, uncompressedBytes: r.uncompressedBytes! }));
 const tier = BUDGET_TIERS['standard']!;
-const suggestion = suggestSize({ extent: extentM, costs, maxResidentCuboids: tier.maxResidentCuboids });
+const suggestion = suggestSize({ extent: extentM, costs, maxResidentCuboids: tier.maxResidentCuboids, maxUncompressedBytes: tier.maxUncompressedBytes });
 for (const run of runs) {
   const level = DETAIL_LEVELS.find(l => l.studsPerMetre === run.level)!;
   // The wand of a level's pack speaks that pack's own percent (the real step over its studs per metre).
-  const forPack = suggestSize({ extent: extentM, costs, maxResidentCuboids: tier.maxResidentCuboids, forPack: level });
+  const forPack = suggestSize({ extent: extentM, costs, maxResidentCuboids: tier.maxResidentCuboids, maxUncompressedBytes: tier.maxUncompressedBytes, forPack: level });
   const detail: PlacementDetail = {
     studsPerMetre: run.level, extentM: { x: Math.round(extentM.x), y: Math.round(extentM.y), z: Math.round(extentM.z) },
     suggestion: { pct: Math.max(25, Math.round(forPack.pct / level.studsPerMetre)), text: forPack.text },
