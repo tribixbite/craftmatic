@@ -21,6 +21,12 @@ import type { MassVolume, RoofShape, RoofSpec, SiteEvidence, SourceRef, Vec2m } 
 
 /** `SiteEvidence.measurements[].what` prefix carrying a part's roof rise in metres (`roof-rise:way/123`). */
 export const ROOF_RISE_PREFIX = 'roof-rise:';
+/**
+ * `SiteEvidence.measurements[].what` prefix marking a footprint entry as a building OUTLINE rather than a part
+ * (`building-outline:way/123`). `SiteEvidence` has no such field (`types.ts` is X-08's). Massing lets parts replace an
+ * outline wherever they cover it, whatever the heights, instead of the outline hiding the parts.
+ */
+export const OUTLINE_PREFIX = 'building-outline:';
 /** Attribution string ODbL requires wherever OSM-derived data is used. */
 export const OSM_ATTRIBUTION = '© OpenStreetMap contributors (ODbL 1.0)';
 /** `SiteEvidence.measurements[].what` prefix carrying a part's `roof:direction` as a compass bearing in DEGREES (in `valueM`). */
@@ -53,6 +59,12 @@ export interface OsmSiteOptions {
   name?: string;
   /** `type/id` (`way/201611261`) of the building outline when several `building` elements are present. */
   buildingId?: string;
+  /**
+   * Several outlines for a site that is more than one building (Tower Bridge's two towers, a castle's separate halls).
+   * A `building` element named here is massed as an outline; any other element (a bridge or site area) only says where
+   * the site is, so the parts inside it are kept; a named `building:part` is kept as a part. Beats `buildingId`.
+   */
+  buildingIds?: string[];
   /** ISO retrieval date recorded in each `SourceRef`. */
   retrieved: string;
   /** Overpass URL or fixture path recorded as the source URL. */
@@ -168,35 +180,60 @@ export function siteFromOverpass(json: { elements?: OverpassElement[] }, opts: O
   const els = json.elements ?? [];
   const key = (e: OverpassElement): string => `${e.type}/${e.id}`;
   const withRings = els.flatMap(e => { const r = elementRings(e); return r ? [{ e, r }] : []; });
-  const allPartEls = withRings.filter(({ e }) => e.tags?.['building:part'] !== undefined && e.tags['building:part'] !== 'no');
-  const buildingEls = withRings.filter(({ e }) => e.tags?.['building'] !== undefined && e.tags['building:part'] === undefined);
+  type Ringed = (typeof withRings)[number];
+  const isPart = (e: OverpassElement): boolean => e.tags?.['building:part'] !== undefined && e.tags['building:part'] !== 'no';
+  const allPartEls = withRings.filter(({ e }) => isPart(e));
+  // `building:part=no` on a `building` (the Eiffel Tower, the Elizabeth Tower) says "this is a whole building, not a
+  // part of one": it is an outline, and so is any `building` that carries no part tag.
+  const buildingEls = withRings.filter(({ e }) => e.tags?.['building'] !== undefined && !isPart(e));
   const rawArea = (r: LatLon[]): number => Math.abs(r.reduce((s, p, i) => {
     const q = r[(i + 1) % r.length]!;
     return s + p.lon * q.lat - q.lon * p.lat;
   }, 0));
-  const outline = opts.buildingId
-    ? buildingEls.find(({ e }) => key(e) === opts.buildingId)
-    : [...buildingEls].sort((a, b) => rawArea(b.r.outer) - rawArea(a.r.outer))[0];
-  if (opts.buildingId && !outline) throw new Error(`osm: ${opts.buildingId} is not in the response`);
-  if (!outline && allPartEls.length === 0) throw new Error('osm: no building or building:part geometry in the response');
 
-  // A part that lies outside the outline belongs to a neighbour the query also returned: leave it out (reported).
+  // Which elements the caller chose: a `building` is an outline (massed), any other element (a site area, a bridge) only
+  // says where the site is (its parts are admitted, it is not massed), a `building:part` is admitted as a part.
+  const chosen = opts.buildingIds ?? (opts.buildingId ? [opts.buildingId] : []);
+  const outlines: Ringed[] = [], areas: Ringed[] = [], forcedParts = new Set<string>();
+  for (const id of chosen) {
+    const el = withRings.find(({ e }) => key(e) === id);
+    if (!el) throw new Error(`osm: ${id} is not in the response`);
+    if (isPart(el.e)) forcedParts.add(id);
+    else if (buildingEls.includes(el)) outlines.push(el);
+    else areas.push(el);
+  }
+  if (chosen.length === 0) {
+    const largest = [...buildingEls].sort((a, b) => rawArea(b.r.outer) - rawArea(a.r.outer))[0];
+    if (largest) outlines.push(largest);
+  }
+  const regions = [...outlines, ...areas];
+  if (regions.length === 0 && allPartEls.length === 0) throw new Error('osm: no building or building:part geometry in the response');
+
+  // A part that lies outside every outline belongs to a neighbour the query also returned: leave it out (reported).
   let partEls = allPartEls;
-  if (outline) {
-    const lats = outline.r.outer.map(p => p.lat), lons = outline.r.outer.map(p => p.lon);
+  /** The outline (or area) a part lies in, by the fraction of its footprint inside it. */
+  const ownerOf = new Map<string, Ringed>();
+  if (regions.length > 0) {
+    const lats = regions.flatMap(o => o.r.outer.map(p => p.lat)), lons = regions.flatMap(o => o.r.outer.map(p => p.lon));
     const centre = { lat: (Math.min(...lats) + Math.max(...lats)) / 2, lng: (Math.min(...lons) + Math.max(...lons)) / 2 };
     const local = (ring: LatLon[]): Vec2m[] => projectPolygonToLocal(ring, centre, 0).map(p => [p.x, p.z] as Vec2m);
-    const outer = local(outline.r.outer), holes = outline.r.holes.map(local);
+    const regionLocal = regions.map(o => ({ o, outer: local(o.r.outer), holes: o.r.holes.map(local) }));
     partEls = allPartEls.filter(({ e, r }) => {
-      const inside = coverageFraction(local(r.outer), r.holes.map(local), [{ outer, holes }], 0.25);
-      if (inside >= PART_INSIDE_OUTLINE_MIN) return true;
-      warnings.push(`${key(e)}: ${Math.round(inside * 100)}% inside the outline ${key(outline.e)}; left out as a neighbouring building`);
+      if (forcedParts.has(key(e))) return true;
+      const outer = local(r.outer), holes = r.holes.map(local);
+      let best = 0, owner: Ringed | undefined;
+      for (const reg of regionLocal) {
+        const inside = coverageFraction(outer, holes, [{ outer: reg.outer, holes: reg.holes }], 0.25);
+        if (inside > best) { best = inside; owner = reg.o; }
+      }
+      if (owner && best >= PART_INSIDE_OUTLINE_MIN) { ownerOf.set(key(e), owner); return true; }
+      warnings.push(`${key(e)}: ${Math.round(best * 100)}% inside ${regions.length === 1 ? 'the outline' : 'any outline'} ${regions.map(o => key(o.e)).join(', ')}; left out as a neighbouring building`);
       return false;
     });
   }
 
   // Centre the frame on the bounding box of everything we use.
-  const used = [...(outline ? [outline] : []), ...partEls];
+  const used = [...outlines, ...partEls];
   const all = used.flatMap(u => u.r.outer);
   const origin = {
     lat: (Math.min(...all.map(p => p.lat)) + Math.max(...all.map(p => p.lat))) / 2,
@@ -217,28 +254,29 @@ export function siteFromOverpass(json: { elements?: OverpassElement[] }, opts: O
     });
   };
 
-  const outlineHeight = outline ? parseLengthM(outline.e.tags?.['height']) : null;
-  if (outline) {
-    footprint.push({ outer: project(outline.r.outer), holes: outline.r.holes.map(project) });
-    ref(outline.e, ['footprint', 'outline height']);
+  const outlineHeights = new Map<string, number>();
+  for (const outline of outlines) {
     const t = outline.e.tags ?? {};
+    const id = key(outline.e);
+    const hasParts = partEls.some(({ e }) => ownerOf.get(key(e)) === outline);
     const levels = parseInt(t['building:levels'] ?? '', 10);
-    const h = outlineHeight ?? (Number.isFinite(levels) ? levels * METRES_PER_LEVEL : null);
-    if (h === null && partEls.length === 0) warnings.push(`${key(outline.e)}: no height or levels tagged, using ${DEFAULT_HEIGHT_M} m`);
-    // The outline is also a part (partId-less footprint is the outline); massing decides whether parts replace it.
+    const tagged = parseLengthM(t['height']);
+    if (tagged !== null) outlineHeights.set(id, tagged);
+    const h = tagged ?? (Number.isFinite(levels) ? levels * METRES_PER_LEVEL : null);
+    if (h === null && !hasParts) warnings.push(`${id}: no height or levels tagged, using ${DEFAULT_HEIGHT_M} m`);
+    // The outline is also a part (its footprint carries the outline's id); massing decides where the parts replace it.
     const roof = roofShapeFromOsm(t['roof:shape']);
-    if (!roof.known) warnings.push(`${key(outline.e)}: roof:shape=${t['roof:shape']} has no RoofShape, using flat`);
-    parts.push({
-      partId: key(outline.e), baseM: 0, heightM: h ?? DEFAULT_HEIGHT_M, roof: { shape: roof.shape },
-      colourHint: t['building:colour'],
-    });
-    footprint[0]!.partId = key(outline.e);
+    if (!roof.known) warnings.push(`${id}: roof:shape=${t['roof:shape']} has no RoofShape, using flat`);
+    footprint.push({ outer: project(outline.r.outer), holes: outline.r.holes.map(project), partId: id });
+    ref(outline.e, ['footprint', 'outline height']);
+    parts.push({ partId: id, baseM: 0, heightM: h ?? DEFAULT_HEIGHT_M, roof: { shape: roof.shape }, colourHint: t['building:colour'] });
+    measurements.push({ what: `${OUTLINE_PREFIX}${id}`, valueM: 1, source: `osm-${outline.e.type}-${outline.e.id}` });
     const role = roleFromTags(t);
-    if (role) roles[key(outline.e)] = role;
+    if (role) roles[id] = role;
     const rise = parseLengthM(t['roof:height']);
-    if (rise !== null) measurements.push({ what: `${ROOF_RISE_PREFIX}${key(outline.e)}`, valueM: rise, source: `osm-${outline.e.type}-${outline.e.id}` });
+    if (rise !== null) measurements.push({ what: `${ROOF_RISE_PREFIX}${id}`, valueM: rise, source: `osm-${outline.e.type}-${outline.e.id}` });
     const dir = parseBearingDeg(t['roof:direction']);
-    if (dir !== null) measurements.push({ what: `${ROOF_DIRECTION_PREFIX}${key(outline.e)}`, valueM: dir, source: `osm-${outline.e.type}-${outline.e.id}` });
+    if (dir !== null) measurements.push({ what: `${ROOF_DIRECTION_PREFIX}${id}`, valueM: dir, source: `osm-${outline.e.type}-${outline.e.id}` });
   }
 
   for (const { e, r } of partEls) {
@@ -247,6 +285,8 @@ export function siteFromOverpass(json: { elements?: OverpassElement[] }, opts: O
     ref(e, ['footprint', 'part height']);
     const top = parseLengthM(t['height']) ?? parseLengthM(t['building:height']);
     const levels = parseInt(t['building:levels'] ?? '', 10);
+    const owner = ownerOf.get(key(e));
+    const outlineHeight = owner ? outlineHeights.get(key(owner.e)) ?? null : null;
     let heightM: number;
     if (top !== null) heightM = top;
     else if (Number.isFinite(levels)) { heightM = levels * METRES_PER_LEVEL; warnings.push(`${key(e)}: height from building:levels ${levels}`); }
@@ -267,7 +307,7 @@ export function siteFromOverpass(json: { elements?: OverpassElement[] }, opts: O
     // TODO(roof-orientation): roof:orientation (gable ridge axis, `along`/`across`) is not carried yet.
   }
 
-  const tags = outline?.e.tags ?? {};
+  const tags = outlines[0]?.e.tags ?? {};
   return {
     site: {
       name: opts.name ?? tags['name:en'] ?? tags['name'] ?? 'OSM site',

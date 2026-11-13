@@ -136,8 +136,9 @@ const FIXTURES = path.resolve(import.meta.dirname, '../test/fixtures/osm');
 const overpass = JSON.parse(readFileSync(flag('fixture', path.join(FIXTURES, `${siteName}.overpass.json`)), 'utf8'));
 if (flag('building', '') === 'parts') overpass.elements = overpass.elements.filter((e: { tags?: Record<string, string> }) => e.tags?.['building:part'] !== undefined);
 const buildingFlag = flag('building', siteName === 'notre-dame' ? 'way/201611261' : '');
-const buildingId = buildingFlag && buildingFlag !== 'parts' ? buildingFlag : undefined;
-const site = siteFromOverpass(overpass, { retrieved: '2026-11-09', url: 'https://overpass-api.de/api/interpreter', ...(buildingId ? { buildingId } : {}) });
+// A comma list names several outlines (a site that is more than one building).
+const buildingIds = buildingFlag && buildingFlag !== 'parts' ? buildingFlag.split(',') : undefined;
+const site = siteFromOverpass(overpass, { retrieved: '2026-11-09', url: 'https://overpass-api.de/api/interpreter', ...(buildingIds ? { buildingIds } : {}) });
 const massed = buildMassing(site.site, { roles: site.roles, scale: { target: Number(flag('target', '1')) } });
 const sidecarPath = path.resolve(import.meta.dirname, '../web/src/brickgen/features/sidecars', `${siteName}.annotations.json`);
 let sidecars: ReturnType<typeof parseSidecar>[] = [];

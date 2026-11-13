@@ -157,7 +157,7 @@ describe('mq2 terraced skillion (a roof that is the whole body)', () => {
   const tiers: SiteEvidence = site({
     footprint: [
       { outer: rect(40, 40), holes: [], partId: 'low' },
-      { outer: rect(20, 20), holes: [], partId: 'high' },
+      { outer: rect(20, 20, 0, -10), holes: [], partId: 'high' },
     ],
     parts: [
       { partId: 'low', baseM: 0, heightM: 40, roof: { shape: 'shed' } },
