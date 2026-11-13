@@ -23,7 +23,6 @@ import path from 'node:path';
 import { DETAIL_LEVELS, type DetailLevel, type PlacementDetail } from '../web/src/brickgen/levels/levels.js';
 import { suggestSize, type LevelCost } from '../web/src/brickgen/levels/suggest.js';
 import { BUDGET_TIERS } from '../web/src/engine/marketplace/budget.js';
-import { PAD_STUDS } from '../web/src/brickgen/grammar/index.js';
 import { LANDMARKS } from './_landmark_table.js';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -47,6 +46,8 @@ const levels: DetailLevel[] = flag('levels', DETAIL_LEVELS.map(l => l.studsPerMe
 const buildingArg = slug === 'cologne-cathedral' ? '--building=parts' : `--building=${landmark.osm[0]}`;
 
 interface LevelRun {
+  /** The massing's extent, metres. */
+  boundsM: [[number, number, number], [number, number, number]];
   level: number; dims: [number, number, number]; parts: number; components: number; unsupported: number;
   overlaps: number; cuboidsEstimate: number; seconds: number; verified: boolean; notes: string[];
   /** Resident cuboids and uncompressed bytes of the built pack, when measured. */
@@ -64,10 +65,10 @@ for (const level of levels) {
   const r = spawnSync('bun', ['scripts/_grammar_render.ts', slug, base, `--fixture=${fixture}`, buildingArg, `--level=${level.studsPerMetre}`,
     `--views=${flag('views', 'se,w')}`, `--maxpx=${flag('maxpx', '1200')}`, `--ldr=${ldr}`], { cwd: root, encoding: 'utf8', timeout: 90 * 60_000, maxBuffer: 1 << 28 });
   if (r.status !== 0) { console.error(`level ${level.studsPerMetre}: render failed\n${(r.stderr || r.stdout).slice(-800)}`); process.exit(1); }
-  const j = JSON.parse(readFileSync(path.join(root, `${base}.json`), 'utf8')) as { dims: [number, number, number]; report: { parts: number; components: number; unsupported: number; overlaps: number; budget: { cuboidsEstimate: number } }; notes: string[] };
+  const j = JSON.parse(readFileSync(path.join(root, `${base}.json`), 'utf8')) as { boundsM: [[number, number, number], [number, number, number]]; dims: [number, number, number]; report: { parts: number; components: number; unsupported: number; overlaps: number; budget: { cuboidsEstimate: number } }; notes: string[] };
   const verified = j.report.components === 1 && j.report.unsupported === 0 && j.report.overlaps === 0;
   runs.push({
-    level: level.studsPerMetre, dims: j.dims, parts: j.report.parts, components: j.report.components, unsupported: j.report.unsupported, overlaps: j.report.overlaps,
+    boundsM: j.boundsM, level: level.studsPerMetre, dims: j.dims, parts: j.report.parts, components: j.report.components, unsupported: j.report.unsupported, overlaps: j.report.overlaps,
     cuboidsEstimate: j.report.budget.cuboidsEstimate, seconds: Math.round((Date.now() - t0) / 1000), verified, notes: j.notes,
     ...(measured[String(level.studsPerMetre)] !== undefined ? measured[String(level.studsPerMetre)]! : {}),
   });
@@ -86,9 +87,9 @@ if (args.includes('--export')) {
   }
 }
 
-// What the wand shows. Extent in metres from the lattice (the grammar pads every side by PAD_STUDS studs).
-const finest = runs.at(-1)!;
-const extentM = { x: (finest.dims[0] - 2 * PAD_STUDS) / finest.level, y: finest.dims[1] / (finest.level * 2.5), z: (finest.dims[2] - 2 * PAD_STUDS) / finest.level };
+// What the wand shows: the massing's real extent in metres (the lattice is taller: headroom and a base plate).
+const [lo, hi] = runs[0]!.boundsM;
+const extentM = { x: hi[0] - lo[0], y: hi[1] - lo[1], z: hi[2] - lo[2] };
 const costs: LevelCost[] = runs.filter(r => r.residentCuboids !== undefined && r.uncompressedBytes !== undefined).map(r => ({ studsPerMetre: r.level, residentCuboids: r.residentCuboids!, uncompressedBytes: r.uncompressedBytes! }));
 const tier = BUDGET_TIERS['standard']!;
 const suggestion = suggestSize({ extent: extentM, costs, maxResidentCuboids: tier.maxResidentCuboids, maxUncompressedBytes: tier.maxUncompressedBytes });

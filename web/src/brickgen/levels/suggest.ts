@@ -66,6 +66,8 @@ function blocksAt(extent: ExtentM, rung: SizeRung): { x: number; y: number; z: n
  */
 export function suggestSize(input: SuggestInput): SizeSuggestion {
   const budgetOk = (l: DetailLevel): boolean => {
+    // Nothing measured at all: only the coarsest level is offered (its pack is the one every export already measures).
+    if (input.costs.length === 0) return l.studsPerMetre === DETAIL_LEVELS[0]!.studsPerMetre;
     const c = input.costs.find(k => k.studsPerMetre === l.studsPerMetre);
     return c !== undefined && c.residentCuboids <= input.maxResidentCuboids && c.uncompressedBytes <= input.maxUncompressedBytes;
   };

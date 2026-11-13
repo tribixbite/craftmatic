@@ -115,6 +115,10 @@ describe('brickgen-levels: size suggestion', () => {
     expect(fits.level.studsPerMetre).toBe(2);
     expect(fits.pct).toBe(200);
   });
+  it('with no measured cost at all it offers only the coarsest level, at its own 100 percent', () => {
+    const s = suggestSize({ extent, costs: [], ...MAX });
+    expect([s.level.studsPerMetre, s.pct]).toEqual([1, 100]);
+  });
   it('never offers a level with no measured cost', () => {
     expect(suggestSize({ extent, costs: [cost(1, 15_001, 9.4)], ...MAX }).level.studsPerMetre).toBe(1);
   });

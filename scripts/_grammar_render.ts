@@ -176,5 +176,5 @@ for (const v of flag('views', 'se,nw').split(',') as View[]) {
   console.log(`${outBase}-${v}.png ${r.w}x${r.h}`);
 }
 if (flag('ldr', '')) writeFileSync(flag('ldr', ''), writeLdraw(brick.plan, { slug: siteName, title: `${siteName} (${massed.massing.scale.studsPerMetre} studs per metre)`, author: 'brickgen', licence: 'see the design repository' }));
-writeFileSync(`${outBase}.json`, JSON.stringify({ site: siteName, dims: lattice.dims, grammarMs: t1 - t0, brickMs: t2 - t1, report: brick.report, repairs: brick.repairs, openings: brick.openings, notes, stats, histogram: hist }, null, 1));
+writeFileSync(`${outBase}.json`, JSON.stringify({ site: siteName, boundsM: massed.massing.boundsM, dims: lattice.dims, grammarMs: t1 - t0, brickMs: t2 - t1, report: brick.report, repairs: brick.repairs, openings: brick.openings, notes, stats, histogram: hist }, null, 1));
 console.log(JSON.stringify({ dims: lattice.dims, grammarMs: t1 - t0, brickMs: t2 - t1, parts: brick.plan.elements.length, report: brick.report, notes }));
