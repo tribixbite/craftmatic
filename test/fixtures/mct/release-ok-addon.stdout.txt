@@ -1,0 +1,11 @@
+Processing project 1/1: release-ok.zip
+Error: Test Fail: Found 6 errors in Cooperative Add-On Item Requirements Generator check
+Error: JSON namespaced identifier is not in the expected form of creatorshortname_projectshortname:myitem: acme:slab - /Acme_Demo_BP/blocks/acme/demo/slab.json
+Error: JSON namespaced identifier is not in the expected form of creatorshortname_projectshortname:myitem: acme:thing - /Acme_Demo_BP/entities/acme/demo/thing.json
+Error: JSON namespaced identifier is not in the expected form of creatorshortname_projectshortname:myitem: acme:wand - /Acme_Demo_BP/items/acme/demo/wand.json
+Error: Resource animation name section is not in the expected form of animation.creatorshortname_projectshortname.animation_name: animation.acme.thing.spin - /Acme_Demo_RP/animations/acme/demo/thing.animation.json
+Error: Resource pack render controller name section is not in the expected form of controller.render.creatorshortname_projectshortname: controller.render.acme.thing - /Acme_Demo_RP/render_controllers/acme/demo/thing.render_controllers.json
+Error: Geometry identifier section is not in the expected form of geometry.creatorshortname_projectshortname: geometry.acme.thing - /Acme_Demo_RP/models/entity/acme/demo/thing.geo.json
+Error: Test Fail: Found 2 errors in Cooperative Add-On Requirements check
+Error: Found an cooperative add-on common name folder 'blocks' in a parent folder pack\textures. Should be named 'creatorshortname' and not a common term: blocks
+Error: Found an cooperative add-on common name folder 'entity' in a parent folder pack\textures. Should be named 'creatorshortname' and not a common term: entity

@@ -1,0 +1,3 @@
+Processing project 1/1: release-ok.zip
+Error: Test Fail: Found 1 error in Pack Icon check
+Error: pack_icon image file not found for Acme_Demo_BP. It must use the .png extension.
