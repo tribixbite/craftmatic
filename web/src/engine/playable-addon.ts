@@ -10,6 +10,7 @@ import { BRICK_BLOCK_COLOURS, BRICK_BLOCK_KINDS, brickBlockDefinition, brickBloc
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
+import type { PlacementDetail } from '../brickgen/levels/levels.js';
 import { boardPointsOf, buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, geometryEntityBoxes, geometryHitBox, hitTestAtSize, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsFor, withColliderTreadsAsync, withSizeGroups, type CarveSource, type HitTestBox, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
 import { FLYER, flyerScript, type FlyerRuntimeConfig } from './bedrock-flyer.js';
 import type { CanonMount } from './set-canon.js';
@@ -261,6 +262,8 @@ export interface PlayableAddonOptions {
      * applies it: no export changes size on its own.
      */
     access?: AccessScaleRecommendation;
+    /** A landmark's detail level and suggested size, for the Brick Wand (`PlacementPackSpec.detail`). */
+    detail?: PlacementDetail;
     /**
      * How far (blocks) schem-pipeline.ts widened the grid past the model on
      * each horizontal side so an access stair from a raised door can run out
@@ -4158,6 +4161,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(options.interactionNote || ixWalkNote ? { interactionNote: bedrockInGameText([options.interactionNote, ixWalkNote].filter(Boolean).join(' ')) } : {}),
         // The wand names the measured walk-through step and quotes the reason
         // whole - spelt for Bedrock's text formatter, which deletes a bare `%`.
+        // The levels' texts (suggested size, what the other levels add), spelt for Bedrock's text formatter.
+        ...(options.detail ? { detail: { ...options.detail, suggestion: { ...options.detail.suggestion, text: bedrockInGameText(options.detail.suggestion.text) }, otherLevels: options.detail.otherLevels.map(o => ({ ...o, text: bedrockInGameText(o.text) })) } } : {}),
         ...(options.access ? { access: { ...(options.access.sizePct !== undefined ? { sizePct: options.access.sizePct } : {}), reason: bedrockInGameText(options.access.reason) } } : {}),
         ...(manualSeatId || options.manualSeatTypeId ? { manualSeatTypeId: manualSeatId ? `${PACK_NAMESPACE}:${manualSeatId}` : options.manualSeatTypeId } : {}),
         ...(options.runtimeDoorCandidates ? { runtimeDoorCandidates: options.runtimeDoorCandidates } : {}) });

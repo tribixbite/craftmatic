@@ -19,6 +19,7 @@
  * 21063 reference sha256 gate depends on it.
  */
 
+import type { PlacementDetail } from '../brickgen/levels/levels.js';
 import { withoutBuildTools } from './build-tools.js';
 import { labelHeuristicsAllowed, type PackProfile } from './pack-profile.js';
 import type { ParsedBrick } from './ldraw-parser.js';
@@ -179,6 +180,8 @@ export interface SchemWorkerInput {
   packProfile?: PackProfile;
   /** `.mcpack` / `.mcaddon`: the model file the bytes came from, with its sha256/12. */
   sourceProvenance?: SourceProvenance | null;
+  /** `.mcaddon`: a landmark's detail level and suggested size for the Brick Wand (`brickgen/levels`, LSCALE). */
+  detail?: PlacementDetail;
 }
 
 /** What a Bedrock `.mcpack` export produced, for the status line. */
@@ -883,6 +886,7 @@ export async function runSchemPipeline(
       ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}),
       ...(interactionNote ? { interactionNote } : {}),
       ...(access ? { access } : {}),
+      ...(input.detail ? { detail: input.detail } : {}),
       ...(accessMargin ? { accessMargin } : {}),
       ...(accessReachLdu ? { accessReachLdu } : {}),
       ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}),

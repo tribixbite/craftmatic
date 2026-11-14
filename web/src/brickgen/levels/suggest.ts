@@ -1,0 +1,105 @@
+/**
+ * The wand's size suggestion (LSCALE, BIZ-05 / BIZ-10): which size to place a landmark at, from the detail each level
+ * adds, what a pack of that level costs a phone, and the room the player has. Pure data in, player-facing text out;
+ * the wand shows `text` before placement and the runtime re-asks the pin's clear space (`availableBlocks`).
+ *
+ * Today's wand already names a size, but only a WALK-THROUGH one (`recommendAccessScale`, `PlacementAccess`): the step
+ * at which a doorway is player-sized, labelled "(recommended)". It says nothing about detail, budget or room, so a
+ * landmark with no doorway shows no suggestion at all. This one is about the design.
+ */
+import { DETAIL_LEVELS, sizeLadder, type DetailLevel, type SizeRung } from './levels.js';
+
+/** A building's real extent in metres. */
+export interface ExtentM { x: number; y: number; z: number }
+
+/** What one level costs, measured on a built pack (`static` of `_marketplace_budget.ts`, M06): resident cuboids and uncompressed bytes. */
+export interface LevelCost { studsPerMetre: number; residentCuboids: number; uncompressedBytes: number }
+
+export interface SuggestInput {
+  extent: ExtentM;
+  /** Measured cost per level; a level with no row is not offered. */
+  costs: readonly LevelCost[];
+  /** Resident cuboids one pack may ship (`BUDGET_TIERS.standard.maxResidentCuboids`: 60,000). */
+  maxResidentCuboids: number;
+  /** Uncompressed bytes one pack may ship (`maxUncompressedBytes`: 25 MiB). */
+  maxUncompressedBytes: number;
+  /** Blocks of clear space on the longest side, when known (the pin's preflight); absent = not limited. */
+  availableBlocks?: number;
+  /** Wand steps; default the wand's. */
+  steps?: readonly number[];
+  /** The level of the pack that shows the text (its wand speaks that pack's own percent); default the suggested level's. */
+  forPack?: DetailLevel;
+}
+
+/** One wand step with what the suggestion knows about it. */
+export interface SuggestedRung extends SizeRung {
+  /** Blocks the building spans at this step. */
+  blocks: { x: number; y: number; z: number };
+  /** The level's pack fits the phone's budget. */
+  withinBudget: boolean;
+  /** The longest side fits the clear space (always true when it is unknown). */
+  fitsSpace: boolean;
+}
+
+export interface SizeSuggestion {
+  /** The suggested wand step, in percent of the STANDARD design (real size); a level's pack shows it divided by its studs per metre. */
+  pct: number;
+  level: DetailLevel;
+  rungs: SuggestedRung[];
+  /** Player-facing sentences (X-05 lint clean: no percent sign, no marks, no set numbers). */
+  text: string;
+  /** Why this and not a bigger step, for diagnostics. */
+  reason: string;
+}
+
+const round = (n: number): number => Math.round(n);
+
+/** Blocks the building spans at `rung`. */
+function blocksAt(extent: ExtentM, rung: SizeRung): { x: number; y: number; z: number } {
+  return { x: round(extent.x * rung.blocksPerMetre), y: round(extent.y * rung.blocksPerMetre), z: round(extent.z * rung.blocksPerMetre) };
+}
+
+/**
+ * The suggested step: the SMALLEST step of the finest level that fits the budget and the room (a level's smallest step
+ * is its own 100 percent, so the footprint is no bigger than the detail needs). When even the coarsest level does not
+ * fit the room, the largest step that does (or the smallest step) is named with that said plainly.
+ */
+export function suggestSize(input: SuggestInput): SizeSuggestion {
+  const budgetOk = (l: DetailLevel): boolean => {
+    // Nothing measured at all: only the coarsest level is offered (its pack is the one every export already measures).
+    if (input.costs.length === 0) return l.studsPerMetre === DETAIL_LEVELS[0]!.studsPerMetre;
+    const c = input.costs.find(k => k.studsPerMetre === l.studsPerMetre);
+    return c !== undefined && c.residentCuboids <= input.maxResidentCuboids && c.uncompressedBytes <= input.maxUncompressedBytes;
+  };
+  const rungs: SuggestedRung[] = sizeLadder(input.steps).map(r => {
+    const blocks = blocksAt(input.extent, r);
+    return { ...r, blocks, withinBudget: budgetOk(r.level), fitsSpace: input.availableBlocks === undefined || Math.max(blocks.x, blocks.z) <= input.availableBlocks };
+  });
+  // A level is suggested at its own 100 percent or more; a smaller step only when the room leaves nothing else.
+  const fitting = rungs.filter(r => r.withinBudget && r.fitsSpace);
+  const usable = fitting.some(r => r.factor >= 1) ? fitting.filter(r => r.factor >= 1) : fitting;
+  // Finest level first; within a level the smallest step (rungs are in step order, so the first of a level wins).
+  const finest = usable.reduce<SuggestedRung | undefined>((best, r) => (best === undefined || r.level.studsPerMetre > best.level.studsPerMetre ? r : best), undefined);
+  const fallback = rungs.filter(r => r.fitsSpace).pop() ?? rungs[0]!;
+  const pick = finest ?? fallback;
+  const coarsest = DETAIL_LEVELS[0]!;
+  const fine = pick.level.studsPerMetre > coarsest.studsPerMetre;
+  const unfit = !finest;
+  const reason = unfit
+    ? 'no level fits both the phone budget and the room'
+    : `finest level within the pack budget, cuboids and bytes (${pick.level.studsPerMetre} studs per metre) at its smallest step`;
+  const size = `${pick.blocks.x} by ${pick.blocks.z} blocks and ${pick.blocks.y} high`;
+  // In a pack of level L the wand speaks the pack's own percent: the suggested step over L (the pack's 100 percent
+  // is L times as big as the standard design's).
+  const own = input.forPack ?? pick.level;
+  const ownPct = Math.max(25, Math.round(pick.pct / own.studsPerMetre));
+  const sameLevel = own.studsPerMetre === pick.level.studsPerMetre;
+  const lead = !sameLevel
+    ? `Suggested: the ${pick.level.studsPerMetre}-stud pack at ${Math.max(25, Math.round(pick.pct / pick.level.studsPerMetre))} percent.`
+    : own.studsPerMetre === 1 ? `Suggested size: ${ownPct} percent.` : `Suggested size: ${ownPct} percent here, as big as ${pick.pct} percent of the standard design.`;
+  const text = unfit
+    ? `${lead} It is the largest that fits the clear space and covers ${size}.`
+    : `${lead} ${fine ? `At this size the design has ${pick.level.label}.` : 'This is the whole building at one stud to the metre.'} It covers ${size}${input.availableBlocks === undefined ? '' : ', which fits your clear space'}.`;
+  return { pct: pick.pct, level: pick.level, rungs, text, reason };
+}
+

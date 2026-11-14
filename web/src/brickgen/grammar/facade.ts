@@ -13,6 +13,7 @@
 import type { FeatureKind, FeatureSet, FeatureSpec, Massing, MassVolume } from '../types.js';
 import type { Canvas } from './canvas.js';
 import { openingMask, roseMask } from './arch.js';
+import { roseTracery, TRACERY_MIN_DIAMETER } from '../levels/detail.js';
 import type { Frame } from './frame.js';
 import { cellOf, plateOf } from './frame.js';
 import type { Mask } from './footprint.js';
@@ -95,12 +96,13 @@ const opening: Handler = ({ ctx, f, v, ef, labels }) => {
   return made ? { openings: made } : { skip: 'wall hidden' };
 };
 
-/** Rose window: a disc of open cells with vertical mullions. */
+/** Rose window: a disc of open cells with vertical mullions; a wide one has a ring and spokes (`roseTracery`). */
 const rose: Handler = ({ ctx, f, v, ef, labels }) => {
   if (!ef) return { skip: 'no edge' };
   const { frame, canvas } = ctx;
   const diameter = Math.max(1, Math.round(Math.max(f.sizeM[0], f.sizeM[1]) * frame.spm));
-  const { mask, bars, w, h } = roseMask(diameter, frame.ppm / frame.spm, diameter >= 7 ? 3 : diameter >= 3 ? 1 : 0);
+  // From TRACERY_MIN_DIAMETER studs (a 7 m rose at two studs per metre) the disc gets a ring and spokes, not just bars.
+  const { mask, bars, w, h } = diameter >= TRACERY_MIN_DIAMETER ? roseTracery(diameter, frame.ppm / frame.spm) : roseMask(diameter, frame.ppm / frame.spm, diameter >= 7 ? 3 : diameter >= 3 ? 1 : 0);
   const p0 = Math.max(plateOf(frame, f.atM[1]), volumeLevels(v, frame).wallFrom);
   const u0 = Math.round(f.atM[0] * frame.spm - w / 2);
   const cut = cutOpening(canvas, ef, u0, p0, w, h, mask, labels.window);

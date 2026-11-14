@@ -5,6 +5,7 @@
  *
  *   bun scripts/_grammar_render.ts notre-dame output/a07/notre-dame --scale=1 [--target=1] [--views=se,nw] [--plain]
  *   bun scripts/_grammar_render.ts louvre-palace output/a07/louvre
+ *   bun scripts/_grammar_render.ts notre-dame out --level=4 --ldr=out.ldr   (a detail level exactly; also writes the model)
  *
  * Writes `<out>-<view>.png` (each under 2000 px) and `<out>.json` (stats, verify report, part histogram).
  * `--plain` renders the plain stand-in (`bricker/plain-massing.ts`) for comparison.
@@ -17,6 +18,8 @@ import { plainMassingLattice } from '../web/src/brickgen/bricker/plain-massing.j
 import { ldrawRgb } from '../web/src/brickgen/colour.js';
 import { buildFeatureSet, parseSidecar, tagPartsFromOverpass } from '../web/src/brickgen/features/index.js';
 import { buildGrammarModel } from '../web/src/brickgen/grammar/index.js';
+import { DETAIL_LEVELS, scaleRequestForLevel } from '../web/src/brickgen/levels/levels.js';
+import { writeLdraw } from '../web/src/brickgen/emit/ldraw-writer.js';
 import { buildMassing } from '../web/src/brickgen/massing/index.js';
 import { siteFromOverpass } from '../web/src/brickgen/site/osm.js';
 import type { BrickPlan } from '../web/src/brickgen/types.js';
@@ -136,10 +139,14 @@ const FIXTURES = path.resolve(import.meta.dirname, '../test/fixtures/osm');
 const overpass = JSON.parse(readFileSync(flag('fixture', path.join(FIXTURES, `${siteName}.overpass.json`)), 'utf8'));
 if (flag('building', '') === 'parts') overpass.elements = overpass.elements.filter((e: { tags?: Record<string, string> }) => e.tags?.['building:part'] !== undefined);
 const buildingFlag = flag('building', siteName === 'notre-dame' ? 'way/201611261' : '');
-// A comma list names several outlines (a site that is more than one building).
+// A comma list names several outlines (a site that is more than one building, MQ2).
 const buildingIds = buildingFlag && buildingFlag !== 'parts' ? buildingFlag.split(',') : undefined;
 const site = siteFromOverpass(overpass, { retrieved: '2026-11-09', url: 'https://overpass-api.de/api/interpreter', ...(buildingIds ? { buildingIds } : {}) });
-const massed = buildMassing(site.site, { roles: site.roles, scale: { target: Number(flag('target', '1')) } });
+// `--level=<1|2|4>` asks for a detail level EXACTLY (levels/levels.ts: no silent brick/size clamp); `--target` keeps the default clamps.
+const levelFlag = flag('level', '');
+const level = levelFlag ? DETAIL_LEVELS.find(l => l.studsPerMetre === Number(levelFlag)) : undefined;
+if (levelFlag && !level) { console.error(`--level must be one of ${DETAIL_LEVELS.map(l => l.studsPerMetre).join(', ')}`); process.exit(2); }
+const massed = buildMassing(site.site, { roles: site.roles, scale: level ? scaleRequestForLevel(level) : { target: Number(flag('target', '1')) } });
 const sidecarPath = path.resolve(import.meta.dirname, '../web/src/brickgen/features/sidecars', `${siteName}.annotations.json`);
 let sidecars: ReturnType<typeof parseSidecar>[] = [];
 try { sidecars = [parseSidecar(JSON.parse(readFileSync(sidecarPath, 'utf8')))]; } catch { /* no sidecar for this site */ }
@@ -175,5 +182,6 @@ const builtTopM = (() => {
   for (const e of placeAll(brick.plan.elements, VOCABULARY_LOOKUP).world) for (const [, p] of e.body) top = Math.max(top, p + 1);
   return Math.round(((top - 2) / massed.massing.scale.platesPerMetre) * 10) / 10;
 })();
-writeFileSync(`${outBase}.json`, JSON.stringify({ site: siteName, builtTopM, dims: lattice.dims, grammarMs: t1 - t0, brickMs: t2 - t1, report: brick.report, repairs: brick.repairs, openings: brick.openings, notes, stats, histogram: hist }, null, 1));
+if (flag('ldr', '')) writeFileSync(flag('ldr', ''), writeLdraw(brick.plan, { slug: siteName, title: `${siteName} (${massed.massing.scale.studsPerMetre} studs per metre)`, author: 'brickgen', licence: 'see the design repository' }));
+writeFileSync(`${outBase}.json`, JSON.stringify({ site: siteName, builtTopM, boundsM: massed.massing.boundsM, dims: lattice.dims, grammarMs: t1 - t0, brickMs: t2 - t1, report: brick.report, repairs: brick.repairs, openings: brick.openings, notes, stats, histogram: hist }, null, 1));
 console.log(JSON.stringify({ dims: lattice.dims, grammarMs: t1 - t0, brickMs: t2 - t1, parts: brick.plan.elements.length, report: brick.report, notes }));

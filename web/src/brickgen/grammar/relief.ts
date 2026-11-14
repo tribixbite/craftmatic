@@ -8,6 +8,7 @@
  * below. A relief that stands on the ground (a buttress) is also joined through the base plate.
  */
 import type { MassVolume } from '../types.js';
+import { pinnacleStages } from '../levels/detail.js';
 import { elementFor, occupancyIndex } from '../vocab/index.js';
 import type { Canvas } from './canvas.js';
 import { plateOf, type Frame } from './frame.js';
@@ -58,7 +59,7 @@ const CONE_PARTS: Readonly<Record<number, string>> = { 1: '4589.dat', 2: '3942c.
 /**
  * A pinnacle: a square shaft with a cone on top, standing on the wall top. `w` studs square (1, 2 or 4 get a real cone
  * part; another size is capped by the largest cone that fits, centred), centred on stud `uCentre` of the edge and
- * inside the wall line.
+ * inside the wall line. A base of `PINNACLE_TAPER_MIN_SIDE` studs or more narrows course by course (`pinnacleStages`).
  *
  * Only the cone's BODY cells carry the cone label (read from the part's own occupancy); the cells above them, where the
  * cone narrows, stay empty. The bricker refuses a slope or cone with anything labelled over its body, and labelling the
@@ -72,9 +73,14 @@ export function placePinnacle(ctx: ReliefContext, ef: EdgeFrame, uCentre: number
   const shaftH = Math.max(0, heightPlates - element.heightPlates);
   let n = 0;
   const u0 = Math.round(uCentre - side / 2);
+  // From PINNACLE_TAPER_MIN_SIDE studs the shaft steps in a stud a side per course (levels/detail.ts); narrower is straight.
+  const stages = pinnacleStages(side, capSide, shaftH);
   for (let a = 0; a < side; a++) for (let b = 0; b < side; b++) {
     const [x, z] = ef.cell(u0 + a, -b);
-    for (let p = p0; p < p0 + shaftH; p++) { ctx.canvas.set(x, p, z, shaft); n++; }
+    for (const st of stages) {
+      if (a < st.inset || b < st.inset || a >= side - st.inset || b >= side - st.inset) continue;
+      for (let p = p0 + st.p0; p < p0 + st.p1; p++) { ctx.canvas.set(x, p, z, shaft); n++; }
+    }
     // The cap sits in the middle of the shaft: its cell (ca, cb) within the cone's footprint.
     const ca = a - Math.floor((side - capSide) / 2), cb = b - Math.floor((side - capSide) / 2);
     if (ca < 0 || ca >= fx || cb < 0 || cb >= fz) continue;

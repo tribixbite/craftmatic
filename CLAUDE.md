@@ -766,6 +766,17 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   the part prefetch report stages, and a 20 s no-progress watchdog rewrites the
   source badge. If you add an early `return` to a load path, wire it in.
 
+- **A landmark has detail LEVELS, not one design scaled up** (LSCALE, `web/src/brickgen/levels/`). A stud is 0.375
+  blocks at 1x, so wand step S means S/100 x 0.375 blocks per metre; the level of step S is the finest of 1, 2, 4
+  studs per metre that is <= S/100 (200 and 300 -> 2, 400 -> 4), shown at factor S/(100 L). `chooseScale`'s default
+  clamps (40k bricks, 512 studs, 1,536 plates) silently turned a 4 studs-per-metre request for a cathedral into 1.8:
+  ask for a level with `scaleRequestForLevel`. The binding cost is NOT cuboids: Notre-Dame ships 15,001 resident
+  cuboids / 9.8 MB at level 1 and 28,193 / 27.2 MB at level 2 (limit 25 MiB), though the pre-merge estimate reads
+  78k and 341k. Measure shipped cuboids AND bytes on a built pack (`_marketplace_budget.ts --static-only`), never the
+  estimate. One pack per level, tool: `bun scripts/_landmark_levels.ts <slug> [--export] [--costs=]`; the wand
+  shows `PlacementPackSpec.detail` and "Suggest a size here" (sampled room check at the pin). The pinnacle taper and
+  rose tracery start at 5 / 14 studs (`levels/detail.ts`), so level 1 output is unchanged.
+
 ## Autonomous improvement loop
 
 `scripts/renderer-improve-loop.mjs` is a Stop hook (in `.claude/settings.json`) that, when `.claude/improve-loop-state.json` has `"active": true`, blocks stop + re-injects a "find/implement/validate/commit the next improvement" directive (50-pass cap). Currently `active:false`. Re-arm: set `active:true, pass:0`.
