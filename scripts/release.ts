@@ -67,6 +67,8 @@ const ROOT = resolve(process.env.CRAFTMATIC_RELEASE_ROOT ?? join(dirname(fileURL
 
 /** Script module versions the dev pack manifest declares today (engine/mcpack.ts), pinned for release builds. */
 // TODO(X-02): read these from one shared constant once the profile seam lands; they are copied from mcpack.ts:240-241 and :224.
+/** The LDraw credit the resource pack's manifest description carries (the full text is CREDITS-LDRAW.txt in the bundle). */
+const LDRAW_CREDIT_LINE = 'Part shapes: LDraw.org Parts Library, CC BY.';
 const SCRIPT_MODULES = { server: '2.9.0', serverUi: '2.1.0' };
 const MIN_ENGINE_VERSION: [number, number, number] = [1, 26, 40];
 
@@ -430,7 +432,7 @@ async function make(specFile: string): Promise<void> {
   const { planResolutionAtCell, spanOfBricks, DEFAULT_SCHEM_SETTINGS } = await import('../web/src/engine/schem-settings.js');
   const { planAddonScale } = await import('../web/src/engine/addon-scale.js');
   const { LDU_PER_BLOCK } = await import('../web/src/engine/lego-scale.js');
-  const { withDisclaimer, disclaimerFile, disclaimerText, checkDisclaimer } = await import('../web/src/engine/pack-text/notices.js');
+  const { withDisclaimer, disclaimerText, checkDisclaimer, MOJANG_DISCLAIMER } = await import('../web/src/engine/pack-text/notices.js');
   const { playerStrings } = await import('../web/src/engine/pack-text/strings.js');
   const { lintPackFiles, lintText, DISCLAIMER_EXEMPTION } = await import('../web/src/engine/pack-text/lint.js');
   const { renderCredits } = await import('../web/src/engine/credits.js');
@@ -458,8 +460,8 @@ async function make(specFile: string): Promise<void> {
     texts: {
       packName: product.displayName,
       bpDescription: withDisclaimer(summary),
-      rpDescription: withDisclaimer(playerStrings.resourceDescription()),
-      readme: `${product.displayName}\n\n${summary}\n\n${disclaimerText(product.publisher, { requirePublisher: true })}\nSee CREDITS.txt and CHANGELOG.txt.\n`,
+      rpDescription: withDisclaimer(`${playerStrings.resourceDescription()} ${LDRAW_CREDIT_LINE}`),
+      readme: `${product.displayName}\n\n${summary}\n\n${disclaimerText(product.publisher, { requirePublisher: true })}\nSee CREDITS-LDRAW.txt and CHANGELOG.md.\n`,
       lang: {},
     },
     flags: { ...RELEASE_PROFILE_FLAGS },
@@ -520,15 +522,20 @@ async function make(specFile: string): Promise<void> {
   if (!record('brick-blocks', 'M03 own brick and plate blocks, no state over 12 values', brickBlockProblems(files, identity.namespace, BRICK_BLOCK_COLOURS), `${BRICK_BLOCK_COLOURS.length * 2} brick and plate blocks, compact collider states`)) return writeResult([]);
   if (!record('placement', 'M07 air-only placement (marketplace mode in the wand script)', placementProblems(files), 'the placement script runs in marketplace mode')) return writeResult([]);
 
-  // ---- notices (X-05), credits (X-04), in-pack changelog (D-06) ----
-  const bpRoot = files.map(f => f.name).find(n => /^[^/]+_BP\/manifest\.json$/.test(n))!.replace('manifest.json', '');
-  const roots = [...new Set(files.filter(f => /(^|\/)manifest\.json$/.test(f.name)).map(f => f.name.replace('manifest.json', '')))];
-  const enc = new TextEncoder();
-  for (const root of roots) files.push(disclaimerFile(root, product.publisher, { requirePublisher: true }) as { name: string; data: Uint8Array });
+  // ---- notices (X-05), credits (X-04), changelog (D-06) ----
+  // Microsoft's validator calls a README, DISCLAIMER, CREDITS or CHANGELOG file inside a pack an extraneous file
+  // (PRJINT:101), so none ships in the packs. The disclaimer is in both manifest descriptions (and the LDraw credit
+  // line in the resource pack's); the files themselves travel in the release bundle beside the archives (below).
   const credits = renderCredits(ledgerEntries);
-  files.push({ name: `${bpRoot}CREDITS.txt`, data: enc.encode(credits) });
-  files.push({ name: `${bpRoot}CHANGELOG.txt`, data: enc.encode(renderPackText(doc)) });
-  if (!record('notices', 'X-05 the exact Mojang disclaimer and publisher block in both manifests, DISCLAIMER.txt and README', checkDisclaimer(files), 'disclaimer verbatim in every manifest, DISCLAIMER.txt and README')) return writeResult([]);
+  const bundleNotices: Array<{ name: string; text: string }> = [
+    { name: 'README.txt', text: profile.texts!.readme! },
+    { name: 'CHANGELOG.txt', text: renderPackText(doc) },
+  ];
+  if (!record('notices', 'X-05 the exact Mojang disclaimer and publisher block in both manifests and the bundle README', [
+    ...checkDisclaimer(files, { manifestsOnly: true }),
+    ...(profile.texts!.readme!.includes(MOJANG_DISCLAIMER) ? [] : ['bundle README.txt lacks the Mojang disclaimer']),
+    ...files.filter(f => /(^|\/)(README|CHANGELOG|CREDITS|DISCLAIMER)[^/]*$/i.test(f.name)).map(f => `${f.name}: a notice file inside a pack (the validator rejects it; it belongs in the bundle)`),
+  ], 'disclaimer verbatim in every manifest and the bundle README; no notice file inside a pack')) return writeResult([]);
 
   // ---- the forbidden-terms lint over the pack AND every listing / copy file ----
   // Waivers are DATA of the product (`<data>/lint-exemptions.json`, each with a reason), reviewed with the product; none exists for a real product.
@@ -542,6 +549,7 @@ async function make(specFile: string): Promise<void> {
     for (const f of lintText(readFileSync(join(spec.dataRoot, rel), 'utf8'), { exemptions })) lintFindings.push(`${rel}:${f.line} ${f.ruleId} "${f.match}"`);
   }
   lintFindings.push(...lintText(changelogText, { exemptions }).map(f => `changelog:${f.line} ${f.ruleId} "${f.match}"`));
+  for (const n of bundleNotices) lintFindings.push(...lintText(n.text, { exemptions }).map(f => `bundle ${n.name}:${f.line} ${f.ruleId} "${f.match}"`));
   if (!record('text-lint', 'X-05 forbidden-terms lint over the pack, listing copy and changelog', lintFindings, `0 findings in ${files.length} pack files and ${copyFiles.length + 1} copy files${waivers.length ? `, ${waivers.length} explicit waiver(s): ${waivers.map(w => w.id).join(', ')}` : ''}`)) return writeResult([]);
 
   // ---- the deterministic zip (D-03) ----
@@ -571,6 +579,7 @@ async function make(specFile: string): Promise<void> {
   writeFileSync(join(out, 'CHANGELOG.md'), changelogText);
   writeFileSync(join(out, 'NOTICE.txt'), renderNotice(product.publisher));
   writeFileSync(join(out, 'CREDITS-LDRAW.txt'), credits);
+  for (const n of bundleNotices) writeFileSync(join(out, n.name), n.text);
   // What the ledger freezes for this version (read by `finalize`), from the very files that were zipped.
   writeFileSync(join(out, 'pack-ids.json'), `${JSON.stringify(packIds(files), null, 2)}
 `);

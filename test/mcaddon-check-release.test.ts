@@ -107,7 +107,7 @@ function releaseOkFiles(): Files {
         description: {
           identifier: 'acme:thing',
           materials: { default: 'entity' },
-          textures: { default: 'textures/entity/acme/demo/thing' },
+          textures: { default: 'textures/acme/demo/entity/thing' },
           geometry: { default: 'geometry.acme.thing' },
           render_controllers: ['controller.render.acme.thing'],
         },
@@ -125,9 +125,10 @@ function releaseOkFiles(): Files {
       format_version: '1.8.0',
       render_controllers: { 'controller.render.acme.thing': { geometry: 'Geometry.default' } },
     }),
-    [`${RP}textures/entity/acme/demo/thing.png`]: png(64, 64),
-    [`${RP}textures/blocks/acme/demo/slab.png`]: png(16, 16),
+    [`${RP}textures/acme/demo/entity/thing.png`]: png(64, 64),
+    [`${RP}textures/acme/demo/blocks/slab.png`]: png(16, 16),
     [`${RP}pack_icon.png`]: png(256, 256),
+    [`${BP}pack_icon.png`]: png(256, 256),
     [`${RP}texts/en_US.lang`]: 'tile.acme:slab.name=Slab\n',
     [`${RP}sounds.json`]: JSON.stringify({
       interactive_sounds: {
@@ -251,13 +252,13 @@ describe('mcaddon-check-release', () => {
   });
 
   it('a terrain_texture.json that names only its own blocks passes --release', () => {
-    const r = run(['--release', variant(atlas({ acme_demo_slab: { textures: 'textures/blocks/acme/demo/slab' }, acme_demo_var: { textures: { variations: [{ path: 'textures/blocks/acme/demo/slab', weight: 1 }] } } }))]);
+    const r = run(['--release', variant(atlas({ acme_demo_slab: { textures: ['textures/acme/demo/blocks/slab'] }, acme_demo_var: { textures: { variations: [{ path: 'textures/acme/demo/blocks/slab', weight: 1 }] } } }))]);
     expect(r.out).not.toMatch(/terrain_texture/);
     expect(r.code).toBe(0);
   });
 
   it('a terrain_texture.json that redefines a vanilla texture fails --release, naming the key', () => {
-    const byKey = run(['--release', variant(atlas({ dirt: { textures: 'textures/blocks/acme/demo/slab' } }))]);
+    const byKey = run(['--release', variant(atlas({ dirt: { textures: 'textures/acme/demo/blocks/slab' } }))]);
     expect(byKey.code).toBe(1);
     expect(byKey.out).toMatch(/terrain_texture\.json redefines vanilla texture\(s\): dirt/);
     const byPath = run(['--release', variant(atlas({ acme_demo_slab: { textures: 'textures/blocks/concrete_white' } }))]);
@@ -288,13 +289,13 @@ describe('mcaddon-check-release', () => {
 
   it('oversize block and entity textures fail --release', () => {
     const f = releaseOkFiles();
-    f[`${RP}textures/blocks/acme/demo/slab.png`] = png(257, 1);
-    f[`${RP}textures/entity/acme/demo/thing.png`] = png(2049, 1);
+    f[`${RP}textures/acme/demo/blocks/slab.png`] = png(257, 1);
+    f[`${RP}textures/acme/demo/entity/thing.png`] = png(2049, 1);
     const r = run(['--release', variant(f)]);
     expect(r.out).toMatch(/2 texture\(s\) over the size limit/);
     const ok = releaseOkFiles();
-    ok[`${RP}textures/blocks/acme/demo/slab.png`] = png(256, 256);
-    ok[`${RP}textures/entity/acme/demo/thing.png`] = png(2048, 1);
+    ok[`${RP}textures/acme/demo/blocks/slab.png`] = png(256, 256);
+    ok[`${RP}textures/acme/demo/entity/thing.png`] = png(2048, 1);
     expect(run(['--release', variant(ok)]).code).toBe(0);
   });
 

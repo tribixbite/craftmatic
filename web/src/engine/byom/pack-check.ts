@@ -682,14 +682,20 @@ const RELEASE_DEFAULT_TEXTURE_PX = 2048;
 const RELEASE_FORBIDDEN_NAMESPACES = ['craftmatic', 'minecraft'];
 const RELEASE_EXAMPLES = 4;
 
-/** Content-type folders: a file inside one must sit at `<folder>/<creator>/<pack>/...`. */
+/** Content-type folders: a file inside one must sit at `<folder>/<creator>/<pack>/...` (`textures` has its own rule below). */
 const RELEASE_CONTENT_FOLDERS = [
   'entities', 'blocks', 'items', 'structures', 'functions', 'animations', 'animation_controllers',
   'loot_tables', 'recipes', 'trading', 'spawn_rules', 'features', 'feature_rules', 'biomes',
   'entity', 'render_controllers', 'particles', 'attachables', 'materials', 'fogs',
-  'models/entity', 'models/blocks', 'textures/blocks', 'textures/items', 'textures/entity',
-  'textures/ui', 'textures/particle', 'textures/environment', 'textures/colormap',
+  'models/entity', 'models/blocks', 'cameras/presets',
 ];
+/** Files that may sit directly in `textures/` (the atlas catalogs); every other texture sits at textures/<creator>/<pack>/ (mct CADDONREQ102). */
+const RELEASE_TEXTURE_CATALOG = ['terrain_texture.json', 'item_texture.json', 'flipbook_textures.json', 'textures_list.json', 'texture_list.json'];
+/** Files that may sit directly in a pack folder (mct PRJINT:101 flags any other). */
+const RELEASE_PACK_ROOT_FILES = ['manifest.json', 'pack_icon.png', 'blocks.json', 'sounds.json'];
+const RELEASE_PACK_ICON_PX = [2, 4, 8, 16, 32, 64, 128, 256];
+const RELEASE_MAX_PATH = 100;
+const RELEASE_MAX_SEGMENTS = 9;
 
 /**
  * Vanilla texture paths a pack must not overwrite. A pattern list, not a full resource-pack inventory.
@@ -874,6 +880,41 @@ function checkRelease(a: Archive, fileName: string): Findings {
   if (loose.length) problems.push(`${loose.length} file(s) not under <type>/<creator>/<pack>/: ${brief(loose)}`);
   if (pairs.size > 1) problems.push(`content folders use ${pairs.size} different <creator>/<pack> pairs: ${brief(pairs)}`);
 
+  // 4b. textures/<creator>/<pack>/..., one pair (mct CADDONREQ102 / 104).
+  const badTextures: string[] = [];
+  const texturePairs = new Set<string>();
+  for (const n of names) {
+    const own = owner(n, roots);
+    const rel = own !== null ? n.slice(own.length) : n;
+    if (!rel.startsWith('textures/')) continue;
+    const parts = rel.split('/');
+    if (parts.length === 2 && RELEASE_TEXTURE_CATALOG.includes(parts[1])) continue;
+    if (parts.length < 4) badTextures.push(rel);
+    else texturePairs.add(`${parts[1]}/${parts[2]}`);
+  }
+  if (badTextures.length) problems.push(`${badTextures.length} texture file(s) not under textures/<creator>/<pack>/: ${brief(badTextures)}`);
+  if (texturePairs.size > 1) problems.push(`textures use ${texturePairs.size} different <creator>/<pack> pairs: ${brief(texturePairs)}`);
+
+  // 4c. only the files a pack folder may hold, and a pack_icon.png in every pack (mct PRJINT:101, CPACKICON:101).
+  for (const root of roots) {
+    const extra = names.filter((n) => n.startsWith(root) && !n.slice(root.length).includes('/') && !RELEASE_PACK_ROOT_FILES.includes(n.slice(root.length))).map((n) => n.slice(root.length));
+    if (extra.length) problems.push(`${root}: extraneous file(s) in the pack folder: ${brief(extra)}`);
+    const icon = `${root}pack_icon.png`;
+    if (!names.includes(icon)) problems.push(`${icon} is missing (every pack needs a square PNG icon)`);
+    else {
+      const size = imageSize(a.bytes(icon).subarray(0, 32));
+      if (size === null || size[0] !== size[1] || !RELEASE_PACK_ICON_PX.includes(size[0])) {
+        problems.push(`${icon} must be a square PNG of 2, 4, 8, 16, 32, 64, 128 or 256 px (found ${size ? `${size[0]}x${size[1]}` : 'not a PNG/TGA'})`);
+      }
+    }
+  }
+
+  // 4d. path length and depth, pack folder included (mct PATHLENGTH).
+  const tooLong = names.filter((n) => n.length > RELEASE_MAX_PATH);
+  if (tooLong.length) problems.push(`${tooLong.length} path(s) over ${RELEASE_MAX_PATH} characters: ${brief(tooLong)}`);
+  const tooDeep = names.filter((n) => n.split('/').length > RELEASE_MAX_SEGMENTS);
+  if (tooDeep.length) problems.push(`${tooDeep.length} path(s) deeper than ${RELEASE_MAX_SEGMENTS} segments: ${brief(tooDeep)}`);
+
   // 5. vanilla texture paths.
   const vanilla: string[] = [];
   for (const n of names) {
@@ -894,6 +935,12 @@ function checkRelease(a: Archive, fileName: string): Findings {
       continue;
     }
     if (redefined.length) problems.push(`${rel} redefines vanilla texture(s): ${brief(new Set(redefined))}`);
+    if (rel.endsWith('terrain_texture.json')) {
+      const data = a.json(n);
+      const td = isDict(data) ? get(data, 'texture_data') : null;
+      const strings = isDict(td) ? Object.entries(td).filter(([, e]) => isDict(e) && typeof get(e, 'textures') === 'string').map(([k]) => k) : [];
+      if (strings.length) problems.push(`${rel}: \`textures\` must be an array (mct JSON:193) in ${strings.length} entr(ies): ${brief(strings)}`);
+    }
   }
 
   // 6. registered permutations (dev mode allows 65,536).
@@ -920,12 +967,14 @@ function checkRelease(a: Archive, fileName: string): Findings {
     if (!/\.(png|tga)$/.test(i.name)) continue;
     const rel = i.name.slice((owner(i.name, roots) ?? '').length);
     if (!rel.startsWith('textures/') || rel.split('/').length - 1 < 2) continue;
+    const folderNames = rel.split('/').slice(1, -1);
     const size = imageSize(a.bytes(i.name).subarray(0, 32));
     if (size === null) {
       problems.push(`${rel}: not a readable PNG/TGA`);
       continue;
     }
-    const limit = RELEASE_MAX_TEXTURE_PX[rel.split('/')[1]] ?? RELEASE_DEFAULT_TEXTURE_PX;
+    const capped = folderNames.filter((f) => f in RELEASE_MAX_TEXTURE_PX).map((f) => RELEASE_MAX_TEXTURE_PX[f]);
+    const limit = capped.length ? Math.min(...capped) : RELEASE_DEFAULT_TEXTURE_PX;
     if (Math.max(...size) > limit) oversize.push(`${rel} ${size[0]}x${size[1]} > ${limit}`);
   }
   if (oversize.length) {

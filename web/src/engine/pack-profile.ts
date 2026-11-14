@@ -27,7 +27,7 @@ export interface PackProfileTexts {
   lang: Record<string, string>;
 }
 
-/** Behaviour switches; every one defaults to the dev pack's value (all true except `explicitOnly`, `marketplacePlacement`, `brickBlocks` and `compactColliderStates`). */
+/** Behaviour switches; every one defaults to the dev pack's value (all true except `explicitOnly`, `marketplacePlacement`, `brickBlocks`, `compactColliderStates` and `packIcons`). */
 export interface PackProfileFlags {
   /** Ship the 17 vanilla-path `textures/blocks/concrete_*.png` overrides (a Marketplace pack must not). */
   vanillaTextures: boolean;
@@ -45,6 +45,10 @@ export interface PackProfileFlags {
   brickBlocks: boolean;
   /** M03: spell the collider blocks' span as two 12-value states (6,192 permutations, not 11,008: a Marketplace pack must stay <= 10,000). Default false: the dev pack's `lo`/`hi`. */
   compactColliderStates: boolean;
+  /** Ship `README.txt` and `<ns>-provenance.json` inside the behaviour pack. Microsoft's validator flags both (PRJINT:101, UNKJSON:101); a release carries its notices beside the archive instead. Default true. */
+  packNotes: boolean;
+  /** RB: brand BOTH packs with the product's own 256x256 `pack_icon.png` (CPACKICON:101). Default false: the dev pack's 16x16 swatch in the resource pack only. */
+  packIcons: boolean;
 }
 
 export interface PackProfile {
@@ -64,7 +68,7 @@ export interface PackProfile {
 
 /** The dev pack's value for every flag. */
 export const DEV_PACK_FLAGS: Readonly<PackProfileFlags> = Object.freeze({
-  vanillaTextures: true, diagnostics: true, faceArt: true, devStamp: true, explicitOnly: false, marketplacePlacement: false, brickBlocks: false, compactColliderStates: false,
+  vanillaTextures: true, diagnostics: true, faceArt: true, devStamp: true, explicitOnly: false, marketplacePlacement: false, brickBlocks: false, compactColliderStates: false, packNotes: true, packIcons: false,
 });
 
 /** `profile.flags` over the dev defaults: with no profile, exactly the dev pack. */

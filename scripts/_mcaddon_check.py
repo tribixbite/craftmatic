@@ -301,14 +301,22 @@ RELEASE_FORBIDDEN_NAMESPACES = ('craftmatic', 'minecraft')
 RELEASE_EXAMPLES = 4                       # how many offending paths one message names
 
 # Content-type folders: a file inside one must sit at <folder>/<creator>/<pack>/...
-# `models` and `textures` nest one level further (models/entity, textures/blocks).
+# `models` and `cameras` nest one level further (models/entity, cameras/presets). `textures` is judged by its own
+# rule (RELEASE_TEXTURE_CATALOG below): everything under it sits at textures/<creator>/<pack>/.
 RELEASE_CONTENT_FOLDERS = (
     'entities', 'blocks', 'items', 'structures', 'functions', 'animations', 'animation_controllers',
     'loot_tables', 'recipes', 'trading', 'spawn_rules', 'features', 'feature_rules', 'biomes',
     'entity', 'render_controllers', 'particles', 'attachables', 'materials', 'fogs',
-    'models/entity', 'models/blocks', 'textures/blocks', 'textures/items', 'textures/entity',
-    'textures/ui', 'textures/particle', 'textures/environment', 'textures/colormap',
+    'models/entity', 'models/blocks', 'cameras/presets',
 )
+# Files that may sit directly in `textures/` (the atlas catalogs); every other texture file sits at
+# textures/<creator>/<pack>/... (Microsoft's cooperative add-on guide, "Texture Name"; mct CADDONREQ102).
+RELEASE_TEXTURE_CATALOG = ('terrain_texture.json', 'item_texture.json', 'flipbook_textures.json', 'textures_list.json', 'texture_list.json')
+# Files that may sit directly in a pack folder (mct PRJINT:101 flags any other: README.txt, notices, provenance JSON).
+RELEASE_PACK_ROOT_FILES = ('manifest.json', 'pack_icon.png', 'blocks.json', 'sounds.json')
+RELEASE_PACK_ICON_PX = (2, 4, 8, 16, 32, 64, 128, 256)   # mct CPACKICON: square, a power of two up to 256
+RELEASE_MAX_PATH = 100                                    # mct PATHLENGTH:103, pack folder name included
+RELEASE_MAX_SEGMENTS = 9                                  # mct PATHLENGTH:102, pack folder name included
 # Vanilla texture paths a pack must not overwrite. A pattern list, not a full
 # resource-pack inventory. TODO(vanilla-list): regenerate from the vanilla
 # resource pack once the Marketplace review confirms the exact set.
@@ -495,6 +503,46 @@ def check_release(path):
     if len(pairs) > 1:
         problems.append(f'content folders use {len(pairs)} different <creator>/<pack> pairs: {_brief({"/".join(p) for p in pairs})}')
 
+    # 4b. textures/<creator>/<pack>/..., one pair (mct CADDONREQ102 / 104).
+    bad_textures, texture_pairs = [], set()
+    for n in names:
+        owner = _owner(n, roots)
+        rel = n[len(owner):] if owner is not None else n
+        if not rel.startswith('textures/'):
+            continue
+        parts = rel.split('/')
+        if len(parts) == 2 and parts[1] in RELEASE_TEXTURE_CATALOG:
+            continue
+        if len(parts) < 4:
+            bad_textures.append(rel)
+        else:
+            texture_pairs.add((parts[1], parts[2]))
+    if bad_textures:
+        problems.append(f'{len(bad_textures)} texture file(s) not under textures/<creator>/<pack>/: {_brief(bad_textures)}')
+    if len(texture_pairs) > 1:
+        problems.append(f'textures use {len(texture_pairs)} different <creator>/<pack> pairs: {_brief({"/".join(p) for p in texture_pairs})}')
+
+    # 4c. only the files a pack folder may hold, and a pack_icon.png in every pack (mct PRJINT:101, CPACKICON:101).
+    for root in roots:
+        extra = [n[len(root):] for n in names if n.startswith(root) and '/' not in n[len(root):] and n[len(root):] not in RELEASE_PACK_ROOT_FILES]
+        if extra:
+            problems.append(f'{root}: extraneous file(s) in the pack folder: {_brief(extra)}')
+        icon = f'{root}pack_icon.png'
+        if icon not in names:
+            problems.append(f'{icon} is missing (every pack needs a square PNG icon)')
+        else:
+            size = _image_size(z.read(icon)[:32])
+            if size is None or size[0] != size[1] or size[0] not in RELEASE_PACK_ICON_PX:
+                problems.append(f'{icon} must be a square PNG of 2, 4, 8, 16, 32, 64, 128 or 256 px (found {"x".join(map(str, size)) if size else "not a PNG/TGA"})')
+
+    # 4d. path length and depth, pack folder included (mct PATHLENGTH).
+    too_long = [n for n in names if len(n) > RELEASE_MAX_PATH]
+    if too_long:
+        problems.append(f'{len(too_long)} path(s) over {RELEASE_MAX_PATH} characters: {_brief(too_long)}')
+    too_deep = [n for n in names if len(n.split('/')) > RELEASE_MAX_SEGMENTS]
+    if too_deep:
+        problems.append(f'{len(too_deep)} path(s) deeper than {RELEASE_MAX_SEGMENTS} segments: {_brief(too_deep)}')
+
     # 5. vanilla texture paths.
     vanilla = []
     for n in names:
@@ -515,6 +563,10 @@ def check_release(path):
                 continue
             if redefined:
                 problems.append(f'{rel} redefines vanilla texture(s): {_brief(set(redefined))}')
+            if rel.endswith('terrain_texture.json'):
+                strings = [k for k, e in ((_json(z, n).get('texture_data') or {}).items()) if isinstance(e, dict) and isinstance(e.get('textures'), str)]
+                if strings:
+                    problems.append(f'{rel}: `textures` must be an array (mct JSON:193) in {len(strings)} entr(ies): {_brief(strings)}')
 
     # 6. registered permutations (dev mode allows 65,536).
     registered = 0
@@ -551,12 +603,14 @@ def check_release(path):
         rel = i.filename[len(_owner(i.filename, roots) or ''):]
         if not rel.startswith('textures/') or rel.count('/') < 2:
             continue
+        # textures/<creator>/<pack>/<blocks|items|...>/x.png: a block or item folder anywhere below the pair keeps its 256 px cap
+        folder_names = rel.split('/')[1:-1]
         with z.open(i) as fh:
             size = _image_size(fh.read(32))
         if size is None:
             problems.append(f'{rel}: not a readable PNG/TGA')
             continue
-        limit = RELEASE_MAX_TEXTURE_PX.get(rel.split('/')[1], RELEASE_DEFAULT_TEXTURE_PX)
+        limit = min([RELEASE_MAX_TEXTURE_PX[f] for f in folder_names if f in RELEASE_MAX_TEXTURE_PX] or [RELEASE_DEFAULT_TEXTURE_PX])
         if max(size) > limit:
             oversize.append(f'{rel} {size[0]}x{size[1]} > {limit}')
     if oversize:
