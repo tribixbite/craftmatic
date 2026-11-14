@@ -1969,7 +1969,9 @@ If your last placement is in the way, undo it first.`)
         // A failed `structure load` (unknown structure, bad rotation) reports
         // successCount 0 without throwing; treated as success it placed nothing
         // and reported 100 %.
-        const loadResult = await dim.runCommand(`structure load ${t.identifier} ${from.x} ${from.y} ${from.z} ${st.rotation}_degrees none`);
+        // Quoted: a release's id is `<ns>:<pack>/<tile>` and an unquoted `/` is a syntax error on the device
+        // (quirk `structure-id-slash-needs-quotes`, Pixel 2026-11-13).
+        const loadResult = await dim.runCommand(`structure load "${t.identifier}" ${from.x} ${from.y} ${from.z} ${st.rotation}_degrees none`);
         if (loadResult && loadResult.successCount === 0) throw new Error(`structure ${t.identifier} could not be loaded (piece ${i + 1}/${config.tiles.length}). Is the behavior pack's structures folder intact?`);
         // A structure turned by `structure load` moves each block but keeps its
         // states, and a clearance form's shape is part of its id (a wall pulled

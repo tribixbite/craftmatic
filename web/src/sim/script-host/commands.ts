@@ -103,7 +103,12 @@ export function runCommand(host: FacadeHost, dimension: string, line: string, so
     }
     case 'structure': {
       if (t[1] !== 'load') break;
-      const s = engine.structures.get(t[2] ?? '');
+      // Quirk `structure-id-slash-needs-quotes`: the command parser reads a bare id only up to a `/`; a release's
+      // nested id (`cmt_x:x/tile_0`) must be quoted or the whole command is a syntax error (it throws, as on the device).
+      const rawId = t[2] ?? '';
+      const quoted = rawId.length >= 2 && rawId.startsWith('"') && rawId.endsWith('"');
+      if (!quoted && rawId.includes('/')) throw new SyntaxError(`Syntax error: Unexpected "/": at "${rawId.slice(0, rawId.indexOf('/'))}>>/<<${rawId.slice(rawId.indexOf('/') + 1)}"`);
+      const s = engine.structures.get(quoted ? rawId.slice(1, -1) : rawId);
       if (!s) return { successCount: 0 };
       const x = Math.floor(coord(t[3], base.x)), y = Math.floor(coord(t[4], base.y)), z = Math.floor(coord(t[5], base.z));
       const rot = Number(/^(\d+)_degrees$/.exec(t[6] ?? '0_degrees')?.[1] ?? 0) as StructureRotation;
@@ -114,7 +119,7 @@ export function runCommand(host: FacadeHost, dimension: string, line: string, so
       forEachStructureBlock(s, rot, (dx, dy, dz, b) => {
         let p;
         try { p = host.resolvePermutation(b.typeId, b.states); }
-        catch { p = host.resolvePermutation('minecraft:air'); timeline.add('content-log', `[Structure] ${t[2]}: unknown block ${b.typeId} placed as air`); }
+        catch { p = host.resolvePermutation('minecraft:air'); timeline.add('content-log', `[Structure] ${rawId}: unknown block ${b.typeId} placed as air`); }
         w.setPermutation(x + dx, y + dy, z + dz, p);
       });
       return { successCount: 1 };
