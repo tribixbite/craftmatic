@@ -145,41 +145,36 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
     C02 pack contract for 76417/42703 RUNNING: `output/c02-coaster-compare.sh` (worktrees `cmp-prec02` at 90aed2e2,
     `cmp-postc02` at 370aa7cd) into `output/c02-compare/{before,after}`; compare with the zip diff (only stamp files
     may differ).
-  - WAVE 5 MERGED 2026-11-13 (suite running at merge time; push after green): T02-fix, SV (+ side rule, the user's
-    choice), RIDE, C04, MCT, SPIRE, L00. C02 contract finished: 76417/42703 identical but the stamp
-    (`output/c02-compare/`). Private repo `craftmatic-designs` main has the 22 landmarks' inputs (pushed, private).
-    Results and open items:
-    - T02-fix: marketplace scenario clean on nimbus (0/7) and batcave except driver-sees-ahead; regressions 36 OK, 2
-      known-unreproduced, 0 failed. Left: Guide page 2 "Pack made with craftmatic.click" flagged by the lint.
-    - SV: 8153 out of the body; seeing out 54 -> 58 of 62 with the side rule; 43114, 44014, 4997, 60266 have no spot
-      clear to both sides. `--scenario=regressions` not run by SV.
-    - RIDE: drop tower (97.5-block rise, 0.9 g fall, 3 g brake) + sky swing (1 g lateral), sim full cycles 25-300 %;
-      runs in its own `rides-funfair.js` (`TODO(rides-merge)`); swing chairs rigid (`TODO(swing-chairs)`); 300 %
-      drop reaches 108 blocks/s, unmeasured on a device (`TODO(funfair-speed)`).
-    - C04: launches, lifts, block brakes (two trains never share a block), trims, per-route cap 52; camera-continuous
-      cleared (roll planner + a 28 deg/tick frame-rate limit; the 3x sketch is now 2,111 blocks). Open: device speed,
-      trains frozen outside loaded chunks need the ticking-area policy (U17), `coaster-view-clear` frames in loops.
-    - MCT: Microsoft's validator runs (`tools/mct/`, react 18 pinned), no EULA asked. Real findings to act on in
-      release builds: no `pack_icon.png`, file paths > 100 chars (28 on 910004), an extra README, a terrain atlas
-      shape warning; dev packs fail the cooperative-add-on naming rules by design (the rewriter fixes them).
-    - SPIRE: staged tapers + cone tips; still stick-like at 1 stud/m (6-stud base) -> LSCALE. Cologne: the outline
-      as tall as its parts drops every part in massing (render uses `--building=parts`) -> MQ2.
-    - L00: 22 landmarks fetched and run, all 1 component; Eiffel loses 57k cells (disconnected leg volumes, only the
-      legs render), Elizabeth Tower top missing (63.5 vs 96.3 m), 4 sites are outline-only boxes (Himeji, Washington
-      Monument, Hall of Prayer, Kinderdijk), multi-building sites lose parts (Tower Bridge, Neuschwanstein); real
-      heights for Independence Hall, Neuschwanstein, Kinderdijk not recorded; St Basil's 67 vs 47.5 m unresolved.
-  - F01c REJECTED by the user (2026-11-13); branch `biz-f01c` kept, not merged. FIG3 (custom-sculpted gen-3 figure,
-    Fable) RUNNING in `.worktrees/biz-fig3`.
-  - WAVE 5 PUSHED 2026-11-13 (CI green). Post-merge fix: release-script tests set CRAFTMATIC_RELEASE_MCT=skip-for-test
-    (the validator now runs; the fixture release has 10 real mct errors -> RB).
-  - WAVE 6 IN FLIGHT 2026-11-13 (brief `docs/plans/wave6-brief.md`): FIG3 (Fable, custom-sculpted figure), RB (release
-    build passes mct), LSCALE (landmark detail levels + size suggestion), MQ2 (multi-outline sites, outline-vs-parts,
-    Eiffel, Elizabeth Tower), RIDE2 (water-slide tower, stunt arena), DEV (Pixel round on release-profile packs,
-    evidence `output/device-round-2026-11-13-pixel/`).
-  - (Wave 6 plan as written:) LSCALE (landmark detail levels by size + a suggested size), MQ2 (multi-outline sites, outline-vs-parts,
-    Eiffel lattice, Elizabeth Tower top), RIDE2 (water-slide tower, stunt arena), the Pixel round (approved; packs
-    built from the pushed wave-5 commit with the release profile), release-build fixes from MCT (pack icon, path
-    length, README), sampler designs (car, door kit, seat kit, small landmark) once FIG3 is picked.
+  - WAVES 1-5 PUSHED (CI green). WAVE 6 MERGED 2026-11-14 (RB, MQ2, LSCALE + BIZ-66 fix); push after the second
+    full suite (`output/biz-wave6-merge2-suite.log`), then `gh run list`. Open items carried forward:
+    - Wave 5: SV - 43114, 44014, 4997, 60266 have no cockpit spot clear to both sides; `--scenario=regressions` not
+      run by SV. RIDE - `TODO(rides-merge)`, `TODO(swing-chairs)`, `TODO(funfair-speed)` (300 % drop 108 blocks/s
+      unmeasured). C04 - device speed, frozen trains outside loaded chunks (ticking-area policy U17),
+      `coaster-view-clear` frames in loops. T02 - Guide page 2 "Pack made with craftmatic.click" flagged by the lint.
+    - RB (merged): fixture + 42639 release builds pass mct with 0 errors; notices moved to the release bundle;
+      textures under `textures/<creator>/<pack>/`; generated pack icon; path shortening. OPEN: face-art sets (910004
+      and others) cannot be built as releases (the profile refuses face atlases).
+    - MQ2 (merged): multi-building `buildingIds`, outline-vs-parts, Eiffel 330 m, Elizabeth Tower 90.9 of 96.3 m,
+      `trueTopM`. OPEN: Brandenburg Gate 20 vs 26 m, Statue of Liberty 46.8 vs 93 m, St Basil's, St Paul's 68 vs
+      111 m. Its regenerated `run.json`/renders in `C:/git/craftmatic-designs` are UNCOMMITTED there.
+    - LSCALE (merged): detail levels 1/2/4 studs per metre, one pack per level, wand "Suggest a size here". OPEN:
+      Notre-Dame level 2 is 27.2 MB (> 25 MiB) so the suggestion stays at level 1; level 4 unmeasured; Cologne's
+      tower roof breaks into fins at levels 2 and 4.
+    - Pixel round 2026-11-13 (`output/device-round-2026-11-13-pixel/`; world `cmt1113` + 5 pack folders left on the
+      Pixel): BLOCKER fixed offline as BIZ-66 (quoted structure id; needs a device Place with a rebuilt release pack).
+      Passed: brick blocks, air-only placement (prompt, Move, Cancel, exact Undo). Open: coaster rider stuck at the
+      station "waiting for the other train", bodywork fills the view; Nimbus flyer missing under `explicitOnly`
+      (`TODO(B03-flyer)`); tap-to-board untested in Survival (the round ran Creative); sim coaster `mp-two-players`
+      leaves 322 entities after both players undo.
+  - RIDE2 RUNNING (`.worktrees/biz-ride2`): water slides pass the sim 50-300 % (tower not rebuilt since the roof fix);
+    stunt arena fails the sim (loop entry blocked, car ~0.7 block high on the deck, nose-up over the loop top).
+  - FIGURE: F01b (rex/rivet/pip) merged as extras, F01c rejected (branch `biz-f01c` kept). FIG3 (Nib, Juno, Tala,
+    branch `biz-fig3`, sheets `output/fig3/`) -> the user (2026-11-14): "Iterate further we need to maximize
+    compatibility with preexisting accessories like weapons, helmets, hair accessories etc. And keep our current
+    minifigs and dolls just add this as additional so I can eval in game with direct comparison". FIG3b RUNNING
+    (Fable, `.worktrees/biz-fig3b` from `biz-fig3`): accessory fit table, gate margins, additive gen-3 figure system.
+  - NEXT after the push: sampler designs (car, door kit, seat kit, small landmark) once a figure is picked; a device
+    re-check of BIZ-66; the Pixel-round follow-ups above; L01 winding ring.
   - F01b MERGED 2026-11-09 (`biz-f01b`): rex (dinosaur), rivet (robot), pip (bobblehead kid); all pass the gate
     with attached limbs and faces; sheet `.worktrees/biz-f01b/output/f01b/candidates.jpg`; designer recommends rex.
     The user picks (U4).

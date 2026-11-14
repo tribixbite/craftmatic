@@ -5,7 +5,7 @@
  * pack's turnable.
  *
  * The pack is the nimbus stand-in (seeded parts, no library, runs in CI); the favourites' packs under
- * `output/x02-compare/main` are checked too where that folder exists.
+ * `output/x02-compare/main-1114` (rebuilt after BIZ-66) are checked too where that folder exists.
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -79,7 +79,7 @@ describe('sim-namespace', () => {
     expect(await summary(twin, 'cmt_batcave')).toEqual(await summary(built.bytes!, 'craftmatic'));
   }, 300_000);
 
-  const X02 = 'C:/git/craftmatic/output/x02-compare/main';
+  const X02 = 'C:/git/craftmatic/output/x02-compare/main-1114';
   const favourites = existsSync(X02) ? readdirSync(X02).filter(f => f.endsWith('.mcaddon')).slice(0, 2) : [];
   it.skipIf(!favourites.length)('favourites\' packs: original and rewritten twin agree', async () => {
     for (const f of favourites) {

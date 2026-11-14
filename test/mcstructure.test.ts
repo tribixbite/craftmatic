@@ -344,7 +344,7 @@ describe('.mcpack', () => {
     const script = new TextDecoder().decode(await extractFile(buf, 'scripts/placement.js'));
     for (const t of pack.tiles) expect(script).toContain(JSON.stringify(t.identifier));
     expect(script).toContain('a full-size outline and model markers stay fixed at the pinned placement');
-    expect(script).toContain('structure load ${t.identifier}');
+    expect(script).toContain('structure load "${t.identifier}"');
   });
 
   it('refuses an empty model instead of shipping a pack that does nothing', async () => {

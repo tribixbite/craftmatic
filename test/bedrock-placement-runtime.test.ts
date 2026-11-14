@@ -121,7 +121,7 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   player.location = { x: 10, y: 20, z: 30 };
   responses.push({ action: 'Place' }, { selection: 0 });
   await use(assets.itemId);
-  expect(commands()).toEqual(['structure load craftmatic:t0 28 20 30 90_degrees none', 'structure load craftmatic:t1 28 20 48 90_degrees none']);
+  expect(commands()).toEqual(['structure load "craftmatic:t0" 28 20 30 90_degrees none', 'structure load "craftmatic:t1" 28 20 48 90_degrees none']);
   expect(areaCommands().some(command => command.includes('tickingarea add 28 20 30 29 20 47'))).toBe(true);
   expect(blockProbes.some(point => point.z === 30)).toBe(true);
   expect(blockProbes.some(point => point.z === 40)).toBe(true);

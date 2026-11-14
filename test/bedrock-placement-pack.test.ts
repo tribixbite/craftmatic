@@ -75,7 +75,7 @@ describe('Bedrock Brick Wand placement pack', () => {
     expect(item['minecraft:item'].components['minecraft:icon']).toBe('brick');
     expect(item['minecraft:item'].components['minecraft:display_name'].value).toContain('BrickWand');
     expect(assets.script).toContain("world.afterEvents.itemUse.subscribe");
-    expect(assets.script).toContain("structure load ${t.identifier}");
+    expect(assets.script).toContain('structure load "${t.identifier}"');
     expect(assets.script).toContain('entity.setRotation');
     expect(assets.script).toContain('Undo last placement');
     expect(assets.script).toContain('Lighting / night vision');
