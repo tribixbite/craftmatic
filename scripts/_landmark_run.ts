@@ -32,25 +32,28 @@ for (const l of list) {
   const partCount = overpass.elements.filter(e => e.tags?.['building:part'] !== undefined).length;
   result['osmBuildingParts'] = partCount;
   try {
-    const buildingId = l.osm.find(id => overpass.elements.some(e => `${e.type}/${e.id}` === id && e.tags?.['building'] !== undefined && e.tags['building:part'] === undefined));
-    const site = siteFromOverpass(overpass as never, { retrieved: new Date().toISOString().slice(0, 10), url: 'https://overpass-api.de/api/interpreter', ...(buildingId ? { buildingId } : {}) });
+    // Every chosen element is an outline or a site area (MQ2): a site may be several buildings.
+    const buildingIds = l.osm.filter(id => overpass.elements.some(e => `${e.type}/${e.id}` === id));
+    const site = siteFromOverpass(overpass as never, { retrieved: new Date().toISOString().slice(0, 10), url: 'https://overpass-api.de/api/interpreter', ...(buildingIds.length > 0 ? { buildingIds } : {}) });
     const massed = buildMassing(site.site, { roles: site.roles, scale: { target: Number(flag('target', '1')) } });
     const tallest = Math.max(...massed.massing.volumes.map(v => v.topM));
     result['siteWarnings'] = site.warnings;
     result['massingWarnings'] = massed.warnings;
     result['volumes'] = massed.massing.volumes.length;
+    // `massingTallestM` is the tallest WALL top; `trueTopM` adds the roof and spire (what a real height compares to).
     result['massingTallestM'] = Math.round(tallest * 10) / 10;
+    result['trueTopM'] = Math.round(massed.trueTopM * 10) / 10;
     result['realHeightM'] = siteJson.realHeightM ?? null;
     const outBase = path.join(dir, 'renders', 'view');
     mkdirSync(path.dirname(outBase), { recursive: true });
     const run = spawnSync('bun', [
       'scripts/_grammar_render.ts', l.slug, outBase, `--fixture=${file}`, `--target=${flag('target', '1')}`,
-      `--views=${flag('views', 'se,nw,s,w')}`, '--maxpx=900', ...(buildingId ? [`--building=${buildingId}`] : []),
+      `--views=${flag('views', 'se,nw,s,w')}`, '--maxpx=900', ...(buildingIds.length > 0 ? [`--building=${buildingIds.join(',')}`] : []),
     ], { cwd: path.resolve(import.meta.dirname, '..'), encoding: 'utf8', timeout: 20 * 60_000 });
     if (run.status !== 0) { result['renderError'] = (run.stderr || run.stdout).slice(-600); }
     else {
       const j = JSON.parse(readFileSync(`${outBase}.json`, 'utf8')) as { report: Record<string, unknown>; notes: string[]; dims: unknown };
-      result['verify'] = j.report; result['grammarNotes'] = j.notes; result['dims'] = j.dims;
+      result['builtTopM'] = (j as { builtTopM?: number }).builtTopM; result['verify'] = j.report; result['grammarNotes'] = j.notes; result['dims'] = j.dims;
     }
   } catch (e) { result['error'] = (e as Error).message; }
   writeFileSync(path.join(dir, 'run.json'), JSON.stringify(result, null, 1));
