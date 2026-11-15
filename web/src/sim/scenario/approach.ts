@@ -222,6 +222,28 @@ export function walkEdgeKey(a: Pick<WalkNode, 'x' | 'z' | 'y'>, b: Pick<WalkNode
 export function walkRoute(engine: SimEngine, dimension: string, from: Vec3, goal: Vec3, refused: ReadonlySet<string> = new Set()): WalkNode[] | undefined {
   const fx = Math.floor(from.x), fz = Math.floor(from.z), gx = Math.floor(goal.x), gz = Math.floor(goal.z);
   const box = { x0: Math.min(fx, gx) - WALK_SEARCH_MARGIN, x1: Math.max(fx, gx) + WALK_SEARCH_MARGIN, z0: Math.min(fz, gz) - WALK_SEARCH_MARGIN, z1: Math.max(fz, gz) + WALK_SEARCH_MARGIN };
+  return walkSearch(engine, dimension, from, box, goal, refused).route;
+}
+
+/**
+ * Every standing node a walk reaches from `from` inside the columns `box` (the same graph as `walkRoute`: rises
+ * within `WALK_MAX_RISE`, drops within `WALK_MAX_DROP`), flooded once: one answer for every goal asked from the same
+ * place (`walkReaches`), where a `walkRoute` per goal would flood again for each unreachable one.
+ */
+export function walkFlood(engine: SimEngine, dimension: string, from: Vec3, box: { x0: number; x1: number; z0: number; z1: number }): WalkNode[] {
+  return walkSearch(engine, dimension, from, box).nodes;
+}
+
+/** Whether a flood (`walkFlood`) reaches `goal`: a node in its column or the next, within a step of its feet, and the goal a free standing spot. */
+export function walkReaches(engine: SimEngine, dimension: string, nodes: readonly WalkNode[], goal: Vec3): boolean {
+  const gx = Math.floor(goal.x), gz = Math.floor(goal.z);
+  return nodes.some(n => Math.abs(n.x - gx) <= 1 && Math.abs(n.z - gz) <= 1 && goal.y <= n.y + WALK_MAX_RISE + 1e-6 && goal.y >= n.y - WALK_MAX_DROP - 1e-6)
+    && engine.dimension(dimension).withAllLoaded(() => standsAt(engine, dimension, goal));
+}
+
+/** The breadth-first walk search behind `walkRoute` (to `goal`) and `walkFlood` (no goal: every node reached). */
+function walkSearch(engine: SimEngine, dimension: string, from: Vec3, box: { x0: number; x1: number; z0: number; z1: number }, goal?: Vec3, refused: ReadonlySet<string> = new Set()): { route?: WalkNode[]; nodes: WalkNode[] } {
+  const fx = Math.floor(from.x), fz = Math.floor(from.z), gx = goal ? Math.floor(goal.x) : NaN, gz = goal ? Math.floor(goal.z) : NaN;
   const start: WalkNode = { x: fx, z: fz, y: from.y, px: from.x, pz: from.z };
   // A column point's floors, read once per band (a column is reached from up to four sides).
   const floorCache = new Map<string, number[]>();
@@ -249,22 +271,22 @@ export function walkRoute(engine: SimEngine, dimension: string, from: Vec3, goal
   // The route is planned over every block the world holds, loaded or not: at 300-400 % the far side of a model is
   // beyond the simulation distance of the child standing at this side (it loads as the child walks there).
   return w.withAllLoaded(() => search());
-  function search(): WalkNode[] | undefined {
+  function search(): { route?: WalkNode[]; nodes: WalkNode[] } {
   const parent = new Map<string, { node: WalkNode; from?: string }>([[nodeKey(start), { node: start }]]);
   const queue: WalkNode[] = [start];
   for (let h = 0; h < queue.length && parent.size < WALK_MAX_NODES; h++) {
     const n = queue[h]!;
-    if (n.x === gx && n.z === gz && Math.abs(n.y - goal.y) < 0.6) {
+    if (goal && n.x === gx && n.z === gz && Math.abs(n.y - goal.y) < 0.6) {
       const route: WalkNode[] = [];
       for (let k: string | undefined = nodeKey(n); k; k = parent.get(k)!.from) route.unshift(parent.get(k)!.node);
-      return route;
+      return { route, nodes: queue };
     }
     for (const [nx, nz] of [[n.x + 1, n.z], [n.x - 1, n.z], [n.x, n.z + 1], [n.x, n.z - 1]] as const) {
       if (nx < box.x0 || nx > box.x1 || nz < box.z0 || nz > box.z1) continue;
       const goalColumn = nx === gx && nz === gz;
       // Every floor at each stand point of the column (the goal's column: the goal's own feet).
       const options: Array<{ px: number; pz: number; y: number }> = [];
-      if (goalColumn) options.push({ px: goal.x, pz: goal.z, y: goal.y });
+      if (goalColumn && goal) options.push({ px: goal.x, pz: goal.z, y: goal.y });
       else for (const [ox, oz] of STAND_POINTS) for (const y of floorsAt(nx + ox, nz + oz, n.y + WALK_MAX_RISE + 0.05, n.y - WALK_MAX_DROP)) options.push({ px: nx + ox, pz: nz + oz, y });
       for (const o of options) {
         if (o.y > n.y + WALK_MAX_RISE + 1e-6 || o.y < n.y - WALK_MAX_DROP - 1e-6) continue;
@@ -276,6 +298,6 @@ export function walkRoute(engine: SimEngine, dimension: string, from: Vec3, goal
       }
     }
   }
-  return undefined;
+  return { nodes: queue };
   }
 }

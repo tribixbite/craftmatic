@@ -51,10 +51,12 @@ export function markdownReport(reports: readonly PackReport[], title = 'Simulato
   const walked = reports.flatMap(r => r.results.flatMap(res => tapReachOf(res.state).map(t => ({ pack: r.pack, scenario: res.name, ...t }))));
   if (walked.length) {
     const off = walked.filter(t => !t.onFoot);
-    lines.push('', '## Tap targets unreachable on foot (`tap-target-unreachable-on-foot`)', '', `${walked.length} walked approaches: ${walked.length - off.length} reached on foot, ${off.length} not.`, '');
+    const whose = (t: { byModel?: boolean }): string => t.byModel === undefined ? '?' : t.byModel ? 'model' : 'pack';
+    const packs = off.filter(t => t.byModel === false).length, models = off.filter(t => t.byModel === true).length;
+    lines.push('', '## Tap targets unreachable on foot (`tap-target-unreachable-on-foot`)', '', `${walked.length} walked approaches: ${walked.length - off.length} reached on foot, ${off.length} not (${models} the model's: no route over what it draws either; ${packs} the pack's: the model draws a route, the colliders do not; ${off.length - models - packs} not asked).`, '');
     if (off.length) {
-      lines.push('| pack | scenario | target | why |', '|---|---|---|---|');
-      for (const t of off) lines.push(`| ${esc(t.pack)} | ${esc(t.scenario)} | ${esc(t.label)} | ${esc(t.why ?? '')} |`);
+      lines.push('| pack | scenario | target | whose | why |', '|---|---|---|---|---|');
+      for (const t of off) lines.push(`| ${esc(t.pack)} | ${esc(t.scenario)} | ${esc(t.label)} | ${whose(t)} | ${esc(t.why ?? '')} |`);
     }
   }
   const ranking = unmodelledTotals(all);
