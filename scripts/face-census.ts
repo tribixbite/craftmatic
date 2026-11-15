@@ -40,6 +40,10 @@ export const isRealFace = (face: FaceSource): boolean => face === 'printed' || f
  * The print a head NAMES: the converter's `HEAD_PRINT` id first, else a print suffix in its own part name
  * (`3626cpb2588`, `3626cp0b`, `92198p18`); null for a plain mould (`3626c`, `3626`, Mecabricks' undecorated heads).
  */
+// TODO(face-source-transfer): 100 of the favourites' 319 heads name no print (Mecabricks' plain `3626`, 10326's
+// no-print `.io`, 71043's LXF, DBIX heads with no element row). The same set's DBIX conversion often names them
+// (76269's DbixConvV3 carries HEAD_PRINT ids its Mecabricks first pick lacks); matching heads across two sources by
+// figure is not built.
 export function namedHeadPrint(part: string, headPrint?: string): string | null {
   if (headPrint) return faceKey(headPrint);
   const key = faceKey(partStem(part));

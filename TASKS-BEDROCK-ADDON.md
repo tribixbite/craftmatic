@@ -35,6 +35,13 @@ individually tested 28". The favourites list has 40 sets (memory `user-favorite-
   name one of 11 prints with no usable art (10 rejected crops, 3626pb2658 has no BrickLink photo). The web app
   never fetches photos: shipping route 2 to users is the user's licence decision (open), so a pack the LEGO tab
   exports has 116 of 319 (the LDraw prints only).
+  Packs rebuilt on `audit-faces` with the art (`.worktrees/audit-faces/output/faces-1115/sweep-faces/`, 15 sets
+  with default faces in the audit): heads drawn with their own face 14 -> 112 of 147; without art (the LEGO tab)
+  10303 0 -> 7 of 11, 76417 2 -> 2 of 17 (`sweep-nofaces/`). Sim at 50-400 %: the same failures as the audit's
+  baseline, except 76286 (now a vehicle under its name label: 2 boarding-point Undo leftovers, identical on a
+  3fa06170 build without faces, so A-05's class, not faces). Open: 10303 fig2's hair sits over its face (same on
+  the audit build; the head looks under the hair's front), `TODO(face-source-transfer)`: carry print ids from a
+  set's DBIX source onto a Mecabricks/no-print first pick (76269's 32 heads).
 
 ### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
 The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles
