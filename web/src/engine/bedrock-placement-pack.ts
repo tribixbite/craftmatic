@@ -1678,31 +1678,45 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     l.x + BODY_HALF_WIDTH > anchor.x && l.x - BODY_HALF_WIDTH < anchor.x + d.width
     && l.y + BODY_HEIGHT > anchor.y && l.y < anchor.y + d.height
     && l.z + BODY_HALF_WIDTH > anchor.z && l.z - BODY_HALF_WIDTH < anchor.z + d.length;
-  /**
-   * The model's collider cells at 100 %, solid or not (decoded once from `config.colliders.runs`; index
-   * `(x * height + y) * length + z`, the runs' order).
-   */
-  let solidCells: Uint8Array | undefined;
-  const solidCellsOf = (): Uint8Array => {
-    if (solidCells) return solidCells;
-    const c = config.colliders, runs: string = c ? c.runs : '';
-    const out = new Uint8Array(c ? c.width * c.height * c.length : 0);
-    let cell = 0;
-    for (let k = 0; k + 1 < runs.length; k += 2) {
-      const value = runs.charCodeAt(k) - 40, n = runs.charCodeAt(k + 1) - 40 + 1;
-      if (value > 0) out.fill(1, cell, Math.min(out.length, cell + n));
-      cell += n;
-    }
-    return (solidCells = out);
+  /** Whether any player's body in `dim` overlaps the footprint at `anchor` (the size and turn of `st`). */
+  const coversPlayer = (dim: any, st: any, anchor: any): boolean => {
+    const d = dims({ ...st, anchor });
+    let players: any[] = [];
+    try { players = world.getAllPlayers() || []; } catch {}
+    return players.some((q: any) => { try { return q.dimension?.id === dim.id && bodyInFootprint(q.location, anchor, d); } catch { return false; } });
   };
   /**
+   * The model's collider cells at 100 %: each cell's sixteenth span `[lo, hi]` (hi 0 = air), decoded once from
+   * `config.colliders.runs` (index `(x * height + y) * length + z`, the runs' order; a clearance form's value carries
+   * its span as for a full cell).
+   */
+  let cellSpans: { lo: Uint8Array; hi: Uint8Array } | undefined;
+  const cellSpansOf = (): { lo: Uint8Array; hi: Uint8Array } => {
+    if (cellSpans) return cellSpans;
+    const c = config.colliders, runs: string = c ? c.runs : '', n = c ? c.width * c.height * c.length : 0;
+    const lo = new Uint8Array(n), hi = new Uint8Array(n);
+    let cell = 0;
+    for (let k = 0; k + 1 < runs.length; k += 2) {
+      const value = runs.charCodeAt(k) - 40, count = runs.charCodeAt(k + 1) - 40 + 1;
+      if (value > 0) {
+        const cv = Math.floor((value - 1) / 136), [l, h] = pairOf(value - cv * 136);
+        lo.fill(l, cell, Math.min(n, cell + count)); hi.fill(h, cell, Math.min(n, cell + count));
+      }
+      cell += count;
+    }
+    return (cellSpans = { lo, hi });
+  };
+  /** How far up a solid may reach above a player's feet and only lift them (Bedrock's step-up), blocks. */
+  const STEP_UP_BLOCKS = 0.6;
+  /**
    * Whether the placement at `anchor` (the size and turn of `st`) would build its blocks round a player's body
-   * (A-06, PROC-19): a body inside the footprint that stands within reach of a SOLID collider cell of the model, read
-   * in the model's own frame (`modelPoint`). The reach is half a block at 100 % and above (a cell's columns round to
-   * the nearest block) and a whole block below (a cell claims every block it touches), so a held body is never
-   * missed; a body a block clear of a wall may be refused. An entity-only pack lays no blocks, and a pack without a
-   * collider grid (a coloured-block export) carries no map of where its blocks are: neither is judged. A fine turn
-   * is judged by the footprint alone.
+   * (A-06, PROC-19): a body inside the footprint that a collider cell of the model would overlap, read in the model's
+   * own frame (`modelPoint`), from a step above the feet (a floor under them only lifts them) to the head.
+   * Across, a cell is widened by half a block at 100 % and above (its columns round to the nearest block) and a
+   * whole block below (a cell claims every block it touches); up, by a sixteenth (each world row is re-cut to
+   * sixteenths at every size). So a held body is never missed; one beside a wall may be refused. An entity-only pack
+   * lays no blocks, and a pack without a collider grid (a coloured-block export) carries no map of where its blocks
+   * are: neither is judged. A fine turn is judged by the footprint alone.
    */
   const holdsPlayer = (dim: any, st: any, anchor: any): boolean => {
     // TODO(held-tiles): a coloured-block export's structure tiles can hold a player too; the runtime has no map of
@@ -1717,13 +1731,19 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
         const l = q.location;
         if (!bodyInFootprint(l, anchor, d)) return false;
         if (st.rotation % 90 !== 0) return true;
-        const pad = f < 1 ? 1 : 0.5, cells = solidCellsOf();
-        const a = modelPoint(at, { x: l.x - BODY_HALF_WIDTH - pad, y: l.y - pad, z: l.z - BODY_HALF_WIDTH - pad });
-        const b = modelPoint(at, { x: l.x + BODY_HALF_WIDTH + pad, y: l.y + BODY_HEIGHT + pad, z: l.z + BODY_HALF_WIDTH + pad });
-        const lo = (u: number, v: number) => Math.max(0, Math.floor(Math.min(u, v)));
-        const hi = (u: number, v: number, n: number) => Math.min(n - 1, Math.ceil(Math.max(u, v)) - 1);
-        for (let x = lo(a.x, b.x); x <= hi(a.x, b.x, c.width); x++) for (let y = lo(a.y, b.y); y <= hi(a.y, b.y, c.height); y++) for (let z = lo(a.z, b.z); z <= hi(a.z, b.z, c.length); z++) {
-          if (cells[(x * c.height + y) * c.length + z]) return true;
+        const pad = f < 1 ? 1 : 0.5, { lo: los, hi: his } = cellSpansOf();
+        const a = modelPoint(at, { x: l.x - BODY_HALF_WIDTH - pad, y: 0, z: l.z - BODY_HALF_WIDTH - pad });
+        const b = modelPoint(at, { x: l.x + BODY_HALF_WIDTH + pad, y: 0, z: l.z + BODY_HALF_WIDTH + pad });
+        const first = (u: number, v: number) => Math.max(0, Math.floor(Math.min(u, v)));
+        const last = (u: number, v: number, n: number) => Math.min(n - 1, Math.ceil(Math.max(u, v)) - 1);
+        // The body's vertical band in model blocks: from a step over the feet to the head.
+        const feet = (l.y + STEP_UP_BLOCKS - anchor.y) / f, head = (l.y + BODY_HEIGHT - anchor.y) / f, slack = 1 / 16 / f;
+        for (let x = first(a.x, b.x); x <= last(a.x, b.x, c.width); x++) for (let z = first(a.z, b.z); z <= last(a.z, b.z, c.length); z++) {
+          for (let y = Math.max(0, Math.floor(feet - 1)); y < c.height && y <= head + 1; y++) {
+            const i = (x * c.height + y) * c.length + z, top = his[i]!;
+            if (!top) continue;
+            if (y + top / 16 + slack > feet && y + los[i]! / 16 - slack < head) return true;
+          }
         }
         return false;
       } catch { return true; }
@@ -1737,7 +1757,9 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     return whileBusy(p, async () => {
       tell(p, 'Looking for a clear spot...');
       for (const anchor of clearSpotCandidates(st)) {
-        if (holdsPlayer(dim, st, anchor)) continue;
+        // A spot the wand picks itself keeps the WHOLE footprint off every player (T02-fix finding 3), stricter than
+        // `holdsPlayer`: a store pack of coloured blocks has no collider grid to judge by.
+        if (coversPlayer(dim, st, anchor)) continue;
         if (!marketplace || (await foreignBlocks(dim, st, anchor, 1)).count === 0) return anchor;
       }
       return undefined;

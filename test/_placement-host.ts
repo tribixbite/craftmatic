@@ -223,6 +223,11 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0], optio
     playerProperties: sim.dynamic,
     setHit: (h: any) => { hit = h; },
     /**
+     * Step the player 2 blocks west: off a footprint pinned at their feet. The wand asks before building round a
+     * player (A-06, `holdsPlayer`), so a test that pins a solid model at the feet and places steps aside first.
+     */
+    stepAside: (): void => { sim.location = { ...sim.location, x: sim.location.x - 2 }; engine.updateLoaded(); },
+    /**
      * Reopen the world (a reload or a restart): every script starts again in a
      * fresh context over the same blocks, entities, saved structures and player
      * properties; the intervals are the new script's.

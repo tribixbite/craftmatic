@@ -147,6 +147,7 @@ async function relay(dims: GridDims, runs: string, pct: number, rotation: number
     actors: [], colliders: colliders(dims, runs), treads, settleTicks: 1, finalHoldTicks: 1,
   });
   await h.open({ action: PIN_AT_FEET }, { canceled: true });
+  h.stepAside(); // the wand asks before building round a player (A-06)
   for (let r = 0; r < rotation / 90; r++) await h.open({ action: ROTATE }, { canceled: true });
   const steps = (SIZE_STEPS.indexOf(pct) - SIZE_STEPS.indexOf(100) + SIZE_STEPS.length) % SIZE_STEPS.length;
   for (let i = 0; i < steps; i++) await h.open({ action: SIZE }, { canceled: true });

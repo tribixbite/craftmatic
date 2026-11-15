@@ -178,6 +178,7 @@ async function relay(spec: { dims: GridDims; runs: string; stem: string }, pct: 
     settleTicks: 1, finalHoldTicks: 1,
   });
   await h.open({ action: PIN_AT_FEET }, { canceled: true });
+  h.stepAside(); // the wand asks before building round a player (A-06)
   const steps = (SIZE_STEPS.indexOf(pct) - SIZE_STEPS.indexOf(100) + SIZE_STEPS.length) % SIZE_STEPS.length;
   for (let i = 0; i < steps; i++) await h.open({ action: SIZE }, { canceled: true });
   await h.open({ action: PLACE }, { selection: 0 });
