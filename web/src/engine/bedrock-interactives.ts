@@ -2591,7 +2591,10 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     // can land that much further out: at 150 % a sill 1.1 blocks from 11371's
     // Lever 1 and a wall 1.05 from 910032's Turnable 2 refused every tap that
     // reached them, with nothing DRAWN on the line (simulator triage 2026-09-30).
-    const PART_MARGIN = 0.75 + relayShift(pl.f);
+    // Below 100 % a laid block stands for 1/f source cells (two at 50 %), so the frame's cell can land up to 1 - f of
+    // a block further out than its geometry: at 50 % walls 1.1-1.2 blocks from 71040's Turnable 4 and 910032's
+    // Turnable 3 refused every tap, with the part in plain view over the drawn model (audit 2026-11-15 A-22).
+    const PART_MARGIN = 0.75 + relayShift(pl.f) + Math.max(0, 1 - pl.f);
     const own = new Set<string>();
     for (const j of [i, ...(it.shares || [])]) {
       for (const key of worldBlocks(config.items[j]!.blocking, config.dims, pl.f, pl.r, kit).keys()) {
