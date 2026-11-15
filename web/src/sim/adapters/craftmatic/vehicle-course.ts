@@ -67,19 +67,19 @@ import { vehicleCameraEntry, type CraftmaticPack } from './pack-facts.js';
 import { packText } from '../../pack/pack.js';
 import { extractJsonAfter } from '../../pack/script-config.js';
 import { FLAT_GROUND_Y } from '../../world/voxel-world.js';
-import { BOAT, FLIGHT } from '../../../engine/bedrock-vehicle.js';
+import { BOAT, FLIGHT, FLIGHT_PROPS } from '../../../engine/bedrock-vehicle.js';
 import { cockpitCamera, type CockpitPose } from '../../../engine/vehicle-free-look.js';
 import { quirkValue } from '../../quirks/registry.js';
 import { liquidSurface, submersion } from '../../world/liquids.js';
 import { PLAYER_HEIGHT, PLAYER_WIDTH } from '../../physics/body.js';
 import type { AddonAppearance } from './appearance.js';
 import { animatedPoses, drawnBoxes, entityDrawn } from './drawn.js';
-import { tap } from '../../input/touch.js';
+import { pick, tap } from '../../input/touch.js';
 import { floorBelow, standsAt } from '../../scenario/approach.js';
 import { teleport } from '../../script-host/facades.js';
 import { CORE_HANDLERS, findEntity } from '../../scenario/runner.js';
 import { lookAt } from '../../input/touch.js';
-import { VEHICLE_PART, vehiclePartProperty, type VehiclePartRuntime } from '../../../engine/vehicle-parts.js';
+import { VEHICLE_PART, pickVehiclePart, vehiclePartProperty, type VehiclePartRuntime } from '../../../engine/vehicle-parts.js';
 
 /** A standing player's eye over its feet (quirk `rider-location-under-head`: 1.62 standing). */
 const PLAYER_EYE = 1.62;
@@ -379,25 +379,56 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
         const reach = VEHICLE_PART.REACH_BLOCKS * Math.max(1, v.scale()) - 0.1;
         const gapTo = (eye: { x: number; y: number; z: number }): number => Math.hypot(Math.max(b[0]! - eye.x, 0, eye.x - b[3]!), Math.max(b[1]! - eye.y, 0, eye.y - b[4]!), Math.max(b[2]! - eye.z, 0, eye.z - b[5]!));
         const half = Math.max(b[3]! - b[0]!, b[5]! - b[2]!) / 2;
-        let best: { x: number; y: number; z: number } | undefined, bestGap = Infinity;
+        // Every spot round it on a free floor within the pick's reach whose view at the part the runtime's own pick gives
+        // to THIS part (a child who opens a neighbour steps aside and tries again), nearest first.
+        const spots: Array<{ feet: { x: number; y: number; z: number }; gap: number; aim: { x: number; y: number; z: number } }> = [];
+        let crowded = false;
         for (const out of [0.5, 1, 1.6, 2.4]) for (let a = 0; a < 16; a++) {
           const x = mid.x + Math.cos(a * Math.PI / 8) * (half + out), z = mid.z + Math.sin(a * Math.PI / 8) * (half + out);
           const y = floorBelow(ctx.sim.engine, v.dimension, x, Math.max(v.location.y, mid.y) + 0.5, z, Math.max(4, mid.y - v.location.y + 4));
           if (y === undefined || !standsAt(ctx.sim.engine, v.dimension, { x, y, z })) continue;
-          const g = gapTo({ x, y: y + PLAYER_EYE, z });
-          if (g <= reach && g < bestGap) { bestGap = g; best = { x, y, z }; }
+          const eye = { x, y: y + PLAYER_EYE, z };
+          const g = gapTo(eye);
+          if (g > reach) continue;
+          // Where on the part the finger lands: its middle, low on it, or its point nearest the eye (inset a little).
+          const inset = (lo: number, hi: number, q: number): number => Math.max(lo + Math.min(0.05, (hi - lo) / 4), Math.min(hi - Math.min(0.05, (hi - lo) / 4), q));
+          const aims = [mid, { x: mid.x, y: inset(b[1]!, b[4]!, b[1]!), z: mid.z }, { x: inset(b[0]!, b[3]!, eye.x), y: inset(b[1]!, b[4]!, eye.y), z: inset(b[2]!, b[5]!, eye.z) }];
+          for (const aim of aims) {
+            const dir = { x: aim.x - eye.x, y: aim.y - eye.y, z: aim.z - eye.z };
+            if (pickVehiclePart(f.parts, { ...v.location, yaw: v.rotation.y }, v.scale(), eye, dir, f.parts.map((_q, j) => value(v, j) !== 0), VEHICLE_PART) !== i) { crowded = true; continue; }
+            spots.push({ feet: { x, y, z }, gap: g, aim });
+          }
         }
-        if (!best) {
+        spots.sort((p1, p2) => p1.gap - p2.gap);
+        if (!spots.length && crowded) {
+          ctx.violate({ invariant: 'vehicle-part-opens', message: `${f.typeId} part ${i} (${part.noun}): from every spot within reach a tap picks another part first`, evidence: { box: b.map(r3) } });
+          return 'unchanged';
+        }
+        if (!spots.length) {
           ctx.note(`${f.typeId} part ${i} (${part.noun.toLowerCase()} ${part.kind}) at scale ${r3(v.scale())}: out of reach on foot - no floor within ${r3(reach)} blocks of it (a vehicle has no floors; its box spans y ${r3(b[1]! - v.location.y)}..${r3(b[4]! - v.location.y)} over the vehicle's base)`);
           return 'unreachable';
         }
-        teleport(ctx.sim.host, ctx.player, best);
+        // The device's own pick must land on the vehicle (its hull hit box) or one of its board points: a tap on nothing
+        // raises no event at all (quirk `tap-is-hit`).
+        const isTarget = (e: SimEntity | undefined): boolean => !!e && (e === v || /_board_\d+$/.test(e.typeId));
+        let chosen: (typeof spots)[number] | undefined;
+        for (const sp of spots) {
+          teleport(ctx.sim.host, ctx.player, sp.feet);
+          lookAt(ctx.player, sp.aim);
+          if (isTarget(pick(ctx.sim.engine, ctx.player).entity)) { chosen = sp; break; }
+        }
+        if (!chosen) {
+          ctx.violate({ invariant: 'vehicle-part-tap-target', message: `${f.typeId} part ${i} (${part.noun}): from the ${spots.length} spot(s) a child can tap it from, the tap lands on neither the vehicle's hit box nor a board point`, evidence: { box: b.map(r3), spots: spots.length } });
+          return 'unchanged';
+        }
+        teleport(ctx.sim.host, ctx.player, chosen.feet);
         await ctx.run(1);
-        lookAt(ctx.player, mid);
+        lookAt(ctx.player, chosen.aim);
         const r = tap(ctx.sim.engine, ctx.player);
         await ctx.run(12);
+        const bestGap = chosen.gap;
         const changed = value(v, i) !== before;
-        ctx.note(`${f.typeId} part ${i} (${part.noun.toLowerCase()} ${part.kind}): a tap with the eye ${r3(bestGap)} blocks off it picked ${r.entity ? r.entity.typeId : 'nothing'}; ${before} -> ${value(v, i)}`);
+        ctx.note(`${f.typeId} part ${i} (${part.noun.toLowerCase()} ${part.kind}): a tap with the eye ${r3(bestGap)} blocks off it picked ${r.entity ? r.entity.typeId : r.blockedBy ? `the block ${r.blockedBy}` : 'nothing'}; ${before} -> ${value(v, i)}`);
         return changed ? 'changed' : 'unchanged';
       };
       for (const f of wanted) {
@@ -446,7 +477,10 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
         else ctx.violate({ invariant: 'vehicle-part-rides-along', message: `${f.typeId}: after a ${r2(drove)}-block drive a tap beside part ${swing} did not open it`, evidence: { at: v.location } });
         const entry = registeredAppearance(pack.pack)?.byType.get(f.typeId);
         if (entry && again) {
-          const props: Record<string, number | boolean | string> = Object.fromEntries(v.properties);
+          // The part's own swing, without the body's lean: a parked car keeps its last squat (fl_pitch, up to 3 degrees),
+          // which the runtime's pick does not model (# TODO(vehicle-parts-lean): 0.14 blocks at the far end of 41395's
+          // 13-block bus at 100 %, inside the pick's pad).
+          const props: Record<string, number | boolean | string> = { ...Object.fromEntries(v.properties), [FLIGHT_PROPS.pitch]: 0, [FLIGHT_PROPS.bank]: 0 };
           const closedProps = { ...props, [vehiclePartProperty(swing)]: 0 };
           const set = registeredAppearance(pack.pack)?.animations?.get(f.typeId);
           const shut = drawnBoxes(entry, v.location, v.rotation.y, v.scale(), 'near', animatedPoses(set, closedProps));
@@ -455,10 +489,13 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
           const moved = open.filter((d, j) => { const q = shut[j]?.box; return !!q && Math.abs(q.x0 - d.box.x0) + Math.abs(q.y0 - d.box.y0) + Math.abs(q.z0 - d.box.z0) > 1e-3; });
           const want = worldBox(v, f.parts[swing]!, true);
           const got = moved.length ? [Math.min(...moved.map(d => d.box.x0)), Math.min(...moved.map(d => d.box.y0)), Math.min(...moved.map(d => d.box.z0)), Math.max(...moved.map(d => d.box.x1)), Math.max(...moved.map(d => d.box.y1)), Math.max(...moved.map(d => d.box.z1))] : [];
-          const off = got.length ? Math.max(...got.map((g, a) => Math.abs(g - want[a]!))) : Infinity;
-          sum.followed = off < 0.25;
-          ctx.note(`${f.typeId} part ${swing}: ${moved.length} drawn cubes swung open where it parked; their box is ${r3(off)} blocks off the part's open box at the vehicle's pose`);
-          if (!sum.followed) ctx.violate({ invariant: 'vehicle-part-rides-along', message: `${f.typeId}: part ${swing}'s drawn leaf is ${r3(off)} blocks off where the runtime picks it after the drive (${moved.length} cubes moved)`, evidence: { want: want.map(r3), got: got.map(r3) } });
+          // Every cube that moved stands inside the part's open box there (a cube ON the hinge line keeps its box and
+          // is not among them, so the union may be smaller than the box, never outside it).
+          const off = got.length ? Math.max(0, ...[0, 1, 2].map(a => want[a]! - got[a]!), ...[3, 4, 5].map(a => got[a]! - want[a]!)) : Infinity;
+          const slack = 0.05 * Math.max(1, v.scale());
+          sum.followed = off <= slack;
+          ctx.note(`${f.typeId} part ${swing}: ${moved.length} drawn cubes swung open where it parked; they reach ${r3(off)} blocks outside the part's open box at the vehicle's pose`);
+          if (!sum.followed) ctx.violate({ invariant: 'vehicle-part-rides-along', message: `${f.typeId}: part ${swing}'s drawn leaf reaches ${r3(off)} blocks outside where the runtime picks it after the drive (${moved.length} cubes moved)`, evidence: { want: want.map(r3), got: got.map(r3) } });
         }
         // Shut again for the steps after.
         if (value(v, swing) !== 0) await tapOn(v, f, swing);

@@ -21,6 +21,11 @@
  * so the doorway rules of docs/bedrock-interactivity.md (collider cuts, passage, threshold treads) do not apply to its
  * doors; an open bus door is a visual and a cue, not a passage.
  *
+ * A tap reaches the runtime only through the vehicle's hull hit box (clipped to 8 blocks wide, `BOARD`) or a board
+ * point under its far edges, so a part high up beyond both raises no event at all.
+ * # TODO(vehicle-parts-hit-box): 41395's interior window at 150 % (the sim's `vehicle-part-tap-target`); a board point
+ * under such a part would reach it.
+ *
  * Only a SCRIPTED vehicle (cars, hover craft, boats, ships: `isScriptedVehicle`) gets them: a native rotorcraft or
  * flyer has no script to answer the tap; its parts stay fixed geometry and are reported.
  */
