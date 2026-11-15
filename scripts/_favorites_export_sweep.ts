@@ -21,13 +21,9 @@
  *               `_ix_sealed_causes.ts` walks a sealed doorway over.
  * Output: DIR/<stem>.mcaddon, DIR/<stem>.json, DIR/summary.json.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { indexedTryOrder, type IndexModel } from '../web/src/engine/lego-sources.ts';
-import { FAVOURITES, GABBY_SETS, legoTabLabel, packStem } from './favourite-sets.ts';
-
-const INDEX = 'C:/git/clego/lego-models-index.json';
-const CORPUS = 'C:/git/clego/lego_sets';
+import { FAVOURITES, GABBY_SETS, firstPickSource, legoTabLabel, packStem, readModelsIndex } from './favourite-sets.ts';
 
 const argv = process.argv.slice(2);
 const outIndex = argv.indexOf('--out');
@@ -39,9 +35,7 @@ const geometryIndex = argv.indexOf('--geometry');
 const GEOMETRY = geometryIndex >= 0 ? argv[geometryIndex + 1]! : undefined;
 if (GEOMETRY) mkdirSync(GEOMETRY, { recursive: true });
 const targets = argv.filter(a => !a.startsWith('--') && a !== OUT && a !== GEOMETRY);
-const sets = (JSON.parse(readFileSync(INDEX, 'utf8')) as {
-  sets: Record<string, { name?: string; models?: IndexModel[]; parts?: number; catalogParts?: number }>;
-}).sets;
+const sets = readModelsIndex();
 
 mkdirSync(OUT, { recursive: true });
 
@@ -63,9 +57,9 @@ const rows: Row[] = [];
 
 for (const set of (targets.length ? targets : [...FAVOURITES, ...(WITH_GABBY ? GABBY_SETS : [])])) {
   const entry = sets[set];
-  if (!entry?.models?.length) { console.log(`${set}: not in index`); continue; }
-  const model = entry.models[indexedTryOrder(entry.models, entry.catalogParts ?? entry.parts)[0]!]!;
-  const file = `${CORPUS}/${model.path}`;
+  const pick = firstPickSource(entry);
+  if (!entry || !pick) { console.log(`${set}: not in index`); continue; }
+  const { model, file } = pick;
   const label = legoTabLabel(set, entry.name);
   const stem = packStem(set, entry.name);
   const pack = `${OUT}/${stem}.mcaddon`;
