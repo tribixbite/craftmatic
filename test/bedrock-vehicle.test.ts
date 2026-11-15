@@ -895,7 +895,10 @@ describe('the vehicle runtime against blocks (scripts/vehicles.js on the simulat
       ['75397 hover', { mode: 'hover', noseReach: 7, halfWidth: 4, height: 5 }],
     ];
     for (const [name, type] of types) for (const k of [0.28, 0.5, 1, 2, 4]) {
-      it(`${name} at scale ${k}`, () => {
+      it(`${name} at scale ${k}`, async () => {
+        // Yield first: the 15 runs are 2-8 s of synchronous simulation each, and back to back they starved the
+        // vitest worker's RPC (`Timeout calling "onTaskUpdate"` on CI at d5ef18f5, every test green).
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
         const L = type.noseReach * k, W = type.halfWidth * k;
         const fills = tops.map(([x, h]) => ({ from: [x, 64, -Math.ceil(W) - 6] as [number, number, number], to: [x, 63 + h, Math.ceil(W) + 6] as [number, number, number], id: 'minecraft:stone' }));
         const host = vehicleHost({ type, at: { x: S - L - 4 + 0.5, y: 64 + (type.mode === 'hover' ? HOVER.RIDE_HEIGHT : 0), z: 0.5 }, fills, scale: k });
