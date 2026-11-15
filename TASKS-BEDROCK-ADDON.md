@@ -1923,3 +1923,22 @@ Four phone shots (`output/user-shots-0930/1-4.jpg`, round 30f-30i packs); eviden
   (`sim-regressions.log`). Not deployed.
 - [ ] Device look at a shell/vehicle with box-UV-safe cubes (offline 0.0 % lost;
   only figures were device-proved). Ship `round-f320f3ca/` as the next round.
+
+## Audit 2026-11-15 door findings (A-04, A-11, A-20 doors, A-22) - branch `audit-door`, NOT merged
+Worktree `.worktrees/audit-door` (from 3fa06170). Evidence under its `output/` (`a04/`, `a11/`, `a20/`, `after1/`).
+- A-04: the five HOLE rows were the SIM's attribution (a line that never stood was judged 0.3 ahead of its start;
+  `holeFloor`, `MODEL_FOOTHOLD`); `_ix_passability` was right. The 200 % STOP rows were full 100 % cells clearance
+  refused to trim: `planDoorwayCarve` (200 % only, round passable doorways). Rebuilt 21318 / 910004 / 71040 /
+  910032 / 80049 at 50-400 %: 10 -> 2 failing scenarios of 60. OPEN: 910004 Door 5 at 200 % turn 0
+  (`TODO(door5-910004-200)`, regression `doorway-clear-910004-200-door5` is `open`); 910032 at 50 % turn 90
+  `player-not-in-solid` at the wand's spot (in the baseline too, not this branch's).
+- A-22 FIXED: below 100 % the tap's frame margin adds 1 - f (71040 Turnable 4, 910032 Turnables 3 and 5 at 50 %).
+- A-11: 17 of 18 not-OK doorways at 100 % are the model's (`_ix_sealed_causes --drawn`), recorded in
+  `FAVOURITE_DOORWAYS_NOT_OK_AT_100`; gate `bun scripts/_ix_sweep_report.ts <dir> --ceilings`. 910032 Door 4 is
+  OURS (`collider:tight`: full 0..15 cells over sparse furniture geometry, clearance never proposes a trim; recorded
+  with `TODO(clearance-tight-910032)`, geometry `output/geo910032/geometry`). Brick-built doors (10354, 42639 gate, 910049 gate, 43267 arches): not attempted.
+- A-20: `sim --walk` attributes each unreached target (`TapReach.byModel`). Baseline at 100 % (favsweep-4e5963dc):
+  187 of 310 approaches not reached, 168 the model's, 17 the pack's; doors: 45 model, 11 pack approaches = 5 doors
+  in 4 sets (ceilings `FAVOURITE_DOOR_ROUTES_PACK_AT_100`: 10326 1, 11371 2, 42670 1, 71040 1; gate
+  `sim.ts --walk --door-ceilings`). Not fixed: 11371's are a 1-block-cell superset (a taller part in the plate's
+  cell); the others are untriaged (`TODO(walk-attribution)`).

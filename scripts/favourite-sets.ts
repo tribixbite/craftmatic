@@ -90,6 +90,10 @@ export const FAVOURITE_DOORWAYS_NOT_OK_AT_100: Readonly<Record<string, Readonly<
     'Door 5': 'SEALED: model:solid - drawn geometry a block out on the - side, 4 blocks up',
   },
   '910049': { 'Gate 1': 'SEALED: model:route - the drawn model offers no way through from the - side' },
+  // TODO(clearance-tight-910032): the PACK's, not the model's - cells (2,0,5) and (2,0,6) hold a floor plate and
+  // furniture details a few sixteenths wide, yet ship full 0..15 colliders that clearance never proposed to trim; the
+  // drawn model lets the player through (`wide:OK`). Open until clearance trims sparse furniture cells.
+  '910032': { 'Door 4': 'SEALED: collider:tight - OUR colliders: full 0..15 cells over sparse furniture geometry seal the - side (TODO)' },
 };
 
 /** A tap target's label that names a doorway leaf (a door, a gate, a garage door). */
