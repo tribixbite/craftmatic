@@ -43,6 +43,8 @@ export const VEHICLE_PART = {
   REACH_BLOCKS: 2.5,
   /** Degrees off the view a part may be and still be the tapped one, when the view ray itself misses every part. */
   CONE_DEG: 60,
+  /** Blocks past the nearest box the view ray enters within which a box whose centre is nearer the ray wins instead. */
+  TIE_BLOCKS: 0.25,
   /** Blocks every part box is padded by (a door leaf is a fraction of a block thick). */
   PAD_BLOCKS: 0.15,
   /** Blocks per second (the runtime's `speed`) over which the vehicle is moving: swinging parts close, taps board. */
@@ -185,7 +187,7 @@ export function vehiclePartBoxes(geometry: unknown, parts: ReadonlyArray<{ angle
  * # TODO(vehicle-parts-touch-aim): unmeasured on a phone - whether a touch tap's view direction is the camera's
  * centre or the finger's ray; the cone covers the screen's half-width either way.
  */
-export function pickVehiclePart(parts: ReadonlyArray<{ closed: readonly number[]; open: readonly number[] }>, pose: { x: number; y: number; z: number; yaw: number }, k: number, eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, open: readonly boolean[], P: { REACH_BLOCKS: number; CONE_DEG: number; PAD_BLOCKS: number }): number {
+export function pickVehiclePart(parts: ReadonlyArray<{ closed: readonly number[]; open: readonly number[] }>, pose: { x: number; y: number; z: number; yaw: number }, k: number, eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, open: readonly boolean[], P: { REACH_BLOCKS: number; CONE_DEG: number; PAD_BLOCKS: number; TIE_BLOCKS: number }): number {
   const r = pose.yaw * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
   // World -> entity frame (the inverse of the yaw turn `boardPointPlaces` applies), in world blocks (scaled boxes).
   const dx = eye.x - pose.x, dz = eye.z - pose.z;
@@ -209,7 +211,9 @@ export function pickVehiclePart(parts: ReadonlyArray<{ closed: readonly number[]
     return t0;
   };
   // Ranked: the view ray through a part's own box (nearest first), then through its padded box, then the cone.
-  let bestExact = -1, exactT = Infinity, bestPadded = -1, paddedT = Infinity, bestCone = -1, bestCos = -Infinity;
+  let bestPadded = -1, paddedT = Infinity, bestCone = -1, bestCos = -Infinity;
+  /** Every part whose own box the view ray enters: where, and how far its centre is off the ray. */
+  const exacts: Array<{ i: number; t: number; off: number }> = [];
   for (let i = 0; i < parts.length; i++) {
     const b = open[i] ? parts[i]!.open : parts[i]!.closed;
     // A part none of whose cubes reached the geometry has no box: never picked.
@@ -220,7 +224,11 @@ export function pickVehiclePart(parts: ReadonlyArray<{ closed: readonly number[]
     const q = [0, 1, 2].map(a => Math.max(lo[a]!, Math.min(hi[a]!, e[a]!)));
     if (Math.hypot(q[0]! - e[0]!, q[1]! - e[1]!, q[2]! - e[2]!) > reach) continue;
     const exact = rayIn(lo0, hi0);
-    if (exact < exactT) { exactT = exact; bestExact = i; }
+    if (exact < Infinity) {
+      const cx = (lo0[0]! + hi0[0]!) / 2 - e[0]!, cy = (lo0[1]! + hi0[1]!) / 2 - e[1]!, cz = (lo0[2]! + hi0[2]!) / 2 - e[2]!;
+      const along = cx * d[0]! + cy * d[1]! + cz * d[2]!;
+      exacts.push({ i, t: exact, off: Math.hypot(cx - along * d[0]!, cy - along * d[1]!, cz - along * d[2]!) });
+    }
     const padded = rayIn(lo, hi);
     if (padded < paddedT) { paddedT = padded; bestPadded = i; }
     if (padded < Infinity) continue;
@@ -230,5 +238,13 @@ export function pickVehiclePart(parts: ReadonlyArray<{ closed: readonly number[]
     const cos = (m[0]! * d[0]! + m[1]! * d[1]! + m[2]! * d[2]!) / ml;
     if (cos >= cosCone && cos > bestCos) { bestCos = cos; bestCone = i; }
   }
-  return bestExact >= 0 ? bestExact : bestPadded >= 0 ? bestPadded : bestCone;
+  // The nearest box the ray enters, unless another it enters within `TIE_BLOCKS` of it has its centre nearer the ray:
+  // overlapping boxes (two stacked drawers' corner boxes, a door before its frame's cupboard) go to the one aimed at.
+  if (exacts.length) {
+    const first = Math.min(...exacts.map(x => x.t)), band = P.TIE_BLOCKS * Math.max(1, k);
+    let best = exacts[0]!;
+    for (const x of exacts) if (x.t <= first + band && (best.t > first + band || x.off < best.off)) best = x;
+    return best.i;
+  }
+  return bestPadded >= 0 ? bestPadded : bestCone;
 }

@@ -33,6 +33,16 @@ describe('which part a tap on a parked vehicle meant (pickVehiclePart, A-02)', (
     expect(pickVehiclePart(DOORS, pose, 2, { x: 10, y: 66, z: 23.5 }, { x: 0, y: -0.2, z: -1 }, shut, VEHICLE_PART)).toBe(1);
   });
 
+  it('gives overlapping boxes to the one aimed at (two stacked drawers whose corner boxes overlap)', () => {
+    const drawers = [
+      { closed: [-0.5, 1.0, 1.0, 0.5, 1.6, 1.2], open: [-0.5, 1.0, 1.0, 0.5, 1.6, 1.8] },
+      { closed: [-0.5, 1.5, 1.0, 0.5, 2.1, 1.2], open: [-0.5, 1.5, 1.0, 0.5, 2.1, 1.8] },
+    ];
+    // Looking level at the upper drawer's middle (y 1.8) from 1.5 in front: the ray enters both boxes' faces at z 1.2.
+    expect(pickVehiclePart(drawers, POSE, 1, { x: 10, y: 65.8, z: 22.7 }, { x: 0, y: 0, z: -1 }, shut, VEHICLE_PART)).toBe(1);
+    expect(pickVehiclePart(drawers, POSE, 1, { x: 10, y: 65.3, z: 22.7 }, { x: 0, y: 0, z: -1 }, shut, VEHICLE_PART)).toBe(0);
+  });
+
   it('tests an open part by its open box', () => {
     // Standing where the left door swung to (x -2.1..-1.1 entity, z 0.4..0.5), looking at it.
     const eye = { x: 10 - 1.6, y: 65.6, z: 20 + 1.6 };

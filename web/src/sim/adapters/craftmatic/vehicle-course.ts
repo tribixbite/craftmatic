@@ -75,12 +75,15 @@ import { PLAYER_HEIGHT, PLAYER_WIDTH } from '../../physics/body.js';
 import type { AddonAppearance } from './appearance.js';
 import { animatedPoses, drawnBoxes, entityDrawn } from './drawn.js';
 import { pick, tap } from '../../input/touch.js';
+import { viewDirection } from '../../core/vec.js';
 import { floorBelow, standsAt } from '../../scenario/approach.js';
 import { teleport } from '../../script-host/facades.js';
 import { CORE_HANDLERS, findEntity } from '../../scenario/runner.js';
 import { lookAt } from '../../input/touch.js';
 import { VEHICLE_PART, pickVehiclePart, vehiclePartProperty, type VehiclePartRuntime } from '../../../engine/vehicle-parts.js';
 
+/** The view a player's rotation looks along (the facade's `getViewDirection`). */
+const viewDirectionOf = (e: SimEntity): { x: number; y: number; z: number } => viewDirection(e.rotation.y, e.rotation.x);
 /** A standing player's eye over its feet (quirk `rider-location-under-head`: 1.62 standing). */
 const PLAYER_EYE = 1.62;
 import type { Pack } from '../../pack/pack.js';
@@ -413,17 +416,19 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
         const isTarget = (e: SimEntity | undefined): boolean => !!e && (e === v || /_board_\d+$/.test(e.typeId));
         let chosen: (typeof spots)[number] | undefined;
         for (const sp of spots) {
+          // Where the child really stands a tick later (a body pushed out of a board point is not where it was put):
+          // the device's pick lands on the vehicle and the runtime's pick, from that eye and view, means this part.
           teleport(ctx.sim.host, ctx.player, sp.feet);
+          await ctx.run(1);
           lookAt(ctx.player, sp.aim);
-          if (isTarget(pick(ctx.sim.engine, ctx.player).entity)) { chosen = sp; break; }
+          const head = ctx.player.headLocation(), view = viewDirectionOf(ctx.player);
+          const means = pickVehiclePart(f.parts, { ...v.location, yaw: v.rotation.y }, v.scale(), head, view, f.parts.map((_q, j) => value(v, j) !== 0), VEHICLE_PART);
+          if (means === i && isTarget(pick(ctx.sim.engine, ctx.player).entity)) { chosen = sp; break; }
         }
         if (!chosen) {
           ctx.violate({ invariant: 'vehicle-part-tap-target', message: `${f.typeId} part ${i} (${part.noun}): from the ${spots.length} spot(s) a child can tap it from, the tap lands on neither the vehicle's hit box nor a board point`, evidence: { box: b.map(r3), spots: spots.length } });
           return 'unchanged';
         }
-        teleport(ctx.sim.host, ctx.player, chosen.feet);
-        await ctx.run(1);
-        lookAt(ctx.player, chosen.aim);
         const r = tap(ctx.sim.engine, ctx.player);
         await ctx.run(12);
         const bestGap = chosen.gap;
@@ -460,12 +465,15 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
         await CORE_HANDLERS['hold']!({ kind: 'hold', target: { where: (e: SimEntity) => e === v, label: f.typeId } }, ctx);
         if (ctx.player.ridingOn !== v) { ctx.violate({ invariant: 'tap-boards-ride', message: `a hold on ${f.typeId} with a part open did not mount it`, evidence: { at: start } }); continue; }
         ctx.player.rotation.y = v.rotation.y;
-        let shutWhileMoving = true;
+        let shutWhileMoving = true, movingTicks = 0;
         for (let t = 0; t < 60; t++) {
           ctx.sim.controls.set(ctx.player.id, { forward: 1, strafe: 0, jump: false });
+          const was = { ...v.location };
           await ctx.run(1);
-          // Moving for a few ticks: every swinging part must be shut (the runtime closes them on the first moving tick).
-          if (t > 10 && f.parts.some((p, i) => p.closes && value(v!, i) !== 0)) shutWhileMoving = false;
+          // Moving (it went somewhere this tick) for a few ticks: every swinging part must be shut (the runtime closes them
+          // on the first tick its speed passes CLOSE_SPEED). A boat on dry land does not move: nothing to judge.
+          if (Math.hypot(v.location.x - was.x, v.location.z - was.z) > 0.01) movingTicks++; else continue;
+          if (movingTicks > 2 && f.parts.some((p, i) => p.closes && value(v!, i) !== 0)) shutWhileMoving = false;
         }
         ctx.sim.controls.set(ctx.player.id, { forward: 0, strafe: 0, jump: false });
         await ctx.run(40);
@@ -474,7 +482,9 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
         if (!shutWhileMoving) { sum.closedWhileMoving = false; ctx.violate({ invariant: 'vehicle-part-closes-moving', message: `${f.typeId}: a part stayed open while the vehicle drove`, evidence: { drove: r2(drove) } }); }
         await CORE_HANDLERS['sneak']!({ kind: 'sneak' }, ctx);
         await ctx.run(30);
-        // Where it parked: the same tap opens it, and its drawn leaf stands at the part's open box there.
+        // Where it parked: the same tap opens it, and its drawn leaf stands at the part's open box there. A vehicle that never
+        // moved (a boat on land) kept it open: the tap closes it first.
+        if (!movingTicks) { ctx.note(`${f.typeId}: did not move off (${r2(drove)} blocks): the part stayed as it was`); if (value(v, swing) !== 0) await tapOn(v, f, swing); }
         const reopened = await tapOn(v, f, swing);
         const again = reopened === 'changed';
         if (again) sum.reopenedAfterDrive = true;
