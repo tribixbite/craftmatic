@@ -1763,3 +1763,27 @@ committed converter already writes for 10788/10797/11204. Gate v2 grades these
 "no improvement" - connections are identical, and it cannot see colour - so
 they were accepted by eye on before/after renders
 (`output/gabby-0926/src-fix/`, eye verdicts in `eye-verdicts.json`).
+
+## Boxed parts, baseplates and stale IOModel2V2 files (audit 2026-11-15, A-07 / A-09)
+
+- **801 of 802 `IOModel2V2/*.ldr` predate the flattener's preserved definitions** (clego `922de02c`, 2026-09-21):
+  only 10303 carries `0 !EMBEDDED_PRESERVED`. A regenerated file embeds every placed part the library lacks from the
+  `.io`'s own model2.ldr (`x167`, `-124576`, `5200`, `1993-part`, `79717-black.dat.dat`, ...) and expands Studio's
+  composite torsos, which the stale files place 20/32/10 LDU off (910049's figures lost heads and legs). Regenerating
+  showed two converter bugs, fixed on clego `audit-parts-1115`: expanded children kept colour 16 instead of the
+  assembly's colour, and a preserved part using Studio's 48-segment primitive copy (`bush0`) aborted the whole set.
+  Only the 7 favourites were regenerated (backups `C:/git/clego/_io2_backup_20261115_auditparts/`); the other ~795
+  need a corpus A/B first. TODO(io2-regen).
+- **`75cNN` (Hose, Rigid 3mm D. NN L) is generated**, `u9053` + `77` stretched to 20 NN LDU + `u9053` turned, exactly
+  Studio's own definition (`synthesizedPartText`, both resolvers): 612 placements in 124 corpus files. Mecabricks
+  writes the same hoses under design ids (75397: 60677/85526/56203/85523) as centred, z-aligned flexible parts; those
+  stay boxed until their frame is confirmed. TODO(mb-flexible-hose).
+- **`rename_<id>` is read as `<id>`** (Studio's marker: the same `.io`'s model.ldr places plain `<id>` at the identical
+  matrix): 2,528 placements in 185 corpus files.
+- **The 16 x 32 baseplate (LDD 2748 -> `95.dat`) is a Studio row that must be applied INVERSE** like every other
+  (clego `dbix_align.py` `_INVERSE_PRIOR_DEFAULT`): forward, 76457's plates lay beside the village. All 9 DbixConvV3
+  files placing it (20 plates) were patched in place, only the `95.dat` lines, each matching a fresh conversion's
+  placement (backups `C:/git/clego/_dbix_backup_20261115_auditparts/`). A full reconversion of those files differs
+  in 2-267 other lines (drift since their last conversion), so it was not shipped.
+- What still ships as a box is listed with its reason in `test/fixtures/favourites-aabb-allowlist.json`; the guard
+  `test/favourites-aabb.test.ts` fails on any change either way.

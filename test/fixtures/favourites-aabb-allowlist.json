@@ -13,10 +13,10 @@
     "28705.dat": "Rebrickable 'Hair Long Wavy with Bangs Swept Back (Moana)': no LDraw file, unmapped in both Studio tables. TODO(ldraw-missing)."
   },
   "75397": {
-    "56203.dat": "Mecabricks design id: no LDraw file, unmapped in both Studio tables, mecabricks_align 'unresolved' (a Mecabricks mesh exists; frame unmeasured). Known in docs/lego-sources-guide.md 'Named part-class gaps'. TODO(mb-unresolved).",
-    "60677.dat": "as 56203 (Mecabricks-only id, mecabricks_align 'unresolved'). TODO(mb-unresolved).",
-    "85523.dat": "as 56203 (Mecabricks-only id, mecabricks_align 'unresolved'). TODO(mb-unresolved).",
-    "85526.dat": "as 56203 (Mecabricks-only id, mecabricks_align 'unresolved'). TODO(mb-unresolved).",
+    "56203.dat": "Mecabricks FLEXIBLE part: a straight rigid 3mm hose (mecabricks_parts/configs: path along z, centred, 160/192/248/392 mm = BrickLink 75c20/75c24/75c31/75c49). The 75cNN generator draws LDraw's frame (from the end, along y); a Mecabricks-frame variant (centred, along z) needs its placement frame confirmed against the rigging it joins - one end of each lies near parts, the other does not (measured 2026-11-15). TODO(mb-flexible-hose).",
+    "60677.dat": "Mecabricks FLEXIBLE part: a straight rigid 3mm hose (mecabricks_parts/configs: path along z, centred, 160/192/248/392 mm = BrickLink 75c20/75c24/75c31/75c49). The 75cNN generator draws LDraw's frame (from the end, along y); a Mecabricks-frame variant (centred, along z) needs its placement frame confirmed against the rigging it joins - one end of each lies near parts, the other does not (measured 2026-11-15). TODO(mb-flexible-hose).",
+    "85523.dat": "Mecabricks FLEXIBLE part: a straight rigid 3mm hose (mecabricks_parts/configs: path along z, centred, 160/192/248/392 mm = BrickLink 75c20/75c24/75c31/75c49). The 75cNN generator draws LDraw's frame (from the end, along y); a Mecabricks-frame variant (centred, along z) needs its placement frame confirmed against the rigging it joins - one end of each lies near parts, the other does not (measured 2026-11-15). TODO(mb-flexible-hose).",
+    "85526.dat": "Mecabricks FLEXIBLE part: a straight rigid 3mm hose (mecabricks_parts/configs: path along z, centred, 160/192/248/392 mm = BrickLink 75c20/75c24/75c31/75c49). The 75cNN generator draws LDraw's frame (from the end, along y); a Mecabricks-frame variant (centred, along z) needs its placement frame confirmed against the rigging it joins - one end of each lies near parts, the other does not (measured 2026-11-15). TODO(mb-flexible-hose).",
     "98109d1.dat": "Mecabricks decorated id; 98109 in no library, no Studio row, not in mecabricks_align. TODO(mb-unresolved).",
     "98112d1.dat": "Mecabricks decorated id; 98112 in no library, no Studio row, not in mecabricks_align. TODO(mb-unresolved).",
     "98113.dat": "Rebrickable 'Arm, Jabba The Hutt': no LDraw file, no Studio row; mecabricks_align 'unresolved'. TODO(mb-unresolved).",
