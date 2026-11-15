@@ -4192,7 +4192,10 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     addEntityName(ghost.typeId, `${label} Preview`, false);
     // Plan the treads in yielding steps: 16 size x turn plans run for minutes on a large set.
     const doorCells = interactiveConfig ? interactiveConfig.items.flatMap(item => item.blocking) : undefined;
-    const plannedTreads = placementColliders ? await withColliderTreadsAsync(placementColliders, [], doorCells ?? [], fineReach, carveSource) : undefined;
+    // The doorways a 200 % doorway carve opens round (`planDoorwayCarve`): every leaf with a passable size.
+    const carveDoorways = interactiveConfig ? interactiveConfig.items.filter(it => it.leaf && it.passSize && it.blocking.length).map(it => ({ cells: it.blocking, passSize: it.passSize! })) : [];
+    const carveWith = carveSource && carveDoorways.length ? { ...carveSource, doorways: carveDoorways } : carveSource;
+    const plannedTreads = placementColliders ? await withColliderTreadsAsync(placementColliders, [], doorCells ?? [], fineReach, carveWith) : undefined;
     // Board points (bedrock-vehicle.ts `BOARD`, VEH-17): one invisible rideable type per size step for every scripted vehicle
     // with drawn extremities. Named here, before the placement script, because Undo must remove them with their vehicle.
     const boardIds = Object.values(scriptedTypes).some(t => t.board?.length)

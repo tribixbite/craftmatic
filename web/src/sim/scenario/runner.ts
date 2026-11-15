@@ -203,7 +203,23 @@ export type ApproachMode = 'teleport' | 'walk';
 export const APPROACH_KEY = 'approach', FOOT_ORIGIN_KEY = 'footOrigin', FOOTING_KEY = 'footing', TAP_REACH_KEY = 'tapReach';
 
 /** One tap target's walked approach (`state.tapReach`): reached on foot, or not and why (the IX-04 report). */
-export interface TapReach { target: string; label: string; onFoot: boolean; ticks: number; why?: string; spot: Vec3; tick: number }
+export interface TapReach {
+  target: string; label: string; onFoot: boolean; ticks: number; why?: string; spot: Vec3; tick: number;
+  /**
+   * For a target not reached on foot, whose that is (`MODEL_ROUTE_KEY`): true when the MODEL itself offers no route
+   * either (nothing it draws leads there within auto-jump and a 3-block drop: an upper floor no drawn stair reaches),
+   * false when it does and the pack's colliders take it away; absent when the adapter cannot ask.
+   */
+  byModel?: boolean;
+}
+
+/**
+ * State key of an adapter's MODEL route question: `(from, goals) => boolean`, whether a route on foot leads from
+ * `from` to any of `goals` over what the model DRAWS (no collider of the pack's). The craftmatic adapter answers it
+ * over `DrawnWalkWorld`; a "no route on foot" is then attributed (`TapReach.byModel`).
+ */
+export const MODEL_ROUTE_KEY = 'modelRoute';
+export type ModelRoute = (from: Vec3, goals: readonly Vec3[]) => boolean;
 
 /** The tap reach records a scenario collected. */
 export const tapReachOf = (state: Record<string, unknown>): TapReach[] => (state[TAP_REACH_KEY] as TapReach[] | undefined) ?? [];
@@ -293,8 +309,13 @@ async function reachFor(ctx: StepContext, target: SimEntity, label: string): Pro
     if (ctx.state[FOOTING_KEY] !== 'foot' || pick(ctx.sim.engine, p).entity !== target) {
       const last = tapReachOf(ctx.state).at(-1);
       if (!(last && last.target === target.typeId && last.tick === ctx.sim.engine.tick && last.onFoot)) {
-        ctx.state[TAP_REACH_KEY] = [...tapReachOf(ctx.state), { target: target.typeId, label, onFoot: false, ticks: 0, why, spot: { ...spot.feet }, tick: ctx.sim.engine.tick }];
-        ctx.note(`tap-target-unreachable-on-foot: ${label} (${target.typeId}): ${why}; the child is put on the spot so the tap is still tried`);
+        // Whose it is: ask the same question of the model's drawn geometry, from the same on-foot origin.
+        const modelRoute = ctx.state[MODEL_ROUTE_KEY] as ModelRoute | undefined;
+        const from = (ctx.state[FOOT_ORIGIN_KEY] as Vec3 | undefined) ?? p.location;
+        const byModel = modelRoute ? !modelRoute(from, spots.map(s => s.feet)) : undefined;
+        const whose = byModel === undefined ? '' : byModel ? " - the MODEL's: nothing it draws leads there on foot either" : " - the PACK's: the model draws a route there, the colliders do not";
+        ctx.state[TAP_REACH_KEY] = [...tapReachOf(ctx.state), { target: target.typeId, label, onFoot: false, ticks: 0, why, spot: { ...spot.feet }, tick: ctx.sim.engine.tick, ...(byModel === undefined ? {} : { byModel }) }];
+        ctx.note(`tap-target-unreachable-on-foot: ${label} (${target.typeId}): ${why}${whose}; the child is put on the spot so the tap is still tried`);
       }
       ctx.state[FOOTING_KEY] = 'teleported';
     }

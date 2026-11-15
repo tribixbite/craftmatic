@@ -1712,6 +1712,24 @@ From the combined engine run on the round-30m packs
   the drawn-geometry walk (`_ix_sealed_causes.ts --drawn`) cannot get
   through at any size either (`TODO(passage-geometry)`).
 
+### Rooms the size opens, and frames below 100 % (audit 2026-11-15)
+
+- At 200 % the whole-grid carve is off (`CARVE_SIZES` 300/400: it re-planned the
+  microscale sets' device routes away), so a full 100 % cell clearance refused to
+  trim (`door-leaf`, `door-cut`) lays 2 x 2 x 2 full blocks, and the room a
+  minifig's door leaves a stud from its furniture - too narrow for the player at
+  100 %, wide enough at 200 % - stayed walled (21318 Door 2, 910004 Doors 4/5:
+  `_ix_sealed_causes --drawn` said `collider:*` at 200 %). `planDoorwayCarve`
+  (collider-carve.ts) keeps the carve only in the blocks of the cells within
+  `DOOR_CARVE_REACH` (3) of a passable doorway's closed cells, from its bottom row to
+  one over its top; everything else keeps the uncarved 200 % plan.
+- Below 100 % a laid block stands for 1/f source cells, so a part's own frame can
+  land up to 1 - f of a block further out than its geometry: the tap's wall test
+  (`behindWall`) adds that to `PART_MARGIN` (71040 Turnable 4, 910032 Turnable 3 at
+  50 %, refused from every spot with the part in plain view).
+- The not-OK doorways at 100 % are a recorded list (`FAVOURITE_DOORWAYS_NOT_OK_AT_100`,
+  scripts/favourite-sets.ts) checked by `_ix_sweep_report.ts --ceilings`.
+
 ### Known limits
 
 - Shapes are quarter-block bands along one axis. A 1-stud wall (6/16) against

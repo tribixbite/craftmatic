@@ -601,6 +601,25 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(tapAt(1.5)).toBe(true);
   });
 
+  it('below 100 % a wall within the coarsening of the part is its frame, not a wall (71040 Turnable 4 and 910032 Turnable 3 at 50 %, A-22)', () => {
+    // Below 100 % every laid block stands for 1/f source cells (`cellColumns`: two at 50 %), so a wall cell of the
+    // part's own frame can land up to 1 - f of a block further out than its geometry: half a block at 50 %.
+    const cfg = doubleDoorConfig();
+    cfg.items[0]!.hit = { c: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }], o: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }] };
+    const tapAt = (f: number): unknown => {
+      const h = runtimeHost(cfg);
+      // The tap box's near face at z 205.125 (f 0.5) / 205.05 (f 1): the wall cell z 203 ends 1.125 / 1.05 blocks before it.
+      const a = h.spawn(0, anchor, f, 0, { x: 103, y: 65, z: 205.2 });
+      h.sync();
+      for (const x of [102, 103, 104]) for (const y of [65, 66, 67]) h.setCollider(x, y, 203, 0, 16);
+      h.aim({ x: 103.5, y: 66.6, z: 199.5 }, { x: 103, y: 65.5, z: 205.2 });
+      h.tap(a);
+      return a.getDynamicProperty('craftmatic:ix_open');
+    };
+    expect(tapAt(1)).toBeUndefined();
+    expect(tapAt(0.5)).toBe(true);
+  });
+
   it('hands a tap Bedrock gave to a part behind a wall to the seat the player aimed at in plain sight (76457 Bed vs Door 4, Pixel 2026-09-26)', () => {
     const cfg = doubleDoorConfig();
     cfg.items[0]!.hit = { c: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }], o: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }] };

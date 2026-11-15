@@ -201,6 +201,56 @@ export function planSizeCarve(cells: readonly SourceCell[], dims: GridDims, size
   return out;
 }
 
+/** A doorway's closed cells (`[x, y, z, lo, hi]` in the 100 % grid, the leaf's `blocking`) and the size it is passable from. */
+export interface CarveDoorway { cells: ReadonlyArray<readonly (number | undefined)[]>; passSize: number }
+
+/**
+ * How far round a doorway's closed cells the 200 % doorway carve reaches (source cells, horizontally): the device
+ * line's start (`LINE_OUT`, 1.5 blocks at 100 %) and the porch (2.5) - three cells is 6 blocks at 200 %.
+ */
+export const DOOR_CARVE_REACH = 3;
+/** How many source rows over a doorway's top closed cell the doorway carve reaches: the passage's head room. */
+export const DOOR_CARVE_HEAD = 1;
+
+/**
+ * The sizes a DOORWAY carve is planned for: 200 % only, where the whole-grid carve is not (`CARVE_SIZES`). A full
+ * 100 % cell clearance refused to trim (a wall cell at a leaf's plane, `door-leaf`) lays 2 x 2 x 2 full blocks at
+ * 200 %, and the room a minifig door's furniture leaves a stud away - too narrow for the player at 100 % - is wide
+ * enough at 200 % yet stays walled: 21318 Door 2, 80049 Gate 1 and 910004 Doors 3 and 5 stopped a walk on
+ * colliders where nothing is drawn (audit 2026-11-15 A-04). Planned round the doorways only, so the tread plan of
+ * the rest of the model - every device-proven 200 % route of the microscale sets - is the uncarved plan's.
+ */
+export const DOOR_CARVE_SIZES: readonly number[] = [200];
+
+/**
+ * The carve round a model's doorways at one size and turn (`DOOR_CARVE_SIZES`): `planSizeCarve`'s carve, kept only
+ * in the world blocks laid by the source cells within `DOOR_CARVE_REACH` horizontally of a closed cell of a doorway
+ * passable at this size, from that doorway's bottom row up to `DOOR_CARVE_HEAD` over its top. Outside them every
+ * block stays as the scaled grid lays it (a carve only ever removes collider, so keeping a block laid is the
+ * superset). Empty when no doorway is passable here.
+ */
+export function planDoorwayCarve(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, boxes: readonly ModelBox[], doorways: readonly CarveDoorway[], protect?: ReadonlySet<string>): Map<string, ColliderForm | null> {
+  const out = new Map<string, ColliderForm | null>();
+  const open = doorways.filter(d => d.passSize > 0 && d.passSize <= sizePct && d.cells.length);
+  if (!open.length || !carvableAt(sizePct)) return out;
+  const f = sizePct / 100;
+  const region = new Set<string>();
+  for (const d of open) {
+    const ys = d.cells.map(c => c[1]!);
+    const y0 = Math.min(...ys), y1 = Math.max(...ys) + DOOR_CARVE_HEAD;
+    for (const c of d.cells) for (let dx = -DOOR_CARVE_REACH; dx <= DOOR_CARVE_REACH; dx++) for (let dz = -DOOR_CARVE_REACH; dz <= DOOR_CARVE_REACH; dz++) {
+      for (let y = y0; y <= y1; y++) {
+        const x = c[0]! + dx, z = c[2]! + dz;
+        if (x < 0 || z < 0 || y < 0 || x >= dims.width || z >= dims.length || y >= dims.height) continue;
+        // The world blocks this cell lays at the size and turn (a full cell: every block of its scaled span).
+        COLLIDER_KIT.cellPieces(x, y, z, 0, 0, 16, dims, f, rotation, (wx, wy, wz) => { region.add(`${wx},${wy},${wz}`); });
+      }
+    }
+  }
+  for (const [key, form] of planSizeCarve(cells, dims, sizePct, rotation, boxes, protect)) if (region.has(key)) out.set(key, form);
+  return out;
+}
+
 const DIGIT_BASE = 200, CHAR_BASE = 40, PAIRS = 136;
 const digits = (v: number): string => {
   if (v < 0 || v >= DIGIT_BASE * DIGIT_BASE) throw new Error(`carve value out of range: ${v}`);

@@ -328,6 +328,22 @@ Read that count as an UPPER bound: the planner searches 24 blocks round the
 child and the goal, moves in 4 directions and drops at most 1.7, so a stair
 or a long way round outside that is missed; no route here has been compared
 with a device walk yet.
+Since 2026-11-15 (audit A-20) every target not reached on foot is asked again
+of what the MODEL draws (`DrawnWalkWorld`, drawn.ts: every static drawn cube a
+solid over flat ground, no collider, tread or guard; a top under
+`MODEL_FOOTHOLD` x size squared, 0.25 block² at 100 %, is no floor), flooded
+once per on-foot origin (`walkFlood` / `walkReaches`): `TapReach.byModel`
+and the report's "whose" column say "model" (no drawn route either: an upper
+floor no drawn stair reaches) or "pack" (the model draws a route, the
+colliders do not). A "pack" row is where to look, not a proven bug: at 11371's
+front (100 %) the drawn route steps onto a 1.07-block plate whose collider
+cell is 0.49 higher (a taller part in the same cell), a 1-block-grid superset.
+
+A doorway line that never stood at the doorway's level (the device's teleport
+past the model's edge: the porch line is 2.5 x size out, 10 blocks at 400 %)
+is judged by the drawn floor under its START (`holeFloor`), not 0.3 ahead:
+read ahead, it clipped the model's edge by 0.1 and blamed the pack for five
+holes the model makes itself (A-04: 41732, 42670, 41703 at 200-400 %).
 
 The world invariant `no-entity-overlap` (`scenario/world-invariants.ts`) runs
 with the core ones: a mob never interpenetrates a `minecraft:is_collidable`

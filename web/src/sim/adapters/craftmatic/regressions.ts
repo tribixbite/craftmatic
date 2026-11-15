@@ -599,6 +599,9 @@ export const REGRESSIONS: RegressionCase[] = [
       return { reproduced: !!fall, attribution: 'pack', evidence: `${fall ? `${fall}; ` : ''}${notes}` };
     },
   },
+  // The 2026-11-15 favourites audit (output/audit-1115/AUDIT.md): faults the simulator found on the sweep's packs,
+  // no device round behind them. The old pack is the audited sweep's.
+  ...audit1115Regressions(),
   // The world's cases (water, bodies): regressions-world.ts.
   ...WORLD_REGRESSIONS,
   // Round 30m's open device defects: regressions-30m.ts.
@@ -619,4 +622,47 @@ function doorJudge(r: ScenarioResult, label: string, kind: 'HOLE' | 'STOP'): { r
   if (!findings.length) return { reproduced: false, evidence: `no ${kind} on ${label}'s lines` };
   const model = findings.every(f => f.model);
   return { reproduced: true, attribution: model ? 'model' : 'pack', evidence: findings.map(f => `${f.where}: ${f.kind}${typeof f['drop'] === 'number' ? ` ${f['drop']} down` : ''} (${f.model ? 'the model\'s' : 'the pack\'s'})`).join('; ') };
+}
+
+/** A doorway's device lines at a size: a STOP the pack is blamed for, no column from that side crossing (A-04). */
+function doorwayClearCase(set: string, stem: string, size: number, labels: readonly string[], open?: string): RegressionCase {
+  const pattern = new RegExp(`^(${labels.join('|')}) column .*the pack's colliders block it; no column from this side crosses`);
+  return {
+    id: `doorway-clear-${set}-${size}${labels.length === 1 ? `-${labels[0]!.toLowerCase().replace(/\s+/g, '')}` : ''}`, title: `${set} ${labels.join(', ')} at ${size} percent: the walk to the door stops on colliders where nothing is drawn`,
+    evidence: 'output/audit-1115/AUDIT.md A-04 (sim at 200 percent over favsweep-4e5963dc); `_ix_sealed_causes --drawn`: collider:door-leaf / collider:tight at 200 percent',
+    oldPack: `${ROUND}/favsweep-4e5963dc/${set}.mcaddon`, newStem: stem, expectNew: 'pass', ...(open ? { open } : {}),
+    scenario: pack => ({ name: `doorway-clear-${set}-${size}`, steps: [{ kind: 'place', size, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'doorwayLines', only: labels.map(l => doorIndex(pack, l)) }], allowLines: allow }),
+    judge: r => {
+      const v = r.violations.find(x => x.invariant === 'doorway-line' && pattern.test(x.message));
+      return { reproduced: !!v, attribution: 'pack', evidence: v ? `${v.invariant}: ${v.message}` : `no pack-attributed stop on ${labels.join(', ')} (${r.violations.length} violations)` };
+    },
+  };
+}
+
+/** A turnable at a size below 100 percent: every tap refused "behind a wall" (A-22). */
+function turnableTapCase(set: string, stem: string, size: number, label: string): RegressionCase {
+  return {
+    id: `turnable-tap-${set}-${size}`, title: `${set} ${label} at ${size} percent: every tap is refused as behind a wall, the part in plain view`,
+    evidence: 'output/audit-1115/AUDIT.md A-22 (`new/perpack/<set>.sizes.json`: tap-moves-part, "behind a wall from here")',
+    oldPack: `${ROUND}/favsweep-4e5963dc/${set}.mcaddon`, newStem: stem, expectNew: 'pass',
+    scenario: () => ({ name: `turnable-tap-${set}-${size}`, steps: [{ kind: 'place', size, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'tapInteractives' }], allowLines: allow }),
+    judge: r => {
+      const v = violated(r, 'tap-moves-part', new RegExp(`${label} .*behind a wall`));
+      return { reproduced: !!v, attribution: 'pack', evidence: v ?? `${label} moved` };
+    },
+  };
+}
+
+/** The 2026-11-15 audit's cases (a function: the set above spreads it before this module's tail runs). */
+function audit1115Regressions(): RegressionCase[] {
+  return [
+    doorwayClearCase('21318', '21318-tree-house', 200, ['Door 2']),
+    doorwayClearCase('910004', '910004-winter-chalet', 200, ['Door 3']),
+    // TODO(door5-910004-200): at turn 0 the - side's lines stop on 100 % cell (12, 4, 1) (full 0..13, its geometry a
+    // floor plate and a post 2/16 wide): at 200 % its upper block keeps a full slab 1.0-1.6 over the doorway's floor.
+    // Not traced further; the carve keeps a STANDING top's whole footprint, the likely reason. Turn 90 passes.
+    doorwayClearCase('910004', '910004-winter-chalet', 200, ['Door 5'], 'audit 2026-11-15 A-04, turn 0 only'),
+    turnableTapCase('71040', '71040-disney-castle', 50, 'Turnable 4'),
+    turnableTapCase('910032', '910032-parisian-street', 50, 'Turnable 3'),
+  ];
 }

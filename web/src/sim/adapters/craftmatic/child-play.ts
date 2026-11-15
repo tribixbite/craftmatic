@@ -16,14 +16,16 @@
 
 import type { Scenario, Step, StepContext, StepHandler, AnyStep } from '../../scenario/types.js';
 import { teleport } from '../../script-host/facades.js';
-import { approachSpots, findApproach, SIGHT_MARGIN } from '../../scenario/approach.js';
+import { approachSpots, findApproach, SIGHT_MARGIN, walkFlood, walkReaches, type WalkNode } from '../../scenario/approach.js';
+import { APPROACH_KEY, MODEL_ROUTE_KEY, type ModelRoute } from '../../scenario/runner.js';
+import type { SimEngine } from '../../core/engine.js';
 import { DEV_NAMESPACE, ixKeys, nsId } from './namespace.js';
 import type { Addon } from '../../pack/pack.js';
 import { readCraftmaticPack, type CraftmaticPack } from './pack-facts.js';
 import { wandHandlers } from './wand.js';
-import { COLLIDER_SLACK, FIGURE_TYPE, playHandlers, placedOf, staticDrawn, tapPart } from './play.js';
+import { COLLIDER_SLACK, FIGURE_TYPE, MODEL_FOOTHOLD, playHandlers, placedOf, staticDrawn, tapPart } from './play.js';
 import { registerAppearance, vehicleCourseHandlers } from './vehicle-course.js';
-import { drawnReaches, drawnTopOver, packAppearance } from './drawn.js';
+import { DrawnWalkWorld, drawnReaches, drawnTopOver, drawnWalkEngine, packAppearance } from './drawn.js';
 import { firstPersonSnapshot } from './snapshot.js';
 import { lookAt, pick } from '../../input/touch.js';
 import { pickBoxes } from '../../input/ray.js';
@@ -78,7 +80,25 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
     /** Tap every moving part once; each must change its state (open/closed, turned). */
     async tapInteractives(_step: AnyStep, ctx: StepContext) {
       // Read the drawn geometry the static colliders stand for while every part is still as placed (closed).
-      staticDrawn(ctx, appearance, pack);
+      const drawnNow = staticDrawn(ctx, appearance, pack);
+      // A walked run (`--walk`) asks every "no route on foot" again of what the MODEL draws (`DrawnWalkWorld`: no
+      // collider, tread or guard), so an unreached target is attributed: the model's own, or the pack's (A-20).
+      if (ctx.state[APPROACH_KEY] === 'walk' && !ctx.state[MODEL_ROUTE_KEY]) {
+        const placed = placedOf(ctx), dim = ctx.player.dimension;
+        const engine = drawnWalkEngine(new DrawnWalkWorld(drawnNow, placed.from.y, MODEL_FOOTHOLD * (placed.sizePct / 100) ** 2)) as unknown as SimEngine;
+        // One flood per on-foot origin over the model's box and a margin round it, answering every target asked from there.
+        const box = { x0: Math.floor(placed.from.x) - WALK_FLOOD_MARGIN, x1: Math.ceil(placed.to.x) + WALK_FLOOD_MARGIN, z0: Math.floor(placed.from.z) - WALK_FLOOD_MARGIN, z1: Math.ceil(placed.to.z) + WALK_FLOOD_MARGIN };
+        const floods = new Map<string, WalkNode[]>();
+        // The box takes in the origin too: the child may start outside it (the wand's spot).
+        const within = (from: Vec3) => ({ x0: Math.min(box.x0, Math.floor(from.x) - 1), x1: Math.max(box.x1, Math.floor(from.x) + 1), z0: Math.min(box.z0, Math.floor(from.z) - 1), z1: Math.max(box.z1, Math.floor(from.z) + 1) });
+        const route: ModelRoute = (from, goals) => {
+          const k = `${from.x.toFixed(2)},${from.y.toFixed(2)},${from.z.toFixed(2)}`;
+          let nodes = floods.get(k);
+          if (!nodes) floods.set(k, nodes = walkFlood(engine, dim, from, within(from)));
+          return goals.some(g => walkReaches(engine, dim, nodes!, g));
+        };
+        ctx.state[MODEL_ROUTE_KEY] = route;
+      }
       const IX = ixKeys(pack.namespace);
       const parts = [...ctx.sim.engine.entities.values()].filter(e => e.valid && typeof e.dynamic.get(IX.index) === 'number');
       for (const part of parts) {
@@ -162,6 +182,9 @@ function hiddenByModel(ctx: StepContext, part: SimEntity, drawn: readonly DrawnB
   }
   return spots.length;
 }
+
+/** How far round the placed model the MODEL route flood (`DrawnWalkWorld`) walks the ground (blocks). */
+const WALK_FLOOD_MARGIN = 6;
 
 /** The lattice step (blocks) `outOfReachByModel` stands the child on, across the reach round a part. */
 export const MODEL_REACH_STEP = 0.25;

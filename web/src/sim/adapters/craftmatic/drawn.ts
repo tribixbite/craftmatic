@@ -160,3 +160,53 @@ export function driverViewWorld(boxes: readonly DrawnBox[], eye: Vec3, yawDeg: n
   const share = (r: { clear: number; total: number }): number => r.total ? r.clear / r.total : 1;
   return { ahead, left, right, view: forwardViewWorld(boxes, eye, yawDeg, VIEW), seesOut: driverSeesOut(share(ahead), { left: share(left), right: share(right) }) };
 }
+
+/**
+ * The world as the MODEL draws it, for the route planner (`walkRoute`, approach.ts): every static drawn cube is a
+ * solid (glass too: a pane is not walked through) over flat ground at `groundY`, with no collider, tread or guard
+ * of the pack's. It answers the few questions `walkRoute`, `floorBelow` and `standsAt` ask of a dimension, so a
+ * "no route on foot" can be asked again of the model itself: no route here either is the model's own (an upper
+ * floor no drawn stair reaches), a route here and none over the pack's colliders is the pack's (A-20).
+ * A turned cube is read by its own shape (`drawnReaches` / `drawnTopOver`), never its corner box. A cube whose top is
+ * smaller than `minFoothold` (block², horizontal) is no floor: a flower head, a stud, an antenna tip are not where a
+ * child sees a step (11371's front at 100 %: a route over 0.15-block details that no collider stands for).
+ */
+export class DrawnWalkWorld {
+  private readonly columns = new Map<string, DrawnBox[]>();
+  constructor(boxes: readonly DrawnBox[], readonly groundY: number, readonly minFoothold = 0) {
+    for (const d of boxes) {
+      const b = d.box;
+      for (let x = Math.floor(b.x0); x < Math.ceil(b.x1); x++) for (let z = Math.floor(b.z0); z < Math.ceil(b.z1); z++) {
+        const k = `${x},${z}`, list = this.columns.get(k);
+        if (list) list.push(d); else this.columns.set(k, [d]);
+      }
+    }
+  }
+  /** The drawn cubes reaching the columns a box covers (each once). */
+  private near(q: Box): DrawnBox[] {
+    const out = new Set<DrawnBox>();
+    for (let x = Math.floor(q.x0); x < Math.ceil(q.x1); x++) for (let z = Math.floor(q.z0); z < Math.ceil(q.z1); z++) for (const d of this.columns.get(`${x},${z}`) ?? []) out.add(d);
+    return [...out];
+  }
+  isLoaded(_x: number, _z: number): boolean { return true; }
+  withAllLoaded<T>(fn: () => T): T { return fn(); }
+  /** A solid the box overlaps by more than `eps`: the ground, or a drawn cube. */
+  overlapping(box: Box, eps = 1e-3): Box | undefined {
+    if (box.y0 < this.groundY - eps) return { x0: box.x0, y0: this.groundY - 1, z0: box.z0, x1: box.x1, y1: this.groundY, z1: box.z1 };
+    return this.near(box).find(d => drawnReaches(d, box, eps))?.box;
+  }
+  /** The highest drawn top (or the ground) at or under `y` at the point (x, z), or -Infinity. */
+  supportBelow(x: number, y: number, z: number, maxDepth = 400): number {
+    let top = y >= this.groundY - 1e-6 ? this.groundY : -Infinity;
+    const e = 1e-3;
+    for (const d of this.near({ x0: x - e, y0: y - maxDepth, z0: z - e, x1: x + e, y1: y, z1: z + e })) {
+      if ((d.box.x1 - d.box.x0) * (d.box.z1 - d.box.z0) < this.minFoothold) continue;
+      const t = drawnTopOver(d, x - e, x + e, z - e, z + e);
+      if (t !== undefined && t <= y + 1e-6 && t >= y - maxDepth && t > top) top = t;
+    }
+    return top;
+  }
+}
+
+/** A stand-in engine whose every dimension is `world` (the route planner reads only `dimension(...)`). */
+export const drawnWalkEngine = (world: DrawnWalkWorld): { dimension: (id: string) => DrawnWalkWorld } => ({ dimension: () => world });
