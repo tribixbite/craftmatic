@@ -1742,7 +1742,11 @@ export function figureRole(parts: ParsedBrick[], meshes: Map<string, LdrawPartMe
     || (classifyMiniDollPart(b.part, meshes.get(b.part)?.description ?? '') ?? 'doll_torso') !== 'doll_torso'
     || /^(Arm Large|Bigfig (Arm|Hand))\b/i.test(d(b)));
   if (!bodyParts.length) return 'partial';
-  if (colours.size === 1 && parts.length >= 3) return 'statue';
+  // A statue wears a STANDARD head (minifig 3626 / 28621, mini-doll 92198) in the statue's colour. A one-colour
+  // figure with a character head mould (C-3PO's 30480 "Protocol Droid") or with no head part at all (75397's Max
+  // Rebo as Mecabricks writes him) is a character: both stood frozen in the shell as "statues" (audit 2026-11-15 A-13).
+  const standardHead = parts.some(b => /^(3626|28621|92198)/.test(mouldFamilyId(b.part, meshes.get(b.part)?.description ?? '')));
+  if (colours.size === 1 && parts.length >= 3 && standardHead) return 'statue';
   return 'npc';
 }
 

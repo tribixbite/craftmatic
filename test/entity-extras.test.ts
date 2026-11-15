@@ -78,6 +78,19 @@ describe('figureRole', () => {
     // A torso with only a hand beside it is not a figure.
     expect(figureRole([figure(0, 0, 0)[3]!, { part: '3820.dat', color: 14, x: 20, y: 20, z: 0, rot: I }], meshes)).toBe('partial');
   });
+
+  it('a one-colour CHARACTER is not a statue: a statue wears a standard head (A-13, 75397 C-3PO and Max Rebo)', () => {
+    const meshes = new Map();
+    const gold = (parts: ParsedBrick[]): ParsedBrick[] => parts.map(b => ({ ...b, color: 297 }));
+    // C-3PO: pearl gold all over, head 30480 "Minifig Head Protocol Droid" - a character mould, not a 3626.
+    const threepio = gold(figure(0, 0, 0).map(b => (b.part === '3626.dat' ? { ...b, part: '30480.dat' } : b)));
+    expect(figureRole(threepio, meshes)).toBe('npc');
+    // Max Rebo as the Mecabricks source has him: one colour, torso, arms and legs, no head part at all.
+    expect(figureRole(gold(figure(0, 0, 0).filter(b => b.part !== '3626.dat')), meshes)).toBe('npc');
+    // A statue (10326's museum pieces, 10365's sand-green figurehead): one colour with a standard head, 3626 or 28621.
+    expect(figureRole(gold(figure(0, 0, 0)), meshes)).toBe('statue');
+    expect(figureRole(gold(figure(0, 0, 0).map(b => (b.part === '3626.dat' ? { ...b, part: '28621.dat' } : b))), meshes)).toBe('statue');
+  });
 });
 
 describe('groupFigures', () => {
