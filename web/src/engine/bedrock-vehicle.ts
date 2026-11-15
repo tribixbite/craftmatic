@@ -2028,7 +2028,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
           // It stands on the highest step under its WHOLE footprint, not only under its centre (A-12, 2026-11-15): a
           // long car met the course hill's next step with its nose while its centre was still on the road, and the band
           // over the step refused it (41395, 42172, 75397 trapped). Rows along it and lines across it
-          // (`FOOTPRINT.SUPPORT_*`), each read only from a step's height down to the base (two cells, cached per tick);
+          // (`FOOTPRINT.SUPPORT_*`), each read from a step's height down to the cell under the base (three cells, cached per tick: the one it stands on counts, or a long hull partly over a kerb drops off it and climbs back on, tick after tick);
           // a wall there (higher than a step) is the sweep's, not ground. A wall under the CENTRE keeps its meaning.
           {
             const L = Math.max(0, noseReach - 0.05), W = Math.max(0, kind.halfWidth * k - 0.05), rx = -Math.cos(rad), rz = -Math.sin(rad);
@@ -2037,7 +2037,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
             let support: number | null = null;
             for (let i = 0; i <= rows; i++) for (let j = 0; j <= cols; j++) {
               const a = -L + 2 * L * i / rows, sd = -W + 2 * W * j / cols;
-              const g = groundUnder(dim, st.x + fx * a + rx * sd, st.z + fz * a + rz * sd, footY, P.STEP_UP, 1, hover);
+              const g = groundUnder(dim, st.x + fx * a + rx * sd, st.z + fz * a + rz * sd, footY, P.STEP_UP, 2, hover);
               if (g !== null && g <= footY + P.STEP_UP + 1e-6 && (support === null || g > support)) support = g;
             }
             if (support !== null && (ground === null || (ground - st.y <= P.STEP_UP && support + lift > ground))) ground = support + lift;

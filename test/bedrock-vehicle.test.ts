@@ -910,6 +910,19 @@ describe('the vehicle runtime against blocks (scripts/vehicles.js on the simulat
       });
     }
   });
+  it('a long hover barge stays ON a two-block kerb it is partly over, instead of dropping off and climbing back every tick (75397, A-12)', () => {
+    // The course's kerb2: two high, six long, across the lane, from x = 30. The barge (36 long) is mostly over the road
+    // while on it; the step it STANDS on must count as support, or it sinks off the kerb and the band refuses it.
+    const barge: ScriptedVehicleType = { mode: 'hover', noseReach: 18, halfWidth: 7, height: 6 };
+    const host = vehicleHost({ type: barge, at: { x: 30 - 18 - 4 + 0.5, y: 64 + HOVER.RIDE_HEIGHT, z: 0.5 }, fills: [{ from: [30, 64, -12], to: [35, 65, 12], id: 'minecraft:stone' }] });
+    host.set(0, 1);
+    host.run(200);
+    expect(host.entity.location.x - 18).toBeGreaterThan(36);
+    // While its body is over the kerb it never sinks under the kerb's ride height (66 + RIDE_HEIGHT) by more than its bob.
+    const over = host.poses.filter(p => p.x - 18 < 34 && p.x + 18 > 31 && p.x > 20);
+    expect(over.length).toBeGreaterThan(10);
+    expect(Math.min(...over.slice(5).map(p => p.y))).toBeGreaterThan(66 + HOVER.RIDE_HEIGHT - 0.2);
+  });
   it('slides a car along a wall it meets at an angle instead of stopping dead', () => {
     // A wall along x (z = 3), the car heading 20 degrees off +x toward it (yaw -70 turns toward +z).
     const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 }, yaw: -70, fills: [{ from: [-10, 64, 3], to: [200, 66, 3], id: 'minecraft:stone' }] });
