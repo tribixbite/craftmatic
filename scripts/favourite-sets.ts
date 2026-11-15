@@ -122,6 +122,7 @@ export const FAVOURITE_DOOR_ROUTES_PACK_AT_100: Readonly<Record<string, number>>
 export function doorRouteCeiling(set: string, count: number): { ceiling: number; over: boolean; under: boolean } {
   const ceiling = FAVOURITE_DOOR_ROUTES_PACK_AT_100[set] ?? 0;
   return { ceiling, over: count > ceiling, under: count < ceiling };
+}
 
 /** The models index and the corpus the favourites are exported from (clego). */
 export const MODELS_INDEX = 'C:/git/clego/lego-models-index.json';
