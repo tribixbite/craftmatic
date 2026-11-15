@@ -22,6 +22,11 @@ individually tested 28". The favourites list has 40 sets (memory `user-favorite-
    evidence and a proposed guard). Then fix each finding fail-first, re-sweep, re-sim.
 3. When the audit has no open finding: send the user all 40 packs (one zip, built from a commit), then the
    generality work below (any set as good as the favourites).
+- Branch `audit-parts` (A-07/A-08/A-09/A-13, packs `output/favsweep-auditparts-{9f73e0d6,df205771}` in that worktree)
+  plus clego branch `audit-parts-1115`. Open after it: boxed parts left on `test/fixtures/favourites-aabb-allowlist.json`
+  (TODO mb-hinge-frame for 76269's 52 hinge plates, mb-flexible-hose, ldd-hubcap-alias); IOModel2V2 regeneration of
+  the other ~795 files (TODO io2-regen, needs a corpus A/B); 41703's 35-part and 71043's 45-part loose builds stay by
+  the 30-part rule; 77092 at 50 % turned 90 now lands a collider on the child's block (A-06 class).
 
 ### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
 The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles
