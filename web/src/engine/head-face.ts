@@ -327,10 +327,20 @@ export const PHOTO_SKIN_TOLERANCE = 56;
 const PHOTO_MIN_TEXELS = 64;
 
 /**
+ * A photo still carrying its skin is opaque nearly edge to edge; art whose skin was already keyed out
+ * (`scripts/gen-face-art.py` makes skin transparent, keeping only ink) is mostly transparent. Below this opaque
+ * share there is no skin left to find: the commonest colour is INK, and dropping it punched the eyes and mouth out
+ * of most route-2 faces (76417's goblin 3626pb3484 lost 31 % of its ink, 10303's 3626pb2973 54 %; audit
+ * 2026-11-15 A-10, `scripts/_face_art_skin_probe.ts`). The doll art was exempted for the same reason.
+ */
+const PHOTO_MIN_OPAQUE_SHARE = 0.75;
+
+/**
  * The photo's skin: the most common colour of the opaque texels (quantised to
  * 16 levels a channel), averaged over that bucket. Null when under a quarter
  * of the opaque texels share one bucket - art that is not a face on skin (a
- * sweet, a mask), which is then kept whole.
+ * sweet, a mask), which is then kept whole - and when the art is mostly
+ * transparent, i.e. its skin was keyed out already (`PHOTO_MIN_OPAQUE_SHARE`).
  */
 export function photoSkinColour(art: FaceArt): [number, number, number] | null {
   const buckets = new Map<number, { n: number; r: number; g: number; b: number }>();
@@ -355,8 +365,9 @@ export function photoSkinColour(art: FaceArt): [number, number, number] | null {
     const pr = art.rgba[i * 4]!, pg = art.rgba[i * 4 + 1]!, pb = art.rgba[i * 4 + 2]!;
     if (Math.hypot(pr - c[0]!, pg - c[1]!, pb - c[2]!) < PHOTO_SKIN_TOLERANCE) { n++; r += pr; g += pg; b += pb; }
   }
-  // A photo: enough texels to have shading, skin a real share of it, and some ink besides.
-  if (opaque < PHOTO_MIN_TEXELS || n < opaque * 0.25 || n >= opaque) return null;
+  // A photo: enough texels to have shading, still covering the head (not keyed art), skin a real share of it, and
+  // some ink besides.
+  if (opaque < PHOTO_MIN_TEXELS || opaque < art.width * art.height * PHOTO_MIN_OPAQUE_SHARE || n < opaque * 0.25 || n >= opaque) return null;
   return [r / n, g / n, b / n];
 }
 

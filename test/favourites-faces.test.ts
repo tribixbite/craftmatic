@@ -38,4 +38,70 @@ describe('a BrickLink-named printed head resolves to the LDraw print of the same
   });
 });
 
-void existsSync;
+
+
+const STUDIO_LDRAW = 'C:/git/clego/extracted/studio_release/app/ldraw';
+describe.skipIf(!existsSync(`${STUDIO_LDRAW}/UnOfficial/parts/3626cpb2381.dat`))('a printed head Studio ships only as a texture (corpus)', () => {
+  it('draws LDraw\'s geometric print of the same face, not Studio\'s textured plain head', async () => {
+    const { datSubstitutionFor, getDatText, setLDrawRoot } = await import('../web/src/engine/ldraw-geometry.js');
+    setLDrawRoot(STUDIO_LDRAW);
+    // 910032's `3626cpb2381.dat`: Studio's copy is `3626tex` + a PE_TEX_INFO PNG nothing here draws.
+    const text = await getDatText('3626cpb2381');
+    expect(text).not.toBeNull();
+    expect(text).not.toMatch(/PE_TEX_INFO/);
+    expect(datSubstitutionFor('3626cpb2381')).toBe('3626cp0c');
+  });
+});
+
+describe('a printed head that IS its BrickLink name', () => {
+  it('is not redirected to itself (a Studio BL copy chosen as the print)', async () => {
+    const { HEAD_PRINT_LDRAW } = await import('../web/src/engine/head-print-ldraw.js');
+    const { printedHeadFor } = await import('../web/src/engine/ldraw-part-aliases.js');
+    const self = Object.entries(HEAD_PRINT_LDRAW).find(([k, v]) => v === k.replace(/^3626pb/, '3626cpb'));
+    expect(self).toBeDefined();
+    expect(printedHeadFor(self![1])).toBeUndefined();
+  });
+});
+
+/**
+ * Per favourite: how many of the heads its source places get their OWN face (an LDraw print or face art), at
+ * least. Measured 2026-11-15 by `bun scripts/_face_census.ts --faces=output/faces-art-1115` (the main checkout's
+ * art: route-2 photos, local builds only); before this round the same sources gave 75 of 319 with no art.
+ * [floor, heads]. A floor only goes up; a head with no print identity in its source (Mecabricks' plain `3626`,
+ * 10326's no-print `.io`, 71043's LXF) cannot be counted in, so 71040, 71043, 75397 and 76269 stay at 0.
+ */
+const FACE_FLOORS: Readonly<Record<string, readonly [number, number]>> = {
+  '10261': [11, 14], '10303': [11, 11], '10326': [3, 13], '10354': [8, 9], '10365': [2, 9], '11371': [6, 9],
+  '11374': [1, 1], '21318': [4, 4], '21360': [9, 15], '31141': [6, 6], '41703': [5, 6], '41732': [9, 10],
+  '42639': [10, 10], '42652': [4, 4], '42663': [3, 3], '42670': [7, 15], '43267': [6, 7], '60380': [12, 15],
+  '60446': [5, 5], '71040': [0, 3], '71043': [0, 4], '75397': [0, 6], '76269': [0, 32], '76286': [2, 3],
+  '76417': [14, 17], '76419': [2, 3], '76435': [8, 10], '76457': [14, 17], '77092': [4, 10], '80049': [4, 5],
+  '910004': [7, 10], '910032': [6, 8], '910047': [9, 9], '910049': [15, 16],
+};
+const FACE_ART = process.env.CRAFTMATIC_FACES_ART ?? 'C:/git/craftmatic/output/faces-art-1115';
+const HAVE_FACE_CORPUS = existsSync(STUDIO_LDRAW) && existsSync(FACE_ART) && existsSync('C:/git/clego/lego-models-index.json');
+
+describe.skipIf(!HAVE_FACE_CORPUS)('favourite figures wear their own faces (corpus)', () => {
+  it('meets each favourite\'s floor of heads with a real face (FIG-04, audit A-10)', async () => {
+    const { setLDrawRoot } = await import('../web/src/engine/ldraw-geometry.js');
+    const { seedFaceArt } = await import('../web/src/engine/head-face.js');
+    const { createPartGeometryProvider } = await import('../web/src/engine/ldraw-part-geometry.js');
+    const { censusHeads, summariseHeads } = await import('../scripts/face-census.ts');
+    const { firstPickSource, readModelsIndex } = await import('../scripts/favourite-sets.ts');
+    const { loadModelBricks, readFaceArtDir } = await import('../scripts/model-source.ts');
+    setLDrawRoot(STUDIO_LDRAW);
+    seedFaceArt(readFaceArtDir(FACE_ART));
+    const index = readModelsIndex();
+    const got: Record<string, [number, number]> = {};
+    for (const set of Object.keys(FACE_FLOORS)) {
+      const pick = firstPickSource(index[set]);
+      if (!pick || !existsSync(pick.file)) continue;
+      const { bricks } = await loadModelBricks(pick.file);
+      const s = summariseHeads(await censusHeads(bricks, createPartGeometryProvider()));
+      got[set] = [s.real, s.heads];
+    }
+    const short = Object.entries(FACE_FLOORS).filter(([set, [floor]]) => got[set] && got[set]![0] < floor)
+      .map(([set, [floor, heads]]) => `${set}: ${got[set]![0]} of ${got[set]![1]} real faces, floor ${floor} of ${heads}`);
+    expect(short).toEqual([]);
+  }, 1_200_000);
+});

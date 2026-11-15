@@ -28,7 +28,7 @@
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
-import { identityAliasFor, partAliasCandidates, studioFrameRedirect } from './ldraw-part-aliases.js';
+import { identityAliasFor, partAliasCandidates, printedHeadFor, studioFrameRedirect } from './ldraw-part-aliases.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { ldrawColorToBlock, LDRAW_COLOR_TO_BLOCK } from './ldraw-colors.js';
 import { type VoxelizeResult, type VoxelizeOptions, TECHNIC_INTERNAL_PARTS } from './ldraw-voxelizer.js';
@@ -481,6 +481,21 @@ async function fetchDatText(id: string): Promise<string | null> {
         datTextCache.set(key, text);
         const via = partLedger.get(normId(redirect));
         if (via) partLedger.set(key, { ...via, part: key });
+        return text;
+      }
+    }
+    // A BrickLink-named printed head is read as LDraw's print of the same face (`printedHeadFor`) BEFORE the
+    // name itself: Studio ships some of those names (`3626cpb2381.dat`) as the plain mould plus a `PE_TEX_INFO`
+    // texture, which nothing here draws, so a direct hit drew a blank face over LDraw's geometric print
+    // (`3626cp0c`, 910032; audit 2026-11-15 A-10). Recorded as a substitution, so the swap is visible.
+    const printed = key.includes('/') ? undefined : printedHeadFor(key);
+    if (printed) {
+      const text = await fetchDatText(printed);
+      if (text !== null) {
+        datTextCache.set(key, text);
+        datSubstitutions.set(key, printed);
+        const via = partLedger.get(normId(printed));
+        if (via) partLedger.set(key, { ...via, part: key, kind: 'substituted', origin: via.kind === 'substituted' ? via.origin : via.kind, servedAs: printed });
         return text;
       }
     }

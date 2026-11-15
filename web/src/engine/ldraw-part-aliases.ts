@@ -203,8 +203,9 @@ export function studioFrameRedirect(key: string): string | undefined {
  */
 export function printedHeadFor(stem: string): string | undefined {
   const fig = /^(?:3626[bc]?|28621)pb(\d+[a-z]?)$/.exec(stem);
-  if (fig) return HEAD_PRINT_LDRAW[`3626pb${fig[1]}`];
-  return /^(92198|28649)pr\d+[a-z]?$/.test(stem) ? HEAD_PRINT_LDRAW[stem] : undefined;
+  const hit = fig ? HEAD_PRINT_LDRAW[`3626pb${fig[1]}`] : /^(92198|28649)pr\d+[a-z]?$/.test(stem) ? HEAD_PRINT_LDRAW[stem] : undefined;
+  // A Studio BL copy can be the print itself (`3626cpb2004` IS the row's file): no other name to read it as.
+  return hit === stem ? undefined : hit;
 }
 
 /**
