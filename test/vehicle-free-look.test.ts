@@ -8,7 +8,7 @@
  * and the view's pitch reaches the ship's "look down + Jump".
  */
 import { describe, expect, it } from 'vitest';
-import { FREE_LOOK, NATIVE_HEADING_PROPERTY, NATIVE_STEER, cockpitCamera, cockpitEyeLead, cockpitLagFromLead, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type CockpitPose, type FreeLookState } from '../web/src/engine/vehicle-free-look.js';
+import { COCKPIT_CLIENT_LAGS, FREE_LOOK, NATIVE_HEADING_PROPERTY, NATIVE_STEER, cockpitCamera, cockpitLagFor, cockpitEyeLead, cockpitLagFromLead, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type CockpitPose, type FreeLookState } from '../web/src/engine/vehicle-free-look.js';
 import { quirkValue } from '../web/src/sim/quirks/registry.js';
 import { CHASE_PASSABLE_BLOCKS, chaseMaxRootBlocks, vehicleCameraScript, type VehicleCameraConfig } from '../web/src/engine/playable-addon.js';
 import { CAMERA_OWNER_TAG, CAMERA_SWEEP_TICKS } from '../web/src/engine/camera-release.js';
@@ -256,7 +256,7 @@ const CAR = 'craftmatic:t_car';
 const cameraCfg: VehicleCameraConfig = { typeId: CAR, preset: 'craftmatic:t_car_chase', kind: 'car', radius: 6, height: 2.6, pivotY: 0.75, scripted: true, riderVisibleSizes: null, eye: [0, 1.62, -0.4] };
 function cameraHost(cfg: VehicleCameraConfig = cameraCfg, terrain = solidBelow(64), extraComponents: Record<string, unknown> = {}) {
   const h = simHost({
-    script: vehicleCameraScript({ vehicles: [cfg], pitchProperty: FLIGHT_PROPS.pitch, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, nativeHeadingProperty: NATIVE_HEADING_PROPERTY, telemetryEvent: VEHICLE_TELEMETRY_EVENT, passableBlocks: CHASE_PASSABLE_BLOCKS, cameraRelease: { tag: CAMERA_OWNER_TAG, hidden: 'craftmatic_camera_hidden', every: CAMERA_SWEEP_TICKS } }),
+    script: vehicleCameraScript({ vehicles: [cfg], pitchProperty: FLIGHT_PROPS.pitch, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, nativeHeadingProperty: NATIVE_HEADING_PROPERTY, telemetryEvent: VEHICLE_TELEMETRY_EVENT, passableBlocks: CHASE_PASSABLE_BLOCKS, cameraRelease: { tag: CAMERA_OWNER_TAG, hidden: 'craftmatic_camera_hidden', every: CAMERA_SWEEP_TICKS }, cockpitClientLags: [...COCKPIT_CLIENT_LAGS] }),
     entities: { [CAR]: { properties: flightProperties() as Record<string, Record<string, unknown>>, components: {
       'minecraft:type_family': { family: ['craftmatic_vehicle', 'car'] },
       'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: [{ position: [0, 0.5, 0], lock_rider_rotation: FREE_LOOK.SEAT_LOCK_DEG }] },
@@ -354,6 +354,31 @@ describe('the camera runtime with free look (scripts/vehicle-camera.js on the si
     expect(h.host.playerState(rider).camera.location).toBeDefined();
   });
 
+  it('reads its pose lag per CLIENT: the Pixel (Deferred, 24) on the pose COCKPIT_CLIENT_LAGS gives, another client on COCKPIT_TICK_LAG (A-14)', () => {
+    const pixel = COCKPIT_CLIENT_LAGS.find(c => c.graphicsMode === 'Deferred' && c.maxRenderDistance === 24)!;
+    expect(pixel.lag).toBeLessThan(FREE_LOOK.COCKPIT_TICK_LAG);
+    expect(cockpitLagFor('Deferred', 24, COCKPIT_CLIENT_LAGS, FREE_LOOK.COCKPIT_TICK_LAG)).toBe(pixel.lag);
+    expect(cockpitLagFor('Fancy', 22, COCKPIT_CLIENT_LAGS, FREE_LOOK.COCKPIT_TICK_LAG)).toBe(FREE_LOOK.COCKPIT_TICK_LAG);
+    expect(cockpitLagFor('', NaN, COCKPIT_CLIENT_LAGS, FREE_LOOK.COCKPIT_TICK_LAG)).toBe(FREE_LOOK.COCKPIT_TICK_LAG);
+    // The runtime: at 10 blocks/s along +z, the cockpit eye stands on the pose `lag` ticks back, per rider's client.
+    for (const [info, lag] of [[{ graphicsMode: 'Deferred', maxRenderDistance: 24, memoryTier: 4 }, pixel.lag], [{ graphicsMode: 'Fancy', maxRenderDistance: 22, memoryTier: 4 }, FREE_LOOK.COCKPIT_TICK_LAG]] as const) {
+      const { h, car, rider, drive } = cameraHost();
+      rider.clientInfo = { ...info };
+      h.host.playerState(rider).selectedSlot = 8;
+      drive(20, 10);
+      const c = h.host.playerState(rider).camera;
+      expect(c.location!.z - (car.location.z + cameraCfg.eye![2])).toBeCloseTo(-lag * 10 / 20, 5);
+    }
+  });
+  it('the chase camera trails the same lagged pose, eased as the cockpit is, so it rides the DRAWN vehicle and not the server\'s (A-14: the drawn eye jumped 1-3 blocks a frame on the Pixel)', () => {
+    const { h, car, rider, drive } = cameraHost();
+    rider.clientInfo = { graphicsMode: 'Deferred', maxRenderDistance: 24, memoryTier: 4 };
+    drive(30, 10);
+    const lag = cockpitLagFor('Deferred', 24, COCKPIT_CLIENT_LAGS, FREE_LOOK.COCKPIT_TICK_LAG);
+    const c = h.host.playerState(rider).camera;
+    // Heading +z (yaw 0): the boom is `radius` behind the pose `lag` ticks back.
+    expect(c.location!.z).toBeCloseTo(car.location.z - lag * 10 / 20 - cameraCfg.radius, 5);
+  });
   it('waits a second after the last drag before it eases, and follows the car through a turn', () => {
     const { car, rider, view, drive, drag } = cameraHost();
     drive(2, 8);
@@ -365,8 +390,10 @@ describe('the camera runtime with free look (scripts/vehicle-camera.js on the si
     // A turn with nobody dragging: the view stays on the car's nose. The simulator carries the rider's yaw round
     // with the car RIDER_YAW_LAG_TICKS late, as the device does (quirk `rider-yaw-lag`, Saga 30l), and the drag
     // reading nets that turn out.
+    // The chase view is on the car's pose the client's lag back (A-14: the simulator's player reports the Saga's
+    // client, so COCKPIT_TICK_LAG), so through a steady 3-degree turn it trails by 3 x that lag.
     drive(60, 8, 3);
-    expect(Math.abs(wrap(view()!.yaw - car.rotation.y))).toBeLessThan(1);
+    expect(Math.abs(wrap(view()!.yaw - (car.rotation.y - 3 * FREE_LOOK.COCKPIT_TICK_LAG)))).toBeLessThan(1);
     // The rider's reported yaw: the drag's 40 off the nose, trailing the turn by its lag (3 a tick x 6 ticks).
     expect(wrap(rider.rotation.y - car.rotation.y)).toBeCloseTo(left - 3 * FREE_LOOK.RIDER_YAW_LAG_TICKS, 0);
   });

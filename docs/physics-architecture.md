@@ -766,7 +766,7 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   draws the teleported vehicle behind the server; at the coaster's 1.5 the
   eye was drawn ~2 blocks AHEAD of the seat at top speed on the Saga, round
   30k, and at 4 a block BEHIND it, round 30l, so the lag is 3: quirk
-  `cockpit-draw-lag`, `cockpitEyeLead`), eased
+  `cockpit-draw-lag`, `cockpitEyeLead`; per client since 2026-11-15, `COCKPIT_CLIENT_LAGS`: the Pixel 0.5, and the chase camera rides the same lagged pose with the same ease, cut - not eased - at a view switch, a new vehicle or pose jump and a size change, its boom level unless it is an aircraft, A-14), eased
   over `COCKPIT_EASE_SECONDS`, turned by the same offsets - so a drag looks
   round and the view eases back to the front in yaw AND pitch. The rider is
   made invisible while it is theirs (the camera stands in its head), and a
@@ -1824,6 +1824,9 @@ one of these files fails the check until its row is written.
 | `freeLookStep` | function | SERIALISED. One tick: a drag (net of the vehicle's own turn, carried or not) moves the view; a second after the last drag, while moving, it eases back behind the nose (§4.6 "Free look"); during a mount's settle it re-reads the look instead. |
 | `CockpitPose` | interface | One tick of the vehicle as the cockpit camera reads it: position, yaw, nose pitch (+ down). |
 | `cockpitCamera` | function | SERIALISED. The cockpit view's free camera: at the driver's eye (seat frame, scaled by the size) on the vehicle's pose `COCKPIT_TICK_LAG` ticks back, looking along heading and nose turned by the free-look offsets, pitch inside `COCKPIT_PITCH_MAX`. |
+| `CockpitClientLag` | interface | One client's camera pose lag (`label`, `graphicsMode`, `maxRenderDistance`, `lag`), matched as the coaster's `clientTimings`. |
+| `COCKPIT_CLIENT_LAGS` | const | The scripted vehicle cameras' pose lag per client (A-14, 2026-11-15): the Pixel (Deferred, 24) 0.5 = its marker-measured per-tick coaster camera (1.5, the same 0.1 s ease) less the camera-first tick; any other client `COCKPIT_TICK_LAG` (the Saga's bracket). The cockpit AND the chase camera read it (`config.cockpitClientLags`). Pixel cockpit ride unmeasured: TODO(cockpit-lag-pixel). |
+| `cockpitLagFor` | function | SERIALISED (vehicle-camera.js). The lag for a client's graphics mode and render distance from the table, else the fallback. |
 | `cockpitEyeLead`, `cockpitLagFromLead` | function | The cockpit eye's lag model (quirk `cockpit-draw-lag`): blocks the eye is drawn ahead of the drawn seat at a speed for a camera lag and the device's draw lag, and its inverse - the lag one device reading says would have kept the eye on the seat (how `COCKPIT_TICK_LAG` was derived from four readings over two rounds; not serialised). |
 | `NATIVE_STEER` | const | Every number of a native mount's drag steering (§4.6 "Flyer", §9): the body's follow rate, the mount probe's turn, wait, quiet, tries and confirmations; the driver runtime's `config.steer`. |
 | `NATIVE_HEADING_PROPERTY` | const | The native mount's dynamic property the driver writes its held heading to every tick and the chase camera reads as its yaw (`craftmatic:native_heading`; §4.6 "Flyer"). |

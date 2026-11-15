@@ -13,11 +13,11 @@ import { createZip } from '../web/src/engine/zip-utils.js';
 import { runScenario } from '../web/src/sim/scenario/runner.js';
 import { quirk, quirkValue } from '../web/src/sim/quirks/registry.js';
 import { COASTER_RIDER_VIEW, coasterRuntimeConfig, coasterScript, type CoasterRoute, type CoasterRiderViewConfig } from '../web/src/engine/bedrock-coaster.js';
-import { FREE_LOOK, cockpitEyeLead } from '../web/src/engine/vehicle-free-look.js';
+import { COCKPIT_CLIENT_LAGS, FREE_LOOK, cockpitEyeLead, cockpitLagFor } from '../web/src/engine/vehicle-free-look.js';
 import { PoseHistory } from '../web/src/sim/client/draw-lag.js';
 import { boneTransforms, mul, pivotRotation } from '../web/src/engine/bedrock-geometry-faces.js';
 import { attachClient, cameraFrame, type ClientProfile, ClientView, clientProfile, drawnCameraLead, easeSteadyLagTicks, keyframeView, sampleAnimation, TICK_SECONDS } from '../web/src/sim/client/camera.js';
-import { CAMERA_MAX_EYE_JUMP_BLOCKS, CAMERA_MAX_TURN_DEG, cameraFrameDelta, clientInvariants, scriptMeansContinuity } from '../web/src/sim/client/invariants.js';
+import { CAMERA_MAX_EYE_JUMP_BLOCKS, CAMERA_MAX_TURN_DEG, SEAT_EYE_SLACK, cameraFrameDelta, clientInvariants, scriptMeansContinuity } from '../web/src/sim/client/invariants.js';
 import { CameraTrace } from '../web/src/sim/client/steps.js';
 import { rasterizeDetailed, type RasterQuad } from '../web/src/sim/render/rasterizer.js';
 import { buildAddonAppearance, lodDistanceOf } from '../web/src/sim/adapters/craftmatic/appearance.js';
@@ -99,6 +99,15 @@ describe('the client model: numbers and derivations', () => {
     for (const b of brackets.slice(2)) expect(lead(b)).toBeGreaterThan(b.hi);
     // The cockpit lag the vehicles ship (quirk `cockpit-draw-lag` 3) against this client: 5.7 - 1 - 1 = 3.7.
     expect(saga.entityLagTicks - cameraFirst - easeSteadyLagTicks(FREE_LOOK.COCKPIT_EASE_SECONDS, saga.easeFactor)).toBeCloseTo(3.7, 6);
+  });
+
+  it('the Pixel\'s cockpit lag (COCKPIT_CLIENT_LAGS) rides its drawn seat at 19.2 blocks/s, where the old 3 sat 2.4 blocks behind it (A-14)', () => {
+    const pixel = clientProfile('pixel'), cameraFirst = 1;
+    const lag = cockpitLagFor(pixel.device.graphicsMode, pixel.device.maxRenderDistance, COCKPIT_CLIENT_LAGS, FREE_LOOK.COCKPIT_TICK_LAG);
+    expect(Math.abs(drawnCameraLead(19.2, lag + cameraFirst, FREE_LOOK.COCKPIT_EASE_SECONDS, pixel))).toBeLessThan(SEAT_EYE_SLACK / 2);
+    expect(drawnCameraLead(19.2, FREE_LOOK.COCKPIT_TICK_LAG + cameraFirst, FREE_LOOK.COCKPIT_EASE_SECONDS, pixel)).toBeLessThan(-2);
+    // It is the Pixel's marker-measured per-tick coaster camera (the same 0.1 s ease at 1.5), less the camera-first tick.
+    expect(lag + cameraFirst).toBeCloseTo(COASTER_RIDER_VIEW.tickLag, 9);
   });
 
   it('the invariants\' per-frame turn cap is the coaster camera\'s own', () => {

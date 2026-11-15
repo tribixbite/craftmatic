@@ -28,7 +28,7 @@ import { ridesScript, type RideRuntimeConfig } from '../../../engine/bedrock-rid
 import { interactivesScript, type InteractiveRuntimeConfig } from '../../../engine/bedrock-interactives.js';
 import { BOAT, CAR, FLIGHT, FOOTPRINT, HEADLIGHTS, HOVER, MOVE, scriptedVehicleScript, type ScriptedVehicleConfig } from '../../../engine/bedrock-vehicle.js';
 import { vehicleCameraScript, type VehicleCameraRuntimeConfig } from '../../../engine/playable-addon.js';
-import { FREE_LOOK } from '../../../engine/vehicle-free-look.js';
+import { COCKPIT_CLIENT_LAGS, FREE_LOOK } from '../../../engine/vehicle-free-look.js';
 import { coasterScript, type CoasterRuntimeConfig } from '../../../engine/bedrock-coaster.js';
 import { rosterScriptSource } from '../../../engine/player-roster.js';
 
@@ -70,7 +70,7 @@ const SWAPS: readonly Swap[] = [
   { path: 'scripts/rides.js', read: t => extractJsonAfter(t, 'const CONFIG'), build: (c: RideRuntimeConfig) => ridesScript(c) },
   { path: 'scripts/interactives.js', read: t => extractJsonAfter(t, 'const CONFIG'), build: (c: InteractiveRuntimeConfig) => interactivesScript(c) },
   // vehicle-camera.js passes its CONFIG inline too: `(function ...)({"vehicles": ...}, ...)`; its free-look constants topped up.
-  { path: 'scripts/vehicle-camera.js', read: t => { const at = t.indexOf('({"vehicles":'); return at < 0 ? undefined : extractJsonAfter(t.slice(at), '('); }, build: (c: VehicleCameraRuntimeConfig) => vehicleCameraScript({ ...c, freeLook: { ...FREE_LOOK, ...c.freeLook } }) },
+  { path: 'scripts/vehicle-camera.js', read: t => { const at = t.indexOf('({"vehicles":'); return at < 0 ? undefined : extractJsonAfter(t.slice(at), '('); }, build: (c: VehicleCameraRuntimeConfig) => vehicleCameraScript({ ...c, freeLook: { ...FREE_LOOK, ...c.freeLook }, cockpitClientLags: c.cockpitClientLags ?? [...COCKPIT_CLIENT_LAGS] }) },
   // vehicles.js passes its CONFIG inline as the runtime's first argument: `(function ...)({"types": ...}, ...)`.
   { path: 'scripts/coaster.js', read: t => extractJsonAfter(t, 'const CONFIG'), build: (c: CoasterRuntimeConfig, shipped: string) => coasterFromConfig(c, shipped) },
   { path: 'scripts/vehicles.js', read: t => { const at = t.indexOf('({"types":'); return at < 0 ? undefined : extractJsonAfter(t.slice(at), '('); }, build: (c: ScriptedVehicleConfig) => scriptedVehicleScript(vehicleConfigWithTreeDefaults(c)) },
