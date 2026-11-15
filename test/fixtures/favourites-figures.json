@@ -1,0 +1,194 @@
+{
+ "10261": {
+  "torsos": 11,
+  "walking": 11
+ },
+ "10303": {
+  "torsos": 11,
+  "walking": 8,
+  "posed": {
+   "count": 3,
+   "why": "3 coaster riders at 90 degrees on the track stay at their source pose"
+  }
+ },
+ "10326": {
+  "torsos": 9,
+  "walking": 7,
+  "statue": {
+   "count": 2,
+   "why": "the museum's two one-colour statues on plinths (973pmc + 28621 heads), by design since Pixel round 3"
+  }
+ },
+ "10337": {
+  "torsos": 0,
+  "walking": 0
+ },
+ "10341": {
+  "torsos": 0,
+  "walking": 0
+ },
+ "10354": {
+  "torsos": 9,
+  "walking": 9
+ },
+ "10365": {
+  "torsos": 9,
+  "walking": 8,
+  "statue": {
+   "count": 1,
+   "why": "the sand-green figurehead (973 + 3626c + 87990 + bl_77183 wings, all colour 378) at the bow"
+  }
+ },
+ "11371": {
+  "torsos": 7,
+  "walking": 7
+ },
+ "11374": {
+  "torsos": 1,
+  "walking": 0,
+  "posed": {
+   "count": 1,
+   "why": "the one figure (the pinball player) is tilted 46.4 degrees and stays at its source pose"
+  }
+ },
+ "21061": {
+  "torsos": 0,
+  "walking": 0
+ },
+ "21063": {
+  "torsos": 0,
+  "walking": 0
+ },
+ "21318": {
+  "torsos": 4,
+  "walking": 4
+ },
+ "21360": {
+  "torsos": 9,
+  "walking": 9
+ },
+ "31141": {
+  "torsos": 6,
+  "walking": 6
+ },
+ "41395": {
+  "torsos": 3,
+  "walking": 3
+ },
+ "41703": {
+  "torsos": 4,
+  "walking": 4
+ },
+ "41732": {
+  "torsos": 7,
+  "walking": 7
+ },
+ "42172": {
+  "torsos": 0,
+  "walking": 0
+ },
+ "42639": {
+  "torsos": 9,
+  "walking": 9
+ },
+ "42652": {
+  "torsos": 4,
+  "walking": 4
+ },
+ "42663": {
+  "torsos": 3,
+  "walking": 3
+ },
+ "42670": {
+  "torsos": 8,
+  "walking": 7,
+  "small": {
+   "count": 1,
+   "why": "a Friends baby (111388 body + 6569 head): two parts, no rig for a baby, stays in the shell"
+  }
+ },
+ "43267": {
+  "torsos": 5,
+  "walking": 5
+ },
+ "60380": {
+  "torsos": 14,
+  "walking": 14
+ },
+ "60446": {
+  "torsos": 4,
+  "walking": 3,
+  "posed": {
+   "count": 1,
+   "why": "1 figure tilted 32.1 degrees stays at its source pose"
+  }
+ },
+ "71040": {
+  "torsos": 2,
+  "walking": 2
+ },
+ "75397": {
+  "torsos": 8,
+  "walking": 8
+ },
+ "76269": {
+  "torsos": 29,
+  "walking": 20,
+  "posed": {
+   "count": 9,
+   "why": "9 figures flying or on posing stands (65578), tilted 32-156 degrees, stay at their source pose"
+  }
+ },
+ "76286": {
+  "torsos": 4,
+  "walking": 4
+ },
+ "76417": {
+  "torsos": 13,
+  "walking": 13
+ },
+ "76419": {
+  "torsos": 1,
+  "walking": 0,
+  "statue": {
+   "count": 1,
+   "why": "the castle's one-colour bearded statue (973pr1 + 6132)"
+  }
+ },
+ "76435": {
+  "torsos": 10,
+  "walking": 10
+ },
+ "76457": {
+  "torsos": 12,
+  "walking": 12
+ },
+ "77092": {
+  "torsos": 4,
+  "walking": 4
+ },
+ "80049": {
+  "torsos": 8,
+  "walking": 8
+ },
+ "910004": {
+  "torsos": 7,
+  "walking": 7
+ },
+ "910032": {
+  "torsos": 7,
+  "walking": 7
+ },
+ "910047": {
+  "torsos": 9,
+  "walking": 9
+ },
+ "910049": {
+  "torsos": 14,
+  "walking": 13,
+  "posed": {
+   "count": 1,
+   "why": "1 figure lying at 90 degrees stays at its source pose"
+  }
+ }
+}

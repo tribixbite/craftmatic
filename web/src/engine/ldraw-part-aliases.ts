@@ -255,6 +255,11 @@ export function partAliasCandidates(stem: string): string[] {
   const mapped = identityAliasFor(stem);
   if (mapped) { out.push(mapped); seen.add(mapped); }
   let s = stem;
+  // Studio's `rename_<id>` marker (IOModel2V2's ~1,100 placements): the same .io's LDraw-space model.ldr places the
+  // plain `<id>` at the identical matrix (910049-closed: `rename_4739a` / `4739a`), so the marked name IS the part.
+  // The ladder then continues from it.
+  const renamed = /^rename_(.+)$/.exec(s)?.[1];
+  if (renamed && !seen.has(renamed)) { out.push(renamed); seen.add(renamed); s = renamed; }
   for (let hop = 0; hop < 4; hop++) {
     const m =
       // decoration / mould-version / print suffix: d1024, v2, p1, pb042, pr0011.
@@ -271,4 +276,33 @@ export function partAliasCandidates(stem: string): string[] {
     s = next;
   }
   return out;
+}
+
+/**
+ * Part text GENERATED for a name no library ships but whose construction is a fixed rule over parts it does ship.
+ * Consulted by both resolvers only after a definitive miss (the library and the alias ladder found nothing), so a
+ * library or embedded definition always wins. Returns null for every other name.
+ *
+ * `75c<NN>` - BrickLink's "Hose, Rigid 3mm D. NN L", which Studio names but LDraw does not. Studio's own definition
+ * (embedded in 910032's and 910049's model2.ldr for 75c08/10/16/20) is always the same three lines: the hose end
+ * `u9053` at the origin, the unit segment `77` stretched (20 NN - 2) LDU from y 1, and the end turned over at
+ * y 20 NN. A placement that names `75c<NN>` directly is that STRAIGHT hose; a bent one is a Studio sub-model
+ * (`76307.dat Copy 3`, its control points) that the converter already expands. Audit 2026-11-15 A-07: 42172,
+ * 910032 and 910049 drew these as bounding boxes.
+ */
+export function synthesizedPartText(stem: string): string | null {
+  const hose = /^75c(\d{2})$/i.exec(stem);
+  if (hose) {
+    const length = Number(hose[1]) * 20;
+    if (length < 20) return null;
+    return [
+      `0 ~Hose Rigid 3mm D. ${Number(hose[1])}L (generated from u9053 + 77, Studio's construction)`,
+      `0 Name: ${stem.toLowerCase()}.dat`,
+      '0 !LDRAW_ORG Unofficial_Part',
+      '1 16 0 0 0 1 0 0 0 1 0 0 0 1 u9053.dat',
+      `1 16 0 1 0 1 0 0 0 ${length - 2} 0 0 0 1 77.dat`,
+      `1 16 0 ${length} 0 -1 0 0 0 -1 0 0 0 1 u9053.dat`,
+    ].join('\n');
+  }
+  return null;
 }

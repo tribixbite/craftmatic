@@ -5891,3 +5891,14 @@ A `CoasterDesign` becomes a playable coaster: `bun scripts/_coaster_design_pack.
   itself turned 25-118 degrees per tick there, over the camera's 40 cap: fixed in the design, `COASTER_DESIGN.MAX_FRAME_RATE_DEG_PER_TICK`)
   and the PLANNER for the corkscrews and the rolls' exits (the frame turned 5-18 degrees per tick, the `over` chart drew 41-57; fixed: a rolled
   stretch is drawn in the nose's chart, `planSection`, physics spec 4.2d). (3) One rider per car; the design's two per car is not modelled.
+
+## Loose source pieces are left out of a pack (A-08, VIEW-02, 2026-11-15)
+
+`withoutStrayFragments` (`engine/stray-fragments.ts`, run by `runSchemPipeline` for `mcaddon` before voxelizing)
+drops a connected piece of fewer than 30 parts lying more than 8 studs from the main body (pieces of `max(200, 5 %)` parts), and names every dropped piece in one warning line ("Left out N loose parts in
+M pieces ..."). Sub-builds of 30+ parts stay wherever they stand (75397's skiff, 10365's rigging piece), and so does
+every figure (`groupFigures`): figures are left out of the clustering, so a line-up on the grass leaves as walking
+figures and what only touched it (76457's wand sprues across its figure row) is judged as the loose piece it becomes.
+A loose head or hair with no torso near it is debris (no figure would ever take it). Clearance is measured from the MAIN body only: measured
+from everything kept, 77092's alternate-build field and 76457's wands chained piece to piece and nothing was dropped.
+Not applied with creator hints (`byomHints`). The reviewed per-favourite list: `test/fixtures/favourites-stray-drops.json`.

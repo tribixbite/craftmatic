@@ -28,7 +28,7 @@
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
-import { identityAliasFor, partAliasCandidates, printedHeadFor, studioFrameRedirect } from './ldraw-part-aliases.js';
+import { identityAliasFor, partAliasCandidates, printedHeadFor, studioFrameRedirect, synthesizedPartText } from './ldraw-part-aliases.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { ldrawColorToBlock, LDRAW_COLOR_TO_BLOCK } from './ldraw-colors.js';
 import { type VoxelizeResult, type VoxelizeOptions, TECHNIC_INTERNAL_PARTS } from './ldraw-voxelizer.js';
@@ -538,6 +538,10 @@ async function fetchDatText(id: string): Promise<string | null> {
         }
       }
     }
+    // A name built by a fixed rule from parts the library ships (the rigid hose `75cNN`), only after every real
+    // definition missed.
+    const generated = key.includes('/') ? null : synthesizedPartText(key);
+    if (generated !== null) { datTextCache.set(key, generated); return generated; }
     datTextCache.set(key, null);
     return null;
   })();

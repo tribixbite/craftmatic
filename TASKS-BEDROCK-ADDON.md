@@ -34,7 +34,7 @@ individually tested 28". The favourites list has 40 sets (memory `user-favorite-
      row corrected).
    Gate for every re-sweep (A-16, merged): `bun scripts/_favourites_gate.ts --build --with-gabby --out=output/<new dir>`
    (sweep, child play at 50/100/150/200/400, vehicles, regressions; report `<dir>/gate.md`).
-   MERGED: vrun, place, door, vgrain, wveh, faces; follow-up `audit-vix` (moving hinged parts on whole-model vehicles, A-02 rest) running.
+   MERGED: vrun, place, door, vgrain, wveh, faces, parts; follow-up `audit-vix` (moving hinged parts on whole-model vehicles, A-02 rest) running.
    Merge each after review + full suite (merge commits), then one sweep `--with-gabby --faces=...` + sim at
    `--sizes=50,100,150,200,400` + `--scenario=vehicles` + `--scenario=regressions` over the same directory.
 3. When no audit finding is open: send the user all 40 packs (one zip, built from a commit), then the
@@ -59,6 +59,11 @@ individually tested 28". The favourites list has 40 sets (memory `user-favorite-
   3fa06170 build without faces, so A-05's class, not faces). Open: 10303 fig2's hair sits over its face (same on
   the audit build; the head looks under the hair's front), `TODO(face-source-transfer)`: carry print ids from a
   set's DBIX source onto a Mecabricks/no-print first pick (76269's 32 heads).
+- Branch `audit-parts` (A-07/A-08/A-09/A-13, packs `output/favsweep-auditparts-{9f73e0d6,df205771}` in that worktree)
+  plus clego branch `audit-parts-1115`. Open after it: boxed parts left on `test/fixtures/favourites-aabb-allowlist.json`
+  (TODO mb-hinge-frame for 76269's 52 hinge plates, mb-flexible-hose, ldd-hubcap-alias); IOModel2V2 regeneration of
+  the other ~795 files (TODO io2-regen, needs a corpus A/B); 41703's 35-part and 71043's 45-part loose builds stay by
+  the 30-part rule; 77092 at 50 % turned 90 now lands a collider on the child's block (A-06 class).
 
 ### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
 The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles
