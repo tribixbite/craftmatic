@@ -15,13 +15,27 @@ moment before building our in house ones. Have fable 5.2 audit the mcaddon gener
 and spot any flaws or gaps. then you fill them. When done and all tested with no outstanding work from audit send
 me all 28 addons and continue work on modularization- making any set as high quality and functional as the
 individually tested 28". The favourites list has 40 sets (memory `user-favorite-sets`); all 40 are in scope.
-1. Sweep at `4e5963dc`: `bun scripts/_favorites_export_sweep.ts --out output/favsweep-4e5963dc` (log
-   `output/favsweep-4e5963dc.log`), then `bun scripts/sim.ts output/favsweep-4e5963dc/*.mcaddon` and
-   `--scenario=regressions`.
-2. Fable audit of the generation over those packs -> `output/audit-1115/AUDIT.md` (findings ranked, each with
-   evidence and a proposed guard). Then fix each finding fail-first, re-sweep, re-sim.
-3. When the audit has no open finding: send the user all 40 packs (one zip, built from a commit), then the
-   generality work below (any set as good as the favourites).
+1. DONE: sweep at `4e5963dc` (40/40 valid, `output/favsweep-4e5963dc/`) and the Fable audit
+   `output/audit-1115/AUDIT.md`: 22 findings A-01..A-22, one blocker, a 40-row scorecard, a "does not
+   generalise" section. A-01 (blocker) FIXED `3fa06170`: the sweep now builds under the LEGO tab's label
+   (`legoTabLabel`) and names packs with the regression set's stem (`packStem`), `--with-gabby`, `--faces=DIR`.
+2. FIXING (2026-11-15), one Opus agent per worktree `.worktrees/audit-<x>` / branch `audit-<x>` from `3fa06170`,
+   common brief `output/audit-1115/brief-common.md` (worktree-only, fail-first, no merge/push):
+   - `wveh`: A-02 whole-model vehicles keep interactivity, A-01 rest (untitled car sized/seated as named), A-15
+     size advice, 42663 camper-van-vs-scene.
+   - `vrun`: A-12 big vehicles trapped at the hill, A-14 vehicle camera.
+   - `vgrain`: A-21 42172 export 2,353 s, A-03 vehicle cuboid budget.
+   - `door`: A-04 doorway floors/colliders at 200/400 %, A-22 turnables at 50 %, A-11 sealed doorways, A-20 doors.
+   - `place`: A-05 Undo board points at 400 %, A-06 Size/Rotate off the aim, A-16 gate sizes (a gate command),
+     then A-17/18/19.
+   - `parts`: A-07 boxed parts, A-08 floaters (orchestrator decision: drop small loose pieces > 8 studs clear,
+     keep sub-builds and figures, list every drop), A-09 76457 baseplates, A-13 figures left in the shell.
+   - `faces`: A-10 default faces (census, LDraw prints first, route-2 art into `output/faces-art-1115/`, FIG-04
+     row corrected).
+   Merge each after review + full suite (merge commits), then one sweep `--with-gabby --faces=...` + sim at
+   `--sizes=50,100,150,200,400` + `--scenario=vehicles` + `--scenario=regressions` over the same directory.
+3. When no audit finding is open: send the user all 40 packs (one zip, built from a commit), then the
+   generality work below (any set as good as the favourites; AUDIT.md section 4 lists what does not generalise).
 
 ### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
 The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles
