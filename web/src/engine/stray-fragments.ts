@@ -8,7 +8,8 @@
  *
  * The rule, decided for the user by the 2026-11-15 audit orchestrator and measured over the 40 favourites:
  *  - a connected piece (4 LDU touch, `connectedClusters`) of FEWER than `STRAY_MAX_PARTS` parts,
- *  - holding no whole figure (no torso: a figure line-up stands on no part but leaves as walking figures),
+ *  - not part of a figure (`groupFigures`; figures stay and are left out of the clustering, so a line-up on the
+ *    grass leaves as walking figures and what only touched it is judged on its own),
  *  - more than `STRAY_CLEARANCE_LDU` (8 studs) of clear air from the MAIN body (pieces of `MAIN_MIN_PARTS` /
  *    `MAIN_MIN_SHARE`, as the census counts a sub-build),
  * is dropped, and the export names every dropped piece in a warning. Everything else stays: the main body
@@ -23,7 +24,7 @@
 import type { ParsedBrick } from './ldraw-parser.js';
 import type { PartGeometryProvider, Vec3 } from './ldraw-part-geometry.js';
 import { partStem } from './part-id.js';
-import { connectedClusters, isFigurePart, isTorso, placementWorldBox } from './ldraw-entity-compiler.js';
+import { connectedClusters, groupFigures, placementWorldBox } from './ldraw-entity-compiler.js';
 
 /** A piece of this many parts or more is a sub-build and always stays. */
 export const STRAY_MAX_PARTS = 30;
@@ -52,20 +53,23 @@ function gapSquared(a: { min: Vec3; max: Vec3 }, b: { min: Vec3; max: Vec3 }): n
 }
 
 /**
- * The pieces to leave out, given each placement's world box and whether it is a figure TORSO. Pure: the export
- * (`withoutStrayFragments`) supplies the boxes from the resolved part geometry.
+ * The pieces to leave out, given each placement's world box and whether it belongs to a FIGURE (`groupFigures`: a
+ * torso and the head, limbs, hair and held items around it). Figure placements always stay (a line-up on the grass
+ * leaves as walking figures) and are left out of the clustering, so what merely touches a figure (76457's wand
+ * sprues lying across its figure row) is judged as the loose piece it becomes once the figure walks off. Pure: the
+ * export (`withoutStrayFragments`) supplies the boxes and the figure groups.
  */
-export function findStrayFragments(boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>, torso: readonly boolean[]): { dropped: StrayFragment[] } {
-  const groups = connectedClusters(boxes as Array<{ min: Vec3; max: Vec3 }>);
-  const mainMin = Math.max(MAIN_MIN_PARTS, boxes.length * MAIN_MIN_SHARE);
+export function findStrayFragments(boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>, figureMember: readonly boolean[]): { dropped: StrayFragment[] } {
+  const rest = boxes.map((_, i) => i).filter(i => !figureMember[i]);
+  const groups = connectedClusters(rest.map(i => boxes[i]!) as Array<{ min: Vec3; max: Vec3 }>).map(g => g.map(k => rest[k]!));
+  const mainMin = Math.max(MAIN_MIN_PARTS, rest.length * MAIN_MIN_SHARE);
   if (!groups.some(g => g.length >= mainMin)) return { dropped: [] };
-  const small = (g: readonly number[]): boolean => g.length < STRAY_MAX_PARTS && !g.some(i => torso[i]);
   // Clearance from the MAIN body only. Measured against everything kept (2026-11-15, first cut), loose pieces
   // chained to each other and through figure rows: 77092's alternate-build field (146 pieces, 318 parts, up to
   // 97.5 studs out) and 76457's wands each lay within 8 studs of the next, and nothing was dropped.
   const main = groups.filter(g => g.length >= mainMin).flat();
   const limit = STRAY_CLEARANCE_LDU * STRAY_CLEARANCE_LDU;
-  const pending = groups.filter(small).map(g => {
+  const pending = groups.filter(g => g.length < STRAY_MAX_PARTS).map(g => {
     let best = Infinity;
     for (const i of g) {
       for (const j of main) {
@@ -87,13 +91,6 @@ export function findStrayFragments(boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }
   return { dropped };
 }
 
-/** A minifig, mini-doll or big-fig torso or head (`isTorso`, `isFigurePart` + a head description). */
-export function isFigureAnchor(part: string, description: string): boolean {
-  if (isTorso(part, description)) return true;
-  const d = description.replace(/^[~=_]+\s*/, '');
-  return isFigurePart(part, description) && /\bHead\b/i.test(d) && !/\b(Headgear|Headdress|Helmet|Hat|Hair|Headband|Headphones?)\b/i.test(d);
-}
-
 /** What `withoutStrayFragments` left out: each piece's part ids, clearance and centre, worst first. */
 export interface StrayReport {
   parts: number;
@@ -108,10 +105,10 @@ export async function withoutStrayFragments<T extends ParsedBrick>(bricks: T[], 
   const meshes = new Map<string, Awaited<ReturnType<PartGeometryProvider['getPartMesh']>>>();
   await Promise.all([...new Set(bricks.map(b => b.part))].map(async part => { meshes.set(part, await provider.getPartMesh(part)); }));
   const boxes = bricks.map(b => placementWorldBox(b, meshes.get(b.part)));
-  // A figure anchor is a torso or a HEAD: a loose doll head with its hair (42639, 41732) is a figure the
-  // converter split, not debris, and dropping it would leave a headless body in the model.
-  const torso = bricks.map(b => isFigureAnchor(b.part, meshes.get(b.part)?.description ?? ''));
-  const { dropped } = findStrayFragments(boxes, torso);
+  // Figures by the export's own grouping (every torso group, posed and statue ones too: they stay in the shell).
+  const member = new Array<boolean>(bricks.length).fill(false);
+  for (const g of groupFigures(bricks, meshes)) for (const i of g.parts) member[i] = true;
+  const { dropped } = findStrayFragments(boxes, member);
   if (!dropped.length) return { bricks, report: { parts: 0, pieces: [] } };
   const out = new Set<number>(dropped.flatMap(d => d.indices));
   return {
@@ -131,5 +128,5 @@ export function describeStrayReport(report: StrayReport): string {
     const ids = [...counts].map(([id, n]) => (n > 1 ? `${n}x ${id}` : id)).join(' + ');
     return `${ids} (${(p.clearanceLdu / 20).toFixed(1)} studs clear at LDU ${p.centreLdu.map(v => Math.round(v)).join(',')})`;
   };
-  return `Left out ${report.parts} loose part${report.parts === 1 ? '' : 's'} in ${report.pieces.length} piece${report.pieces.length === 1 ? '' : 's'} lying more than ${STRAY_CLEARANCE_LDU / 20} studs clear of the model (pieces under ${STRAY_MAX_PARTS} parts holding no figure; the source's loose layout, not the build): ${report.pieces.map(piece).join('; ')}.`;
+  return `Left out ${report.parts} loose part${report.parts === 1 ? '' : 's'} in ${report.pieces.length} piece${report.pieces.length === 1 ? '' : 's'} lying more than ${STRAY_CLEARANCE_LDU / 20} studs clear of the model (pieces under ${STRAY_MAX_PARTS} parts, no figure; the source's loose layout, not the build): ${report.pieces.map(piece).join('; ')}.`;
 }

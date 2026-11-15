@@ -5847,9 +5847,10 @@ A `CoasterDesign` becomes a playable coaster: `bun scripts/_coaster_design_pack.
 ## Loose source pieces are left out of a pack (A-08, VIEW-02, 2026-11-15)
 
 `withoutStrayFragments` (`engine/stray-fragments.ts`, run by `runSchemPipeline` for `mcaddon` before voxelizing)
-drops a connected piece of fewer than 30 parts that holds no torso or head and lies more than 8 studs from the main
-body (pieces of `max(200, 5 %)` parts), and names every dropped piece in one warning line ("Left out N loose parts in
+drops a connected piece of fewer than 30 parts lying more than 8 studs from the main body (pieces of `max(200, 5 %)` parts), and names every dropped piece in one warning line ("Left out N loose parts in
 M pieces ..."). Sub-builds of 30+ parts stay wherever they stand (75397's skiff, 10365's rigging piece), and so does
-a figure line-up on the grass (it leaves as walking figures). Clearance is measured from the MAIN body only: measured
+every figure (`groupFigures`): figures are left out of the clustering, so a line-up on the grass leaves as walking
+figures and what only touched it (76457's wand sprues across its figure row) is judged as the loose piece it becomes.
+A loose head or hair with no torso near it is debris (no figure would ever take it). Clearance is measured from the MAIN body only: measured
 from everything kept, 77092's alternate-build field and 76457's wands chained piece to piece and nothing was dropped.
 Not applied with creator hints (`byomHints`). The reviewed per-favourite list: `test/fixtures/favourites-stray-drops.json`.

@@ -1,11 +1,11 @@
 /**
  * A-08 (audit 2026-11-15, VIEW-02 / PROC-19): loose pieces lying more than 8 studs clear of the model - the
  * alternate build's parts beside 77092's Deku tree, accessory rows, 76457's wand sprues - are left out of a pack and
- * named in a report line; a substantial sub-build (30 parts or more) and any piece holding a whole figure (a torso)
+ * named in a report line; a substantial sub-build (30 parts or more) and every figure (`groupFigures`)
  * stay, wherever they stand.
  */
 import { describe, expect, it } from 'vitest';
-import { findStrayFragments, isFigureAnchor, STRAY_CLEARANCE_LDU, STRAY_MAX_PARTS } from '../web/src/engine/stray-fragments.js';
+import { findStrayFragments, STRAY_CLEARANCE_LDU, STRAY_MAX_PARTS } from '../web/src/engine/stray-fragments.js';
 
 type Box = { min: [number, number, number]; max: [number, number, number] };
 /** A 1 x 1 brick's box (20 x 24 x 20 LDU) with its corner at (x, y, z). */
@@ -43,21 +43,21 @@ describe('stray-fragments :: loose source pieces far from the model', () => {
     expect(result.dropped[0]!.indices[0]).toBe(400 + STRAY_MAX_PARTS);
   });
 
-  it('keeps a figure line-up standing on no part: a piece with a torso is a figure, not debris', () => {
+  it('keeps a figure line-up standing on no part: figure placements always stay', () => {
     const model = row(0, 400);
     const figure = row(0, 6, 0, 3000);
     const boxes = [...model, ...figure];
-    const torso = boxes.map((_, i) => i === 402);
-    expect(findStrayFragments(boxes, torso).dropped).toEqual([]);
+    const member = boxes.map((_, i) => i >= 400);
+    expect(findStrayFragments(boxes, member).dropped).toEqual([]);
   });
 
-  it('measures clearance from the main body: a loose accessory beside a far figure line-up is still dropped', () => {
+  it('judges what only TOUCHES a far figure as the loose piece it is once the figure walks off (76457 wand sprues)', () => {
     const model = row(0, 400);
     const figure = row(0, 6, 0, 3000);
-    const sword = [cube(0, 0, 3000 + 20 + 40)]; // 2 studs from the figure, 150 studs from the model
-    const boxes = [...model, ...figure, ...sword];
-    const torso = boxes.map((_, i) => i === 402);
-    expect(findStrayFragments(boxes, torso).dropped.map(d => d.indices)).toEqual([[406]]);
+    const sprue = [cube(120, 0, 3000)];          // touching the figure row's end, 150 studs from the model
+    const boxes = [...model, ...figure, ...sprue];
+    const member = boxes.map((_, i) => i >= 400 && i < 406);
+    expect(findStrayFragments(boxes, member).dropped.map(d => d.indices)).toEqual([[406]]);
   });
 
   it('drops nothing from a model that has no main body (every piece under the sub-build size)', () => {
@@ -66,13 +66,3 @@ describe('stray-fragments :: loose source pieces far from the model', () => {
   });
 });
 
-describe('stray-fragments :: figure anchors', () => {
-  it('a torso or a head anchors a figure; hair, hats and accessories do not', () => {
-    expect(isFigureAnchor('3626c', 'Minifig Head with Closed Hollow Stud')).toBe(true);
-    expect(isFigureAnchor('92198p20', 'Figure Friends Head Black Eyebrows, Reddish Brown Eyes and Mouth Pattern')).toBe(true);
-    expect(isFigureAnchor('973', 'Minifig Torso')).toBe(true);
-    expect(isFigureAnchor('2343', 'Minifig Goblet')).toBe(false);
-    expect(isFigureAnchor('3624', 'Minifig Headgear Cap - Police Hat')).toBe(false);
-    expect(isFigureAnchor('3001', 'Brick  2 x  4')).toBe(false);
-  });
-});
