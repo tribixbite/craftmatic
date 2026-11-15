@@ -94,6 +94,11 @@ export function craftmaticSeatCamera(namespace?: string): NonNullable<ClientInva
     const is = (role: string): boolean => (namespace === undefined ? mount.families().some(f => f.endsWith(`_${role}`)) : hasRole(mount, namespace, role));
     if (is(COASTER_CAR_ROLE)) return true;
     const client = ClientView.of(ctx.engine);
+    // # TODO(helm-eye-judge): a scripted vehicle whose seat plan moves the EYE off the seat (helmSeatPlan: 75397's
+    // eye 7.4 over and 0.8 aft of its helm seat) is judged here against the seat's own eye, and `seatLead` projects
+    // on the drawn velocity, vertical part included: the barge reads 6.45 "ahead" at 2.9 blocks/s while its cockpit
+    // eye is on its planned spot (the `cockpitEye` step, which reads the plan's eye, passes). Judge such a vehicle
+    // against the plan's eye on the drawn pose, along the HORIZONTAL heading (A-14, 2026-11-15).
     return is(SCRIPTED_VEHICLE_ROLE) && !!client && client.sim.host.playerState(player).selectedSlot === COCKPIT_SLOT;
   };
 }
