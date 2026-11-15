@@ -1932,6 +1932,12 @@ Worktree `.worktrees/audit-door` (from 3fa06170). Evidence under its `output/` (
   910032 / 80049 at 50-400 %: 10 -> 2 failing scenarios of 60. OPEN: 910004 Door 5 at 200 % turn 0
   (`TODO(door5-910004-200)`, regression `doorway-clear-910004-200-door5` is `open`); 910032 at 50 % turn 90
   `player-not-in-solid` at the wand's spot (in the baseline too, not this branch's).
+  Rebuilt 41703 / 41732 / 42670 too: sim 50-400 % 1 failing of 36 both before and after (42670 50 % turn 90
+  `player-not-in-solid`, pre-existing). `_ix_passability` at 200 % gained 2 informational HOLE rows that START under
+  the floor (41703 Door 1 5.5, 42670 Garage door 1 2.63): the carve removed invisible slabs over nothing drawn past
+  the ledge (41703: a 0.375 slab at z 24-26 at 200 %), so the harness's 3-blocks-out start now hangs over the model's
+  own drop. Check on a device whether a player walking out there should get a rail (the model's border edge is open
+  by design).
 - A-22 FIXED: below 100 % the tap's frame margin adds 1 - f (71040 Turnable 4, 910032 Turnables 3 and 5 at 50 %).
 - A-11: 17 of 18 not-OK doorways at 100 % are the model's (`_ix_sealed_causes --drawn`), recorded in
   `FAVOURITE_DOORWAYS_NOT_OK_AT_100`; gate `bun scripts/_ix_sweep_report.ts <dir> --ceilings`. 910032 Door 4 is
