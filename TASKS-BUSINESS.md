@@ -1,239 +1,83 @@
-# Business tracker - can craftmatic content be sold, and how
+# Business tracker - selling original brick-style packs, the converter, free releases
 
-Opened 2026-11-06 at the user's request (REQUIREMENTS.md section 17, `BIZ-01`..`BIZ-04`). Open work only;
-history lives in `git log`. Research is desk research by subagents, NOT legal advice: a lawyer decides BIZ-01
-before anything is listed or sold, and nothing is posted, applied for or submitted without the user.
+Open work only; history lives in `git log` (this file's long form is at `8937c74d`). Research here is desk
+research, NOT legal advice: a lawyer reviews before anything is listed or sold, and nothing is posted, applied
+for, submitted or signed up for without the user's per-instance approval.
 
-## Start here
-- STATE 2026-11-06: four research agents running. Each writes its full report (gitignored):
-  1. `output/business-1106/1-legality.md` (BIZ-01). Model fable. Covers: copyright in LEGO set designs;
-     the LEGO word mark and the minifigure and brick shape marks; licensed themes; LDraw / Studio part-library
-     licences; face prints taken from LEGO renders; Mojang usage rules and Marketplace rules; precedents; a risk
-     matrix from "official sets with names" down to "original brick-style designs".
-  2. `output/business-1106/2-competition.md` (BIZ-02): the Marketplace's size and what sells, converters and
-     vehicle/furniture add-ons, brick games (LEGO Fortnite, Brick Rigs, Roblox), positioning, threats.
-  3. `output/business-1106/3-pricing-gtm.md` (BIZ-03): Marketplace economics (revenue share, Minecoins,
-     Partner programme, Marketplace Pass), other channels, prices for scenarios A-D (below), a 90-day plan.
-  4. `output/business-1106/4-create-list-sell.md` (BIZ-04): Partner application, submission and
-     certification, technical blockers for our packs, a numbered launch checklist per channel.
-- BIZ-02 report LANDED (`2-competition.md`, 35 sources). Load-bearing claim VERIFIED 2026-11-06 on fortnite.com
-  ("Introducing the LEGO Brick Editor..."): LEGO's creator rules for its LICENSED Fortnite channel say "No
-  recreation of existing LEGO sets and LEGO toys (Rule #6)", plus genuine LEGO elements only (Rule #7), and LEGO
-  takes 15% of the payout. So LEGO forbids set recreations even for paying licensees. Not yet verified:
-  - MCPEDL rejecting packs named LEGO;
-  - the Marketplace figures: over $500M gross since launch (GDC 2024), about 40.2k items from 326 creators, add-on
-    median price 660 Minecoins, top furniture packs at 15-24k ratings;
-  - the official free LEGO Chicken Mounts add-on (Noxcrew, May 2026) at 34k ratings.
+## Start here (PAUSED 2026-11-15)
+- The user (2026-11-15): "polish the functionality and appearance and performance of the lego replica sets for
+  the moment before building our in house ones". Business work is PAUSED; replica-set work is in
+  `TASKS-BEDROCK-ADDON.md`. Pick this file up only when the user resumes monetization / store listing.
+- Read, in order: this file; `docs/plans/README.md` (master plan, work packages, the user's answers in section 5
+  "ANSWERED by the user 2026-11-12", handoff in section 7, binding brief in appendix A); REQUIREMENTS.md section 17
+  (`BIZ-01`..`BIZ-67`; `bun scripts/requirements-ledger.ts --open | grep BIZ-` lists what is left).
+- Research reports (gitignored, on this machine only): `output/business-1106/{1-legality,2-competition,
+  3-pricing-gtm,4-create-list-sell}.md`.
+- Merged so far (waves 1-6, all on main, CI green at `4e5963dc`): see `git log --merges --grep=biz-`.
 
-  The agent's positioning: sell the CONVERTER as a tool for creators' own designs (MOCs) and an unbranded
-  toy-brick line; keep official-set conversion private until BIZ-01 says otherwise. No competitor found that
-  makes LEGO models PLAYABLE in Minecraft; the nearest is ObjToSchematic (static blocks).
-- BIZ-03 (`3-pricing-gtm.md`, 37 sources) and BIZ-04 (`4-create-list-sell.md`) LANDED. VERIFIED 2026-11-06 on
-  minecraft.net/en-us/usage-guidelines: "You may create, use, or distribute a mod if ..." (never sell), and "If
-  something isn't covered by these guidelines ... that probably means we don't want you to do it ... don't do it
-  without getting written permission from us". So paid sales OUTSIDE the Marketplace (Gumroad, itch.io, Patreon
-  paywalls) need Mojang's written permission.
-  The agents' route:
-  - **Marketplace through a listed publisher** (Waypoint, Pathway, Blocklab; Mojang's Partner page says it may not
-    be accepting applications). Waypoint quotes 8-12 weeks from build to listing.
-  - **Free releases with tips** (CurseForge rewards; MCPEDL now uploads via CurseForge).
-  - **The converter on craftmatic.click** sold as a tool.
+## Decisions (binding)
+- Legal verdict (research; a lawyer confirms): selling packs of official LEGO sets is NOT safe - set design
+  (derivative work), minifigure sculpture copyright and 3D marks (EU T-297/22, T-298/22), face/print art, LEGO and
+  licensor names. LEGO forbids set recreations even in its licensed Fortnite programme. Mojang allows no sales
+  outside the Marketplace without written permission. Free fan releases of official sets are lower-damages but
+  not safe (the Bionicle takedown, May 2025).
+- Chosen 2026-11-09: A (original brick-style packs on the Marketplace via a publisher) + B (bring-your-own-model
+  converter on craftmatic.click) + D (free releases with tips). Not C (licensing).
+- Brand Craftmatic, creator code `cmt`; publisher and seller "techneesh, llc", contact admin@techneesh.com;
+  "tribixbite" only in the credits file. Sampler product id `cmt_sampler`. Private design repo
+  `tribixbite/craftmatic-designs` (clone `C:/git/craftmatic-designs`).
+- Content rules: our own figure (never the minifig), no LEGO marks/set names/numbers/licensed themes, landmarks
+  designed from the real buildings, LDraw attribution shipped, Studio-only meshes resolved away.
 
-  Price ideas (UNVERIFIED):
-  - free sampler;
-  - Coaster Park 1,340 Minecoins, vehicle garage 990, pinball 830, furniture & doors 660, a three-pack bundle 1,990.
-  - Converter: $4.99 per model, $8 a month, $49 a month for studios.
+## Store listing: where each Marketplace blocker stands
+The BIZ-04 agent's seven blockers, read off a 10261 pack on 2026-11-06:
+1. Per-pack namespace `<creator>_<pack>:` - rewriter merged (X-03 / BIZ-22 PARTIAL). BIZ-66: a release's nested
+   structure id must be quoted (fixed `234deee3`), not yet device-proved.
+2. Validator layout - `_mcaddon_check.py --release` + `bun scripts/release-mctools.ts` (X-06, RB): fixture and
+   42639 release builds pass mct with 0 errors. Face-art sets (910004 ...) cannot be built as releases.
+3. Vanilla concrete textures overwritten - release textures live under `textures/<creator>/<pack>/` (RB).
+4. RP `pack_scope: world` + RP->BP dependency - `PackProfile` (BIZ-23 PARTIAL).
+5. Size / entities / script cost / permutations - `bun scripts/_marketplace_budget.ts` (BIZ-25 PARTIAL); M03 cut
+   permutations; Notre-Dame level 2 is 27.2 MB (> 25 MiB).
+6. Air-only placement, prompt, Undo - done offline and on the Pixel 2026-11-13 (BIZ-26 PARTIAL).
+7. Player-facing names - lint exists (T02); BIZ-27 / BIZ-55 still OPEN (string table, disclaimer, credits).
 
-  Revenue guess (agent's, wide): $0-1.5k in the first 90 days, $2.5-35k over months 4-12. The creator share is
-  unpublished: 35-70% modelled.
-- Marketplace technical blockers in OUR packs (BIZ-04 agent, read off a 10261 pack; one verified):
-  1. one shared `craftmatic:` namespace; Mojang wants a fixed `<creator>_<pack>:` namespace per add-on;
-  2. identifier and folder layout that fails Microsoft's add-on validator;
-  3. VERIFIED: the RP overwrites vanilla `textures/blocks/concrete_<colour>.png` with stud textures
-     (`playable-addon.ts:2633`, `lego-resource-pack.ts:362`), so binding the pack restyles all of the world's
-     concrete;
-  4. RP manifest lacks `pack_scope: world` and a dependency on the BP;
-  5. pack size against a 25 MB guideline, entity counts and script cost on low-end devices, and the collider
-     block permutation count (unchecked);
-  6. placement must only go into air, ask first, and offer undo;
-  7. dev stamps and set numbers in player-facing names.
+Release command: `bun scripts/release.ts prepare|finalize|verify|status <product>` (D-08b, BIZ-56).
+Not started: store art and shot list (BIZ-28), the submission bundle, the publisher pitch (Waypoint, Pathway,
+Blocklab - needs the user), CurseForge/MCPEDL/itch pages (BIZ-57/58, prepared drafts only), tips (BIZ-59),
+the site gallery (BIZ-60), accounts/payments (BIZ-40..44, Stripe TEST mode only).
 
-  None of this blocks free play; all of it blocks a listing.
-- BIZ-01 (`1-legality.md`, 50 sources, fable) LANDED. VERIFIED 2026-11-06: EU General Court T-297/22 and
-  T-298/22 (6 Dec 2023) upheld LEGO's minifigure 3D trade marks (chaillot.com, ipkitten). Agent's other key cites
-  (not re-opened by me):
-  - Lego Juris C-48/09 P: the plain brick SHAPE is not a valid trade mark;
-  - minifig sculpture copyright upheld in Lego v Best-Lock (2019) and Lego v ZURU;
-  - LDraw parts CC BY 2.0/4.0, commercial use allowed with attribution;
-  - the Studio EULA forbids redistributing parts of it;
-  - LEGO shut down a free Bionicle fan game (May 2025);
-  - Mojang's guidelines cite branded cars and movie characters as disallowed.
-- DECIDED 2026-11-09: the user chose A, B and D (BIZ-65) and asked for each to be FULLY built. The request:
-  >= 20 landmark designs and >= 5 other pack types, incl. a coaster >= 3x Loop with a cloud-top descent and a dark
-  in-mountain segment; a part mapper from image + footprint; and bring-your-own-model tested on real user photos and
-  files. Process:
-  START HERE: `docs/plans/README.md` (the master plan: merged packages, waves, the user's ranked questions U1..,
-  handoff in its section 7); review in `docs/plans/business-review.md`; source plans `business-{A,B,D}-*.md`.
-  REQUIREMENTS rows BIZ-05..BIZ-64 added 2026-11-09.
-  - WAVE 1 ALL MERGED into main 2026-11-09 (suite 3,766 passed): D-03, X-01, X-06, X-08, X-11, B29, B01, X-04, C01.
-    Ledger rows set PARTIAL with guards; their gap cells name what is left. Follow-ups found in review:
-    - X-11: voxel IoU >= 0.85 on only 3/5 models (wall 0.75, batcave car 0.57); the voxeliser's surface mode
-      returns 0 cells under a scaled node (worked around in lattice.ts, not fixed at the source).
-    - X-04: official mode does not hard-fail a CLI export (schem-pipeline catches the error into a warning, exit
-      0); a release build must call `assertOfficialLibrary()`. LEGO face art is not refused yet; no pack writes
-      CREDITS.txt yet.
-    - X-06: `bunx @minecraft/creator-tools@0.21.0` crashes at start (ink/react peer mismatch); parser unconfirmed.
-    - X-08: its colour/writer tests were written after the code; no bars, round bricks or 4032a in the vocabulary;
-      the quarter-turn convention (turn 1 = `0 0 1 0 1 0 -1 0 0`) must be confirmed by X-10.
-    - C01: cobra roll stalls (left out of the sketch); handedness vs Bedrock's Z mirror unconfirmed (C02).
-    - B29: 34 corpus items need the user's logins; the fetch ran in the b29 worktree, so `data/byom-corpus/` is at
-      `.worktrees/biz-b29/data/byom-corpus/` (re-run `bun scripts/byom-corpus-fetch.ts` in main to get it there).
-    - Pre-existing (not B01): after an upload the LEGO tab's source badge stays "loading... (no progress)".
-    - The X-11 agent ran `rm -r` on its own new scratch folder (rule breach; brief now leads with the rule).
-  - WAVE 2a 2026-11-09: MERGED + pushed (suite 3,932 passed, CI green): X-03, X-05, X-09, A05, B09, B15, F01, C03.
-    Done, held for checks: X-02->X-17 (`biz-x02`; default-profile builds must match main file for file: 4 favourites
-    building into `output/x02-compare/{main,x02}`), X-12 (`biz-x12`; stud-rim cap: wall/plate/tower 1.00, nimbus 0.99,
-    batcave car 0.66 because 17 moulds have non-planar open shells -> a winding-number inside test in the shared
-    voxeliser is a separate package).
-    Review notes:
-    - F01's three figures pass the minifig-overlap gate (<0.6) but are crude (floating arms, no face); recommended a
-      second design pass (Fable designer) before the user picks (U4). Sheet: `.worktrees/biz-f01/output/f01/candidates.jpg`.
-    - B15 ran for real: 3 photos of a Bag End build -> 4.8 MB mesh in 279 s (`.worktrees/biz-b15/output/photo3d-b15/`),
-      not yet viewed or graded. DINOv3 encoder licence is unread: blocks any public photo route (lawyer batch U3).
-    - X-03: the sim hard-codes `craftmatic:` ids (IX_KEYS etc.), so a rewritten pack's turnable is not tapped (M14).
-    - B09: Draco decoding never executed (needs a browser); the corpus has no STL/3MF/PLY/GLB files.
-    - C03: the full rail profile is 11,276 cubes for the 3x sketch (lean 4,702); resident memory unmeasured.
-    - X-09: side connections (clips, bars, SNOT) are not modelled: 7 of ~27 on-lattice OMR models read as 1 component.
-    - Rule breaches: X-12 ran `git checkout <file>` on its own experiment. Fail-first was skipped by B09, A05, X-03,
-      X-08 (colour/writer) and F01: the brief now makes the failing run a merge condition.
-    - Leftover worktree `.worktrees/biz-x02-base` (X-02's scratch, detached): never remove it (recursive delete).
-  - WAVE 2 MERGED 2026-11-09 (suite 4,030 passed): X-02->X-17 (4 favourites byte-identical but the stamp,
-    `output/x02-compare/`), X-12, D-06+D-16, M06, X-13, M15, X-14, V-01. Ledger rows set PARTIAL with guards.
-    Notes: X-14 proved `_pack_render.ts` is NOT mirrored (offline); M15 found no beta API in any shipped script, and a
-    likely bug `GameMode.survival` in the GameTest script; M06: 3 of 4 favourites fail only on 11,008 permutations
-    (M03); X-13 thresholds review 0.2 / block 0.5 (recall 94 %); V-01's 1.000 IoU is self-consistency only -> NEXT
-    a truth from each brick's footprint cells (winding fills a brick's cavity, which is right for bricks).
-  - WAVE 3 MERGED 2026-11-09: D-09, V-02, X-07, A09, D-08, M14, M07, B03, X-10, M03 (+ fixes: Notre-Dame sidecar moved
-    out of the ignored `data/` folder to `features/sidecars/`; the placement text's two LEGO mentions reworded and the
-    D-08 fixture waiver removed; M03 x M14 conflict in sim `play.ts` and M03 x M07 in `pack-profile.ts` resolved).
-    Checks done: M07 favourites differ only in placement.js + stamp, sim 24 scenarios identical, 7 regression cases
-    identical (`output/m07-compare/`); M03 dev packs identical but five scripts embedding the kit, passability and
-    regressions identical; B03 two favourites byte-identical but the stamp (`output/b03-compare/`).
-  - WAVE 4 MERGED 2026-11-12 (after the machine reboot; all six agents resumed from their commits): MQ, A07+A08, L01,
-    D-08b, T02 (C02 merges after the suite). Results:
-    - MQ: no neighbour buildings (parts < 50 % inside the outline dropped), skillion rise read along the slope (east
-      end 96.4 m -> 45.2 m), towers were already separate (the X-10 render's camera hid the gap). Notre-Dame 1 component.
-    - A07+A08: real slope roofs (gabled/hipped/shed/spire/conical/pyramidal), openings, relief, flying buttresses.
-      Merged with MQ: 22,457 parts, 1 component, 360 slope parts / 7,722 slope cells (floor re-measured; renders
-      `output/a07-merged/compare-nw.jpg`). STILL WRONG: the spire is a square stick, not a taper (SPIRE in wave 5).
-    - L01: underside cavities filled, studs culled, 27 moved-name aliases + 38 parts. Truth IoU wall/tower 1.000,
-      nimbus 0.898 parity / 0.849 winding (winding rings tall stacks: cause in `src/convert` winding field, open).
-    - D-08b: `release.ts finalize|verify|status`, M03/M07 flags in release profiles, gate waivers empty, `.io`/`.lxf`
-      inputs; `terrain_texture.json` was a checker false positive (now judged by content).
-    - T02 `--scenario=marketplace` findings (T02-fix in wave 5): "minifig" in wand/confirm forms and a sentence
-      starting "Minecraft only takes a tap"; M03's brick blocks unused (placement writes vanilla concrete); "Find a
-      clear spot" can land on the player (`player-not-in-solid`); batcave Undo leaves two `batcave_board_100`.
-    - C02: generated coaster plays the full 1,872-block circuit in the sim; 10261/10303 byte-identical but the stamp,
-      their regressions identical; 76417/42703 NOT yet compared (orchestrator runs them); camera-continuous flags
-      49-59 degree frames (cap 40) on the generated track; launch/brake zones not acted on (C04).
-  - DONE by the orchestrator 2026-11-12 (the user's answers): `Craftmatic-Lego-Pack.mcpack` renamed to
-    `Craftmatic-Brick-Textures.mcpack` with no LEGO text (deploys on push); private repo `tribixbite/craftmatic-designs`
-    created (clone `C:/git/craftmatic-designs`); sampler product = `cmt_sampler`, publisher Techneesh, LLC (display
-    name stays a placeholder until the trade-mark search).
-  - WAVE 4 PUSHED 2026-11-12 (suite 4,355 passed, CI + deploy green; `Craftmatic-Brick-Textures.mcpack` live, old URL 404).
-    Post-merge fixes: TS pack-check ports D-08b's atlas-by-content rule; prepare tests and the sim stage's reason updated.
-    C02 pack contract for 76417/42703 RUNNING: `output/c02-coaster-compare.sh` (worktrees `cmp-prec02` at 90aed2e2,
-    `cmp-postc02` at 370aa7cd) into `output/c02-compare/{before,after}`; compare with the zip diff (only stamp files
-    may differ).
-  - WAVES 1-5 PUSHED (CI green). WAVE 6 MERGED 2026-11-14 (RB, MQ2, LSCALE + BIZ-66 fix); push after the second
-    full suite (`output/biz-wave6-merge2-suite.log`), then `gh run list`. Open items carried forward:
-    - Wave 5: SV - 43114, 44014, 4997, 60266 have no cockpit spot clear to both sides; `--scenario=regressions` not
-      run by SV. RIDE - `TODO(rides-merge)`, `TODO(swing-chairs)`, `TODO(funfair-speed)` (300 % drop 108 blocks/s
-      unmeasured). C04 - device speed, frozen trains outside loaded chunks (ticking-area policy U17),
-      `coaster-view-clear` frames in loops. T02 - Guide page 2 "Pack made with craftmatic.click" flagged by the lint.
-    - RB (merged): fixture + 42639 release builds pass mct with 0 errors; notices moved to the release bundle;
-      textures under `textures/<creator>/<pack>/`; generated pack icon; path shortening. OPEN: face-art sets (910004
-      and others) cannot be built as releases (the profile refuses face atlases).
-    - MQ2 (merged): multi-building `buildingIds`, outline-vs-parts, Eiffel 330 m, Elizabeth Tower 90.9 of 96.3 m,
-      `trueTopM`. OPEN: Brandenburg Gate 20 vs 26 m, Statue of Liberty 46.8 vs 93 m, St Basil's, St Paul's 68 vs
-      111 m. Its regenerated `run.json`/renders in `C:/git/craftmatic-designs` are UNCOMMITTED there.
-    - LSCALE (merged): detail levels 1/2/4 studs per metre, one pack per level, wand "Suggest a size here". OPEN:
-      Notre-Dame level 2 is 27.2 MB (> 25 MiB) so the suggestion stays at level 1; level 4 unmeasured; Cologne's
-      tower roof breaks into fins at levels 2 and 4.
-    - Pixel round 2026-11-13 (`output/device-round-2026-11-13-pixel/`; world `cmt1113` + 5 pack folders left on the
-      Pixel): BLOCKER fixed offline as BIZ-66 (quoted structure id; needs a device Place with a rebuilt release pack).
-      Passed: brick blocks, air-only placement (prompt, Move, Cancel, exact Undo). Open: coaster rider stuck at the
-      station "waiting for the other train", bodywork fills the view; Nimbus flyer missing under `explicitOnly`
-      (`TODO(B03-flyer)`); tap-to-board untested in Survival (the round ran Creative); sim coaster `mp-two-players`
-      leaves 322 entities after both players undo.
-  - RIDE2 RUNNING (`.worktrees/biz-ride2`): water slides pass the sim 50-300 % (tower not rebuilt since the roof fix);
-    stunt arena fails the sim (loop entry blocked, car ~0.7 block high on the deck, nose-up over the loop top).
-  - FIGURE: F01b (rex/rivet/pip) merged as extras, F01c rejected (branch `biz-f01c` kept). FIG3 (Nib, Juno, Tala,
-    branch `biz-fig3`, sheets `output/fig3/`) -> the user (2026-11-14): "Iterate further we need to maximize
-    compatibility with preexisting accessories like weapons, helmets, hair accessories etc. And keep our current
-    minifigs and dolls just add this as additional so I can eval in game with direct comparison". FIG3b DONE, not merged
-    (`.worktrees/biz-fig3b`, BIZ-67): Pim + Tavi, gate margins 0.021 / 0.027, sheet `.worktrees/biz-fig3b/output/fig3b/candidates.jpg`,
-    packs `.worktrees/biz-fig3b/output/fig3b/gen3b/{60380,41732}-gen3.mcaddon`. Awaiting the user's in-game pick; open: boots, back gap,
-    vehicles seat only the player, not in the LEGO tab.
-  - NEXT after the push: sampler designs (car, door kit, seat kit, small landmark) once a figure is picked; a device
-    re-check of BIZ-66; the Pixel-round follow-ups above; L01 winding ring.
-  - F01b MERGED 2026-11-09 (`biz-f01b`): rex (dinosaur), rivet (robot), pip (bobblehead kid); all pass the gate
-    with attached limbs and faces; sheet `.worktrees/biz-f01b/output/f01b/candidates.jpg`; designer recommends rex.
-    The user picks (U4).
-    (Superseded list:) Wave 2b, still to start: M15, X-14, D-06, D-16, M06 (default: one budget tier), X-13 (the clean-room half
-    only); X-15 (its merge needs the user's approval, because every push to main deploys).
-  - WAVE 1 (original list) 2026-11-09 (one agent each, worktree `.worktrees/biz-<id>`, branch `biz-<id>`, not merged until
-    reviewed + full suite green): X-08 brick core, X-01 identity registry, X-04 part-source ledger + credits, X-06
-    release validator, D-03 deterministic zip, C01 coaster design -> path, X-11 mesh -> stud lattice, B29 corpus
-    fetcher, B01 model-import service. Agents are Sonnet, briefed with `docs/plans/implementer-brief.md` + their README
-    section 3 brief; each reports, then the orchestrator reviews the diff, merges into main (merge commit), runs
-    `bun run test`, pushes and checks CI. To see state: `git branch --list 'biz-*'` and `git log main..biz-<id>`.
-  - The user answered every open question on 2026-11-12: see `docs/plans/README.md` section 5,
-    "ANSWERED by the user 2026-11-12". Still open: the lawyer review (before the first paid listing).
+Unverified price ideas (BIZ-03 agent): free sampler; coaster park 1,340 Minecoins, vehicle garage 990, pinball
+830, furniture & doors 660, bundle 1,990; converter $4.99 per model, $8/month, $49/month studios.
 
-## The user's hypothesis (to test, not assume)
-"None of the original source files are used in the resulting distribution, so it is legally feasible,
-especially for LEGO Icons structures like Notre-Dame and the Eiffel Tower."
+## Open items carried from the paused waves
+- Content needed before any listing: the sampler (car, door kit, seat kit, small landmark; BIZ-50), and that
+  waits on the figure pick.
+- FIGURE (BIZ-21, BIZ-67): F01b (rex/rivet/pip) merged as extras. FIG3b on branch `biz-fig3b` (worktree
+  `.worktrees/biz-fig3b`, NOT merged): Pim + Tavi, gate margins 0.021 / 0.027 under 0.6, sheet
+  `.worktrees/biz-fig3b/output/fig3b/candidates.jpg`, packs `.worktrees/biz-fig3b/output/fig3b/gen3b/{60380,41732}-gen3.mcaddon`
+  (sent to the user 2026-11-15). Awaiting the user's in-game pick. Open: boots vs gate, back gap, vehicles seat only
+  the player, not in the LEGO tab, hip accessories and doll hair untested.
+- RIDE2 (branch `biz-ride2`, worktree `.worktrees/biz-ride2`, 13 commits, last `dd717d7f` 2026-11-13, NOT merged;
+  its agent is no longer running): water slides pass the sim 50-300 % (tower not rebuilt since the roof fix); the
+  stunt arena FAILS the sim (loop entry blocked, car ~0.7 block high on the deck, nose-up over the loop top).
+  Resume by briefing a new agent on that worktree; merge only after the sim passes and the full suite is green.
+- MQ2: Brandenburg Gate 20 vs 26 m, Statue of Liberty 46.8 vs 93 m, St Basil's, St Paul's 68 vs 111 m. Its
+  regenerated `run.json`/renders in `C:/git/craftmatic-designs` are UNCOMMITTED there.
+- LSCALE: level 4 unmeasured; Cologne's tower roof breaks into fins at levels 2 and 4.
+- Coaster (C04): device speed, frozen trains outside loaded chunks (ticking-area policy U17), view frames in loops.
+  RIDE TODOs: `TODO(rides-merge)`, `TODO(swing-chairs)`, `TODO(funfair-speed)`.
+- SV: 43114, 44014, 4997, 60266 have no cockpit spot clear to both sides.
+- T02: Guide page 2 "Pack made with craftmatic.click" is flagged by the lint.
+- Pixel round 2026-11-13 (`output/device-round-2026-11-13-pixel/`; world `cmt1113` + 5 pack folders left on the
+  Pixel): coaster rider stuck "waiting for the other train"; Nimbus flyer missing under `explicitOnly`
+  (`TODO(B03-flyer)`); tap-to-board untested in Survival; sim coaster `mp-two-players` leaves 322 entities after
+  both players undo.
+- L01: the winding field rings tall stacks (`src/convert`).
+- Leftover worktree `.worktrees/biz-x02-base`: never remove it (no recursive deletes).
 
-Points the research must settle:
-- Not shipping the source FILE does not by itself avoid a derivative-work claim on the set's DESIGN, which LEGO
-  designed. This holds for an Architecture or Icons set too: the building is public domain, LEGO's
-  interpretation of it is not.
-- Pack names carry LEGO set names and numbers, and many sets are licensed themes (Harry Potter, Star Wars,
-  Disney, Marvel, car brands).
-- Part meshes come from the LDraw library (licence terms to confirm) and from Studio's library.
-- Some minifig faces are derived from LEGO's own renders.
-- The Marketplace has its own third-party-IP rules on top of the law.
-
-## Scenarios the pricing work compares
-- A: unbranded brick-style ORIGINAL content: our own designs, landmarks re-designed, generic vehicles, rides
-  and furniture.
-- B: a tool or service that converts a creator's OWN brick designs (MOCs) into add-ons.
-- C: a licence or partnership (LEGO, or a theme licensor).
-- D: free fan releases funded by donations, Patreon or ads, if commercial sale is barred.
-
-## Decisions
-- Legal verdict (research, not legal advice; a lawyer confirms before any sale): the user's hypothesis FAILS.
-  - A pack ships LEGO's protected expression itself: the set's selection and arrangement of parts re-expressed as
-    cuboids (a derivative work); minifigure sculpture and 3D marks; print and face art; LEGO and licensor names.
-  - Not shipping the source FILE removes only the fan authors' thin copyright and the library-redistribution
-    question.
-  - Landmarks: the building is public domain, LEGO's brick interpretation is not (17 U.S.C. 103(b)). So a
-    part-for-part 21061 copies LEGO; an INDEPENDENT design from the real Notre-Dame is fine.
-  - LEGO also forbids set recreations in its own licensed Fortnite programme, and Mojang does not sanction sales
-    outside the Marketplace.
-
-  Safest commercial route:
-  - original brick-style designs with a generic studded-brick look (the Brick Rigs model);
-  - our own figure proportions, never the minifig;
-  - no LEGO marks, no set names or numbers, no licensed themes;
-  - landmarks designed from the real buildings;
-  - LDraw attribution shipped, and every Studio-only mesh resolved away;
-  - sold on the Marketplace via a publisher;
-  - plus the converter sold as a tool for creators' OWN designs.
-
-  Free fan releases of official sets are lower-damages but NOT safe (the Bionicle precedent).
-- Chosen scenario: A + B + D (2026-11-09). Brand Craftmatic (`cmt`), publisher Techneesh, LLC (2026-11-12).
-- Channel:
-- Price points:
-- Launch checklist:
+## Binding rules for any agent resuming this
+No recursive deletes of any kind; merge never rebase; no bare `git stash`; no git reset/revert/force; fail-first
+TDD with the failing run pasted; commit before building packs; full suite before a push, then `gh run list`;
+nothing external (pitches, uploads, sign-ups, live keys) without the user's per-instance approval; never accept
+the Minecraft EULA for the user; never touch the user's S25 Ultra or the Galaxy tablet.

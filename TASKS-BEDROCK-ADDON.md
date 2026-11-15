@@ -9,6 +9,20 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
+### IN FLIGHT 2026-11-15: replica-set polish (the user: business work paused)
+The user (2026-11-15): "polish the functionality and appearance and performance of the lego replica sets for the
+moment before building our in house ones. Have fable 5.2 audit the mcaddon generation for the ~28 favorite packs
+and spot any flaws or gaps. then you fill them. When done and all tested with no outstanding work from audit send
+me all 28 addons and continue work on modularization- making any set as high quality and functional as the
+individually tested 28". The favourites list has 40 sets (memory `user-favorite-sets`); all 40 are in scope.
+1. Sweep at `4e5963dc`: `bun scripts/_favorites_export_sweep.ts --out output/favsweep-4e5963dc` (log
+   `output/favsweep-4e5963dc.log`), then `bun scripts/sim.ts output/favsweep-4e5963dc/*.mcaddon` and
+   `--scenario=regressions`.
+2. Fable audit of the generation over those packs -> `output/audit-1115/AUDIT.md` (findings ranked, each with
+   evidence and a proposed guard). Then fix each finding fail-first, re-sweep, re-sim.
+3. When the audit has no open finding: send the user all 40 packs (one zip, built from a commit), then the
+   generality work below (any set as good as the favourites).
+
 ### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
 The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles
 fly/drive/etc? with proper POV and camera movement?". Detection is part-based, but every check so far ran on the
