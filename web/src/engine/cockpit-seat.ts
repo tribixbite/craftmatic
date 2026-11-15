@@ -90,7 +90,7 @@ export function riderOverlap(boxes: readonly BoxBlocks[], seat: Vec3, f = 1): { 
     // probe shrunk by 1/f in the model's own frame, which is the same thing.
     const lo: Vec3 = [0, 0, 0], hi: Vec3 = [0, 0, 0];
     for (let k = 0; k < 3; k++) { lo[k] = seat[k]! + probe.min[k]! / f; hi[k] = seat[k]! + probe.max[k]! / f; }
-    const near = boxes.filter(b => !b.glass && b.max[0] > lo[0] && b.min[0] < hi[0] && b.max[1] > lo[1] && b.min[1] < hi[1] && b.max[2] > lo[2] && b.min[2] < hi[2]);
+    const near = opaqueNear(boxes, lo, hi);
     const n = [0, 1, 2].map(k => Math.max(1, Math.round((probe.max[k]! - probe.min[k]!) / SAMPLE_STEP)));
     let inside = 0, total = 0;
     for (let i = 0; i < n[0]!; i++) for (let j = 0; j < n[1]!; j++) for (let l = 0; l < n[2]!; l++) {
@@ -241,12 +241,79 @@ export const VIEW = {
   overTop: 1.4,
 } as const;
 
+/**
+ * The OPAQUE boxes of one box list bucketed on a uniform grid over the bounds of the whole list, for the point
+ * tests of `forwardView` (A-21, audit 2026-11-15). Each box is filed in every cell its closed span touches, by the
+ * same `floor((v - lo) / cell)` a query point is, so a point is tested against exactly the boxes that can hold it
+ * and the answer is the full scan's. Without it a guessed seat's search over a 3,899-placement car at 100 % (42172)
+ * marched 15 rays x ~300 steps x every box for each of thousands of candidate eyes: 2,353 s of a 2,400 s export.
+ */
+interface OpaquePointIndex {
+  lo: Vec3; hi: Vec3; cell: number; n: [number, number, number];
+  cells: Array<BoxBlocks[] | undefined>;
+  /** The list's length when indexed: a list that grew since is indexed again. */
+  count: number;
+}
+
+/** Grid cell edge, blocks; doubled until the grid has at most `POINT_INDEX_MAX_CELLS` cells. */
+const POINT_INDEX_CELL = 0.5;
+const POINT_INDEX_MAX_CELLS = 1 << 21;
+const pointIndexCache = new WeakMap<readonly BoxBlocks[], OpaquePointIndex>();
+
+function opaquePointIndex(boxes: readonly BoxBlocks[]): OpaquePointIndex {
+  const cached = pointIndexCache.get(boxes);
+  if (cached && cached.count === boxes.length) return cached;
+  const lo: Vec3 = [Infinity, Infinity, Infinity], hi: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const b of boxes) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k]!, b.min[k]!); hi[k] = Math.max(hi[k]!, b.max[k]!); }
+  let cell = POINT_INDEX_CELL;
+  const dims = (): [number, number, number] => [0, 1, 2].map(k => Math.max(1, Math.floor((hi[k]! - lo[k]!) / cell) + 1)) as [number, number, number];
+  let n = dims();
+  while (n[0] * n[1] * n[2] > POINT_INDEX_MAX_CELLS) { cell *= 2; n = dims(); }
+  const cells: Array<BoxBlocks[] | undefined> = new Array(n[0] * n[1] * n[2]);
+  const at = (v: number, k: number): number => Math.min(n[k]! - 1, Math.max(0, Math.floor((v - lo[k]!) / cell)));
+  for (const b of boxes) {
+    if (b.glass) continue;
+    const i0 = at(b.min[0], 0), i1 = at(b.max[0], 0), j0 = at(b.min[1], 1), j1 = at(b.max[1], 1), l0 = at(b.min[2], 2), l1 = at(b.max[2], 2);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) for (let l = l0; l <= l1; l++) (cells[(i * n[1] + j) * n[2] + l] ??= []).push(b);
+  }
+  const index: OpaquePointIndex = { lo, hi, cell, n, cells, count: boxes.length };
+  pointIndexCache.set(boxes, index);
+  return index;
+}
+
+/** Whether a point inside the index's bounds lies in any opaque box (closed bounds, as `forwardView` always tested). */
+function inOpaqueBox(ix: OpaquePointIndex, q: Vec3): boolean {
+  const c = ix.cell, n = ix.n;
+  const i = Math.min(n[0] - 1, Math.max(0, Math.floor((q[0] - ix.lo[0]) / c)));
+  const j = Math.min(n[1] - 1, Math.max(0, Math.floor((q[1] - ix.lo[1]) / c)));
+  const l = Math.min(n[2] - 1, Math.max(0, Math.floor((q[2] - ix.lo[2]) / c)));
+  const list = ix.cells[(i * n[1] + j) * n[2] + l];
+  return !!list && list.some(b => q[0] >= b.min[0] && q[0] <= b.max[0] && q[1] >= b.min[1] && q[1] <= b.max[1] && q[2] >= b.min[2] && q[2] <= b.max[2]);
+}
+
+/**
+ * The opaque boxes that overlap the open box (lo, hi) - `b.max > lo && b.min < hi` on every axis, the test
+ * `riderOverlap` and `eyeOverlap` filter with - read from the index's cells instead of the whole list. A box overlapping
+ * the query has its cell span meeting the query's, so none is missed; each is returned once.
+ */
+function opaqueNear(boxes: readonly BoxBlocks[], lo: readonly number[], hi: readonly number[]): BoxBlocks[] {
+  const ix = opaquePointIndex(boxes), c = ix.cell, n = ix.n;
+  const at = (v: number, k: number): number => Math.min(n[k]! - 1, Math.max(0, Math.floor((v - ix.lo[k]!) / c)));
+  const seen = new Set<BoxBlocks>(), out: BoxBlocks[] = [];
+  for (let i = at(lo[0]!, 0), i1 = at(hi[0]!, 0); i <= i1; i++) for (let j = at(lo[1]!, 1), j1 = at(hi[1]!, 1); j <= j1; j++) for (let l = at(lo[2]!, 2), l1 = at(hi[2]!, 2); l <= l1; l++) {
+    for (const b of ix.cells[(i * n[1] + j) * n[2] + l] ?? []) {
+      if (seen.has(b)) continue;
+      seen.add(b);
+      if (b.max[0] > lo[0]! && b.min[0] < hi[0]! && b.max[1] > lo[1]! && b.min[1] < hi[1]! && b.max[2] > lo[2]! && b.min[2] < hi[2]!) out.push(b);
+    }
+  }
+  return out;
+}
+
 /** Share of the forward view rays from `eye` that leave the model through air or glass (1 = all clear). */
 export function forwardView(boxes: readonly BoxBlocks[], eye: Vec3): number {
-  const opaque = boxes.filter(b => !b.glass);
-  if (!opaque.length) return 1;
-  const lo: Vec3 = [Math.min(...boxes.map(b => b.min[0])), Math.min(...boxes.map(b => b.min[1])), Math.min(...boxes.map(b => b.min[2]))];
-  const hi: Vec3 = [Math.max(...boxes.map(b => b.max[0])), Math.max(...boxes.map(b => b.max[1])), Math.max(...boxes.map(b => b.max[2]))];
+  if (!boxes.some(b => !b.glass)) return 1;
+  const ix = opaquePointIndex(boxes), lo = ix.lo, hi = ix.hi;
   let clear = 0, total = 0;
   for (const yd of VIEW.yaw) for (const pd of VIEW.pitch) {
     total++;
@@ -256,7 +323,7 @@ export function forwardView(boxes: readonly BoxBlocks[], eye: Vec3): number {
     for (let s = VIEW.step; !hit; s += VIEW.step) {
       const q: Vec3 = [eye[0] + d[0] * s, eye[1] + d[1] * s, eye[2] + d[2] * s];
       if (q[0] < lo[0] || q[0] > hi[0] || q[1] < lo[1] || q[1] > hi[1] || q[2] < lo[2] || q[2] > hi[2]) break;
-      hit = opaque.some(b => q[0] >= b.min[0] && q[0] <= b.max[0] && q[1] >= b.min[1] && q[1] <= b.max[1] && q[2] >= b.min[2] && q[2] <= b.max[2]);
+      hit = inOpaqueBox(ix, q);
     }
     if (!hit) clear++;
   }
@@ -724,7 +791,7 @@ function inSolid(p: Parallelepiped, q: readonly number[]): boolean {
  */
 export function eyeOverlap(boxes: readonly BoxBlocks[], eye: Vec3): number {
   const h = 0.1, n = 4;
-  const near = boxes.filter(b => !b.glass && b.max[0] > eye[0] - h && b.min[0] < eye[0] + h && b.max[1] > eye[1] - h && b.min[1] < eye[1] + h && b.max[2] > eye[2] - h && b.min[2] < eye[2] + h);
+  const near = opaqueNear(boxes, [eye[0] - h, eye[1] - h, eye[2] - h], [eye[0] + h, eye[1] + h, eye[2] + h]);
   if (!near.length) return 0;
   let inside = 0;
   for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let l = 0; l < n; l++) {
