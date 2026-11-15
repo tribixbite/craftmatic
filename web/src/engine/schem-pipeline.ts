@@ -868,8 +868,10 @@ export async function runSchemPipeline(
               bricks: source.bricks.filter(b => !vehicleBricks.has(b)), meshes: scene.meshes, owned, seats: sceneSeats,
               seatPoints: seats.map(s => [s.x, s.y, s.z] as [number, number, number]), toGrid: p => sceneGridPoint(frame, p),
             });
-            const carriedCount = carried.rows.reduce((n, r) => n + r.count, 0);
-            interactivityReport = { ...stage.report, rows: [...stage.report.rows, ...carried.rows], totals: { ...stage.report.totals, excluded: stage.report.totals.excluded + carriedCount } };
+            // A vehicle's own moving parts ride with it (verdict `rides`); what it leaves fixed is `excluded`.
+            const totals = { ...stage.report.totals };
+            for (const r of carried.rows) totals[r.verdict] += r.count;
+            interactivityReport = { ...stage.report, rows: [...stage.report.rows, ...carried.rows], totals };
             for (const it of stage.items) census.owners.push({ label: it.kind, use: 'none', bricks: new Set(it.bricks), reason: `moves with a ${it.kind}`, ...(it.kind === 'turnable' ? { decoration: true } : {}) });
             if (stage.items.length) {
               interactives = { items: stage.items, frame };

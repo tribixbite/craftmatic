@@ -173,8 +173,8 @@ export function vehiclePartBoxes(geometry: unknown, parts: ReadonlyArray<{ angle
  * `scripts/vehicles.js`. `pose` is the vehicle's (Bedrock yaw: 0 faces +z, +x turns toward +z), `k` its live scale,
  * `eye` and `dir` the player's head and view (world), `open[i]` whether part i is open now (its open box is tested).
  *
- * A part is a candidate when its padded box is within `REACH_BLOCKS` of the eye. The view ray through a candidate
- * wins (nearest first); failing that, the candidate nearest the view direction within `CONE_DEG`. The cone is there
+ * A part is a candidate when its padded box is within `REACH_BLOCKS` (times the scale, above 100 %) of the eye. The
+ * view ray through a candidate's own box wins (nearest first), then through its padded box; failing both, the candidate nearest the view direction within `CONE_DEG`. The cone is there
  * because a touch tap picks what is under the FINGER, which the server never sees: it reports only the view
  * (`getViewDirection`), so a door tapped at the screen's edge is off the view ray but well inside the cone.
  * # TODO(vehicle-parts-touch-aim): unmeasured on a phone - whether a touch tap's view direction is the camera's
@@ -188,32 +188,42 @@ export function pickVehiclePart(parts: ReadonlyArray<{ closed: readonly number[]
   const dl = Math.hypot(dir.x, dir.y, dir.z) || 1;
   const d = [(dir.x * c + dir.z * s) / dl, dir.y / dl, (-dir.x * s + dir.z * c) / dl];
   const cosCone = Math.cos(P.CONE_DEG * Math.PI / 180);
-  let bestRay = -1, bestT = Infinity, bestCone = -1, bestCos = -Infinity;
+  // The vehicle's size scales its parts' spacing: the reach grows with it (a 400 % bus's door is 4x as far across);
+  // the pad never outgrows a small part (a 50 % lever is a tenth of a block).
+  const reach = P.REACH_BLOCKS * Math.max(1, k), pad = P.PAD_BLOCKS * Math.min(1, k);
+  /** The view ray's entry distance into a box, within reach, or Infinity (slab test). */
+  const rayIn = (lo: number[], hi: number[]): number => {
+    let t0 = 0, t1 = reach + pad;
+    for (let a = 0; a < 3; a++) {
+      if (Math.abs(d[a]!) < 1e-9) { if (e[a]! < lo[a]! || e[a]! > hi[a]!) return Infinity; continue; }
+      let ta = (lo[a]! - e[a]!) / d[a]!, tb = (hi[a]! - e[a]!) / d[a]!;
+      if (ta > tb) { const t = ta; ta = tb; tb = t; }
+      t0 = Math.max(t0, ta); t1 = Math.min(t1, tb);
+      if (t0 > t1) return Infinity;
+    }
+    return t0;
+  };
+  // Ranked: the view ray through a part's own box (nearest first), then through its padded box, then the cone.
+  let bestExact = -1, exactT = Infinity, bestPadded = -1, paddedT = Infinity, bestCone = -1, bestCos = -Infinity;
   for (let i = 0; i < parts.length; i++) {
     const b = open[i] ? parts[i]!.open : parts[i]!.closed;
     // A part none of whose cubes reached the geometry has no box: never picked.
     if (b.length < 6) continue;
-    const lo = [b[0]! * k - P.PAD_BLOCKS, b[1]! * k - P.PAD_BLOCKS, b[2]! * k - P.PAD_BLOCKS];
-    const hi = [b[3]! * k + P.PAD_BLOCKS, b[4]! * k + P.PAD_BLOCKS, b[5]! * k + P.PAD_BLOCKS];
-    // The box's point nearest the eye: within reach, or not a candidate.
+    const lo0 = [b[0]! * k, b[1]! * k, b[2]! * k], hi0 = [b[3]! * k, b[4]! * k, b[5]! * k];
+    const lo = lo0.map(v => v - pad), hi = hi0.map(v => v + pad);
+    // The padded box's point nearest the eye: within reach, or not a candidate.
     const q = [0, 1, 2].map(a => Math.max(lo[a]!, Math.min(hi[a]!, e[a]!)));
-    const gap = Math.hypot(q[0]! - e[0]!, q[1]! - e[1]!, q[2]! - e[2]!);
-    if (gap > P.REACH_BLOCKS) continue;
-    // The view ray through the box (slab test), within reach.
-    let t0 = 0, t1 = P.REACH_BLOCKS + 0.5;
-    for (let a = 0; a < 3 && t0 <= t1; a++) {
-      if (Math.abs(d[a]!) < 1e-9) { if (e[a]! < lo[a]! || e[a]! > hi[a]!) t0 = Infinity; continue; }
-      let ta = (lo[a]! - e[a]!) / d[a]!, tb = (hi[a]! - e[a]!) / d[a]!;
-      if (ta > tb) { const t = ta; ta = tb; tb = t; }
-      t0 = Math.max(t0, ta); t1 = Math.min(t1, tb);
-    }
-    if (t0 <= t1 && t0 < bestT) { bestT = t0; bestRay = i; continue; }
+    if (Math.hypot(q[0]! - e[0]!, q[1]! - e[1]!, q[2]! - e[2]!) > reach) continue;
+    const exact = rayIn(lo0, hi0);
+    if (exact < exactT) { exactT = exact; bestExact = i; }
+    const padded = rayIn(lo, hi);
+    if (padded < paddedT) { paddedT = padded; bestPadded = i; }
+    if (padded < Infinity) continue;
     // Off the ray: how near the view points at the box's centre.
     const m = [(lo[0]! + hi[0]!) / 2 - e[0]!, (lo[1]! + hi[1]!) / 2 - e[1]!, (lo[2]! + hi[2]!) / 2 - e[2]!];
     const ml = Math.hypot(m[0]!, m[1]!, m[2]!) || 1;
     const cos = (m[0]! * d[0]! + m[1]! * d[1]! + m[2]! * d[2]!) / ml;
-    if (gap === 0) { if (bestT > 0) { bestT = 0; bestRay = i; } continue; }
     if (cos >= cosCone && cos > bestCos) { bestCos = cos; bestCone = i; }
   }
-  return bestRay >= 0 ? bestRay : bestCone;
+  return bestExact >= 0 ? bestExact : bestPadded >= 0 ? bestPadded : bestCone;
 }

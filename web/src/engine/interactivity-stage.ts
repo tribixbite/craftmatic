@@ -188,7 +188,7 @@ export function interactivitySummary(label: string, report: InteractivityReport)
   const found = Object.entries(report.found).map(([k, n]) => `${n} ${k}${n === 1 ? '' : 's'}`).join(', ') || 'nothing';
   const unhandled = report.rows.filter(r => r.verdict === 'unhandled');
   const statics = report.rows.filter(r => r.verdict === 'static');
-  return `${label}: interactivity found ${found}; ${report.totals.static} static (${statics.map(r => `${r.part} x${r.count}`).join(', ') || 'none'}); ${report.totals.unhandled} unhandled (${unhandled.map(r => `${r.cls} ${r.part} x${r.count}`).join(', ') || 'none'}); ${report.totals.excluded} owned by vehicles, figures or rides.`;
+  return `${label}: interactivity found ${found}; ${report.totals.static} static (${statics.map(r => `${r.part} x${r.count}`).join(', ') || 'none'}); ${report.totals.unhandled} unhandled (${unhandled.map(r => `${r.cls} ${r.part} x${r.count}`).join(', ') || 'none'}); ${report.totals.excluded} owned by vehicles, figures or rides; ${report.totals.rides} ride${report.totals.rides === 1 ? 's' : ''} with a vehicle or a ride.`;
 }
 
 /** A vehicle entity and the placements it carries, for `vehicleCarriedParts`. */

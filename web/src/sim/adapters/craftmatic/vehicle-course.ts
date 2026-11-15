@@ -75,10 +75,14 @@ import { PLAYER_HEIGHT, PLAYER_WIDTH } from '../../physics/body.js';
 import type { AddonAppearance } from './appearance.js';
 import { animatedPoses, drawnBoxes, entityDrawn } from './drawn.js';
 import { tap } from '../../input/touch.js';
+import { floorBelow, standsAt } from '../../scenario/approach.js';
 import { teleport } from '../../script-host/facades.js';
 import { CORE_HANDLERS, findEntity } from '../../scenario/runner.js';
 import { lookAt } from '../../input/touch.js';
-import { vehiclePartProperty, type VehiclePartRuntime } from '../../../engine/vehicle-parts.js';
+import { VEHICLE_PART, vehiclePartProperty, type VehiclePartRuntime } from '../../../engine/vehicle-parts.js';
+
+/** A standing player's eye over its feet (quirk `rider-location-under-head`: 1.62 standing). */
+const PLAYER_EYE = 1.62;
 import type { Pack } from '../../pack/pack.js';
 
 /**
@@ -353,7 +357,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
      */
     async vehicleParts(step: AnyStep, ctx: StepContext) {
       const wanted = step['type'] ? [typeOf(step)] : [...types.values()].filter(t => t.parts.length);
-      const sum = { parts: 0, opened: 0, closedWhileMoving: true, drove: 0, reopenedAfterDrive: false, followed: false };
+      const sum = { parts: 0, opened: 0, unreachable: 0, closedWhileMoving: true, drove: 0, reopenedAfterDrive: false, followed: false };
       const value = (v: SimEntity, i: number): number => Number(v.properties.get(vehiclePartProperty(i)) ?? 0);
       /** Part i's box (closed or open) in the world at the vehicle's pose: [x0, y0, z0, x1, y1, z1]. */
       const worldBox = (v: SimEntity, part: VehiclePartRuntime, open: boolean): number[] => {
@@ -362,24 +366,39 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
         for (const x of [b[0]!, b[3]!]) for (const z of [b[2]!, b[5]!]) { xs.push(v.location.x + (x * c - z * s) * k); zs.push(v.location.z + (x * s + z * c) * k); }
         return [Math.min(...xs), v.location.y + b[1]! * k, Math.min(...zs), Math.max(...xs), v.location.y + b[4]! * k, Math.max(...zs)];
       };
-      /** Stand beside part i (outward from the vehicle's middle, on its ground), look at it, tap; whether its value changed. */
-      const tapOn = async (v: SimEntity, f: ScriptedTypeFacts, i: number): Promise<boolean> => {
+      /**
+       * Stand where a child could tap part i - the nearest spot round it on a floor, the body free (`standsAt`), the eye
+       * within the pick's reach of the part's box (`pickVehiclePart`: `REACH_BLOCKS` x the scale above 100 %) - look at
+       * it and tap. 'unreachable' when no such spot exists: a vehicle has no floors, so a cupboard high in a 400 % bus is
+       * out of reach on foot (the model's size, not a fault of the pick).
+       */
+      const tapOn = async (v: SimEntity, f: ScriptedTypeFacts, i: number): Promise<'changed' | 'unchanged' | 'unreachable'> => {
         const part = f.parts[i]!, before = value(v, i);
         const b = worldBox(v, part, before !== 0);
         const mid = { x: (b[0]! + b[3]!) / 2, y: (b[1]! + b[4]!) / 2, z: (b[2]! + b[5]!) / 2 };
-        let ox = mid.x - v.location.x, oz = mid.z - v.location.z;
-        const ol = Math.hypot(ox, oz);
-        if (ol < 1e-6) { ox = 1; oz = 0; } else { ox /= ol; oz /= ol; }
-        const halfAcross = Math.abs((b[3]! - b[0]!) * ox) / 2 + Math.abs((b[5]! - b[2]!) * oz) / 2;
-        const out = Math.min(halfAcross + 1, 2);
-        teleport(ctx.sim.host, ctx.player, { x: mid.x + ox * out, y: v.location.y, z: mid.z + oz * out });
+        const reach = VEHICLE_PART.REACH_BLOCKS * Math.max(1, v.scale()) - 0.1;
+        const gapTo = (eye: { x: number; y: number; z: number }): number => Math.hypot(Math.max(b[0]! - eye.x, 0, eye.x - b[3]!), Math.max(b[1]! - eye.y, 0, eye.y - b[4]!), Math.max(b[2]! - eye.z, 0, eye.z - b[5]!));
+        const half = Math.max(b[3]! - b[0]!, b[5]! - b[2]!) / 2;
+        let best: { x: number; y: number; z: number } | undefined, bestGap = Infinity;
+        for (const out of [0.5, 1, 1.6, 2.4]) for (let a = 0; a < 16; a++) {
+          const x = mid.x + Math.cos(a * Math.PI / 8) * (half + out), z = mid.z + Math.sin(a * Math.PI / 8) * (half + out);
+          const y = floorBelow(ctx.sim.engine, v.dimension, x, Math.max(v.location.y, mid.y) + 0.5, z, Math.max(4, mid.y - v.location.y + 4));
+          if (y === undefined || !standsAt(ctx.sim.engine, v.dimension, { x, y, z })) continue;
+          const g = gapTo({ x, y: y + PLAYER_EYE, z });
+          if (g <= reach && g < bestGap) { bestGap = g; best = { x, y, z }; }
+        }
+        if (!best) {
+          ctx.note(`${f.typeId} part ${i} (${part.noun.toLowerCase()} ${part.kind}) at scale ${r3(v.scale())}: out of reach on foot - no floor within ${r3(reach)} blocks of it (a vehicle has no floors; its box spans y ${r3(b[1]! - v.location.y)}..${r3(b[4]! - v.location.y)} over the vehicle's base)`);
+          return 'unreachable';
+        }
+        teleport(ctx.sim.host, ctx.player, best);
         await ctx.run(1);
         lookAt(ctx.player, mid);
         const r = tap(ctx.sim.engine, ctx.player);
         await ctx.run(12);
         const changed = value(v, i) !== before;
-        ctx.note(`${f.typeId} part ${i} (${part.noun.toLowerCase()} ${part.kind}): a tap from ${r3(out)} blocks out picked ${r.entity ? r.entity.typeId : 'nothing'}; ${before} -> ${value(v, i)}`);
-        return changed;
+        ctx.note(`${f.typeId} part ${i} (${part.noun.toLowerCase()} ${part.kind}): a tap with the eye ${r3(bestGap)} blocks off it picked ${r.entity ? r.entity.typeId : 'nothing'}; ${before} -> ${value(v, i)}`);
+        return changed ? 'changed' : 'unchanged';
       };
       for (const f of wanted) {
         // The placed vehicle when the scenario placed one, else a fresh one on open ground (the vehicle course).
@@ -388,15 +407,18 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
         for (let i = 0; i < f.parts.length; i++) {
           if (f.parts[i]!.closed.length < 6) continue;
           sum.parts++;
-          if (await tapOn(v, f, i)) {
+          const got = await tapOn(v, f, i);
+          if (got === 'unreachable') { sum.unreachable++; continue; }
+          if (got === 'changed') {
             sum.opened++;
             // Back as it was (a turnable keeps its step: it is never "open").
-            if (f.parts[i]!.kind !== 'turnable' && !(await tapOn(v, f, i))) ctx.violate({ invariant: 'vehicle-part-opens', message: `${f.typeId} part ${i}: a second tap did not close it`, evidence: { value: value(v, i) } });
+            if (f.parts[i]!.kind !== 'turnable' && (await tapOn(v, f, i)) !== 'changed') ctx.violate({ invariant: 'vehicle-part-opens', message: `${f.typeId} part ${i}: a second tap did not close it`, evidence: { value: value(v, i) } });
           } else ctx.violate({ invariant: 'vehicle-part-opens', message: `${f.typeId} part ${i} (${f.parts[i]!.noun}): a tap beside the parked vehicle did not open it`, evidence: { at: { x: r3(v.location.x), y: r3(v.location.y), z: r3(v.location.z) }, value: value(v, i) } });
         }
-        const swing = f.parts.findIndex(p => p.closes && p.closed.length >= 6);
+        // The first swinging part a child can reach here (by the same search).
+        let swing = -1;
+        for (let i = 0; i < f.parts.length && swing < 0; i++) if (f.parts[i]!.closes && f.parts[i]!.closed.length >= 6 && (await tapOn(v, f, i)) === 'changed') swing = i;
         if (swing < 0) continue;
-        if (!(await tapOn(v, f, swing))) continue;
         // In, and off down the road.
         const start = { ...v.location };
         await CORE_HANDLERS['hold']!({ kind: 'hold', target: { where: (e: SimEntity) => e === v, label: f.typeId } }, ctx);
@@ -417,8 +439,10 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
         await CORE_HANDLERS['sneak']!({ kind: 'sneak' }, ctx);
         await ctx.run(30);
         // Where it parked: the same tap opens it, and its drawn leaf stands at the part's open box there.
-        const again = await tapOn(v, f, swing);
+        const reopened = await tapOn(v, f, swing);
+        const again = reopened === 'changed';
         if (again) sum.reopenedAfterDrive = true;
+        else if (reopened === 'unreachable') ctx.note(`${f.typeId}: where it parked, part ${swing} is out of reach on foot`);
         else ctx.violate({ invariant: 'vehicle-part-rides-along', message: `${f.typeId}: after a ${r2(drove)}-block drive a tap beside part ${swing} did not open it`, evidence: { at: v.location } });
         const entry = registeredAppearance(pack.pack)?.byType.get(f.typeId);
         if (entry && again) {
