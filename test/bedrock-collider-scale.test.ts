@@ -227,6 +227,7 @@ async function relaySequence(dims: GridDims, runs: string, pcts: readonly number
   // (90° steps for a pack with blocks), 5 = place, 10 = size. Size cycles through
   // SIZE_STEPS from the 100 % it starts at, so the press count is the index delta.
   await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+  h.stepAside(); // the wand asks before building round a player (A-06)
   for (let r = 0; r < rotation / 90; r++) await h.open({ action: 'Rotate' }, { canceled: true });
   let current = 100;
   for (const pct of pcts) {
