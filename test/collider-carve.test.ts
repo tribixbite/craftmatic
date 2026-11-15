@@ -3,7 +3,7 @@
  * size is cut to the drawn geometry inside it, never adding a collider.
  */
 import { describe, expect, it } from 'vitest';
-import { carvesAt, decodeSizeCarve, encodeSizeCarve, encodeTurnedCarve, planSizeCarve, sizeCarveAt, turnModelBox, type ModelBox, type ShippedCarves } from '../web/src/engine/collider-carve.js';
+import { DOOR_CARVE_REACH, carvesAt, decodeSizeCarve, planDoorwayCarve, encodeSizeCarve, encodeTurnedCarve, planSizeCarve, sizeCarveAt, turnModelBox, type ModelBox, type ShippedCarves } from '../web/src/engine/collider-carve.js';
 import { COLLIDER_KIT } from '../web/src/engine/collider-form.js';
 import { QUARTER_TURNS, ScaledColliderGrid, rotatedCell, type SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
 
@@ -36,6 +36,26 @@ describe('collider carve (SCALE-06)', () => {
       if (y === 3) continue;
       for (const b of worldBoxes(x, y, z, form)) expect(b[1]! <= 4.5 + 1e-9 || b[0]! >= 5.5 - 1e-9, `${key} ${b.join(',')}`).toBe(true);
     }
+  });
+
+  it('at 200 % carves only round a passable doorway: the walled-up room beside 21318 Door 2 opens, the rest of the model is laid as before (A-04)', () => {
+    // The same sub-player gap twice in a 5 x 3 x 14 grid: beside a doorway whose closed cell is (2, 0, 1), and far
+    // from it at z 12. The whole-grid carve is not planned at 200 % (`carvesAt`), so the far wall must stay as laid.
+    const wide = { width: 5, height: 3, length: 14 };
+    const both: SourceCell[] = [...cells, { x: 2, y: 0, z: 12, lo: 0, hi: 16 }, { x: 2, y: 1, z: 12, lo: 0, hi: 16 }];
+    const drawn: ModelBox[] = [...jambs, [2.0, 2.2, 0, 2, 12, 13], [2.8, 3.0, 0, 2, 12, 13]];
+    const door = { cells: [[2, 0, 1, 0, 16], [2, 1, 1, 0, 16]], passSize: 100 };
+    expect(carvesAt(200)).toBe(false);
+    expect(Math.abs(12 - 1)).toBeGreaterThan(DOOR_CARVE_REACH);
+    const carve = planDoorwayCarve(both, wide, 200, 0, drawn, [door]);
+    const near = [...carve.keys()].filter(k => Number(k.split(',')[2]) <= 5), far = [...carve.keys()].filter(k => Number(k.split(',')[2]) >= 24);
+    expect(near.length).toBeGreaterThan(0);
+    expect(far).toEqual([]);
+    // Near the doorway it is exactly the whole-grid carve's.
+    const whole = planSizeCarve(both, wide, 200, 0, drawn);
+    for (const k of near) expect(carve.get(k), k).toEqual(whole.get(k));
+    // A doorway that only passes from 300 % opens nothing at 200 %.
+    expect(planDoorwayCarve(both, wide, 200, 0, drawn, [{ ...door, passSize: 300 }]).size).toBe(0);
   });
 
   it('never adds a collider: every carved form lies inside the form the scaled grid lays there', () => {

@@ -1,5 +1,5 @@
 import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type FineReachColumns, type GridDims, type LaneWalk, type QuarterTurn, type ReachTarget, type SizeCarve, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
-import { carvesAt, encodeSizeCarve, encodeTurnedCarve, planSizeCarve, sizeCarveAt, type ModelBox, type ShippedCarves } from './collider-carve.js';
+import { DOOR_CARVE_SIZES, carvesAt, encodeSizeCarve, encodeTurnedCarve, planDoorwayCarve, planSizeCarve, sizeCarveAt, type CarveDoorway, type ModelBox, type ShippedCarves } from './collider-carve.js';
 import type { PlacementDetail } from '../brickgen/levels/levels.js';
 import { WalkWorld, tickPlayer, type PlayerState } from './addon-walk.js';
 import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
@@ -805,7 +805,11 @@ export interface ColliderTreadsResult { colliders: PlacementColliders; report: P
  * What the per-size carve is cut to (collider-carve.ts): the drawn boxes the 100 % grid was built from, in model
  * blocks at 100 % (`ModelBox`), and the source cells that are invisible on purpose (`planSizeCarve`'s `protect`).
  */
-export interface CarveSource { boxes: readonly ModelBox[]; protect?: ReadonlySet<string> }
+export interface CarveSource {
+  boxes: readonly ModelBox[]; protect?: ReadonlySet<string>;
+  /** The doorways (closed cells, passable size): at `DOOR_CARVE_SIZES` only the blocks round them are carved (`planDoorwayCarve`). */
+  doorways?: readonly CarveDoorway[];
+}
 
 function colliderTreadsJob(colliders: PlacementColliders, targets: readonly ReachTarget[], doorCells: ReadonlyArray<readonly (number | undefined)[]>, fineReach?: FineReachColumns, carveSource?: CarveSource): { plan: (pct: number, r: QuarterTurn) => void; result: () => ColliderTreadsResult } {
   // Planned over the grid as it was BEFORE clearance: every clearance form
@@ -830,7 +834,9 @@ function colliderTreadsJob(colliders: PlacementColliders, targets: readonly Reac
   return {
     plan(pct, r) {
       // The carve first (over the shipped forms, as the runtime lays them); the treads are planned over it.
-      const carve = carveSource && carvesAt(pct) ? planSizeCarve(formCells, dims, pct, r, carveSource.boxes, carveSource.protect) : undefined;
+      const carve = !carveSource ? undefined
+        : carvesAt(pct) ? planSizeCarve(formCells, dims, pct, r, carveSource.boxes, carveSource.protect)
+          : DOOR_CARVE_SIZES.includes(pct) && carveSource.doorways?.length ? planDoorwayCarve(formCells, dims, pct, r, carveSource.boxes, carveSource.doorways, carveSource.protect) : undefined;
       if (carve?.size) carvesPlanned.set(`${pct}:${r}`, carve);
       const plan = planColliderTreads(cells, dims, pct, r, targets, doorCells, { walk: colliderLaneWalk(formCells, dims, pct, r, carve), cells: formCells }, fineReach, carve);
       const f = pct / 100;
