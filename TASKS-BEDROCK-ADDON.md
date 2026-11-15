@@ -22,6 +22,19 @@ individually tested 28". The favourites list has 40 sets (memory `user-favorite-
    evidence and a proposed guard). Then fix each finding fail-first, re-sweep, re-sim.
 3. When the audit has no open finding: send the user all 40 packs (one zip, built from a commit), then the
    generality work below (any set as good as the favourites).
+- **Faces (A-10, FIG-04 PARTIAL; branch `audit-faces`).** Build the user's favourite packs WITH the route-2 face
+  art, which only a local build can seed:
+  `bun scripts/_favorites_export_sweep.ts --out output/<new dir> --faces=C:/git/craftmatic/output/faces-art-1115`
+  (one `--faces=` dir; `output/faces-art-1115/` holds the 0926 art plus 44 new, 10 rejected by eye, see its
+  `REVIEW.md`). Census of what every favourite head gets:
+  `CRAFTMATIC_LDRAW_MIRROR=off bun scripts/_face_census.ts --faces=C:/git/craftmatic/output/faces-art-1115
+  --missing=<ids.txt>`; new art for the listed ids: `python -I scripts/gen-face-art.py <dir> --ids <ids.txt>`.
+  Head placements with their own face: 75 of 319 before, 207 after (`test/favourites-faces.test.ts` floors).
+  Left: 100 heads have no print identity in their source (Mecabricks 76269 / 75397 / 71040, 10326's no-print
+  `.io`, 71043's LXF, 36 DBIX heads whose element has no print row, 9 plain heads in LDraw and .io sources) and 12 heads
+  name one of 11 prints with no usable art (10 rejected crops, 3626pb2658 has no BrickLink photo). The web app
+  never fetches photos: shipping route 2 to users is the user's licence decision (open), so a pack the LEGO tab
+  exports has 116 of 319 (the LDraw prints only).
 
 ### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
 The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles
