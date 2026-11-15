@@ -735,7 +735,17 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   climbs out of a two-block pit and onto a two-block kerb (`RISE_MAX` +
   `STEP_UP` = 2.15); a higher wall stops it, and it backs off or pivots
   (`PIVOT_RATE`: a car turns on the spot at rest). A boat deflects and slides
-  only.
+  only. A car or hover craft STANDS on the highest step under its whole
+  footprint (`FOOTPRINT.SUPPORT_*` rows and lines, A-12, 2026-11-15), as a
+  Minecraft entity box does: until then only the ground under its centre
+  counted, so a long car (41395 13.5 long, 42172 28) met the course hill's
+  next step with its nose while its centre was on the road, rose its
+  `RISE_MAX` once and hung there by its band. And a move that SINKS and is
+  blocked is taken first at the height it starts from (`rest`: the band rests
+  on what is under it, speed kept, on the ground): every other candidate
+  carried the refused sink, so the hung car could not even back off
+  ("TRAPPED"). A 4-block car now bridges most of a 6-block pit instead of
+  dropping its centre into it.
 - **Free look on every scripted vehicle** (`web/src/engine/vehicle-free-look.ts`,
   2026-09-30: "all vehicles should allow you to move the camera around ... If
   you stop moving camera it should semi gradually automatically turn to point
@@ -756,7 +766,7 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   draws the teleported vehicle behind the server; at the coaster's 1.5 the
   eye was drawn ~2 blocks AHEAD of the seat at top speed on the Saga, round
   30k, and at 4 a block BEHIND it, round 30l, so the lag is 3: quirk
-  `cockpit-draw-lag`, `cockpitEyeLead`), eased
+  `cockpit-draw-lag`, `cockpitEyeLead`; per client since 2026-11-15, `COCKPIT_CLIENT_LAGS`: the Pixel 0.5, and the chase camera rides the same lagged pose with the same ease, cut - not eased - at a view switch, a new vehicle or pose jump and a size change, its boom level unless it is an aircraft, A-14), eased
   over `COCKPIT_EASE_SECONDS`, turned by the same offsets - so a drag looks
   round and the view eases back to the front in yaw AND pitch. The rider is
   made invisible while it is theirs (the camera stands in its head), and a
@@ -1441,6 +1451,8 @@ literal inside a function body (`§` marks the number).
 | `FOOTPRINT.MAX_POINTS` | `web/src/engine/bedrock-vehicle.ts` | 128 | probes | A 36-block barge's 100-block perimeter still gets 0.9 spacing. |
 | `FOOTPRINT.SWEEP_STEP` | `web/src/engine/bedrock-vehicle.ts` | 0.8 | blocks | Most a probe travels between two tested poses: a 32 blocks/s aircraft moves 1.6 a tick. |
 | `FOOTPRINT.MAX_SUBSTEPS` | `web/src/engine/bedrock-vehicle.ts` | 4 | poses/tick | Bounds the cost of a fast turn. |
+| `FOOTPRINT.SUPPORT_MAX_ROWS` | `web/src/engine/bedrock-vehicle.ts` | 24 | rows | Most rows along a car's or hover craft's footprint where the step it stands on is read (at `SPACING` up to this): a long car stands on the highest step under its whole body, not its centre (A-12: 41395, 42172, 75397 hung on the course hill by their band). 42172 at 400 % (112 long) reads 25 rows. |
+| `FOOTPRINT.SUPPORT_MAX_COLS` | `web/src/engine/bedrock-vehicle.ts` | 4 | lines | Most lines across it for the same read (5 points a row at most; two cells each, cached per tick): 41395 15 x 5 = 75 points, about 150 cell reads a tick while it drives. |
 | `MOVE.DEFLECT_SHARE` | `web/src/engine/bedrock-vehicle.ts` | 0.7 | share of the tick's move | A vehicle whose one half meets a trunk or a post steps sideways by this share of its move: round a tree hit with a corner at full speed in two ticks. |
 | `MOVE.MIN_SIDESTEP` | `web/src/engine/bedrock-vehicle.ts` | 0.1 | blocks/tick | The sidestep's least size, so a car crawling into a tree still edges round it. |
 | `MOVE.MIN_PROGRESS` | `web/src/engine/bedrock-vehicle.ts` | 0.002 | blocks | A retry that moves less than this is not tried. |
@@ -1777,7 +1789,7 @@ one of these files fails the check until its row is written.
 | `sweepFootprint` | function | SERIALISED. Sweeps the footprint from one pose to the next; the first probe that ENTERS a solid blocks. |
 | `MOVE` | const | The collision response's constants (§9); `config.move`. |
 | `MoveParams` | type | `MOVE` as numbers. |
-| `MoveResolution` | type | `clear` / `climb` / `deflect` / `slide` / `rise` / `blocked`. |
+| `MoveResolution` | type | `clear` / `rest` / `climb` / `deflect` / `slide` / `rise` / `pivot` / `blocked`. |
 | `resolveMove` | function | SERIALISED. A blocked move tried again as a climb, a sidestep round a one-sided obstacle, a slide along an axis, a rise; else blocked, keeping a clear turn and vertical move (§4.6 "Never stuck"). |
 | `HEADLIGHTS` | const | The headlight's constants (§9); `config.headlights`. |
 | `HeadlightParams` | type | `HEADLIGHTS` as numbers. |
@@ -1812,6 +1824,9 @@ one of these files fails the check until its row is written.
 | `freeLookStep` | function | SERIALISED. One tick: a drag (net of the vehicle's own turn, carried or not) moves the view; a second after the last drag, while moving, it eases back behind the nose (§4.6 "Free look"); during a mount's settle it re-reads the look instead. |
 | `CockpitPose` | interface | One tick of the vehicle as the cockpit camera reads it: position, yaw, nose pitch (+ down). |
 | `cockpitCamera` | function | SERIALISED. The cockpit view's free camera: at the driver's eye (seat frame, scaled by the size) on the vehicle's pose `COCKPIT_TICK_LAG` ticks back, looking along heading and nose turned by the free-look offsets, pitch inside `COCKPIT_PITCH_MAX`. |
+| `CockpitClientLag` | interface | One client's camera pose lag (`label`, `graphicsMode`, `maxRenderDistance`, `lag`), matched as the coaster's `clientTimings`. |
+| `COCKPIT_CLIENT_LAGS` | const | The scripted vehicle cameras' pose lag per client (A-14, 2026-11-15): the Pixel (Deferred, 24) 0.5 = its marker-measured per-tick coaster camera (1.5, the same 0.1 s ease) less the camera-first tick; any other client `COCKPIT_TICK_LAG` (the Saga's bracket). The cockpit AND the chase camera read it (`config.cockpitClientLags`). Pixel cockpit ride unmeasured: TODO(cockpit-lag-pixel). |
+| `cockpitLagFor` | function | SERIALISED (vehicle-camera.js). The lag for a client's graphics mode and render distance from the table, else the fallback. |
 | `cockpitEyeLead`, `cockpitLagFromLead` | function | The cockpit eye's lag model (quirk `cockpit-draw-lag`): blocks the eye is drawn ahead of the drawn seat at a speed for a camera lag and the device's draw lag, and its inverse - the lag one device reading says would have kept the eye on the seat (how `COCKPIT_TICK_LAG` was derived from four readings over two rounds; not serialised). |
 | `NATIVE_STEER` | const | Every number of a native mount's drag steering (§4.6 "Flyer", §9): the body's follow rate, the mount probe's turn, wait, quiet, tries and confirmations; the driver runtime's `config.steer`. |
 | `NATIVE_HEADING_PROPERTY` | const | The native mount's dynamic property the driver writes its held heading to every tick and the chase camera reads as its yaw (`craftmatic:native_heading`; §4.6 "Flyer"). |

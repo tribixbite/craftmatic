@@ -48,6 +48,7 @@ import { placedOf } from './play.js';
 import { animatedPoses, drawnBoxes, drawnReaches } from './drawn.js';
 import { CRAFTMATIC_ALLOWED_LINES, CRAFTMATIC_YIELDING_LINES, type Snapshot } from './child-play.js';
 import { HOP_TAGS } from '../../../engine/bedrock-ride-hop.js';
+import { cockpitLagFor, type CockpitClientLag } from '../../../engine/vehicle-free-look.js';
 import { bareName, packFamily, retarget } from './namespace.js';
 
 /** Whether `e` carries the family `<namespace>_<role>`. */
@@ -93,6 +94,11 @@ export function craftmaticSeatCamera(namespace?: string): NonNullable<ClientInva
     const is = (role: string): boolean => (namespace === undefined ? mount.families().some(f => f.endsWith(`_${role}`)) : hasRole(mount, namespace, role));
     if (is(COASTER_CAR_ROLE)) return true;
     const client = ClientView.of(ctx.engine);
+    // # TODO(helm-eye-judge): a scripted vehicle whose seat plan moves the EYE off the seat (helmSeatPlan: 75397's
+    // eye 7.4 over and 0.8 aft of its helm seat) is judged here against the seat's own eye, and `seatLead` projects
+    // on the drawn velocity, vertical part included: the barge reads 6.45 "ahead" at 2.9 blocks/s while its cockpit
+    // eye is on its planned spot (the `cockpitEye` step, which reads the plan's eye, passes). Judge such a vehicle
+    // against the plan's eye on the drawn pose, along the HORIZONTAL heading (A-14, 2026-11-15).
     return is(SCRIPTED_VEHICLE_ROLE) && !!client && client.sim.host.playerState(player).selectedSlot === COCKPIT_SLOT;
   };
 }
@@ -177,18 +183,21 @@ export function clientSteps(pack: CraftmaticPack, appearance: AddonAppearance, o
     if (disagree.length) ctx.note(`${shot.name}: ${disagree.length} actor(s) culled by the 3-D camera-to-root distance but not horizontally, or the reverse (TODO(cull), unsettled): ${disagree.slice(0, 4).map(e => `${bareName(e.typeId)} 3-D ${r2(e.dist3d)} / horizontal ${r2(e.distHorizontal)} vs cull ${r2(e.cullBlocks)}`).join('; ')}`);
   };
   /** A scripted vehicle's camera config in `scripts/vehicle-camera.js`: the cockpit eye and the runtime's cockpit lag. */
-  const cameraCfg = (typeId: string): { eye?: [number, number, number]; cockpitLag: number; cameraFirst: boolean } | undefined => {
+  const cameraCfg = (typeId: string, device?: { graphicsMode: string; maxRenderDistance: number }): { eye?: [number, number, number]; cockpitLag: number; cameraFirst: boolean } | undefined => {
     const text = packText(pack.pack, 'scripts/vehicle-camera.js');
     const at = text ? text.indexOf('({"vehicles":') : -1;
     if (!text || at < 0) return undefined;
-    const cfg = extractJsonAfter(text.slice(at), '(') as { vehicles?: Array<{ typeId?: string; eye?: [number, number, number] }>; freeLook?: { COCKPIT_TICK_LAG?: number } } | undefined;
+    const cfg = extractJsonAfter(text.slice(at), '(') as { vehicles?: Array<{ typeId?: string; eye?: [number, number, number] }>; freeLook?: { COCKPIT_TICK_LAG?: number }; cockpitClientLags?: CockpitClientLag[] } | undefined;
     const v = cfg?.vehicles?.find(c => c.typeId === typeId);
     if (!v) return undefined;
     // The camera runtime reads the vehicle's pose when IT runs: imported before vehicles.js in main.js it reads the
     // pose before this tick's move (one more tick of lag on the server's clock; the course's `cameraFirst`).
     const main = packText(pack.pack, 'scripts/main.js') ?? '';
     const camAt = main.indexOf('vehicle-camera.js'), moveAt = main.indexOf('vehicles.js');
-    return { ...(v.eye ? { eye: v.eye } : {}), cockpitLag: Number(cfg?.freeLook?.COCKPIT_TICK_LAG ?? 3), cameraFirst: camAt >= 0 && moveAt >= 0 && camAt < moveAt };
+    // The lag the runtime picks for this client (`cockpitClientLags`, A-14); a pack without the table, its one lag.
+    const fallback = Number(cfg?.freeLook?.COCKPIT_TICK_LAG ?? 3);
+    const cockpitLag = device ? cockpitLagFor(device.graphicsMode, device.maxRenderDistance, cfg?.cockpitClientLags, fallback) : fallback;
+    return { ...(v.eye ? { eye: v.eye } : {}), cockpitLag, cameraFirst: camAt >= 0 && moveAt >= 0 && camAt < moveAt };
   };
 
   return {
@@ -293,9 +302,9 @@ export function clientSteps(pack: CraftmaticPack, appearance: AddonAppearance, o
      */
     async cockpitEye(step: AnyStep, ctx: StepContext) {
       const typeId = String(step['type']);
-      const cfg = cameraCfg(typeId);
-      if (!cfg?.eye) { ctx.note(`${typeId}: no cockpit eye in vehicle-camera.js (the cockpit camera stands at the rider's head)`); return; }
       const view = client(ctx);
+      const cfg = cameraCfg(typeId, view.profile.device);
+      if (!cfg?.eye) { ctx.note(`${typeId}: no cockpit eye in vehicle-camera.js (the cockpit camera stands at the rider's head)`); return; }
       // The course's `board`: a low car's seated rider has its feet under the road, judged by the vehicle's own band there.
       ctx.quiet(['player-not-in-solid', 'nothing-below-ground']);
       const v = ctx.sim.engine.spawnEntity(typeId, 'overworld', { x: 60.5, y: FLAT_GROUND_Y, z: -400.5 });

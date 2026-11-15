@@ -290,6 +290,33 @@ export function cockpitCamera(poses: readonly CockpitPose[], lag: number, eye: r
   };
 }
 
+/** One measured client's cockpit / chase camera pose lag (`COCKPIT_CLIENT_LAGS`), matched as the coaster's `clientTimings` are. */
+export interface CockpitClientLag { label: string; graphicsMode?: string; maxRenderDistance?: number; lag: number }
+
+/**
+ * The scripted vehicle camera's pose lag per CLIENT (A-14, 2026-11-15): the first entry whose graphics mode and render
+ * distance the rider's client reports wins, else `FREE_LOOK.COCKPIT_TICK_LAG` (the Saga's bracket, the user's phone).
+ * The 3 was read off two SAGA rounds; on the Pixel (entity lag 3.5, the 0.1 s ease played: quirks
+ * `client-entity-lag`, `camera-ease-lag`) it puts the eye 2.5 ticks BEHIND the drawn seat (the simulator's
+ * `cockpit-eye-on-seat`: -2.4 blocks at 19 blocks/s). The Pixel's entry is its MARKER-measured per-tick coaster
+ * camera (`COASTER_RIDER_VIEW.tickLag` 1.5, the same eased `setCamera` on a script-moved entity) less the
+ * camera-first tick (vehicle-camera.js reads the pose before vehicles.js moves it): 0.5.
+ * TODO(cockpit-lag-pixel): ride the Pixel's cockpit view at speed (`_cockpit_view.ts --shift` pictures) to confirm.
+ */
+export const COCKPIT_CLIENT_LAGS: readonly CockpitClientLag[] = [
+  { label: 'Pixel 8 Pro (Deferred, render distance 24): the coaster per-tick camera 1.5 less the camera-first tick', graphicsMode: 'Deferred', maxRenderDistance: 24, lag: 0.5 },
+];
+
+/** The pose lag (ticks) for a client reporting `graphicsMode` and `maxRenderDistance`: its `table` entry, else `fallback`. Pure (serialised into the camera runtime). */
+export function cockpitLagFor(graphicsMode: string, maxRenderDistance: number, table: readonly CockpitClientLag[] | undefined, fallback: number): number {
+  for (const t of Array.isArray(table) ? table : []) {
+    if (t.graphicsMode !== undefined && t.graphicsMode !== graphicsMode) continue;
+    if (t.maxRenderDistance !== undefined && t.maxRenderDistance !== maxRenderDistance) continue;
+    if (Number.isFinite(t.lag)) return Math.max(0, Math.min(5, t.lag));
+  }
+  return fallback;
+}
+
 /**
  * Blocks the cockpit eye is drawn AHEAD of the drawn seat (negative: behind
  * it) at `speedBlocksPerSecond`, for a camera on the vehicle's pose

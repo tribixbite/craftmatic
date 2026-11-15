@@ -52,7 +52,7 @@ import { bedrockJsonText } from './bedrock-json.js';
 import { BOARD, BOARD_OWNER_PROPERTY, BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, VEHICLE_DYNAMIC, VEHICLE_EGRESS, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
 import { COLLIDER_KIT, ESCAPE_OPTIONS } from './collider-form.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
-import { FREE_LOOK, NATIVE_HEADING_PROPERTY, NATIVE_STEER, cockpitCamera, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type FreeLookParams, type NativeSteerParams } from './vehicle-free-look.js';
+import { COCKPIT_CLIENT_LAGS, FREE_LOOK, NATIVE_HEADING_PROPERTY, NATIVE_STEER, cockpitCamera, cockpitLagFor, type CockpitClientLag, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type FreeLookParams, type NativeSteerParams } from './vehicle-free-look.js';
 import { CAMERA_OWNER_TAG, CAMERA_SWEEP_TICKS, releaseOrphanCameras } from './camera-release.js';
 import { shareScriptWorld } from './player-roster.js';
 import { cellSpanLookup, figureLifeScript, FIGURE_TUNING, resolveFigureSpawn, separateFigureSpawns, type FigureSpawn, type SpanLookup } from './bedrock-figure-life.js';
@@ -2197,6 +2197,11 @@ export interface VehicleCameraRuntimeConfig {
      * them (VEH-19). Absent (a hand-built config): no tag, no sweep.
      */
     cameraRelease?: { tag: string; hidden?: string; every: number };
+    /**
+     * The cockpit and chase cameras' pose lag per client (`COCKPIT_CLIENT_LAGS`, A-14); a client none matches takes
+     * `freeLook.COCKPIT_TICK_LAG`. Absent (packs before 2026-11-15): every client takes it.
+     */
+    cockpitClientLags?: CockpitClientLag[];
 }
 
 /**
@@ -2234,7 +2239,7 @@ export const CHASE_PASSABLE_BLOCKS = '(short_grass|tall_grass|^minecraft:grass$|
  * Everything is cleared on dismount. If the free camera is rejected, the
  * vanilla third person stands in.
  */
-function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof freeLookStep, lookStart: typeof freeLookStart, cockpitView: typeof cockpitCamera, releaseOrphans?: typeof releaseOrphanCameras) {
+function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof freeLookStep, lookStart: typeof freeLookStart, cockpitView: typeof cockpitCamera, releaseOrphans?: typeof releaseOrphanCameras, lagFor?: typeof cockpitLagFor) {
   const byType = new Map(config.vehicles.map((v: any) => [v.typeId, v] as const));
   /**
    * Whether the player HOPPED off within the grace (scripts/hop.js, bedrock-ride-hop.ts): the hop handed
@@ -2254,7 +2259,23 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
    * Each rider's free look (vehicle-free-look.ts), the vehicle position it last saw (for the speed), the view it
    * was in last tick (a switch starts the new view on the nose), and the vehicle's last poses (the cockpit camera's lag).
    */
-  const looks = new Map<string, { look: any; at?: { x: number; y: number; z: number }; view?: 'chase' | 'cockpit'; poses: any[]; lookPitch?: number }>();
+  const looks = new Map<string, { look: any; at?: { x: number; y: number; z: number }; view?: 'chase' | 'cockpit'; poses: any[]; lookPitch?: number; lag?: number; lagAt?: number; vehicleId?: string; size?: number }>();
+  /**
+   * The pose lag for a rider's client (`cockpitClientLags`, A-14): the graphics mode and render distance re-read every
+   * `LAG_EVERY` ticks (the settings can change), each read a native call.
+   */
+  const LAG_EVERY = 200;
+  /** The most a driven vehicle moves in a tick, blocks (a ship's 32 blocks/s is 1.6): past it the lagged poses restart. */
+  const POSE_JUMP_BLOCKS = 4;
+  const poseLag = (player: any, fl: { lag?: number; lagAt?: number }, tick: number): number => {
+    if (fl.lag !== undefined && fl.lagAt !== undefined && tick - fl.lagAt < LAG_EVERY) return fl.lag;
+    let graphicsMode = '', maxRenderDistance = NaN;
+    try { graphicsMode = String(player.graphicsMode); } catch { /* not reported */ }
+    try { maxRenderDistance = Number(player.clientSystemInfo.maxRenderDistance); } catch { /* not reported */ }
+    fl.lag = lagFor ? lagFor(graphicsMode, maxRenderDistance, config.cockpitClientLags, config.freeLook.COCKPIT_TICK_LAG) : config.freeLook.COCKPIT_TICK_LAG;
+    fl.lagAt = tick;
+    return fl.lag;
+  };
   const telemetry = { on: false, every: 20 };
   try {
     system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
@@ -2315,14 +2336,27 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
   const HEAD_ABOVE_EYE = 0.22, HEAD_CLEAR = 0.25;
   /** Whether the rider rides ON TOP of the vehicle at this size (VEH-18: below 100 %, drawn on the roof). */
   const onTopAt = (cfg: any, size: number): boolean => !!cfg.onTop && size < cfg.onTop.below - 1e-6;
-  const chase = (player: any, vehicle: any, cfg: any, size: number, drawn: boolean, offset: { yaw: number; pitch: number }): boolean => {
+  /**
+   * `lagged`: a scripted vehicle's pose `poseLag` ticks back (`cockpitView` with no eye), so the chase camera rides the
+   * vehicle as the client DRAWS it, eased as the cockpit is (A-14). On the server's own pose with a 0.15 s ease the
+   * Pixel profile's drawn eye ran 1-3 blocks a frame against the drawn seat whenever the vehicle stopped or the
+   * ease caught up (`camera-continuous`, the simulator's vehicle course).
+   */
+  const chase = (player: any, vehicle: any, cfg: any, size: number, drawn: boolean, offset: { yaw: number; pitch: number }, lagged?: { location: { x: number; y: number; z: number }; rotation: { x: number; y: number } } | null, cut = false): boolean => {
     let yaw = 0, pitch = 0;
     try { const r = player.getRotation(); yaw = r.y; pitch = r.x; } catch {}
     if (cfg.scripted) {
       // A scripted vehicle: the view is the vehicle's heading and nose turned by the rider's free look
       // (a drag orbits it; it eases back behind the nose a second after the last drag while moving).
-      try { yaw = vehicle.getRotation().y; } catch {}
-      try { pitch = -Number(vehicle.getProperty(config.pitchProperty)) || 0; } catch { pitch = 0; }
+      if (lagged) { yaw = lagged.rotation.y; pitch = lagged.rotation.x; }
+      else {
+        try { yaw = vehicle.getRotation().y; } catch {}
+        try { pitch = -Number(vehicle.getProperty(config.pitchProperty)) || 0; } catch { pitch = 0; }
+      }
+      // Only an AIRCRAFT's boom follows its nose (a climb or a dive stays in frame). A car's, a hover craft's and a
+      // boat's body pitch is the drawn squat, slope and swell: a 25-block boom swung 1.3 blocks a tick with 42172's
+      // squat as it pulled away (the simulator's `camera-continuous`, Saga profile, A-14). Their boom stays level.
+      if (cfg.kind !== 'plane') pitch = 0;
       yaw += offset.yaw;
       pitch = Math.max(-80, Math.min(80, pitch + offset.pitch));
     } else if (config.nativeHeadingProperty) {
@@ -2338,6 +2372,7 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
     const fx = -Math.sin(rad), fz = Math.cos(rad);
     let v: any;
     try { v = vehicle.location; } catch { return false; }
+    if (lagged) v = lagged.location;
     // The boom and its heights grow with the vehicle's size (`minecraft:scale`), the boom capped under the actor
     // draw ceiling: at the 100 % boom for every size the Milano was a toy at 50 % and the camera stood on its hull
     // at 400 % (Saga 30l item 2). The seat's own `third_person_camera_radius` is not this camera's.
@@ -2398,13 +2433,14 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
     const pulled = inFrontOfWalls(vehicle, { x: v.x, y: v.y + pivotY, z: v.z }, location);
     if (cfg.kind === 'plane' && !cfg.scripted) facingLocation = { x: facingLocation.x + pulled.x - location.x, y: facingLocation.y + pulled.y - location.y, z: facingLocation.z + pulled.z - location.z };
     location = pulled;
-    // # TODO(chase-ease): the simulator's client model (`--scenario=vehicles`, invariant `camera-continuous`, Pixel
-    // profile: the ease played) reads this 0.15 s ease catching up after the target stops - on the 76286 Milano at
-    // 100 % the drawn eye moves 3.04 -> 2.03 -> 1.35 blocks over three frames once a recentre's target has stopped
-    // (and 1.1-3.2 blocks in the ship-controls stops), identical on the 30m pack and after the 2026-10-11 boom fit.
-    // It is a geometric decay, not a cut; the Saga (no ease played, quirk `camera-ease-lag`) reported nothing of it.
-    // Whether a shorter or no ease reads better on the Pixel is a device question, so the ease is left as it is.
-    try { player.camera.setCamera('minecraft:free', { location, facingLocation, easeOptions: { easeTime: 0.15, easeType: 'Linear' } }); return true; } catch { return false; }
+    // A scripted vehicle's chase camera rides the lagged pose with the cockpit's 0.1 s ease since 2026-11-15 (A-14);
+    // a native mount keeps the server's pose and the 0.15 s ease (its body is drawn by the game, not teleported).
+    // # TODO(chase-ease): what the simulator still reads (`camera-continuous`, both profiles) is the ease's TAIL after
+    // a fast drag at rest on a long boom: the finger orbits the target 2-3 blocks a frame (meant), and the drawn eye
+    // runs on 1.5-3 blocks for a frame or two once it stops (42172, 10337, 41395 `cameraRecentre`). A shorter ease
+    // would end it and was not measured on a phone (the 0.1 s is what every lag was measured with): a device question.
+    const easeTime = lagged ? config.freeLook.COCKPIT_EASE_SECONDS : 0.15;
+    try { player.camera.setCamera('minecraft:free', cut ? { location, facingLocation } : { location, facingLocation, easeOptions: { easeTime, easeType: 'Linear' } }); return true; } catch { return false; }
   };
   // Measured on the Pixel 2026-09-16: a scheme set ONCE from the script on a
   // native mount did not take (the ride's own scheme lands after it, and a
@@ -2461,7 +2497,8 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
       try { cockpit = player.selectedSlotIndex === 8; } catch {}
       // Entering either view starts it on the nose (Saga 30j: the chase camera came back where the cockpit's drag left it).
       const view: 'chase' | 'cockpit' = cockpit ? 'cockpit' : 'chase';
-      if (fl.view !== undefined && fl.view !== view) fl.look = lookStart();
+      const switched = fl.view !== undefined && fl.view !== view;
+      if (switched) fl.look = lookStart();
       fl.view = view;
       if (cfg.scripted) {
         let pr: any = { x: 0, y: 0 }, vy = 0, at: any, nose = 0;
@@ -2470,6 +2507,14 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
         try { nose = -Number(vehicle.getProperty(config.pitchProperty)) || 0; } catch {}
         const speed = fl.at && at ? Math.hypot(at.x - fl.at.x, at.z - fl.at.z) * 20 : 0;
         fl.at = at ? { x: at.x, y: at.y, z: at.z } : fl.at;
+        // The lagged poses belong to ONE vehicle and one stretch of motion: another vehicle of the same type (a
+        // remount), or a jump no drive makes in a tick (a /tp, a placement), starts them again - kept, the lagged
+        // chase camera swung 20-40 blocks back to the old spot for the lag's ticks (simulator vehicle course, A-14).
+        let vid = '';
+        try { vid = String(vehicle.id); } catch {}
+        const prev = fl.poses[fl.poses.length - 1];
+        if (fl.vehicleId !== vid || (at && prev && Math.hypot(at.x - prev.x, at.y - prev.y, at.z - prev.z) > POSE_JUMP_BLOCKS)) fl.poses = [];
+        fl.vehicleId = vid;
         if (at) { fl.poses.push({ x: at.x, y: at.y, z: at.z, yaw: vy, pitch: nose }); if (fl.poses.length > config.freeLook.COCKPIT_HISTORY) fl.poses.shift(); }
         // Both views: a drag moves the offsets, and they ease back to the nose a second after the last drag while moving.
         const step = look(fl.look, { playerYaw: Number(pr.y) || 0, playerPitch: Number(pr.x) || 0, vehicleYaw: vy, speed }, config.freeLook, 0.05);
@@ -2504,6 +2549,11 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
       // vehicle's cockpit view hides it too: its camera stands at the eye, inside the rider's own head. Below
       // 100 % the rider sits ON TOP and is drawn (VEH-18), its cockpit view from its own head.
       const size = sizeOf(vehicle);
+      // A deliberate jump of the view - chase to cockpit or back, a new vehicle or a restarted stretch of poses (a /tp), or a new size (the boom
+      // and the eye scale with it) - is a CUT, set without the ease: eased, the drawn camera swept the whole jump a
+      // frame or more after the target (20-40 blocks on the Saga profile when a size step grew the boom, A-14).
+      const cut = cfg.scripted && (switched || fl.poses.length <= 1 || (fl.size !== undefined && Math.abs(fl.size - size) > 1e-6));
+      fl.size = size;
       const onTop = onTopAt(cfg, size);
       const unfit = !onTop && Array.isArray(cfg.riderVisibleSizes) && !cfg.riderVisibleSizes.some((v: number) => Math.abs(v - size) < 0.01);
       if (unfit || (cockpit && cfg.scripted)) hide(player, id);
@@ -2513,17 +2563,19 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
       const now = tracked.get(id);
       if (cockpit) {
         const ownHead = onTop || !Array.isArray(cfg.eye);
-        const cam = cfg.scripted ? cockpitView(fl.poses, config.freeLook.COCKPIT_TICK_LAG, ownHead ? [0, 0, 0] : cfg.eye, size, offset, config.freeLook.COCKPIT_PITCH_MAX) : null;
+        const cam = cfg.scripted ? cockpitView(fl.poses, poseLag(player, fl, schemeTick), ownHead ? [0, 0, 0] : cfg.eye, size, offset, config.freeLook.COCKPIT_PITCH_MAX) : null;
         // Without a measured eye, or on top of the model, the camera stands at the rider's own head (the seat the game put it in).
         if (cam && ownHead) { try { cam.location = player.getHeadLocation(); } catch {} }
         let placed = false;
-        if (cam) { try { player.camera.setCamera('minecraft:free', { location: cam.location, rotation: cam.rotation, easeOptions: { easeTime: config.freeLook.COCKPIT_EASE_SECONDS, easeType: 'Linear' } }); placed = true; } catch {} }
+        if (cam) { try { player.camera.setCamera('minecraft:free', cut ? { location: cam.location, rotation: cam.rotation } : { location: cam.location, rotation: cam.rotation, easeOptions: { easeTime: config.freeLook.COCKPIT_EASE_SECONDS, easeType: 'Linear' } }); placed = true; } catch {} }
         if (!placed && now && now.chase) { try { player.camera.clear(); } catch {} }
         if (now) now.chase = false;
         continue;
       }
       if (now) now.chase = true;
-      if (!chase(player, vehicle, cfg, size, !unfit, offset) && !t) applyPreset(player, cfg.preset);
+      // A scripted vehicle's chase camera on the same lagged pose (no eye, no offsets: the boom adds them).
+      const lagged = cfg.scripted && lagFor ? cockpitView(fl.poses, poseLag(player, fl, schemeTick), [0, 0, 0], 1, { yaw: 0, pitch: 0 }, 80) : null;
+      if (!chase(player, vehicle, cfg, size, !unfit, offset, lagged, cut) && !t) applyPreset(player, cfg.preset);
     }
     schemeTick++;
     if (tracked.size) {
@@ -2557,7 +2609,7 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
 
 /** `scripts/vehicle-camera.js`: the chase camera and free look runtime with its config (exported for the runtime tests). */
 export const vehicleCameraScript = (config: VehicleCameraRuntimeConfig) =>
-  `import { world, system } from "@minecraft/server";\n(${vehicleCameraRuntime.toString()})(${JSON.stringify(config)}, ${freeLookStep.toString()}, ${freeLookStart.toString()}, ${cockpitCamera.toString()}, ${releaseOrphanCameras.toString()});\n`;
+  `import { world, system } from "@minecraft/server";\n(${vehicleCameraRuntime.toString()})(${JSON.stringify(config)}, ${freeLookStep.toString()}, ${freeLookStart.toString()}, ${cockpitCamera.toString()}, ${releaseOrphanCameras.toString()}, ${cockpitLagFor.toString()});\n`;
 
 function blockRgb(state: string): [
     number,
@@ -4178,7 +4230,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     if (flyerConfig) files.push({ name: `${bp}scripts/flyer.js`, data: text(flyerScript(flyerConfig)) });
     // Each chase camera stays under its vehicle's LOD switch (the hull planned for its entity above) at every size.
     for (const c of cameraVehicles) c.maxRootBlocks = chaseMaxRootBlocks(lodHulls[c.typeId.replace(`${PACK_NAMESPACE}:`, '')]?.switchDistance);
-    if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles, pitchProperty: FLIGHT_PROPS.pitch, hop: { claimTag: HOP_TAGS.claim, graceTicks: HOP.BOARD_GRACE_TICKS, hiddenTag: HOP_TAGS.hidden }, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, nativeHeadingProperty: NATIVE_HEADING_PROPERTY, telemetryEvent: VEHICLE_TELEMETRY_EVENT, passableBlocks: CHASE_PASSABLE_BLOCKS, cameraRelease: { tag: CAMERA_OWNER_TAG, hidden: HOP_TAGS.hidden, every: CAMERA_SWEEP_TICKS } })) });
+    if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles, pitchProperty: FLIGHT_PROPS.pitch, hop: { claimTag: HOP_TAGS.claim, graceTicks: HOP.BOARD_GRACE_TICKS, hiddenTag: HOP_TAGS.hidden }, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, nativeHeadingProperty: NATIVE_HEADING_PROPERTY, telemetryEvent: VEHICLE_TELEMETRY_EVENT, passableBlocks: CHASE_PASSABLE_BLOCKS, cameraRelease: { tag: CAMERA_OWNER_TAG, hidden: HOP_TAGS.hidden, every: CAMERA_SWEEP_TICKS }, cockpitClientLags: [...COCKPIT_CLIENT_LAGS] })) });
     // HOP (bedrock-ride-hop.ts): fly or drive one of this pack's driveables into another mountable and ride that.
     const hopSources: Record<string, HopSource> = { ...nativeHopSources, ...Object.fromEntries(Object.entries(scriptedTypes).map(([t, v]) => [t, scriptedHopSource(v)])) };
     const hasHop = Object.keys(hopSources).length > 0;
