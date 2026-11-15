@@ -8,7 +8,7 @@
  */
 
 import type { Vec3, Triangle, Edge, PartGeom, UV } from './types.js';
-import { partAliasCandidates, studioFrameRedirect } from '../../engine/ldraw-part-aliases.js';
+import { partAliasCandidates, studioFrameRedirect, synthesizedPartText } from '../../engine/ldraw-part-aliases.js';
 
 const datTextCache = new Map<string, string | null>();
 const partGeomCache = new Map<string, PartGeom>();
@@ -536,6 +536,10 @@ export function normId(id: string): string {
  * from the part. Returns null for names that aren't LSynth segments.
  */
 function synthesizeLsSegment(stem: string): string | null {
+  // Shared generated parts first (the rigid hose `75cNN`, engine/ldraw-part-aliases.ts), so the viewer draws what
+  // the export ships.
+  const generated = synthesizedPartText(stem);
+  if (generated !== null) return generated;
   if (!/^ls\d{1,3}$/i.test(stem)) return null;
   return [
     `0 ~LSynth Segment ${stem} (synthesized placeholder)`,

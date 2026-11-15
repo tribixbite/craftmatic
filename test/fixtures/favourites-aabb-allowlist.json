@@ -1,0 +1,46 @@
+{
+  "41395": {
+    "21634d1.dat": "Mecabricks design id; no LDraw/Studio file under this or the base name, unmapped in both Studio tables; mecabricks_align.json 'unresolved'. TODO(mb-unresolved).",
+    "24183.dat": "Rebrickable 'Animal, Hamster [Plain]': no LDraw file and no row in either Studio table; mecabricks_align 'unresolved'. TODO(mb-unresolved).",
+    "35356d1.dat": "Mecabricks decorated id; base 35356 is in no library and neither Studio table; mecabricks_align 'unresolved'. TODO(mb-unresolved).",
+    "35620.dat": "Rebrickable 'Hair Long Wavy with Side French Braid' (rubber): no LDraw file, no Studio row; mecabricks_align 'unresolved'. TODO(mb-unresolved).",
+    "94590d1.dat": "Mecabricks decorated id; base 94590 in no library or Studio table; a Mecabricks mesh exists (mecabricks_parts/geometries/94590.json) but its frame is unmeasured. TODO(mb-unresolved).",
+    "94590d10.dat": "as 94590d1 (another decoration of the same unmapped mould). TODO(mb-unresolved).",
+    "94590d11.dat": "as 94590d1 (another decoration of the same unmapped mould). TODO(mb-unresolved)."
+  },
+  "43267": {
+    "28318.dat": "Both Studio tables map LEGO 28318 to '28318.dat', a file neither the LDraw library (ldraw_ref) nor Studio's library ships. TODO(ldraw-missing).",
+    "28705.dat": "Rebrickable 'Hair Long Wavy with Bangs Swept Back (Moana)': no LDraw file, unmapped in both Studio tables. TODO(ldraw-missing)."
+  },
+  "75397": {
+    "56203.dat": "Mecabricks design id: no LDraw file, unmapped in both Studio tables, mecabricks_align 'unresolved' (a Mecabricks mesh exists; frame unmeasured). Known in docs/lego-sources-guide.md 'Named part-class gaps'. TODO(mb-unresolved).",
+    "60677.dat": "as 56203 (Mecabricks-only id, mecabricks_align 'unresolved'). TODO(mb-unresolved).",
+    "85523.dat": "as 56203 (Mecabricks-only id, mecabricks_align 'unresolved'). TODO(mb-unresolved).",
+    "85526.dat": "as 56203 (Mecabricks-only id, mecabricks_align 'unresolved'). TODO(mb-unresolved).",
+    "98109d1.dat": "Mecabricks decorated id; 98109 in no library, no Studio row, not in mecabricks_align. TODO(mb-unresolved).",
+    "98112d1.dat": "Mecabricks decorated id; 98112 in no library, no Studio row, not in mecabricks_align. TODO(mb-unresolved).",
+    "98113.dat": "Rebrickable 'Arm, Jabba The Hutt': no LDraw file, no Studio row; mecabricks_align 'unresolved'. TODO(mb-unresolved).",
+    "98113d1.dat": "decorated 98113, as 98113. TODO(mb-unresolved)."
+  },
+  "76269": {
+    "19303.dat": "Rebrickable 'Helmet / Mask, High Sides': no LDraw file, no Studio row; mecabricks_align 'unresolved'. TODO(mb-unresolved).",
+    "28976.dat": "Mecabricks design id: no LDraw file, no Studio row; mecabricks_align 'unresolved' (Mecabricks mesh present, frame unmeasured). TODO(mb-unresolved).",
+    "29453.dat": "Rebrickable 'Neckwear Cape, Short [Shiny Satin Fabric]' (cloth): no LDraw file, no Studio row. TODO(mb-unresolved).",
+    "68054.dat": "Rebrickable 'Hipwear Coattails, Tattered Ends' (cloth): no LDraw file, no Studio row. TODO(mb-unresolved).",
+    "80133.dat": "Hinge Plate 1 x 4 Swivel Top: ldraw_lxfv56.xml maps it to 2430.dat with an LDD offset, but this is a MECABRICKS source and mecabricks_align says 'unresolved'. Measured 2026-11-15 (output/audit-parts/mbframe.ts): the Mecabricks mesh under the alias table's F = diag(1,-1,1) is 2430 turned 180 degrees about X (y -7.9..0 vs 0..8, z -19.7..7 vs -8..20, centre shift 0.4/-8/-12.4 LDU), so a filename alias would hang every plate one plate low with its knuckle on the wrong side. Needs clego mb_partmap to learn 80133 -> 2430 so mb_align bakes the turn at harvest. TODO(mb-hinge-frame).",
+    "80134.dat": "Hinge Plate 1 x 4 Swivel Base -> 2429.dat in ldraw_lxfv56.xml; same Mecabricks frame finding as 80133 (centre shift -0.2/-8/-12.4 LDU). TODO(mb-hinge-frame)."
+  },
+  "76286": {
+    "28710.dat": "Both Studio tables map LEGO 28710 to '28710.dat', which neither the LDraw library nor Studio's library ships. TODO(ldraw-missing)."
+  },
+  "76417": {
+    "1004705.dat": "LDD id over a million (a sticker-range / element id), unmapped in both Studio tables and in clego's DOLL_ROWS; no geometry anywhere. TODO(ldd-hubcap-alias).",
+    "1011115.dat": "as 1004705 (unmapped million-range LDD id). TODO(ldd-hubcap-alias).",
+    "1011124.dat": "the cart's four hubcaps: unmapped million-range LDD id, the tracker's TODO(ldd-hubcap-alias).",
+    "104814.dat": "Rebrickable 'Wing, Scalloped with Holes' (cloth): no LDraw file, no Studio row. TODO(ldraw-missing).",
+    "3469.dat": "LDD id with no row in either Studio table and no LDraw file (not the 3469 of any library). TODO(ldd-unmapped).",
+    "49972.dat": "Rebrickable 'Animal Body Part, Dinosaur, Baryonyx Lower Jaw': ldraw_lxfv56.xml maps it to bl_49972.dat, which Studio's 2020 library does not ship. TODO(ldd-unmapped).",
+    "68503.dat": "Rebrickable 'Weapon Sword with Bat, Jewels': no LDraw file, no Studio row. TODO(ldraw-missing).",
+    "79511.dat": "LDD id with no row in either Studio table and no LDraw file. TODO(ldd-unmapped)."
+  }
+}

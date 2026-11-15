@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { datSubstitutionFor, getDatText, setLDrawMirror, setLDrawRoot } from '../web/src/engine/ldraw-geometry.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
-import { partAliasCandidates } from '../web/src/engine/ldraw-part-aliases.js';
+import { partAliasCandidates, synthesizedPartText } from '../web/src/engine/ldraw-part-aliases.js';
 
 const BRICK = ['0 Brick 1 x 1', '4 16 -10 -24 -10 10 -24 -10 10 -24 10 -10 -24 10', '4 16 -10 0 -10 10 0 -10 10 0 10 -10 0 10'].join('\n');
 /** A 1x4x6 door leaf in the official frame (origin at its head, body y 4..136) and Studio's stub of it (origin at its foot, y -140..-8). */
@@ -30,6 +30,11 @@ describe('export resolver alias ladder', () => {
     mkdirSync(join(root, 'UnOfficial', 'parts'), { recursive: true });
     writeFileSync(join(root, 'parts', '60616a.dat'), DOOR_OFFICIAL);
     writeFileSync(join(root, 'UnOfficial', 'parts', '60616.dat'), DOOR_STUDIO_STUB);
+    writeFileSync(join(root, 'parts', '4739a.dat'), BRICK);
+    // The rigid hose's two library pieces, as LDraw ships them: the end (a short tube from y 0 up to y 1 here) and
+    // the unit segment (y 0..1) the hose's matrix stretches.
+    writeFileSync(join(root, 'parts', 'u9053.dat'), ['0 ~Technic Flex-System Hose End', '3 16 -2 0 0 2 0 0 0 1 2'].join('\n'));
+    writeFileSync(join(root, 'parts', '77.dat'), ['0 ~Technic Flex-System Hose Segment', '3 16 -2 0 0 2 0 0 0 1 2'].join('\n'));
     setLDrawRoot(root);
     setLDrawMirror(null);
   });
@@ -93,5 +98,30 @@ describe('export resolver alias ladder', () => {
   it('never applies the ladder to a primitive path', async () => {
     expect(await getDatText('s/6538cs01')).toBeNull();
     expect(datSubstitutionFor('s/6538cs01')).toBeUndefined();
+  });
+
+  it('reads a Studio `rename_` marker as the name it marks (A-07: the 910049 chest lid shipped as a box)', async () => {
+    // IOModel2V2 sources keep Studio's `rename_<id>` while the same .io's LDraw-space model.ldr places plain `<id>`
+    // at the identical matrix (910049-closed: `rename_4739a` / `4739a`, Treasure Chest Lid), so the marker carries no
+    // geometry of its own.
+    expect(partAliasCandidates('rename_4739a')[0]).toBe('4739a');
+    expect(partAliasCandidates('rename_3626bpb17')[0]).toBe('3626bpb17');
+    expect(await getDatText('rename_4739a')).toBe(BRICK);
+    expect(datSubstitutionFor('rename_4739a')).toBe('4739a');
+  });
+
+  it('generates a STRAIGHT rigid 3mm hose (75cNN) from its LDraw end and segment, Studio\'s own construction', async () => {
+    // Studio defines 75c08 as u9053 at 0, 77 stretched 158 from y 1, u9053 turned at y 160: N studs = 20 N LDU.
+    const text = synthesizedPartText('75c08')!;
+    expect(text).toContain('1 16 0 1 0 1 0 0 0 158 0 0 0 1 77.dat');
+    expect(text).toContain('1 16 0 160 0 -1 0 0 0 -1 0 0 0 1 u9053.dat');
+    expect(synthesizedPartText('75c5')).toBeNull();
+    expect(synthesizedPartText('3001')).toBeNull();
+    const provider = createPartGeometryProvider();
+    const mesh = await provider.getPartMesh('75c20');
+    expect(mesh).not.toBeNull();
+    expect(mesh!.bounds.min[1]).toBeCloseTo(0, 5);
+    expect(mesh!.bounds.max[1]).toBeCloseTo(400, 5);
+    expect(provider.report().unresolved).toEqual([]);
   });
 });
