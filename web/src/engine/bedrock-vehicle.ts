@@ -511,8 +511,12 @@ export type HoverParams = CarParams & { readonly RIDE_HEIGHT: number };
  *   - `SWEEP_STEP`: the most a probe point travels between two tested poses,
  *     blocks, so a 32 blocks/s aircraft (1.6 blocks a tick) cannot jump a trunk.
  *   - `MAX_SUBSTEPS`: poses tested per tick at most.
+ *   - `SUPPORT_MAX_ROWS` / `SUPPORT_MAX_COLS`: the most rows along and lines
+ *     across a car's or hover craft's footprint where the step it stands on is
+ *     read (at `SPACING` up to these; A-12): 41395 (13.5 long) 15 x 5 points,
+ *     42172 at 400 % (112 long) 25 x 5.
  */
-export const FOOTPRINT = { SPACING: 0.9, MAX_POINTS: 128, SWEEP_STEP: 0.8, MAX_SUBSTEPS: 4 } as const;
+export const FOOTPRINT = { SPACING: 0.9, MAX_POINTS: 128, SWEEP_STEP: 0.8, MAX_SUBSTEPS: 4, SUPPORT_MAX_ROWS: 24, SUPPORT_MAX_COLS: 4 } as const;
 export type FootprintParams = { readonly [K in keyof typeof FOOTPRINT]: number };
 
 /** Where a vehicle is for the footprint test: its reference point (the model's base centre), heading and nose-up pitch, degrees (Bedrock yaw). */
@@ -722,6 +726,12 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
  *     about the END that met it (the hit's side of the centre: the tail
  *     against a post stays put and the nose swings; a nose against a wall,
  *     the tail), so a ship parked against something can still be turned;
+ *   - `rest` (tried first, A-12 2026-11-15): a move that SINKS and is blocked
+ *     taken at the height it starts from, when that is clear - the band rests on
+ *     what is under it, so it is supported there. Until then every candidate
+ *     below carried the sink the band refused, and a long car hung on the
+ *     course hill's step by its band (41395, 42172, 75397) could not even back
+ *     off: `blocked` keeps only the turn and the vertical move;
  *   - `blocked`: none is clear. The vertical move and the turn are kept when
  *     they are clear on their own, so a vehicle against a wall still turns
  *     away and still comes down.
@@ -736,7 +746,7 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
  */
 export const MOVE = { DEFLECT_SHARE: 0.7, MIN_SIDESTEP: 0.1, MIN_PROGRESS: 0.002, GLANCE_STEP_DEG: 20, GLANCE_MAX_DEG: 60, GLANCE_PROBE: 1.5, NARROW_CELLS: 12, OPEN_SIDE: 2.5, OPEN_STEP: 0.5 } as const;
 export type MoveParams = { readonly [K in keyof typeof MOVE]: number };
-export type MoveResolution = 'clear' | 'climb' | 'deflect' | 'slide' | 'rise' | 'pivot' | 'blocked';
+export type MoveResolution = 'clear' | 'rest' | 'climb' | 'deflect' | 'slide' | 'rise' | 'pivot' | 'blocked';
 
 export function resolveMove(
   from: FootprintPose, to: FootprintPose, fp: VehicleFootprint, solid: (x: number, y: number, z: number) => boolean,
@@ -751,6 +761,11 @@ export function resolveMove(
   const first = clear(to);
   if (first.ok) return { pose: to, how: 'clear', kept: 1, checks };
   const at = first.at;
+  // Sinking into what is under the band: it rests there, and the rest of the move (ahead, back, the turn) goes on.
+  if (to.y < from.y - 1e-6) {
+    const level = { ...to, y: from.y };
+    if (clear(level).ok) return { pose: level, how: 'rest', kept: 1, checks, ...(at ? { at } : {}) };
+  }
   const dx = to.x - from.x, dz = to.z - from.z, len = Math.hypot(dx, dz);
   let dyaw = to.yaw - from.yaw;
   while (dyaw > 180) dyaw -= 360;
@@ -2010,6 +2025,23 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
             return g === null ? null : g + lift;
           };
           ground = below(st.x, st.z, st.onGround ? 4 : 48);
+          // It stands on the highest step under its WHOLE footprint, not only under its centre (A-12, 2026-11-15): a
+          // long car met the course hill's next step with its nose while its centre was still on the road, and the band
+          // over the step refused it (41395, 42172, 75397 trapped). Rows along it and lines across it
+          // (`FOOTPRINT.SUPPORT_*`), each read only from a step's height down to the base (two cells, cached per tick);
+          // a wall there (higher than a step) is the sweep's, not ground. A wall under the CENTRE keeps its meaning.
+          {
+            const L = Math.max(0, noseReach - 0.05), W = Math.max(0, kind.halfWidth * k - 0.05), rx = -Math.cos(rad), rz = -Math.sin(rad);
+            const rows = Math.max(1, Math.min(Number(FP.SUPPORT_MAX_ROWS) || 24, Math.ceil(2 * L / FP.SPACING)));
+            const cols = Math.max(1, Math.min(Number(FP.SUPPORT_MAX_COLS) || 4, Math.ceil(2 * W / FP.SPACING)));
+            let support: number | null = null;
+            for (let i = 0; i <= rows; i++) for (let j = 0; j <= cols; j++) {
+              const a = -L + 2 * L * i / rows, sd = -W + 2 * W * j / cols;
+              const g = groundUnder(dim, st.x + fx * a + rx * sd, st.z + fz * a + rz * sd, footY, P.STEP_UP, 1, hover);
+              if (g !== null && g <= footY + P.STEP_UP + 1e-6 && (support === null || g > support)) support = g;
+            }
+            if (support !== null && (ground === null || (ground - st.y <= P.STEP_UP && support + lift > ground))) ground = support + lift;
+          }
           const groundFront = below(noseX, noseZ, 4), groundRear = below(tailX, tailZ, 4);
           // Scrambling up a wall (`resolveMove` climbed or rose last tick): while the stick still pushes,
           // the car HOLDS the height it climbed to until its wheels find ground there - its centre is
@@ -2064,7 +2096,9 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
           if (how !== 'clear') {
             if (Math.abs(res.pose.y - ns.y) > 1e-6 && ns.vy !== undefined) ns.vy = 0;
             ns.x = res.pose.x; ns.y = res.pose.y; ns.z = res.pose.z; ns.yaw = res.pose.yaw;
-            ns.speed = how === 'slide' ? ns.speed * res.kept : how === 'climb' || how === 'deflect' ? ns.speed : 0;
+            ns.speed = how === 'slide' ? ns.speed * res.kept : how === 'climb' || how === 'deflect' || how === 'rest' ? ns.speed : 0;
+            // Resting on what is under its band: on the ground there (a car's throttle and steering work only on the ground).
+            if (how === 'rest' && ns.onGround !== undefined) ns.onGround = true;
             if (how === 'blocked') r.event = kind.mode === 'boat' ? 'beached' : 'blocked';
             r.hit = res.at;
           }

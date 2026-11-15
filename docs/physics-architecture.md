@@ -735,7 +735,17 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   climbs out of a two-block pit and onto a two-block kerb (`RISE_MAX` +
   `STEP_UP` = 2.15); a higher wall stops it, and it backs off or pivots
   (`PIVOT_RATE`: a car turns on the spot at rest). A boat deflects and slides
-  only.
+  only. A car or hover craft STANDS on the highest step under its whole
+  footprint (`FOOTPRINT.SUPPORT_*` rows and lines, A-12, 2026-11-15), as a
+  Minecraft entity box does: until then only the ground under its centre
+  counted, so a long car (41395 13.5 long, 42172 28) met the course hill's
+  next step with its nose while its centre was on the road, rose its
+  `RISE_MAX` once and hung there by its band. And a move that SINKS and is
+  blocked is taken first at the height it starts from (`rest`: the band rests
+  on what is under it, speed kept, on the ground): every other candidate
+  carried the refused sink, so the hung car could not even back off
+  ("TRAPPED"). A 4-block car now bridges most of a 6-block pit instead of
+  dropping its centre into it.
 - **Free look on every scripted vehicle** (`web/src/engine/vehicle-free-look.ts`,
   2026-09-30: "all vehicles should allow you to move the camera around ... If
   you stop moving camera it should semi gradually automatically turn to point
@@ -1441,6 +1451,8 @@ literal inside a function body (`§` marks the number).
 | `FOOTPRINT.MAX_POINTS` | `web/src/engine/bedrock-vehicle.ts` | 128 | probes | A 36-block barge's 100-block perimeter still gets 0.9 spacing. |
 | `FOOTPRINT.SWEEP_STEP` | `web/src/engine/bedrock-vehicle.ts` | 0.8 | blocks | Most a probe travels between two tested poses: a 32 blocks/s aircraft moves 1.6 a tick. |
 | `FOOTPRINT.MAX_SUBSTEPS` | `web/src/engine/bedrock-vehicle.ts` | 4 | poses/tick | Bounds the cost of a fast turn. |
+| `FOOTPRINT.SUPPORT_MAX_ROWS` | `web/src/engine/bedrock-vehicle.ts` | 24 | rows | Most rows along a car's or hover craft's footprint where the step it stands on is read (at `SPACING` up to this): a long car stands on the highest step under its whole body, not its centre (A-12: 41395, 42172, 75397 hung on the course hill by their band). 42172 at 400 % (112 long) reads 25 rows. |
+| `FOOTPRINT.SUPPORT_MAX_COLS` | `web/src/engine/bedrock-vehicle.ts` | 4 | lines | Most lines across it for the same read (5 points a row at most; two cells each, cached per tick): 41395 15 x 5 = 75 points, about 150 cell reads a tick while it drives. |
 | `MOVE.DEFLECT_SHARE` | `web/src/engine/bedrock-vehicle.ts` | 0.7 | share of the tick's move | A vehicle whose one half meets a trunk or a post steps sideways by this share of its move: round a tree hit with a corner at full speed in two ticks. |
 | `MOVE.MIN_SIDESTEP` | `web/src/engine/bedrock-vehicle.ts` | 0.1 | blocks/tick | The sidestep's least size, so a car crawling into a tree still edges round it. |
 | `MOVE.MIN_PROGRESS` | `web/src/engine/bedrock-vehicle.ts` | 0.002 | blocks | A retry that moves less than this is not tried. |
@@ -1777,7 +1789,7 @@ one of these files fails the check until its row is written.
 | `sweepFootprint` | function | SERIALISED. Sweeps the footprint from one pose to the next; the first probe that ENTERS a solid blocks. |
 | `MOVE` | const | The collision response's constants (§9); `config.move`. |
 | `MoveParams` | type | `MOVE` as numbers. |
-| `MoveResolution` | type | `clear` / `climb` / `deflect` / `slide` / `rise` / `blocked`. |
+| `MoveResolution` | type | `clear` / `rest` / `climb` / `deflect` / `slide` / `rise` / `pivot` / `blocked`. |
 | `resolveMove` | function | SERIALISED. A blocked move tried again as a climb, a sidestep round a one-sided obstacle, a slide along an axis, a rise; else blocked, keeping a clear turn and vertical move (§4.6 "Never stuck"). |
 | `HEADLIGHTS` | const | The headlight's constants (§9); `config.headlights`. |
 | `HeadlightParams` | type | `HEADLIGHTS` as numbers. |

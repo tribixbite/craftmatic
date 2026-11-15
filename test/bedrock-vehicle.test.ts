@@ -492,6 +492,18 @@ describe('the collision response (resolveMove): never stuck', () => {
   const from = { x: -0.5, y: 64, z: 0.5, yaw: -90, pitch: 0 };
   const to = { ...from, x: 0.1 };
   const car = { climb: 0, climbFirst: false };
+  it('a vehicle whose band RESTS on a block under it still moves level when the move would also sink it (A-12: trapped at the hill)', () => {
+    // 41395 on the course hill: hung 0.9 over the road with its band floor (y + 1.1) on the hill's 2-high step under
+    // its nose; every move it tried carried the fall the band blocks, so backing off was refused for ever.
+    const resting = { halfLength: 6, halfWidth: 3, lo: 1.1, hi: 5 };
+    const at = { x: 0.5, y: 64.9, z: 0.5, yaw: -90, pitch: 0 };
+    const step = cells(['5,65,0', '5,65,1', '5,65,-1', '6,65,0', '6,65,1', '6,65,-1']);
+    const back = { ...at, x: 0.2, y: 64.85 };
+    const r = resolveMove(at, back, resting, step, FOOTPRINT, MOVE, car, sweepFootprint);
+    expect(r.pose.x).toBeCloseTo(0.2, 5);
+    expect(r.pose.y).toBeCloseTo(64.9, 5);
+    expect(r.how).toBe('rest');
+  });
   it('takes a clear move as it is', () => {
     expect(resolveMove(from, to, fp, () => false, FOOTPRINT, MOVE, car, sweepFootprint)).toMatchObject({ how: 'clear', kept: 1, pose: to });
   });
@@ -859,13 +871,44 @@ describe('the vehicle runtime against blocks (scripts/vehicles.js on the simulat
     expect(host.entity.location.y).toBeCloseTo(64, 5);
   });
   it('drives a car out of a two-deep pit by scrambling up its far wall (the old car sat in it for ever)', () => {
-    // A pit 2 deep (floor 62), 6 long along +x (x 6..11), wide across the path.
-    const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 }, fills: [{ from: [6, 62, -6], to: [11, 63, 6], id: 'minecraft:air' }] });
+    // A pit 2 deep (floor 62), 10 long along +x (x 6..15), wide across the path. (6 long until A-12: a car now stands
+    // on the highest step under its whole footprint, so its 4-block body bridges a 6-block pit for most of its crossing.)
+    const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 }, fills: [{ from: [6, 62, -6], to: [15, 63, 6], id: 'minecraft:air' }] });
     host.set(0, 1);
     host.run(200);
     expect(Math.min(...host.poses.map(p => p.y))).toBeLessThan(63);
-    expect(host.entity.location.x).toBeGreaterThan(16);
+    expect(host.entity.location.x).toBeGreaterThan(20);
     expect(host.entity.location.y).toBeCloseTo(64, 5);
+  });
+  describe('a LONG car or hover craft drives up and over the course hill at every size (A-12: 41395, 42172, 75397 trapped, VEH-08)', () => {
+    // The simulator course's hill (vehicle-course.ts `obstacleCells`): up a block every two to four high, six flat,
+    // and down again, from x = 30, across the whole lane. The footprints are the shipped ones (scripts/vehicles.js
+    // of the 4e5963dc sweep: 41395 6.73 x 3.39, 42172 13.94 x 8.96; 75397's hover barge about 7 x 4).
+    const S = 30;
+    const tops: Array<[number, number]> = [];
+    for (let s = 0; s < 4; s++) for (let x = 2 * s; x <= 2 * s + 1; x++) tops.push([S + x, s + 1]);
+    for (let x = 8; x <= 13; x++) tops.push([S + x, 4]);
+    for (let s = 0; s < 3; s++) for (let x = 14 + 2 * s; x <= 15 + 2 * s; x++) tops.push([S + x, 3 - s]);
+    const types: Array<[string, ScriptedVehicleType]> = [
+      ['41395 car', { mode: 'car', noseReach: 6.73, halfWidth: 3.39, height: 9.6 }],
+      ['42172 car', { mode: 'car', noseReach: 13.94, halfWidth: 8.96, height: 7.16 }],
+      ['75397 hover', { mode: 'hover', noseReach: 7, halfWidth: 4, height: 5 }],
+    ];
+    for (const [name, type] of types) for (const k of [0.28, 0.5, 1, 2, 4]) {
+      it(`${name} at scale ${k}`, () => {
+        const L = type.noseReach * k, W = type.halfWidth * k;
+        const fills = tops.map(([x, h]) => ({ from: [x, 64, -Math.ceil(W) - 6] as [number, number, number], to: [x, 63 + h, Math.ceil(W) + 6] as [number, number, number], id: 'minecraft:stone' }));
+        const host = vehicleHost({ type, at: { x: S - L - 4 + 0.5, y: 64 + (type.mode === 'hover' ? HOVER.RIDE_HEIGHT : 0), z: 0.5 }, fills, scale: k });
+        host.set(0, 1);
+        host.run(600);
+        // Over the top and down the far side: the tail past the hill's last column, on the ground again.
+        expect(host.entity.location.x - L).toBeGreaterThan(S + 20);
+        // Never with its clear band (a car's from just over its step, `CAR.STEP_UP`) inside a column of the hill.
+        const lo = type.mode === 'hover' ? HOVER.STEP_UP - HOVER.RIDE_HEIGHT + 0.05 : CAR.STEP_UP + 0.05;
+        const into = host.poses.filter(p => tops.some(([x, h]) => p.x + L > x + 0.05 && p.x - L < x + 1 - 0.05 && p.y + lo < 64 + h - 0.1));
+        expect(into.length).toBe(0);
+      });
+    }
   });
   it('slides a car along a wall it meets at an angle instead of stopping dead', () => {
     // A wall along x (z = 3), the car heading 20 degrees off +x toward it (yaw -70 turns toward +z).
