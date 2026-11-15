@@ -78,6 +78,8 @@ export interface PlayableGridComponent {
     motion?: VehicleMotion;
     /** Explicit seat layout for this component (a creator hint); absent: `options.seatCount`. */
     seatCount?: number;
+    /** Furniture and beds in it that ride as passenger seats (`CompileLdrawEntityOptions.extraSeatBricks`, audit A-02). */
+    extraSeatBricks?: ParsedBrick[];
     /** Spawn center in the stationary model's block coordinates. */
     x?: number;
     y?: number;
@@ -3414,6 +3416,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 // Spinning wheels and a body that leans (bedrock-vehicle.ts).
                 vehicleRig: true,
                 attachLooseProps: c.fromScene === true,
+                ...(c.extraSeatBricks?.length ? { extraSeatBricks: new Set(c.extraSeatBricks) } : {}),
             });
             facing = ldrawGeo.facing;
         } else if (c.kind === 'car' && facing === 'auto') {

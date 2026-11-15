@@ -513,6 +513,25 @@ describe('measureSceneAccess / recommendAccessScale', () => {
     expect(recommendAccessScale(station)).toMatchObject({ scale: 1, sizePct: 100, basis: 'apertures' });
   });
 
+  it('a minifig-scale set is walked at 100 %: no larger size is recommended for openings narrower than its own figures (SCALE-04, A-15)', () => {
+    // 10354 / 76286 (audit 2026-11-15): apertures 0.8 x 0.5 blocks at 100 % read "400 % makes them 3.0x1.8" on sets
+    // built around their minifigs. A size step cannot make an opening the set's own figures do not fit through usable.
+    const op = (source: SceneOpening['source'], widthLdu: number, heightLdu: number, connects: SceneOpening['connects']): SceneOpening =>
+      ({ source, axis: 'z', widthLdu, heightLdu, centreLdu: [0, 0, 0], requiredScale: Math.max(40 / widthLdu, 96 / heightLdu), connects });
+    const base = { cell: { xz: 5, y: 4 }, grid: { x: 1, y: 1, z: 1, solid: 0 }, interiorFloorCells: 500, enclosedFloorCells: 500, topFloorLdu: null, reach: [] };
+    const slits = { ...base, headroomLdu: 27, openings: [op('aperture', 43, 27, 'entrance'), op('aperture', 43, 30, 'entrance')] } as unknown as SceneAccessMeasurement;
+    // Control: without the cue the measurement asks for 400 %.
+    expect(recommendAccessScale(slits).scale).toBe(4);
+    const rec = recommendAccessScale(slits, { minifigScale: true });
+    expect(rec).toMatchObject({ scale: 1, sizePct: 100 });
+    expect(rec.reason).toMatch(/figure scale/i);
+    expect(rec.reason).not.toMatch(/\b(150|200|300|400) %/);
+    // Nothing fits even at 400 %: still 100 % for a minifig set, never "no size".
+    const tiny = { ...base, headroomLdu: null, openings: [op('aperture', 5, 10, 'entrance')] } as unknown as SceneAccessMeasurement;
+    expect(recommendAccessScale(tiny).scale).toBeUndefined();
+    expect(recommendAccessScale(tiny, { minifigScale: true })).toMatchObject({ scale: 1, sizePct: 100 });
+  });
+
   it('a solid wall has no opening and no interior: it says so instead of inventing a number', async () => {
     const bricks = wall(6, [], 0);
     const m = measureSceneAccess(bricks, await meshesOf(bricks));

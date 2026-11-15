@@ -24,7 +24,7 @@
  */
 import type { ParsedBrick } from './ldraw-parser.js';
 import { classifiedDescription, type LdrawPartMesh, type Vec3 } from './ldraw-part-geometry.js';
-import { connectedClusters, isSeat, touchingIndices } from './ldraw-entity-compiler.js';
+import { connectedClusters, isFigurePart, isSeat, touchingIndices } from './ldraw-entity-compiler.js';
 import { getPartDims } from './ldraw-part-dims.js';
 import type { PlayableBrickComponent, PlayableKind } from './playable-components.js';
 
@@ -70,6 +70,11 @@ export const SCENE_VEHICLES = {
   WHOLE_MIN_WHEELS: 4,
   /** ... whose centres spread over at least this share of its long side (a car's axles sit near its ends). */
   WHOLE_MIN_WHEEL_SPREAD: 0.5,
+  /**
+   * A TITLED vehicle's model leaves out what stands apart from it (`vehicleApartFromScenery`) only when the vehicle
+   * holds at least this share of the placements: 42663's camper beside its picnic, never a scene of equals.
+   */
+  APART_MIN_VEHICLE_SHARE: 0.5,
 } as const;
 export type SceneVehicleParams = { readonly [K in keyof typeof SCENE_VEHICLES]: number };
 
@@ -290,4 +295,55 @@ export function findWholeModelVehicles(bricks: ParsedBrick[], meshes: Map<string
     return Math.max(...along) - Math.min(...along) >= P.WHOLE_MIN_WHEEL_SPREAD * length;
   }).map(c => ({ ...c, provenance: `whole model stands on its own wheels (the title names no vehicle): ${c.provenance.replace(/^vehicle standing in the scene: /, '')}` }));
   return { components, candidates: found.candidates };
+}
+
+/**
+ * A model whose TITLE names a vehicle but which also carries scenery standing apart from it: 42663 "Friendship
+ * Camper Van Adventure" is the camper AND its picnic, and the whole model became one car (audit 2026-11-15,
+ * "does not generalise" 2). The title-pair rule (`isVehicleAndPlaceLabel`) needs a place word the title may not
+ * have ("Adventure"); this reads the GEOMETRY instead. The scene finder's split (ground set aside, separate
+ * objects) runs with the share cap lifted; when exactly one vehicle of the title's kind stands on its wheels (or
+ * floats on its hull) and holds at least `APART_MIN_VEHICLE_SHARE` of the placements, the vehicle is that object
+ * plus everything over its footprint (a loose roof rack, the plate under it: things ON the vehicle), and what
+ * stands wholly BESIDE it is scenery - but only when that scenery is at least `MIN_PARTS` placements that are
+ * not figures (a driver figure standing by its car stays with the car, as before).
+ * Returns the vehicle's placements, or null to keep the whole model.
+ */
+export function vehicleApartFromScenery(bricks: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, kind: PlayableKind, P: SceneVehicleParams = SCENE_VEHICLES): { bricks: ParsedBrick[]; scenery: ParsedBrick[]; reason: string } | null {
+  if (kind !== 'car' && kind !== 'boat') return null;
+  const found = findSceneVehicles(bricks, meshes, { ...P, MAX_SHARE: 1 });
+  const ofKind = found.components.filter(c => c.kind === kind);
+  if (ofKind.length !== 1) return null;
+  const core = new Set(ofKind[0]!.bricks);
+  if (core.size < bricks.length * P.APART_MIN_VEHICLE_SHARE || core.size >= bricks.length) return null;
+  const coreBox = boxOf([...core].map(b => placementBox(b, meshes.get(b.part))));
+  const c = P.CONTACT;
+  const over = (b: ParsedBrick): boolean => {
+    const bx = placementBox(b, meshes.get(b.part));
+    return bx.max[0] >= coreBox.min[0] - c && bx.min[0] <= coreBox.max[0] + c && bx.max[2] >= coreBox.min[2] - c && bx.min[2] <= coreBox.max[2] + c;
+  };
+  const vehicle = bricks.filter(b => core.has(b) || over(b));
+  const kept = new Set(vehicle);
+  const scenery = bricks.filter(b => !kept.has(b));
+  const objects = scenery.filter(b => !isFigurePart(b.part, desc(meshes.get(b.part))));
+  if (objects.length < P.MIN_PARTS) return null;
+  return { bricks: vehicle, scenery, reason: `${scenery.length} placement${scenery.length === 1 ? '' : 's'} standing apart from the vehicle (${objects.length} not figures) left out of it as the build's scenery; the ${kind} is ${vehicle.length} placements that ${ofKind[0]!.provenance.replace(/^vehicle standing in the scene: \d+ placements that /, '')}` };
+}
+
+/**
+ * The vehicle a model IS, from its geometry, for sizing it (addon-scale.ts `GeometryVehicle`) and for the
+ * pipeline's discovery, which make the same call so the two agree:
+ *   - a title naming a whole vehicle (`titledKind`): the vehicle apart from its scenery, else the whole model;
+ *   - no vehicle in the title and no scenery word: a whole-model car (`findWholeModelVehicles`), only when the
+ *     scene finder found no smaller vehicle (a scene with cars in it is not a car);
+ *   - otherwise none.
+ */
+export function modelVehicleFromGeometry(bricks: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, titledKind: PlayableKind | null, sceneryTitle: boolean): { kind: PlayableKind; bricks: ParsedBrick[] } | null {
+  if (titledKind) {
+    const apart = vehicleApartFromScenery(bricks, meshes, titledKind);
+    return { kind: titledKind, bricks: apart ? apart.bricks : bricks };
+  }
+  if (sceneryTitle || findSceneVehicles(bricks, meshes).components.length) return null;
+  const whole = findWholeModelVehicles(bricks, meshes).components;
+  return whole.length === 1 ? { kind: whole[0]!.kind, bricks: whole[0]!.bricks } : null;
 }

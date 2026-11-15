@@ -39,6 +39,7 @@ import type { AccessScaleRecommendation } from './bedrock-scene-actors.js';
 import type { BorderMarginEvidence } from './bedrock-interactives.js';
 import { LDU_PER_BLOCK } from './lego-scale.js';
 import type { SeatCensus, SeatCensusContext } from './seat-census.js';
+import type { AddonScaleChoice, AddonScalePlan } from './addon-scale.js';
 import type { PlayableAddonOptions } from './playable-addon.js';
 import { ByomHintsError, byomComponentsFromHints, remapSceneRule, resolveByomHints, sceneRuleAllows, type ByomHints, type ResolvedByomHints } from './byom/hints.js';
 
@@ -159,6 +160,13 @@ export interface SchemWorkerInput {
    */
   modelScale?: number;
   /**
+   * `.mcaddon`: the add-on scale choice `modelScale` was planned from (engine/addon-scale.ts), when the block cell
+   * follows it. `auto` lets the pipeline plan it again from the model's GEOMETRY (`modelVehicleFromGeometry`): a
+   * whole-model car its title does not name is a display vehicle too, sized like its titled build (audit A-01).
+   * The caller's plan has no part meshes; the pipeline does. Absent: `modelScale` is used as given.
+   */
+  addonScaleChoice?: AddonScaleChoice;
+  /**
    * `.mcaddon`: experimental override for a figure NPC's
    * `minecraft:collision_box.height` (device-919 roaming investigation,
    * `TASKS-BEDROCK-ADDON.md`). Default: computed per figure, clamped to
@@ -214,6 +222,8 @@ export interface McpackSummary {
    * built as a flyer, or missing and why. Only for a set with a canon.
    */
   mounts?: import('./playable-addon.js').MountReport;
+  /** `.mcaddon`: the scale the pipeline planned from the geometry (`addonScaleChoice: 'auto'`); absent when it was given. */
+  scale?: AddonScalePlan;
 }
 
 export type SchemWorkerOutput =
@@ -321,13 +331,17 @@ export async function runSchemPipeline(
   let sourceOrigin: VoxelizeResult['gridOrigin'];
   let shapeStats: ShapeStats | undefined;
   let elementStats: ElementStats | undefined;
+  /** The scale planned from the geometry (`addonScaleChoice: 'auto'`), for the summary. */
+  let scalePlan: AddonScalePlan | undefined;
+  /** Part meshes resolved before voxelizing (the scale plan needed them), reused by the add-on stages. */
+  let earlyMeshes: { provider: import('./ldraw-part-geometry.js').PartGeometryProvider; meshes: Map<string, LdrawPartMesh | null> } | undefined;
 
   if (input.source.kind === 'grid') {
     const s = input.source;
     grid = BlockGrid.fromRaw(s.width, s.height, s.length, s.data, s.palette);
     if (s.blockEntities) grid.blockEntities.push(...s.blockEntities);
   } else {
-    const s = input.source;
+    let s = input.source;
     const colorFn = profile.colorFn(s.colorSpace);
     const wantShapes = input.shapes === true;
     // Reuse the .dat texts the viewer already downloaded (see seedDatTexts):
@@ -337,6 +351,21 @@ export async function runSchemPipeline(
     if (input.datTexts && input.datTexts.size > 0) {
       onProgress('reusing loaded part geometry');
       seedDatTexts(input.datTexts);
+    }
+    // A-01: the caller planned `auto` from the bricks and the title alone; with the part meshes the model's own
+    // vehicle (a whole-model car whatever its title, or a titled vehicle apart from its scenery) sizes it, and the
+    // block cell follows. Planned BEFORE voxelizing, so the grid, the entities and the colliders share the scale.
+    if (input.format === 'mcaddon' && input.addonScaleChoice === 'auto' && !byom) {
+      onProgress('sizing the model from its geometry');
+      const replanned = await planScaleFromGeometry(input, s.bricks);
+      earlyMeshes = replanned.early;
+      scalePlan = replanned.plan;
+      const { planResolutionAtCell, spanOfBricks } = await import('./schem-settings.js');
+      const cell = planResolutionAtCell(spanOfBricks(s.bricks), replanned.plan.lduPerBlock).cellLDU;
+      if (Math.abs(cell - (s.options.cellLDU ?? NaN)) > 1e-9 || s.options.cellLDU === undefined) {
+        s = { ...s, options: { ...s.options, cellLDU: cell } };
+        input = { ...input, source: s, modelScale: Math.round(LDU_PER_BLOCK / cell * 1000) / 1000 };
+      }
     }
     const options: VoxelizeOptions = wantShapes ? { ...s.options, shapes: true } : s.options;
     let hints: ShapeHints | undefined;
@@ -466,9 +495,9 @@ export async function runSchemPipeline(
       // the scene (NPCs, seats), the coaster's rider seats and the shell all
       // see the same figure (`repairFigureTorsos`). 76417's Hagrid sat 70 LDU
       // inside the vault cart's chassis until this ran.
-      const partProvider = createPartGeometryProvider();
-      const sourceMeshes = new Map<string, LdrawPartMesh | null>();
-      await Promise.all([...new Set(input.source.bricks.map(b => b.part))].map(async part => { sourceMeshes.set(part, await partProvider.getPartMesh(part)); }));
+      const partProvider = earlyMeshes?.provider ?? createPartGeometryProvider();
+      const sourceMeshes = earlyMeshes?.meshes ?? new Map<string, LdrawPartMesh | null>();
+      if (!earlyMeshes) await Promise.all([...new Set(input.source.bricks.map(b => b.part))].map(async part => { sourceMeshes.set(part, await partProvider.getPartMesh(part)); }));
       const repaired = repairFigureTorsos(input.source.bricks, sourceMeshes);
       if (repaired.repairs.length) warnings.push(`${repaired.repairs.length} figure torso${repaired.repairs.length === 1 ? '' : 's'} the source placed away from the figure's own limbs and head ${repaired.repairs.length === 1 ? 'was' : 'were'} moved to them: ${describeTorsoRepairs(repaired.repairs)} (a converted torso with no alignment row sits at its raw origin).`);
       const source = { ...input.source, bricks: repaired.bricks };
@@ -482,6 +511,18 @@ export async function runSchemPipeline(
         ? byomComponentsFromHints(byom, finalOf)
         : discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto', part => sourceMeshes.get(part)?.description ?? '', input);
       warnings.push(...found.warnings);
+      // A titled whole vehicle beside its own scenery (42663's camper and its picnic): the scenery stands apart
+      // from the vehicle, read from the geometry (`vehicleApartFromScenery`, the split the scale plan made too).
+      if (!byom && (input.vehicleMode ?? 'auto') === 'auto' && found.components.length === 1 && found.components[0]!.bricks.length === source.bricks.length) {
+        const { vehicleApartFromScenery } = await import('./scene-vehicles.js');
+        const whole = found.components[0]!;
+        const apart = vehicleApartFromScenery(source.bricks, sourceMeshes, whole.kind);
+        if (apart) {
+          const { bounds: _b, seatAnchor: _s, longitudinalAxis: _l, ...rest } = whole;
+          found.components[0] = withPlayableBounds({ ...rest, bricks: apart.bricks, provenance: `${whole.provenance}; ${apart.reason}` });
+          warnings.push(`${label}: ${apart.reason}.`);
+        }
+      }
       if (byom?.hints.features.length) warnings.push(`${byom.hints.features.length} positional feature hint${byom.hints.features.length === 1 ? '' : 's'} (door/seat/slide/lift "at" a point) belong to mesh and photo models (the legolizer, B13) and were not applied to this brick model; select its parts with "doors"/"seats" instead.`);
       // A scene (a title naming no vehicle): the cars on its street and the
       // boats at its quay are found from the geometry (scene-vehicles.ts) and
@@ -543,7 +584,9 @@ export async function runSchemPipeline(
         // as a cliff where this fine walk climbed it (a hill of one-stud steps, 21063; SCALE-06).
         const packScale = sourceOrigin ? LDU_PER_BLOCK * sourceOrigin.scale / sourceOrigin.cellXZ : undefined;
         const accessMeasurement = measureSceneAccess(source.bricks.filter(b => !movable.has(b)), scene.meshes, { exclude: scene.figureBricks, ...(packScale !== undefined && entityDoors ? { keepReachAt: packScale } : {}) });
-        access = recommendAccessScale(accessMeasurement);
+        // A set built around its minifigs is walked at 100 % (SCALE-04, audit A-15): `hasMinifigCue` is the scale plan's own evidence.
+        const { hasMinifigCue } = await import('./addon-scale.js');
+        access = recommendAccessScale(accessMeasurement, { minifigScale: hasMinifigCue(source.bricks) });
         accessReachLdu = accessMeasurement.reachedFloorsLdu;
         warnings.push(`Walk-through size: ${access.reason}`);
         if (!sourceOrigin && (scene.figures.length || scene.seats.length || scene.doors.length)) {
@@ -762,6 +805,34 @@ export async function runSchemPipeline(
             const p = sceneFloorPoint(frame, groundLdu, s.surfaceLdu);
             seats.push({ x: p[0], y: p[1], z: p[2], yaw: yawForFacing(s.facingLdu), label: s.part === 'bed' ? 'Bed' : `Seat (${s.part})` });
           }
+          // A-02: what each vehicle entity carries. A whole-model vehicle (half the model or more: a bus, a camper,
+          // a ship) offers its furniture seats and beds as passenger seats, so they ride with it; every moving part
+          // and ride it carries is reported as staying fixed, with why (`vehicleCarriedParts`). The stage below
+          // then judges only what is not a vehicle's.
+          const { vehicleCarriedParts } = await import('./interactivity-stage.js');
+          const { findSlides } = await import('./bedrock-rides.js');
+          const { MAX_PASSENGER_SEATS, isSeat } = await import('./ldraw-entity-compiler.js');
+          const carrying: import('./interactivity-stage.js').CarryingVehicle[] = [];
+          const vehicleBricks = new Set<ParsedBrick>();
+          for (const component of found.components) {
+            for (const b of component.bricks) vehicleBricks.add(b);
+            if (component.bricks.length < source.bricks.length * 0.5) { carrying.push({ label: component.label, kind: component.kind, bricks: component.bricks }); continue; }
+            const inside = await discoverSceneActors(component.bricks, partProvider);
+            const passengerSeats: import('./bedrock-scene-actors.js').SceneSeat[] = [];
+            const droppedSeats: Array<{ seat: import('./bedrock-scene-actors.js').SceneSeat; reason: string }> = [];
+            inside.seats.forEach((seat, i) => {
+              if (inside.figures.some(f => f.seatIndex === i)) droppedSeats.push({ seat, reason: 'a figure the source seated there keeps it' });
+              else if (passengerSeats.length >= MAX_PASSENGER_SEATS) droppedSeats.push({ seat, reason: `the vehicle takes at most ${MAX_PASSENGER_SEATS} passenger seats` });
+              else passengerSeats.push(seat);
+            });
+            // A seat MOULD is a passenger seat already (`findCockpit`); brick-built furniture and beds are added.
+            const extra = passengerSeats.filter(seat => seat.brick && !isSeat(seat.brick.part, sourceMeshes.get(seat.brick.part)?.description ?? '')).map(seat => seat.brick!);
+            if (extra.length) component.extraSeatBricks = extra;
+            const slides = findSlides(component.bricks, sourceMeshes).map(r => `slide ${r.part}`);
+            carrying.push({ label: component.label, kind: component.kind, bricks: component.bricks, passengerSeats, droppedSeats, rides: slides });
+          }
+          const carried = vehicleCarriedParts(carrying, sourceMeshes, b => isFigurePart(b.part, sourceMeshes.get(b.part)?.description ?? ''));
+          warnings.push(...carried.warnings);
           if (entityDoors) {
             // Every door, gate, hatch, opening window, cupboard, lever and
             // turnable becomes its own hinged entity of the exact LEGO parts,
@@ -783,16 +854,17 @@ export async function runSchemPipeline(
               for (const brick of source.bricks) if (!owned.has(brick) && !sceneRuleAllows(doorRule, brick)) owned.set(brick, "left static by the creator's doors hint");
             }
             const stage = interactivityStage({
-              bricks: source.bricks, meshes: scene.meshes, owned, seats: sceneSeats,
+              bricks: source.bricks.filter(b => !vehicleBricks.has(b)), meshes: scene.meshes, owned, seats: sceneSeats,
               seatPoints: seats.map(s => [s.x, s.y, s.z] as [number, number, number]), toGrid: p => sceneGridPoint(frame, p),
             });
-            interactivityReport = stage.report;
+            const carriedCount = carried.rows.reduce((n, r) => n + r.count, 0);
+            interactivityReport = { ...stage.report, rows: [...stage.report.rows, ...carried.rows], totals: { ...stage.report.totals, excluded: stage.report.totals.excluded + carriedCount } };
             for (const it of stage.items) census.owners.push({ label: it.kind, use: 'none', bricks: new Set(it.bricks), reason: `moves with a ${it.kind}`, ...(it.kind === 'turnable' ? { decoration: true } : {}) });
             if (stage.items.length) {
               interactives = { items: stage.items, frame };
               for (const it of stage.items) for (const b of it.bricks) doorLeaves.add(b);
             }
-            warnings.push(...stage.warnings, interactivitySummary(label, stage.report));
+            warnings.push(...stage.warnings, interactivitySummary(label, interactivityReport));
           }
           // A leaf turned well off the grid cannot become a square vanilla door;
           // it stays the shell's exact LEGO geometry (DOOR_MAX_OFF_GRID_DEG).
@@ -901,6 +973,7 @@ export async function runSchemPipeline(
     // `doorStairMargin` is then unset, so this cannot recurse.
     if (doorStairMargin && pack.accessMarginUsed === false) {
       const again = await runSchemPipeline({ ...input, accessMargin: false }, onProgress);
+      if (scalePlan && again.mcpack) again.mcpack.scale = scalePlan;
       again.mcpack?.warnings?.push(`Access margin: the grid was widened ${doorStairMargin.x0}/${doorStairMargin.x1} blocks at its low/high x and ${doorStairMargin.z0}/${doorStairMargin.z1} at its low/high z for a door hung over the ground, but no access stair used it; exported without it (a one-block border margin stays where a border step needs one).`);
       return again;
     }
@@ -911,7 +984,7 @@ export async function runSchemPipeline(
       seatCensus = takeSeatCensus(findSeatPlaces(census.source.bricks, census.source.meshes), { vehicles: pack.vehicleSeats, sceneSeats: census.sceneSeats, owners: census.owners });
       if (seatCensus.rows.length) warnings.push(describeSeatCensus(label, seatCensus));
     }
-    return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`), provenance: pack.provenance, ...(access ? { access } : {}), ...(seatCensus ? { seatCensus } : {}), ...(pack.mounts ? { mounts: pack.mounts } : {}) } };
+    return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`), provenance: pack.provenance, ...(access ? { access } : {}), ...(seatCensus ? { seatCensus } : {}), ...(pack.mounts ? { mounts: pack.mounts } : {}), ...(scalePlan ? { scale: scalePlan } : {}) } };
   }
 
   if (input.format === 'mcpack') {
@@ -998,4 +1071,27 @@ export function alignVoxelGrid(source: BlockGrid, from: NonNullable<VoxelizeResu
     if (px >= 0 && py >= 0 && pz >= 0 && px < result.width && py < result.height && pz < result.length) result.set(px, py, pz, state);
   }
   return result;
+}
+
+/**
+ * The add-on scale planned with the model's part meshes (`addonScaleChoice: 'auto'`, audit A-01): the bricks and
+ * title decide first (a minifig, a microfigure, railway track); only when they leave a display vehicle or nothing
+ * is the geometry asked for the vehicle the model is (`modelVehicleFromGeometry`, the call the vehicle discovery
+ * makes too). Returns the meshes it resolved so the add-on stages need not resolve them again.
+ */
+async function planScaleFromGeometry(input: SchemWorkerInput, bricks: ParsedBrick[]): Promise<{ plan: AddonScalePlan; early?: { provider: import('./ldraw-part-geometry.js').PartGeometryProvider; meshes: Map<string, LdrawPartMesh | null> } }> {
+  const { planAddonScale } = await import('./addon-scale.js');
+  const label = input.byomHints?.title ?? input.packLabel ?? input.packStem ?? 'Imported build';
+  const first = planAddonScale(bricks, 'auto', label, input);
+  if ((first.cue !== 'none' && first.cue !== 'vehicle') || (input.vehicleMode ?? 'auto') !== 'auto') return { plan: first };
+  const { createPartGeometryProvider } = await import('./ldraw-part-geometry.js');
+  const { classifyVehicleKind, isSceneryLabel, isWholeVehicleLabel } = await import('./playable-components.js');
+  const { modelVehicleFromGeometry } = await import('./scene-vehicles.js');
+  const provider = createPartGeometryProvider();
+  const meshes = new Map<string, LdrawPartMesh | null>();
+  await Promise.all([...new Set(bricks.map(b => b.part))].map(async part => { meshes.set(part, await provider.getPartMesh(part)); }));
+  const heuristics = labelHeuristicsAllowed(input);
+  const titledKind = heuristics && isWholeVehicleLabel(label) ? classifyVehicleKind(label, 'auto') : null;
+  const vehicle = modelVehicleFromGeometry(bricks, meshes, titledKind, heuristics && isSceneryLabel(label));
+  return { plan: vehicle ? planAddonScale(bricks, 'auto', label, input, vehicle) : first, early: { provider, meshes } };
 }

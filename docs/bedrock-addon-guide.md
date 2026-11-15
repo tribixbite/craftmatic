@@ -678,6 +678,17 @@ outside the export bounds, against 4 in 3 doorways from the `.io`) is unchanged
 
 ## Model scale, aircraft descend and the wand's size/aim (2026-09-17)
 
+> **2026-11-15 (audit A-01/A-02/A-15):** the caller's `auto` plan has no part meshes, so it cannot see a car its
+> title does not name. With `addonScaleChoice: 'auto'` the pipeline plans the scale again from the geometry
+> (`planScaleFromGeometry` in schem-pipeline.ts, `modelVehicleFromGeometry` in scene-vehicles.ts, the same call
+> the vehicle discovery makes) before voxelizing, and reports it in `mcpack.scale`: a whole-model car labelled
+> with a set number or renamed is sized by its own extent like its titled build. A titled car or boat holding
+> >= 8 non-figure placements wholly beside its footprint leaves them out as scenery (`vehicleApartFromScenery`).
+> A whole-model vehicle's furniture seats and beds are its passenger seats (`extraSeatBricks`); its doors, lids
+> and turnables stay fixed geometry and are reported (`vehicleCarriedParts`) - no runtime carries a hinged part
+> on a moving entity yet (`TODO(vehicle-interactives)`). A set with a minifig or mini-doll gets a 100 %
+> walk-through recommendation (`recommendAccessScale` `minifigScale`).
+
 Built and gated offline (`output/bedrock-entity-qa/round-2026-09-17/`, vitest 1,627
 passing); the device claims are listed in `TASKS-BEDROCK-ADDON.md` until the Pixel
 round settles them.
