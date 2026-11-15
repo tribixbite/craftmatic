@@ -1153,6 +1153,18 @@ const cornersOf = (min: Vec3, max: Vec3): Vec3[] => [
 ];
 
 /**
+ * A placement's world AABB from its resolved mesh, or from the dims table's box for a part with no geometry (the
+ * same box the compiler draws for it). One definition for every census of a model's placements.
+ */
+export function placementWorldBox(b: ParsedBrick, mesh: LdrawPartMesh | null | undefined): { min: Vec3; max: Vec3 } {
+  let lo: Vec3, hi: Vec3;
+  if (mesh && mesh.triangles.length) { lo = mesh.bounds.min; hi = mesh.bounds.max; }
+  else { const [sW, sH, sL] = getPartDims(b.part); lo = [-sL * 10, -sH * 8, -sW * 10]; hi = [sL * 10, 0, sW * 10]; }
+  const R = b.rot ?? IDENTITY;
+  return aabbOfCorners(cornersOf(lo, hi).map(v => { const r = apply(R, v); return [r[0] + b.x, r[1] + b.y, r[2] + b.z] as Vec3; }));
+}
+
+/**
  * Split placements into physically connected clusters (world AABBs of their
  * REAL part bounds within `tol` LDU) and return the indices to drop. A
  * flattened source has no submodel names yet still ships the driver standing
@@ -1794,14 +1806,7 @@ export async function prepareWholeModel(bricks: ParsedBrick[], provider: PartGeo
     if (TECHNIC_INTERNAL.has(cleanPartId(b.part))) { skippedInternalCount++; return; }
     placed.push(b); placedIdx.push(i);
   });
-  const worldBoundsOf = (b: ParsedBrick): { min: Vec3; max: Vec3 } => {
-    const mesh = meshes.get(b.part);
-    let lo: Vec3, hi: Vec3;
-    if (mesh && mesh.triangles.length) { lo = mesh.bounds.min; hi = mesh.bounds.max; }
-    else { const [sW, sH, sL] = getPartDims(b.part); lo = [-sL * 10, -sH * 8, -sW * 10]; hi = [sL * 10, 0, sW * 10]; }
-    const R = b.rot ?? IDENTITY;
-    return aabbOfCorners(cornersOf(lo, hi).map(v => { const r = apply(R, v); return [r[0] + b.x, r[1] + b.y, r[2] + b.z] as Vec3; }));
-  };
+  const worldBoundsOf = (b: ParsedBrick): { min: Vec3; max: Vec3 } => placementWorldBox(b, meshes.get(b.part));
   const centre: Vec3 = bricks.length ? [
     bricks.reduce((s, b) => s + b.x, 0) / bricks.length, bricks.reduce((s, b) => s + b.y, 0) / bricks.length, bricks.reduce((s, b) => s + b.z, 0) / bricks.length,
   ] : [0, 0, 0];
@@ -1836,14 +1841,7 @@ export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBr
   await Promise.all(uniqueAll.map(async part => { meshes.set(part, await provider.getPartMesh(part)); }));
   // A seated figure inside a vehicle stays in its geometry at the source pose: its torso where its limbs are.
   bricks = repairFigureTorsos(bricks, meshes).bricks;
-  const worldBoundsOf = (b: ParsedBrick): { min: Vec3; max: Vec3 } => {
-    const mesh = meshes.get(b.part);
-    let lo: Vec3, hi: Vec3;
-    if (mesh && mesh.triangles.length) { lo = mesh.bounds.min; hi = mesh.bounds.max; }
-    else { const [sW, sH, sL] = getPartDims(b.part); lo = [-sL * 10, -sH * 8, -sW * 10]; hi = [sL * 10, 0, sW * 10]; }
-    const R = b.rot ?? IDENTITY;
-    return aabbOfCorners(cornersOf(lo, hi).map(v => { const r = apply(R, v); return [r[0] + b.x, r[1] + b.y, r[2] + b.z] as Vec3; }));
-  };
+  const worldBoundsOf = (b: ParsedBrick): { min: Vec3; max: Vec3 } => placementWorldBox(b, meshes.get(b.part));
   const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
   const isWheelPart = isWheelPartWith(meshes);
 

@@ -316,6 +316,20 @@ export async function runSchemPipeline(
     const kept = withoutBuildTools(input.source.bricks);
     if (kept.removed) { buildToolsRemoved = kept.removed; input = { ...input, source: { ...input.source, bricks: kept.bricks } }; }
   }
+  // A pack leaves out the source's loose pieces well clear of the model (stray-fragments.ts, VIEW-02 A-08): they
+  // would lie on the grass and widen the grid. Not with creator hints, whose part selections index the source as
+  // given. The loaded geometry is seeded first, so the census reads the same parts the voxelizer will.
+  let strayLine: string | undefined;
+  if (input.source.kind === 'bricks' && input.format === 'mcaddon' && !byom) {
+    if (input.datTexts && input.datTexts.size > 0) seedDatTexts(input.datTexts);
+    const { withoutStrayFragments, describeStrayReport } = await import('./stray-fragments.js');
+    const { createPartGeometryProvider } = await import('./ldraw-part-geometry.js');
+    const stray = await withoutStrayFragments(input.source.bricks, createPartGeometryProvider());
+    if (stray.report.parts) {
+      strayLine = describeStrayReport(stray.report);
+      input = { ...input, source: { ...input.source, bricks: stray.bricks } };
+    }
+  }
   const profile = getBlockProfile(input.profile);
   let grid: BlockGrid;
   let sourceOrigin: VoxelizeResult['gridOrigin'];
@@ -421,6 +435,7 @@ export async function runSchemPipeline(
     const components = [];
     const warnings: string[] = bedrockExportNotes(grid);
     if (buildToolsRemoved) warnings.push(`Left out ${buildToolsRemoved} brick separator${buildToolsRemoved === 1 ? '' : 's'}: a tool from the box, not part of the model.`);
+    if (strayLine) warnings.push(strayLine);
     const screens = [];
     const figures: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number]; seatIndex?: number; mountIndex?: number }> = [];
     /** Flyer mounts the set's canon names and the detector found (set-canon.ts, bedrock-flyer.ts), and the ones it did not. */
