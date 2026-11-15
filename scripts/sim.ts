@@ -86,7 +86,8 @@ import sharp from 'sharp';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readAddon } from '../web/src/sim/pack/pack.ts';
-import { runScenario, type ScenarioResult } from '../web/src/sim/scenario/runner.ts';
+import { DOOR_LABEL, FAVOURITES, doorRouteCeiling } from './favourite-sets.ts';
+import { runScenario, tapReachOf, type ScenarioResult } from '../web/src/sim/scenario/runner.ts';
 import { markdownReport, regressionMarkdown, unmodelledTotals, type PackReport, type RegressionRow } from '../web/src/sim/scenario/report.ts';
 import { childPlay, craftmaticHandlers, type Snapshot } from '../web/src/sim/adapters/craftmatic/child-play.ts';
 import { readCraftmaticPack, type CraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.ts';
@@ -576,4 +577,18 @@ console.log(`\n${reports.length} packs; ${reports.flatMap(r => r.results).length
 if (flag('md')) writeFileSync(flag('md')!, `${markdownReport(reports)}${args.includes('--sneak-toggle') ? notesMarkdown(reports) : ''}${costMarkdown()}`);
 if (flag('json')) writeFileSync(flag('json')!, JSON.stringify(costOn ? { reports, cost: costRows } : reports, null, 1));
 if (!reports.some(r => r.results.length)) console.error(`${mode}: NOT TESTED — no scenarios ran`);
-process.exit(failed || !reports.some(r => r.results.length) ? 1 : 0);
+// `--door-ceilings` (with `--walk`): the doors per favourite not reached on foot where the model draws a route, against
+// `FAVOURITE_DOOR_ROUTES_PACK_AT_100` (audit 2026-11-15 A-20; the ceiling only goes down).
+let ceilingOver = 0;
+if (args.includes('--door-ceilings')) {
+  for (const r of reports) {
+    const set = basename(r.pack).replace(/\.mcaddon$/, '').split('-')[0]!;
+    if (!FAVOURITES.includes(set)) continue;
+    const doors = new Set(r.results.filter(x => x.name.startsWith('place-100')).flatMap(x => tapReachOf(x.state)).filter(t => !t.onFoot && t.byModel === false && DOOR_LABEL.test(t.label)).map(t => t.label));
+    const c = doorRouteCeiling(set, doors.size);
+    if (c.over) { ceilingOver++; console.log(`DOOR CEILING ${set}: ${doors.size} door(s) the pack's colliders keep from a walk the model draws (${[...doors].join(', ')}), ceiling ${c.ceiling}`); }
+    else if (c.under) console.log(`DOOR CEILING ${set}: ${doors.size} below its ceiling ${c.ceiling} - lower FAVOURITE_DOOR_ROUTES_PACK_AT_100`);
+  }
+  console.log(`door ceilings: ${ceilingOver ? `${ceilingOver} favourite(s) over` : 'none over'}`);
+}
+process.exit(failed || ceilingOver || !reports.some(r => r.results.length) ? 1 : 0);

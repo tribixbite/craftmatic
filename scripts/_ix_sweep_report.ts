@@ -4,15 +4,19 @@
  * the parts by class, the seats, and each doorway's verdict at 100 % and at
  * its own passable size, both turned 0 (engine/interactive-walk.ts).
  *
- * Usage: bun scripts/_ix_sweep_report.ts <dir> [--json=out.json] [--md=out.md]
+ * Usage: bun scripts/_ix_sweep_report.ts <dir> [--json=out.json] [--md=out.md] [--ceilings]
  * Exit 1 when any doorway FAILs (walked through closed, or blocked open at a
- * size its opening clears).
+ * size its opening clears). `--ceilings` also exits 1 when a favourite has a
+ * doorway not OK at 100 % that `FAVOURITE_DOORWAYS_NOT_OK_AT_100`
+ * (scripts/favourite-sets.ts) does not explain, or a recorded one that is OK now
+ * (its row must go: the list only shrinks; audit 2026-11-15 A-11).
  */
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadAddonPreviewModel, carveAt, treadBlocksAt } from '../web/src/ui/addon-preview-data.ts';
 import { verdictOf, walkThroughDoorway, type Verdict } from '../web/src/engine/interactive-walk.ts';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
+import { FAVOURITES, FAVOURITE_DOORWAYS_NOT_OK_AT_100, ceilingCheck, type NotOkDoorway } from './favourite-sets.ts';
 
 const dir = process.argv[2];
 const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -23,6 +27,8 @@ interface Row {
   set: string; counts: Record<string, number>; seats: number; doorways: number;
   at100: Record<Verdict, number>; atPassSize: Record<Verdict, number>;
   never: number; failures: string[]; smallest: number[];
+  /** The doorways not OK at 100 %, with their verdicts (the `--ceilings` gate). */
+  notOk100: NotOkDoorway[];
 }
 const zero = (): Record<Verdict, number> => ({ OK: 0, 'ONE-WAY': 0, SMALL: 0, FAIL: 0, 'NO-APPROACH': 0, SEALED: 0, STEP: 0 });
 const rows: Row[] = [];
@@ -32,7 +38,7 @@ for (const name of readdirSync(dir).filter(n => n.endsWith('.mcaddon')).sort()) 
   const cfg = model.interactives;
   const counts: Record<string, number> = {};
   for (const it of cfg?.items ?? []) counts[it.kind] = (counts[it.kind] ?? 0) + 1;
-  const row: Row = { set: name.replace(/\.mcaddon$/, ''), counts, seats: model.entities.filter(e => e.kind === 'seat' && !e.pinball).length, doorways: 0, at100: zero(), atPassSize: zero(), never: 0, failures: [], smallest: [] };
+  const row: Row = { set: name.replace(/\.mcaddon$/, ''), counts, seats: model.entities.filter(e => e.kind === 'seat' && !e.pinball).length, doorways: 0, at100: zero(), atPassSize: zero(), never: 0, failures: [], smallest: [], notOk100: [] };
   if (cfg) {
     const pack = { cells: model.cells, dims: model.dims, interactives: cfg, shippedTreads: (s: number, r: QuarterTurn) => treadBlocksAt(model, s, r), shippedCarve: (s: number, r: QuarterTurn) => carveAt(model, s, r) };
     cfg.items.forEach((it, i) => {
@@ -47,7 +53,9 @@ for (const name of readdirSync(dir).filter(n => n.endsWith('.mcaddon')).sort()) 
         if (v === 'FAIL') row.failures.push(`${it.label} at ${size} %: open ${open.outcome}, closed ${closed.outcome}`);
         return v;
       };
-      row.at100[judge(100)]++;
+      const v100 = judge(100);
+      row.at100[v100]++;
+      if (v100 !== 'OK') row.notOk100.push({ label: it.label, verdict: v100 });
       if (it.passSize && it.passSize > 100) row.atPassSize[judge(it.passSize)]++;
     });
   }
@@ -64,4 +72,17 @@ if (md) {
   writeFileSync(md, head + body + '\n');
 }
 console.log(`${rows.length} packs, ${rows.reduce((n, r) => n + r.doorways, 0)} doorways, ${failures} FAIL`);
-if (failures) process.exit(1);
+let ceilingFailures = 0;
+if (process.argv.includes('--ceilings')) {
+  // A pack stem is `<set>` or `<set>-<name words>` (`packStem`): the set is its first field.
+  for (const r of rows) {
+    const set = r.set.split('-')[0]!;
+    if (!FAVOURITES.includes(set)) continue;
+    const { unlisted, nowOk } = ceilingCheck(FAVOURITE_DOORWAYS_NOT_OK_AT_100[set], r.notOk100);
+    for (const d of unlisted) console.log(`CEILING ${set} ${d.label}: ${d.verdict} at 100 % and not explained in FAVOURITE_DOORWAYS_NOT_OK_AT_100`);
+    for (const label of nowOk) console.log(`CEILING ${set} ${label}: OK at 100 % now - delete its row from FAVOURITE_DOORWAYS_NOT_OK_AT_100`);
+    ceilingFailures += unlisted.length + nowOk.length;
+  }
+  console.log(`doorway ceilings: ${ceilingFailures ? `${ceilingFailures} row(s) to review` : 'every not-OK doorway is recorded with its reason'}`);
+}
+if (failures || ceilingFailures) process.exit(1);
