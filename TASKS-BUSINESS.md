@@ -171,8 +171,10 @@ before anything is listed or sold, and nothing is posted, applied for or submitt
   - FIGURE: F01b (rex/rivet/pip) merged as extras, F01c rejected (branch `biz-f01c` kept). FIG3 (Nib, Juno, Tala,
     branch `biz-fig3`, sheets `output/fig3/`) -> the user (2026-11-14): "Iterate further we need to maximize
     compatibility with preexisting accessories like weapons, helmets, hair accessories etc. And keep our current
-    minifigs and dolls just add this as additional so I can eval in game with direct comparison". FIG3b RUNNING
-    (Fable, `.worktrees/biz-fig3b` from `biz-fig3`): accessory fit table, gate margins, additive gen-3 figure system.
+    minifigs and dolls just add this as additional so I can eval in game with direct comparison". FIG3b DONE, not merged
+    (`.worktrees/biz-fig3b`, BIZ-67): Pim + Tavi, gate margins 0.021 / 0.027, sheet `.worktrees/biz-fig3b/output/fig3b/candidates.jpg`,
+    packs `.worktrees/biz-fig3b/output/fig3b/gen3b/{60380,41732}-gen3.mcaddon`. Awaiting the user's in-game pick; open: boots, back gap,
+    vehicles seat only the player, not in the LEGO tab.
   - NEXT after the push: sampler designs (car, door kit, seat kit, small landmark) once a figure is picked; a device
     re-check of BIZ-66; the Pixel-round follow-ups above; L01 winding ring.
   - F01b MERGED 2026-11-09 (`biz-f01b`): rex (dinosaur), rivet (robot), pip (bobblehead kid); all pass the gate
