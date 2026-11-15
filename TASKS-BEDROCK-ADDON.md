@@ -34,11 +34,31 @@ individually tested 28". The favourites list has 40 sets (memory `user-favorite-
      row corrected).
    Gate for every re-sweep (A-16, merged): `bun scripts/_favourites_gate.ts --build --with-gabby --out=output/<new dir>`
    (sweep, child play at 50/100/150/200/400, vehicles, regressions; report `<dir>/gate.md`).
-   MERGED: vrun (`cb47ec0b`), place.
+   MERGED: vrun, place, door, vgrain, wveh, faces; follow-up `audit-vix` (moving hinged parts on whole-model vehicles, A-02 rest) running.
    Merge each after review + full suite (merge commits), then one sweep `--with-gabby --faces=...` + sim at
    `--sizes=50,100,150,200,400` + `--scenario=vehicles` + `--scenario=regressions` over the same directory.
 3. When no audit finding is open: send the user all 40 packs (one zip, built from a commit), then the
    generality work below (any set as good as the favourites; AUDIT.md section 4 lists what does not generalise).
+- **Faces (A-10, FIG-04 PARTIAL; branch `audit-faces`).** Build the user's favourite packs WITH the route-2 face
+  art, which only a local build can seed:
+  `bun scripts/_favorites_export_sweep.ts --out output/<new dir> --faces=C:/git/craftmatic/output/faces-art-1115`
+  (one `--faces=` dir; `output/faces-art-1115/` holds the 0926 art plus 44 new, 10 rejected by eye, see its
+  `REVIEW.md`). Census of what every favourite head gets:
+  `CRAFTMATIC_LDRAW_MIRROR=off bun scripts/_face_census.ts --faces=C:/git/craftmatic/output/faces-art-1115
+  --missing=<ids.txt>`; new art for the listed ids: `python -I scripts/gen-face-art.py <dir> --ids <ids.txt>`.
+  Head placements with their own face: 75 of 319 before, 207 after (`test/favourites-faces.test.ts` floors).
+  Left: 100 heads have no print identity in their source (Mecabricks 76269 / 75397 / 71040, 10326's no-print
+  `.io`, 71043's LXF, 36 DBIX heads whose element has no print row, 9 plain heads in LDraw and .io sources) and 12 heads
+  name one of 11 prints with no usable art (10 rejected crops, 3626pb2658 has no BrickLink photo). The web app
+  never fetches photos: shipping route 2 to users is the user's licence decision (open), so a pack the LEGO tab
+  exports has 116 of 319 (the LDraw prints only).
+  Packs rebuilt on `audit-faces` with the art (`.worktrees/audit-faces/output/faces-1115/sweep-faces/`, 15 sets
+  with default faces in the audit): heads drawn with their own face 14 -> 112 of 147; without art (the LEGO tab)
+  10303 0 -> 7 of 11, 76417 2 -> 2 of 17 (`sweep-nofaces/`). Sim at 50-400 %: the same failures as the audit's
+  baseline, except 76286 (now a vehicle under its name label: 2 boarding-point Undo leftovers, identical on a
+  3fa06170 build without faces, so A-05's class, not faces). Open: 10303 fig2's hair sits over its face (same on
+  the audit build; the head looks under the hair's front), `TODO(face-source-transfer)`: carry print ids from a
+  set's DBIX source onto a Mecabricks/no-print first pick (76269's 32 heads).
 
 ### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
 The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles

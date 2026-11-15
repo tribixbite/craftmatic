@@ -105,6 +105,25 @@ describe('head-face: face art', () => {
     expect(photoSkinColour({ width: w, height: w, rgba })!.map(Math.round)).toEqual([206, 162, 122]);
   });
 
+  it('keeps every ink texel of art whose skin is already keyed out (gen-face-art.py), A-10 2026-11-15', () => {
+    // What gen-face-art.py writes: skin TRANSPARENT, only ink left - mostly near-black eyes and mouth, some brown
+    // brow, a white highlight. The commonest opaque colour is then INK; read as "photo skin" it was dropped, and
+    // 76417's goblins (3626pb3484) lost 31 % of their face, 10303's 3626pb2973 54 %.
+    const w = 32, h = 24, rgba = new Uint8Array(w * h * 4);
+    const put = (x: number, y: number, c: [number, number, number]): void => { rgba.set([...c, 255], (y * w + x) * 4); };
+    for (let y = 8; y < 12; y++) for (const x0 of [6, 22]) for (let x = x0; x < x0 + 4; x++) put(x, y, [30 + (x + y) % 3 * 6, 22, 18]);
+    for (let x = 10; x < 22; x++) { put(x, 18, [28, 20, 16]); put(x, 19, [34, 24, 18]); }
+    for (let x = 5; x < 11; x++) put(x, 5, [110, 60, 30]);
+    for (let x = 21; x < 27; x++) put(x, 5, [110, 60, 30]);
+    put(7, 9, [250, 250, 250]); put(23, 9, [250, 250, 250]);
+    expect(photoSkinColour({ width: w, height: h, rgba })).toBeNull();
+    seedFaceArt([['3626pb7778', { width: w, height: h, rgba }]]);
+    const img = faceArtImage('3626c.dat', headMesh(), '3626pb7778')!;
+    const at = (sx: number, sy: number): number => texel(img, Math.floor((sx + 0.5) / w * img.width), Math.floor((sy + 0.5) / h * img.height))[3]!;
+    expect(at(7, 10)).toBe(255); // an eye
+    expect(at(15, 18)).toBe(255); // the mouth
+  });
+
   it('refuses art whose pixels do not match its size', () => {
     expect(() => seedFaceArt([['x', { width: 2, height: 2, rgba: new Uint8Array(4) }]])).toThrow(/bytes/);
   });

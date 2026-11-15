@@ -3275,6 +3275,28 @@ showed lenses and lips) but only as 2 LDU blocks - a smudge, not a face
 (`output/faces-0924/shots/route3-10261-fig2-face.png`). They now go through the
 same texture path as route 1.
 
+**BrickLink-named prints are LDraw prints too (2026-11-15, audit A-10).** The
+IOModel2V2 conversions and Studio `.io` files name a printed head by its
+BrickLink item (`3626cpb2588.dat`). No library ships that file with a drawable
+print (Studio has 56 such names, each the plain mould plus a `PE_TEX_INFO`
+texture nothing here draws), so the alias ladder drew the plain `3626c`: all
+eleven of 10303's heads were blank. LDraw prints many of them under its own
+number and says so in its header (`3626cp0b`: `!KEYWORDS BrickLink 3626pb2588`).
+`scripts/gen-head-print-ldraw.py` writes that join to
+`web/src/engine/head-print-ldraw.ts` (463 rows, framed like the base mould,
+the acceptance rule of `gen-ldd-print-map.py`); `printedHeadFor` in
+`ldraw-part-aliases.ts` reads such a name as the LDraw print BEFORE the name
+itself, in both resolvers. **Face art from `gen-face-art.py` is already keyed**
+(skin transparent), so its commonest opaque colour is INK: the compiler's
+photo-skin drop (`photoSkinColour`) punched 30-70 % out of every route-2 face
+until it was limited to art at least 75 % opaque (`_face_art_skin_probe.ts`
+prints what it drops per file). What every favourite head gets:
+`CRAFTMATIC_LDRAW_MIRROR=off bun scripts/_face_census.ts [--faces=<dir>]
+[--missing=<ids.txt>]`, and `gen-face-art.py <dir> --ids <ids.txt>` makes art
+for the listed prints. Measured over the 319 head placements of the 40
+favourites: 75 own faces before, 116 with the LDraw prints, 207 with the
+reviewed art in `output/faces-art-1115`; 100 heads name no print at all.
+
 **The face as a TEXTURE (`engine/head-face.ts`).** A head whose part carries
 explicit-colour triangles is rasterised face-on from −Z at 4 texels per LDU
 (z-buffered, 2x2 supersampled, so a dual-sided head's back print never shows;

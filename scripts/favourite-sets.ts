@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { indexedTryOrder, type IndexModel } from '../web/src/engine/lego-sources.ts';
+
 /**
  * The QA populations the sweeps and audits run over: the user's 40 favourite
  * sets (the priority population) and the five Gabby's Dollhouse sets added
@@ -119,4 +122,25 @@ export const FAVOURITE_DOOR_ROUTES_PACK_AT_100: Readonly<Record<string, number>>
 export function doorRouteCeiling(set: string, count: number): { ceiling: number; over: boolean; under: boolean } {
   const ceiling = FAVOURITE_DOOR_ROUTES_PACK_AT_100[set] ?? 0;
   return { ceiling, over: count > ceiling, under: count < ceiling };
+
+/** The models index and the corpus the favourites are exported from (clego). */
+export const MODELS_INDEX = 'C:/git/clego/lego-models-index.json';
+export const CORPUS_ROOT = 'C:/git/clego/lego_sets';
+
+/** One set's entry in the models index (the fields the sweeps read). */
+export interface IndexedSet { name?: string; models?: IndexModel[]; parts?: number; catalogParts?: number }
+
+/** Every set in the models index, keyed by set number. */
+export function readModelsIndex(path: string = MODELS_INDEX): Record<string, IndexedSet> {
+  return (JSON.parse(readFileSync(path, 'utf8')) as { sets: Record<string, IndexedSet> }).sets;
+}
+
+/**
+ * The source the LEGO tab's picker loads first for `set` (`indexedTryOrder`'s first pick), as a corpus path, or
+ * null when the index has no model for it. The sweep and the face census both build from it.
+ */
+export function firstPickSource(entry: IndexedSet | undefined): { model: IndexModel; file: string } | null {
+  if (!entry?.models?.length) return null;
+  const model = entry.models[indexedTryOrder(entry.models, entry.catalogParts ?? entry.parts)[0]!]!;
+  return { model, file: `${CORPUS_ROOT}/${model.path}` };
 }

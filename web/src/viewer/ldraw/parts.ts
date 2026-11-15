@@ -8,7 +8,7 @@
  */
 
 import type { Vec3, Triangle, Edge, PartGeom, UV } from './types.js';
-import { partAliasCandidates, studioFrameRedirect } from '../../engine/ldraw-part-aliases.js';
+import { partAliasCandidates, printedHeadFor, studioFrameRedirect } from '../../engine/ldraw-part-aliases.js';
 
 const datTextCache = new Map<string, string | null>();
 const partGeomCache = new Map<string, PartGeom>();
@@ -889,8 +889,12 @@ async function fetchDatText(id: string): Promise<string | null> {
     // lookup on purpose - an earlier session persisted Studio's text under the
     // bare name. In-memory only, like an alias, for the same reason.
     const redirect = studioFrameRedirect(key);
-    if (redirect) {
-      const text = await fetchDatText(redirect);
+    // Likewise a BrickLink-named printed head (`3626cpb2588`) is read as LDraw's print of the same face
+    // (`printedHeadFor`): no library ships the BrickLink name with a drawable print (Studio's copies carry the face
+    // only as a `PE_TEX_INFO` texture, which this viewer does not draw), so the alias ladder drew a blank head.
+    const sameFace = redirect ? undefined : (key.includes('/') ? undefined : printedHeadFor(key));
+    if (redirect || sameFace) {
+      const text = await fetchDatText((redirect ?? sameFace)!);
       if (text !== null) { datTextCache.set(key, text); return text; }
     }
     // Persistent cache first: library .dat files are immutable in practice,

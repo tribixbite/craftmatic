@@ -28,7 +28,7 @@
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
-import { partAliasCandidates, studioFrameRedirect } from './ldraw-part-aliases.js';
+import { identityAliasFor, partAliasCandidates, printedHeadFor, studioFrameRedirect } from './ldraw-part-aliases.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { ldrawColorToBlock, LDRAW_COLOR_TO_BLOCK } from './ldraw-colors.js';
 import { type VoxelizeResult, type VoxelizeOptions, TECHNIC_INTERNAL_PARTS } from './ldraw-voxelizer.js';
@@ -484,6 +484,21 @@ async function fetchDatText(id: string): Promise<string | null> {
         return text;
       }
     }
+    // A BrickLink-named printed head is read as LDraw's print of the same face (`printedHeadFor`) BEFORE the
+    // name itself: Studio ships some of those names (`3626cpb2381.dat`) as the plain mould plus a `PE_TEX_INFO`
+    // texture, which nothing here draws, so a direct hit drew a blank face over LDraw's geometric print
+    // (`3626cp0c`, 910032; audit 2026-11-15 A-10). Recorded as a substitution, so the swap is visible.
+    const printed = key.includes('/') ? undefined : printedHeadFor(key);
+    if (printed) {
+      const text = await fetchDatText(printed);
+      if (text !== null) {
+        datTextCache.set(key, text);
+        datSubstitutions.set(key, printed);
+        const via = partLedger.get(normId(printed));
+        if (via) partLedger.set(key, { ...via, part: key, kind: 'substituted', origin: via.kind === 'substituted' ? via.origin : via.kind, servedAs: printed });
+        return text;
+      }
+    }
     const direct = await probeLibrary(key);
     if (direct !== null) { recordSource(key, direct); datTextCache.set(key, direct.text); return direct.text; }
     // CLI only: the EXACT name at the mirror before any local alias. The local
@@ -498,6 +513,15 @@ async function fetchDatText(id: string): Promise<string | null> {
     // The alias ladder applies to bare part names only (a `s/` or `48/` ref is
     // a primitive path, which the ladder must never shred).
     const aliases = key.includes('/') ? [] : partAliasCandidates(key);
+    // CLI only: an IDENTITY alias - the same element under LDraw's own name, from data, not a stripped suffix
+    // (`3626cpb2588` IS `3626cp0b`; `identityAliasFor`) - is asked of the mirror too BEFORE the near-variant rungs.
+    // Otherwise the local 2020 snapshot, which lacks most newer prints, answered the plain `3626c` rung first and the
+    // pack drew a blank face where LDraw prints the real one (audit 2026-11-15 A-10).
+    const identity = key.includes('/') ? undefined : identityAliasFor(key);
+    if (identity && useFilesystem) {
+      const hit = (await probeLibrary(identity)) ?? (await probeMirror(identity));
+      if (hit !== null) { datSubstitutions.set(key, identity); recordSource(key, hit, identity); datTextCache.set(key, hit.text); return hit.text; }
+    }
     for (const alias of aliases) {
       const hit = await probeLibrary(alias);
       if (hit !== null) { datSubstitutions.set(key, alias); recordSource(key, hit, alias); datTextCache.set(key, hit.text); return hit.text; }

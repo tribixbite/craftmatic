@@ -36,8 +36,11 @@ the head mould's face by fitting the LDraw mesh to the photo's silhouette. The
 art covers the doll head's whole front, which is what head-face.ts maps it onto
 for a doll head.
 
-Usage: python scripts/gen-face-art.py <out-dir> <model.ldr|.mpd>... [--sleep 1.0]
+Usage: python scripts/gen-face-art.py <out-dir> <model.ldr|.mpd>... [--sleep 1.0] [--ids FILE]
        (reads every HEAD_PRINT id, and the older `3626cpb<N>.dat` names)
+       --ids FILE: also make art for the print ids listed in FILE, one per line (`3626pb2973`, `92198pr0050`):
+       `bun scripts/_face_census.ts --missing=FILE` writes the favourites' heads that still lack a face, which
+       covers `.io` / `.lxf` sources this script cannot read.
 Writes `<dir>/3626pb<N>.png` and `<dir>/92198pr<N>.png` (face art is keyed by
 print id), and `<dir>/doll-fits.json` (each doll photo's silhouette fit).
 """
@@ -175,8 +178,9 @@ def face_art(photo: Path) -> Image.Image | None:
 
 def main(argv: list[str]) -> int:
     pause = float(argv[argv.index('--sleep') + 1]) if '--sleep' in argv else 1.0
-    args = [a for i, a in enumerate(argv) if not a.startswith('--') and (i == 0 or argv[i - 1] != '--sleep')]
-    if len(args) < 2:
+    ids_file = argv[argv.index('--ids') + 1] if '--ids' in argv else None
+    args = [a for i, a in enumerate(argv) if not a.startswith('--') and (i == 0 or argv[i - 1] not in ('--sleep', '--ids'))]
+    if len(args) < (1 if ids_file else 2):
         print(__doc__)
         return 64
     out = Path(args[0])
@@ -188,6 +192,14 @@ def main(argv: list[str]) -> int:
         for m in HEAD_NAME.finditer(text):
             heads.add(m.group(1) or m.group(2))
         dolls.update(m.group(1).lower() for m in DOLL_HEAD.finditer(text))
+    if ids_file:
+        for line in Path(ids_file).read_text(encoding='utf-8').split():
+            pid = line.strip().lower()
+            fig = re.match(r'^3626[bc]?pb(\d+)$', pid)
+            if fig:
+                heads.add(fig.group(1))
+            elif re.match(r'^(92198|28649)pr[0-9a-z]+$', pid):
+                dolls.add(pid)
     colours = bl_colours()
     made = missing = 0
     for n in sorted(heads, key=int):

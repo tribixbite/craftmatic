@@ -45,9 +45,12 @@ describe('partAliasCandidates', () => {
     expect(partAliasCandidates('973pb1137')).toContain('973');
     expect(partAliasCandidates('29p3')).toEqual(['29']);
     // Printed part on a lettered mould: the mould letter survives one hop, so
-    // the closest match (3626c) is offered before the bare base.
+    // the closest match (3626c) is offered before the bare base. A BrickLink
+    // print LDraw also prints (`3626pb0728` = `3626cpm3`, keywords BrickLink) is
+    // offered first of all: it is the same face, not a near variant (A-10).
     const h = partAliasCandidates('3626cpb0728');
-    expect(h[0]).toBe('3626c');
+    expect(h[0]).toBe('3626cpm3');
+    expect(h.indexOf('3626c')).toBeLessThan(h.indexOf('3626'));
     expect(h).toContain('3626');
   });
 
