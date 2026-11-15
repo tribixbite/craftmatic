@@ -2796,6 +2796,21 @@ Two policies for fitting a budget, simulated on that table from a 2 LDU start
   shells `balanced` 2 LDU / 49,152, `high` 2 / 98,304, `ultra` 2 / 163,840;
   vehicles `balanced` 2 / 24,576, `high` 2 / 49,152, `ultra` 1 / 98,304.
   `maxPartCubes` is 4,096 everywhere: a guard, no longer the fidelity dial.
+- **A vehicle carved out of a model takes its share of the SHELL's budget**
+  (2026-11-15, audit A-03, `vehicleEntityQuality` in playable-addon.ts): the
+  vehicle preset's 24,576 was half a shell's 49,152, so a whole-model vehicle
+  shipped at about half the cuboids the same model cost as a building (42172
+  2,454 of 2,883 placements coarsened, 0.862 silhouette fidelity). The budget is
+  now `shell x vehicle placements / model placements`, never below the preset:
+  42172 21.6k -> 44.9k cuboids (0.881), 10365 0.934 -> 0.951, 75397 0.922 ->
+  0.941, 76286 0.960 -> 0.965, 10337 0.950 -> 0.953 (every part at 2 LDU) -
+  each pack the cuboids it costs as a building. A scene car of a tenth of its
+  scene keeps the preset. Riding frame rate at ~45-50k is unmeasured on a phone.
+- **The seat planner reads its boxes through a grid index** (A-21,
+  `opaquePointIndex`, cockpit-seat.ts): `forwardView` tested every box at each
+  0.05-block ray step, and a guessed (`none`) seat's search over 42172 as a
+  whole-model car at 100 % took 94 % of a 2,353 s export. Any new per-candidate
+  scan over a vehicle's boxes multiplies the same way: query the index.
   Figures still clamp to `high` (2 LDU, unchanged).
 
 ### Measured result, 10303 (`scripts/_playable_ref.ts`, 2026-09-21)

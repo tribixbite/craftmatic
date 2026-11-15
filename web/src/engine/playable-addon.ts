@@ -2615,6 +2615,11 @@ export type EmittableGeometry = LodHullInput & { diagnostics: { cubeCount: numbe
  * is left with what the vehicle did not take), so the device's resident budget (`DEVICE_CUBOID_BUDGET`) and its
  * ~50-100k drawn cuboids for 60 fps (docs/bedrock-addon-guide.md) are spent as they were for the building. A scene
  * car of a tenth of a scene keeps the preset, as before.
+ *
+ * TODO(vgrain): 42172 needs ~222k cuboids for every part at 2 LDU and still ships 2,011 placements coarsened
+ * (fidelity 0.881 against 0.927); past this budget the options are splitting a vehicle across attached child actors
+ * (each actor costs ~40 kB, guide "Per-Actor cost") or a device-measured larger vehicle budget. Riding frame rate at
+ * ~45-50k cuboids beside scenery is not device-measured.
  */
 export function vehicleEntityQuality(name: LegoEntityQualityName | undefined, vehicleParts: number, modelParts: number): LegoEntityQuality {
     const base = resolveEntityQuality(name);
