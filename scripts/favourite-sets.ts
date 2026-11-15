@@ -12,3 +12,23 @@ export const FAVOURITES: readonly string[] = [
 ];
 
 export const GABBY_SETS: readonly string[] = ['10796', '10797', '10788', '10786', '11204'];
+
+/**
+ * The label the LEGO tab exports a set under (`ui/lego.ts`: `${name} (${set_num})`). It is not cosmetic: the
+ * vehicle classifier and the display scale read the title, and a pack's uuid follows it, so a QA build labelled
+ * with the bare number is a DIFFERENT pack from the one a user gets (audit 2026-11-15 A-01: five favourite
+ * vehicles shipped static that way). A set with no indexed name keeps its number.
+ */
+export function legoTabLabel(set: string, name: string | undefined): string {
+  const trimmed = name?.trim();
+  return trimmed ? `${trimmed} (${set}-1)` : set;
+}
+
+/**
+ * The file stem device rounds name a pack by, and the regression set's `newStem`: `<set>-<words of the name>`,
+ * lower case, punctuation dropped inside words (`X-wing` -> `xwing`, `Gabby's` -> `gabbys`).
+ */
+export function packStem(set: string, name: string | undefined): string {
+  const words = (name ?? '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim().split(/\s+/).filter(Boolean);
+  return words.length ? `${set}-${words.join('-')}` : set;
+}

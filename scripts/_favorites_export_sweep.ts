@@ -10,17 +10,21 @@
  * is answered with the measured share of placements the budget coarsened,
  * rather than by eye.
  *
- * Usage: bun scripts/_favorites_export_sweep.ts [set…] [--out DIR] [--keep] [--geometry DIR]
+ * Usage: bun scripts/_favorites_export_sweep.ts [set…] [--out DIR] [--keep] [--geometry DIR] [--with-gabby] [--faces=DIR]
+ *   Each pack is built under the LEGO tab's label (`Name (set-1)`) and written as `<set>-<name words>.mcaddon`,
+ *   the stem the regression set looks for, so `bun scripts/sim.ts DIR --scenario=regressions` tests this build.
+ *   --with-gabby  also build the Gabby's Dollhouse sets (the regression set's other packs).
+ *   --faces=DIR   pass face art to every export (`_playable_ref.ts --faces=`; local builds only).
  *   --keep      do not re-export a set whose .mcaddon is already in DIR.
  *   --geometry  also write each set's part geometry per collider cell to
  *               DIR/<set>.json (`_ix_cell_geometry.ts`), the truth
  *               `_ix_sealed_causes.ts` walks a sealed doorway over.
- * Output: DIR/<set>.mcaddon, DIR/<set>.json, DIR/summary.json.
+ * Output: DIR/<stem>.mcaddon, DIR/<stem>.json, DIR/summary.json.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { indexedTryOrder, type IndexModel } from '../web/src/engine/lego-sources.ts';
-import { FAVOURITES } from './favourite-sets.ts';
+import { FAVOURITES, GABBY_SETS, legoTabLabel, packStem } from './favourite-sets.ts';
 
 const INDEX = 'C:/git/clego/lego-models-index.json';
 const CORPUS = 'C:/git/clego/lego_sets';
@@ -29,6 +33,8 @@ const argv = process.argv.slice(2);
 const outIndex = argv.indexOf('--out');
 const OUT = outIndex >= 0 ? argv[outIndex + 1]! : 'output/bedrock-entity-qa/favorites-sweep';
 const KEEP = argv.includes('--keep');
+const WITH_GABBY = argv.includes('--with-gabby');
+const FACES = argv.find(a => a.startsWith('--faces='));
 const geometryIndex = argv.indexOf('--geometry');
 const GEOMETRY = geometryIndex >= 0 ? argv[geometryIndex + 1]! : undefined;
 if (GEOMETRY) mkdirSync(GEOMETRY, { recursive: true });
@@ -45,7 +51,7 @@ interface GrainSummary {
   cuboids: number; cuboidsAtRequested: number; budget: number;
 }
 interface Row {
-  set: string; name: string; src: string; path: string;
+  set: string; name: string; label: string; stem: string; src: string; path: string;
   ok: boolean; valid: boolean | null; bytes: number; seconds: number;
   entities: number; error?: string; validation?: string;
   warnings: string[]; grains: GrainSummary[];
@@ -55,14 +61,16 @@ interface Row {
 
 const rows: Row[] = [];
 
-for (const set of (targets.length ? targets : FAVOURITES)) {
+for (const set of (targets.length ? targets : [...FAVOURITES, ...(WITH_GABBY ? GABBY_SETS : [])])) {
   const entry = sets[set];
   if (!entry?.models?.length) { console.log(`${set}: not in index`); continue; }
   const model = entry.models[indexedTryOrder(entry.models, entry.catalogParts ?? entry.parts)[0]!]!;
   const file = `${CORPUS}/${model.path}`;
-  const pack = `${OUT}/${set}.mcaddon`;
+  const label = legoTabLabel(set, entry.name);
+  const stem = packStem(set, entry.name);
+  const pack = `${OUT}/${stem}.mcaddon`;
   const row: Row = {
-    set, name: entry.name ?? '', src: String(model.src), path: model.path,
+    set, name: entry.name ?? '', label, stem, src: String(model.src), path: model.path,
     ok: false, valid: null, bytes: 0, seconds: 0, entities: 0, warnings: [], grains: [], coarsenedShare: null,
   };
 
@@ -74,7 +82,7 @@ for (const set of (targets.length ? targets : FAVOURITES)) {
   // first-pick path containing spaces (`LDR/10261 Roller Coaster.mpd`) is split
   // and the export dies with ENOENT on a truncated name.
   const build = GEOMETRY ? ['scripts/_ix_cell_geometry.ts', `${GEOMETRY}/${set}.json`] : ['scripts/_playable_ref.ts'];
-  const run = spawnSync('bun', [...build, file, pack, `--label=${set}`], {
+  const run = spawnSync('bun', [...build, file, pack, `--label=${label}`, ...(FACES ? [FACES] : [])], {
     encoding: 'utf8', maxBuffer: 256 * 1024 * 1024,
   });
   row.seconds = Math.round((Date.now() - started) / 100) / 10;
@@ -87,7 +95,7 @@ for (const set of (targets.length ? targets : FAVOURITES)) {
   }
   row.ok = true;
   row.bytes = statSync(pack).size;
-  writeFileSync(`${OUT}/${set}.json`, run.stdout);
+  writeFileSync(`${OUT}/${stem}.json`, run.stdout);
 
   try {
     const report = JSON.parse(run.stdout.slice(run.stdout.indexOf('{'))) as {
@@ -126,7 +134,7 @@ for (const set of (targets.length ? targets : FAVOURITES)) {
   if (!row.valid) row.validation = text.split('\n').filter(l => /FAIL|!!/.test(l)).join(' | ').slice(0, 400);
 
   rows.push(row);
-  console.log(`${set}: ${row.valid ? 'OK  ' : 'FAIL'} ${String(row.bytes).padStart(8)} bytes  ${String(row.entities).padStart(3)} entities  ${row.seconds}s  coarsened ${row.coarsenedShare === null ? '-' : `${(row.coarsenedShare * 100).toFixed(0)}%`}${row.validation ? `  ${row.validation}` : ''}`);
+  console.log(`${stem}: ${row.valid ? 'OK  ' : 'FAIL'} ${String(row.bytes).padStart(8)} bytes  ${String(row.entities).padStart(3)} entities  ${row.seconds}s  coarsened ${row.coarsenedShare === null ? '-' : `${(row.coarsenedShare * 100).toFixed(0)}%`}${row.validation ? `  ${row.validation}` : ''}`);
 }
 
 const failures = rows.filter(r => !r.ok || r.valid === false);

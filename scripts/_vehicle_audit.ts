@@ -25,7 +25,7 @@ import { spawnSync } from 'node:child_process';
 import { indexedTryOrder, type IndexModel } from '../web/src/engine/lego-sources.ts';
 import { extractMatching } from '../web/src/engine/zip-utils.ts';
 import { RIDER_EYE_ABOVE_SEAT } from '../web/src/engine/cockpit-seat.ts';
-import { FAVOURITES } from './favourite-sets.ts';
+import { FAVOURITES, legoTabLabel } from './favourite-sets.ts';
 import { drawnCubeBox } from '../web/src/engine/bedrock-geometry-faces.ts';
 
 const INDEX = 'C:/git/clego/lego-models-index.json';
@@ -97,7 +97,7 @@ for (const set of list) {
   const model = entry.models[indexedTryOrder(entry.models, entry.catalogParts ?? entry.parts)[0]!]!;
   const file = `${CORPUS}/${model.path}`;
   // The LEGO tab's label (ui/lego.ts `exportLabel`): the set's name and number.
-  const label = `${entry.name ?? set} (${set}-1)`;
+  const label = legoTabLabel(set, entry.name);
   const pack = `${OUT}/${set}.mcaddon`, reportPath = `${OUT}/${set}.json`;
   const row: AuditRow = { set, name: entry.name ?? '', label, src: model.path, ok: false, seconds: 0, scale: null, scaleCue: null, components: [], vehicles: [], sha256: null };
   if (!existsSync(file)) { row.error = `source missing: ${file}`; rows.push(row); console.log(`${set}: ${row.error}`); continue; }
