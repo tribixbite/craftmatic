@@ -49,7 +49,7 @@ import type { FunfairKind } from './rides/funfair-detect.js';
 import { HOP, HOP_TAGS, hopKitConfig, hopRuntimeConfig, hopScript, type HopSource, type HopVacate } from './bedrock-ride-hop.js';
 import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, pressFlashOverlay, ballAnimation, ballProperties, buttonPressAnimation, consoleAssets, consoleHideAnimation, pressProperties, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
-import { BOARD, BOARD_OWNER_PROPERTY, BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, VEHICLE_DYNAMIC, VEHICLE_EGRESS, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
+import { BOARD, BOARD_OWNER_PROPERTY, BOARD_POINTS_PROPERTY, BOAT, PLACEMENT_TAG_PREFIX, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, VEHICLE_DYNAMIC, VEHICLE_EGRESS, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
 import { COLLIDER_KIT, ESCAPE_OPTIONS } from './collider-form.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { COCKPIT_CLIENT_LAGS, FREE_LOOK, NATIVE_HEADING_PROPERTY, NATIVE_STEER, cockpitCamera, cockpitLagFor, type CockpitClientLag, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type FreeLookParams, type NativeSteerParams } from './vehicle-free-look.js';
@@ -4209,7 +4209,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(timeMachineConfig ? { vehicleControls: true } : {}),
         // M07: a release / Marketplace profile builds only into air (absent: the dev wand).
         ...(flags.marketplacePlacement ? { marketplacePlacement: true } : {}),
-        ...(boardIds ? { boardTypes: Object.values(boardIds).map(b => `${PACK_NAMESPACE}:${b}`), boardOwnerProperty: BOARD_OWNER_PROPERTY } : {}),
+        ...(boardIds ? { boardTypes: Object.values(boardIds).map(b => `${PACK_NAMESPACE}:${b}`), boardOwnerProperty: BOARD_OWNER_PROPERTY, boardPointsProperty: BOARD_POINTS_PROPERTY } : {}),
         ...(options.interactionNote || ixWalkNote ? { interactionNote: bedrockInGameText([options.interactionNote, ixWalkNote].filter(Boolean).join(' ')) } : {}),
         // The wand names the measured walk-through step and quotes the reason
         // whole - spelt for Bedrock's text formatter, which deletes a bare `%`.
@@ -4239,7 +4239,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     let boardConfig: ScriptedVehicleConfig['board'];
     if (boardIds) {
         // One point type per size step, its column declared at that size (`boardPointBehavior`).
-        boardConfig = { types: Object.fromEntries(Object.entries(boardIds).map(([pct, b]) => [pct, `${PACK_NAMESPACE}:${b}`])), ownerProperty: BOARD_OWNER_PROPERTY, params: BOARD };
+        boardConfig = { types: Object.fromEntries(Object.entries(boardIds).map(([pct, b]) => [pct, `${PACK_NAMESPACE}:${b}`])), ownerProperty: BOARD_OWNER_PROPERTY, pointsProperty: BOARD_POINTS_PROPERTY, placementTagPrefix: PLACEMENT_TAG_PREFIX, params: BOARD };
         for (const [pct, boardId] of Object.entries(boardIds)) files.push(
             { name: `${bp}entities/${boardId}.json`, data: json(boardPointBehavior(boardId, Number(pct))) },
             { name: `${rp}entity/${boardId}.entity.json`, data: json(seatClient(boardId)) },

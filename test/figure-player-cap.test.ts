@@ -186,6 +186,7 @@ describe('a figure spawned by the runtime stands ON the scaled floor', () => {
     const h = host(spec(figureY));
     prepare(h);
     await h.open({ action: PIN_AT_FEET }, { canceled: true });
+    h.stepAside(); // the wand asks before building round a player (A-06)
     const steps = (SIZE_STEPS.indexOf(pct) - SIZE_STEPS.indexOf(100) + SIZE_STEPS.length) % SIZE_STEPS.length;
     for (let i = 0; i < steps; i++) await h.open({ action: SIZE }, { canceled: true });
     await h.open({ action: PLACE }, { selection: 0 });

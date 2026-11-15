@@ -32,6 +32,9 @@ individually tested 28". The favourites list has 40 sets (memory `user-favorite-
      keep sub-builds and figures, list every drop), A-09 76457 baseplates, A-13 figures left in the shell.
    - `faces`: A-10 default faces (census, LDraw prints first, route-2 art into `output/faces-art-1115/`, FIG-04
      row corrected).
+   Gate for every re-sweep (A-16, merged): `bun scripts/_favourites_gate.ts --build --with-gabby --out=output/<new dir>`
+   (sweep, child play at 50/100/150/200/400, vehicles, regressions; report `<dir>/gate.md`).
+   MERGED: vrun (`cb47ec0b`), place.
    Merge each after review + full suite (merge commits), then one sweep `--with-gabby --faces=...` + sim at
    `--sizes=50,100,150,200,400` + `--scenario=vehicles` + `--scenario=regressions` over the same directory.
 3. When no audit finding is open: send the user all 40 packs (one zip, built from a commit), then the

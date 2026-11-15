@@ -1805,6 +1805,8 @@ one of these files fails the check until its row is written.
 | `BOARD` | const | Board points (VEH-17): while a scripted vehicle is parked and empty, an invisible rideable column under each drawn extremity past the interact's root reach (quirk `interact-root-reach`); a hold or tap on one seats the player in the vehicle; `config.board`. |
 | `BoardParams` | type | `BOARD` as numbers. |
 | `BOARD_OWNER_PROPERTY` | const | The dynamic property a board point carries: its vehicle's entity id (the sweep removes a point whose owner is gone). |
+| `BOARD_POINTS_PROPERTY` | const | The dynamic property a vehicle carries: the ids of the board points it stands (A-05, PROC-19). The wand's Undo retires them with the vehicle, so a point in a chunk nobody has loaded (10303's at 400 %) is swept when it loads. |
+| `PLACEMENT_TAG_PREFIX` | const | `cmu_`, the wand's placement tags: a board point copies its vehicle's, so Undo's tag sweep takes it as each area of the placement loads. |
 | `BoardPoint`, `BoardRuntimeConfig` | interface | One drawn extremity at 100 % in the entity frame and the axis it is extreme along (`boardPointsOf`, bedrock-placement-pack.ts); the board entity type, its size steps and the constants. |
 | `boardPointPlaces` | function | SERIALISED. Where the columns stand at a pose and live scale: past `MIN_REACH_BLOCKS` only, on the vehicle's base, the outer face `OUTSET_BLOCKS` past the tip, turned with Bedrock's yaw. |
 | `VehicleEgressInput`, `VehicleEgressProbe` | interface | The vehicle's pose and footprint, the seat and Bedrock's set-down, airborne / waterline; the world probes (floor, room, walk exit, water, the collider probe's escape). |

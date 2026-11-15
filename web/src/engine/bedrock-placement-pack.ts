@@ -216,6 +216,11 @@ export interface PlacementPackSpec {
    */
   boardTypes?: readonly string[];
   boardOwnerProperty?: string;
+  /**
+   * The dynamic property on which a scripted vehicle lists its standing board points' ids (`BOARD_POINTS_PROPERTY`).
+   * Undo retires those ids with the vehicle, so a point in a chunk nobody has loaded is swept when it loads (A-05).
+   */
+  boardPointsProperty?: string;
 }
 
 export interface PlacementPackAssets {
@@ -1202,14 +1207,38 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
       return true;
     } catch { return false; }
   };
+  /**
+   * The ids of the board points scripted vehicle `e` lists (`boardPointsProperty`, written by its runtime): retired
+   * with it, since a point standing in an unloaded chunk is seen by no query at Undo time (A-05, PROC-19).
+   */
+  const boardPointIdsOf = (e: any): string[] => {
+    if (!config.boardPoints) return [];
+    try {
+      const v = e?.getDynamicProperty?.(config.boardPoints), list = typeof v === 'string' ? JSON.parse(v) : [];
+      return Array.isArray(list) ? list.filter((id: any) => typeof id === 'string') : [];
+    } catch { return []; }
+  };
+  /** Remove each listed board point that is loaded now; return the ids of those that are not. */
+  const removePointsNow = (pointIds: string[]): string[] => {
+    const left: string[] = [];
+    for (const id of pointIds) {
+      let point: any;
+      try { point = world.getEntity(id); } catch {}
+      if (point) { try { point.remove(); continue; } catch {} }
+      left.push(id);
+    }
+    return left;
+  };
   const sweepRetiredEntity = (e: any): void => {
     for (const [tag, r] of retirements) {
       let match = r.ids.has(e?.id);
       if (!match) try { match = e?.hasTag?.(tag) === true; } catch {}
       if (!match) continue;
-      const id = e.id;
+      const id = e.id, points = boardPointIdsOf(e);
       try { e.remove(); } catch { return; }
-      if (r.ids.delete(id)) persistRetirement(tag, r.ids);
+      const left = removePointsNow(points);
+      for (const p of left) r.ids.add(p);
+      if (r.ids.delete(id) || left.length) persistRetirement(tag, r.ids);
       return;
     }
   };
@@ -1234,7 +1263,13 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     for (const id of ids) {
       let e: any;
       try { e = world.getEntity(id); } catch {}
-      if (e) { try { e.remove(); continue; } catch {} }
+      if (e) {
+        // A vehicle's board points go with it; one not loaded now is retired by id below (A-05).
+        const points = boardPointIdsOf(e);
+        let removed = false;
+        try { e.remove(); removed = true; } catch {}
+        if (removed) { for (const p of removePointsNow(points)) missing.add(p); continue; }
+      }
       if (typeof id === 'string') missing.add(id);
     }
     // Also remove loaded actors whose ids are no longer resolvable from the
@@ -1410,11 +1445,23 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     const q = pointAt({ x: config.width / 2, y: 0, z: config.length / 2 }, st.rotation), f = factor(st);
     return { x: q.x * f, z: q.z * f };
   };
+  // A pin centred on a point (the aim, "Pin centred on me") remembers that point, `st.centre`: Size and Rotate then
+  // keep the footprint centred on it (A-06, PROC-19). Before, they kept the CORNER, so a model shrank and turned away
+  // from where the child aimed - at 50 % turned 90, 10261 covered the child (sim `player-not-in-solid`, 9 sets). A
+  // corner pin (Pin corner at my feet, Edit coordinates, a clear spot found) clears it and keeps its corner.
   const pinCentredAt = (p: any, st: any, target: any) => {
-    const c = centreOffset(st);
-    st.anchor = { x: Math.floor(target.x - c.x), y: Math.floor(target.y), z: Math.floor(target.z - c.z) };
+    st.centre = { x: target.x, z: target.z };
+    st.anchor = { ...anchorFor(st), y: Math.floor(target.y) };
     st.dimension = p.dimension.id; previews.add(p.id);
   };
+  /** The corner that puts state `st`'s footprint (its size and turn) centred on `st.centre`; the corner kept without one. */
+  const anchorFor = (st: any) => {
+    if (!st.centre) return st.anchor;
+    const c = centreOffset(st);
+    return { x: Math.floor(st.centre.x - c.x), y: st.anchor ? st.anchor.y : 0, z: Math.floor(st.centre.z - c.z) };
+  };
+  /** After a size or turn change: a centred pin moves its corner so the footprint stays centred (A-06). */
+  const recentre = (st: any) => { if (st.anchor && st.centre) st.anchor = anchorFor(st); };
   const blocksResizable = !config.tiles.length || !!config.colliders;
   const summary = (st: any) => {
     const d = dims(st);
@@ -1583,7 +1630,7 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     if (r.canceled) return menu(p);
     const values = r.formValues.map((v: any) => Number(v));
     if (!values.every((v: number) => Number.isSafeInteger(v) && Math.abs(v) < 30000000)) { tell(p, 'Use whole-number world coordinates.'); return edit(p); }
-    st.anchor = { x: values[0], y: values[1], z: values[2] }; st.dimension = p.dimension.id; st.aim = false; previews.add(p.id); return menu(p);
+    st.anchor = { x: values[0], y: values[1], z: values[2] }; st.centre = undefined; st.dimension = p.dimension.id; st.aim = false; previews.add(p.id); return menu(p);
   }
   /**
    * Air-only preflight: the blocks of `anchor`'s footprint (the size and turn chosen) that are neither air nor
@@ -1624,24 +1671,127 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
   /** A standing player's body box (Bedrock: 0.6 wide, 1.8 tall), the part of a spot that a placement must not build over. */
   const BODY_HALF_WIDTH = 0.3, BODY_HEIGHT = 1.8;
   /**
-   * Whether the footprint at `anchor` (the size and turn chosen) overlaps the body of any player in `dim`. A clear
-   * spot built over a player puts them inside the collider blocks (T02-fix finding 3: `player-not-in-solid`), so
-   * the search skips such footprints. The footprint spans [anchor, anchor + dims) in whole blocks.
+   * Whether a body standing at `l` overlaps the footprint [anchor, anchor + d) in whole blocks. A clear spot built
+   * over a player puts them inside the collider blocks (T02-fix finding 3: `player-not-in-solid`).
    */
+  const bodyInFootprint = (l: any, anchor: any, d: any): boolean =>
+    l.x + BODY_HALF_WIDTH > anchor.x && l.x - BODY_HALF_WIDTH < anchor.x + d.width
+    && l.y + BODY_HEIGHT > anchor.y && l.y < anchor.y + d.height
+    && l.z + BODY_HALF_WIDTH > anchor.z && l.z - BODY_HALF_WIDTH < anchor.z + d.length;
+  /** Whether any player's body in `dim` overlaps the footprint at `anchor` (the size and turn of `st`). */
   const coversPlayer = (dim: any, st: any, anchor: any): boolean => {
-    const d = dims(st);
+    const d = dims({ ...st, anchor });
+    let players: any[] = [];
+    try { players = world.getAllPlayers() || []; } catch {}
+    return players.some((q: any) => { try { return q.dimension?.id === dim.id && bodyInFootprint(q.location, anchor, d); } catch { return false; } });
+  };
+  /**
+   * The model's collider cells at 100 %: each cell's sixteenth span `[lo, hi]` (hi 0 = air), decoded once from
+   * `config.colliders.runs` (index `(x * height + y) * length + z`, the runs' order; a clearance form's value carries
+   * its span as for a full cell).
+   */
+  let cellSpans: { lo: Uint8Array; hi: Uint8Array } | undefined;
+  const cellSpansOf = (): { lo: Uint8Array; hi: Uint8Array } => {
+    if (cellSpans) return cellSpans;
+    const c = config.colliders, runs: string = c ? c.runs : '', n = c ? c.width * c.height * c.length : 0;
+    const lo = new Uint8Array(n), hi = new Uint8Array(n);
+    let cell = 0;
+    for (let k = 0; k + 1 < runs.length; k += 2) {
+      const value = runs.charCodeAt(k) - 40, count = runs.charCodeAt(k + 1) - 40 + 1;
+      if (value > 0) {
+        const cv = Math.floor((value - 1) / 136), [l, h] = pairOf(value - cv * 136);
+        lo.fill(l, cell, Math.min(n, cell + count)); hi.fill(h, cell, Math.min(n, cell + count));
+      }
+      cell += count;
+    }
+    return (cellSpans = { lo, hi });
+  };
+  /** How far up a solid may reach above a player's feet and only lift them (Bedrock's step-up), blocks. */
+  const STEP_UP_BLOCKS = 0.6;
+  /**
+   * Whether the placement at `anchor` (the size and turn of `st`) would build its blocks round a player's body
+   * (A-06, PROC-19): a body inside the footprint that a collider cell of the model would overlap, read in the model's
+   * own frame (`modelPoint`), from a step above the feet (a floor under them only lifts them) to the head.
+   * Across, a cell is widened by half a block at 100 % and above (its columns round to the nearest block) and a
+   * whole block below (a cell claims every block it touches); up, by a sixteenth (each world row is re-cut to
+   * sixteenths at every size). So a held body is never missed; one beside a wall may be refused. An entity-only pack
+   * lays no blocks, and a pack without a collider grid (a coloured-block export) carries no map of where its blocks
+   * are: neither is judged. A fine turn is judged by the footprint alone.
+   */
+  const holdsPlayer = (dim: any, st: any, anchor: any): boolean => {
+    // TODO(held-tiles): a coloured-block export's structure tiles can hold a player too; the runtime has no map of
+    // their solid blocks (it would need the tile structures read back, or a solid map shipped with the config).
+    if (!config.colliders) return false;
+    const at = { ...st, anchor }, d = dims(at), f = factor(at), c = config.colliders;
     let players: any[] = [];
     try { players = world.getAllPlayers() || []; } catch {}
     return players.some((q: any) => {
       try {
         if (q.dimension?.id !== dim.id) return false;
         const l = q.location;
-        return l.x + BODY_HALF_WIDTH > anchor.x && l.x - BODY_HALF_WIDTH < anchor.x + d.width
-          && l.y + BODY_HEIGHT > anchor.y && l.y < anchor.y + d.height
-          && l.z + BODY_HALF_WIDTH > anchor.z && l.z - BODY_HALF_WIDTH < anchor.z + d.length;
-      } catch { return false; }
+        if (!bodyInFootprint(l, anchor, d)) return false;
+        if (st.rotation % 90 !== 0) return true;
+        const pad = f < 1 ? 1 : 0.5, { lo: los, hi: his } = cellSpansOf();
+        const a = modelPoint(at, { x: l.x - BODY_HALF_WIDTH - pad, y: 0, z: l.z - BODY_HALF_WIDTH - pad });
+        const b = modelPoint(at, { x: l.x + BODY_HALF_WIDTH + pad, y: 0, z: l.z + BODY_HALF_WIDTH + pad });
+        const first = (u: number, v: number) => Math.max(0, Math.floor(Math.min(u, v)));
+        const last = (u: number, v: number, n: number) => Math.min(n - 1, Math.ceil(Math.max(u, v)) - 1);
+        // The body's vertical band in model blocks: from a step over the feet to the head.
+        const feet = (l.y + STEP_UP_BLOCKS - anchor.y) / f, head = (l.y + BODY_HEIGHT - anchor.y) / f, slack = 1 / 16 / f;
+        for (let x = first(a.x, b.x); x <= last(a.x, b.x, c.width); x++) for (let z = first(a.z, b.z); z <= last(a.z, b.z, c.length); z++) {
+          for (let y = Math.max(0, Math.floor(feet - 1)); y < c.height && y <= head + 1; y++) {
+            const i = (x * c.height + y) * c.length + z, top = his[i]!;
+            if (!top) continue;
+            if (y + top / 16 + slack > feet && y + los[i]! / 16 - slack < head) return true;
+          }
+        }
+        return false;
+      } catch { return true; }
     });
   };
+  /**
+   * The nearest footprint round the pin that holds no player (`holdsPlayer`) and, for a store pack, no foreign block;
+   * undefined when none is within the search rings.
+   */
+  async function findClearSpot(p: any, st: any, dim: any): Promise<any> {
+    return whileBusy(p, async () => {
+      tell(p, 'Looking for a clear spot...');
+      for (const anchor of clearSpotCandidates(st)) {
+        // A spot the wand picks itself keeps the WHOLE footprint off every player (T02-fix finding 3), stricter than
+        // `holdsPlayer`: a store pack of coloured blocks has no collider grid to judge by.
+        if (coversPlayer(dim, st, anchor)) continue;
+        if (!marketplace || (await foreignBlocks(dim, st, anchor, 1)).count === 0) return anchor;
+      }
+      return undefined;
+    });
+  }
+  /** Put the pin on a clear spot the search found: a centred pin's centre moves with it, so Size and Rotate stay centred there. */
+  const moveTo = (p: any, spot: any) => {
+    const s0 = state(p);
+    if (s0.centre && s0.anchor) s0.centre = { x: s0.centre.x + spot.x - s0.anchor.x, z: s0.centre.z + spot.z - s0.anchor.z };
+    s0.anchor = spot; s0.aim = false; previews.add(p.id);
+  };
+  /**
+   * The prompt over a footprint whose blocks would hold a player (A-06): built there, its invisible walls trap them.
+   * Every profile asks; the dev wand also offers to place anyway (its user may mean it), a store pack never does.
+   */
+  async function playerPrompt(p: any, st: any): Promise<any> {
+    const f = new ActionFormData().title('Someone is standing where it goes')
+      .body('Built here, its invisible walls would trap them. Step out of the outline first, or let the wand find a clear spot nearby.')
+      .button('Find a clear spot nearby').button('Move');
+    if (!marketplace) f.button('Place anyway');
+    f.button('Cancel');
+    const r = await show(p, f);
+    if (r.canceled) return;
+    if (r.selection === 1) return menu(p);
+    if (!marketplace && r.selection === 2) return confirmPlace(p, true);
+    if (r.selection !== 0) return;
+    const spot = await findClearSpot(p, st, world.getDimension(st.dimension || p.dimension.id));
+    if (!spot) { tell(p, 'No clear spot within reach. Use Move, or pick another place.'); return menu(p); }
+    moveTo(p, spot);
+    tell(p, 'Moved to a clear spot.');
+    return confirmPlace(p);
+  }
   /** Runs `job` as the one active operation (a scan loads areas and must not overlap a placement). */
   async function whileBusy<T>(p: any, job: () => Promise<T>): Promise<T | undefined> {
     if (active) { tell(p, 'Another placement is running.'); return undefined; }
@@ -1660,17 +1810,9 @@ If your last placement is in the way, undo it first.`)
       .button('Find a clear spot nearby').button('Move').button('Cancel'));
     if (r.canceled || r.selection === 2) return;
     if (r.selection === 1) return menu(p);
-    const dim = world.getDimension(st.dimension || p.dimension.id);
-    const spot = await whileBusy(p, async () => {
-      tell(p, 'Looking for a clear spot...');
-      for (const anchor of clearSpotCandidates(st)) {
-        if (coversPlayer(dim, st, anchor)) continue;
-        if ((await foreignBlocks(dim, st, anchor, 1)).count === 0) return anchor;
-      }
-      return undefined;
-    });
+    const spot = await findClearSpot(p, st, world.getDimension(st.dimension || p.dimension.id));
     if (!spot) { tell(p, 'No clear spot within reach. Use Move, or pick another place.'); return menu(p); }
-    const s0 = state(p); s0.anchor = spot; s0.aim = false; previews.add(p.id);
+    moveTo(p, spot);
     tell(p, 'Moved to a clear spot.');
     return confirmPlace(p);
   }
@@ -1689,8 +1831,10 @@ If your last placement is in the way, undo it first.`)
     if (r.canceled || r.selection === 1) return menu(p);
     return page + 1 < pages.length ? guide(p, page + 1) : guide(p, 0);
   }
-  async function confirmPlace(p: any): Promise<any> {
+  async function confirmPlace(p: any, overPlayer = false): Promise<any> {
     const st = state(p); try { validate(p, st); } catch (e: any) { tell(p, e.message); return menu(p); }
+    // Never build walls round a player unasked (A-06): every profile prompts first.
+    if (!overPlayer && holdsPlayer(world.getDimension(st.dimension || p.dimension.id), st, st.anchor)) return playerPrompt(p, st);
     if (marketplace) {
       const dimension = world.getDimension(st.dimension || p.dimension.id);
       let found: any;
@@ -2358,24 +2502,26 @@ If your last placement is in the way, undo it first.`)
     if (!st.anchor) { tell(p, 'Pin the spot first (Follow my aim, then pin), then ask for a size: it checks the room there.'); return menu(p); }
     const dimension = world.getDimension(st.dimension || p.dimension.id);
     const candidates = sizes.filter((s: number) => s <= Math.max(detail.suggestion.pct, sizes[0])).sort((a: number, b: number) => b - a);
+    // Each candidate's footprint stands where that size would put it: centred on a centred pin, from the corner otherwise.
     const clear = (s: number): boolean => {
-      const d = dims({ ...st, size: s }), range = dimension.heightRange;
-      if (st.anchor.y < range.min || st.anchor.y + d.height - 1 >= range.max) return false;
+      const at = { ...st, size: s }, d = dims(at), a = anchorFor(at), range = dimension.heightRange;
+      if (a.y < range.min || a.y + d.height - 1 >= range.max) return false;
       for (const y of [1, Math.floor(d.height / 2), d.height - 1]) for (let x = 0; x < d.width; x += ROOM_SAMPLE_STEP) for (let z = 0; z < d.length; z += ROOM_SAMPLE_STEP) {
-        if (isForeign(dimension.getBlock({ x: st.anchor.x + x, y: st.anchor.y + y, z: st.anchor.z + z }))) return false;
+        if (isForeign(dimension.getBlock({ x: a.x + x, y: a.y + y, z: a.z + z }))) return false;
       }
       return true;
     };
     let fitting: number | undefined;
     try {
       await whileBusy(p, async () => {
-        const big = dims({ ...st, size: candidates[0] });
-        await load(dimension, st.anchor, { x: st.anchor.x + big.width, y: st.anchor.y, z: st.anchor.z + big.length });
+        // The largest candidate's footprint holds every smaller one (centred on the same point, or from the same corner).
+        const bigSt = { ...st, size: candidates[0] }, big = dims(bigSt), bigAt = anchorFor(bigSt);
+        await load(dimension, bigAt, { x: bigAt.x + big.width, y: bigAt.y, z: bigAt.z + big.length });
         try { fitting = candidates.find(clear); } finally { await unload(); }
       });
     } catch (e: any) { tell(p, `Cannot check the room: ${e.message || e}`); return menu(p); }
     if (fitting === undefined) { tell(p, 'No size fits the room at this pin: move the pin to a clearer spot (Find a clear spot).'); return menu(p); }
-    st.size = fitting; if (st.anchor) previews.add(p.id);
+    st.size = fitting; recentre(st); if (st.anchor) previews.add(p.id);
     const d = dims(st);
     tell(p, fitting === detail.suggestion.pct
       ? `Size set to ${percent(fitting)}, the suggested size: ${d.width} by ${d.length} blocks fit here.`
@@ -2403,15 +2549,17 @@ If your last placement is in the way, undo it first.`)
       // The origin is the model's corner; put the ROTATED, SIZED footprint centre on the player so a
       // vehicle-only pack lands where they stand instead of half a model away.
       actions.push(['Pin centred on me', () => { st.aim = false; pinCentredAt(p, st, p.location); return menu(p); }]);
-      actions.push(['Pin corner at my feet', () => { st.aim = false; st.anchor = { x: Math.floor(p.location.x), y: Math.floor(p.location.y), z: Math.floor(p.location.z) }; st.dimension = p.dimension.id; previews.add(p.id); return menu(p); }]);
+      actions.push(['Pin corner at my feet', () => { st.aim = false; st.centre = undefined; st.anchor = { x: Math.floor(p.location.x), y: Math.floor(p.location.y), z: Math.floor(p.location.z) }; st.dimension = p.dimension.id; previews.add(p.id); return menu(p); }]);
       actions.push(['Edit coordinates', () => edit(p)]);
       actions.push([`Rotate → ${(st.rotation + turnStep) % 360}°`, () => {
         st.rotation = fineTurn ? (st.rotation + turnStep) % 360 : rotations[(rotations.indexOf(st.rotation) + 1) % 4];
+        recentre(st);
         if (st.anchor) previews.add(p.id); return menu(p);
       }]);
-      if (fineTurn) actions.push([`Turn back ← ${((st.rotation - turnStep) % 360 + 360) % 360}°`, () => { st.rotation = ((st.rotation - turnStep) % 360 + 360) % 360; if (st.anchor) previews.add(p.id); return menu(p); }]);
+      if (fineTurn) actions.push([`Turn back ← ${((st.rotation - turnStep) % 360 + 360) % 360}°`, () => { st.rotation = ((st.rotation - turnStep) % 360 + 360) % 360; recentre(st); if (st.anchor) previews.add(p.id); return menu(p); }]);
       actions.push([`Size ${sizeLabel(st.size)} → ${sizeLabel(nextSize)}${!blocksResizable && nextSize !== 100 ? ' (entities only)' : ''}`, () => {
         st.size = nextSize;
+        recentre(st);
         if (st.anchor) previews.add(p.id);
         if (!blocksResizable && nextSize !== 100) tell(p, 'This pack\'s blocks were exported as coloured blocks: only the entities take the new size. Export again with brick-accurate buildings or at another model scale for the blocks to follow.');
         // The measured reason, quoted whole, the moment the wand lands on that step.
@@ -2420,7 +2568,7 @@ If your last placement is in the way, undo it first.`)
       }]);
       if (detail) actions.push(['Suggest a size here', () => suggestHere(p, st)]);
       const recommendedDoorSize = nextDoorSize(st.size);
-      if (recommendedDoorSize) actions.push([`Use next door size ${percent(recommendedDoorSize)}`, () => { st.size = recommendedDoorSize; if (st.anchor) previews.add(p.id); return tell(p, `Door size set to ${percent(recommendedDoorSize)}. Eligible leaves at or below this threshold become interactive; larger measured leaves remain source geometry.`); }]);
+      if (recommendedDoorSize) actions.push([`Use next door size ${percent(recommendedDoorSize)}`, () => { st.size = recommendedDoorSize; recentre(st); if (st.anchor) previews.add(p.id); return tell(p, `Door size set to ${percent(recommendedDoorSize)}. Eligible leaves at or below this threshold become interactive; larger measured leaves remain source geometry.`); }]);
       actions.push(['View preview in world', () => { try { validate(p, st); } catch (e: any) { tell(p, e.message); return menu(p); } previews.add(p.id); return tell(p, config.preview ? "The ghost stands at the pin, turned to the chosen rotation and size, while you hold the wand. Putting the wand away hides it; select the wand again to rotate, resize or place." : "Full-size preview fixed at the pin while you hold the wand. Red/green/blue mark +X/+Y/+Z; gold marks the model's -Z side. Putting the wand away hides it; select the wand again to rotate or place."); }]);
       actions.push(['Hide preview', () => { endPreview(p); return tell(p, 'Preview hidden.'); }]);
       actions.push(['Undo last placement', () => undo(p)]);
@@ -2476,7 +2624,7 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
     // Only a marketplace pack names the key, so a dev pack's config is byte-identical to before.
     ...(spec.marketplacePlacement ? { marketplace: true } : {}),
     // Likewise only a pack with boarding points names them.
-    ...(spec.boardTypes?.length && spec.boardOwnerProperty ? { boardTypes: [...spec.boardTypes], boardOwner: spec.boardOwnerProperty } : {}) };
+    ...(spec.boardTypes?.length && spec.boardOwnerProperty ? { boardTypes: [...spec.boardTypes], boardOwner: spec.boardOwnerProperty, ...(spec.boardPointsProperty ? { boardPoints: spec.boardPointsProperty } : {}) } : {}) };
   const controlsImport = spec.vehicleControls ? 'import { showTimeMachineControls } from "./time-machine.js";\n' : '';
   const script = `${controlsImport}import { world, system, StructureSaveMode, BlockPermutation, BlockVolume } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG, ${spec.vehicleControls ? "showTimeMachineControls" : "undefined"}, (${colliderFormKit.toString()})(), ${sizeCarveAt.toString()});\n`;
   const item = {

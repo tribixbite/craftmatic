@@ -1129,6 +1129,13 @@ export const BOARD = { MIN_REACH_BLOCKS: 4, HULL_HIT_HALF_MAX_BLOCKS: 4, COLUMN_
 export type BoardParams = typeof BOARD;
 /** The dynamic property a board point carries: its vehicle's entity id. */
 export const BOARD_OWNER_PROPERTY = 'craftmatic:board_of';
+/**
+ * The dynamic property a vehicle carries: the JSON list of the ids of the board points it stands now (A-05, PROC-19).
+ * Undo reads it to retire every point with its vehicle, also one in a chunk nobody has loaded yet.
+ */
+export const BOARD_POINTS_PROPERTY = 'craftmatic:board_points';
+/** The prefix of the Brick Wand's placement tags (`cmu_<alias>_...`): a board point carries its vehicle's, so Undo's tag sweep takes it. */
+export const PLACEMENT_TAG_PREFIX = 'cmu_';
 
 /**
  * One drawn extremity of a vehicle at 100 %, in its entity frame at yaw 0 (blocks; +z is the nose, +x the side
@@ -1144,7 +1151,13 @@ export interface BoardPoint { x: number; z: number; dx: number; dz: number; alon
  * size event: Saga 30y (2026-10-14) refused taps on 200 % columns sized by `craftmatic:size_200` exactly where only the
  * 100 % column would have been missed (10 of 11), while the 400 % group was never refused (quirk `hit-test-size-event`).
  */
-export interface BoardRuntimeConfig { types: Readonly<Record<string, string>>; ownerProperty: string; params: BoardParams }
+export interface BoardRuntimeConfig {
+  types: Readonly<Record<string, string>>; ownerProperty: string; params: BoardParams;
+  /** `BOARD_POINTS_PROPERTY`: the vehicle's list of its standing points' ids (absent in an older pack: no list). */
+  pointsProperty?: string | undefined;
+  /** `PLACEMENT_TAG_PREFIX`: the vehicle tags a point copies (absent: none). */
+  placementTagPrefix?: string | undefined;
+}
 
 /**
  * Where a vehicle's board points stand at a pose (pure; the runtime and the tests call it): for every extremity
@@ -1631,11 +1644,22 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
   interface Board { vehicle: any; key: string; points: any[]; want: number }
   const boards = new Map<string, Board>();
   const alive = (x: any): boolean => { try { return typeof x.isValid === 'function' ? !!x.isValid() : x.isValid !== false; } catch { return false; } };
+  /**
+   * Write the ids of the points vehicle `e` stands on it (`pointsProperty`): Undo retires them with the vehicle even
+   * where a point's chunk is not loaded (A-05). An empty list clears the property.
+   */
+  const recordBoard = (e: any, ids: string[]): void => {
+    if (!BD?.pointsProperty) return;
+    try { e.setDynamicProperty(BD.pointsProperty, ids.length ? JSON.stringify(ids) : undefined); } catch { /* gone */ }
+  };
   const dropBoard = (vid: string): void => {
     const b = boards.get(vid);
     if (!b) return;
-    for (const p of b.points) { try { p.remove(); } catch { /* gone */ } }
+    // A point that cannot be removed now (its chunk unloaded) stays listed for Undo.
+    const kept: string[] = [];
+    for (const p of b.points) { try { p.remove(); } catch { try { if (typeof p.id === 'string') kept.push(p.id); } catch { /* gone */ } } }
     boards.delete(vid);
+    if (alive(b.vehicle)) recordBoard(b.vehicle, kept);
   };
   /** Every board point type of this pack, one per size step (`BoardRuntimeConfig.types`). */
   const boardTypes: string[] = BD ? Object.values(BD.types) : [];
@@ -1770,13 +1794,19 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     if (!at.length) { boards.set(e.id, { vehicle: e, key, points: [], want: 0 }); return; }
     const type = boardTypeAt(k), points: any[] = [];
     if (!type) { boards.set(e.id, { vehicle: e, key, points: [], want: 0 }); return; }
+    // The vehicle's placement tag goes on each point: Undo's tag sweep then takes a point wherever it loads (A-05).
+    let tags: string[] = [];
+    const prefix = BD.placementTagPrefix;
+    if (prefix) try { tags = (e.getTags?.() ?? []).filter((t: unknown) => typeof t === 'string' && t.startsWith(prefix)); } catch { tags = []; }
     for (const q of at) {
       let p: any;
       try { p = dim.spawnEntity(type, q); } catch { continue; }
       try { p.setDynamicProperty(BD.ownerProperty, e.id); } catch { /* the sweep removes an ownerless point */ }
+      for (const t of tags) { try { p.addTag(t); } catch { /* untagged: still owned and listed */ } }
       points.push(p);
     }
     boards.set(e.id, { vehicle: e, key, points, want: at.length });
+    recordBoard(e, points.map(p => { try { return p.id as string; } catch { return ''; } }).filter(Boolean));
   };
   /** Every board point in the loaded world that is not one this runtime keeps (its vehicle gone, or left by a reload): removed. */
   const sweepBoards = (): void => {

@@ -217,6 +217,7 @@ describe('wand runtime: size, aim and turning', () => {
     expect(h.assets.script).toContain('import { world, system, StructureSaveMode, BlockPermutation, BlockVolume }');
     // Pin the corner at the feet, then cycle Size → 150 → 200.
     await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    h.stepAside(); // the wand asks before building round a player (A-06)
     await h.open({ action: 'Size' }, { canceled: true });
     await h.open({ action: 'Size' }, { canceled: true });
     expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 200 percent → 300 percent'))).toBe(true);
@@ -249,6 +250,7 @@ describe('wand runtime: size, aim and turning', () => {
       colliders: { width: 4, height: 3, length: 2, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs.runs, keptCells: 0 },
       runtimeDoorCandidates: [{ x: 1, y: 1.8, z: 1, requiredSize: 300, lower: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: false } }, upper: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: true } } }], settleTicks: 1, finalHoldTicks: 1 });
     await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    h.stepAside(); // the wand asks before building round a player (A-06)
     expect(h.buttons.at(-1)).toContain('Use next door size 300 percent');
     await h.open({ action: 'Place' }, { selection: 0 });
     await h.flush(2000);
@@ -292,6 +294,7 @@ describe('wand runtime: size, aim and turning', () => {
       colliders: { width: 3, height: 3, length: 3, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs.runs, keptCells: 0 },
       runtimeDoorCandidates: [door(300), door(150)], settleTicks: 1, finalHoldTicks: 1 });
     await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    h.stepAside(); // the wand asks before building round a player (A-06)
     expect(h.buttons.at(-1)).toContain('Use next door size 150 percent');
     await h.open({ action: 'Use next door size' });
     await h.open({ action: 'Place' }, { selection: 0 });
@@ -343,6 +346,7 @@ describe('wand runtime: size, aim and turning', () => {
     h.blocks.set('100,65,200', collider(0, 16));
     h.blocks.set('100,66,200', collider(0, 16));
     await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    h.stepAside(); // the wand asks before building round a player (A-06)
     await h.open({ action: 'Place' }, { selection: 0 });
     await h.flush(600);
     const fig = h.spawned.find(s => s.typeId === 'craftmatic:lifted_fig1')!;

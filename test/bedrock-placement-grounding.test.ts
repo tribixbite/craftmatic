@@ -43,6 +43,7 @@ function geometryFloorBlocks(geo: any): number {
 async function placeAtSize(spec: Parameters<typeof host>[0], pct: number) {
   const h = host(spec);
   await h.open({ action: PIN_AT_FEET }, { canceled: true });
+  h.stepAside(); // the wand asks before building round a player (A-06)
   const steps = (SIZE_STEPS.indexOf(pct) - SIZE_STEPS.indexOf(100) + SIZE_STEPS.length) % SIZE_STEPS.length;
   for (let i = 0; i < steps; i++) await h.open({ action: SIZE }, { canceled: true });
   await h.open({ action: PLACE }, { selection: 0 });

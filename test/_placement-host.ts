@@ -80,8 +80,11 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0], optio
 
   const responses: any[] = [];
   const buttons: string[][] = [];
+  /** Every form shown, whole (title, body, buttons): a test reads the menu's summary from its body. */
+  const forms: ShownForm[] = [];
   const chooser = (form: ShownForm): FormAnswer => {
     buttons.push(form.buttons);
+    forms.push(form);
     const r = responses.shift() ?? { canceled: true };
     // `{ action: 'Place' }` picks the button whose label starts with it, so a
     // test names what it presses instead of depending on the menu's order.
@@ -206,7 +209,7 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0], optio
     if (r.length && buttons.length === shown) await useWand();
   };
   return {
-    assets, world, system, dimension, open, use: useWand, flush, flushUntil, intervals, spawned, set, player, sim, buttons, responses, blocks, fills, engine, host: sh,
+    assets, world, system, dimension, open, use: useWand, flush, flushUntil, intervals, spawned, set, player, sim, buttons, forms, responses, blocks, fills, engine, host: sh,
     get commands() { return commands(); },
     /** Every `tickingarea` command the runtime ran, in order. */
     get areaCommands() { return areaCommands(); },
@@ -219,6 +222,11 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0], optio
     },
     playerProperties: sim.dynamic,
     setHit: (h: any) => { hit = h; },
+    /**
+     * Step the player 2 blocks west: off a footprint pinned at their feet. The wand asks before building round a
+     * player (A-06, `holdsPlayer`), so a test that pins a solid model at the feet and places steps aside first.
+     */
+    stepAside: (): void => { sim.location = { ...sim.location, x: sim.location.x - 2 }; engine.updateLoaded(); },
     /**
      * Reopen the world (a reload or a restart): every script starts again in a
      * fresh context over the same blocks, entities, saved structures and player
