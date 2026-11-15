@@ -910,6 +910,37 @@ function treadsIn(w: VoxelWorld, treads: ReadonlySet<string>, probe: Box): strin
   return [...out];
 }
 
+/**
+ * Whether the MODEL draws a floor at a doorway's level where a line's feet lost it (`drawnFloor`: a drawn top
+ * within a step under the doorway's floor, under the player's footprint), and whether that floor's edge lies
+ * within the re-lay's `rounding` (`edgeMoved`: the model's own edge, moved by the whole-block re-lay - 31141's
+ * upper doors open over the street). The footprint is read a little ahead of `lostAt` (0.3, along the walk)
+ * when the feet stood at the level and walked off it, and at `lostAt` itself when they never did; a top smaller than
+ * `minFoothold` (block², `MODEL_FOOTHOLD` at the size) is no floor; a turned cube's top is read over the footprint itself
+ * (`drawnTopOver`), never its corner box.
+ */
+export function holeFloor(statics: readonly DrawnBox[], lostAt: Vec3, n: { x: number; z: number }, side: -1 | 1, floorY: number, everStood: boolean, rounding: number, minFoothold = 0): { drawnFloor: boolean; edgeMoved: boolean } {
+  const drawnFloorAt = (d: number): boolean => {
+    const q = { x: lostAt.x - n.x * side * d, z: lostAt.z - n.z * side * d };
+    return statics.some(b => {
+      if ((b.box.x1 - b.box.x0) * (b.box.z1 - b.box.z0) < minFoothold) return false; const top = drawnTopOver(b, q.x - 0.3, q.x + 0.3, q.z - 0.3, q.z + 0.3); return top !== undefined && top >= floorY - STEP_HEIGHT && top <= floorY + 0.1; });
+  };
+  // A line that never stood at the level (the device's teleport into the air past the model's edge: 42670 Door 3's
+  // porch at 200 percent, 5 blocks out) fell where it STARTED; its footprint there is the one to read. Read 0.3
+  // ahead, it clipped a drawn edge the box never stood over and blamed the pack for the model's drop (A-04).
+  const ahead = everStood ? 0.3 : 0;
+  const drawnFloor = drawnFloorAt(ahead);
+  return { drawnFloor, edgeMoved: drawnFloor && rounding > 0 && !drawnFloorAt(ahead + rounding) };
+}
+
+/**
+ * The smallest drawn top (block², at 100 %; times the size squared) the simulator reads as a FLOOR where it asks what
+ * the model draws (`holeFloor`, the MODEL route of `--walk`): about 2 x 2 studs less a margin. A flower's leaf, a
+ * stud or an antenna tip at a doorway's level is not a floor a child stands on (41703 Door 1 at 400 %: 0.15-block
+ * leaves past its ledge; 11371's front at 100 %).
+ */
+export const MODEL_FOOTHOLD = 0.25;
+
 /** The device round's "porch": a teleport this far out (blocks at 100 %) at the doorway's height, then a walk in. */
 export const PORCH_OUT = 2.5;
 
@@ -1008,7 +1039,7 @@ async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], treads
   let lowestNear = floorY, best = -Infinity, stall = 0, last = -Infinity, fellAt: Vec3 | undefined, stoppedAt: Vec3 | undefined;
   // Where the feet lost the doorway's level: the first point off the ground after the last one standing at it
   // (the start itself when the line began over nothing - the device's teleport into the air).
-  let lostAt: Vec3 = { ...start }, standing = false;
+  let lostAt: Vec3 = { ...start }, standing = false, everStood = false;
   // The harness's line (`doorwayColumnLines`) jumps where a jump helps (`jumpHelps`: blocked at the feet a
   // short reach ahead, free a jump up - a sill, a step, a tread); so does a child. A line that never jumped
   // stopped at every riser past the step height and reported it as a wall (2026-09-30 triage).
@@ -1023,7 +1054,7 @@ async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], treads
     jump = p.onGround && movedH < 0.1 && jumpHelps(w, p.location, dx / dl, dz / dl);
     if (jump) jumps++;
     const atLevel = p.onGround && p.location.y >= floorY - STEP_HEIGHT - 1e-6;
-    if (atLevel) standing = true;
+    if (atLevel) { standing = true; everStood = true; }
     else if (standing && !p.onGround) { lostAt = before; standing = false; }
     const a = along(p.location);
     if (Math.abs(a) <= 1.0 * k && p.location.y < lowestNear) { lowestNear = p.location.y; if (floorY - lowestNear > JUMP_PEAK * k) fellAt ??= { ...p.location }; }
@@ -1041,13 +1072,7 @@ async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], treads
     // nothing drawn there is the model's own hole (or a start over nothing). Above 100 % the re-lay can move the
     // floor's edge by `relayRounding` (half a block at 150 %): when the drawn floor itself ends within that distance
     // further on, the drop is the model's own edge, moved by the re-lay (31141's upper doors open over the street).
-    const drawnFloorAt = (d: number): boolean => {
-      const q = { x: lostAt.x - n.x * side * d, z: lostAt.z - n.z * side * d };
-      // A turned cube's top is read over the footprint itself (`drawnTopOver`): its corner box is not a floor.
-      return statics.some(d => { const top = drawnTopOver(d, q.x - 0.3, q.x + 0.3, q.z - 0.3, q.z + 0.3); return top !== undefined && top >= floorY - STEP_HEIGHT && top <= floorY + 0.1; });
-    };
-    const drawnFloor = drawnFloorAt(0.3);
-    const edgeMoved = drawnFloor && rounding > 0 && !drawnFloorAt(0.3 + rounding);
+    const { drawnFloor, edgeMoved } = holeFloor(statics, lostAt, n, side, floorY, everStood, rounding, MODEL_FOOTHOLD * (placed.sizePct / 100) ** 2);
     const text = `${where}: fell ${r3(drop)} blocks at the door plane (HOLE)`;
     const evidence = { start: pt(start), lostAt: pt(lostAt), fellAt: pt(fellAt), floorY: r3(floorY), lowest: r3(lowestNear), jumps };
     if (drawnFloor && !edgeMoved) ctx.violate({ invariant: 'doorway-line', message: `${text}; the model draws a floor where the feet lost it, the pack's colliders do not`, evidence });

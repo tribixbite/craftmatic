@@ -29,7 +29,7 @@ import { REGRESSIONS, regressionVerdict } from '../web/src/sim/adapters/craftmat
 import { craftmaticHandlers, figureMode, outOfReachByModel } from '../web/src/sim/adapters/craftmatic/child-play.js';
 import { PLACED_KEY } from '../web/src/sim/adapters/craftmatic/wand.js';
 import type { DrawnBox } from '../web/src/sim/adapters/craftmatic/drawn.js';
-import { FLOOR_LEVEL_TOLERANCE, driverLookFrom, floorLevelInRecordedCell, judgeSide, onRunout } from '../web/src/sim/adapters/craftmatic/play.js';
+import { FLOOR_LEVEL_TOLERANCE, driverLookFrom, floorLevelInRecordedCell, holeFloor, judgeSide, MODEL_FOOTHOLD, onRunout } from '../web/src/sim/adapters/craftmatic/play.js';
 import { relayRounding } from '../web/src/engine/bedrock-collider-scale.js';
 import { findApproach, IN_FRONT_RINGS } from '../web/src/sim/scenario/approach.js';
 import { NO_MARGIN, modelCorner, readCraftmaticPack, vehicleCameraEntry, type PlacementFacts } from '../web/src/sim/adapters/craftmatic/pack-facts.js';
@@ -717,6 +717,23 @@ describe('craftmatic adapter judgements (simulator triage 2026-09-30)', () => {
     const b = ctx();
     judgeSide(b.c, [stop, { crossed: false }]);
     expect(b.violations).toEqual(['Door 1 column 3,4 from + side: stopped; no column from this side crosses']);
+  });
+  it('a line that started over nothing is judged by the floor under its START, not a body width ahead (A-04, 42670 Door 3 at 200)', () => {
+    // 42670 Door 3 at 200 percent (favsweep-4e5963dc): the porch start is 5 blocks out, the player's box at
+    // z 4.2-4.8, the model's drawn porch floor begins at z 5.0. The feet never stood; reading the floor 0.3 ahead
+    // clipped the drawn edge by 0.1 and called the model's own drop a pack HOLE.
+    const porch: DrawnBox[] = [{ box: { x0: 58.5, y0: -58, z0: 5, x1: 76.5, y1: -57.7, z1: 17 }, glass: false }];
+    const start = { x: 65.478, y: -57.365, z: 4.5 }, n = { x: 0, z: 1 };
+    expect(holeFloor(porch, start, n, -1, -57.375, false, 0)).toEqual({ drawnFloor: false, edgeMoved: false });
+    // Standing on that floor and walking off its edge: the floor is read a little ahead of where the feet lost it.
+    expect(holeFloor(porch, { x: 65.478, y: -57.375, z: 4.8 }, n, -1, -57.375, true, 0).drawnFloor).toBe(true);
+    // A start right over a drawn floor that has no collider is still the pack's hole.
+    expect(holeFloor(porch, { x: 65.478, y: -57.365, z: 6 }, n, -1, -57.375, false, 0).drawnFloor).toBe(true);
+    // 41703 Door 1 at 400 percent: the start past the ledge stood over a flower's 0.15-block leaves at the doorway's
+    // level. A top smaller than a foothold (`MODEL_FOOTHOLD`, times the size squared) is no floor.
+    const leaf: DrawnBox[] = [{ box: { x0: 88.299, y0: -39.647, z0: 35.001, x1: 88.449, y1: -39.412, z1: 36.036 }, glass: false }];
+    expect(holeFloor(leaf, { x: 88.5, y: -39.49, z: 35.5 }, n, 1, -39.5, false, 0, MODEL_FOOTHOLD * 16).drawnFloor).toBe(false);
+    expect(holeFloor(porch, { x: 65.478, y: -57.365, z: 6 }, n, -1, -57.375, false, 0, MODEL_FOOTHOLD * 4).drawnFloor).toBe(true);
   });
   it('the re-lay moves a wall by up to half a block at 150 percent, none at whole sizes', () => {
     expect([1, 1.5, 2, 3, 4].map(relayRounding)).toEqual([0, 0.5, 0, 0, 0]);
