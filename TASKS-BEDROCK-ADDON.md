@@ -20,6 +20,8 @@ individually tested 28". The favourites list has 40 sets (memory `user-favorite-
    `--scenario=regressions`.
 2. Fable audit of the generation over those packs -> `output/audit-1115/AUDIT.md` (findings ranked, each with
    evidence and a proposed guard). Then fix each finding fail-first, re-sweep, re-sim.
+   The gate for every re-sweep (A-16): `bun scripts/_favourites_gate.ts --build --with-gabby --out=output/<new dir>`
+   (sweep, child play at 50/100/150/200/400, vehicles, regressions; report `<dir>/gate.md`, ~25 min plus the sweep).
 3. When the audit has no open finding: send the user all 40 packs (one zip, built from a commit), then the
    generality work below (any set as good as the favourites).
 

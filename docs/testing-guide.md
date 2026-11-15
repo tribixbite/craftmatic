@@ -46,6 +46,16 @@ Answer a question at the cheapest tier that can answer it:
    and fails a test on a script error, an unmodelled member or a refused
    definition. Write a new runtime test on it, never on a hand-rolled fake of
    the API (the GameTest harness's fake is the one left, `TODO(sim-gametest)`).
+   **The favourites gate is `bun scripts/_favourites_gate.ts --build --with-gabby`**
+   (PROC-19, audit A-16): the sweep under LEGO-tab labels and regression stems,
+   then child play at `--sizes=50,100,150,200,400` (`FAVOURITES_GATE_SIZES`),
+   `--scenario=vehicles` and `--scenario=regressions --new=<dir>` over the same
+   directory, one report at `<dir>/gate.md` (default dir
+   `output/favgate-<head>`; without `--build` it judges the packs already
+   there; named sets narrow it). Plain `sim.ts` places only 100 and 150
+   percent, kept quick for development: over the 2026-11-15 sweep it passed
+   240 of 240 while 27 of 320 scenarios at 50, 200 and 400 failed in 15 packs.
+   A favourites claim is the gate's verdict, never the default sim's.
 3. **GameTest** on the Pixel (below): the real engine, unattended.
 4. **A short tap round** on the phones: only what a person must see
    (rendering, culling, form text, camera feel, sound).
