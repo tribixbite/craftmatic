@@ -648,6 +648,12 @@ export interface CompileLdrawEntityOptions {
   attachLooseProps?: boolean;
   facing?: VehicleFacing;
   userSeatAnchor?: { x: number; y: number; z: number };
+  /**
+   * Placements that are SEATS though no seat mould names them (audit A-02): the furniture seats and beds
+   * `discoverSceneActors` finds in a whole-model vehicle (a camper's beds, a ship's benches). Each becomes a
+   * passenger seat exactly as a free seat mould does (`findCockpit`), so it rides with the vehicle.
+   */
+  extraSeatBricks?: ReadonlySet<ParsedBrick>;
   /** Defaults to a provider over the shared `.dat` cache (`ldraw-geometry.ts`). */
   partGeometry?: PartGeometryProvider;
   quality?: LegoEntityQualityName | Partial<LegoEntityQuality>;
@@ -2121,7 +2127,7 @@ export const CAR_WHEEL_EYE_LDU = { aft: 30, up: 20 } as const;
  *      axes) - eyes at its centre; a lamp or an engine glow never qualifies;
  *   6. the default forward cabin (20 % forward, 35 % up).
  */
-export function findCockpit(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, frame: CockpitFrame): Cockpit {
+export function findCockpit(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, frame: CockpitFrame, isExtraSeat: (i: number) => boolean = () => false): Cockpit {
   const cockpit = findDriverSeat(placed, meshes, frame);
   // Passenger seats: every OTHER free seat mould (not the driver's, none a
   // figure already sits on), eyes 51 LDU above it like the driver's. A seated
@@ -2135,7 +2141,7 @@ export function findCockpit(placed: ParsedBrick[], meshes: Map<string, LdrawPart
   const torsos = groupFigures(placed, meshes).map(f => placed[f.torso]!);
   const passengers = placed
     .map((b, i) => ({ i, b }))
-    .filter(({ b }) => isSeat(b.part, desc(b)))
+    .filter(({ i, b }) => isSeat(b.part, desc(b)) || isExtraSeat(i))
     .map(({ i, b }) => ({ i, eye: local(b, [0, -51, 0]) }))
     .filter(({ eye }) => Math.hypot(eye[0] - cockpit.eyeLdu[0], eye[2] - cockpit.eyeLdu[2]) > 15)
     .filter(({ eye }) => !torsos.some(t => Math.hypot(t.x - eye[0], t.z - eye[2]) < 20 && Math.abs(t.y - (eye[1] + 11)) < 40));
@@ -2351,6 +2357,7 @@ export async function compileLdrawEntityGeometry(
     ? await prepareWholeModel(bricks, provider)
     : await prepareEntityPlacements(kind, bricks, provider, { attachLooseProps: options.attachLooseProps });
   const { level, meshes, displayDropped, detached, extras, strandedRepaired, standContinued, orphans } = prepared;
+  const inputBricks = bricks;
   bricks = level.bricks;
   let placed = prepared.placed;
   let placedIdx = prepared.placedIdx;
@@ -2407,7 +2414,8 @@ export async function compileLdrawEntityGeometry(
   //    glows and a service cart's lamps outvoted the one canopy.
   const cockpit = kind === 'figure' || kind === 'prop'
     ? { source: 'default-cabin' as const, eyeLdu: [0, 0, 0] as Vec3, detail: `${kind}: no rider`, driverParts: [], evidenceParts: [], passengerEyesLdu: [] as Vec3[], passengerParts: [] }
-    : findCockpit(placed, meshes, { nose, isXLongitudinal, forwardSign, spanX, spanZ, kind });
+    : findCockpit(placed, meshes, { nose, isXLongitudinal, forwardSign, spanX, spanZ, kind },
+      options.extraSeatBricks?.size ? (i => options.extraSeatBricks!.has(inputBricks[placedIdx[i]!]!)) : undefined);
   // Which INPUT placements the seats were read from, before the driver's figure leaves `placed`.
   const seatEvidence: SeatEvidence = {
     driver: cockpit.evidenceParts.map(i => placedIdx[i]!),

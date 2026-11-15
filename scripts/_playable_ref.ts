@@ -271,6 +271,8 @@ const result = await runSchemPipeline({
   mainVehicleOnly: process.argv.includes('--main-only'),
   buildingFidelity: (flag('buildings') ?? 'bricks') as 'bricks' | 'blocks',
   modelScale,
+  // `auto` with the cell following it: the pipeline may size the model from its geometry (a whole-model car, A-01).
+  ...(scalePlan.choice === 'auto' && plan.cellLDU === scalePlan.lduPerBlock ? { addonScaleChoice: 'auto' as const } : {}),
   lod: (flag('lod') ?? 'hull') as 'none' | 'hull',
   ...(flag('lod-distance') ? { lodDistance: Number(flag('lod-distance')) } : {}),
   ...(trackGrainLdu > 0 ? { trackGrainLdu } : {}),
@@ -300,7 +302,10 @@ const provenance = await readJson('/craftmatic-provenance.json');
 
 console.log(JSON.stringify({
   file, stem, label, bricks: bricks.length, embeddedParts: seeded, colorSpace, quality, vehicleMode, vehicleFacing,
-  scale: { choice: scalePlan.choice, scale: modelScale, cue: scalePlan.cue, cellLDU: plan.cellLDU, reason: scalePlan.reason },
+  // The pipeline's own plan when it sized the model from the geometry (`addonScaleChoice`), else the CLI's.
+  scale: result.mcpack?.scale
+    ? { choice: result.mcpack.scale.choice, scale: Math.round(result.mcpack.scale.scale * 1000) / 1000, cue: result.mcpack.scale.cue, cellLDU: result.mcpack.scale.lduPerBlock, reason: result.mcpack.scale.reason }
+    : { choice: scalePlan.choice, scale: modelScale, cue: scalePlan.cue, cellLDU: plan.cellLDU, reason: scalePlan.reason },
   packNames: { bp: bpManifest?.header?.name ?? null, rp: rpManifest?.header?.name ?? null, version: bpManifest?.header?.version ?? null },
   provenance,
   components: result.mcpack?.components ?? [],

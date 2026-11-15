@@ -1923,8 +1923,37 @@ const blocks1 = (ldu: number, scale = 1): string => (Math.round(ldu * scale / LD
 const CLIMB_LOSS_FRACTION = 0.25;
 const pctOf = (scale: number): string => `${Math.round(scale * 100)} %`;
 
-/** The smallest supported size at which a player can walk through the measured model, as data with its reason. */
-export function recommendAccessScale(m: SceneAccessMeasurement): AccessScaleRecommendation {
+/** What the model's scale evidence says about the recommendation (`recommendAccessScale`). */
+export interface AccessScaleContext {
+  /**
+   * The model is built at minifig scale (addon-scale.ts `hasMinifigCue`: a minifig or a mini-doll): the player
+   * fits wherever its figures fit at 100 %, so no larger size is recommended (SCALE-04, audit A-15).
+   */
+  minifigScale?: boolean;
+}
+
+/**
+ * The smallest supported size at which a player can walk through the measured model, as data with its reason.
+ * A minifig-scale model (`ctx.minifigScale`) is walked at 100 %: an opening its own figures do not fit through
+ * is the model's geometry, and the walk-through text recommended 150-400 % for six favourites built around their
+ * minifigs (10354, 76286, 21360, 10365, 77092, 910047; the user 2026-10-22, "still seeing 200% recommendation
+ * text ... for models that ship with minifig-scaled models"). The measurement stays in the reason.
+ */
+export function recommendAccessScale(m: SceneAccessMeasurement, ctx: AccessScaleContext = {}): AccessScaleRecommendation {
+  const rec = measuredAccessScale(m);
+  if (!ctx.minifigScale || rec.scale === 1 || rec.basis === 'none' || !rec.doorway) return rec;
+  const fits = m.openings.filter(o => o.requiredScale <= 1 + 1e-9).length;
+  const kind = rec.basis === 'door-leaves' ? 'door leaves' : rec.openings?.entrances ? 'entrances' : 'openings';
+  const noEntrance = rec.openings?.enclosed && !rec.openings.entrances ? ' None of its openings leads in from outside: its doors are drawn, not cut.' : '';
+  return {
+    ...rec, scale: 1, sizePct: 100,
+    doorway: { ...rec.doorway, passable: fits, count: m.openings.length },
+    // Player-facing (the wand shows it): it names no minifig (`player-text-lint`, the marketplace rule).
+    reason: `Built at figure scale: the set is built around its own figures, so the player fits wherever they do as exported.${noEntrance} Its ${kind} measure ${rec.doorway.widthBlocks.toFixed(1)}×${rec.doorway.heightBlocks.toFixed(1)} blocks (${fits}/${m.openings.length} of its openings clear the ${DOORWAY_PASS_BLOCKS_TEXT} a player needs; the others are narrower than its own figures - the model's geometry, which a larger size does not make a doorway).`,
+  };
+}
+
+function measuredAccessScale(m: SceneAccessMeasurement): AccessScaleRecommendation {
   const count = (c: OpeningConnection): number => m.openings.filter(o => o.connects === c).length;
   const enclosed = m.enclosedFloorCells >= Math.max(1, Math.round(MIN_ENCLOSED_FLOOR_CELLS * (ACCESS_CELL_LDU.xz / m.cell.xz) ** 2));
   const openingKinds = { entrances: count('entrance'), interior: count('interior'), outside: count('outside'), blind: count('blind'), enclosed };

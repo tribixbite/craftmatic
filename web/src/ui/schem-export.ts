@@ -465,6 +465,9 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         packLabel: req.label ?? base,
         vehicleMode: req.vehicleMode ?? 'auto',
         ...(modelScale !== undefined ? { modelScale } : {}),
+        // `auto` with the cell following it: the Worker may size the model from its part meshes (a whole-model
+        // car whose title names no vehicle, A-01); it reports the plan it used in `mcpack.scale`.
+        ...(scalePlan?.choice === 'auto' && plan.cellLDU === scalePlan.lduPerBlock ? { addonScaleChoice: 'auto' as const } : {}),
         ...provenanceInput(req),
       };
     } else {
@@ -534,7 +537,11 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
     // Bedrock: the file alone is not actionable — explain how to acquire and
     // use the included BrickWand without implying that import places anything.
     if ((format === 'mcpack' || format === 'mcaddon') && job.mcpack) {
-      const { functionCommand, tileCount, unmapped, warnings = [], components = [], provenance, access } = job.mcpack;
+      const { functionCommand, tileCount, unmapped, warnings = [], components = [], provenance, access, scale } = job.mcpack;
+      if (scale && scale.cue !== scaleCue) {
+        scaleCue = scale.cue;
+        status(`Add-on scale from the model's geometry: ${scale.reason}.`, 'info');
+      }
       // The measured walk-through size, remembered for the settings popover
       // (which must not measure) and said once in the log. It is a
       // recommendation: this export's size was NOT changed by it.

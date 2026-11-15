@@ -137,7 +137,14 @@ function sizeAt(extent: { x: number; y: number; z: number }, scale: number): { x
  * Decide the add-on's model scale for a brick list. Pure: the same bricks and
  * choice always give the same plan, so the popover preview and the export agree.
  */
-export function planAddonScale(bricks: readonly ParsedBrick[], choice: AddonScaleChoice = 'auto', label = '', guard: LabelHeuristicsInput = {}): AddonScalePlan {
+/**
+ * The model's own vehicle as its GEOMETRY found it (scene-vehicles.ts `modelVehicleFromGeometry`): the vehicle a
+ * whole-model car is, or the vehicle a titled model holds beside its own scenery. Sizes the model by the vehicle's
+ * extent, so a car found from its wheels is the same size whether or not its title names it (audit A-01).
+ */
+export interface GeometryVehicle { kind: PlayableKind; bricks: readonly ParsedBrick[] }
+
+export function planAddonScale(bricks: readonly ParsedBrick[], choice: AddonScaleChoice = 'auto', label = '', guard: LabelHeuristicsInput = {}, vehicle?: GeometryVehicle): AddonScalePlan {
   const extent = modelExtentLdu(bricks);
   const explicit = choice === 'auto' ? undefined : Number(choice);
   if (explicit !== undefined && Number.isFinite(explicit) && explicit > 0) {
@@ -171,15 +178,18 @@ export function planAddonScale(bricks: readonly ParsedBrick[], choice: AddonScal
     };
   }
   // X-17: a display vehicle is shrunk by its TITLE; an explicit-mode input has no title heuristics.
-  const kind = labelHeuristicsAllowed(guard) && isWholeVehicleLabel(label) ? classifyVehicleKind(label, 'auto') : null;
+  // A vehicle the geometry found (A-01) sizes the model whether or not the title names it; the title's kind wins.
+  const titleKind = labelHeuristicsAllowed(guard) && isWholeVehicleLabel(label) ? classifyVehicleKind(label, 'auto') : null;
+  const kind = titleKind ?? vehicle?.kind ?? null;
   if (kind) {
-    const longestBlocks = Math.max(extent.x, extent.z) / LDU_PER_BLOCK;
+    const sized = vehicle?.bricks.length ? modelExtentLdu(vehicle.bricks) : extent;
+    const longestBlocks = Math.max(sized.x, sized.z) / LDU_PER_BLOCK;
     const target = VEHICLE_TARGET_BLOCKS[kind];
     const scale = longestBlocks > target ? Math.max(MIN_AUTO_SCALE, round2(target / longestBlocks)) : 1;
     if (scale < 1) {
       return {
         choice: 'auto', scale, lduPerBlock: LDU_PER_BLOCK / scale, cue: 'vehicle', kind, sizeBlocks: sizeAt(extent, scale),
-        reason: `${scale}× minifig scale: a display ${kind} with no minifig, shrunk from ${round2(longestBlocks)} to ~${target} blocks long (a real ${kind === 'plane' ? 'aircraft' : kind})`,
+        reason: `${scale}× minifig scale: a display ${kind} with no minifig, shrunk from ${round2(longestBlocks)} to ~${target} blocks long (a real ${kind === 'plane' ? 'aircraft' : kind})${titleKind ? '' : '; the title names no vehicle, the model stands on its own wheels'}`,
       };
     }
     return {

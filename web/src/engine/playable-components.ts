@@ -27,6 +27,8 @@ export interface PlayableBrickComponent {
   motion?: import('./bedrock-vehicle.js').VehicleMotion;
   /** Explicit seat layout (1, 2 or 4) for THIS component; absent: the export's `seatCount`. */
   seatCount?: number;
+  /** Furniture and beds in it that ride as passenger seats (`CompileLdrawEntityOptions.extraSeatBricks`, audit A-02). */
+  extraSeatBricks?: ParsedBrick[];
 }
 
 const CAR_WORDS = /\b(car|truck|bus|buggy|racer|roadster|batmobile|tumbler|vehicle|tractor|loader|motorcycle|motorbike|bike|kart|delorean|de lorean|time machine|ferrari|porsche|lamborghini|mclaren|bugatti|koenigsegg|corvette|mustang|mercedes|audi|bmw|formula 1|f1|jeep|suv|van|pickup|dragster|hot rod|hotrod|rover|speed champions|speed champion|hypercar|supercar|automobile|limo|limousine|cab|taxi|crawler|quad|atv|go-kart|speedster|hovercraft|locomotive|camper|convertible|coupe|sedan|mini cooper|aston martin|land rover|defender|volkswagen|caterham|ecto-1|ecto 1)\b/i;
