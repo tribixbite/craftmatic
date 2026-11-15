@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { vehicleWheelAssemblies, type VehicleWheelBone } from '../web/src/engine/ldraw-entity-compiler.js';
-import { BOARD, BOARD_OWNER_PROPERTY, boardPointPlaces, type BoardPoint, BOAT, boatStep, CAR, carStep, type CarState, type CarTerrain, FLIGHT, FLIGHT_PROPS, flightStep, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, resolveMove, VEHICLE_DYNAMIC, VEHICLE_EGRESS, vehicleEgress, type VehicleEgressInput, type VehicleEgressProbe, headlightCell, isNightTime, scriptedVehicleScript, sweepFootprint, vehicleClientAnimation, vehicleMotionOf, type BoatState, type BoatWater, type FlightInput, type FlightState, type ScriptedVehicleConfig, type ScriptedVehicleType, flightProperties } from '../web/src/engine/bedrock-vehicle.js';
+import { BOARD, BOARD_OWNER_PROPERTY, BOARD_POINTS_PROPERTY, boardPointPlaces, type BoardPoint, BOAT, boatStep, CAR, carStep, type CarState, type CarTerrain, FLIGHT, FLIGHT_PROPS, flightStep, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, resolveMove, VEHICLE_DYNAMIC, VEHICLE_EGRESS, vehicleEgress, type VehicleEgressInput, type VehicleEgressProbe, headlightCell, isNightTime, scriptedVehicleScript, sweepFootprint, vehicleClientAnimation, vehicleMotionOf, type BoatState, type BoatWater, type FlightInput, type FlightState, type ScriptedVehicleConfig, type ScriptedVehicleType, flightProperties } from '../web/src/engine/bedrock-vehicle.js';
 import { simHost, solidBelow } from './_sim-host.js';
 import { ESCAPE_OPTIONS } from '../web/src/engine/collider-form.js';
 import { boardPointsOf, hitTestAtSize } from '../web/src/engine/bedrock-placement-pack.js';
@@ -1343,7 +1343,7 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     const typeId = 'craftmatic:t_vehicle', boardType = 'craftmatic:t_board';
     const ship: ScriptedVehicleType = { mode: 'plane', noseReach: 14, halfWidth: 15, height: 3, board: [...pts] };
     // One point type per size step, as the pack ships them (`boardPointBehavior`).
-    const board = { types: { '100': boardType, '200': `${boardType}_200` }, ownerProperty: BOARD_OWNER_PROPERTY, params: BOARD };
+    const board = { types: { '100': boardType, '200': `${boardType}_200` }, ownerProperty: BOARD_OWNER_PROPERTY, pointsProperty: BOARD_POINTS_PROPERTY, placementTagPrefix: 'cmu_', params: BOARD };
     const h = simHost({
       script: scriptedVehicleScript(hostConfig({ [typeId]: ship }, { board })),
       entities: {
@@ -1394,6 +1394,27 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     h.remove(vehicle);
     h.run(BOARD.SWEEP_TICKS + 1);
     expect(pointsNow()).toHaveLength(0);
+  });
+  // A-05 (PROC-19): Undo found a point only by its owner among the LOADED points; 10303 at 400 % left two in a chunk
+  // nobody loaded. A point carries its vehicle's placement tag (what Undo's tag sweep retires as each area loads) and
+  // the vehicle lists its points' ids (what Undo records for a point it cannot see yet).
+  it('a board point carries its vehicle\'s placement tag, and the vehicle lists the ids of the points it stands', () => {
+    const { h, vehicle, pointsNow } = boardHost();
+    vehicle.tags.add('cmu_b1_abc_123');
+    vehicle.tags.add('craftmatic_other');
+    h.run(12);
+    const pts = pointsNow();
+    expect(pts).toHaveLength(3);
+    for (const p of pts) {
+      expect(p.tags.has('cmu_b1_abc_123')).toBe(true);
+      expect(p.tags.has('craftmatic_other')).toBe(false);
+    }
+    expect(JSON.parse(String(vehicle.dynamic.get(BOARD_POINTS_PROPERTY))).sort()).toEqual(pts.map(p => p.id).sort());
+    // Boarded, the points go and so does the list.
+    h.seat(h.addPlayer('Rider', { x: 0.5, y: 64, z: 0.5 }), vehicle);
+    h.run(6);
+    expect(pointsNow()).toHaveLength(0);
+    expect(JSON.parse(String(vehicle.dynamic.get(BOARD_POINTS_PROPERTY) ?? '[]'))).toEqual([]);
   });
   it('keeps the hull\'s Mount prompt inside the SURVIVAL root reach (Saga 30u: a prompt over a 16-wide box, refused past ~6)', () => {
     const survival = quirkValue('interact-root-reach', 'survivalRootReachBlocks');

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  SIZE_STEPS, buildPlacementPackAssets, placementAlias, rotatePlacementPoint,
+  SIZE_STEPS, buildPlacementPackAssets, encodeColliderRuns, placementAlias, rotatePlacementPoint,
   rotateTilePlacement, rotatedSize, VISIBLE_BOUNDS_HEADROOM_BLOCKS, visibleBoundsFor,
 } from '../web/src/engine/bedrock-placement-pack.js';
+import { BOARD_OWNER_PROPERTY, BOARD_POINTS_PROPERTY } from '../web/src/engine/bedrock-vehicle.js';
+import { host } from './_placement-host.js';
+import { BlockGrid } from '@craft/schem/types.js';
 
 const tile = { identifier: 'craftmatic:wing', dx: 10, dy: 2, dz: 20, width: 8, height: 5, length: 6, nonAir: 10 };
 
@@ -120,5 +123,143 @@ describe('Bedrock Brick Wand placement pack', () => {
     const assets = buildPlacementPackAssets({ stem: 'Leaf test', label: 'Leaf test', width: 2, height: 3, length: 2, tiles: [], actors: [{ typeId: 'craftmatic:leaf', label: 'Door leaf', x: 1, y: 2, z: 1, maxSizeExclusive: 300 }] });
     expect(assets.script).toContain('"maxSizeExclusive":300');
     expect(assets.script).toContain('st.size >= actor.maxSizeExclusive');
+  });
+});
+
+/**
+ * A-05 (PROC-19): Undo removed a boarding point only when it could SEE it - a loaded point whose owner was retired.
+ * 10303 at 400 % kept two in a chunk nobody loaded (`sim --sizes=400`: "2 boarding points left after Undo"). The
+ * vehicle runtime tags each point with its vehicle's placement tag and lists the point ids on the vehicle
+ * (`BOARD_POINTS_PROPERTY`); Undo retires those ids with the vehicle, so a point that loads later is swept then.
+ */
+describe('Brick Wand Undo and a scripted vehicle\'s boarding points', () => {
+  const FAR = { x: 5000, y: 20, z: 5000 };
+  const boardType = (pct: number) => `craftmatic:b_car_board_${pct}`;
+  const bare = (identifier: string) => JSON.stringify({ format_version: '1.26.30', 'minecraft:entity': { description: { identifier, is_spawnable: true, is_summonable: true }, components: {} } });
+  const spec = {
+    stem: 'car', label: 'Car (car-1)', width: 10, height: 4, length: 10,
+    tiles: [{ identifier: 'craftmatic:t0', dx: 0, dy: 0, dz: 0, width: 10, height: 4, length: 10, nonAir: 1 }],
+    actors: [{ typeId: 'craftmatic:car', label: 'Car', x: 5, y: 1, z: 5 }],
+    previewPoints: [{ x: 0.5, y: 0.5, z: 0.5 }], settleTicks: 0, finalHoldTicks: 0,
+    boardTypes: SIZE_STEPS.map(boardType), boardOwnerProperty: BOARD_OWNER_PROPERTY, boardPointsProperty: BOARD_POINTS_PROPERTY,
+  };
+
+  it('undo removes every board point type of every size step, loaded or not, and a far one when its chunk loads', async () => {
+    const h = host(spec, { playerAt: { x: 10, y: 20, z: 30 }, loadEverywhere: false, definitions: Object.fromEntries(SIZE_STEPS.map(p => [boardType(p), bare(boardType(p))])) });
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    h.player.location = { x: 8.5, y: 20, z: 30.5 }; // out of the footprint (A-06: the wand asks before building round a player)
+    await h.open({ action: 'Place' }, { selection: 0 });
+    const car = h.spawned.find(s => s.typeId === 'craftmatic:car')!;
+    const vehicle = car.entity, tag = (vehicle.getTags() as string[]).find(t => t.startsWith('cmu_'))!;
+    expect(tag).toBeDefined();
+    // As the vehicle runtime stands them (`tendBoard`): one point per size step, each owned, tagged and listed.
+    const ids: string[] = [];
+    for (const pct of SIZE_STEPS) {
+      const p = h.dimension.spawnEntity(boardType(pct), { x: vehicle.location.x + 1, y: vehicle.location.y, z: vehicle.location.z });
+      p.setDynamicProperty(BOARD_OWNER_PROPERTY, vehicle.id);
+      p.addTag(tag);
+      ids.push(p.id);
+    }
+    vehicle.setDynamicProperty(BOARD_POINTS_PROPERTY, JSON.stringify(ids));
+    const points = () => h.spawned.filter(s => s.typeId.startsWith('craftmatic:b_car_board_'));
+    expect(points()).toHaveLength(SIZE_STEPS.length);
+    // Half of them out in a chunk nobody loads (a 400 % hull's far end, past the simulation distance).
+    for (const [i, s] of points().entries()) if (i % 2) (s as any).sim.location = { ...FAR };
+    h.engine.updateLoaded();
+    expect(h.world.getEntity(ids[1]!)).toBeUndefined();
+
+    await h.open({ action: 'Undo last placement' });
+    expect(h.player.sendMessage.mock.calls.map((c: unknown[]) => String(c[0])).some((m: string) => m.includes('Undo complete'))).toBe(true);
+    expect((car as any).sim.valid).toBe(false);
+    for (const [i, s] of points().entries()) if (!(i % 2)) expect((s as any).sim.valid, `loaded ${s.typeId}`).toBe(false);
+    // The far points' chunk loads (the player walks there): every one is swept then.
+    h.player.location = FAR;
+    h.engine.runSync(2);
+    for (const s of points()) expect((s as any).sim.valid, s.typeId).toBe(false);
+  });
+});
+
+/**
+ * A-06 (PROC-19): a pin the AIM centred kept its CORNER through Size and Rotate, so a model shrank and turned away
+ * from the aimed spot - at 50 % turned 90, 10261 covered the child who aimed it (`player-not-in-solid`, 9 sets).
+ * A centred pin keeps its centre; a corner pin (Pin corner at my feet, Edit coordinates) keeps its corner.
+ */
+describe('Brick Wand Size and Rotate', () => {
+  const spec = {
+    stem: 'centre', label: 'Centre (centre-1)', width: 20, height: 4, length: 10, tiles: [],
+    // A marker at the footprint's centre: where it stands after placing is where the footprint's centre is.
+    actors: [{ typeId: 'craftmatic:mark', label: 'Mark', x: 10, y: 0, z: 5 }],
+    previewPoints: [{ x: 0.5, y: 0.5, z: 0.5 }], settleTicks: 0, finalHoldTicks: 0,
+  };
+  /** Press the menu button starting with `label` until the menu body reads `until`. */
+  const pressUntil = async (h: ReturnType<typeof host>, label: string, done: () => boolean) => {
+    for (let i = 0; i < 12 && !done(); i++) await h.open({ action: label }, { canceled: true });
+  };
+  /** The last wand menu's summary (its body). */
+  const summaryOf = (h: ReturnType<typeof host>) => h.forms.filter(f => / · Brick Wand$/.test(f.title)).at(-1)?.body ?? '';
+
+  it('Size and Rotate keep the footprint centred on the aimed point', async () => {
+    const h = host(spec);
+    const aim = h.intervals.get(4)!;
+    h.setHit({ block: { location: { x: 40, y: 63, z: 80 } }, face: 'Up' });
+    await h.use(); // a fresh wand follows the aim
+    aim();
+    await h.open({ action: 'Stop following my aim' });
+    await pressUntil(h, 'Size', () => /· 50 percent/.test(summaryOf(h)));
+    await pressUntil(h, 'Rotate', () => /· 90°/.test(summaryOf(h)));
+    expect(summaryOf(h)).toMatch(/· 90°/);
+    await h.open({ action: 'Place' }, { selection: 0 });
+    const mark = h.spawned.find(s => s.typeId === 'craftmatic:mark')!;
+    if (!mark) throw new Error(JSON.stringify({ forms: h.forms.slice(-3).map(f => [f.title, f.body.slice(0, 200)]), said: h.player.sendMessage.mock.calls.slice(-4) }));
+    // The aimed spot is the top face of (40, 63, 80): its centre (40.5, 80.5); the footprint rounds to whole blocks.
+    expect(Math.abs(mark.entity.location.x - 40.5)).toBeLessThanOrEqual(1);
+    expect(Math.abs(mark.entity.location.z - 80.5)).toBeLessThanOrEqual(1);
+  });
+
+  it('a corner pin keeps its corner through Size and Rotate', async () => {
+    const h = host(spec, { playerAt: { x: 100, y: 64, z: 200 } });
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await pressUntil(h, 'Rotate', () => /· 90°/.test(summaryOf(h)));
+    await pressUntil(h, 'Size', () => /· 200 percent/.test(summaryOf(h)));
+    expect(summaryOf(h)).toMatch(/· 90°/);
+    expect(summaryOf(h)).toContain('Origin: 100, 64, 200');
+  });
+});
+
+describe('Brick Wand never builds walls round a player unasked (A-06)', () => {
+  const solid = () => {
+    const g = new BlockGrid(4, 3, 2);
+    for (let x = 0; x < 4; x++) for (let z = 0; z < 2; z++) for (let y = 0; y < 3; y++) g.set(x, y, z, 'craftmatic:collider[lo=0,hi=16]');
+    return encodeColliderRuns(g, 'craftmatic:collider').runs;
+  };
+  const spec = (extra: Record<string, unknown> = {}) => ({
+    stem: 'held', label: 'Held (held-1)', width: 4, height: 3, length: 2,
+    tiles: [{ identifier: 'craftmatic:held_t0', dx: 0, dy: 0, dz: 0, width: 4, height: 3, length: 2, nonAir: 1 }],
+    colliders: { width: 4, height: 3, length: 2, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: solid(), keptCells: 0 },
+    previewPoints: [{ x: 0.5, y: 0.5, z: 0.5 }], settleTicks: 0, finalHoldTicks: 0, ...extra,
+  });
+  const PROMPT = 'Someone is standing where it goes';
+
+  it('a placement whose colliders would hold a player\'s body prompts, and Find a clear spot places it clear of them', async () => {
+    const h = host(spec(), { playerAt: { x: 100.5, y: 64, z: 200.5 } });
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await h.open({ action: 'Place' }, { selection: 0 }, { selection: 0 });
+    expect(h.forms.map(f => f.title)).toContain(PROMPT);
+    expect(h.forms.find(f => f.title === PROMPT)!.buttons).toEqual(['Find a clear spot nearby', 'Move', 'Place anyway', 'Cancel']);
+    const confirm = h.forms.filter(f => /^Place .*\?$/.test(f.title)).at(-1)!;
+    const o = /Origin: (-?\d+), (-?\d+), (-?\d+)/.exec(confirm.body)!.slice(1).map(Number);
+    // The footprint (4 x 2) no longer reaches the player's column at x 100, z 200.
+    expect(100 >= o[0]! && 100 < o[0]! + 4 && 200 >= o[2]! && 200 < o[2]! + 2).toBe(false);
+  });
+
+  it('a player beside the footprint is not asked; a store pack offers no Place anyway', async () => {
+    const h = host(spec(), { playerAt: { x: 98.5, y: 64, z: 200.5 } });
+    await h.open({ action: 'Edit coordinates' }, { formValues: ['100', '64', '200'] }, { canceled: true });
+    await h.open({ action: 'Place' }, { canceled: true });
+    expect(h.forms.map(f => f.title)).not.toContain(PROMPT);
+    const store = host(spec({ marketplacePlacement: true }), { playerAt: { x: 100.5, y: 64, z: 200.5 } });
+    await store.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await store.open({ action: 'Place' }, { canceled: true });
+    expect(store.forms.find(f => f.title === PROMPT)!.buttons).toEqual(['Find a clear spot nearby', 'Move', 'Cancel']);
   });
 });

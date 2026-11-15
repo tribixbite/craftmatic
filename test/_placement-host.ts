@@ -80,8 +80,11 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0], optio
 
   const responses: any[] = [];
   const buttons: string[][] = [];
+  /** Every form shown, whole (title, body, buttons): a test reads the menu's summary from its body. */
+  const forms: ShownForm[] = [];
   const chooser = (form: ShownForm): FormAnswer => {
     buttons.push(form.buttons);
+    forms.push(form);
     const r = responses.shift() ?? { canceled: true };
     // `{ action: 'Place' }` picks the button whose label starts with it, so a
     // test names what it presses instead of depending on the menu's order.
@@ -206,7 +209,7 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0], optio
     if (r.length && buttons.length === shown) await useWand();
   };
   return {
-    assets, world, system, dimension, open, use: useWand, flush, flushUntil, intervals, spawned, set, player, sim, buttons, responses, blocks, fills, engine, host: sh,
+    assets, world, system, dimension, open, use: useWand, flush, flushUntil, intervals, spawned, set, player, sim, buttons, forms, responses, blocks, fills, engine, host: sh,
     get commands() { return commands(); },
     /** Every `tickingarea` command the runtime ran, in order. */
     get areaCommands() { return areaCommands(); },
