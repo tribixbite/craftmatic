@@ -50,6 +50,7 @@ import { HOP, HOP_TAGS, hopKitConfig, hopRuntimeConfig, hopScript, type HopSourc
 import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, pressFlashOverlay, ballAnimation, ballProperties, buttonPressAnimation, consoleAssets, consoleHideAnimation, pressProperties, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
 import { BOARD, BOARD_OWNER_PROPERTY, BOARD_POINTS_PROPERTY, BOAT, PLACEMENT_TAG_PREFIX, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, VEHICLE_DYNAMIC, VEHICLE_EGRESS, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
+import { VEHICLE_PART, closesWhenMoving, vehiclePartAnimation, vehiclePartBoxes, vehiclePartProperties, vehiclePartProperty, type VehiclePartRuntime, type VehiclePartSpec } from './vehicle-parts.js';
 import { COLLIDER_KIT, ESCAPE_OPTIONS } from './collider-form.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { COCKPIT_CLIENT_LAGS, FREE_LOOK, NATIVE_HEADING_PROPERTY, NATIVE_STEER, cockpitCamera, cockpitLagFor, type CockpitClientLag, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type FreeLookParams, type NativeSteerParams } from './vehicle-free-look.js';
@@ -80,6 +81,8 @@ export interface PlayableGridComponent {
     seatCount?: number;
     /** Furniture and beds in it that ride as passenger seats (`CompileLdrawEntityOptions.extraSeatBricks`, audit A-02). */
     extraSeatBricks?: ParsedBrick[];
+    /** The doors, lids and cupboards it carries, as bones of its own geometry (vehicle-parts.ts, audit A-02). */
+    vehicleParts?: VehiclePartSpec[];
     /** Spawn center in the stationary model's block coordinates. */
     x?: number;
     y?: number;
@@ -3023,8 +3026,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         );
     };
     /** A driven vehicle's wheel spin and body motion (bedrock-vehicle.ts): writes the animation file, returns what the client entity plays. */
-    const emitDriveAnimation = (ecid: string, motion: VehicleMotion, geo: CompiledLdrawGeometry, scripted = motion === 'plane' || motion === 'boat'): ClientAnimations => {
-        const anim = vehicleClientAnimation(ecid, motion, geo.wheelBones ?? [], scripted);
+    const emitDriveAnimation = (ecid: string, motion: VehicleMotion, geo: CompiledLdrawGeometry, scripted = motion === 'plane' || motion === 'boat', parts?: Parameters<typeof vehicleClientAnimation>[4]): ClientAnimations => {
+        const anim = vehicleClientAnimation(ecid, motion, geo.wheelBones ?? [], scripted, parts);
         files.push({ name: `${rp}animations/${ecid}.animation.json`, data: json(anim.file) });
         return anim.client;
     };
@@ -3424,6 +3427,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const driverVehicles: VehicleDriverConfig['vehicles'] = [];
     /** Fixed-wing aircraft and boats moved by scripts/vehicles.js (bedrock-vehicle.ts), with half their length for the bow probe. */
     const scriptedTypes: ScriptedVehicleConfig['types'] = {};
+    /** Whether any scripted vehicle carries moving parts (`scripts/vehicles.js` then gets their constants). */
+    let vehiclePartsShipped = false;
     const cameraVehicles: VehicleCameraConfig[] = [];
     /** Native driveables (a rotorcraft, a flyer's cloud) as hop sources; the scripted ones are added from `scriptedTypes` below. */
     const nativeHopSources: Record<string, HopSource> = {};
@@ -3484,6 +3489,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // has no parts to read, so an unspecified car facing stays a guess.
         let ldrawGeo: CompiledLdrawGeometry | undefined;
         let facing: VehicleFacing = requestedFacing;
+        // Its doors, lids and cupboards ride as bones of its own geometry - on a SCRIPTED vehicle, whose runtime opens
+        // them on a tap (vehicle-parts.ts); the motion is the one decided below once the geometry exists.
+        const carriedParts = c.bricks?.length && c.vehicleParts?.length && isScriptedVehicle(c.kind, c.motion ?? vehicleMotionOf(c.kind, c.label)) ? c.vehicleParts.slice(0, VEHICLE_PART.MAX) : [];
         if (c.bricks && c.bricks.length > 0) {
             options.onProgress?.(`compiling ${c.label} geometry`);
             ldrawGeo = await compileLdrawEntityGeometry(cid, c.kind, c.bricks, {
@@ -3497,6 +3505,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 vehicleRig: true,
                 attachLooseProps: c.fromScene === true,
                 ...(c.extraSeatBricks?.length ? { extraSeatBricks: new Set(c.extraSeatBricks) } : {}),
+                ...(carriedParts.length ? { vehicleParts: carriedParts.map(part => ({ bricks: new Set(part.bricks), pivotLdu: part.pivotLdu, axisLdu: part.axisLdu })) } : {}),
             });
             facing = ldrawGeo.facing;
         } else if (c.kind === 'car' && facing === 'auto') {
@@ -3516,6 +3525,15 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             driverVehicles.push({ typeId: fullTypeId, kind: c.kind, label: c.label });
             nativeHopSources[fullTypeId] = hopSourceOf(ldrawGeo?.sizeBlocks ?? { width: layout.width, height: layout.height, length: layout.length }, 'native');
         }
+        // Each carried part as the runtime picks and turns it: its drawn box closed and open (the client's own pose).
+        const partAnims = carriedParts.map(part => ({ angle: part.angleDeg, ...(part.slide ? { slide: true } : {}) }));
+        let partRuntime: VehiclePartRuntime[] = [];
+        if (scripted && ldrawGeo && carriedParts.length) {
+            const boxes = vehiclePartBoxes(ldrawGeo.value, partAnims, unitsPerLdu);
+            partRuntime = carriedParts.map((part, k) => ({ kind: part.kind, noun: part.noun, angle: part.angleDeg, closes: closesWhenMoving(part.kind), closed: boxes[k]?.closed ?? [], open: boxes[k]?.open ?? [] }));
+            scriptedTypes[fullTypeId] = { ...scriptedTypes[fullTypeId]!, parts: partRuntime };
+            vehiclePartsShipped = true;
+        }
         // A scripted vehicle whose driver's eye left the cabin keeps its rider at the helm (`helmSeatPlan`).
         if (ldrawGeo && scripted && ldrawGeo.seatPlan !== helmSeatPlan(ldrawGeo.seatPlan)) {
             ldrawGeo = { ...ldrawGeo, seatPlan: helmSeatPlan(ldrawGeo.seatPlan) };
@@ -3527,7 +3545,14 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             // What a rider below 100 % sits on, read from the geometry the pack ships (VEH-18).
             const mainRoof = ldrawGeo.seatPlan ? roofMap(geometryEntityBoxes(ldrawGeo.value)) : undefined;
             const mainBehavior = behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, c.seatCount ?? options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, ldrawGeo.seatPlan, geometryHitBox(ldrawGeo.value), mainRoof);
-            emitCompiledEntity(cid, ldrawGeo, mainBehavior, emitDriveAnimation(cid, motion, ldrawGeo, scripted), true);
+            // One float actor property per carried part, beside the vehicle's own (`vehiclePartProperties`).
+            if (partRuntime.length) {
+                const description = (mainBehavior as { 'minecraft:entity': { description: { properties?: Record<string, unknown> } } })['minecraft:entity'].description;
+                description.properties = { ...(description.properties ?? {}), ...vehiclePartProperties(partRuntime.length) };
+                const lost = partRuntime.flatMap((part, k) => (part.closed.length ? [] : [`${part.noun.toLowerCase()} ${carriedParts[k]!.part}`]));
+                if (lost.length) warnings.push(`${c.label}: ${lost.length} of its moving parts drew nothing in the vehicle's geometry (${lost.join(', ')}); a tap never picks ${lost.length === 1 ? 'it' : 'them'}.`);
+            }
+            emitCompiledEntity(cid, ldrawGeo, mainBehavior, emitDriveAnimation(cid, motion, ldrawGeo, scripted, partRuntime.length ? vehiclePartAnimation(partAnims, unitsPerLdu) : undefined), true);
             vehicleSeats.push(vehicleSeatReport(c.label, cid, c.kind, c.bricks!, i => c.bricks![i]!, ldrawGeo, mainBehavior, `${scripted ? 'scripted' : 'native'} ${motion}`));
             cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(scripted ? { scripted: true } : {}), ...cameraSeatFields(ldrawGeo.seatPlan, mainRoof) });
 
@@ -4294,6 +4319,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // A rider who gets off is set down on a walkable floor beside the hull (SEAT-05, `vehicleEgress`).
         egress: VEHICLE_EGRESS, escape: ESCAPE_OPTIONS,
         ...(boardConfig ? { board: boardConfig } : {}),
+        ...(vehiclePartsShipped ? { parts: { ...VEHICLE_PART, propertyPrefix: vehiclePartProperty(0).replace(/0$/, '') } } : {}),
     })) });
     if (interactiveConfig) files.push({ name: `${bp}scripts/interactives.js`, data: text(interactivesScript(interactiveConfig)) });
     if (ridesConfig) files.push({ name: `${bp}scripts/rides.js`, data: text(ridesScript(ridesConfig)) });

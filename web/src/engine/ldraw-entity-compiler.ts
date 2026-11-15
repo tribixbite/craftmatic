@@ -47,7 +47,7 @@ import { SWATCH_SIZE } from './ldraw-entity-atlas.js';
 import { encodePngRgba } from './lego-resource-pack.js';
 import { defaultDollFace, faceArtImage, isDollHead, orientFace, packFaceAtlas, rasterizeHeadFace, type BedrockFaceName, type FaceImage } from './head-face.js';
 import { inferVehicleNose, type FacingDecision, type NoseDirection } from './vehicle-facing.js';
-import { mouldFamilyId, assembleMinifig, classifyFigurePart, classifyMiniDollPart, seatedFigure, classifyMinifigPart, figureAnchor, figureSystemOfTorso, MINIDOLL_CANON, normaliseFigureDescription, type EntityRig, type FigureSystem, type MinifigSlot } from './minifig-rig.js';
+import { mouldFamilyId, assembleMinifig, classifyFigurePart, classifyMiniDollPart, seatedFigure, classifyMinifigPart, figureAnchor, figureSystemOfTorso, MINIDOLL_CANON, normaliseFigureDescription, type EntityRig, type FigureSystem, type MinifigSlot, type RigBone } from './minifig-rig.js';
 
 const PACK_NAMESPACE = 'craftmatic';
 
@@ -62,6 +62,8 @@ import { isAxisAligned, parallelepipedFromCorners } from './oriented-box.js';
 import { planSeat, replanOnShipped, RIDER_EYE_ABOVE_SEAT, seesOut, type BoxBlocks, type SeatPlan } from './cockpit-seat.js';
 import { isShipWheel, isSteeringWheel } from './steering-parts.js';
 export { isShipWheel, isSteeringWheel } from './steering-parts.js';
+import { hingeChain } from './hinge-rig.js';
+import { isVehiclePartBone, vehiclePartBones } from './vehicle-parts.js';
 import { boneTransforms, cubeCorners, drawnCubeBox, IDENTITY as AFFINE_IDENTITY, separateCoplanarFaces, type CoplanarSeparation, type GeoEntryLike } from './bedrock-geometry-faces.js';
 
 /**
@@ -637,6 +639,8 @@ export interface CompiledLdrawGeometry {
   figure?: { facingLdu: [number, number]; synthesized: string[]; dropped: string[]; system: FigureSystem };
   /** `vehicleRig` compiles only: the spinning road wheels (possibly none; the rig's `body` root is there either way). */
   wheelBones?: VehicleWheelBone[];
+  /** `vehicleParts` compiles only: how many placements of each part made it into the geometry (0: the part is gone). */
+  vehiclePartPlacements?: number[];
   diagnostics: LegoGeometryDiagnostics;
   /** Human-readable degradations worth surfacing in the export status. */
   warnings: string[];
@@ -758,6 +762,13 @@ export interface CompileLdrawEntityOptions {
    * every other entity has.
    */
   vehicleRig?: boolean;
+  /**
+   * `vehicleRig` only: the doors, lids and cupboards the vehicle carries (vehicle-parts.ts, audit A-02). Part `k`'s
+   * placements (the SAME objects as in `bricks`) hang on its hinge chain (`vehiclePartBones(k)`, `hingeChain`) under
+   * `body`, about the line through `pivotLdu` along `axisLdu` (source LDraw frame, levelled here with the model),
+   * so the drive animation swings it and it rides with the vehicle.
+   */
+  vehicleParts?: ReadonlyArray<{ bricks: ReadonlySet<ParsedBrick>; pivotLdu: Vec3; axisLdu: Vec3 }>;
 }
 
 /** One spinning road wheel of a compiled vehicle: its bone, axle radius and how many placements ride on it. */
@@ -1370,7 +1381,8 @@ export function mergeAlignedCuboids(cuboids: RenderCuboid[], eps = 0.01): { cubo
   // A vehicle's wheel bone (`wheel_<n>`) is authored aligned like `body`, so its
   // cuboids merge too - but only with cuboids of the SAME bone, or a merged box
   // would spin half on the wheel and half on the body.
-  const mergeable = (bone: string): boolean => bone === 'body' || bone.startsWith('wheel_');
+  // A vehicle part's un-tilt bone holds its cuboids aligned where they stand too (the chain cancels at rest).
+  const mergeable = (bone: string): boolean => bone === 'body' || bone.startsWith('wheel_') || isVehiclePartBone(bone);
   for (const c of cuboids) (c.aligned && mergeable(c.bone) && !c.studTop && !c.rotation ? eligible : rest).push(c);
   let current = eligible;
   let merged = 0;
@@ -2436,6 +2448,24 @@ export async function compileLdrawEntityGeometry(
   //     at its axle, every bone under `body`. Found on the FINAL placements
   //     (the driver figure is gone), in the levelled LDraw frame.
   const vehicleRig = !!options.vehicleRig && !options.rig && kind !== 'figure' && kind !== 'prop';
+  // The vehicle's moving parts (vehicle-parts.ts): each placement of part k on its hinge chain's un-tilt bone, the
+  // chain in the LEVELLED frame (a hinge levels with the model: p' = R (p - c) + c, a' = R a).
+  const partBoneOf = new Map<number, string>();
+  const partRigBones: RigBone[] = [];
+  const vehiclePartPlacements: number[] = [];
+  if (vehicleRig && options.vehicleParts?.length) {
+    const R = level.rotation, c = level.centre;
+    const lv = (p: Vec3): Vec3 => { if (!R) return p; const q = apply(R as Mat3, [p[0] - c[0], p[1] - c[1], p[2] - c[2]]); return [q[0] + c[0], q[1] + c[1], q[2] + c[2]]; };
+    options.vehicleParts.forEach((part, k) => {
+      const names = vehiclePartBones(k);
+      let n = 0;
+      placed.forEach((_, i) => { if (part.bricks.has(inputBricks[placedIdx[i]!]!)) { partBoneOf.set(i, names.untilt); n++; } });
+      vehiclePartPlacements.push(n);
+      partRigBones.push(...hingeChain(names, lv(part.pivotLdu), R ? apply(R as Mat3, part.axisLdu) : part.axisLdu, 'body'));
+    });
+    const lost = vehiclePartPlacements.flatMap((n, k) => (n ? [] : [k]));
+    if (lost.length) warnings.push(`${cid}: ${lost.length} moving part${lost.length === 1 ? '' : 's'} (${lost.map(k => `part ${k}`).join(', ')}) left the geometry with their placements (a display stand, a figure or a separate object), so ${lost.length === 1 ? 'it does' : 'they do'} not open.`);
+  }
   const wheelBoneOf = new Map<number, string>();
   const wheelPivotsLdu = new Map<string, Vec3>();
   const wheelPlan: Array<{ name: string; radiusLdu: number; parts: number; centre: Vec3 }> = [];
@@ -2443,7 +2473,8 @@ export async function compileLdrawEntityGeometry(
   if (vehicleRig) {
     const isWheel = isWheelPartWith(meshes);
     const boxes = placed.flatMap((b, i) => {
-      if (!isWheel(b)) return [];
+      // A part that swings (a door, a turnable steering wheel) is never a road wheel.
+      if (partBoneOf.has(i) || !isWheel(b)) return [];
       wheelPlacements++;
       const mesh = meshes.get(b.part);
       if (!mesh || mesh.bounds.max[1] - mesh.bounds.min[1] <= 0) { wheelsRejected++; return []; }
@@ -2480,7 +2511,7 @@ export async function compileLdrawEntityGeometry(
     bones.set('body', { pivot: [0, 0, 0] });
     // A wheel bone holds its parts ALIGNED, authored where they stand (like `body`); only the animation turns it.
     for (const [name, p] of wheelPivotsLdu) bones.set(name, { pivot: apply(A, p), parent: 'body' });
-    for (const b of options.rig?.bones ?? []) {
+    for (const b of [...(options.rig?.bones ?? []), ...partRigBones]) {
       // A static bone rotation is given in the LDraw frame and goes to the
       // render frame the same way a rotated part's does (M = A R A^T).
       const rotation = b.rotation ? eulerZYX(mul(mul(A, b.rotation as Mat3), At)) : undefined;
@@ -2510,7 +2541,7 @@ export async function compileLdrawEntityGeometry(
       const aligned = snapped !== null;
       const M: Mat3 = snapped ?? rawM;
       const R: Mat3 = snapped ? mul(mul(At, snapped), A) : rawR;
-      let bone = wheelBoneOf.get(brickIndex) ?? rigBoneOf(brickIndex);
+      let bone = partBoneOf.get(brickIndex) ?? wheelBoneOf.get(brickIndex) ?? rigBoneOf(brickIndex);
       if (!aligned) {
         // A rotated part under a rig bone is that bone's child, so it turns with it
         // (a vehicle's rotated parts hang under `body` too, so the body lean carries them).
@@ -2662,7 +2693,8 @@ export async function compileLdrawEntityGeometry(
       for (let guard = 0; /^r\d+$/.test(b) && guard < 64; guard++) { const parent = bones.get(b)?.parent; if (!parent) break; b = parent; }
       return b;
     };
-    const grouped = !!options.rig;
+    // A vehicle's moving parts swing away from the body: each is its own group, as a figure's limbs are.
+    const grouped = !!options.rig || partBoneOf.size > 0;
     const forCull = renderCuboids.map((c, i) => ({
       ...(c.aligned
         ? { min: c.min, max: c.max, translucent: c.material.alpha < 1, aligned: true }
@@ -3267,6 +3299,7 @@ export async function compileLdrawEntityGeometry(
     levelPose: level.rotation ? { rotation: [...level.rotation], centre: [...level.centre] as Vec3 } : null,
     ...(options.wholeModel ? { partBoxesLdu: worldBoxes.map(wb => (wb.obb ? { min: wb.min, max: wb.max, obb: wb.obb } : { min: wb.min, max: wb.max })) } : {}),
     ...(vehicleRig ? { wheelBones } : {}),
+    ...(vehicleRig && options.vehicleParts?.length ? { vehiclePartPlacements } : {}),
     diagnostics,
     warnings,
   };

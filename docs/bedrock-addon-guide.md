@@ -685,9 +685,22 @@ outside the export bounds, against 4 in 3 doorways from the `.io`) is unchanged
 > with a set number or renamed is sized by its own extent like its titled build. A titled car or boat holding
 > >= 8 non-figure placements wholly beside its footprint leaves them out as scenery (`vehicleApartFromScenery`).
 > A whole-model vehicle's furniture seats and beds are its passenger seats (`extraSeatBricks`); its doors, lids
-> and turnables stay fixed geometry and are reported (`vehicleCarriedParts`) - no runtime carries a hinged part
-> on a moving entity yet (`TODO(vehicle-interactives)`). A set with a minifig or mini-doll gets a 100 %
+> and turnables are reported (`vehicleCarriedParts`). A set with a minifig or mini-doll gets a 100 %
 > walk-through recommendation (`recommendAccessScale` `minifigScale`).
+>
+> **A vehicle's doors, lids and cupboards (2026-11-15, branch `audit-vix`, vehicle-parts.ts).** On a SCRIPTED vehicle
+> (every car, hover craft, boat and ship) each moving part the interactivity stage finds in it (up to 16) is a hinge
+> chain of BONES in the vehicle's own geometry (`hingeChain`, the interactives' tilt -> spin -> un-tilt, under `body`),
+> driven by one float actor property `craftmatic:vpart_<k>` that the client eases toward. So the part rides with the
+> vehicle for free: no owned entity, no per-tick teleport, no extra native call per tick. A TAP on the parked vehicle
+> (hull or board point) goes to `pickVehiclePart` first: a part whose box is within 2.5 blocks of the eye and on the
+> view ray, else within 60 degrees of the view, toggles; otherwise the tap boards as before, and a hold always boards.
+> Moving (speed > 0.05), every swinging part closes and taps board: an open leaf stands outside the footprint the move
+> resolver sweeps. Levers and turnables stay as left. A vehicle has no colliders, so the doorway rules do not apply:
+> a parked bus is entered by its seats. A native rotorcraft or flyer keeps its parts fixed (no script answers a tap),
+> and a SLIDE on a vehicle stays fixed geometry: its ride runs a world path the placement wrote and a separate seat
+> entity, neither of which follows a vehicle that has driven away. Device-unproven: whether a touch tap's view
+> direction is the camera centre or the finger's ray (`TODO(vehicle-parts-touch-aim)`; the cone covers either).
 
 Built and gated offline (`output/bedrock-entity-qa/round-2026-09-17/`, vitest 1,627
 passing); the device claims are listed in `TASKS-BEDROCK-ADDON.md` until the Pixel

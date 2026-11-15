@@ -73,7 +73,12 @@ import { quirkValue } from '../../quirks/registry.js';
 import { liquidSurface, submersion } from '../../world/liquids.js';
 import { PLAYER_HEIGHT, PLAYER_WIDTH } from '../../physics/body.js';
 import type { AddonAppearance } from './appearance.js';
-import { entityDrawn } from './drawn.js';
+import { animatedPoses, drawnBoxes, entityDrawn } from './drawn.js';
+import { tap } from '../../input/touch.js';
+import { teleport } from '../../script-host/facades.js';
+import { CORE_HANDLERS, findEntity } from '../../scenario/runner.js';
+import { lookAt } from '../../input/touch.js';
+import { vehiclePartProperty, type VehiclePartRuntime } from '../../../engine/vehicle-parts.js';
 import type { Pack } from '../../pack/pack.js';
 
 /**
@@ -94,7 +99,11 @@ const COCKPIT_DRIVE_TICKS = 120;
 const COCKPIT_EYE_SLACK = 0.5;
 
 /** A scripted vehicle type as `scripts/vehicles.js` declares it (blocks at scale 1; a boat's `draft` its keel's depth under the waterline). */
-export interface ScriptedTypeFacts { typeId: string; mode: 'car' | 'boat' | 'plane' | 'hover'; noseReach: number; halfWidth: number; height: number; draft: number }
+export interface ScriptedTypeFacts {
+  typeId: string; mode: 'car' | 'boat' | 'plane' | 'hover'; noseReach: number; halfWidth: number; height: number; draft: number;
+  /** The doors, lids and cupboards it carries (vehicle-parts.ts `VehiclePartRuntime`), part k on `craftmatic:vpart_<k>`. */
+  parts: VehiclePartRuntime[];
+}
 
 /** The scripted vehicle types of a pack, read from `scripts/vehicles.js`'s config (the runtime's first argument). */
 export function scriptedVehicleTypes(pack: CraftmaticPack): ScriptedTypeFacts[] {
@@ -102,9 +111,10 @@ export function scriptedVehicleTypes(pack: CraftmaticPack): ScriptedTypeFacts[] 
   if (!text) return [];
   const at = text.indexOf('({"types":');
   if (at < 0) return [];
-  const cfg = extractJsonAfter(text.slice(at), '(') as { types?: Record<string, { mode?: string; noseReach?: number; halfWidth?: number; height?: number; draft?: number }> } | undefined;
+  const cfg = extractJsonAfter(text.slice(at), '(') as { types?: Record<string, { mode?: string; noseReach?: number; halfWidth?: number; height?: number; draft?: number; parts?: VehiclePartRuntime[] }> } | undefined;
   return Object.entries(cfg?.types ?? {}).map(([typeId, t]) => ({
     typeId, mode: (t.mode ?? 'car') as ScriptedTypeFacts['mode'], noseReach: Number(t.noseReach ?? 1), halfWidth: Number(t.halfWidth ?? 0.5), height: Number(t.height ?? 1), draft: Number(t.draft ?? BOAT.DRAFT),
+    parts: Array.isArray(t.parts) ? t.parts : [],
   }));
 }
 
@@ -172,6 +182,7 @@ const WATERLINE_SLACK = 0.3;
 const BANK_SLACK = 0.5;
 
 const r2 = (v: number): number => Math.round(v * 100) / 100;
+const r3 = (v: number): number => Math.round(v * 1000) / 1000;
 const wrap = (a: number): number => ((a + 180) % 360 + 360) % 360 - 180;
 
 /** The solid cells an obstacle lays, relative to a lane: x along the drive from the obstacle's start, z across from the lane's centre line, y from the ground's first air layer (negative: dug). */
@@ -331,6 +342,106 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
      * the ground (the core `no-unprotected-fall` judges the fall: Pixel 30l dropped ~9 blocks off the 200 %
      * Milano) and outside the hull (`dismount-in-hull`: within its footprint under its top): `{ type, sizes? }`.
      */
+    /**
+     * The doors, lids and cupboards a vehicle carries (vehicle-parts.ts, audit A-02), as a child uses them: standing beside
+     * each part of the PARKED vehicle, looking at it, a tap opens it (`vehicle-part-opens`) and a second tap closes it;
+     * then with the first swinging part open the child climbs in and drives off - it must be shut while the vehicle moves
+     * (`vehicle-part-closes-moving`) - gets out where it stopped and opens it again there (`vehicle-part-rides-along`):
+     * its drawn leaf (the pack's own geometry posed by its own client animation) must stand where the part's open box is
+     * at the vehicle's NEW pose. Uses the placed vehicle when there is one, else spawns one on open ground. `{ type? }`;
+     * the totals go to `state.vehicleParts`.
+     */
+    async vehicleParts(step: AnyStep, ctx: StepContext) {
+      const wanted = step['type'] ? [typeOf(step)] : [...types.values()].filter(t => t.parts.length);
+      const sum = { parts: 0, opened: 0, closedWhileMoving: true, drove: 0, reopenedAfterDrive: false, followed: false };
+      const value = (v: SimEntity, i: number): number => Number(v.properties.get(vehiclePartProperty(i)) ?? 0);
+      /** Part i's box (closed or open) in the world at the vehicle's pose: [x0, y0, z0, x1, y1, z1]. */
+      const worldBox = (v: SimEntity, part: VehiclePartRuntime, open: boolean): number[] => {
+        const b = open ? part.open : part.closed, k = v.scale(), r = v.rotation.y * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+        const xs: number[] = [], zs: number[] = [];
+        for (const x of [b[0]!, b[3]!]) for (const z of [b[2]!, b[5]!]) { xs.push(v.location.x + (x * c - z * s) * k); zs.push(v.location.z + (x * s + z * c) * k); }
+        return [Math.min(...xs), v.location.y + b[1]! * k, Math.min(...zs), Math.max(...xs), v.location.y + b[4]! * k, Math.max(...zs)];
+      };
+      /** Stand beside part i (outward from the vehicle's middle, on its ground), look at it, tap; whether its value changed. */
+      const tapOn = async (v: SimEntity, f: ScriptedTypeFacts, i: number): Promise<boolean> => {
+        const part = f.parts[i]!, before = value(v, i);
+        const b = worldBox(v, part, before !== 0);
+        const mid = { x: (b[0]! + b[3]!) / 2, y: (b[1]! + b[4]!) / 2, z: (b[2]! + b[5]!) / 2 };
+        let ox = mid.x - v.location.x, oz = mid.z - v.location.z;
+        const ol = Math.hypot(ox, oz);
+        if (ol < 1e-6) { ox = 1; oz = 0; } else { ox /= ol; oz /= ol; }
+        const halfAcross = Math.abs((b[3]! - b[0]!) * ox) / 2 + Math.abs((b[5]! - b[2]!) * oz) / 2;
+        const out = Math.min(halfAcross + 1, 2);
+        teleport(ctx.sim.host, ctx.player, { x: mid.x + ox * out, y: v.location.y, z: mid.z + oz * out });
+        await ctx.run(1);
+        lookAt(ctx.player, mid);
+        const r = tap(ctx.sim.engine, ctx.player);
+        await ctx.run(12);
+        const changed = value(v, i) !== before;
+        ctx.note(`${f.typeId} part ${i} (${part.noun.toLowerCase()} ${part.kind}): a tap from ${r3(out)} blocks out picked ${r.entity ? r.entity.typeId : 'nothing'}; ${before} -> ${value(v, i)}`);
+        return changed;
+      };
+      for (const f of wanted) {
+        // The placed vehicle when the scenario placed one, else a fresh one on open ground (the vehicle course).
+        let v = findEntity(ctx.sim, ctx.player, { type: f.typeId });
+        if (!v) { v = ctx.sim.engine.spawnEntity(f.typeId, 'overworld', { x: 300.5, y: FLAT_GROUND_Y, z: 600.5 }); await ctx.run(4); }
+        for (let i = 0; i < f.parts.length; i++) {
+          if (f.parts[i]!.closed.length < 6) continue;
+          sum.parts++;
+          if (await tapOn(v, f, i)) {
+            sum.opened++;
+            // Back as it was (a turnable keeps its step: it is never "open").
+            if (f.parts[i]!.kind !== 'turnable' && !(await tapOn(v, f, i))) ctx.violate({ invariant: 'vehicle-part-opens', message: `${f.typeId} part ${i}: a second tap did not close it`, evidence: { value: value(v, i) } });
+          } else ctx.violate({ invariant: 'vehicle-part-opens', message: `${f.typeId} part ${i} (${f.parts[i]!.noun}): a tap beside the parked vehicle did not open it`, evidence: { at: { x: r3(v.location.x), y: r3(v.location.y), z: r3(v.location.z) }, value: value(v, i) } });
+        }
+        const swing = f.parts.findIndex(p => p.closes && p.closed.length >= 6);
+        if (swing < 0) continue;
+        if (!(await tapOn(v, f, swing))) continue;
+        // In, and off down the road.
+        const start = { ...v.location };
+        await CORE_HANDLERS['hold']!({ kind: 'hold', target: { where: (e: SimEntity) => e === v, label: f.typeId } }, ctx);
+        if (ctx.player.ridingOn !== v) { ctx.violate({ invariant: 'tap-boards-ride', message: `a hold on ${f.typeId} with a part open did not mount it`, evidence: { at: start } }); continue; }
+        ctx.player.rotation.y = v.rotation.y;
+        let shutWhileMoving = true;
+        for (let t = 0; t < 60; t++) {
+          ctx.sim.controls.set(ctx.player.id, { forward: 1, strafe: 0, jump: false });
+          await ctx.run(1);
+          // Moving for a few ticks: every swinging part must be shut (the runtime closes them on the first moving tick).
+          if (t > 10 && f.parts.some((p, i) => p.closes && value(v!, i) !== 0)) shutWhileMoving = false;
+        }
+        ctx.sim.controls.set(ctx.player.id, { forward: 0, strafe: 0, jump: false });
+        await ctx.run(40);
+        const drove = Math.hypot(v.location.x - start.x, v.location.z - start.z);
+        sum.drove = Math.max(sum.drove, r2(drove));
+        if (!shutWhileMoving) { sum.closedWhileMoving = false; ctx.violate({ invariant: 'vehicle-part-closes-moving', message: `${f.typeId}: a part stayed open while the vehicle drove`, evidence: { drove: r2(drove) } }); }
+        await CORE_HANDLERS['sneak']!({ kind: 'sneak' }, ctx);
+        await ctx.run(30);
+        // Where it parked: the same tap opens it, and its drawn leaf stands at the part's open box there.
+        const again = await tapOn(v, f, swing);
+        if (again) sum.reopenedAfterDrive = true;
+        else ctx.violate({ invariant: 'vehicle-part-rides-along', message: `${f.typeId}: after a ${r2(drove)}-block drive a tap beside part ${swing} did not open it`, evidence: { at: v.location } });
+        const entry = registeredAppearance(pack.pack)?.byType.get(f.typeId);
+        if (entry && again) {
+          const props: Record<string, number | boolean | string> = Object.fromEntries(v.properties);
+          const closedProps = { ...props, [vehiclePartProperty(swing)]: 0 };
+          const set = registeredAppearance(pack.pack)?.animations?.get(f.typeId);
+          const shut = drawnBoxes(entry, v.location, v.rotation.y, v.scale(), 'near', animatedPoses(set, closedProps));
+          const open = drawnBoxes(entry, v.location, v.rotation.y, v.scale(), 'near', animatedPoses(set, props));
+          // The cubes that moved when it opened are the part's: their union must be the part's open box at this pose.
+          const moved = open.filter((d, j) => { const q = shut[j]?.box; return !!q && Math.abs(q.x0 - d.box.x0) + Math.abs(q.y0 - d.box.y0) + Math.abs(q.z0 - d.box.z0) > 1e-3; });
+          const want = worldBox(v, f.parts[swing]!, true);
+          const got = moved.length ? [Math.min(...moved.map(d => d.box.x0)), Math.min(...moved.map(d => d.box.y0)), Math.min(...moved.map(d => d.box.z0)), Math.max(...moved.map(d => d.box.x1)), Math.max(...moved.map(d => d.box.y1)), Math.max(...moved.map(d => d.box.z1))] : [];
+          const off = got.length ? Math.max(...got.map((g, a) => Math.abs(g - want[a]!))) : Infinity;
+          sum.followed = off < 0.25;
+          ctx.note(`${f.typeId} part ${swing}: ${moved.length} drawn cubes swung open where it parked; their box is ${r3(off)} blocks off the part's open box at the vehicle's pose`);
+          if (!sum.followed) ctx.violate({ invariant: 'vehicle-part-rides-along', message: `${f.typeId}: part ${swing}'s drawn leaf is ${r3(off)} blocks off where the runtime picks it after the drive (${moved.length} cubes moved)`, evidence: { want: want.map(r3), got: got.map(r3) } });
+        }
+        // Shut again for the steps after.
+        if (value(v, swing) !== 0) await tapOn(v, f, swing);
+      }
+      ctx.state['vehicleParts'] = sum;
+    },
+
     async dismountEverySize(step: AnyStep, ctx: StepContext) {
       if (typeOf(step).mode === 'boat') { ctx.note(`${typeOf(step).typeId} is a boat: its egress runs on water (waterEgress)`); return; }
       const f = typeOf(step);
@@ -811,6 +922,8 @@ export function vehicleScenarios(pack: CraftmaticPack): Scenario[] {
     name: `vehicle-${t.typeId.replace(/^.*:/, '')}`,
     description: `${t.mode} ${t.typeId}: the stuck course (stick forward into each obstacle), ${t.mode === 'plane' ? 'the spaceship controls, ' : ''}the free look, the cockpit eye at speed, getting off at 100/200/400 %.`,
     steps: [
+      // Its doors, lids and cupboards open on a tap while it is parked, close as it drives off and ride with it (A-02).
+      ...(t.parts.length ? [{ kind: 'vehicleParts', type: t.typeId }] : []),
       { kind: 'stuckCourse', type: t.typeId },
       // A ship also with Jump held: the old flight model's throttle (its stick alone never moved it), the new one's "up".
       ...(t.mode === 'plane' ? [{ kind: 'stuckCourse', type: t.typeId, policy: 'forward+jump' }] : []),

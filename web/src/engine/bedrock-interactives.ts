@@ -38,6 +38,7 @@
 import type { ParsedBrick } from './ldraw-parser.js';
 import { withClassifiedDescriptions, type LdrawPartMesh, type Vec3 } from './ldraw-part-geometry.js';
 import type { EntityRig } from './minifig-rig.js';
+import { hingeChain } from './hinge-rig.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { isDoorLeafDescription, sceneGridPoint, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { cleanPartId } from './ldraw-entity-compiler.js';
@@ -187,23 +188,6 @@ function worldBox(b: ParsedBrick, mesh: LdrawPartMesh): Box {
 const inBox = (p: Vec3, b: Box, pad = 0): boolean =>
   p[0] > b.min[0] + pad && p[0] < b.max[0] - pad && p[1] > b.min[1] + pad && p[1] < b.max[1] - pad && p[2] > b.min[2] + pad && p[2] < b.max[2] - pad;
 
-/** A rotation (row-major) taking unit `a` onto unit `b`. */
-function rotationBetween(a: Vec3, b: Vec3): number[] {
-  const v = cross(a, b), c = dot(a, b);
-  if (c > 1 - 1e-12) return [1, 0, 0, 0, 1, 0, 0, 0, 1];
-  if (c < -1 + 1e-12) {
-    // Opposite: a half turn about any axis perpendicular to `a`.
-    const p = norm(Math.abs(a[0]) < 0.9 ? cross(a, [1, 0, 0]) : cross(a, [0, 0, 1]));
-    return [2 * p[0] * p[0] - 1, 2 * p[0] * p[1], 2 * p[0] * p[2], 2 * p[1] * p[0], 2 * p[1] * p[1] - 1, 2 * p[1] * p[2], 2 * p[2] * p[0], 2 * p[2] * p[1], 2 * p[2] * p[2] - 1];
-  }
-  const k = 1 / (1 + c);
-  return [
-    v[0] * v[0] * k + c, v[0] * v[1] * k - v[2], v[0] * v[2] * k + v[1],
-    v[1] * v[0] * k + v[2], v[1] * v[1] * k + c, v[1] * v[2] * k - v[0],
-    v[2] * v[0] * k - v[1], v[2] * v[1] * k + v[0], v[2] * v[2] * k + c,
-  ];
-}
-const transpose = (m: number[]): number[] => [m[0]!, m[3]!, m[6]!, m[1]!, m[4]!, m[7]!, m[2]!, m[5]!, m[8]!];
 
 /**
  * The hinge rig: every placement hangs on `ix_untilt`, which un-tilts about the
@@ -215,14 +199,11 @@ const transpose = (m: number[]): number[] => [m[0]!, m[3]!, m[6]!, m[1]!, m[4]!,
  * about the axis in the LDraw frame (the grid frame is a proper rotation of it).
  */
 export function interactiveRig(count: number, pivotLdu: Vec3, axisLdu: Vec3, rootLdu: Vec3 = pivotLdu): EntityRig {
-  const tilt = rotationBetween([0, -1, 0], norm(axisLdu)); // LDraw up is -Y
   return {
     bones: [
       // The placement's turn and size, about the entity origin (`interactiveAnimation`).
       { name: ROOT_BONE, pivotLdu: rootLdu },
-      { name: 'ix_tilt', parent: ROOT_BONE, pivotLdu, rotation: tilt },
-      { name: SPIN_BONE, parent: 'ix_tilt', pivotLdu },
-      { name: 'ix_untilt', parent: SPIN_BONE, pivotLdu, rotation: transpose(tilt) },
+      ...hingeChain({ tilt: 'ix_tilt', spin: SPIN_BONE, untilt: 'ix_untilt' }, pivotLdu, axisLdu, ROOT_BONE),
     ],
     boneOf: new Array(count).fill('ix_untilt'),
   };
