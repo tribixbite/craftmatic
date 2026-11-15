@@ -282,6 +282,7 @@ the user received is 30i (2026-09-30); later work has not been on a phone.
 | `PROC-16` | Settle CRLF config | DONE-DEVICE | `.gitattributes` `* text=auto eol=lf` (`a54a6068`, 2026-09-23); `CLAUDE.md` gotcha | rule:CLAUDE.md | 2026-10-07: `git ls-files --eol` shows 0 `i/crlf`/`i/mixed` | none |
 | `PROC-17` | Fix stop hooks | PARTIAL | `06f197ee` (2026-08-17, stale hooks pruned); `.claude/settings.json` (3 Stop hooks) | none | — | implemented, but no automated guard yet; `renderer-improve-loop.mjs` ignores `stop_hook_active` (harmless while `active:false`) |
 | `PROC-18` | Use local VLM endpoints/GPU; kill local server when moved | DONE-OFFLINE | memory `project-corpus-rearch-2026-09.md` (192.168.1.32:8090); clego `EXIT3_PILOT.md` §0 | rule:~/.claude/projects/C--git-craftmatic/memory/project-corpus-rearch-2026-09.md | 2026-09-03 | Moot under the zero-runtime-VLM contract |
+| `PROC-19` | Replica-set polish (the user 2026-11-15): a Fable audit of add-on generation over the favourite packs, every finding fixed and tested, all favourite packs sent; then any set as good as the favourites | OPEN | TASKS-BEDROCK-ADDON.md "replica-set polish" | none | none | audit not yet run |
 
 ## 17. Business: legality, market, revenue
 
