@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { embeddedPartTexts, parseLDrawDocument } from '../web/src/engine/ldraw-parser.js';
 import { seedDatTexts, setLDrawRoot } from '../web/src/engine/ldraw-geometry.js';
 import { runSchemPipeline } from '../web/src/engine/schem-pipeline.js';
-import { LEGO_ENTITY_QUALITY } from '../web/src/engine/ldraw-part-prototype.js';
+import { vehicleEntityQuality } from '../web/src/engine/playable-addon.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { helmSeatPlan, renderSeatToEntity } from '../web/src/engine/cockpit-seat.js';
 
@@ -68,7 +68,9 @@ describe.skipIf(!HAVE_CORPUS)('playable add-on golden models', () => {
       const d = diag.entities[g.cid];
       expect(d).toBeDefined();
       expect(d.resolvedPartCount / d.uniquePartCount).toBeGreaterThan(0.9);
-      expect(d.cubeCount).toBeLessThanOrEqual(LEGO_ENTITY_QUALITY.balanced.maxModelCubes + LEGO_ENTITY_QUALITY.balanced.maxStudCubes);
+      // A whole-model vehicle takes the shell's share of the budget (FID-02, `vehicleEntityQuality`): at most all of it.
+      const q = vehicleEntityQuality('balanced', 1, 1);
+      expect(d.cubeCount).toBeLessThanOrEqual(q.maxModelCubes + q.maxStudCubes);
       expect(d.cubeCount).toBeGreaterThan(d.sourcePartCount); // more than one cuboid per part on average: not AABBs
       // Every unresolved part is an explicit AABB fallback and produces a warning.
       const fallbackParts = d.aabbFallbackParts.map((f: { part: string }) => f.part);
