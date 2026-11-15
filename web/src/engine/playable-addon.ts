@@ -38,7 +38,7 @@ import { generateLegoMaterialSwatch, legoMaterialSwatchName } from './ldraw-enti
 import { MATERIAL_PBR, resolveLdrawEntityMaterial, type LdrawEntityMaterial } from './ldraw-entity-materials.js';
 import { ACTOR_DRAW_CEILING_BLOCKS, buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_LARGEST_SIZE_FACTOR, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID, MIN_LOD_NEAREST_CUBE_BLOCKS, planLodSwitch, RENDER_CULL_BLOCKS_PER_UNIT, RENDER_CULL_MIN_UNITS, type CollisionBox, type LodHullInput } from './bedrock-lod-hull.js';
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
-import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
+import { resolveEntityQuality, type LegoEntityQuality, type LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterTrackPack, type TrackPackOptions } from './coaster-pack.js';
 import type { GeneratedCoaster } from './coaster-design.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
@@ -2606,6 +2606,27 @@ function palettePng(palette: string[]): Uint8Array { const w = 16, h = Math.max(
 /** What `emitCompiledEntity` reads of a compiled entity: a `CompiledLdrawGeometry` is one; so is a rail chunk (`coaster-pack.ts`). */
 export type EmittableGeometry = LodHullInput & { diagnostics: { cubeCount: number } };
 
+/**
+ * The quality a VEHICLE carved out of a model is compiled at (FID-02, audit 2026-11-15 A-03): the vehicle preset
+ * (`LEGO_ENTITY_QUALITY`, its start grain and per-part cap), with the cuboid and stud budgets raised to the share of
+ * the building shell's (`LEGO_SHELL_QUALITY`) that its placements would have spent as static geometry, and never
+ * lowered below the preset. A whole-model vehicle (42172: 3,899 of 3,918 placements) thus takes the shell's ~49k
+ * where it had the preset's 24,576: the pack ships about the cuboids the same model ships as a building (the shell
+ * is left with what the vehicle did not take), so the device's resident budget (`DEVICE_CUBOID_BUDGET`) and its
+ * ~50-100k drawn cuboids for 60 fps (docs/bedrock-addon-guide.md) are spent as they were for the building. A scene
+ * car of a tenth of a scene keeps the preset, as before.
+ */
+export function vehicleEntityQuality(name: LegoEntityQualityName | undefined, vehicleParts: number, modelParts: number): LegoEntityQuality {
+    const base = resolveEntityQuality(name);
+    const share = modelParts > 0 ? Math.min(1, Math.max(0, vehicleParts / modelParts)) : 0;
+    const shell = LEGO_SHELL_QUALITY[name ?? 'balanced'];
+    return {
+        ...base,
+        maxModelCubes: Math.max(base.maxModelCubes, Math.round(shell.maxModelCubes * share)),
+        maxStudCubes: Math.max(base.maxStudCubes, Math.round(shell.maxStudCubes * share)),
+    };
+}
+
 export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddonOptions): Promise<PlayableAddonResult> {
     // A pack of figures alone (a custom minifig from minifigFromSpec) has no blocks and is still a pack.
     if (!grid.countNonAir() && !options.components?.some(c => c.grid.countNonAir()) && !options.figures?.length && !options.minifigCreator)
@@ -3392,6 +3413,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         files.push({ name: `${bp}structures/${PACK_NAMESPACE}/${tile.name}.mcstructure`, data: out.bytes });
         options.onProgress?.(`encoding structure ${i + 1}/${plan.length}`, Math.round((i + 1) / plan.length * 70));
     }
+    // Every placement the model's static and vehicle geometry is built from: a vehicle's cuboid budget is its share of the shell's (`vehicleEntityQuality`).
+    const modelParts = components.reduce((n, c) => n + (c.bricks?.length ?? 0), 0) + (options.shell?.bricks.length ?? 0);
     for (const c of components) {
         const rawCid = safe(`${id}_${c.id}`).length === `${id}_${c.id}`.length ? safe(`${id}_${c.id}`) : safe(`${id.slice(0, 24)}_${c.id.slice(0, 12)}_${deterministicUuid(`${id}:${c.id}`).slice(0, 8)}`);
         const cid = entityId(rawCid, 'v');
@@ -3409,7 +3432,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 facing: requestedFacing,
                 userSeatAnchor: c.seatAnchor,
                 partGeometry: options.partGeometry,
-                quality: options.entityQuality,
+                quality: vehicleEntityQuality(options.entityQuality, c.bricks.length, modelParts),
                 pbr,
                 // Spinning wheels and a body that leans (bedrock-vehicle.ts).
                 vehicleRig: true,
