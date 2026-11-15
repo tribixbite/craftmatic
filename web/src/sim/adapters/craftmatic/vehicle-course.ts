@@ -434,7 +434,12 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
       for (const f of wanted) {
         // The placed vehicle when the scenario placed one, else a fresh one on open ground (the vehicle course).
         let v = findEntity(ctx.sim, ctx.player, { type: f.typeId });
-        if (!v) { v = ctx.sim.engine.spawnEntity(f.typeId, 'overworld', { x: 300.5, y: FLAT_GROUND_Y, z: 600.5 }); await ctx.run(4); }
+        if (!v) {
+          // On open ground beside the child (loaded: the course's own spots are far out), clear of its footprint.
+          const at = { x: Math.floor(ctx.player.location.x) + 0.5 + Math.ceil(f.noseReach + f.halfWidth) + 4, y: FLAT_GROUND_Y, z: Math.floor(ctx.player.location.z) + 0.5 };
+          v = ctx.sim.engine.spawnEntity(f.typeId, 'overworld', at);
+          await ctx.run(4);
+        }
         for (let i = 0; i < f.parts.length; i++) {
           if (f.parts[i]!.closed.length < 6) continue;
           sum.parts++;
@@ -1007,6 +1012,8 @@ function boatScenario(t: ScriptedTypeFacts): Scenario {
     name: `vehicle-${t.typeId.replace(/^.*:/, '')}`,
     description: `boat ${t.typeId}: the water lanes (open water, a bank, a one-block channel, a pier post), getting off on the water at 100/200/400 %, the free look and the cockpit eye on a pool.`,
     steps: [
+      // Its lids, hatches and cupboards open on a tap while it is parked (A-02); a boat parked on land does not drive off.
+      ...(t.parts.length ? [{ kind: 'vehicleParts', type: t.typeId }] : []),
       { kind: 'boatCourse', type: t.typeId },
       { kind: 'waterEgress', type: t.typeId },
       { kind: 'cameraRecentre', type: t.typeId },
