@@ -211,6 +211,8 @@ export interface TapReach {
    * false when it does and the pack's colliders take it away; absent when the adapter cannot ask.
    */
   byModel?: boolean;
+  /** For a target the pack keeps (`byModel` false): where the model's route leaves the colliders' walk (`MODEL_BLAME_KEY`). */
+  blame?: string;
 }
 
 /**
@@ -220,6 +222,13 @@ export interface TapReach {
  */
 export const MODEL_ROUTE_KEY = 'modelRoute';
 export type ModelRoute = (from: Vec3, goals: readonly Vec3[]) => boolean;
+/**
+ * State key of an adapter's answer to "where does the model's route leave the colliders' walk": `(from, goals) =>
+ * text`, asked only of a target the pack keeps from a walk the model draws (`TapReach.byModel` false), so a pack
+ * row names the edge to triage (walk-attribution, audit 2026-11-15 A-20).
+ */
+export const MODEL_BLAME_KEY = 'modelBlame';
+export type ModelBlame = (from: Vec3, goals: readonly Vec3[]) => string | undefined;
 
 /** The tap reach records a scenario collected. */
 export const tapReachOf = (state: Record<string, unknown>): TapReach[] => (state[TAP_REACH_KEY] as TapReach[] | undefined) ?? [];
@@ -313,8 +322,9 @@ async function reachFor(ctx: StepContext, target: SimEntity, label: string): Pro
         const modelRoute = ctx.state[MODEL_ROUTE_KEY] as ModelRoute | undefined;
         const from = (ctx.state[FOOT_ORIGIN_KEY] as Vec3 | undefined) ?? p.location;
         const byModel = modelRoute ? !modelRoute(from, spots.map(s => s.feet)) : undefined;
-        const whose = byModel === undefined ? '' : byModel ? " - the MODEL's: nothing it draws leads there on foot either" : " - the PACK's: the model draws a route there, the colliders do not";
-        ctx.state[TAP_REACH_KEY] = [...tapReachOf(ctx.state), { target: target.typeId, label, onFoot: false, ticks: 0, why, spot: { ...spot.feet }, tick: ctx.sim.engine.tick, ...(byModel === undefined ? {} : { byModel }) }];
+        const blame = byModel === false ? (ctx.state[MODEL_BLAME_KEY] as ModelBlame | undefined)?.(from, spots.map(s => s.feet)) : undefined;
+        const whose = byModel === undefined ? '' : byModel ? " - the MODEL's: nothing it draws leads there on foot either" : ` - the PACK's: the model draws a route there, the colliders do not${blame ? ` (${blame})` : ''}`;
+        ctx.state[TAP_REACH_KEY] = [...tapReachOf(ctx.state), { target: target.typeId, label, onFoot: false, ticks: 0, why, spot: { ...spot.feet }, tick: ctx.sim.engine.tick, ...(byModel === undefined ? {} : { byModel }), ...(blame ? { blame } : {}) }];
         ctx.note(`tap-target-unreachable-on-foot: ${label} (${target.typeId}): ${why}${whose}; the child is put on the spot so the tap is still tried`);
       }
       ctx.state[FOOTING_KEY] = 'teleported';

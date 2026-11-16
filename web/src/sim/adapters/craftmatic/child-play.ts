@@ -16,8 +16,8 @@
 
 import type { Scenario, Step, StepContext, StepHandler, AnyStep } from '../../scenario/types.js';
 import { teleport } from '../../script-host/facades.js';
-import { approachSpots, findApproach, SIGHT_MARGIN, walkFlood, walkReaches, type WalkNode } from '../../scenario/approach.js';
-import { APPROACH_KEY, MODEL_ROUTE_KEY, type ModelRoute } from '../../scenario/runner.js';
+import { approachSpots, findApproach, floorBelow, SIGHT_MARGIN, walkFlood, walkReaches, walkRoute, type WalkNode } from '../../scenario/approach.js';
+import { APPROACH_KEY, MODEL_BLAME_KEY, MODEL_ROUTE_KEY, type ModelBlame, type ModelRoute } from '../../scenario/runner.js';
 import type { SimEngine } from '../../core/engine.js';
 import { DEV_NAMESPACE, ixKeys, nsId } from './namespace.js';
 import type { Addon } from '../../pack/pack.js';
@@ -98,6 +98,33 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
           return goals.some(g => walkReaches(engine, dim, nodes!, g));
         };
         ctx.state[MODEL_ROUTE_KEY] = route;
+        // Where the model's route to a target the pack keeps leaves the colliders' walk: the first node of the drawn
+        // route the colliders' flood (same origin, same box) does not reach, with what the colliders stand there.
+        const real = new Map<string, WalkNode[]>();
+        const blame: ModelBlame = (from, goals) => {
+          const k = `${from.x.toFixed(2)},${from.y.toFixed(2)},${from.z.toFixed(2)}`;
+          let nodes = real.get(k);
+          if (!nodes) real.set(k, nodes = walkFlood(ctx.sim.engine, dim, from, within(from)));
+          const reached = nodes;
+          for (const g of goals) {
+            const drawn = walkRoute(engine, dim, from, g);
+            if (!drawn) continue;
+            // A node is the colliders' too when their flood stands in its column within a step of its floor.
+            const i = drawn.findIndex(n => !reached.some(r => r.x === n.x && r.z === n.z && Math.abs(r.y - n.y) < BLAME_SAME_FLOOR));
+            if (i <= 0) continue;
+            const a = drawn[i - 1]!, b = drawn[i]!, w = ctx.sim.engine.dimension(dim);
+            const at = (n: WalkNode): string => `${n.px.toFixed(2)},${n.y.toFixed(3)},${n.pz.toFixed(2)}`;
+            const ours = floorBelow(ctx.sim.engine, dim, b.px, b.y + 1.3, b.pz, 3);
+            const cells: string[] = [];
+            for (let y = Math.floor(b.y) - 1; y <= Math.floor(b.y) + 2; y++) {
+              const pm = w.palette.get(w.rawId(b.x, y, b.z));
+              if (pm.typeId !== 'minecraft:air') cells.push(`${b.x},${y},${b.z} ${pm.typeId.replace(/^[a-z0-9_]+:/, '')}${Object.keys(pm.states).length ? JSON.stringify(pm.states) : ''}`);
+            }
+            return `the drawn route leaves the colliders' walk from ${at(a)} to ${at(b)}: the colliders stand ${ours === undefined ? 'nothing within 3' : `at ${ours.toFixed(3)}`} there; blocks ${cells.join('; ') || 'none'}`;
+          }
+          return undefined;
+        };
+        ctx.state[MODEL_BLAME_KEY] = blame;
       }
       const IX = ixKeys(pack.namespace);
       const parts = [...ctx.sim.engine.entities.values()].filter(e => e.valid && typeof e.dynamic.get(IX.index) === 'number');
@@ -183,6 +210,8 @@ function hiddenByModel(ctx: StepContext, part: SimEntity, drawn: readonly DrawnB
   return spots.length;
 }
 
+/** How close (blocks) a colliders' walk node must stand to a drawn route node's floor to be the same floor: a step. */
+const BLAME_SAME_FLOOR = 9 / 16;
 /** How far round the placed model the MODEL route flood (`DrawnWalkWorld`) walks the ground (blocks). */
 const WALK_FLOOD_MARGIN = 6;
 
