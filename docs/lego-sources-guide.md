@@ -1764,6 +1764,19 @@ committed converter already writes for 10788/10797/11204. Gate v2 grades these
 they were accepted by eye on before/after renders
 (`output/gabby-0926/src-fix/`, eye verdicts in `eye-verdicts.json`).
 
+## Head prints carried between conversions of one set (2026-11-15, FIG-04 / A-10)
+
+A set's first pick often names no head prints (Mecabricks writes a printed head as plain `3626`) while another
+conversion of the same set does. `bun scripts/_face_print_transfer.ts [set...] --json= --write=<dir>` matches FIGURES
+across the two by what they are made of (`scripts/face-transfer.ts`: role:colour per part, the headwear's mould too;
+torso and headwear weigh most), and carries a print only on an unambiguous match: score >= 0.75, 0.15 clear of any
+candidate with another print, mutual, never to more heads than the donor wears it on, and only onto the same head
+mould family. A print the library draws is carried as a RENAME to the donor's part (`3626cp0e`), any other as a
+`0 !CRAFTMATIC HEAD_PRINT` meta. Over the 40 favourites: 76269 19 accepted / 10 refused (its Mecabricks file, patched
+in clego, backup `_face_backup_20261115_content2/`), 10326 3 matched but its `.io` first pick is not written, 75397 /
+71040 / 10365 have no donor naming a print. Every 10326 match agreed with the print its `bl_3626cpb<N>` part already
+named, which is how the `faceKey` gap for Studio's `bl_` head copies was found.
+
 ## Boxed parts, baseplates and stale IOModel2V2 files (audit 2026-11-15, A-07 / A-09)
 
 - **801 of 802 `IOModel2V2/*.ldr` predate the flattener's preserved definitions** (clego `922de02c`, 2026-09-21):
@@ -1774,6 +1787,14 @@ they were accepted by eye on before/after renders
   assembly's colour, and a preserved part using Studio's 48-segment primitive copy (`bush0`) aborted the whole set.
   Only the 7 favourites were regenerated (backups `C:/git/clego/_io2_backup_20261115_auditparts/`); the other ~795
   need a corpus A/B first. TODO(io2-regen).
+  **The A/B (2026-11-15, 70 sampled of 794 eligible, seed 1115; `output/audit-content2/io2-ab/` on branch
+  audit-content2) is NOT a clean win, so nothing was regenerated.** 4 of 70 refuse to convert ("preserved embedded
+  root has library-resolved child with a non-equivalent frame": 42114, 6098-dp, 42206, 10234). Over 53 of the 66,
+  placements the CLI draws as boxes fall 518 -> 34, none rises. But gate v2 (connections) gives 16 accept, 23 unsure,
+  27 reject, 10 of them WORSE: 8653-double's side-model parts 1 -> 1,523, 910001's figure defects 2 -> 14, 10305-open's
+  69 -> 84, and lost connections in 76313, 75355, 75339, 910003 (8416-all, 75306, 8433-all are refused on the
+  connected-pair rule). A regeneration also drops the 09-25 turned-part splices some files carry. Publishing only the
+  gate's accepts per file is the next step, not a corpus-wide regeneration.
 - **`75cNN` (Hose, Rigid 3mm D. NN L) is generated**, `u9053` + `77` stretched to 20 NN LDU + `u9053` turned, exactly
   Studio's own definition (`synthesizedPartText`, both resolvers): 612 placements in 124 corpus files. Mecabricks
   writes the same hoses under design ids (75397: 60677/85526/56203/85523) as FLEXIBLE parts: each scene instance

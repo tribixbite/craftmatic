@@ -36,6 +36,14 @@ describe('a BrickLink-named printed head resolves to the LDraw print of the same
     expect(namedHeadPrint('3626.dat')).toBeNull();
     expect(namedHeadPrint('92198pr0050.dat')).toBe('92198pr0050');
   });
+
+  it('reads a Studio BrickLink copy of a printed head (`bl_3626cpb<N>`) as the same print', async () => {
+    // 10326's first pick places its printed heads as Studio's `bl_` copies; the face-transfer matcher read the same
+    // prints off the set's DbixConvV3 conversion (3626pb3214, 3626pb2933) for those very figures.
+    const { faceKey } = await import('../web/src/engine/head-face.js');
+    expect(faceKey('bl_3626cpb2648.dat')).toBe('3626pb2648');
+    expect(namedHeadPrint('bl_3626cpb3214.dat')).toBe('3626pb3214');
+  });
 });
 
 
@@ -68,13 +76,15 @@ describe('a printed head that IS its BrickLink name', () => {
  * least. Measured 2026-11-15 by `bun scripts/_face_census.ts --faces=output/faces-art-1115` (the main checkout's
  * art: route-2 photos, local builds only); before this round the same sources gave 75 of 319 with no art.
  * [floor, heads]. A floor only goes up; a head with no print identity in its source (Mecabricks' plain `3626`,
- * 10326's no-print `.io`, 71043's LXF) cannot be counted in, so 71040, 71043, 75397 and 76269 stay at 0.
+ * 10326's no-print `.io`, 71043's LXF) cannot be counted in, so 71040, 71043 and 75397 stay at 0. 76269 rose 0 -> 16
+ * when `_face_print_transfer.ts` carried 19 prints from its DbixConvV3 conversion onto its Mecabricks first pick
+ * (2026-11-15, 9 new art files), 10326 3 -> 6 when `faceKey` read its `bl_3626cpb<N>` heads as their prints.
  */
 const FACE_FLOORS: Readonly<Record<string, readonly [number, number]>> = {
-  '10261': [11, 14], '10303': [11, 11], '10326': [3, 13], '10354': [8, 9], '10365': [2, 9], '11371': [6, 9],
+  '10261': [11, 14], '10303': [11, 11], '10326': [6, 13], '10354': [8, 9], '10365': [2, 9], '11371': [6, 9],
   '11374': [1, 1], '21318': [4, 4], '21360': [9, 15], '31141': [6, 6], '41703': [5, 6], '41732': [9, 10],
   '42639': [10, 10], '42652': [4, 4], '42663': [3, 3], '42670': [7, 15], '43267': [6, 7], '60380': [12, 15],
-  '60446': [5, 5], '71040': [0, 3], '71043': [0, 4], '75397': [0, 6], '76269': [0, 32], '76286': [2, 3],
+  '60446': [5, 5], '71040': [0, 3], '71043': [0, 4], '75397': [0, 6], '76269': [16, 32], '76286': [2, 3],
   '76417': [14, 17], '76419': [2, 3], '76435': [8, 10], '76457': [14, 17], '77092': [4, 10], '80049': [4, 5],
   '910004': [7, 10], '910032': [6, 8], '910047': [9, 9], '910049': [15, 16],
 };
