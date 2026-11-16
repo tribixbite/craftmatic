@@ -426,7 +426,12 @@ export function colliderCarveSource(boxes: readonly ColliderSourceBox[], frame: 
   const protect = new Set<string>();
   for (const c of colliderSourceCells(shipped)) {
     const key = `${c.x},${c.y},${c.z}`, g = geometry.get(key), e = extent(c);
-    if (!g || e[0] < g[0] || e[1] > g[1]) protect.add(key);
+    // A floor + wall form (kind 1) is clearance's own: its wall may run past the geometry to the block top where no
+    // player fits over it or over furniture on a floor (collider-clearance.ts rules 1 and 4), so its TOP proves
+    // nothing; the planners lay full cells. Read as laid on purpose, 910004's (12, 4, 1) went uncarved at 400 %
+    // and its 4-block column walled Door 5's porch (audit-doors2).
+    const clearanceRaised = !!c.v && COLLIDER_KIT.VARIANTS[c.v]!.kind === 1;
+    if (!g || e[0] < g[0] || (e[1] > g[1] && !clearanceRaised)) protect.add(key);
   }
   return { boxes: modelBoxes, protect };
 }

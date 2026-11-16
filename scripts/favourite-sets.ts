@@ -74,8 +74,8 @@ export const FAVOURITE_DOORWAYS_NOT_OK_AT_100: Readonly<Record<string, Readonly<
   '11371': { 'Door 8': 'SEALED: model:solid - drawn geometry a block inside the - side, 5.8 blocks up' },
   '21318': { 'Door 2': 'SEALED: model:solid - furniture a stud inside the - side (opens at 200 % with the doorway carve)' },
   '42663': { 'Door 1': 'SEALED: model:solid - drawn geometry on the - side; the model is passed only by leaving the doorway sideways' },
+  // 42670 Garage door 1 is OK at 100 % since clearance's furniture exception (audit-doors2, 2026-11-15): row removed.
   '42670': {
-    'Garage door 1': 'SEALED: model:solid - the garage opens onto drawn geometry on the + side',
     'Door 3': 'SEALED: model:solid - drawn geometry a block out on the + side, 1.3 blocks up',
   },
   '71040': { 'Door 1': 'SEALED: model:solid - drawn geometry on both sides of the castle door' },
@@ -93,10 +93,14 @@ export const FAVOURITE_DOORWAYS_NOT_OK_AT_100: Readonly<Record<string, Readonly<
     'Door 5': 'SEALED: model:solid - drawn geometry a block out on the - side, 4 blocks up',
   },
   '910049': { 'Gate 1': 'SEALED: model:route - the drawn model offers no way through from the - side' },
-  // TODO(clearance-tight-910032): the PACK's, not the model's - cells (2,0,5) and (2,0,6) hold a floor plate and
-  // furniture details a few sixteenths wide, yet ship full 0..15 colliders that clearance never proposed to trim; the
-  // drawn model lets the player through (`wide:OK`). Open until clearance trims sparse furniture cells.
-  '910032': { 'Door 4': 'SEALED: collider:tight - OUR colliders: full 0..15 cells over sparse furniture geometry seal the - side (TODO)' },
+  // TODO(clearance-tight-910032): the PACK's, not the model's (the drawn model lets the player through, `wide:OK`).
+  // Cells (2,0,5) and (2,0,6) - a floor plate under a round table's rim a quarter block wide - are now PROPOSED as
+  // floor + wall forms (clearance's furniture exception, audit-doors2) but kept whole as Door 4's LANDING (within 2
+  // blocks of the leaf, 0.63 over its foot): the same guard keeps 10326 Door 3 OK, whose - side has nothing drawn to
+  // stand on and whose only level spot is such a phantom top. Trimmed, they still leave Door 4 sealed by rule 4's
+  // refusals at the table top (1,1,6) and a floor sliver (1,0,7). Open until a trim near a doorway is judged by the
+  // doorway's own walk (its verdict before and after), not by a local rule.
+  '910032': { 'Door 4': 'SEALED: collider:tight - OUR colliders: a table on a floor plate a block out, kept whole as the landing (TODO)' },
 };
 
 /** A tap target's label that names a doorway leaf (a door, a gate, a garage door). */
@@ -108,14 +112,22 @@ export const DOOR_LABEL = /^(door|gate|garage door)\b/i;
  * it), counted as distinct door labels per favourite (audit 2026-11-15 A-20, favsweep-4e5963dc). `--door-ceilings`
  * fails a favourite above its number and asks for the number to come down when it is below: the ceiling only goes
  * down. A favourite not listed has a ceiling of 0. The model's own (an upper floor no drawn stair reaches) are not
- * counted. TODO(walk-attribution): each of these is a lead to triage, not a proven pack bug - at 11371's front the
- * drawn route steps onto a plate whose collider cell is 0.49 higher (a taller part in the same 1-block cell).
+ * counted. Triaged 2026-11-15 (audit-doors2, `TapReach.blame` names the edge): 10326 Door 4 was the sim's own - the
+ * drawn route walked through the closed leaf to a tap spot behind it (the model route now treats closed leaves as
+ * drawn, ceiling 0). TODO(walk-attribution): the three left are the pack's and open -
+ *   11371 Doors 2 and 4: a lamp post 1/16 block square in the corner of grid cell (20, 1..3, 5) ships as a quarter-
+ *     block x-band the cell's whole length (the form kit has bands only, no corner shapes); with a 3/16 post's band in
+ *     the next cell the 0.6-wide player no longer fits the 0.5-block gap the drawn route walks;
+ *   42670 Door 3: a threshold stair's treads (grid (7..9, 0..1, 3), no geometry) stand across the ground route
+ *     along the facade the drawn route takes (a tread run's side is a wall);
+ *   71040 Door 1: the drawn route passes 0.1 block inside the box of an overhang's layer (grid (3, 1, 9), x 8..16
+ *     sixteenths, refused `walkable-top`); the colliders are exactly that box, so this one is within the part-box vs
+ *     drawn-cube tolerance, not a trim clearance missed.
  */
 export const FAVOURITE_DOOR_ROUTES_PACK_AT_100: Readonly<Record<string, number>> = {
-  '10326': 1, // Door 4
-  '11371': 2, // Doors 2 and 4: the front plate's collider cell is 0.49 over the drawn plate (a taller part in the cell)
-  '42670': 1, // Door 3
-  '71040': 1, // Door 1
+  '11371': 2, // Doors 2 and 4: a corner post's band (no corner forms in the kit)
+  '42670': 1, // Door 3: a threshold stair across the ground route
+  '71040': 1, // Door 1: an overhang's layer box 0.1 inside the drawn route
 };
 
 /** A favourite's count against its ceiling: `over` fails the gate, `under` asks for the ceiling to come down. */

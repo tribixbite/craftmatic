@@ -11,10 +11,12 @@
  * form containing every part box - and a raised ceiling where a sneaking
  * player fits but a standing one does not. A proposal is applied only when:
  *
- *   1. SUBSET      the form lies inside the old full cell (never less free space);
+ *   1. SUBSET      the form lies inside the old full cell (never less free space) - or, under a gap no
+ *                  player fits, inside the cell to the block top (a floor + wall form's wall runs there);
  *   2. SUPERSET    it contains the cell's geometry (a wall trim), or it is the ceiling rule;
  *   3. DOOR        no closed leaf reaches the cell and the doorway cut left it as built;
- *   4. FLOOR       a cell whose top is a standing surface keeps its top sixteenth full,
+ *   4. FLOOR       a cell whose top is a standing surface keeps its top sixteenth full
+ *                  (unless it is furniture over a floor plate, `furnitureForm`, or a doorway's approach),
  *                  unless that surface is only a WALL's top whose phantom rim overhangs
  *                  open air (`wallTopRim`: a wall band rising from the cell below, every
  *                  freed strip open sideways to a neighbour column with nothing in it
@@ -128,6 +130,8 @@ export interface ClearanceReport {
   wallTops: number;
   /** Standing surfaces rule 4 let through because they stand in a doorway's approach at body height (`approachTop`). */
   approachTops: number;
+  /** Standing surfaces rule 4 let through because they are furniture's phantom top over a floor plate (`furnitureForm`). */
+  furnitureTops: number;
   applied: { wall: number; ceiling: number };
   refused: Record<ClearanceRefusal, number>;
   /** Block volume freed (blocks cubed at 100 %). */
@@ -152,6 +156,11 @@ export const APPROACH_STEP16 = 9;
 export const STAND_NEED16 = 29;
 export const CEILING_RAISE_MAX16 = STAND_NEED16 - SNEAK_NEED16;
 export const CEILING_KEEP16 = 2;
+/**
+ * The most a floor + wall form's wall may rise past furniture's top to the block top over a standing surface
+ * (rule 4's furniture exception): two sixteenths, under the collider tolerance a body already stands within.
+ */
+export const FURNITURE_SLACK16 = 2;
 /** Leak-check resolution (voxels per block), the flying player's width and height in voxels, and its round limit. */
 const VOX = 4;
 const PLAYER_VOX_W = 2;
@@ -210,7 +219,7 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
   const idx = (x: number, y: number, z: number): number => (x * H + y) * L + z;
   const refused: Record<ClearanceRefusal, number> = { 'door-leaf': 0, 'door-cut': 0, 'walkable-top': 0, leak: 0, unverifiable: 0 };
   const entries: ClearanceEntry[] = [];
-  const report: ClearanceReport = { cells: 0, alreadyTight: 0, wallTops: 0, approachTops: 0, applied: { wall: 0, ceiling: 0 }, refused, freedBlocks: 0, leakRounds: [], leaks: [], voxels: 0, millis: 0, verified: true, entries };
+  const report: ClearanceReport = { cells: 0, alreadyTight: 0, wallTops: 0, approachTops: 0, furnitureTops: 0, applied: { wall: 0, ceiling: 0 }, refused, freedBlocks: 0, leakRounds: [], leaks: [], voxels: 0, millis: 0, verified: true, entries };
 
   /** The collider form the grid holds at a cell (pristine full form after the cut), or null. */
   const formAt = (x: number, y: number, z: number): ColliderForm | null => parseFormState(grid.get(x, y, z));
@@ -276,6 +285,16 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
   }
 
   /**
+   * Whether a standing top at `top16` (absolute sixteenths) in column (x, z) is a doorway's LANDING: within
+   * `LANDING_REACH` blocks of a closed leaf, horizontally, and within `LANDING_RISE` of the leaf's foot. Rule 4's
+   * exceptions never narrow one: it may be the only level spot outside the door.
+   */
+  const landingAt = (x: number, z: number, top16: number): boolean => leaves.some(b => {
+    const dx = Math.max(0, b.x0 - (x + 1), x - b.x1), dz = Math.max(0, b.z0 - (z + 1), z - b.z1);
+    return Math.hypot(dx, dz) <= LANDING_REACH && Math.abs(top16 / 16 - b.y0) <= LANDING_RISE;
+  });
+
+  /**
    * Rule 4's one exception: a standing surface that is only a WALL's top, whose
    * phantom rim (the part of the full top the wall band does not reach)
    * overhangs open air. Then narrowing it to the band takes away nothing but
@@ -320,10 +339,7 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     // Not a doorway's landing: within `LANDING_REACH` blocks of a closed leaf and within a jump of its
     // floor, the rim is where a player steps out of the door. 31141's Doors 3 and 5 open onto such a
     // rim over the street; trimmed, the only level spot outside them was gone (they read ONE-WAY).
-    for (const b of leaves) {
-      const dx = Math.max(0, b.x0 - (x + 1), x - b.x1), dz = Math.max(0, b.z0 - (z + 1), z - b.z1);
-      if (Math.hypot(dx, dz) <= LANDING_REACH && Math.abs(top16 / 16 - b.y0) <= LANDING_RISE) return false;
-    }
+    if (landingAt(x, z, top16)) return false;
     for (const { nx, nz, s } of strips) {
       // The strip's floor: the highest GEOMETRY under it (a trim only lowers a form to its geometry, so
       // this is the lowest the floor can be - the widest span to check), or a kept scene block.
@@ -370,6 +386,20 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     return y * 16 + built.hi > floor16 + APPROACH_STEP16 && y * 16 + built.lo < floor16 + APPROACH_STEP16 + STAND_NEED16;
   };
 
+  /**
+   * Rule 4's third exception: furniture standing on a FLOOR. The proposal is a floor + wall form (kind 1) whose
+   * floor - full footprint from the cell's geometry bottom to its top `hi` - ends within an auto-step
+   * (`APPROACH_STEP16`) of the cell's bottom, and whose wall band holds every part of the geometry above it. Then
+   * the cell is a floor plate under something a few sixteenths wide (a table's edge, a post, a lamp), and its full
+   * top was phantom footing over nothing drawn: a player standing beside the furniture stands on the floor, which
+   * the form keeps whole, and the furniture keeps its own top (the band, raised at most `FURNITURE_SLACK16`).
+   * 910032 Door 4's - side was such a pair of cells at e7da6e47 (a round table's rim at 15/16, the row over it open).
+   * A floor higher than a step over the cell's bottom (a raised platform) is not this: its top stays whole, and so
+   * does a doorway's landing (`landingAt`: 10326 Door 3's - side has nothing drawn to stand on within two blocks,
+   * and the furniture's full top was its only level spot - trimmed, the doorway read SEALED).
+   */
+  const furnitureForm = (t: ColliderForm): boolean => t.v !== 0 && COLLIDER_KIT.VARIANTS[t.v]!.kind === 1 && t.hi <= APPROACH_STEP16;
+
   // ── Wall proposals.
   type Proposal = { i: number; x: number; y: number; z: number; rule: 'wall' | 'ceiling'; from: ColliderForm; to: ColliderForm };
   const proposals: Proposal[] = [];
@@ -381,8 +411,25 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     if (!span) continue;
     report.cells++;
     const geometry = layerBoxes(a);
-    const to = COLLIDER_KIT.cover(geometry)!;
     const built: ColliderForm = { v: 0, lo: span[0], hi: span[1] };
+    // Rule 1's low-gap exception: under a gap no player fits (`headroomAbove` < a sneaking player, over the grid as
+    // built, where the cell above is still its full footprint), no position over the cell's top exists before the
+    // trim, so a floor + wall form may run its wall past the geometry's top to the block top. Without it a cell of
+    // floor plate and furniture a quarter block wide ending under the block top shipped FULL (910032 Door 4: the
+    // cover's floor + wall form needs geometry to the block top).
+    const headroom = headroomAbove(x, z, y * 16 + built.hi);
+    const lowGap = built.hi < 16 && headroom < SNEAK_NEED16;
+    const standing = headroom >= SNEAK_NEED16;
+    let to = COLLIDER_KIT.cover(geometry, lowGap ? 16 - built.hi : 0)!;
+    // Rule 4's third exception (`furnitureForm`): a standing top over a floor plate and sparse furniture. The floor
+    // + wall form may then run its wall up to `FURNITURE_SLACK16` past the furniture's top.
+    let furniture = false;
+    if (standing) {
+      const t = 16 - built.hi <= FURNITURE_SLACK16 ? COLLIDER_KIT.cover(geometry, 16 - built.hi)! : to;
+      if (furnitureForm(t) && !landingAt(x, z, y * 16 + built.hi)) { to = t; furniture = true; }
+    }
+    const raised = to.v !== 0 && COLLIDER_KIT.VARIANTS[to.v]!.kind === 1 && (lowGap || furniture);
+    const bound: ColliderForm = raised ? { v: 0, lo: built.lo, hi: 16 } : built;
     if (to.v === 0) { report.alreadyTight++; continue; }
     const p: Proposal = { i, x, y, z, rule: 'wall', from: built, to };
     // 3. The doorway cut left the cell as built, and no closed leaf reaches it.
@@ -390,12 +437,14 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     if (!now || now.v !== 0 || now.lo !== built.lo || now.hi !== built.hi) { refuse(p, 'door-cut'); continue; }
     if (leafCells.has(i)) { refuse(p, 'door-leaf'); continue; }
     // 1, 2. Subset of the old cell, superset of the geometry (by construction; asserted).
-    if (!formWithin(to, built) || !formContains(to, geometry)) throw new Error(`clearance: cover of cell ${x},${y},${z} is not between its geometry and its full cell`);
-    // 4. A standing surface on top keeps its top sixteenth full - unless it is only a wall's top over open air.
-    if (headroomAbove(x, z, y * 16 + built.hi) >= SNEAK_NEED16) {
+    if (!formWithin(to, bound) || !formContains(to, geometry)) throw new Error(`clearance: cover of cell ${x},${y},${z} is not between its geometry and its full cell`);
+    // 4. A standing surface on top keeps its top sixteenth full - unless it is only a wall's top over open air, a
+    // surface in a doorway's approach, or furniture's top over a floor plate.
+    if (standing) {
       const top = COLLIDER_KIT.formBoxes(to.v, to.lo, to.hi).filter(b => b[3] === built.hi);
       if (!top.some(b => b[0] === 0 && b[1] === 16 && b[4] === 0 && b[5] === 16)) {
-        if (approachTop(x, y, z, built)) report.approachTops++;
+        if (furniture) report.furnitureTops++;
+        else if (approachTop(x, y, z, built)) report.approachTops++;
         else if (!wallTopRim(x, y, z, to, built)) { refuse(p, 'walkable-top'); continue; }
         else report.wallTops++;
       }

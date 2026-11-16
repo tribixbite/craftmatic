@@ -320,6 +320,68 @@ describe('applyColliderClearance', () => {
     applyColliderClearance(s.input());
     expect(s.form(1, 1, 2)).toEqual({ v: 0, lo: 0, hi: 15 });
   });
+
+  /**
+   * 910032 Door 4 (audit 2026-11-15 A-11, cells (2,0,5)/(2,0,6) of its geometry dump): a floor plate under furniture
+   * a quarter block wide, the furniture's top at 15/16 with the next row's part 2-3 sixteenths over it. The cover's
+   * floor + wall form runs its wall to the block top, so it was never proposed for geometry ending at 15: the cell
+   * shipped FULL 0..15 and sealed the doorway's - side. Its wall's top sixteenth lies in a gap no player fits.
+   */
+  const sparseFurniture = (ceilingOver: boolean) => {
+    const s = scene(3, 3, 3);
+    // The floor plate (0..4 full), and a post along -x a quarter block wide rising to 15/16.
+    s.solid(1, 0, 1, [[0, 16, 0, 4, 0, 16], [0, 4, 6, 15, 11, 16]]);
+    // The part of the furniture in the row above, starting 2/16 over the post's top: no one stands on the post.
+    if (ceilingOver) s.solid(1, 1, 1, [[0, 1, 1, 4, 0, 7]]);
+    return s;
+  };
+  it('pulls a full cell over a floor plate and sparse furniture under a low gap back to a floor + wall form (910032 Door 4)', () => {
+    const s = sparseFurniture(true);
+    const before = s.form(1, 0, 1)!;
+    expect(before).toEqual({ v: 0, lo: 0, hi: 15 });
+    applyColliderClearance(s.input());
+    const f = s.form(1, 0, 1)!;
+    expect(K.VARIANTS[f.v]!.kind).toBe(1);
+    expect(formContains(f, layerBoxes(s.layers.get(s.idx(1, 0, 1))!))).toBe(true);
+    // The floor stays the floor plate; the wall is the post's quarter band.
+    expect(K.formBoxes(f.v, f.lo, f.hi)).toEqual([[0, 16, 0, 4, 0, 16], [0, 4, 4, 16, 0, 16]]);
+  });
+  /**
+   * 910032 Door 4 at e7da6e47: the same furniture with nothing over it (the row above holds no collider), so its 15/16
+   * top read as a standing surface and rule 4 kept the whole cell. The cell's FLOOR is the plate (within a step of
+   * the cell's bottom): what goes is phantom footing over nothing drawn; the furniture keeps its own top.
+   */
+  it('trims furniture standing on a floor plate under open sky to a floor + wall form; a raised floor or a tall slack keeps the cell', () => {
+    const s = sparseFurniture(false);
+    const r = applyColliderClearance(s.input());
+    const f = s.form(1, 0, 1)!;
+    expect(K.formBoxes(f.v, f.lo, f.hi)).toEqual([[0, 16, 0, 4, 0, 16], [0, 4, 4, 16, 0, 16]]);
+    expect(r.furnitureTops).toBe(1);
+    expect(r.refused['walkable-top']).toBe(0);
+    // A floor higher than a step over the cell's bottom (a raised platform with a post) is a floor: kept whole.
+    const raised = scene(3, 3, 3);
+    raised.solid(1, 0, 1, [[0, 16, 0, 11, 0, 16], [0, 4, 11, 15, 11, 16]]);
+    applyColliderClearance(raised.input());
+    expect(raised.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 15 });
+    // A post ending more than two sixteenths under the block top is not raised to it.
+    const short = scene(3, 3, 3);
+    short.solid(1, 0, 1, [[0, 16, 0, 4, 0, 16], [0, 4, 6, 12, 11, 16]]);
+    applyColliderClearance(short.input());
+    expect(short.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 12 });
+  });
+  /**
+   * 10326 Door 3 (audit-doors2, first build of the furniture exception): its - side has nothing DRAWN to stand on
+   * within two blocks, and the furniture's full top was the only level spot outside it - trimmed, the doorway read
+   * SEALED. A top within a jump of a closed leaf's foot and two blocks of it is a doorway's landing, kept whole as
+   * rule 4's wall-top exception keeps one.
+   */
+  it("keeps the furniture's full top where it is a doorway's landing", () => {
+    const s = sparseFurniture(false);
+    const leaf = { x0: 2.5, y0: 0.5, z0: 0.2, x1: 2.6, y1: 2.9, z1: 2.2 };
+    const r = applyColliderClearance(s.input({ leaves: [leaf], leafPlanes: [null] }));
+    expect(s.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 15 });
+    expect(r.furnitureTops).toBe(0);
+  });
 });
 
 describe('figures read a form as the full collider it replaced (bedrock-figure-life.ts blockSpan)', () => {

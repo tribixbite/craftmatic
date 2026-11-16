@@ -658,10 +658,9 @@ function audit1115Regressions(): RegressionCase[] {
   return [
     doorwayClearCase('21318', '21318-tree-house', 200, ['Door 2']),
     doorwayClearCase('910004', '910004-winter-chalet', 200, ['Door 3']),
-    // TODO(door5-910004-200): at turn 0 the - side's lines stop on 100 % cell (12, 4, 1) (full 0..13, its geometry a
-    // floor plate and a post 2/16 wide): at 200 % its upper block keeps a full slab 1.0-1.6 over the doorway's floor.
-    // Not traced further; the carve keeps a STANDING top's whole footprint, the likely reason. Turn 90 passes.
-    doorwayClearCase('910004', '910004-winter-chalet', 200, ['Door 5'], 'audit 2026-11-15 A-04, turn 0 only'),
+    // Door 5: the - side's lines stopped on 100 % cell (12, 4, 1), full 0..13 over a floor plate and a post 2/16 wide
+    // under the next row's part 6/16 over it; clearance's low-gap floor + wall form trims it (audit-doors2).
+    doorwayClearCase('910004', '910004-winter-chalet', 200, ['Door 5']),
     turnableTapCase('71040', '71040-disney-castle', 50, 'Turnable 4'),
     turnableTapCase('910032', '910032-parisian-street', 50, 'Turnable 3'),
   ];

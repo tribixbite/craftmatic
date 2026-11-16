@@ -16,8 +16,8 @@
 
 import type { Scenario, Step, StepContext, StepHandler, AnyStep } from '../../scenario/types.js';
 import { teleport } from '../../script-host/facades.js';
-import { approachSpots, findApproach, SIGHT_MARGIN, walkFlood, walkReaches, type WalkNode } from '../../scenario/approach.js';
-import { APPROACH_KEY, MODEL_ROUTE_KEY, type ModelRoute } from '../../scenario/runner.js';
+import { approachSpots, findApproach, floorBelow, SIGHT_MARGIN, walkFlood, walkReaches, walkRoute, type WalkNode } from '../../scenario/approach.js';
+import { APPROACH_KEY, MODEL_BLAME_KEY, MODEL_ROUTE_KEY, type ModelBlame, type ModelRoute } from '../../scenario/runner.js';
 import type { SimEngine } from '../../core/engine.js';
 import { DEV_NAMESPACE, ixKeys, nsId } from './namespace.js';
 import type { Addon } from '../../pack/pack.js';
@@ -25,7 +25,7 @@ import { readCraftmaticPack, type CraftmaticPack } from './pack-facts.js';
 import { wandHandlers } from './wand.js';
 import { COLLIDER_SLACK, FIGURE_TYPE, MODEL_FOOTHOLD, playHandlers, placedOf, staticDrawn, tapPart } from './play.js';
 import { partVehicleTypes, registerAppearance, scriptedVehicleTypes, vehicleCourseHandlers } from './vehicle-course.js';
-import { DrawnWalkWorld, drawnReaches, drawnTopOver, drawnWalkEngine, packAppearance } from './drawn.js';
+import { DrawnWalkWorld, drawnReaches, drawnTopOver, drawnWalkEngine, entityDrawn, packAppearance } from './drawn.js';
 import { firstPersonSnapshot } from './snapshot.js';
 import { lookAt, pick } from '../../input/touch.js';
 import { pickBoxes } from '../../input/ray.js';
@@ -85,7 +85,10 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
       // collider, tread or guard), so an unreached target is attributed: the model's own, or the pack's (A-20).
       if (ctx.state[APPROACH_KEY] === 'walk' && !ctx.state[MODEL_ROUTE_KEY]) {
         const placed = placedOf(ctx), dim = ctx.player.dimension;
-        const engine = drawnWalkEngine(new DrawnWalkWorld(drawnNow, placed.from.y, MODEL_FOOTHOLD * (placed.sizePct / 100) ** 2)) as unknown as SimEngine;
+        // The closed doorway leaves are drawn too: a door the child reaches only THROUGH itself (a tap spot behind the
+        // closed leaf) is the model's, not the pack's (10326 Door 4, 42670 Door 3, 71040 Door 1 read as the pack's
+        // while the drawn route walked through the closed leaf; audit-doors2, TODO(walk-attribution)).
+        const engine = drawnWalkEngine(new DrawnWalkWorld([...drawnNow, ...closedLeavesDrawn(ctx, appearance, pack)], placed.from.y, MODEL_FOOTHOLD * (placed.sizePct / 100) ** 2)) as unknown as SimEngine;
         // One flood per on-foot origin over the model's box and a margin round it, answering every target asked from there.
         const box = { x0: Math.floor(placed.from.x) - WALK_FLOOD_MARGIN, x1: Math.ceil(placed.to.x) + WALK_FLOOD_MARGIN, z0: Math.floor(placed.from.z) - WALK_FLOOD_MARGIN, z1: Math.ceil(placed.to.z) + WALK_FLOOD_MARGIN };
         const floods = new Map<string, WalkNode[]>();
@@ -98,6 +101,33 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
           return goals.some(g => walkReaches(engine, dim, nodes!, g));
         };
         ctx.state[MODEL_ROUTE_KEY] = route;
+        // Where the model's route to a target the pack keeps leaves the colliders' walk: the first node of the drawn
+        // route the colliders' flood (same origin, same box) does not reach, with what the colliders stand there.
+        const real = new Map<string, WalkNode[]>();
+        const blame: ModelBlame = (from, goals) => {
+          const k = `${from.x.toFixed(2)},${from.y.toFixed(2)},${from.z.toFixed(2)}`;
+          let nodes = real.get(k);
+          if (!nodes) real.set(k, nodes = walkFlood(ctx.sim.engine, dim, from, within(from)));
+          const reached = nodes;
+          for (const g of goals) {
+            const drawn = walkRoute(engine, dim, from, g);
+            if (!drawn) continue;
+            // A node is the colliders' too when their flood stands in its column within a step of its floor.
+            const i = drawn.findIndex(n => !reached.some(r => r.x === n.x && r.z === n.z && Math.abs(r.y - n.y) < BLAME_SAME_FLOOR));
+            if (i <= 0) continue;
+            const a = drawn[i - 1]!, b = drawn[i]!, w = ctx.sim.engine.dimension(dim);
+            const at = (n: WalkNode): string => `${n.px.toFixed(2)},${n.y.toFixed(3)},${n.pz.toFixed(2)}`;
+            const ours = floorBelow(ctx.sim.engine, dim, b.px, b.y + 1.3, b.pz, 3);
+            const cells: string[] = [];
+            for (let y = Math.floor(b.y) - 1; y <= Math.floor(b.y) + 2; y++) {
+              const pm = w.palette.get(w.rawId(b.x, y, b.z));
+              if (pm.typeId !== 'minecraft:air') cells.push(`${b.x},${y},${b.z} ${pm.typeId.replace(/^[a-z0-9_]+:/, '')}${Object.keys(pm.states).length ? JSON.stringify(pm.states) : ''}`);
+            }
+            return `the drawn route leaves the colliders' walk from ${at(a)} to ${at(b)}: the colliders stand ${ours === undefined ? 'nothing within 3' : `at ${ours.toFixed(3)}`} there; blocks ${cells.join('; ') || 'none'}`;
+          }
+          return undefined;
+        };
+        ctx.state[MODEL_BLAME_KEY] = blame;
       }
       const IX = ixKeys(pack.namespace);
       const parts = [...ctx.sim.engine.entities.values()].filter(e => e.valid && typeof e.dynamic.get(IX.index) === 'number');
@@ -183,6 +213,23 @@ function hiddenByModel(ctx: StepContext, part: SimEntity, drawn: readonly DrawnB
   return spots.length;
 }
 
+/**
+ * The drawn cubes of every doorway leaf (a part with `blocking` cells) as it stands now: the leaves `staticDrawn`
+ * leaves out (a doorway line walks through them open). Read while every part is still as placed (closed).
+ */
+function closedLeavesDrawn(ctx: StepContext, appearance: AddonAppearance, pack: CraftmaticPack): DrawnBox[] {
+  const out: DrawnBox[] = [];
+  for (const e of ctx.sim.engine.entities.values()) {
+    if (!e.valid) continue;
+    const ix = e.dynamic.get(ixKeys(pack.namespace).index);
+    if (typeof ix !== 'number' || !(pack.interactives?.items[ix]?.blocking.length ?? 0)) continue;
+    out.push(...(entityDrawn(appearance, e) ?? []));
+  }
+  return out;
+}
+
+/** How close (blocks) a colliders' walk node must stand to a drawn route node's floor to be the same floor: a step. */
+const BLAME_SAME_FLOOR = 9 / 16;
 /** How far round the placed model the MODEL route flood (`DrawnWalkWorld`) walks the ground (blocks). */
 const WALK_FLOOD_MARGIN = 6;
 

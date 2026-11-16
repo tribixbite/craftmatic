@@ -6,6 +6,11 @@ import { describe, expect, it } from 'vitest';
 import { DOOR_CARVE_REACH, carvesAt, decodeSizeCarve, planDoorwayCarve, encodeSizeCarve, encodeTurnedCarve, planSizeCarve, sizeCarveAt, turnModelBox, type ModelBox, type ShippedCarves } from '../web/src/engine/collider-carve.js';
 import { COLLIDER_KIT } from '../web/src/engine/collider-form.js';
 import { QUARTER_TURNS, ScaledColliderGrid, rotatedCell, type SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
+import { colliderCarveSource } from '../web/src/engine/playable-addon.js';
+import { encodeColliderRuns, type PlacementColliders } from '../web/src/engine/bedrock-placement-pack.js';
+import { BlockGrid } from '../src/schem/types.js';
+import { colliderState } from '../web/src/engine/bedrock-building-shell.js';
+import { formState } from '../web/src/engine/collider-clearance.js';
 
 /** The world-block boxes (blocks from the pin) a form occupies at block (x, y, z). */
 const worldBoxes = (x: number, y: number, z: number, form: { v: number; lo: number; hi: number }): number[][] =>
@@ -233,5 +238,24 @@ describe('collider carve (SCALE-06)', () => {
     const back = sizeCarveAt({ plans: { '300:90': encodeSizeCarve(carve) }, counts: {} }, 300, 90, dims, COLLIDER_KIT.turnForm)!;
     expect(back.size).toBe(carve.size);
     for (const [k, v] of carve) expect(back.get(k), k).toEqual(v);
+  });
+
+  /**
+   * 910004 Door 5 at 400 % (audit-doors2): clearance's low-gap and furniture trims let a floor + wall form run its
+   * wall past the geometry to the block top, so the cell's extent over-reached the geometry grid's and the carve
+   * read it as laid ON PURPOSE (a stair, a sill): the cell's whole 4-block column at 400 % went uncarved and walled
+   * the porch. A floor + wall form is clearance's, never a planner's.
+   */
+  it('reads a clearance floor + wall form raised to the block top as a trim, not a cell laid on purpose', () => {
+    const enc = (g: BlockGrid): string => encodeColliderRuns(g, 'craftmatic:collider').runs;
+    const geometry = new BlockGrid(3, 3, 3), shipped = new BlockGrid(3, 3, 3);
+    geometry.set(1, 0, 1, colliderState(0, 13)); geometry.set(1, 1, 1, colliderState(0, 8));
+    // The trim: floor 0..1, then the quarter x-band (shape 1) to the block top (kind 1, shape 1 = variant 15).
+    shipped.set(1, 0, 1, formState({ v: 15, lo: 0, hi: 1 }));
+    // A tread raised over its geometry by a planner: laid on purpose.
+    shipped.set(1, 1, 1, colliderState(0, 12));
+    const src = colliderCarveSource([], undefined as never, { width: 3, height: 3, length: 3, runs: enc(shipped) } as PlacementColliders, enc(geometry));
+    expect(src.protect?.has('1,0,1')).toBe(false);
+    expect(src.protect?.has('1,1,1')).toBe(true);
   });
 });
