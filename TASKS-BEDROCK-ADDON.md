@@ -1972,27 +1972,34 @@ Four phone shots (`output/user-shots-0930/1-4.jpg`, round 30f-30i packs); eviden
 - [ ] Device look at a shell/vehicle with box-UV-safe cubes (offline 0.0 % lost;
   only figures were device-proved). Ship `round-f320f3ca/` as the next round.
 
-## Audit 2026-11-15 door findings (A-04, A-11, A-20 doors, A-22) - branch `audit-door`, NOT merged
-Worktree `.worktrees/audit-door` (from 3fa06170). Evidence under its `output/` (`a04/`, `a11/`, `a20/`, `after1/`).
-- A-04: the five HOLE rows were the SIM's attribution (a line that never stood was judged 0.3 ahead of its start;
-  `holeFloor`, `MODEL_FOOTHOLD`); `_ix_passability` was right. The 200 % STOP rows were full 100 % cells clearance
-  refused to trim: `planDoorwayCarve` (200 % only, round passable doorways). Rebuilt 21318 / 910004 / 71040 /
-  910032 / 80049 at 50-400 %: 10 -> 2 failing scenarios of 60. OPEN: 910004 Door 5 at 200 % turn 0
-  (`TODO(door5-910004-200)`, regression `doorway-clear-910004-200-door5` is `open`); 910032 at 50 % turn 90
-  `player-not-in-solid` at the wand's spot (in the baseline too, not this branch's).
-  Rebuilt 41703 / 41732 / 42670 too: sim 50-400 % 1 failing of 36 both before and after (42670 50 % turn 90
-  `player-not-in-solid`, pre-existing). `_ix_passability` at 200 % gained 2 informational HOLE rows that START under
-  the floor (41703 Door 1 5.5, 42670 Garage door 1 2.63): the carve removed invisible slabs over nothing drawn past
-  the ledge (41703: a 0.375 slab at z 24-26 at 200 %), so the harness's 3-blocks-out start now hangs over the model's
-  own drop. Check on a device whether a player walking out there should get a rail (the model's border edge is open
-  by design).
-- A-22 FIXED: below 100 % the tap's frame margin adds 1 - f (71040 Turnable 4, 910032 Turnables 3 and 5 at 50 %).
-- A-11: 17 of 18 not-OK doorways at 100 % are the model's (`_ix_sealed_causes --drawn`), recorded in
-  `FAVOURITE_DOORWAYS_NOT_OK_AT_100`; gate `bun scripts/_ix_sweep_report.ts <dir> --ceilings`. 910032 Door 4 is
-  OURS (`collider:tight`: full 0..15 cells over sparse furniture geometry, clearance never proposes a trim; recorded
-  with `TODO(clearance-tight-910032)`, geometry `output/geo910032/geometry`). Brick-built doors (10354, 42639 gate, 910049 gate, 43267 arches): not attempted.
-- A-20: `sim --walk` attributes each unreached target (`TapReach.byModel`). Baseline at 100 % (favsweep-4e5963dc):
-  187 of 310 approaches not reached, 168 the model's, 17 the pack's; doors: 45 model, 11 pack approaches = 5 doors
-  in 4 sets (ceilings `FAVOURITE_DOOR_ROUTES_PACK_AT_100`: 10326 1, 11371 2, 42670 1, 71040 1; gate
-  `sim.ts --walk --door-ceilings`). Not fixed: 11371's are a 1-block-cell superset (a taller part in the plate's
-  cell); the others are untriaged (`TODO(walk-attribution)`).
+## Audit 2026-11-15 door findings, second wave (A-04, A-06, A-11, A-20) - branch `audit-doors2`, NOT merged
+Worktree `.worktrees/audit-doors2` (from e7da6e47, first wave merged). Evidence: its `output/doors2/` (fail-first and
+pass logs, sims), packs `output/base3/` (e7da6e47, built from `output/base-tree-e7da/`, an archive of the base) and
+`output/fix4/` (branch head) for 910004 76419 21063 10326 11371 42670 71040 41732 80049 21318 910032.
+- DONE: clearance proposes a floor + wall form for a floor plate under sparse furniture: under a gap no player fits
+  (rule 1's low-gap exception, wall raised to the block top) and under open sky unless it is a doorway's landing
+  (rule 4's furniture exception, `furnitureTops`); the per-size carve reads such a raised form as a trim
+  (`colliderCarveSource`). 910004 Door 5 at 200 % passes (regression `doorway-clear-910004-200-door5` no longer
+  open); 42670 Garage door 1 is OK at 100 % (row removed from `FAVOURITE_DOORWAYS_NOT_OK_AT_100`).
+- Measured base3 -> fix4: sim 50-400 % 132 scenarios 1 -> 0 failed; `_clearance_report --sizes=100,200` reach at
+  100 % 3,188.5 -> 3,253 blocks², rooms reached 157 -> 168, doorways OK 33 -> 34 / SEALED 12 -> 11; at 200 % reach
+  4,445 -> 4,457, rooms 341 -> 345 (21318 at 200 % 13 -> 10 and 910032 25 -> 24 rooms reached: phantom tops trimmed,
+  not checked one by one); the three SCALE-06 `_walk_line.ts` lines identical; regressions 9 tested, 0 failed.
+- DONE: `sim --walk` names where a pack-kept route leaves the colliders' walk (`TapReach.blame`); the model route
+  reads closed doorway leaves as drawn (10326 Door 4 was the sim's: ceiling 0). The sim child answers the wand's
+  held-player prompt (A-06); 77092 / 42670 / 910032 at 50 % turned 90 already passed at e7da6e47.
+- OPEN `TODO(clearance-tight-910032)`: 910032 Door 4 SEALED - its furniture cells (2,0,5)/(2,0,6) are kept whole as
+  Door 4's landing by the same guard that keeps 10326 Door 3 OK (whose only level spot outside is a phantom top).
+  Next: judge a trim near a doorway by the doorway's own walk before and after, not by a local rule.
+- OPEN `TODO(walk-attribution)` (ceilings in `FAVOURITE_DOOR_ROUTES_PACK_AT_100`): 11371 Doors 2/4 - a corner post
+  1/16 square ships as a quarter-block band the cell's length (`TODO(collider-corner-forms)`, new block ids);
+  42670 Door 3 - a threshold stair's treads across the ground route along the facade; 71040 Door 1 - an overhang's
+  layer box 0.1 inside the drawn route.
+- OPEN `TODO(brick-hinge-holds)`: 10354 / 42639 / 910049 brick-built doors - no joint line splits them off (the
+  hinge lines are `holds`); 43267's 40066 are one-piece moulded doors (static is right). docs/bedrock-interactivity.md
+  "Brick-built doors": what a rule needs (which rigid edges cross a `holds` cut) before it can be measured.
+- Pre-existing at e7da6e47, not this branch: `test/favourites-aabb.test.ts` and `test/favourites-floaters.test.ts`
+  fail on this machine's corpus (75397's four boxed ids now resolve; same failure in the e7da6e47 archive).
+- OPEN (first wave, device): `_ix_passability` at 200 % shows 2 informational HOLE rows that START under the floor
+  (41703 Door 1 5.5, 42670 Garage door 1 2.63) since the 200 % doorway carve removed invisible slabs over nothing
+  drawn past a ledge; check on a device whether a player walking out there should get a rail.

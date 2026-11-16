@@ -407,7 +407,15 @@ with its reason (`craftmatic-diagnostics.json`, `clearance`):
 
 1. **Subset** - the new form's boxes lie inside the old full cell: a trim
    never turns free space solid (checked per cell, and again for every world
-   block the re-lay produces at every wand size).
+   block the re-lay produces at every wand size). One exception (2026-11-15,
+   audit-doors2): under a gap no sneaking player fits (`headroomAbove` < 24/16
+   over the grid as built), a floor + wall form may run its wall past the
+   geometry's top to the block top - no position over the old top existed, so
+   none is lost. The kit's floor + wall form needs its wall to reach the block
+   top; without this a floor plate under a post a quarter block wide ending at
+   13-15/16 shipped FULL (910004 Door 5's porch at 200 %, cell (12, 4, 1)). The
+   per-size carve reads such a raised form as a trim, never as a cell laid on
+   purpose (`colliderCarveSource`: read as a stair it went uncarved at 400 %).
 2. **Superset of the geometry** - the form contains every part box in the cell
    (a wall trim), or it is the ceiling rule. So wherever the visible model is
    continuous the colliders are continuous.
@@ -417,7 +425,17 @@ with its reason (`craftmatic-diagnostics.json`, `clearance`):
    (`door-cut`). Cells in front of and behind a leaf may be: a trim there
    cannot open the leaf's plane (the first build protected every cell the
    leaf's box touched, which kept the approach to 11371's doors solid).
-4. **Floors stay** - above: `walkable-top`. The exception (`wallTopRim`,
+4. **Floors stay** - above: `walkable-top`. Since 2026-11-15 (audit-doors2) a
+   second exception, `furnitureForm` (`furnitureTops` in the report): a floor +
+   wall proposal whose floor ends within an auto-step of the cell's bottom (a
+   floor plate) and whose band holds everything above it (a table's rim, a
+   post, a lamp), its wall raised at most 2/16 to the block top - unless the
+   top is a doorway's LANDING (`landingAt`, the guard below), which kept 10326
+   Door 3 OK (its only level spot outside is such a phantom top) and keeps
+   910032 Door 4 SEALED (`TODO(clearance-tight-910032)`). Over 11 favourites
+   it trimmed 4-55 more cells a set; 42670 Garage door 1 became walkable at
+   100 %; the three device-proven SCALE-06 walk lines read identically.
+   The first exception (`wallTopRim`,
    2026-09-26): the top cell of a WALL may be narrowed to the wall when all of
    these hold, counted as `wallTops` in the report:
    - the proposal is a plain wall band (kind 0) from the cell's bottom, and the
