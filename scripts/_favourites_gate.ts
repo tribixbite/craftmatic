@@ -10,8 +10,12 @@
  *                   passed 240 of 240 while 27 of 320 scenarios at 50, 200 and 400 failed in 15 packs;
  *   3. vehicles     `sim.ts <dir> --scenario=vehicles`;
  *   4. regressions  `sim.ts --scenario=regressions --new=<dir>` (the device-bug set on this build).
+ * Then a CONTENT section (`scripts/pack-content.ts`, generality census 2026-11-16): per pack, boxed placements,
+ * unresolved and substituted parts, real / default faces, floating parts and the coarsened share, read from the
+ * sweep's `<stem>.json` build reports - totals and the worst packs. It reports; it never fails the gate.
  *
- * Usage: bun scripts/_favourites_gate.ts [set…] [--out=<dir>] [--build] [--with-gabby] [--faces=<dir>]
+ * Usage: bun scripts/_favourites_gate.ts [set…] [--out=<dir>] [--build] [--with-gabby] [--faces=<dir>] [--content-only]
+ *   --content-only  skip every step and write only the content section over the reports already in <dir>.
  *   --out=<dir>   the packs' directory (default `output/favgate-<pipeline stamp>`); also where the report goes.
  *   --build       run the sweep first (otherwise the packs already in <dir> are judged). Commit first: the packs
  *                 stamp the pipeline, and the sweep spawns one export per set over the tree as it is then.
@@ -22,6 +26,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { contentSection, contentTotals, packContent, readBuildReports } from './pack-content.ts';
 
 /** The wand sizes the favourites gate places: the sizes a child picks that have failed before (A-16). */
 export const FAVOURITES_GATE_SIZES: readonly number[] = [50, 100, 150, 200, 400];
@@ -75,7 +80,7 @@ async function main(): Promise<void> {
   mkdirSync(dir, { recursive: true });
   const sets = argv.filter(a => !a.startsWith('--'));
   const faces = argv.find(a => a.startsWith('--faces='))?.slice('--faces='.length);
-  const steps = gateSteps({ dir, sets, withGabby: argv.includes('--with-gabby'), build: argv.includes('--build'), faces });
+  const steps = argv.includes('--content-only') ? [] : gateSteps({ dir, sets, withGabby: argv.includes('--with-gabby'), build: argv.includes('--build'), faces });
   const rows: string[] = [];
   let failed = false;
   for (const step of steps) {

@@ -57,3 +57,18 @@ describe('face-transfer :: carries a print only on an unambiguous figure match',
     expect(decideTransfers([sig(1, null, RED)], [sig(7, '92198pr0050', RED)], () => false)[0]!.refused).toMatch(/not this head's mould/);
   });
 });
+
+describe('face-transfer :: donors beyond the models index (generality census 2026-11-16)', () => {
+  it('takes the set\'s Studio file (IO/<set>-1.io) as a donor after the index\'s other sources', async () => {
+    const { donorPaths } = await import('../scripts/face-transfer.ts');
+    // 2507's only indexed source is its Mecabricks conversion (plain `3626` heads); the corpus also holds the
+    // Studio file the index does not list, which names every printed head by its BrickLink id.
+    const have = new Set(['IO/2507-1.io']);
+    expect(donorPaths('2507', ['MecabricksLDR/2507.ldr'], p => have.has(p))).toEqual(['IO/2507-1.io']);
+    // Indexed donors keep their try order and come first; an indexed Studio file is not listed twice.
+    expect(donorPaths('910035', ['IO/910035.io', 'IOModel2V2/910035.ldr', 'DbixConvV3/910035.ldr'], () => true))
+      .toEqual(['IOModel2V2/910035.ldr', 'DbixConvV3/910035.ldr', 'IO/910035-1.io']);
+    expect(donorPaths('7140', ['IO/7140-1.io', 'LDR/7140.ldr'], () => true)).toEqual(['LDR/7140.ldr']);
+    expect(donorPaths('1234', ['LDR/1234.ldr'], () => false)).toEqual([]);
+  });
+});

@@ -289,9 +289,87 @@ def main() -> int:
         rows[f'd:{dec}'] = f
     print(f'decoration rows: {sum(1 for k in rows if k.startswith("d:"))} from {len(pairs)} corpus heads')
 
+    # OLD LDD decorations (5-6 digit ids, the `.lxf` files' space; DBIX's are 7-digit): Studio's own
+    # `<Decoration>` rows, then prints the corpus votes for (generality census 2026-11-16).
+    old = old_ldd_decoration_rows(stems, by_bl, pick)
+    for k, v in sorted(old.items()):
+        rows.setdefault(k, v)
+    print(f'Studio/voted decoration rows: {len(old)} '
+          f'({sum(1 for k in old if k in STUDIO_DECORATION_KEYS)} from Studio ldraw.xml, the rest voted); '
+          f'{sum(1 for k in old if k not in rows or rows[k] == old[k])} kept')
+
     OUT.write_bytes((json.dumps(dict(sorted(rows.items())), separators=(',', ':')) + '\n').encode('utf-8'))
     print(f'wrote {OUT} ({OUT.stat().st_size:,} bytes, {len(rows)} rows)')
     return 0
+
+
+# A voted decoration becomes a row only when this many DIFFERENT sets agree on its print...
+VOTE_MIN_SETS = 2
+# ...and every rival print together has at most this share of the winner's sets (a wrong face is worse than the
+# default one, so a contested decoration stays unmapped).
+VOTE_MAX_RIVAL_SHARE = 0.25
+# The plain smile is what a model author draws when the real print is missing (75052 and 75053 both "voted" a Star
+# Wars face 99280 as 3626p01), so a vote for it counts only from this many sets (55196, the real smile: 20 sets).
+VOTE_PLACEHOLDER_PRINTS = {'3626p01': 5}
+VOTES = REPO / 'scripts' / 'ldd-decoration-votes.json'
+HEAD_LEGO = {'3626', '28621', '92198', '28650', '28649'}
+STUDIO_DECORATION_KEYS: set[str] = set()
+
+
+def face_key(stem: str) -> str:
+    """`head-face.ts` faceKey: one key per face across head moulds (`3626bp01` and `3626cp01` -> `3626p01`)."""
+    m = re.match(r'^(?:bl_)?(?:3626[bc]?|28621)(pb?)([0-9a-z]+)$', stem.lower())
+    return f'3626{m.group(1)}{m.group(2)}' if m else stem.lower()
+
+
+def old_ldd_decoration_rows(stems, by_bl, pick) -> dict[str, str]:
+    """`d:<old LDD decoration>` -> printed head file, from Studio's `ldraw.xml` `<Decoration>` rows and from
+    `scripts/ldd-decoration-votes.json` (`scripts/_ldd_decoration_votes.ts`)."""
+    out: dict[str, str] = {}
+    # Studio: `<Decoration ldraw="3626cp8c.dat" lego="3626" decoration = "99571,0,0" .../>`
+    deco = re.compile(r'<Decoration\s+ldraw="([^"]+)"\s+lego="([^"]+)"\s+decoration\s*=\s*"([^"]+)"')
+    studio: dict[str, set[str]] = defaultdict(set)
+    for d in STUDIO_DATA:
+        for name in ('ldraw.xml', 'ldraw_lxfv56.xml'):
+            f = d / name
+            if not f.exists():
+                continue
+            for ld, lego, ids in deco.findall(f.read_text(encoding='utf-8', errors='replace')):
+                stem = ld.lower().removesuffix('.dat')
+                if lego.split(';')[0] not in HEAD_LEGO or not PRINTED_HEAD.match(stem):
+                    continue
+                # `99571,0,0` (old LDD) or `1005111_0_VME_..;C:VME_..` (DBIX): the id `decorationIdOf` reads.
+                first = ids.split(',')[0].split(';')[0].split('_')[0].strip()
+                if first and first != '0':
+                    studio[first].add(stem)
+    for dec, files in studio.items():
+        # Two different faces under one id (Studio has such rows) is no evidence for either.
+        if len({face_key(f) for f in files}) > 1:
+            continue
+        hit = pick(files)
+        if hit:
+            out[f'd:{dec}'] = f'{hit}.dat'
+            STUDIO_DECORATION_KEYS.add(f'd:{dec}')
+    # Corpus votes: a print key per decoration, counted in distinct sets.
+    if VOTES.exists():
+        by_face: dict[str, set[str]] = defaultdict(set)
+        for st in stems:
+            by_face[face_key(st)].add(st)
+        tally = json.loads(VOTES.read_text(encoding='utf-8'))['tally']
+        for dec, prints in sorted(tally.items()):
+            if f'd:{dec}' in out:
+                continue
+            ranked = sorted(prints.items(), key=lambda kv: (-len(kv[1]['sets']), kv[0]))
+            (key, win), rivals = ranked[0], ranked[1:]
+            n = len(win['sets'])
+            rival = sum(len(r['sets']) for _, r in rivals)
+            if n < max(VOTE_MIN_SETS, VOTE_PLACEHOLDER_PRINTS.get(key, 0)) or rival > VOTE_MAX_RIVAL_SHARE * n:
+                continue
+            cands = {c.lower() for c in win['parts']} | by_face.get(key, set()) | by_bl.get(key, set())
+            hit = pick(cands)
+            if hit:
+                out[f'd:{dec}'] = f'{hit}.dat'
+    return out
 
 
 def corpus_head_pairs(cache: str | None) -> list[tuple[list[str], str]]:

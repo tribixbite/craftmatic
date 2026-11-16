@@ -231,4 +231,38 @@ describe('printed heads from the LXFML element and decoration ids', () => {
     expect(describeLxfDiagnostics(d)).toMatch(/2 decorated heads have no printed LDraw part and draw plain \(1 drawn with their own print\)/);
     expect(plain.every(b => b.part === '3626c.dat')).toBe(true);
   });
+  it('keeps the LDD decoration id of a head it could not print, so a decoration table can be learned from the corpus', () => {
+    // Generality census 2026-11-16: 4,491 decorated head placements in the corpus's old LDD .lxf files and no `d:` row
+    // for any of their 216 decorations - the id was dropped where the head drew plain.
+    const recs = [rec('3626', [], '59717'), rec('3626', ['6405179'], '1022396'), rec('3626', [])];
+    const { bricks } = buildLxfPlacements(recs, HEAD_ROW, NO_MEASURED, { printMap: PRINTS });
+    expect(bricks.map(b => b.lddDecoration)).toEqual(['59717', undefined, undefined]);
+  });
+});
+
+describe('old LDD head decorations name their print (generality census 2026-11-16)', () => {
+  it('reads Studio\'s own <Decoration> rows for heads into the print table', async () => {
+    const { readFileSync } = await import('node:fs');
+    const map = JSON.parse(readFileSync('web/public/ldd-print-map.json', 'utf8')) as Record<string, string>;
+    // Studio ldraw.xml: `<Decoration ldraw="3626cp8c.dat" lego="3626" decoration = "99571,0,0">` - 91 placements in
+    // the corpus's .lxf files wear it.
+    expect(map['d:99571']).toMatch(/^3626[bc]p8c\.dat$/);
+    expect(map['d:89320']).toBe('3626cp8k.dat');
+  });
+});
+
+describe('old LDD head decorations learned from the corpus (generality census 2026-11-16)', () => {
+  it('maps a decoration many sets agree on, and refuses a placeholder smile from two sets', async () => {
+    const { readFileSync } = await import('node:fs');
+    const map = JSON.parse(readFileSync('web/public/ldd-print-map.json', 'utf8')) as Record<string, string>;
+    // scripts/ldd-decoration-votes.json: 20 sets match a figure wearing 55196 to one wearing 3626bp01/cp01
+    // (one set rivals with 3626bp62) - the standard smile, 563 decorated head placements in the corpus's .lxf files.
+    expect(map['d:55196']).toMatch(/^3626[bc]p01\.dat$/);
+    // 55126: two sets (3181, 7893) agree on 3626bp81.
+    expect(map['d:55126']).toMatch(/^3626[bc]p81\.dat$/);
+    // 99280: only 75052 and 75053 vote, both for the plain smile - a model author's stand-in, not evidence.
+    expect(map['d:99280']).toBeUndefined();
+    // 54581: two sets disagree (3626p01 vs 3626p83): no row.
+    expect(map['d:54581']).toBeUndefined();
+  });
 });

@@ -13,7 +13,7 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { seedFaceArt } from '../web/src/engine/head-face.ts';
 import { setLDrawRoot } from '../web/src/engine/ldraw-geometry.ts';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.ts';
-import { censusHeads, summariseHeads, type HeadCensusRow, type HeadCensusSummary } from './face-census.ts';
+import { censusHeads, defaultFaceCause, summariseHeads, type HeadCensusRow, type HeadCensusSummary } from './face-census.ts';
 import { FAVOURITES, firstPickSource, readModelsIndex } from './favourite-sets.ts';
 import { loadModelBricks, readFaceArtDir } from './model-source.ts';
 
@@ -46,6 +46,20 @@ const all = Object.values(out).map(o => o.summary);
 const total = (k: keyof Omit<HeadCensusSummary, 'missingArt'>): number => all.reduce((s, x) => s + x[k], 0);
 console.log(`${'total'.padEnd(7)} ${pad(total('heads'), 5)} ${pad(total('real'), 4)} ${pad(total('printed'), 5)} ${pad(total('art'), 4)} ${pad(total('namedDefault'), 5)} ${pad(total('anonymous'), 4)}`);
 console.log(`named prints with no LDraw print and no art: ${missing.size}`);
+// Why the default faces are default (generality census 2026-11-16): heads, distinct prints, sets per cause.
+const causes = new Map<string, { heads: number; prints: Set<string>; sets: Set<string> }>();
+for (const [set, o] of Object.entries(out)) {
+  for (const h of o.heads) {
+    const cause = defaultFaceCause(h, o.file);
+    if (!cause) continue;
+    const c = causes.get(cause) ?? { heads: 0, prints: new Set<string>(), sets: new Set<string>() };
+    c.heads++; if (h.print) c.prints.add(h.print); c.sets.add(set);
+    causes.set(cause, c);
+  }
+}
+for (const [cause, c] of [...causes].sort((a, b) => b[1].heads - a[1].heads)) {
+  console.log(`  default: ${String(c.heads).padStart(4)} heads, ${String(c.sets.size).padStart(3)} sets${c.prints.size ? `, ${c.prints.size} distinct prints` : ''}  ${cause}`);
+}
 const jsonOut = opt('json');
 if (jsonOut) writeFileSync(jsonOut, JSON.stringify(out, null, 1));
 const missingOut = opt('missing');

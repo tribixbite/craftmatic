@@ -1777,6 +1777,34 @@ in clego, backup `_face_backup_20261115_content2/`), 10326 3 matched but its `.i
 71040 / 10365 have no donor naming a print. Every 10326 match agreed with the print its `bl_3626cpb<N>` part already
 named, which is how the `faceKey` gap for Studio's `bl_` head copies was found.
 
+## Where a head's print identity is lost, by lineage (generality census 2026-11-16, FIG-04 / PROC-19)
+
+`bun scripts/_face_census.ts <sets>` now ends with the default faces per CAUSE (`defaultFaceCause`). Over the 60
+census sets (`output/gengate-6fa0afa6`) the first picks place 91 heads; 26 had their own face, 28 after this round.
+Of the 63 left, 60 name no print at all, which no lookup can fix:
+- **Mecabricks** (`MecabricksLDR/`, 10 census sets, ~31 heads): the converter writes the align table's stem, so a
+  scene's `3626d1019` becomes plain `3626`. The decoration survives in clego's `mecabricks_scene_cache/` (1,669
+  scenes reference a decorated head, 1,071 distinct Mecabricks decorations) but nothing maps a Mecabricks
+  decoration to a BrickLink/LDraw print. The `.lxf` vote below would learn one from sets with an OMR / IOModel2V2
+  donor. TODO(mecabricks-head-decoration).
+- **Old LDD `.lxf`** (`Eurobricks*`, `LXF/`): 4,491 decorated head placements, 216 distinct 5-6 digit decorations,
+  and until now no `d:` row for any (DBIX decorations are 7-digit, another id space). `gen-ldd-print-map.py` now
+  reads Studio's own `ldraw.xml` `<Decoration>` head rows, and `scripts/_ldd_decoration_votes.ts` (run with
+  `CRAFTMATIC_LDRAW_MIRROR=off` in the environment) learns the rest from the same set's print-naming sources through
+  the face-transfer matcher (`scripts/ldd-decoration-votes.json`: 715 sets, 106 votes, 29 decorations). A voted row
+  needs 2 agreeing sets, rivals at most 25 %, and 5 sets for the plain smile: OMR authors use `3626bp01` as a
+  stand-in, so 75052 and 75053 both "voted" a Star Wars face as the smile. 960 of the 4,491 placements now print (10
+  decorations; 55196, the smile, is 563 of them). Most `.lxf` sets have no donor that names prints.
+- **PDF reconstructions** (`ReconV3/`, `Reconstructed/`) carry no print data.
+- The Studio files `IO/<set>-1.io` exist for every census set but hold loose heads, not assembled figures: as
+  face-transfer donors (`donorPaths`) they matched nothing over 19 sets.
+
+Named prints are the other class: Studio's `bl_3626cpb<N>` copies draw a PE_TEX texture nothing here reads; 98 of
+Studio's 148 copies are framed like 3626c and those whose print LDraw has (19) are now read as that print; the other
+50 have their origin at the head's bottom (TODO(bl-head-frame)). Of the 101 named prints the favourites still lack, 3
+exist in the LDraw library of 2026-11-16 but not in `ldraw_ref/` (2026-09-18): 3626pb2873 (`3626cp1y`), 3626pb3698
+(`28621p1b`), 3626pb3849 (`28621p1c`) - a library refresh, not a table change.
+
 ## Boxed parts, baseplates and stale IOModel2V2 files (audit 2026-11-15, A-07 / A-09)
 
 - **801 of 802 `IOModel2V2/*.ldr` predate the flattener's preserved definitions** (clego `922de02c`, 2026-09-21):
