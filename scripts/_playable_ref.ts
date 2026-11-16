@@ -25,6 +25,9 @@ import { seedFaceArt } from '../web/src/engine/head-face.ts';
 import type { PackProfile } from '../web/src/engine/pack-profile.ts';
 import pako from 'pako';
 import { createHash } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
+import { setSeatPlanProbe } from '../web/src/engine/ldraw-entity-compiler.ts';
+import type { BoxBlocks } from '../web/src/engine/cockpit-seat.ts';
 import { setLDrawMirror, setLDrawRoot } from '../web/src/engine/ldraw-geometry.ts';
 import { loadModelBricks, readFaceArtDir } from './model-source.ts';
 import { runSchemPipeline } from '../web/src/engine/schem-pipeline.ts';
@@ -115,6 +118,19 @@ const modelScale = Math.round(LDU_PER_BLOCK / plan.cellLDU * 1000) / 1000;
 console.error(`  scale: ${scalePlan.reason} (cell ${Math.round(plan.cellLDU * 100) / 100} LDU, ${modelScale}x)`);
 /** Track grain: the LEGO tab's default (smooth track ON since 2026-10-28) unless `--track-grain=0` asks the budget. */
 const trackGrainLdu = flag('track-grain') !== undefined ? Number(flag('track-grain')) : DEFAULT_SCHEM_SETTINGS.addonSmoothTrack ? SMOOTH_TRACK_GRAIN_LDU : 0;
+// `--seat-fixture=<dir>`: write every driver seat's planner inputs (planned part boxes, shipped cubes, the question)
+// as `<dir>/<entity>-boxes.json.gz`, the shape test/cockpit-seat.test.ts `loadSeatFixture` reads (VEH-20).
+const seatFixtureDir = flag('seat-fixture');
+if (seatFixtureDir) {
+  mkdirSync(seatFixtureDir, { recursive: true });
+  const r6 = (v: number): number => Math.round(v * 1e6) / 1e6;
+  const row = (b: BoxBlocks): number[] => [...b.min.map(r6), ...b.max.map(r6), b.glass ? 1 : 0, ...(b.solid ? [...b.solid.o, ...b.solid.e.flat()].map(r6) : [])];
+  setSeatPlanProbe(p => {
+    const path = `${seatFixtureDir}/${p.cid}-boxes.json.gz`;
+    writeFileSync(path, gzipSync(JSON.stringify({ label: `${label} ${p.cid}`, ask: p.ask, planned: p.planned.map(row), shipped: p.shipped.map(row), plan: { eye: p.plan.eye, ahead: p.plan.ahead }, final: { eye: p.final.eye, ahead: p.final.ahead } })));
+    console.error(`[seat-fixture] ${path}`);
+  });
+}
 const t0 = Date.now();
 const result = await runSchemPipeline({
   source: { kind: 'bricks', bricks, colorSpace, options: { cellLDU: plan.cellLDU, maxDim: 700 } },

@@ -4972,6 +4972,19 @@ silhouettes `sil/`).
   balloon tricycle (48), 4559 truck (91), 60198 truck and forklift; no false
   find in a building (a 4-stud barrow in 41703 is rejected as too small, a
   coaster car as the rail engine's). Silhouettes: `sil/`.
+- *The kind from the geometry* (VEH-20 census class 1, 2026-11-16, `flightOf` and `geometryVehicles` in
+  `engine/scene-vehicles.ts`): an object FLIES when it has a flat rotor or propeller on top (a fifth of its
+  length across, nothing more than 40 LDU over it: its own blades and hub cap are stacked on it) - a native
+  rotorcraft - or two or more wing parts reaching past BOTH sides of the body across either horizontal principal
+  axis (1.5x the body), with a canopy, seat, steering wheel or propeller to fly it from; either way no taller than
+  long. Wings or a rotor beat the wheels it stands on (7345, 31060's stunt plane). A plane may be 75 % of a scene
+  (6863's Batwing), a car or boat still 25 %. A bike frame or handlebars make 2-3 wheels a car (wheels within 40
+  LDU of each other's bottoms: 6866's bike). A whole model with NO track drives its train wheels as a car (the
+  rail engine needs a line). Over what a scene's aircraft leave, the model can still be a whole car (31060's
+  truck); a whole-model aircraft is kept beside a scene's car (6866). False finds refused: a tower with wing
+  parts, a car's spoiler, a fan under a roof, 76269's Leviathan (wing fins, no cockpit). Not found: a posed,
+  tilted helicopter taller than long (6863's Joker). Probe without building:
+  `bun scripts/_geometry_vehicle_census.ts <sets> [--base=<older scene-vehicles.ts>]`.
 - *42128's nose:* a new facing vote, `headlights`: clear round lamps in the
   outer quarter of one end (a clear lens stacked on a coloured one is part of
   that lamp). 42128: four at -z, none at +z → -z, 69 % with its tail lights

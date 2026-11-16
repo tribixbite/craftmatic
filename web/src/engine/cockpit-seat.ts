@@ -443,7 +443,8 @@ export const seesOut = (boxes: readonly BoxBlocks[], eye: Vec3): boolean => driv
  * `VIEW.overTop` over the model's top and `back` blocks toward the tail, in
  * `step`s, never past the tail and never inside the model - the nearest point
  * that sees ahead (and, if one within `sideSlack` further does, to the sides
- * too). 76286's canopy evidence is a rear window, and its eye sat in the hull
+ * too; if none there does, the nearest anywhere up to `forward` toward the
+ * nose or further up or back that sees out to both sides). 76286's canopy evidence is a rear window, and its eye sat in the hull
  * looking down the whole fuselage (Saga round 30g, `s74-76286-cockpit`: all
  * grey panels); 14 of 41 audited rideables had no eye in the cabin that saw
  * ahead. The rider there is only an eye: its body is hidden at every size (a
@@ -451,7 +452,7 @@ export const seesOut = (boxes: readonly BoxBlocks[], eye: Vec3): boolean => driv
  * must SEE where they are going; a closed display cockpit's windscreen view is
  * not worth a wall of grey.
  */
-export const AHEAD_FALLBACK = { back: 2, step: 0.1, sideSlack: 0.5 } as const;
+export const AHEAD_FALLBACK = { back: 2, forward: 1, step: 0.1, sideSlack: 0.5 } as const;
 
 /**
  * Before the eye leaves the cabin (`AHEAD_FALLBACK`), the rest of the vehicle's
@@ -715,6 +716,26 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
         if (eyeOverlap(boxes, c.e) > 0 || !aheadOf(c.e)) continue;
         near ??= c;
         if (driverSeesOut(1, sideView(boxes, c.e))) { both = c.e; break; }
+      }
+      // The sides are REQUIRED (2026-11-09): where nothing up or back within the slack sees out to both sides, the
+      // nearest point that does anywhere in the fallback's reach - further up or back, or TOWARD THE NOSE by up to
+      // `forward` - is taken before an eye that sees ahead only. 6243's lookout eye 1.2 over its helm saw the
+      // horizon ahead and 23 of 28 rays to its right (a mast within a block); 0.75 toward the bow and 0.1 higher it
+      // sees out both sides (gengate 6fa0afa6, the simulator's driver-sees-ahead). A plan that found such a point
+      // within the slack is unchanged.
+      if (!both) {
+        const head = Math.min(...zs), wider: Array<{ e: Vec3; move: number }> = [...out];
+        for (let j = 0; from[1] + j * f.step <= modelTop + VIEW.overTop + 1e-9; j++) for (let k = 1; k * f.step <= f.forward + 1e-9; k++) {
+          const e: Vec3 = [from[0], r2(from[1] + j * f.step), r2(base - k * f.step)];
+          if (e[2] >= head) wider.push({ e, move: Math.hypot(e[1] - from[1], e[2] - from[2]) });
+        }
+        wider.sort((a, b) => a.move - b.move);
+        for (const c of wider) {
+          if (near && c.move <= near.move + f.sideSlack + 1e-9 && c.e[2] >= base) continue;
+          if (eyeOverlap(boxes, c.e) > 0 || !aheadOf(c.e) || !driverSeesOut(1, sideView(boxes, c.e))) continue;
+          both = c.e;
+          break;
+        }
       }
       const e = both ?? (sidesOnly ? undefined : near?.e);
       const helm = { seat: best.seat, steps: best.steps };

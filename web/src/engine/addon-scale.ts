@@ -189,7 +189,7 @@ export function planAddonScale(bricks: readonly ParsedBrick[], choice: AddonScal
     if (scale < 1) {
       return {
         choice: 'auto', scale, lduPerBlock: LDU_PER_BLOCK / scale, cue: 'vehicle', kind, sizeBlocks: sizeAt(extent, scale),
-        reason: `${scale}× minifig scale: a display ${kind} with no minifig, shrunk from ${round2(longestBlocks)} to ~${target} blocks long (a real ${kind === 'plane' ? 'aircraft' : kind})${titleKind ? '' : '; the title names no vehicle, the model stands on its own wheels'}`,
+        reason: `${scale}× minifig scale: a display ${kind} with no minifig, shrunk from ${round2(longestBlocks)} to ~${target} blocks long (a real ${kind === 'plane' ? 'aircraft' : kind})${titleKind ? '' : `; the title names no vehicle, the model ${kind === 'plane' ? 'flies on its wings or rotor' : 'stands on its own wheels'}`}`,
       };
     }
     return {

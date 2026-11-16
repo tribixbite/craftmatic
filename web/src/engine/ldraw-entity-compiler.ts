@@ -130,7 +130,7 @@ const isSteering = (part: string, description: string): boolean => isSteeringWhe
  * The "largest translucent part" cockpit rule reads glass by size alone.
  */
 export const NOT_GLASS = /\b(Engine|Cylinder|Piston|Light|Lamp|Lens|Jewel|Gem|Crystal|Flame|Fire|Lightsaber|Energy|Effect|Balloon|Bubble|Plant|Flower|Leaf|Leaves|Antenna|Minifig|Bottle|Cup|Ice|Dish|Cone|Bar)\b/i;
-const isCanopyMould = (part: string, description: string): boolean => CANOPY_PARTS.has(baseMould(part)) || /^(Windscreen|Canopy|Cockpit|Windshield)\b/i.test(description.replace(/^[~=_]+\s*/, ''));
+export const isCanopyMould = (part: string, description: string): boolean => CANOPY_PARTS.has(baseMould(part)) || /^(Windscreen|Canopy|Cockpit|Windshield)\b/i.test(description.replace(/^[~=_]+\s*/, ''));
 
 /** Technic pins and axles buried inside the model: geometry weight without silhouette. */
 const TECHNIC_INTERNAL = new Set([
@@ -2311,6 +2311,25 @@ function findDriverSeat(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh
   return { source: 'default-cabin', eyeLdu: eye, detail: 'no figure, seat, steering wheel or glass found', driverParts: [], evidenceParts: [] };
 }
 
+/**
+ * What the driver-seat planner was asked and measured for one entity: the planned part boxes, the cubes the pack
+ * ships, the question and the plan before and after `replanOnShipped`. A diagnostic: `_playable_ref.ts
+ * --seat-fixture=<dir>` writes it as a test fixture (test/fixtures/seats), so a seat the simulator rejects can be
+ * reproduced on the REAL boxes without the corpus.
+ */
+export interface SeatPlanProbe {
+  cid: string;
+  ask: { eye: Vec3; seat: Vec3; evidence: SeatEvidenceKind };
+  planned: readonly BoxBlocks[];
+  shipped: readonly BoxBlocks[];
+  plan: SeatPlan;
+  final: SeatPlan;
+}
+type SeatEvidenceKind = Parameters<typeof planSeat>[3];
+let seatPlanProbe: ((probe: SeatPlanProbe) => void) | undefined;
+/** Install (or clear, with undefined) the `SeatPlanProbe` listener; every compiled driver seat reports to it. */
+export function setSeatPlanProbe(listener: ((probe: SeatPlanProbe) => void) | undefined): void { seatPlanProbe = listener; }
+
 export async function compileLdrawEntityGeometry(
   cid: string,
   kind: EntityKind,
@@ -3165,6 +3184,7 @@ export async function compileLdrawEntityGeometry(
   if (seatPlan && seatAsk) {
     const shipped = shippedSeatBoxes(ordered, coplanarEntry.bones);
     const redone = replanOnShipped(shipped, seatAsk, seatPlan);
+    seatPlanProbe?.({ cid, ask: { eye: seatAsk.eye, seat: seatAsk.seat, evidence: seatAsk.evidence }, planned: seatAsk.boxes, shipped, plan: seatPlan, final: redone.plan });
     if (redone.replanned) {
       warnings.push(`${cid}: the driver's eye at (${seatPlan.eye.join(', ')}) does not see out on the cubes the pack ships; re-planned on them to (${redone.plan.eye.join(', ')})${seesOut(shipped, redone.plan.eye) ? '' : ', which still does not see out to both sides'}.`);
       seatPlan = redone.plan;

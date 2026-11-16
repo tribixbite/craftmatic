@@ -180,6 +180,18 @@ export const COURSE_PUSH_TICKS = 200;
 const OBLIQUE_RUN = 70;
 /** Ticks the child holds the stick right against a post (`turnAgainstPost`, 2 s: the Saga's rise took one). */
 const TURN_TICKS = 40;
+
+/**
+ * The block cell (index along a decreasing axis) of a post whose near face stands about `gap` beyond `edge`, and never
+ * on or inside it: `floor(edge - gap)` alone puts the face anywhere from `gap` beyond to `1 - gap` INSIDE (the cell
+ * runs to `floor + 1`). 31060's stunt plane (half width 0.79) started 0.29 inside its post and every tick of the
+ * turn counted as a clip. Where that face is less than 0.1 beyond, the post moves one cell out; every favourite's
+ * plane keeps its cell (7140 -248, 0.68 off; 60446 0.19; 76286 0.5; 7877 0.52).
+ */
+export function postCellBeyond(edge: number, gap: number): number {
+  const cell = Math.floor(edge - gap);
+  return edge - (cell + 1) < 0.1 ? cell - 1 : cell;
+}
 /** Blocks a ship may drift across a lane beyond its heading's own before it is running ALONG the obstacle (the Saga's shortest run was 13). */
 const SLIDE_ALONG_BLOCKS = 10;
 
@@ -1108,7 +1120,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
       const start = { x: 60.5, z: -240.5 };
       // Heading +x; a right turn swings the tail to -z. The post stands just past the tail's -z corner (x a step
       // behind the tail, z 0.7 beyond the corner), the airframe's full height, so a few degrees of swing meet it.
-      const post = column(ctx, Math.floor(start.x - f.noseReach - 0.1), Math.floor(start.z - f.halfWidth - 0.7), Math.ceil(f.height) + 1);
+      const post = column(ctx, Math.floor(start.x - f.noseReach - 0.1), postCellBeyond(start.z - f.halfWidth, 0.7), Math.ceil(f.height) + 1);
       const v = await board(ctx, f, start);
       const band = bandOf(f), yaw0 = v.rotation.y, y0 = v.location.y;
       let rose = 0, clip = 0;

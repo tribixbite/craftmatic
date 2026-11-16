@@ -24,7 +24,7 @@
  */
 import type { ParsedBrick } from './ldraw-parser.js';
 import { classifiedDescription, type LdrawPartMesh, type Vec3 } from './ldraw-part-geometry.js';
-import { connectedClusters, isFigurePart, isSeat, touchingIndices } from './ldraw-entity-compiler.js';
+import { connectedClusters, isCanopyMould, isFigurePart, isSeat, touchingIndices } from './ldraw-entity-compiler.js';
 import { getPartDims } from './ldraw-part-dims.js';
 import type { PlayableBrickComponent, PlayableKind } from './playable-components.js';
 
@@ -75,6 +75,35 @@ export const SCENE_VEHICLES = {
    * holds at least this share of the placements: 42663's camper beside its picnic, never a scene of equals.
    */
   APART_MIN_VEHICLE_SHARE: 0.5,
+  /**
+   * A PLANE in a scene may hold up to this share of it (6863: the Batwing is 55 % of "Batwing Battle Over Gotham
+   * City"). A car or boat stays under `MAX_SHARE`: a plane must pass the wing or rotor test (`flightOf`), which a
+   * building whose cluster swallowed a car does not.
+   */
+  PLANE_MAX_SHARE: 0.75,
+  /** Wings: the wing parts reach at least this far past each side of the body (the other parts), LDU. */
+  WING_PAST_BODY: 16,
+  /**
+   * ... and span at least this many times the body's width across the same axis. Census 2026-11-16: the planes found
+   * span 1.60-5.9x (20200's smallest ship 1.60, 6863's Batwing 1.91); 45201's jumbled science-kit recon read 1.42
+   * and is no plane; 5972's jet-engined villain craft reads 1.55 (kept, unverified).
+   */
+  WING_SPAN_TO_BODY: 1.5,
+  /** ... and at least this share of the wing parts has a twin mirrored across the body's centre line (`WING_MIRROR_SLACK`). */
+  WING_MIRRORED: 0.5,
+  /** How far a wing's mirror twin may sit from the reflected place (`mirroredWings`), LDU. */
+  WING_MIRROR_SLACK: 24,
+  /** A main ROTOR lies flat: its box's height is at most this share of its widest horizontal side. */
+  ROTOR_FLAT: 0.35,
+  /** ... and its disc (the flat rotor parts at its level) spans at least this share of the object's longest horizontal side. */
+  ROTOR_MIN_SPAN: 0.2,
+  /** Flat rotor parts whose tops lie within this of the highest one's are one disc (crossed 2-blade parts), LDU. */
+  ROTOR_LEVEL: 16,
+  /**
+   * What stands over a main rotor by more than this hides it (a roof over a fan), LDU. A rotor's own blades and hub
+   * cap are stacked on it: 7345's plate blades and dish reach 30 over its `32124` hubs, 6866's 32 over its `2479`.
+   */
+  ROTOR_CLEAR: 40,
 } as const;
 export type SceneVehicleParams = { readonly [K in keyof typeof SCENE_VEHICLES]: number };
 
@@ -85,7 +114,27 @@ export interface SceneVehicleCandidate {
   /** Centre and size of its box, LDU. */
   centre: Vec3; size: Vec3;
   wheels: number; oars: number; hull: number; steering: number; seats: number;
+  /** How a `plane` flies (`flightOf`): on wings or a main rotor. */
+  flight?: 'plane' | 'rotor';
+  /** Bike or motorcycle frames and handlebars in it. */
+  bike?: number;
   reason: string;
+}
+
+/** How the finder reads the model beyond its tuned numbers. */
+export interface SceneVehicleOptions {
+  /** The model holds no track at all: a train's wheels are wheels it drives on, not the rail engine's (`findWholeModelVehicles`). */
+  tracklessTrains?: boolean;
+}
+
+/** Distinct wheel positions among wheel boxes (a tyre and its rim within `WHEEL_MERGE` count once). */
+function wheelPositions(list: readonly Box[], P: SceneVehicleParams): Vec3[] {
+  const positions: Vec3[] = [];
+  for (const b of list) {
+    const c: Vec3 = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2];
+    if (!positions.some(p => Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]) < P.WHEEL_MERGE)) positions.push(c);
+  }
+  return positions;
 }
 
 const IDENTITY: readonly number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -98,6 +147,17 @@ const isSteering = (d: string): boolean => /\bSteering Wheel\b/i.test(d);
 /** Railway and coaster track, and the chassis of a ride car or train (their own engine moves them). */
 const isRailPart = (d: string): boolean => /\b(Train (Base|Wheel|Track|Rail)|Roller Coaster|Coaster|Track|Rail \d|Monorail)\b/i.test(d);
 
+/** TRACK itself (rails, a coaster's or monorail's track), not a train's base or wheels: a model with none has no line to run on. */
+const isTrackPart = (d: string): boolean => isRailPart(d) && !/^Train (Base|Wheel)\b/i.test(d);
+/** A train's running gear: its wheels (they count as the wheels a trackless train stands on). */
+const isTrainWheel = (d: string): boolean => /^Train Wheel\b/i.test(d);
+/** A wing (LDraw "Wing  3 x  8 Left"): not a minifig's, a fairy's or a flame shaped like one. */
+const isWing = (d: string): boolean => /^Wing\b/i.test(d);
+/** A propeller or rotor blade (LDraw spells it "Propellor"). */
+const isRotor = (d: string): boolean => /\b(Propell?or|Rotor)\b/i.test(d);
+/** A two- or three-wheeler's own parts: a bike or motorcycle frame or body, handlebars. */
+const isBikePart = (d: string): boolean => /^(Bike|Motorcycle)\b|\bMotorcycle\b|\bHandlebars?\b/i.test(d);
+
 type Box = { min: Vec3; max: Vec3 };
 const area = (b: Box): number => (b.max[0] - b.min[0]) * (b.max[2] - b.min[2]);
 const boxOf = (list: Box[]): Box => {
@@ -105,6 +165,118 @@ const boxOf = (list: Box[]): Box => {
   for (const b of list) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k]!, b.min[k]!); max[k] = Math.max(max[k]!, b.max[k]!); }
   return { min, max };
 };
+
+/**
+ * How many of these wing boxes have a mirror TWIN (VEH-20): each centre is reflected across the plane through the
+ * wings' centroid normal to their principal axis (the span, power iteration on the 3 x 3 covariance), and a twin is
+ * another wing centre within `slack` of the reflection. In 3D, so a banked or diving plane (6863's Batwing) and a
+ * yawed one (76269's Quinjet) mirror as well as a level one. With a `normal` the plane is normal to it instead
+ * (the caller's lateral axis: 4895's helicopter strings its wing parts along its length, so their principal axis is
+ * its length). Census 2026-11-16: every plane found 0.86-1.00 of its wings, and the favourites' buildings whose
+ * leaves or roofs are wing parts 0.00 (21318, 10354, 71043).
+ */
+export function mirroredWings(wings: readonly Box[], slack: number, normal?: readonly [number, number, number]): number {
+  const c = wings.map(b => [0, 1, 2].map(k => (b.min[k]! + b.max[k]!) / 2));
+  const m = [0, 1, 2].map(k => c.reduce((s, p) => s + p[k]!, 0) / c.length);
+  const C = [0, 1, 2].map(a => [0, 1, 2].map(b => c.reduce((s, p) => s + (p[a]! - m[a]!) * (p[b]! - m[b]!), 0)));
+  let v = normal ? [...normal] : [1, 0.3, 0.2];
+  for (let it = 0; !normal && it < 50; it++) {
+    const n = [0, 1, 2].map(a => C[a]![0]! * v[0]! + C[a]![1]! * v[1]! + C[a]![2]! * v[2]!);
+    const l = Math.hypot(n[0]!, n[1]!, n[2]!);
+    if (!(l > 0)) break;
+    v = n.map(x => x / l);
+  }
+  const reflect = (p: number[]): number[] => {
+    const t = 2 * ((p[0]! - m[0]!) * v[0]! + (p[1]! - m[1]!) * v[1]! + (p[2]! - m[2]!) * v[2]!);
+    return p.map((x, k) => x - t * v[k]!);
+  };
+  const dist = (a: number[], b: number[]): number => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
+  // A wing ON the mirror plane (a tail fin, a centred spoiler) is its own reflection and no twin.
+  return c.filter((p, i) => { const r = reflect(p); return dist(r, p) > slack && c.some((q, j) => j !== i && dist(r, q) <= slack); }).length;
+}
+
+/** The `q` quantile (0..1) of a list of numbers (nearest rank). */
+const quantile = (values: number[], q: number): number => {
+  const v = [...values].sort((a, b) => a - b);
+  return v[Math.min(v.length - 1, Math.max(0, Math.round(q * (v.length - 1))))]!;
+};
+
+/**
+ * Whether an object FLIES, from its geometry (VEH-20 census class 1), and how:
+ *   - a ROTORCRAFT carries a main rotor: rotor or propeller parts lying FLAT (`ROTOR_FLAT`), one disc at the level of
+ *     the highest (`ROTOR_LEVEL`) spanning at least `ROTOR_MIN_SPAN` of the object's length, in its upper half, with
+ *     at most a quarter of the disc's footprint under anything more than `ROTOR_CLEAR` higher (its own blades and hub
+ *     cap are stacked on it; a roof over a fan is not). A plane's nose propeller and a tail rotor stand on edge and
+ *     never count. 7345's six crossed `32124` blades (220 LDU of
+ *     744), 6866's `2479` (131 of 561);
+ *   - a PLANE has wings: two or more wing parts reaching `WING_PAST_BODY` past BOTH sides of the body (every other
+ *     part) across one of its two horizontal principal axes, spanning `WING_SPAN_TO_BODY` times the body there. Both
+ *     axes are tried: a Batwing is wider than it is long, so its principal axis is its wingspan. Half the wing parts
+ *     or more have a mirror twin across the span's middle (`mirroredWings`, `WING_MIRRORED`): leaves and roofs do
+ *     not. A car's spoiler is centred on its body, and 31060's jet riding on its truck has wings narrower than the truck: neither flies. A
+ *     plane also carries something to fly it from (`cockpit`: a windscreen or canopy, a seat, a steering wheel or a
+ *     propeller); a creature's wing-part fins do not fly it.
+ * Either way it is no taller than long (`WHOLE_MAX_HEIGHT_TO_LENGTH`: a tower with a wing at each side is a tower).
+ * Returns null for anything else.
+ */
+export function flightOf(cluster: readonly number[], boxes: readonly Box[], d: (i: number) => string, cockpit: (i: number) => boolean, P: SceneVehicleParams = SCENE_VEHICLES): { motion: 'plane' | 'rotor'; reason: string } | null {
+  const { min, max } = boxOf(cluster.map(i => boxes[i]!));
+  const length = Math.max(max[0] - min[0], max[2] - min[2]);
+  if (max[1] - min[1] > P.WHOLE_MAX_HEIGHT_TO_LENGTH * length) return null;
+  // A main rotor (LDraw y is down: the highest part has the smallest y).
+  const flat = cluster.filter(i => {
+    if (!isRotor(d(i))) return false;
+    const b = boxes[i]!;
+    return b.max[1] - b.min[1] <= P.ROTOR_FLAT * Math.max(b.max[0] - b.min[0], b.max[2] - b.min[2]);
+  });
+  if (flat.length) {
+    const top = Math.min(...flat.map(i => boxes[i]!.min[1]));
+    const discParts = flat.filter(i => boxes[i]!.min[1] <= top + P.ROTOR_LEVEL);
+    const disc = boxOf(discParts.map(i => boxes[i]!));
+    const span = Math.max(disc.max[0] - disc.min[0], disc.max[2] - disc.min[2]);
+    const upper = (disc.min[1] + disc.max[1]) / 2 < (min[1] + max[1]) / 2;
+    const discArea = Math.max(1, area(disc));
+    let shaded = 0;
+    for (const i of cluster) {
+      if (discParts.includes(i) || boxes[i]!.min[1] >= disc.min[1] - P.ROTOR_CLEAR) continue;
+      const b = boxes[i]!;
+      shaded += Math.max(0, Math.min(b.max[0], disc.max[0]) - Math.max(b.min[0], disc.min[0])) * Math.max(0, Math.min(b.max[2], disc.max[2]) - Math.max(b.min[2], disc.min[2]));
+    }
+    if (upper && span >= P.ROTOR_MIN_SPAN * length && shaded <= 0.25 * discArea) {
+      return { motion: 'rotor', reason: `a main rotor lies flat on top (${discParts.length} rotor part${discParts.length === 1 ? '' : 's'} ${Math.round(span)} LDU across of ${Math.round(length)})` };
+    }
+  }
+  // Wings, across either horizontal principal axis of the part centres.
+  const wings = cluster.filter(i => isWing(d(i)));
+  const body = cluster.filter(i => !isWing(d(i)) && !isRotor(d(i)));
+  if (wings.length < 2 || body.length < 2) return null;
+  // Something to fly it from: a windscreen or canopy, a seat, a steering wheel, a propeller. 76269's Leviathan spreads
+  // four wing parts as fins and has none of them; its Quinjet has a windscreen.
+  const flown = cluster.filter(cockpit).length;
+  if (!flown) return null;
+  const centre = (b: Box): [number, number] => [(b.min[0] + b.max[0]) / 2, (b.min[2] + b.max[2]) / 2];
+  const cs = cluster.map(i => centre(boxes[i]!));
+  const mx = cs.reduce((s, c) => s + c[0], 0) / cs.length, mz = cs.reduce((s, c) => s + c[1], 0) / cs.length;
+  let sxx = 0, szz = 0, sxz = 0;
+  for (const [x, z] of cs) { sxx += (x - mx) ** 2; szz += (z - mz) ** 2; sxz += (x - mx) * (z - mz); }
+  const theta = 0.5 * Math.atan2(2 * sxz, sxx - szz);
+  for (const [ax, az] of [[Math.cos(theta), Math.sin(theta)], [-Math.sin(theta), Math.cos(theta)]] as const) {
+    const span = (b: Box): [number, number] => {
+      const p = [b.min[0] * ax + b.min[2] * az, b.min[0] * ax + b.max[2] * az, b.max[0] * ax + b.min[2] * az, b.max[0] * ax + b.max[2] * az];
+      return [Math.min(...p), Math.max(...p)];
+    };
+    const bodySpans = body.map(i => span(boxes[i]!));
+    const lo = quantile(bodySpans.map(s => s[0]), 0.1), hi = quantile(bodySpans.map(s => s[1]), 0.9);
+    const wingSpans = wings.map(i => span(boxes[i]!));
+    const wlo = Math.min(...wingSpans.map(s => s[0])), whi = Math.max(...wingSpans.map(s => s[1]));
+    if (!(wlo <= lo - P.WING_PAST_BODY && whi >= hi + P.WING_PAST_BODY && whi - wlo >= P.WING_SPAN_TO_BODY * Math.max(1, hi - lo))) continue;
+    const wingBoxes = wings.map(i => boxes[i]!);
+    const mirrored = Math.max(mirroredWings(wingBoxes, P.WING_MIRROR_SLACK), mirroredWings(wingBoxes, P.WING_MIRROR_SLACK, [ax, 0, az]));
+    if (mirrored < P.WING_MIRRORED * wings.length) continue;
+    return { motion: 'plane', reason: `${wings.length} wings (${mirrored} mirrored) span ${Math.round(whi - wlo)} LDU across a body ${Math.round(hi - lo)} wide, with ${flown} cockpit part${flown === 1 ? '' : 's'}` };
+  }
+  return null;
+}
 
 /** A placement's world box from its part's mesh bounds (a part with no mesh: its nominal size). */
 export function placementBox(b: ParsedBrick, mesh: LdrawPartMesh | null | undefined): { min: Vec3; max: Vec3 } {
@@ -126,7 +298,7 @@ export function placementBox(b: ParsedBrick, mesh: LdrawPartMesh | null | undefi
  * parts. Returns rideable components (each the object's exact placements) and
  * the verdict on every object considered.
  */
-export function findSceneVehicles(bricks: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, P: SceneVehicleParams = SCENE_VEHICLES): { components: PlayableBrickComponent[]; candidates: SceneVehicleCandidate[] } {
+export function findSceneVehicles(bricks: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, P: SceneVehicleParams = SCENE_VEHICLES, opts: SceneVehicleOptions = {}): { components: PlayableBrickComponent[]; candidates: SceneVehicleCandidate[] } {
   if (bricks.length < P.MIN_PARTS * 2) return { components: [], candidates: [] };
   const boxes = bricks.map(b => placementBox(b, meshes.get(b.part)));
   // 1. The ground: flat parts on the lowest layer (LDraw y is DOWN: the lowest layer has the largest y).
@@ -174,11 +346,15 @@ export function findSceneVehicles(bricks: ParsedBrick[], meshes: Map<string, Ldr
   const oarAt = bricks.map((b, i) => isOar(desc(meshes.get(b.part))) ? i : -1).filter(i => i >= 0);
   const components: PlayableBrickComponent[] = [];
   const candidates: SceneVehicleCandidate[] = [];
-  let cars = 0, boats = 0;
+  const counts: Record<string, number> = {};
+  /** The largest share any vehicle may hold here: a plane's (`PLANE_MAX_SHARE`) or a car's or boat's (`MAX_SHARE`). */
+  const cap = Math.max(P.MAX_SHARE, P.PLANE_MAX_SHARE);
   const claimed = new Set<number>();
   const d = (i: number): string => desc(meshes.get(bricks[i]!.part));
+  /** A wheel it can stand on: a road wheel or tyre, and a train's own wheel where the model has no track. */
+  const wheelOf = (i: number): boolean => isWheel(d(i)) || (!!opts.tracklessTrains && isTrainWheel(d(i)));
   for (const base of clusters) {
-    if (base.length < P.MIN_PARTS || base.length > bricks.length * P.MAX_SHARE) continue;
+    if (base.length < P.MIN_PARTS || base.length > bricks.length * cap) continue;
     // 3a. Claim what belongs to the object but touched something bigger: its
     //     wheels (a tyre resting on the road joins the road's cluster) and
     //     then any part lying wholly inside its box and not under its bottom
@@ -191,39 +367,45 @@ export function findSceneVehicles(bricks: ParsedBrick[], meshes: Map<string, Ldr
         && b.min[1] >= box.min[1] - s && b.max[1] <= box.max[1] + below;
     };
     let box = boxOf([...own].map(i => boxes[i]!));
-    for (let i = 0; i < bricks.length; i++) if (!own.has(i) && !claimed.has(i) && isWheel(d(i)) && inside(i, box, P.WHEEL_HANG)) own.add(i);
+    for (let i = 0; i < bricks.length; i++) if (!own.has(i) && !claimed.has(i) && wheelOf(i) && inside(i, box, P.WHEEL_HANG)) own.add(i);
     box = boxOf([...own].map(i => boxes[i]!));
     for (let i = 0; i < bricks.length; i++) if (!own.has(i) && !claimed.has(i) && !ground.has(i) && inside(i, box, P.CLAIM_SLACK)) own.add(i);
     const cluster = [...own];
-    if (cluster.length > bricks.length * P.MAX_SHARE) continue;
+    if (cluster.length > bricks.length * cap) continue;
     const { min, max } = boxOf(cluster.map(i => boxes[i]!));
     // Wheels it stands on: level with its lowest wheel, which is at its bottom
     // (within `WHEEL_HANG`: a loose part touching it may reach lower - the
     // compiler's display-stand rule drops it from the car); a tyre and its rim
     // merged into one position.
-    const wheelBottoms = cluster.filter(i => isWheel(d(i))).map(i => boxes[i]!.max[1]);
+    const wheelBottoms = cluster.filter(wheelOf).map(i => boxes[i]!.max[1]);
     const lowestWheel = wheelBottoms.length ? Math.max(...wheelBottoms) : -Infinity;
-    const wheelParts = lowestWheel >= max[1] - P.WHEEL_HANG ? cluster.filter(i => isWheel(d(i)) && boxes[i]!.max[1] >= lowestWheel - P.WHEEL_BOTTOM_SLACK) : [];
-    const positions: Vec3[] = [];
-    for (const i of wheelParts) {
-      const c: Vec3 = [(boxes[i]!.min[0] + boxes[i]!.max[0]) / 2, (boxes[i]!.min[1] + boxes[i]!.max[1]) / 2, (boxes[i]!.min[2] + boxes[i]!.max[2]) / 2];
-      if (!positions.some(p => Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]) < P.WHEEL_MERGE)) positions.push(c);
-    }
+    // A bike's or trike's own parts: its wheels may stand at different heights (a wheelie, 6866's chopper bike: 20 LDU).
+    const bike = cluster.filter(i => isBikePart(d(i))).length;
+    const slack = bike ? P.WHEEL_HANG : P.WHEEL_BOTTOM_SLACK;
+    const wheelParts = lowestWheel >= max[1] - P.WHEEL_HANG ? cluster.filter(i => wheelOf(i) && boxes[i]!.max[1] >= lowestWheel - slack) : [];
+    const positions = wheelPositions(wheelParts.map(i => boxes[i]!), P);
     const steering = cluster.filter(i => isSteering(d(i))).length;
     const seats = cluster.filter(i => isSeat(bricks[i]!.part, d(i))).length;
     const hull = cluster.filter(i => isHull(d(i))).length;
     // Oars lying in or beside it (an oar is often a figure's, standing apart from the hull).
     const oars = oarAt.filter(i => boxes[i]!.max[0] >= min[0] - P.OAR_REACH && boxes[i]!.min[0] <= max[0] + P.OAR_REACH && boxes[i]!.max[2] >= min[2] - P.OAR_REACH && boxes[i]!.min[2] <= max[2] + P.OAR_REACH && boxes[i]!.max[1] >= min[1] - P.OAR_REACH && boxes[i]!.min[1] <= max[1] + P.OAR_REACH);
-    let kind: PlayableKind | null = null, reason: string;
-    const rail = cluster.filter(i => isRailPart(d(i))).length;
+    let kind: PlayableKind | null = null, reason: string, motion: 'plane' | 'rotor' | undefined;
+    // A train with no track anywhere in the model (`opts.tracklessTrains`) is not the rail engine's: nothing to run on.
+    const rail = cluster.filter(i => opts.tracklessTrains ? isTrackPart(d(i)) || /\bCoaster\b/i.test(d(i)) : isRailPart(d(i))).length;
+    const trainWheels = cluster.filter(i => isTrainWheel(d(i))).length;
+    const flight = rail ? null : flightOf(cluster, boxes, d, i => isCanopyMould(bricks[i]!.part, d(i)) || isSeat(bricks[i]!.part, d(i)) || isSteering(d(i)) || isRotor(d(i)), P);
     if (rail) {
       // Ride cars and trains run on their track (coaster-assemblies.ts, the rail path), never as free vehicles.
       reason = `${rail} track or ride-car part${rail === 1 ? '' : 's'}: the rail engine's`;
     } else if (Math.max(max[0] - min[0], max[2] - min[2]) < P.MIN_LENGTH) {
       reason = `${Math.round(Math.max(max[0] - min[0], max[2] - min[2]))} LDU long: too small to ride`;
-    } else if (positions.length >= P.CAR_MIN_WHEELS || (positions.length >= 2 && (steering || seats))) {
+    } else if (flight) {
+      // Wings or a main rotor beat the wheels it stands on: a plane on its landing gear flies (31060, 7345).
+      kind = 'plane'; motion = flight.motion;
+      reason = flight.reason;
+    } else if (positions.length >= P.CAR_MIN_WHEELS || (positions.length >= 2 && (steering || seats || bike))) {
       kind = 'car';
-      reason = `stands on ${positions.length} wheel${positions.length === 1 ? '' : 's'}${steering ? ' with a steering wheel' : seats ? ' with a seat' : ''}`;
+      reason = `stands on ${positions.length} wheel${positions.length === 1 ? '' : 's'}${steering ? ' with a steering wheel' : seats ? ' with a seat' : bike ? ` with ${bike} bike part${bike === 1 ? '' : 's'}` : ''}${trainWheels && opts.tracklessTrains ? " (a train's wheels, and no track in the model: it drives on land)" : ''}`;
     } else if (oars.length >= P.BOAT_MIN_OARS || hull) {
       kind = 'boat';
       reason = hull ? `${hull} hull, rudder or sail part${hull === 1 ? '' : 's'}` : `${oars.length} oars in or beside it`;
@@ -233,7 +415,12 @@ export function findSceneVehicles(bricks: ParsedBrick[], meshes: Map<string, Ldr
     const centre: Vec3 = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
     const size: Vec3 = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
     const round = (v: Vec3): Vec3 => [Math.round(v[0]), Math.round(v[1]), Math.round(v[2])];
-    candidates.push({ kind, parts: cluster.length, centre: round(centre), size: round(size), wheels: positions.length, oars: oars.length, hull, steering, seats, reason });
+    // A car or a boat holds at most `MAX_SHARE` of a scene; only a plane passed the wing or rotor test above it.
+    if (kind && kind !== 'plane' && cluster.length > bricks.length * P.MAX_SHARE) {
+      reason = `${reason}, but ${Math.round(cluster.length / bricks.length * 100)} % of the scene: more than a car or boat in one`;
+      kind = null;
+    }
+    candidates.push({ kind, parts: cluster.length, centre: round(centre), size: round(size), wheels: positions.length, oars: oars.length, hull, steering, seats, ...(motion ? { flight: motion } : {}), bike, reason });
     if (!kind) continue;
     // What rides on it goes with it: a small object (a figure at the oars, a
     // crate) standing within its footprint, its feet between its keel and its top.
@@ -250,11 +437,13 @@ export function findSceneVehicles(bricks: ParsedBrick[], meshes: Map<string, Ldr
     // A boat takes its loose oars with it.
     const members = [...new Set([...standing, ...riders, ...(kind === 'boat' ? oars.filter(i => !claimed.has(i)) : [])])];
     for (const i of members) claimed.add(i);
-    const n = kind === 'car' ? ++cars : ++boats;
+    const word = kind === 'car' ? 'Car' : kind === 'boat' ? 'Boat' : motion === 'rotor' ? 'Helicopter' : 'Plane';
+    const n = counts[word] = (counts[word] ?? 0) + 1;
     components.push({
-      id: `${kind}_${n}`, label: kind === 'car' ? `Car ${n}` : `Boat ${n}`, kind, bricks: members.map(i => bricks[i]!),
-      provenance: `vehicle standing in the scene: ${members.length} placements that ${reason}`,
+      id: `${word.toLowerCase()}_${n}`, label: `${word} ${n}`, kind, bricks: members.map(i => bricks[i]!),
+      provenance: `vehicle standing in the scene: ${members.length} placements that ${kind === 'plane' ? `fly: ${reason}` : reason}`,
       fromScene: true,
+      ...(motion ? { motion } : {}),
     });
   }
   return { components, candidates };
@@ -266,35 +455,70 @@ export function findSceneVehicles(bricks: ParsedBrick[], meshes: Map<string, Ldr
  * caps a vehicle at `MAX_SHARE` of the scene, so a car that is the whole
  * model was never found, and its title kept it static (VEH-20 census,
  * 2026-11-06: 14 of the 143 sets shipped with no rideable stand on their own
- * wheels). The same finder runs with the cap lifted and keeps only CARS - a
- * whole model with two oars or a sail part is as often a scene's prop (a
- * science kit's iceberg) - no taller than long (`WHOLE_MAX_HEIGHT_TO_LENGTH`).
- * The caller runs it only where the title names no vehicle, no scenery
- * (`isSceneryLabel`: The Batcave stands on its Batmobile's wheels) and the
- * scene search found nothing.
+ * wheels). The same finder runs with the caps lifted and keeps
+ *   - a CAR on at least `WHOLE_MIN_WHEELS` wheels spread over `WHOLE_MIN_WHEEL_SPREAD` of its length, no taller than
+ *     long (`WHOLE_MAX_HEIGHT_TO_LENGTH`) - a whole model with two oars or a sail part is as often a scene's prop (a
+ *     science kit's iceberg), so boats stay out;
+ *   - a BIKE or TRIKE (census class 1, 2026-11-16): two or three wheels spread the same way, with a bike or motorcycle
+ *     frame, body or handlebars (31141 Main Street's building stands on 3 wheels with a seat and no bike part);
+ *   - a TRAIN with no track anywhere in the model (4841): its train wheels are wheels it drives on, a car. The rail
+ *     engine needs a line, and a titled "Locomotive" without one already drives as a car; a child given a train and
+ *     no track should still drive it. With any track in the model the train stays the rail engine's;
+ *   - a PLANE or a HELICOPTER (`flightOf`: wings past the body, or a flat main rotor on top), whatever it stands on
+ *     (31060, 7345, 6866's helicopter on three wheels).
+ * Each holds more of the model than the scene finder admits for its kind. The caller runs it only where the title
+ * names no vehicle and no scenery (`isSceneryLabel`: The Batcave stands on its Batmobile's wheels), over what the
+ * scene finder left (`geometryVehicles`).
  */
 export function findWholeModelVehicles(bricks: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, P: SceneVehicleParams = SCENE_VEHICLES): { components: PlayableBrickComponent[]; candidates: SceneVehicleCandidate[] } {
-  const found = findSceneVehicles(bricks, meshes, { ...P, MAX_SHARE: 1 });
+  const d = (b: ParsedBrick): string => desc(meshes.get(b.part));
+  const tracklessTrains = !bricks.some(b => isTrackPart(d(b)));
+  const found = findSceneVehicles(bricks, meshes, { ...P, MAX_SHARE: 1, PLANE_MAX_SHARE: 1 }, { tracklessTrains });
   const components = found.components.filter(c => {
-    // Only what the cap excluded: a smaller car is the scene finder's, and it judged it already.
-    if (c.kind !== 'car' || c.bricks.length <= bricks.length * P.MAX_SHARE) return false;
+    // Only what the caps excluded: a smaller vehicle is the scene finder's, and it judged it already.
+    if (c.bricks.length <= bricks.length * (c.kind === 'plane' ? P.PLANE_MAX_SHARE : P.MAX_SHARE)) return false;
+    if (c.kind === 'plane') return true;
+    if (c.kind !== 'car') return false;
     const boxes = c.bricks.map(b => placementBox(b, meshes.get(b.part)));
     const { min, max } = boxOf(boxes);
     const long = max[0] - min[0] >= max[2] - min[2] ? 0 : 2;
     const length = max[long] - min[long];
     if (max[1] - min[1] > P.WHOLE_MAX_HEIGHT_TO_LENGTH * length) return false;
-    // The wheels it stands on (bottoms within `WHEEL_BOTTOM_SLACK` of its lowest), one per position.
-    const wheels = boxes.filter((bx, i) => isWheel(desc(meshes.get(c.bricks[i]!.part))) && bx.max[1] >= max[1] - P.WHEEL_BOTTOM_SLACK);
-    const centres: Vec3[] = [];
-    for (const bx of wheels) {
-      const m: Vec3 = [(bx.min[0] + bx.max[0]) / 2, (bx.min[1] + bx.max[1]) / 2, (bx.min[2] + bx.max[2]) / 2];
-      if (!centres.some(q => Math.hypot(q[0] - m[0], q[1] - m[1], q[2] - m[2]) < P.WHEEL_MERGE)) centres.push(m);
-    }
-    if (centres.length < P.WHOLE_MIN_WHEELS) return false;
+    const bike = c.bricks.some(b => isBikePart(d(b)));
+    // The wheels it stands on (bottoms within `WHEEL_BOTTOM_SLACK` of its lowest, a bike's within `WHEEL_HANG`), one per position.
+    const wheel = (b: ParsedBrick): boolean => isWheel(d(b)) || (tracklessTrains && isTrainWheel(d(b)));
+    const centres = wheelPositions(boxes.filter((bx, i) => wheel(c.bricks[i]!) && bx.max[1] >= max[1] - (bike ? P.WHEEL_HANG : P.WHEEL_BOTTOM_SLACK)), P);
+    if (centres.length < (bike ? 2 : P.WHOLE_MIN_WHEELS)) return false;
     const along = centres.map(q => q[long]);
     return Math.max(...along) - Math.min(...along) >= P.WHOLE_MIN_WHEEL_SPREAD * length;
-  }).map(c => ({ ...c, provenance: `whole model stands on its own wheels (the title names no vehicle): ${c.provenance.replace(/^vehicle standing in the scene: /, '')}` }));
+  }).map(c => ({
+    ...c,
+    provenance: `${c.kind === 'plane' ? 'whole model flies' : 'whole model stands on its own wheels'} (the title names no vehicle): ${c.provenance.replace(/^vehicle standing in the scene: /, '')}`,
+  }));
   return { components, candidates: found.candidates };
+}
+
+/**
+ * Every vehicle a model's GEOMETRY holds when its title names none (VEH-20): the vehicles standing in it
+ * (`findSceneVehicles`) and, unless the title names scenery, the vehicle the model itself is
+ * (`findWholeModelVehicles`), judged over what the scene's vehicles leave:
+ *   - a whole-model PLANE or HELICOPTER is kept beside them (6866: the bike in the scene, and the helicopter that is
+ *     92 % of the model) - the wing and rotor tests are evidence a building does not give;
+ *   - a whole-model CAR only where the scene holds no car or boat (a scene with cars in it is not a car, as before;
+ *     31060: the stunt plane flies over the airshow, and the truck carrying the jet is still the model's car).
+ * What is left must still be most of the model (`1 - MAX_SHARE`). One call for the pipeline's discovery, the scale
+ * plan (`modelVehicleFromGeometry`) and the census probe, so the three agree.
+ */
+export function geometryVehicles(bricks: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, sceneryTitle: boolean): { inScene: PlayableBrickComponent[]; whole: PlayableBrickComponent[]; candidates: SceneVehicleCandidate[] } {
+  const scene = findSceneVehicles(bricks, meshes);
+  if (sceneryTitle) return { inScene: scene.components, whole: [], candidates: scene.candidates };
+  const taken = new Set(scene.components.flatMap(c => c.bricks));
+  const rest = taken.size ? bricks.filter(b => !taken.has(b)) : bricks;
+  const groundVehicle = scene.components.some(c => c.kind !== 'plane');
+  const whole = rest.length >= bricks.length * (1 - SCENE_VEHICLES.MAX_SHARE)
+    ? findWholeModelVehicles(rest, meshes).components.filter(c => c.kind === 'plane' || !groundVehicle)
+    : [];
+  return { inScene: scene.components, whole, candidates: scene.candidates };
 }
 
 /**
@@ -334,8 +558,8 @@ export function vehicleApartFromScenery(bricks: ParsedBrick[], meshes: Map<strin
  * The vehicle a model IS, from its geometry, for sizing it (addon-scale.ts `GeometryVehicle`) and for the
  * pipeline's discovery, which make the same call so the two agree:
  *   - a title naming a whole vehicle (`titledKind`): the vehicle apart from its scenery, else the whole model;
- *   - no vehicle in the title and no scenery word: a whole-model car (`findWholeModelVehicles`), only when the
- *     scene finder found no smaller vehicle (a scene with cars in it is not a car);
+ *   - no vehicle in the title and no scenery word: a whole-model vehicle (`geometryVehicles`), only when the
+ *     scene finder found no smaller car or boat (a scene with cars in it is not a car);
  *   - otherwise none.
  */
 export function modelVehicleFromGeometry(bricks: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, titledKind: PlayableKind | null, sceneryTitle: boolean): { kind: PlayableKind; bricks: ParsedBrick[] } | null {
@@ -343,7 +567,6 @@ export function modelVehicleFromGeometry(bricks: ParsedBrick[], meshes: Map<stri
     const apart = vehicleApartFromScenery(bricks, meshes, titledKind);
     return { kind: titledKind, bricks: apart ? apart.bricks : bricks };
   }
-  if (sceneryTitle || findSceneVehicles(bricks, meshes).components.length) return null;
-  const whole = findWholeModelVehicles(bricks, meshes).components;
+  const { whole } = geometryVehicles(bricks, meshes, sceneryTitle);
   return whole.length === 1 ? { kind: whole[0]!.kind, bricks: whole[0]!.bricks } : null;
 }

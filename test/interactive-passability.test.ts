@@ -51,13 +51,15 @@ async function check76457({ model }: BuiltPack): Promise<void> {
   expect(items[d1]!.pairs ?? [], 'Door 1 and Door 2 are two doors').not.toContain(d2);
 }
 
-const SETS: Array<{ set: string; file: string; minDoorways: number; minOkAt100: number; check?: (p: BuiltPack) => Promise<void> }> = [
+const SETS: Array<{ set: string; file: string; minDoorways: number; minOkAt100: number; check?: (p: BuiltPack) => Promise<void>; mode?: 'auto' | 'static' }> = [
   { set: '31141', file: `${CORPUS}/IOModel2V2/31141.ldr`, minDoorways: 5, minOkAt100: 4 },
   // A passenger car on its track: every door's sill stands 1.44 blocks over the track bed with no
   // platform in the source, so every door is ONE-WAY (walked out of, not into) at 100 %. Door 2
   // read OK until 2026-09-29 only because Door 1's row-based passage cleared Door 2's sill in one
   // column, a 1.0-block notch in the model's floor; measured from the doorway's floor, the sill stays.
-  { set: '10022', file: `${CORPUS}/IOModel2V2/10022.ldr`, minDoorways: 4, minOkAt100: 0 },
+  // Exported STATIC on purpose: with no track in the model its train wheels make it a car (VEH-20, 2026-11-16,
+  // `findWholeModelVehicles`), as its LEGO-tab title "Santa Fe Cars" already did; these are the building's doorways.
+  { set: '10022', file: `${CORPUS}/IOModel2V2/10022.ldr`, minDoorways: 4, minOkAt100: 0, mode: 'static' },
   { set: '76417', file: `${CORPUS}/DbixConvV3/76417.ldr`, minDoorways: 4, minOkAt100: 3 },
   // The device round's other two door packs (2026-09-24d): 76457's six doors, 41732's raised shop threshold.
   { set: '76457', file: `${CORPUS}/DbixConvV3/76457.ldr`, minDoorways: 6, minOkAt100: 6, check: check76457 },
@@ -66,7 +68,7 @@ const SETS: Array<{ set: string; file: string; minDoorways: number; minOkAt100: 
 const HAVE = existsSync(LDRAW_ROOT) && SETS.every(s => existsSync(s.file));
 
 /** Build a pack in-process the way `_playable_ref.ts` does. */
-async function buildPack(file: string, label: string): Promise<ArrayBuffer> {
+async function buildPack(file: string, label: string, vehicleMode: 'auto' | 'static' = 'auto'): Promise<ArrayBuffer> {
   const { parseLDrawDocument, embeddedPartTexts } = await import('../web/src/engine/ldraw-parser.js');
   const { seedDatTexts, setLDrawRoot } = await import('../web/src/engine/ldraw-geometry.js');
   const { synthesizeLSynth } = await import('../web/src/engine/lsynth.js');
@@ -82,7 +84,7 @@ async function buildPack(file: string, label: string): Promise<ArrayBuffer> {
   const result = await runSchemPipeline({
     source: { kind: 'bricks', bricks: doc.bricks, colorSpace: 'ldraw', options: { cellLDU: plan.cellLDU, maxDim: 700 } },
     format: 'mcaddon', packStem: label, packLabel: label, profile: DEFAULT_SCHEM_SETTINGS.profile,
-    lightFill: false, shapes: false, vehicleMode: 'auto', vehicleFacing: 'auto', entityQuality: 'balanced',
+    lightFill: false, shapes: false, vehicleMode, vehicleFacing: 'auto', entityQuality: 'balanced',
     buildingFidelity: 'bricks', modelScale: Math.round(LDU_PER_BLOCK / plan.cellLDU * 1000) / 1000, lod: 'hull',
   });
   const bytes = result.bytes!;
@@ -90,11 +92,11 @@ async function buildPack(file: string, label: string): Promise<ArrayBuffer> {
 }
 
 describe.skipIf(!HAVE)('doorways of real sets are passable open and blocked closed', () => {
-  for (const { set, file, minDoorways, minOkAt100, check } of SETS) {
+  for (const { set, file, minDoorways, minOkAt100, check, mode } of SETS) {
     it(`${set}: every doorway, at 100 and 200 percent, turned 0 and 90`, async () => {
       const { carveAt, loadAddonPreviewModel, treadBlocksAt } = await import('../web/src/ui/addon-preview-data.js');
       const { verdictOf, walkThroughDoorway } = await import('../web/src/engine/interactive-walk.js');
-      const bytes = await buildPack(file, set);
+      const bytes = await buildPack(file, set, mode);
       const model = await loadAddonPreviewModel(bytes);
       // The tap boxes the pack ships keep to their own parts and off the seats.
       const { auditPackHitboxes } = await import('../web/src/engine/interactive-hitbox-audit.js');

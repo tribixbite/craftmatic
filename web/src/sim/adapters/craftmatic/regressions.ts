@@ -10,7 +10,7 @@
 import type { Scenario, Step } from '../../scenario/types.js';
 import { CORE_HANDLERS, type ScenarioResult } from '../../scenario/runner.js';
 import type { RegressionRow } from '../../scenario/report.js';
-import type { CraftmaticPack } from './pack-facts.js';
+import { vehicleCameraKinds, type CraftmaticPack } from './pack-facts.js';
 import { CRAFTMATIC_ALLOWED_LINES } from './child-play.js';
 import { deviceShift, doorwayFindings, placedOf, tapPoseOf, type DeviceShift } from './play.js';
 import { scriptedVehicleTypes, type CourseRow } from './vehicle-course.js';
@@ -637,6 +637,8 @@ export const REGRESSIONS: RegressionCase[] = [
   // The 2026-11-15 favourites audit (output/audit-1115/AUDIT.md): faults the simulator found on the sweep's packs,
   // no device round behind them. The old pack is the audited sweep's.
   ...audit1115Regressions(),
+  // The 2026-11-16 generality census gate (output/gengate-6fa0afa6): sets that are not favourites, judged on the gate's packs.
+  ...gen1116Regressions(),
   // The world's cases (water, bodies): regressions-world.ts.
   ...WORLD_REGRESSIONS,
   // Round 30m's open device defects: regressions-30m.ts.
@@ -698,5 +700,44 @@ function audit1115Regressions(): RegressionCase[] {
     doorwayClearCase('910004', '910004-winter-chalet', 200, ['Door 5']),
     turnableTapCase('71040', '71040-disney-castle', 50, 'Turnable 4'),
     turnableTapCase('910032', '910032-parisian-street', 50, 'Turnable 3'),
+  ];
+}
+
+/**
+ * A set whose AIRCRAFT shipped as a car or not at all (VEH-20 census class 1, 2026-11-16): its pack must carry at
+ * least `want` aircraft - a scripted vehicle of kind `plane` or a native rotorcraft mount. Judged on the pack's facts
+ * after placing it (`vehicleCameraKinds`, `nativeMountTypes`).
+ */
+function aircraftCase(set: string, stem: string, want: number, what: string, oldPack: string): RegressionCase {
+  return {
+    id: `aircraft-${set}`, title: `${set}: ${what}`,
+    evidence: 'TASKS-BEDROCK-ADDON.md "Generality census" class 1; output/audit-1115/AUDIT.md section 4 item 1; scripts/_geometry_vehicle_census.ts',
+    oldPack, newStem: stem, expectNew: 'pass',
+    scenario: () => ({ name: `aircraft-${set}`, steps: [...place], allowLines: allow }),
+    judge: (_r, pack) => {
+      const kinds = vehicleCameraKinds(pack.pack);
+      const aircraft = new Set([...pack.nativeMountTypes, ...[...kinds].filter(([, k]) => k === 'plane').map(([t]) => t)]);
+      const all = [...kinds].map(([t, k]) => `${t.split(':')[1]} ${k}`).concat(pack.nativeMountTypes.map(t => `${t.split(':')[1]} native mount`));
+      return { reproduced: aircraft.size < want, attribution: 'pack', evidence: `${aircraft.size} aircraft of ${want} wanted (${all.join(', ') || 'no vehicle'})` };
+    },
+  };
+}
+
+/** The 2026-11-16 generality census gate's cases (a function: the set above spreads it before this module's tail runs). */
+function gen1116Regressions(): RegressionCase[] {
+  const gate = `${ROUND}/gengate-6fa0afa6`;
+  return [
+    {
+      id: 'lookout-sides-6243', title: "6243 boat: the lookout camera sees the horizon ahead but a mast fills 5 of 28 rays to its right",
+      evidence: 'output/gengate-6fa0afa6/gate-child-play.json (play-100-0, driver-sees-ahead: right 23 of 28); cockpit-seat.ts AHEAD_FALLBACK.forward',
+      oldPack: `${gate}/6243-brickbeards-bounty.mcaddon`, newStem: '6243-brickbeards-bounty', expectNew: 'pass',
+      scenario: pack => ({ name: 'lookout-sides-6243', steps: [...place, { kind: 'driveVehicle', type: pack.vehicleTypes[0] ?? '-', ticks: 100 }], allowLines: allow }),
+      judge: r => { const v = violated(r, 'driver-sees-ahead'); return { reproduced: !!v, attribution: 'pack', evidence: v ?? (r.notes.find(n => /horizon ahead/.test(n)) ?? 'the driver sees out') }; },
+    },
+    aircraftCase('7345', '7345-transport-chopper', 1, 'the transport helicopter rides as a car on its landing wheels', `${gate}/7345-transport-chopper.mcaddon`),
+    aircraftCase('31060', '31060-airshow-aces', 1, 'the stunt plane over the airshow is static (the truck is the only vehicle)', `${gate}/31060-airshow-aces.mcaddon`),
+    aircraftCase('6866', '6866-wolverines-chopper-showdown', 1, 'the helicopter on three wheels is static', `${ROUND}/generality-1106/census/6866.mcaddon`),
+    aircraftCase('6863', '6863-batwing-battle-over-gotham-city', 1, 'the Batwing inside a city scene is static', `${ROUND}/generality-1106/census/6863.mcaddon`),
+    aircraftCase('76269', '76269-avengers-tower', 1, "the Quinjet stays part of the tower's static shell", `${ROUND}/favgate-530b6d3f/76269-avengers-tower.mcaddon`),
   ];
 }
