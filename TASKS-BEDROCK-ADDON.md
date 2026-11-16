@@ -21,8 +21,6 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
 - SENT 2026-11-16: `output/share-2026-11-16-530b6d3f/craftmatic-favourites-530b6d3f-part{1,2}of2.zip` (40 packs,
   `PACKS.md` with hashes; one 40.8 MiB zip exceeds the 30 MiB upload limit). Not yet on a device.
 - OPEN (offline):
-  - Regression cases `gate1-throwout-76417` and `door3-figure-inside-76417-30r` are NOT TESTED: the replayed device
-    tap no longer picks Gate 1 / no open-door trial runs (stale poses; child play taps both and passes).
   - 910032 Door 4 SEALED by its landing guard (`TODO(clearance-tight-910032)`: judge trims near a door by that door's
     walk). 11371 Doors 2/4 need collider corner forms (`TODO(collider-corner-forms)`, new block ids). 42670 Door 3
     tread across the ground route.

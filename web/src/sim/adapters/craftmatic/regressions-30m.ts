@@ -20,7 +20,7 @@ import type { StepContext } from '../../scenario/types.js';
 import type { SimEntity } from '../../entity/entity.js';
 import type { CraftmaticPack } from './pack-facts.js';
 import { CRAFTMATIC_ALLOWED_LINES } from './child-play.js';
-import { placedOf, viewYaw } from './play.js';
+import { deviceShift, placedOf, viewYaw, type DeviceShift } from './play.js';
 import { swipeMount } from './input-probe.js';
 import { registeredAppearance, scriptedVehicleTypes, type ScriptedTypeFacts } from './vehicle-course.js';
 import { drawnBoxes, type DrawnBox } from './drawn.js';
@@ -660,6 +660,8 @@ const PACKS_30R = `${ROUND}/device-round-2026-10-12r/packs-7fde0b5e`;
 
 /** One `ix01.sh` trial replayed: where the figure stood (anchor-relative), the close's outcome and where it ended. */
 interface FigureCloseTrial { pose: string; figure: string; at: Vec3; closed: boolean; refusal: string; end: Vec3 | null }
+/** Door 3's root on the 30r pack the Pixel ran, from the model's corner (`door3-figure-inside-76417-30r` carries its poses from it). */
+const DOOR3_ROOT_30R: Vec3 = { x: 11.341, y: 17.601, z: 10.974 };
 
 /**
  * IX-01 (Pixel 30r item 3): 76417 at 100 %, Door 3 (a double door with Door 2) opened from the ledge, a figure
@@ -674,10 +676,19 @@ const door3FigureInside: RegressionCase = {
   scenario: pack => ({
     name: 'door3-figure-inside-76417-30r', allowLines: allow, invariants: ['nothing-below-ground', 'actionbar-not-stolen'],
     steps: [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'expect', label: 'close Door 3 on a figure in the doorway', check: async (ctx: StepContext) => {
-      const a = placedOf(ctx).corner, p = ctx.player;
+      const corner = placedOf(ctx).corner, p = ctx.player;
       const ents = (): SimEntity[] => [...ctx.sim.engine.entities.values()].filter(e => e.valid);
       const part = ents().find(e => /_door_3$/.test(e.typeId)), other = ents().find(e => /_door_2$/.test(e.typeId));
       if (!part || !other) return 'no Door 2 / Door 3 entity';
+      // The round's poses are carried from DOOR 3 (`deviceShift`): the 530b6d3f rebuild's grid lost a block on its
+      // low-x side (27 x 27 -> 26 x 24), every part sits a block lower in x from the model's corner, and the
+      // corner-relative player spot stood behind the bank's wall ("behind a wall", NOT TESTED, 2026-11-16).
+      const carry = deviceShift({ x: part.location.x - corner.x, y: part.location.y - corner.y, z: part.location.z - corner.z }, DOOR3_ROOT_30R);
+      ctx.state['door3Shift'] = carry;
+      if (!carry.carried) { ctx.note(`Door 3 sits ${carry.residual} block off a whole-block move of the 30r pack's door: the device poses cannot be carried`); return undefined; }
+      if (carry.shift.x || carry.shift.y || carry.shift.z) ctx.note(`Door 3 moved ${JSON.stringify(carry.shift)} from the 30r pack's (model-corner frame): the device poses move with it`);
+      // The device's model corner in this pack.
+      const a = { x: corner.x + carry.shift.x, y: corner.y + carry.shift.y, z: corner.z + carry.shift.z };
       const isOpen = (): boolean => part.dynamic.get(ixKeys(pack.namespace).open) === true;
       // `ix01.sh`: the player `/tp` to 16212.4,-42.9,5214.0 facing 16211.8,-43.2,5211; the figure `/tp` to y -42.9.
       const feet = { x: a.x + 12.4, y: a.y + 17.1, z: a.z + 14.0 }, facing = { x: a.x + 11.8, y: a.y + 16.8, z: a.z + 11 };
@@ -721,6 +732,8 @@ const door3FigureInside: RegressionCase = {
   judge: r => {
     const trials = (r.state['door3FigureTrials'] as FigureCloseTrial[] | undefined) ?? [];
     const notes = r.notes.filter(n => /Door 3/.test(n)).join('; ') || 'no Door 3 note';
+    const carry = r.state['door3Shift'] as DeviceShift | undefined;
+    if (carry && !carry.carried) return { reproduced: false, evidence: notes, untested: `Door 3 moved ${carry.residual} block off a whole-block move of the 30r pack's door; the device poses cannot be carried` };
     const inside = trials.filter(t => t.pose.startsWith('inside'));
     if (!inside.length) return { reproduced: false, evidence: notes, untested: 'no inside-the-hinge trial ran with the door open' };
     // The device fault: a figure in the doorway keeps the door open ("no floor to step onto"). Any trial left open

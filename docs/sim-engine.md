@@ -735,6 +735,23 @@ the exact point is replayed (inside a collider, as the device stood on the
 old pack); a tap that moves the part from there proves nothing, so the
 judge returns `untested` and the verdict is NOT TESTED.
 
+**A rebuild can move every part by whole blocks from the model's corner.**
+`Placed.corner` is the corner of the model's GRID, and the grid follows the
+model's bounds: a fix that drops a stray piece or patches a source on a low
+side moves every part, collider and figure by whole blocks in that frame.
+After the 2026-11-15 audit fixes 76417's grid went 27 x 27 -> 26 x 24 and
+every part sat one block lower in x (two from the 30i pack's 28-wide grid),
+so `gate1-throwout-76417` and `door3-figure-inside-76417-30r` replayed the
+device's spots a block off their parts (the tap picked nothing; the player
+stood behind the bank's wall) and went NOT TESTED, while
+`gate1-invisible-floor-76417` passed trivially two blocks east of the Saga's
+spot. Those cases now carry their poses from the PART they were taken at
+(`deviceShift` in `adapters/craftmatic/play.ts`, `standOver`'s `carryFrom`):
+the part's root in the device's pack is recorded, the rounded difference is
+the shift, and a part that moved by a FRACTION (its own leaf changed) makes
+the case NOT TESTED rather than replay from the wrong place. A new device
+case should record the part's root beside its spots.
+
 **Verdicts** (`regressionVerdict`, pure and unit-tested): OK / FAIL when the
 old pack reproduced; NOT TESTED - failing the run - when a side could not
 run, a judge said the device's conditions could not be set up, or the old
