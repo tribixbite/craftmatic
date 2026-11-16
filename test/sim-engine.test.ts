@@ -29,7 +29,7 @@ import { REGRESSIONS, regressionVerdict } from '../web/src/sim/adapters/craftmat
 import { craftmaticHandlers, figureMode, outOfReachByModel } from '../web/src/sim/adapters/craftmatic/child-play.js';
 import { PLACED_KEY } from '../web/src/sim/adapters/craftmatic/wand.js';
 import type { DrawnBox } from '../web/src/sim/adapters/craftmatic/drawn.js';
-import { FLOOR_LEVEL_TOLERANCE, driverLookFrom, floorLevelInRecordedCell, holeFloor, judgeSide, MODEL_FOOTHOLD, onRunout } from '../web/src/sim/adapters/craftmatic/play.js';
+import { DEVICE_SHIFT_TOLERANCE, FLOOR_LEVEL_TOLERANCE, deviceShift, driverLookFrom, floorLevelInRecordedCell, holeFloor, judgeSide, MODEL_FOOTHOLD, onRunout } from '../web/src/sim/adapters/craftmatic/play.js';
 import { relayRounding } from '../web/src/engine/bedrock-collider-scale.js';
 import { findApproach, IN_FRONT_RINGS } from '../web/src/sim/scenario/approach.js';
 import { NO_MARGIN, modelCorner, readCraftmaticPack, vehicleCameraEntry, type PlacementFacts } from '../web/src/sim/adapters/craftmatic/pack-facts.js';
@@ -586,6 +586,30 @@ describe('the quirk registry', () => {
 const regressionPacks = REGRESSIONS.every(c => existsSync(c.oldPack));
 
 describe('historical regression replay inputs', () => {
+  it('carries a device pose to a rebuild by the whole-block shift of the part it was taken at, and refuses a part that moved by a fraction', () => {
+    // 76417's Gate 1 sat at x 10.836 from the model's corner on the 30k pack and 9.836 on the 530b6d3f gate's (the grid
+    // lost a block on its low-x side): the device's spots move with it, so the replay stands where the device stood.
+    expect(deviceShift({ x: 9.836, y: 17.132, z: 2.113 }, { x: 10.836, y: 17.132, z: 2.113 })).toEqual({ shift: { x: -1, y: 0, z: 0 }, residual: 0, carried: true });
+    expect(deviceShift({ x: 10.836, y: 17.132, z: 2.113 }, { x: 10.836, y: 17.132, z: 2.113 })).toMatchObject({ shift: { x: 0, y: 0, z: 0 }, carried: true });
+    // Moved by a fraction of a block against the colliders it stood among: the pose cannot be carried over.
+    const off = deviceShift({ x: 10.6, y: 17.132, z: 2.113 }, { x: 10.836, y: 17.132, z: 2.113 });
+    expect(off.carried).toBe(false);
+    expect(off.residual).toBeGreaterThan(DEVICE_SHIFT_TOLERANCE);
+  });
+
+  it('replays the 76417 Gate 1 and Door 3 device poses from the parts, never from fixed model-corner points alone', () => {
+    for (const id of ['gate1-throwout-76417', 'door3-figure-inside-76417-30r']) {
+      const c = REGRESSIONS.find(x => x.id === id)!;
+      const steps = c.scenario({ namespace: 'craftmatic', interactives: { items: [] } } as never).steps;
+      // The old fixed `tapPartFrom` opened Gate 1 from the 30k pack's corner-relative spot; a rebuild moved the gate.
+      expect(steps.some(s => s.kind === 'tapPartFrom'), id).toBe(false);
+    }
+    // The Saga's 30i standing spot outside Gate 1 moves with the gate too.
+    const floor = REGRESSIONS.find(x => x.id === 'gate1-invisible-floor-76417')!;
+    const stand = floor.scenario({ namespace: 'craftmatic', interactives: { items: [] } } as never).steps.find(s => s.kind === 'standOver');
+    expect(stand).toMatchObject({ carryFrom: { label: 'Gate 1', root: { x: 11.836, y: 17.132, z: 2.113 } } });
+  });
+
   it('boards the lift car and replays a tap only from floor-level legal spots inside the recorded HUD cell', () => {
     const lift = REGRESSIONS.find(c => c.id === 'gabby-lift-cap')!;
     const liftStep = lift.scenario({ rides: { rides: [{ index: 0, kind: 'lift' }] } } as never).steps.find(s => s.kind === 'rideLift');

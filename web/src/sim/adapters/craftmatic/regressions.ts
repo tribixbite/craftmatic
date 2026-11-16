@@ -12,17 +12,18 @@ import { CORE_HANDLERS, type ScenarioResult } from '../../scenario/runner.js';
 import type { RegressionRow } from '../../scenario/report.js';
 import type { CraftmaticPack } from './pack-facts.js';
 import { CRAFTMATIC_ALLOWED_LINES } from './child-play.js';
-import { doorwayFindings, placedOf, tapPoseOf } from './play.js';
+import { deviceShift, doorwayFindings, placedOf, tapPoseOf, type DeviceShift } from './play.js';
 import { scriptedVehicleTypes, type CourseRow } from './vehicle-course.js';
 import { WORLD_REGRESSIONS } from './regressions-world.js';
 import { ROUND_30M_REGRESSIONS } from './regressions-30m.js';
 import { teleport } from '../../script-host/facades.js';
-import { lookAt, tap } from '../../input/touch.js';
-import { PIXEL_VIEWPORT, tapScreen } from '../../input/screen.js';
+import { lookAt, pick, tap } from '../../input/touch.js';
+import { pickBoxes } from '../../input/ray.js';
+import { PIXEL_VIEWPORT, screenPick, tapScreen } from '../../input/screen.js';
 import { swipeMount } from './input-probe.js';
 import { ixKeys, nsId, packFamily } from './namespace.js';
 import { REACH_GUARD_DROP16 } from '../../../engine/bedrock-collider-scale.js';
-import type { Vec3 } from '../../core/vec.js';
+import type { Box, Vec3 } from '../../core/vec.js';
 
 /** What the current tree's pack should do. */
 export type Expectation = 'pass' | 'reproduce-as-model';
@@ -104,13 +105,23 @@ const place: Step[] = [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait'
 const rideIndex = (pack: CraftmaticPack, kind: string): number => pack.rides?.rides.find(r => r.kind === kind && !r.onVehicle)?.index ?? -1;
 const doorIndex = (pack: CraftmaticPack, label: string): number => pack.interactives?.items.findIndex(it => it.label === label) ?? -1;
 const r3 = (v: number): number => Math.round(v * 1000) / 1000;
+/** The centre of a set of boxes' union. */
+const boxesCentre = (bs: readonly Box[]): Vec3 => ({
+  x: (Math.min(...bs.map(b => b.x0)) + Math.max(...bs.map(b => b.x1))) / 2,
+  y: (Math.min(...bs.map(b => b.y0)) + Math.max(...bs.map(b => b.y1))) / 2,
+  z: (Math.min(...bs.map(b => b.z0)) + Math.max(...bs.map(b => b.z1))) / 2,
+});
+/** Gate 1's root on the 30k pack the Pixel ran, from the model's corner (`gate1-throwout-76417` carries its poses from it). */
+const GATE1_ROOT_30K: Vec3 = { x: 10.836, y: 17.132, z: 2.113 };
+/** Gate 1's root on the 30i pack the Saga ran, from the model's corner (`gate1-invisible-floor-76417`). */
+const GATE1_ROOT_30I: Vec3 = { x: 11.836, y: 17.132, z: 2.113 };
 const violated = (r: ScenarioResult, invariant: string, text?: RegExp): string | undefined => {
   const v = r.violations.find(x => x.invariant === invariant && (!text || text.test(x.message)));
   return v ? `${v.invariant}: ${v.message}` : undefined;
 };
 
 /** One replayed tap from inside 76417's Gate 1 (`gate1-throwout-76417`), anchor-relative. */
-interface GateThrowout { pose: 'device' | 'deeper'; before: Vec3; end: Vec3; wasOpen: boolean; nowOpen: boolean; refusal: string; /** What the stray screen tap picked (the gate, when the crosshair is on it). */ picked: string }
+interface GateThrowout { pose: 'device' | 'deeper'; /** The look the tap acted along: the device's, or re-aimed at the leaf from the same spot. */ aim: 'device' | 'leaf'; before: Vec3; end: Vec3; wasOpen: boolean; nowOpen: boolean; refusal: string; /** What the stray screen tap picked (the gate, when the crosshair is on it). */ picked: string }
 
 /** The lines a driven vehicle's HUD prints (the course's own allowance). */
 const vehicleAllow = [...allow, /CAR|HOVER|FLY|PLANE|BOAT|mph|Hotbar slot 9/];
@@ -362,12 +373,16 @@ export const REGRESSIONS: RegressionCase[] = [
     // The Saga's standing spot exactly (corner pinned at 5380,-60,5380), then the gate's own lines: the old pack stands
     // the player on the bounding box of shell bone r321 (a baseplate turned 45 degrees about the vertical); the new
     // one has no floor there and must not let a line through the gate fall (a guard over the model's drop).
-    scenario: pack => ({ name: 'gate1-invisible-floor-76417', steps: [...place, { kind: 'standOver', label: 'Gate 1 outside', feet: { x: 13.56, y: 16.88, z: 1.44 } }, { kind: 'doorwayLines', only: [doorIndex(pack, 'Gate 1')] }], allowLines: allow }),
+    // The spot moves with Gate 1 (`carryFrom`): the 530b6d3f rebuild sits every part two blocks lower in x from the
+    // model's corner than the 30i pack (28 -> 26 wide), and the fixed spot stood two blocks east of where the Saga did.
+    scenario: pack => ({ name: 'gate1-invisible-floor-76417', steps: [...place, { kind: 'standOver', label: 'Gate 1 outside', feet: { x: 13.56, y: 16.88, z: 1.44 }, carryFrom: { label: 'Gate 1', root: GATE1_ROOT_30I } }, { kind: 'doorwayLines', only: [doorIndex(pack, 'Gate 1')] }], allowLines: allow }),
     judge: r => {
+      const carry = r.state['carry:Gate 1 outside'] as DeviceShift | undefined;
+      if (carry && !carry.carried) return { reproduced: false, evidence: r.notes.find(n => /Gate 1 outside/.test(n)) ?? 'no standing note', untested: `Gate 1 moved ${carry.residual} block off a whole-block move of the 30i pack's gate; the Saga's spot cannot be carried` };
       const v = violated(r, 'invisible-floor');
       if (v) return { reproduced: true, attribution: 'pack', evidence: v };
       const hole = doorJudge(r, 'Gate 1', 'HOLE');
-      return hole.reproduced ? { ...hole, evidence: `the gate's lines fall: ${hole.evidence}` } : { reproduced: false, evidence: `${r.notes.find(n => /^Gate 1 outside|\] Gate 1 outside/.test(n)) ?? 'no standing note'}; ${hole.evidence}` };
+      return hole.reproduced ? { ...hole, evidence: `the gate's lines fall: ${hole.evidence}` } : { reproduced: false, evidence: `${r.notes.filter(n => /Gate 1 outside/.test(n)).join('; ') || 'no standing note'}; ${hole.evidence}` };
     },
   },
   {
@@ -500,18 +515,26 @@ export const REGRESSIONS: RegressionCase[] = [
     id: 'gate1-throwout-76417', title: '76417 Gate 1 (30k): a tap closing the gate on a player standing just inside it steps the player OUT over the 17-block drop (COL-01, DOOR-01)',
     evidence: '`output/device-round-2026-10-07k/pixel/notes.md` item 3 "DEFECT gate-eject" (shots 43e-gate-fall-frames.jpg, 44d-gatefall-frames.jpg, rec/cm30k-gatefall.mp4): standing at 7511.70,-43.0,7153.30 (pin 7500,-60,7150) with the gate open, the player is moved to ~7513,-44,7151 and lands at 7513.33,-60,7151.67; the gate is closed afterwards. The frame before the fall shows the touch marker of `_pixel_cmd.sh`\'s chat-Exit tap (raw 45,39) landing on the world and the leaf swinging shut ("Open / close" hint): a tap closed it, and the step-out took the outside',
     oldPack: `${ROUND}/device-round-2026-10-07k/packs-78e06246/76417-gringotts-wizarding-bank-collectors-edition.mcaddon`, newStem: '76417-gringotts-wizarding-bank-collectors-edition', expectNew: 'pass',
-    // The Pixel's poses exactly: open from 10.5,17.5,4.5 (anchor-relative) looking at the leaf, then stand at
-    // 11.70,17.1,3.30 (the `/tp` of 44ab) and tap the gate again - a touch hit on the part, as the stray Exit tap was.
+    // The Pixel's poses exactly: open from 10.5,17.5,4.5 (from the 30k pack's model corner) looking at the leaf, then stand
+    // at 11.70,17.1,3.30 (the `/tp` of 44ab) and tap the gate again - a touch hit on the part, as the stray Exit tap was.
     // The new pack must either refuse to close (nowhere safe to step out to) or step the player onto a FLOOR.
     // Both device poses overlap static colliders in every pack (the tap spot the f5 wall at 10,17,4, the doorway spot
     // the full cell at 11,17,3): the device let a `/tp` stand there, so player-in-solid is not run for this case.
+    // The poses are carried from the GATE (`deviceShift`): the 530b6d3f rebuild's grid lost a block on its low-x side
+    // (27 x 27 -> 26 x 24) and every part sits one block lower in x from the model's corner, so the corner-relative
+    // spots stood a block off the gate and the screen tap picked nothing (NOT TESTED, 2026-11-16).
     scenario: pack => ({
       name: 'gate1-throwout-76417', allowLines: allow, invariants: ['no-unprotected-fall', 'nothing-below-ground', 'actionbar-not-stolen'], steps: [...place,
-        { kind: 'tapPartFrom', label: 'Gate 1', feet: { x: 10.5, y: 17.5, z: 4.5 }, at: { x: 10.84, y: 18.4, z: 2.17 } },
         { kind: 'expect', label: 'tap-close-in-doorway', check: async ctx => {
-          const a = placedOf(ctx).corner, p = ctx.player;
+          const corner = placedOf(ctx).corner, p = ctx.player;
           const part = [...ctx.sim.engine.entities.values()].find(e => e.valid && /_gate_1$/.test(e.typeId));
           if (!part) return 'no Gate 1 entity';
+          const carry = deviceShift({ x: part.location.x - corner.x, y: part.location.y - corner.y, z: part.location.z - corner.z }, GATE1_ROOT_30K);
+          ctx.state['gate1Shift'] = carry;
+          if (!carry.carried) { ctx.note(`Gate 1 sits ${carry.residual} block off a whole-block move of the 30k pack's gate: the device poses cannot be carried`); return undefined; }
+          // The device's model corner in this pack: every pose below is the round's, moved with the gate.
+          const a = { x: corner.x + carry.shift.x, y: corner.y + carry.shift.y, z: corner.z + carry.shift.z };
+          if (carry.shift.x || carry.shift.y || carry.shift.z) ctx.note(`Gate 1 moved ${JSON.stringify(carry.shift)} from the 30k pack's (model-corner frame): the device poses move with it`);
           const rel = (v: Vec3): Vec3 => ({ x: r3(v.x - a.x), y: r3(v.y - a.y), z: r3(v.z - a.z) });
           const isOpen = (): boolean => part.dynamic.get(ixKeys(pack.namespace).open) === true;
           const rows: GateThrowout[] = [];
@@ -521,13 +544,16 @@ export const REGRESSIONS: RegressionCase[] = [
           // side. The second pose stands a tenth of a block further in (a child who walked on), the same spot otherwise.
           for (const [name, z] of [['device', 3.2998], ['deeper', 3.2]] as const) {
             if (!isOpen()) {
-              // Reopen from the device's tap spot, as the first step did.
+              // Open it from the device's tap spot looking at the leaf, as the round did (44ab). What that view picks is
+              // recorded; the hit goes to the gate either way - the opening is the round's set-up, not the fault.
               teleport(ctx.sim.host, p, { x: a.x + 10.5, y: a.y + 17.5, z: a.z + 4.5 });
               await ctx.run(4);
               lookAt(p, { x: a.x + 10.84, y: a.y + 18.4, z: a.z + 2.17 });
+              const opener = pick(ctx.sim.engine, p);
+              if (opener.entity !== part) ctx.note(`Gate 1 (${name}): the opening tap's view picked ${opener.entity?.typeId ?? opener.blockedBy ?? 'nothing'}; the hit is handed to the gate`);
               ctx.sim.engine.emit('entityHitEntity', { damagingEntity: p, hitEntity: part });
               await ctx.run(10);
-              if (!isOpen()) { ctx.note(`Gate 1 (${name}): could not reopen it`); continue; }
+              if (!isOpen()) { ctx.note(`Gate 1 (${name}): could not open it (refusal ${String(part.dynamic.get(nsId(pack.namespace, 'ix_refused')) ?? '-')})`); continue; }
               await ctx.run(6);
             }
             // The device's facing too (`/tp ... 180 10`): the stray tap acts along the crosshair from this look.
@@ -538,12 +564,19 @@ export const REGRESSIONS: RegressionCase[] = [
             const before = p.location;
             // The stray tap itself, since 2026-10-08: `_pixel_cmd.sh`'s Exit corner, raw (45, 39) on the Pixel's screen.
             // With Split Controls (the phones' crosshair) a tap anywhere outside the HUD acts at the crosshair (quirk
-            // `touch-screen-pick`), so it is the screen centre's pick - not a hit the case hands to the part.
+            // `touch-screen-pick`), so it is the screen centre's pick - not a hit the case hands to the part. When the
+            // device's look no longer finds the leaf (a rebuilt leaf), the crosshair is put on the leaf's pick box from the
+            // same spot: the fault is what the CLOSE does to a player standing there, not where the look fell.
+            let aim: GateThrowout['aim'] = 'device';
+            if (screenPick(ctx.sim.engine, p, { x: 45, y: 39 }, PIXEL_VIEWPORT, ctx.sim.host.playerState(p).camera).entity !== part) {
+              aim = 'leaf';
+              lookAt(p, boxesCentre(pickBoxes(part)));
+            }
             const tapped = tapScreen(ctx.sim.engine, p, { x: 45, y: 39 }, PIXEL_VIEWPORT, ctx.sim.host.playerState(p).camera);
             await ctx.run(80);
-            const row: GateThrowout = { pose: name, before: rel(before), end: rel(p.location), wasOpen: true, nowOpen: isOpen(), refusal: String(part.dynamic.get(nsId(pack.namespace, 'ix_refused')) ?? '-'), picked: tapped.entity?.typeId ?? tapped.blockedBy ?? 'nothing' };
+            const row: GateThrowout = { pose: name, aim, before: rel(before), end: rel(p.location), wasOpen: true, nowOpen: isOpen(), refusal: String(part.dynamic.get(nsId(pack.namespace, 'ix_refused')) ?? '-'), picked: tapped.entity?.typeId ?? tapped.blockedBy ?? 'nothing' };
             rows.push(row);
-            ctx.note(`Gate 1 tapped from inside the doorway (${name}; the screen tap at (45, 39) picked ${row.picked}): open -> ${row.nowOpen ? 'open' : 'closed'}; player ${JSON.stringify(row.before)} -> ${JSON.stringify(row.end)} (anchor-relative); refusal ${row.refusal}`);
+            ctx.note(`Gate 1 tapped from inside the doorway (${name}; the screen tap at (45, 39) along the ${aim === 'device' ? 'device\'s look' : 'look re-aimed at the leaf'} picked ${row.picked}): open -> ${row.nowOpen ? 'open' : 'closed'}; player ${JSON.stringify(row.before)} -> ${JSON.stringify(row.end)} (from the device's model corner); refusal ${row.refusal}`);
             await ctx.run(6);
           }
           ctx.state['gate1Throwout'] = rows;
@@ -554,6 +587,8 @@ export const REGRESSIONS: RegressionCase[] = [
     judge: r => {
       const rows = (r.state['gate1Throwout'] as GateThrowout[] | undefined) ?? [];
       const notes = r.notes.filter(n => /Gate 1 tapped from inside|Gate 1 \(/.test(n)).join('; ') || 'no tap note';
+      const carry = r.state['gate1Shift'] as DeviceShift | undefined;
+      if (carry && !carry.carried) return { reproduced: false, evidence: notes, untested: `Gate 1 moved ${carry.residual} block off a whole-block move of the 30k pack's gate; the device poses cannot be carried` };
       if (!rows.some(t => t.pose === 'device')) return { reproduced: false, evidence: notes, untested: 'the device pose was not replayed with the gate open' };
       // A stray tap that did not reach the gate from the device's pose and look did not replay the device's touch.
       if (!rows.some(t => t.pose === 'device' && /_gate_1$/.test(t.picked))) return { reproduced: false, evidence: notes, untested: 'the screen tap from the device pose did not pick Gate 1' };

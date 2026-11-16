@@ -595,10 +595,26 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
      * `Placed.corner`: the device's pinned corner on a pack without a margin). The player is put there and
      * settles; standing within a step of the spot while the model draws nothing within a jump under its feet
      * is standing on an INVISIBLE FLOOR over the model's drop - a child walks on and off its edge (76417's Gate 1, Saga round 2026-09-30i): `invisible-floor`.
-     * A spot inside a collider (a guard over the drop) is noted, not stood on.
+     * A spot inside a collider (a guard over the drop) is noted, not stood on. `carryFrom` moves the spot with a part
+     * (below).
      */
     async standOver(step: AnyStep, ctx: StepContext) {
-      const placed = placedOf(ctx), feet = step['feet'] as Vec3, label = String(step['label'] ?? 'the spot'), a = placed.corner;
+      const placed = placedOf(ctx), feet = step['feet'] as Vec3, label = String(step['label'] ?? 'the spot');
+      let a = placed.corner;
+      // `carryFrom: { label, root }`: the spot was recorded beside that part, whose root sat at `root` (from the model's
+      // corner) in the pack the device ran; the spot moves with the part's whole-block move (`deviceShift`). A part
+      // that moved by a fraction leaves the spot uncarried: recorded as `ctx.state['carry:<label>']`, nothing stood.
+      const carryFrom = step['carryFrom'] as { label: string; root: Vec3 } | undefined;
+      if (carryFrom) {
+        const index = pack.interactives?.items.findIndex(it => it.label === carryFrom.label) ?? -1;
+        const part = findEntity(ctx.sim, ctx.player, { where: e => e.dynamic.get(IX.index) === index });
+        if (!part) throw new Error(`standOver: no ${carryFrom.label} to carry the spot from`);
+        const carry = deviceShift({ x: part.location.x - a.x, y: part.location.y - a.y, z: part.location.z - a.z }, carryFrom.root);
+        ctx.state[`carry:${label}`] = carry;
+        if (!carry.carried) { ctx.note(`${label}: ${carryFrom.label} sits ${carry.residual} block off a whole-block move of the recorded pack's; the spot cannot be carried`); return; }
+        if (carry.shift.x || carry.shift.y || carry.shift.z) ctx.note(`${label}: ${carryFrom.label} moved ${JSON.stringify(carry.shift)} from the recorded pack's (model-corner frame); the spot moves with it`);
+        a = { x: a.x + carry.shift.x, y: a.y + carry.shift.y, z: a.z + carry.shift.z };
+      }
       const k = Math.max(1, placed.sizePct / 100), statics = staticDrawn(ctx, appearance, pack);
       const p = ctx.player, w = ctx.sim.engine.dimension(p.dimension);
       const q = { x: a.x + feet.x, y: a.y + feet.y, z: a.z + feet.z };
@@ -651,6 +667,31 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
  * same block cell (0.68 higher on 10326's Door 3 handrail band) is a different pose, never the device's.
  */
 export const FLOOR_LEVEL_TOLERANCE = 2 / 16;
+
+/**
+ * How far (blocks) a part may sit off a whole-block move of where a device round recorded it and still carry the
+ * round's poses: the poses stand among colliders laid on whole blocks, so only a whole-block move keeps them where they
+ * were against the walls, the threshold and the leaf. Positions are printed to 1/1000 in the cases.
+ */
+export const DEVICE_SHIFT_TOLERANCE = 0.01;
+
+/** A device pose carried to a rebuild (`deviceShift`). */
+export interface DeviceShift { shift: Vec3; residual: number; carried: boolean }
+
+/**
+ * The whole-block shift that carries a device round's poses to a rebuilt pack, read from the part they were taken at:
+ * `now` is the part's root in this pack and `recorded` its root in the pack the device ran, both from the model's
+ * corner (`Placed.corner`). A rebuild whose model lost or gained a block row on a low side (76417 after the 2026-11-15
+ * audit fixes: 27 x 27 -> 26 x 24, every part one block lower in x) moves every part and collider by whole blocks; a
+ * part that moved by a FRACTION (its own leaf or hinge changed) cannot carry the poses (`carried` false), and the case
+ * must report that, not replay from the wrong place.
+ */
+export function deviceShift(now: Vec3, recorded: Vec3, tolerance = DEVICE_SHIFT_TOLERANCE): DeviceShift {
+  const d = { x: now.x - recorded.x, y: now.y - recorded.y, z: now.z - recorded.z };
+  const shift = { x: Math.round(d.x) + 0, y: Math.round(d.y) + 0, z: Math.round(d.z) + 0 };
+  const residual = Math.round(Math.max(Math.abs(d.x - shift.x), Math.abs(d.y - shift.y), Math.abs(d.z - shift.z)) * 1e6) / 1e6;
+  return { shift, residual, carried: residual <= tolerance };
+}
 
 /** What `tapPartFrom` tapped from (`ctx.state['tapPose:<label>']`). */
 export interface TapPose { spots: number; moved: number; exactLegal: boolean; untested?: string }
