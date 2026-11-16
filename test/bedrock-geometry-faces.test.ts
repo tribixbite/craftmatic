@@ -133,6 +133,25 @@ describe('coplanar faces', () => {
     expect(separateCoplanarFaces(entry)).toMatchObject({ pairsFound: 1, pairsLeft: 0 });
   });
 
+  it('measures two nearly parallel planes where they overlap, wherever the model stands (A-17)', () => {
+    // A plate and a tile sunk into it on bones turned 0 and 0.05 degrees about pivots 12.5 blocks out: the planes
+    // cross over the tile, but their offsets differ by 0.17 units at the frame's origin. The offset test found the
+    // pair only when the model stood near the origin (76269's chunk: 23 of 133 pairs at the origin, the compile's frame).
+    const entry = sunkTile();
+    for (const g of entry.groups) for (const c of g.cubes) c.origin = [c.origin[0] + 200, c.origin[1], c.origin[2]];
+    entry.bones = [{ name: 'a', pivot: [209, 2.4, 9] }, { name: 'b', pivot: [209, 2.4, 9], rotation: [0, 0, 0.05] }];
+    entry.groups[0]!.cubes[0]!.bone = 'a';
+    entry.groups[1]!.cubes[0]!.bone = 'b';
+    const at = (x: number) => worldFaces([{ typeId: 't', kind: 'shell', entry, at: { x, y: 0, z: 0 }, yawDeg: 0 }]);
+    for (const x of [0, -13, 40]) {
+      const { hits } = coplanarFaces(at(x));
+      expect(hits).toHaveLength(1);
+      expect(hits[0]!.gap).toBeLessThan(0.02);
+    }
+    expect(separateCoplanarFaces(entry)).toMatchObject({ pairsFound: 1, pairsLeft: 0 });
+    for (const x of [0, -13]) expect(coplanarFaces(at(x)).hits).toHaveLength(0);
+  });
+
   it('runs until a CHAIN of pushes settles: each pushed face meets the next one up (A-17)', () => {
     // Six nested blocks of six colours: the second's top sits on the first's plane, and every later top sits one
     // separation above the one before, so each push lands the winner on the next plane. Three passes (the cap
