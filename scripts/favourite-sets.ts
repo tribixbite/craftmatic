@@ -74,8 +74,8 @@ export const FAVOURITE_DOORWAYS_NOT_OK_AT_100: Readonly<Record<string, Readonly<
   '11371': { 'Door 8': 'SEALED: model:solid - drawn geometry a block inside the - side, 5.8 blocks up' },
   '21318': { 'Door 2': 'SEALED: model:solid - furniture a stud inside the - side (opens at 200 % with the doorway carve)' },
   '42663': { 'Door 1': 'SEALED: model:solid - drawn geometry on the - side; the model is passed only by leaving the doorway sideways' },
+  // 42670 Garage door 1 is OK at 100 % since clearance's furniture exception (audit-doors2, 2026-11-15): row removed.
   '42670': {
-    'Garage door 1': 'SEALED: model:solid - the garage opens onto drawn geometry on the + side',
     'Door 3': 'SEALED: model:solid - drawn geometry a block out on the + side, 1.3 blocks up',
   },
   '71040': { 'Door 1': 'SEALED: model:solid - drawn geometry on both sides of the castle door' },
@@ -93,10 +93,14 @@ export const FAVOURITE_DOORWAYS_NOT_OK_AT_100: Readonly<Record<string, Readonly<
     'Door 5': 'SEALED: model:solid - drawn geometry a block out on the - side, 4 blocks up',
   },
   '910049': { 'Gate 1': 'SEALED: model:route - the drawn model offers no way through from the - side' },
-  // TODO(clearance-tight-910032): the PACK's, not the model's - cells (2,0,5) and (2,0,6) hold a floor plate and
-  // furniture details a few sixteenths wide, yet ship full 0..15 colliders that clearance never proposed to trim; the
-  // drawn model lets the player through (`wide:OK`). Open until clearance trims sparse furniture cells.
-  '910032': { 'Door 4': 'SEALED: collider:tight - OUR colliders: full 0..15 cells over sparse furniture geometry seal the - side (TODO)' },
+  // TODO(clearance-tight-910032): the PACK's, not the model's (the drawn model lets the player through, `wide:OK`).
+  // Cells (2,0,5) and (2,0,6) - a floor plate under a round table's rim a quarter block wide - are now PROPOSED as
+  // floor + wall forms (clearance's furniture exception, audit-doors2) but kept whole as Door 4's LANDING (within 2
+  // blocks of the leaf, 0.63 over its foot): the same guard keeps 10326 Door 3 OK, whose - side has nothing drawn to
+  // stand on and whose only level spot is such a phantom top. Trimmed, they still leave Door 4 sealed by rule 4's
+  // refusals at the table top (1,1,6) and a floor sliver (1,0,7). Open until a trim near a doorway is judged by the
+  // doorway's own walk (its verdict before and after), not by a local rule.
+  '910032': { 'Door 4': 'SEALED: collider:tight - OUR colliders: a table on a floor plate a block out, kept whole as the landing (TODO)' },
 };
 
 /** A tap target's label that names a doorway leaf (a door, a gate, a garage door). */
