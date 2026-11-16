@@ -17,6 +17,40 @@ export const FAVOURITES: readonly string[] = [
 export const GABBY_SETS: readonly string[] = ['10796', '10797', '10788', '10786', '11204'];
 
 /**
+ * Packs the regression set names that are not a set in the models index (`newStem` -> source and label): built from a
+ * test fixture. `nimbus-fixture` stands in for 11390 (test/fixtures/README.md) and is exported under 11390's LEGO-tab
+ * label so its canon cloud mount applies, as `test/nimbus-fixture.test.ts` exports it.
+ */
+export const FIXTURE_PACKS: Readonly<Record<string, { file: string; label: string }>> = {
+  'nimbus-fixture': { file: 'test/fixtures/nimbus-fixture.ldr', label: 'Dragon Ball: Shenron & Goku (11390-1)' },
+};
+
+/** What a sweep builds: index sets (by number), fixture packs, and regression stems that are neither (reported). */
+export interface SweepTargets { sets: string[]; fixtures: Array<{ stem: string; file: string; label: string }>; unknown: string[] }
+
+/**
+ * The sweep's build list (pure; the gate test pins it). Named `sets` build only those (a `FIXTURE_PACKS` stem names a fixture). Otherwise the favourites, the
+ * Gabby sets with `withGabby`, and with `regressionStems` (the regression set's `newStem`s) every set and fixture
+ * those name too - the Gabby sets among them - so `sim.ts --scenario=regressions --new=<dir>` finds every pack it
+ * asks for (favgate-e7da6e47 left 10 cases NOT TESTED for want of 7140 and the nimbus fixture). A stem's set is its
+ * leading number; whether it is written under that exact stem depends on the index's name (the sweep warns).
+ */
+export function sweepTargets(o: { sets: readonly string[]; withGabby: boolean; regressionStems?: readonly string[] }): SweepTargets {
+  // Named targets: sets by number, a fixture by its stem (`nimbus-fixture`).
+  if (o.sets.length) return { sets: o.sets.filter(t => !FIXTURE_PACKS[t]), fixtures: o.sets.filter(t => FIXTURE_PACKS[t]).map(t => ({ stem: t, ...FIXTURE_PACKS[t]! })), unknown: [] };
+  const sets = [...FAVOURITES, ...(o.withGabby || o.regressionStems ? GABBY_SETS : [])];
+  const fixtures: SweepTargets['fixtures'] = [], unknown: string[] = [];
+  for (const stem of new Set(o.regressionStems ?? [])) {
+    const fixture = FIXTURE_PACKS[stem];
+    if (fixture) { if (!fixtures.some(f => f.stem === stem)) fixtures.push({ stem, ...fixture }); continue; }
+    const set = /^(\d+)(?:-|$)/.exec(stem)?.[1];
+    if (!set) { unknown.push(stem); continue; }
+    if (!sets.includes(set)) sets.push(set);
+  }
+  return { sets, fixtures, unknown };
+}
+
+/**
  * The label the LEGO tab exports a set under (`ui/lego.ts`: `${name} (${set_num})`). It is not cosmetic: the
  * vehicle classifier and the display scale read the title, and a pack's uuid follows it, so a QA build labelled
  * with the bare number is a DIFFERENT pack from the one a user gets (audit 2026-11-15 A-01: five favourite

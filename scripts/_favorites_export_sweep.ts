@@ -10,10 +10,12 @@
  * is answered with the measured share of placements the budget coarsened,
  * rather than by eye.
  *
- * Usage: bun scripts/_favorites_export_sweep.ts [set…] [--out DIR] [--keep] [--geometry DIR] [--with-gabby] [--faces=DIR]
+ * Usage: bun scripts/_favorites_export_sweep.ts [set…] [--out DIR] [--keep] [--geometry DIR] [--with-gabby] [--with-regressions] [--faces=DIR]
  *   Each pack is built under the LEGO tab's label (`Name (set-1)`) and written as `<set>-<name words>.mcaddon`,
  *   the stem the regression set looks for, so `bun scripts/sim.ts DIR --scenario=regressions` tests this build.
- *   --with-gabby  also build the Gabby's Dollhouse sets (the regression set's other packs).
+ *   --with-gabby  also build the Gabby's Dollhouse sets.
+ *   --with-regressions  also build every pack the regression set names (`newStem`): its sets beyond the favourites
+ *                 (the Gabby sets, 7140 X-wing) and its fixture packs (`FIXTURE_PACKS`: nimbus-fixture).
  *   --faces=DIR   pass face art to every export (`_playable_ref.ts --faces=`; local builds only).
  *   --keep      do not re-export a set whose .mcaddon is already in DIR.
  *   --geometry  also write each set's part geometry per collider cell to
@@ -23,13 +25,14 @@
  */
 import { existsSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { FAVOURITES, GABBY_SETS, firstPickSource, legoTabLabel, packStem, readModelsIndex } from './favourite-sets.ts';
+import { firstPickSource, legoTabLabel, packStem, readModelsIndex, sweepTargets } from './favourite-sets.ts';
 
 const argv = process.argv.slice(2);
 const outIndex = argv.indexOf('--out');
 const OUT = outIndex >= 0 ? argv[outIndex + 1]! : 'output/bedrock-entity-qa/favorites-sweep';
 const KEEP = argv.includes('--keep');
 const WITH_GABBY = argv.includes('--with-gabby');
+const WITH_REGRESSIONS = argv.includes('--with-regressions');
 const FACES = argv.find(a => a.startsWith('--faces='));
 const geometryIndex = argv.indexOf('--geometry');
 const GEOMETRY = geometryIndex >= 0 ? argv[geometryIndex + 1]! : undefined;
@@ -55,16 +58,31 @@ interface Row {
 
 const rows: Row[] = [];
 
-for (const set of (targets.length ? targets : [...FAVOURITES, ...(WITH_GABBY ? GABBY_SETS : [])])) {
+// The regression set's stems, loaded only when asked for (it pulls in the simulator's adapters).
+const regressionStems = WITH_REGRESSIONS ? (await import('../web/src/sim/adapters/craftmatic/regressions.ts')).REGRESSIONS.map(c => c.newStem) : undefined;
+const plan = sweepTargets({ sets: targets, withGabby: WITH_GABBY, ...(regressionStems ? { regressionStems } : {}) });
+for (const stem of plan.unknown) console.log(`${stem}: a regression stem that names neither a set nor a fixture (FIXTURE_PACKS) - not built`);
+const wantedStems = new Set(regressionStems ?? []);
+
+/** One export: the source, the pack, its label; the row's fields the build fills. */
+interface Build { set: string; name: string; label: string; stem: string; src: string; path: string; file: string }
+const builds: Build[] = [];
+for (const set of plan.sets) {
   const entry = sets[set];
   const pick = firstPickSource(entry);
   if (!entry || !pick) { console.log(`${set}: not in index`); continue; }
-  const { model, file } = pick;
-  const label = legoTabLabel(set, entry.name);
   const stem = packStem(set, entry.name);
+  // A regression case looks for its pack by stem: a set the index names differently is built, but the case will miss it.
+  if (regressionStems && !wantedStems.has(stem) && [...wantedStems].some(w => w.startsWith(`${set}-`))) console.log(`${set}: built as ${stem}, but the regression set names ${[...wantedStems].filter(w => w.startsWith(`${set}-`)).join(', ')}`);
+  builds.push({ set, name: entry.name ?? '', label: legoTabLabel(set, entry.name), stem, src: String(pick.model.src), path: pick.model.path, file: pick.file });
+}
+for (const f of plan.fixtures) builds.push({ set: f.stem, name: f.label, label: f.label, stem: f.stem, src: 'fixture', path: f.file, file: f.file });
+
+for (const b of builds) {
+  const { set, label, stem, file } = b;
   const pack = `${OUT}/${stem}.mcaddon`;
   const row: Row = {
-    set, name: entry.name ?? '', label, stem, src: String(model.src), path: model.path,
+    set, name: b.name, label, stem, src: b.src, path: b.path,
     ok: false, valid: null, bytes: 0, seconds: 0, entities: 0, warnings: [], grains: [], coarsenedShare: null,
   };
 

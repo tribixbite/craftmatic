@@ -42,9 +42,9 @@ import { CameraTrace } from '../../client/steps.js';
 import { SEAT_EYE_SLACK, SEAT_SPEED_FLOOR, type ClientInvariantOptions } from '../../client/invariants.js';
 import type { InvariantContext } from '../../scenario/invariants.js';
 import type { AddonAppearance } from './appearance.js';
-import type { CraftmaticPack } from './pack-facts.js';
+import { vehicleCameraEntry, type CraftmaticPack } from './pack-facts.js';
 import { clientSnapshot, NEAR_BLOCKS, type ClientSnapshotResult, type SnapshotEntity } from './snapshot.js';
-import { placedOf } from './play.js';
+import { driverLookFrom, placedOf } from './play.js';
 import { animatedPoses, drawnBoxes, drawnReaches } from './drawn.js';
 import { CRAFTMATIC_ALLOWED_LINES, CRAFTMATIC_YIELDING_LINES, type Snapshot } from './child-play.js';
 import { HOP_TAGS } from '../../../engine/bedrock-ride-hop.js';
@@ -94,12 +94,31 @@ export function craftmaticSeatCamera(namespace?: string): NonNullable<ClientInva
     const is = (role: string): boolean => (namespace === undefined ? mount.families().some(f => f.endsWith(`_${role}`)) : hasRole(mount, namespace, role));
     if (is(COASTER_CAR_ROLE)) return true;
     const client = ClientView.of(ctx.engine);
-    // # TODO(helm-eye-judge): a scripted vehicle whose seat plan moves the EYE off the seat (helmSeatPlan: 75397's
-    // eye 7.4 over and 0.8 aft of its helm seat) is judged here against the seat's own eye, and `seatLead` projects
-    // on the drawn velocity, vertical part included: the barge reads 6.45 "ahead" at 2.9 blocks/s while its cockpit
-    // eye is on its planned spot (the `cockpitEye` step, which reads the plan's eye, passes). Judge such a vehicle
-    // against the plan's eye on the drawn pose, along the HORIZONTAL heading (A-14, 2026-11-15).
+    // A scripted vehicle whose seat plan lifts the EYE off the seat (helmSeatPlan) is judged against that planned eye:
+    // `craftmaticSeatEye`.
     return is(SCRIPTED_VEHICLE_ROLE) && !!client && client.sim.host.playerState(player).selectedSlot === COCKPIT_SLOT;
+  };
+}
+
+/** Blocks a cockpit eye must stand over the drawn rider's eye (`eyeY`) to be a LOOKOUT the seat plan lifted (`helmSeatPlan`). */
+export const LOOKOUT_LIFT_BLOCKS = 1;
+
+/**
+ * `camera-on-own-seat`'s planned eye for a pack (`ClientInvariantOptions.seatEye`): a scripted vehicle whose cockpit
+ * eye the seat plan LIFTED off the seat (`helmSeatPlan`: the eye over the rider's own by more than
+ * `LOOKOUT_LIFT_BLOCKS`; 75397's 10.26 over its base against the rider's 3.96) is meant at that eye on the DRAWN pose
+ * (`driverLookFrom`), so the camera is judged there. The seat's eye judged it 6.47 "ahead" at 3.8 blocks/s, the drawn
+ * velocity's vertical part read along the heading (TODO(helm-eye-judge), the vrun agent, A-14). Any other vehicle -
+ * an eye beside or ahead of the seat included, the 30k/30l faults - is judged at its seat.
+ */
+export function craftmaticSeatEye(pack: CraftmaticPack): NonNullable<ClientInvariantOptions['seatEye']> {
+  return (_player: SimEntity, mount: SimEntity, ctx: InvariantContext) => {
+    const cfg = vehicleCameraEntry(pack.pack, mount.typeId) as ({ eyeY?: number } & ReturnType<typeof vehicleCameraEntry>) | undefined;
+    if (!cfg?.scripted || !cfg.eye || typeof cfg.eyeY !== 'number' || cfg.eye[1] - cfg.eyeY <= LOOKOUT_LIFT_BLOCKS) return undefined;
+    const client = ClientView.of(ctx.engine);
+    if (!client) return undefined;
+    const pose = client.drawnPose(mount);
+    return driverLookFrom(cfg, { x: pose.x, y: pose.y, z: pose.z, yaw: pose.yaw }, pose.scale || mount.scale());
   };
 }
 

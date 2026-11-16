@@ -106,7 +106,7 @@ import type { Simulation } from '../web/src/sim/core/simulation.ts';
 import { VEHICLE_TELEMETRY_EVENT } from '../web/src/engine/bedrock-vehicle.ts';
 import { attachClient, clientProfile, type ClientProfileName } from '../web/src/sim/client/camera.ts';
 import { clientInvariants } from '../web/src/sim/client/invariants.ts';
-import { clientSteps, coasterCameraScenarios, craftmaticSeatCamera, walkAwayScenarios, type ClientShot } from '../web/src/sim/adapters/craftmatic/client-steps.ts';
+import { clientSteps, coasterCameraScenarios, craftmaticSeatCamera, craftmaticSeatEye, walkAwayScenarios, type ClientShot } from '../web/src/sim/adapters/craftmatic/client-steps.ts';
 import { packAppearance } from '../web/src/sim/adapters/craftmatic/drawn.ts';
 import type { UvFloorModel } from '../web/src/engine/figure-holes.ts';
 import type { RunOptions } from '../web/src/sim/scenario/runner.ts';
@@ -141,7 +141,7 @@ const clientShots = !!(uvFloorFlag || hatchFlag || lodFlag);
 const fovFlag = Number(flag('fov'));
 const clientStepOptions = { ...(Number.isFinite(fovFlag) && fovFlag > 0 ? { fovDeg: fovFlag } : {}), ...(uvFloorFlag ? { uvFloor: uvFloorFlag } : {}), lod: lodFlag || mode === 'walk-away', paintHatch: hatchFlag, frames: !!framesDir, ...(lagsFlag?.length ? { lags: lagsFlag } : {}) };
 /** The run options that attach the client and its invariants to a scenario. */
-const clientRun = (profile: ClientProfileName): Pick<RunOptions, 'invariants' | 'prepare'> => ({ invariants: clientInvariants({ seatCamera: craftmaticSeatCamera() }), prepare: (sim, player) => { attachClient(sim, player, (propLeadFlag !== undefined && Number.isFinite(propLeadFlag)) || (otherPropLeadFlag !== undefined && Number.isFinite(otherPropLeadFlag))
+const clientRun = (profile: ClientProfileName, pack?: CraftmaticPack): Pick<RunOptions, 'invariants' | 'prepare'> => ({ invariants: clientInvariants({ seatCamera: craftmaticSeatCamera(), ...(pack ? { seatEye: craftmaticSeatEye(pack) } : {}) }), prepare: (sim, player) => { attachClient(sim, player, (propLeadFlag !== undefined && Number.isFinite(propLeadFlag)) || (otherPropLeadFlag !== undefined && Number.isFinite(otherPropLeadFlag))
       ? { ...clientProfile(profile), ...(propLeadFlag !== undefined && Number.isFinite(propLeadFlag) ? { propertyLeadTicks: propLeadFlag } : {}), ...(otherPropLeadFlag !== undefined && Number.isFinite(otherPropLeadFlag) ? { otherPropertyLeadTicks: otherPropLeadFlag } : {}) }
       : profile); } });
 /**
@@ -364,7 +364,7 @@ if (mode === 'coaster-camera' || mode === 'walk-away') {
           const fresh = await load(file);
           const p = readCraftmaticPack(fresh)!;
           const appearance = packAppearance(fresh);
-          const r = await runScenario(s, [fresh], { handlers: { ...craftmaticHandlers(p, fresh), ...clientSteps(p, appearance, clientStepOptions, profile) }, ...clientRun(profile) });
+          const r = await runScenario(s, [fresh], { handlers: { ...craftmaticHandlers(p, fresh), ...clientSteps(p, appearance, clientStepOptions, profile) }, ...clientRun(profile, p) });
           const written = framesDir ? await writeShots(framesDir, basename(file, '.mcaddon'), r) : 0;
           for (const key of ['snapshots', 'frames', 'cameraTrace'] as const) if (Array.isArray(r.state[key])) r.state[key] = `${(r.state[key] as unknown[]).length} (not written: no --frames=)`;
           report.results.push(r);
@@ -452,7 +452,7 @@ if (mode === 'vehicles') {
         // The client's `cockpitEye` (judged from the DRAWN pose) takes the course's step kind over; the course's other steps stay its own.
         const profile = clientProfiles[0]!;
         const { cockpitEye } = clientSteps(p, packAppearance(fresh), clientStepOptions, profile);
-        const r = await runScenario(scen, [fresh], { handlers: withInput(p, fresh, { ...craftmaticHandlers(p, fresh), ...vehicleCourseHandlers(p), cockpitEye: cockpitEye! }), ...combineRun(costOptions(capture), clientRun(profile)) });
+        const r = await runScenario(scen, [fresh], { handlers: withInput(p, fresh, { ...craftmaticHandlers(p, fresh), ...vehicleCourseHandlers(p), cockpitEye: cockpitEye! }), ...combineRun(costOptions(capture), clientRun(profile, p)) });
         if (framesDir) await writeShots(framesDir, basename(file, '.mcaddon'), r);
         for (const key of ['snapshots', 'frames', 'cameraTrace'] as const) if (Array.isArray(r.state[key])) r.state[key] = `${(r.state[key] as unknown[]).length} (not written: no --frames=)`;
         report.results.push(r);
@@ -549,7 +549,7 @@ for (const file of packs) {
       const scen = costOn ? { ...s, allowLines: [...(s.allowLines ?? []), /CMVT|CMCAM/] } : s;
       const profile = clientProfiles[0]!;
       const handlers = { ...cp.handlers, ...INPUT_HANDLERS, ...(clientShots ? { snapshot: clientSteps(cp.pack, packAppearance(fresh), clientStepOptions, profile)['snapshot']! } : {}) };
-      const r = await runScenario(scen, [fresh], { handlers, approach, ...combineRun(costOptions(capture), clientShots ? clientRun(profile) : {}) });
+      const r = await runScenario(scen, [fresh], { handlers, approach, ...combineRun(costOptions(capture), clientShots ? clientRun(profile, cp.pack) : {}) });
       recordCost(report.pack, r, capture.sim);
       delete r.timeline;
       // Pictures go to --shots as PNG files; the report keeps their names only.

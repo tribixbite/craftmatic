@@ -17,7 +17,7 @@ import { COCKPIT_CLIENT_LAGS, FREE_LOOK, cockpitEyeLead, cockpitLagFor } from '.
 import { PoseHistory } from '../web/src/sim/client/draw-lag.js';
 import { boneTransforms, mul, pivotRotation } from '../web/src/engine/bedrock-geometry-faces.js';
 import { attachClient, cameraFrame, type ClientProfile, ClientView, clientProfile, drawnCameraLead, easeSteadyLagTicks, keyframeView, sampleAnimation, TICK_SECONDS } from '../web/src/sim/client/camera.js';
-import { CAMERA_MAX_EYE_JUMP_BLOCKS, CAMERA_MAX_TURN_DEG, SEAT_EYE_SLACK, cameraFrameDelta, clientInvariants, scriptMeansContinuity } from '../web/src/sim/client/invariants.js';
+import { CAMERA_MAX_EYE_JUMP_BLOCKS, CAMERA_MAX_TURN_DEG, SEAT_EYE_SLACK, cameraFrameDelta, clientInvariants, eyeJumpExcess, scriptMeansContinuity } from '../web/src/sim/client/invariants.js';
 import { CameraTrace } from '../web/src/sim/client/steps.js';
 import { rasterizeDetailed, type RasterQuad } from '../web/src/sim/render/rasterizer.js';
 import { buildAddonAppearance, lodDistanceOf } from '../web/src/sim/adapters/craftmatic/appearance.js';
@@ -296,6 +296,20 @@ describe('the camera state machine', () => {
     expect(scriptMeansContinuity(base, far)).toBe(false);
     expect(scriptMeansContinuity(base, { ...base, ...cameraFrame(90, 0, 0) })).toBe(false);
     expect(cameraFrameDelta({ camera: base, seat: { x: 0, y: 0, z: 0 } }, { camera: far, seat: { x: 5, y: 0, z: 0 } }).jumpBlocks).toBeCloseTo(0);
+  });
+
+  it('an ease closing on a target that stopped is no jump; an eye that leaves its target is (favgate-e7da6e47 camera-continuous, 6 vehicles)', () => {
+    // 10365's 30-block chase boom after the course's 90-degree drag (6 degrees a tick, cameraRecentre): the target stood
+    // still from tick 1085, the drawn eye was still 6.2 blocks short of it and closed 3.07 then 1.55 then 0.77 - the
+    // ease's own deceleration, which the judgement read as a 3.11-block jump "where the target moved 0".
+    const base = { eye: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0, roll: 0, ...cameraFrame(0, 0, 0), tick: 1, mode: 'free' as const };
+    const at = (x: number, y: number, z: number) => ({ ...base, eye: { x, y, z } });
+    const target = at(60.5, -33.6, -190.5), seat = { x: 51.78, y: -44.8, z: -160.32 };
+    expect(eyeJumpExcess({ camera: at(54.36, -33.58, -189.54), target, seat }, { camera: at(57.43, -33.59, -190.02), target, seat })).toBeLessThanOrEqual(0);
+    // The same 3-block move AWAY from a target the eye already sat on (an ease restarted from a stale pose) is one.
+    expect(eyeJumpExcess({ camera: at(60.5, -33.6, -190.5), target, seat }, { camera: at(57.43, -33.59, -190.02), target, seat })).toBeGreaterThan(CAMERA_MAX_EYE_JUMP_BLOCKS);
+    // And a cut past the target (overshooting it by 3) is the excess over the gap it closed.
+    expect(eyeJumpExcess({ camera: at(59.5, -33.6, -190.5), target, seat }, { camera: at(63.5, -33.6, -190.5), target, seat })).toBeCloseTo(3, 3);
   });
 });
 

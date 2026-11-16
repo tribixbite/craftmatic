@@ -570,6 +570,19 @@ flat world on purpose) and judges the vehicle by its own band instead.
 Boats run the water lanes instead ("Water: the boat lanes", below); native
 mounts (the simulator's hover controller is a stand-in) are left out.
 
+The client invariants judge the course's cameras too (2026-11-15). The
+`camera-continuous` eye jump is the drawn eye's move LESS the target's move
+and less the gap the eye was still short of its target (`eyeJumpExcess`): a
+0.1 s ease restarted every tick closes about half its gap a frame, so a
+30-block chase boom dragged 6 degrees a tick runs on 3.1, 1.6 and 0.8 blocks
+once the finger stops. That deceleration was read as a jump in all six
+vehicle packs of favgate-e7da6e47; leaving a target the eye sat on, or
+overshooting it, still counts. `camera-on-own-seat` judges a vehicle whose
+seat plan LIFTED its cockpit eye (`helmSeatPlan`, more than
+`LOOKOUT_LIFT_BLOCKS` over the rider's eye) against that eye on the drawn pose
+along the horizontal heading (`craftmaticSeatEye`; 75397 read 6.47 "ahead"
+against its seat).
+
 ### Water: the boat lanes (2026-10-08, `TODO(sim-boat-course)` closed)
 
 Water is a VOLUME (`world/liquids.ts`: a source fills 8/9 of its cell, quirk
