@@ -129,7 +129,13 @@ export function approachSpots(engine: SimEngine, player: SimEntity, target: SimE
     if (boxes.length) {
       const x0 = Math.min(...boxes.map(b => b.x0)), x1 = Math.max(...boxes.map(b => b.x1)), z0 = Math.min(...boxes.map(b => b.z0)), z1 = Math.max(...boxes.map(b => b.z1));
       const y0 = Math.min(...boxes.map(b => b.y0)), y1 = Math.max(...boxes.map(b => b.y1)), half = Math.hypot(x1 - x0, z1 - z0) / 2;
-      found = searchSpots(engine, player, target, reach, exclude, options, limit, saved.loc, { centre: { x: (x0 + x1) / 2, y: (y0 + y1) / 2, z: (z0 + z1) / 2 }, rings: FALLBACK_RINGS.filter(r => r <= reach + 1e-9).map(r => r + half), angles: FALLBACK_ANGLES, top: y1 + APPROACH_LEVELS.above, bottom: y0 - PLAYER_EYE_HEIGHT - APPROACH_LEVELS.below, aim: nearPickPoint });
+      const near = { centre: { x: (x0 + x1) / 2, y: (y0 + y1) / 2, z: (z0 + z1) / 2 }, rings: FALLBACK_RINGS.filter(r => r <= reach + 1e-9).map(r => r + half), angles: FALLBACK_ANGLES, top: y1 + APPROACH_LEVELS.above, aim: nearPickPoint };
+      found = searchSpots(engine, player, target, reach, exclude, options, limit, saved.loc, { ...near, bottom: y0 - PLAYER_EYE_HEIGHT - APPROACH_LEVELS.below });
+      // A floor further under the part than `APPROACH_LEVELS.below` whose eye is still within reach of the box's near
+      // point: the last resort, so every part an earlier search served keeps its spot. 5482's Window 7 (census
+      // 2026-11-16) has its only floor 5.7 blocks under its box, the eye 4.1 under it and 4.4 from it, inside the
+      // 4.5-block pick; the model's own reach test (`outOfReachByModel`) searched there and called it the pack's.
+      if (!found.length) found = searchSpots(engine, player, target, reach, exclude, options, limit, saved.loc, { ...near, top: y0 - PLAYER_EYE_HEIGHT - APPROACH_LEVELS.below, bottom: y0 - PLAYER_EYE_HEIGHT - reach });
     }
   }
   player.location = saved.loc; player.rotation = saved.rot;

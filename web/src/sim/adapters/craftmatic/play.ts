@@ -520,7 +520,26 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
         // the doorway's floor the lowest closed bottom, the walk's normal. Until 2026-09-30 the lines read the leaf's
         // corner `c` as the floor, which is the leaf's TOP when it hangs down (`u` negative: 60380's Door 1), and
         // sampled their own columns along the leaf.
+        // What the lines meet: the static model, and every OTHER doorway leaf as it stands now - shut, since each door is
+        // closed again after its lines. A stop on another door's closed leaf is the model's (5482's stacked doors at
+        // 400 percent, census 2026-11-16: Door 3's lines walked into Door 2's shut leaf, which `staticDrawn` leaves out,
+        // and blamed "nothing is drawn there" on the pack).
+        const own = new Set([i, ...(it.pairs ?? [])]);
+        const lineDrawn = [...statics, ...[...ctx.sim.engine.entities.values()].flatMap(e => {
+          const j = e.dynamic.get(IX.index);
+          if (!e.valid || typeof j !== 'number' || own.has(j) || !(ix.items[j]?.blocking.length) || e.dynamic.get(IX.open) === true) return [];
+          return entityDrawn(appearance, e) ?? [];
+        })];
         const geo = doorwayGeometry({ dims: ix.dims }, it, f, placed.rotation as QuarterTurn);
+        // The cells the OTHER shut doors hold at this size and turn: a stop in one is on a shut door that shares this
+        // doorway's cells - the model's overlapping doors (5482's Door 2 and Door 3 claim the same grid cells), never
+        // the pack's, though at 400 percent a shut leaf's cell is a 4-block slab round a leaf under 2 blocks thick.
+        const shutLeafCells = new Set<string>();
+        for (const e of ctx.sim.engine.entities.values()) {
+          const j = e.dynamic.get(IX.index);
+          if (!e.valid || typeof j !== 'number' || own.has(j) || !(ix.items[j]?.blocking.length) || e.dynamic.get(IX.open) === true) continue;
+          for (const b of doorwayGeometry({ dims: ix.dims }, ix.items[j]!, f, placed.rotation as QuarterTurn).own) shutLeafCells.add(`${placed.anchor.x + b.x},${placed.anchor.y + b.y},${placed.anchor.z + b.z}`);
+        }
         if (!geo.own.length) { ctx.note(`${it.label}: no closed blocks at ${placed.sizePct} percent; its lines are not walked`); continue; }
         const n = geo.n, floorY = placed.anchor.y + geo.centre.y;
         const columns = new Map<string, Vec3>();
@@ -530,11 +549,24 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
         for (const side of [-1, 1] as const) {
           const outcomes: LineOutcome[] = [];
           for (const col of columns.values()) {
-            outcomes.push(await deviceLine(ctx, statics, treads, it.label, col, n, side, floorY, k, LINE_OUT, LINE_MIN_OUT, 'line'));
-            outcomes.push(await deviceLine(ctx, statics, treads, it.label, col, n, side, floorY, k, PORCH_OUT, PORCH_OUT, 'porch'));
+            outcomes.push(await deviceLine(ctx, lineDrawn, treads, it.label, col, n, side, floorY, k, LINE_OUT, LINE_MIN_OUT, 'line', shutLeafCells));
+            outcomes.push(await deviceLine(ctx, lineDrawn, treads, it.label, col, n, side, floorY, k, PORCH_OUT, PORCH_OUT, 'porch', shutLeafCells));
           }
           judgeSide(ctx, outcomes);
         }
+        // Close the door (and its pair) again, so the next doorway is walked with every other part at rest, as a
+        // child finds it. 5482 stacks four doors in one column (census 2026-11-16): left open, Door 1 - the floor
+        // under Door 2 - had swung away when Door 2's lines were walked, and they fell 5.4 blocks through it. The reset is
+        // the harness's, not play being judged: a fall on the way to the closing tap (a spot on the open leaf of a
+        // stacked door) is not reported, as the lines' own teleports are not.
+        ctx.quiet(['no-unprotected-fall', 'player-not-in-solid']);
+        for (const j of [i, ...(it.pairs ?? [])]) {
+          const leaf = findEntity(ctx.sim, ctx.player, { where: e => e.dynamic.get(IX.index) === j });
+          if (leaf && leaf.dynamic.get(IX.open) === true) await tapPart(ctx, leaf, ix.items[j]?.label ?? `part ${j}`, () => leaf.dynamic.get(IX.open) !== true, pack);
+          if (leaf && leaf.dynamic.get(IX.open) === true) ctx.note(`${it.label}: ${ix.items[j]?.label ?? j} could not be closed again after its lines; later doorways are walked with it open`);
+        }
+        await ctx.run(2);
+        ctx.quiet([]);
       }
     },
 
@@ -1045,7 +1077,7 @@ const sealedText = (how: 'drawn' | 'relay', rounding: number, sizePct: number): 
  * within a block of the leaf is attributed and reported at once; a stop is
  * attributed and returned for its side to judge.
  */
-async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], treads: ReadonlySet<string>, label: string, col: Vec3, n: { x: number; z: number }, side: -1 | 1, floorY: number, k: number, outMax: number, outMin: number, kind: 'line' | 'porch'): Promise<LineOutcome> {
+async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], treads: ReadonlySet<string>, label: string, col: Vec3, n: { x: number; z: number }, side: -1 | 1, floorY: number, k: number, outMax: number, outMin: number, kind: 'line' | 'porch', shutLeafCells: ReadonlySet<string> = new Set()): Promise<LineOutcome> {
   const p = ctx.player, w = ctx.sim.engine.dimension(p.dimension), placed = placedOf(ctx), rounding = relayRounding(placed.sizePct / 100);
   const along = (q: Vec3): number => ((q.x - col.x) * n.x + (q.z - col.z) * n.z) * -side;
   // The start, as the harness (`doorwayColumnLines`) and the device's teleport pick it: the farthest spot from
@@ -1133,9 +1165,30 @@ async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], treads
   const how = modelsObstacle(w, statics, probe, rounding);
   const tread = treadsIn(w, treads, probe);
   const text = `${where}: stopped ${r3(-Math.min(0, best))} blocks before the door plane${hit?.block ? ` on ${hit.block.typeId} at ${hit.block.x},${hit.block.y},${hit.block.z}` : ''}`;
+  const shut = hit?.block && shutLeafCells.has(`${hit.block.x},${hit.block.y},${hit.block.z}`);
+  if (shut) {
+    ctx.note(`${text} - the MODEL's: another door's shut leaf holds that cell of this doorway (OVERLAP)`);
+    finding(ctx, { kind: 'STOP', where, model: true, overlap: true, start: pt(start), stoppedAt: pt(at), block: hit?.block });
+    return { crossed: false };
+  }
   if (how) {
     ctx.note(`${text} - the MODEL's: ${sealedText(how, rounding, placed.sizePct)}`);
     finding(ctx, { kind: 'STOP', where, model: true, start: pt(start), stoppedAt: pt(at), block: hit?.block, ...(how === 'relay' ? { relay: true } : {}) });
+    return { crossed: false };
+  }
+  // A stop the pack would be blamed for, on a line that LOST the doorway's level before it: it stands more than a jump
+  // under the doorway's floor, where nothing it meets can be what keeps the child from the door - no jump climbs back
+  // to it. The fall is the finding, judged as a hole is, by whether the model draws a floor where the feet left the
+  // level (a stop on the model's own geometry stays the model's, above). 6164's Door 1 at 400
+  // percent (census 2026-11-16): its porch lines start in the air 10 blocks out, fall 2.3 blocks to the ground and
+  // walk into the tread under the doorway; that tread was blamed, while the model draws nothing in front of the door.
+  if (floorY - at.y > JUMP_PEAK + 1e-6) {
+    const { drawnFloor, edgeMoved } = holeFloor(statics, lostAt, n, side, floorY, everStood, rounding, MODEL_FOOTHOLD * (placed.sizePct / 100) ** 2);
+    const text = `${where}: lost the doorway's level ${everStood ? `at ${JSON.stringify(pt(lostAt))}` : '(the line started over nothing)'} and stopped ${r3(floorY - at.y)} blocks under its floor, ${r3(-Math.min(0, best))} before the door plane`;
+    const evidence = { start: pt(start), lostAt: pt(lostAt), stoppedAt: pt(at), floorY: r3(floorY), jumps };
+    if (drawnFloor && !edgeMoved) ctx.violate({ invariant: 'doorway-line', message: `${text}; the model draws a floor where the feet lost it, the pack's colliders do not (HOLE)`, evidence });
+    else ctx.note(`${text} - the MODEL's: ${edgeMoved ? `its drawn floor ends within ${rounding} block of where the feet lost it, the edge the ${placed.sizePct} percent re-lay moves (RELAY)` : 'nothing is drawn at the doorway\'s level where the feet lost it'}`);
+    finding(ctx, { kind: 'HOLE', where, drop: r3(floorY - at.y), model: !drawnFloor || edgeMoved, ...(edgeMoved ? { relay: true } : {}), start: pt(start), lostAt: pt(lostAt), landed: r3(at.y) });
     return { crossed: false };
   }
   // Past the stopping face: the player's centre sits half its width (0.3) short of the face, so a footprint centred

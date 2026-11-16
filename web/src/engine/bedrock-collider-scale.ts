@@ -930,6 +930,13 @@ export const LANE_ROUNDS = 32;
  * rule reads the 1-block grid alone, as it always did. `carve`: the size's carve
  * (collider-carve.ts), which every grid the plan reads is laid with; the lane
  * walk must be built over it too (`colliderLaneWalk`).
+ *
+ * TODO(gen-door-stair): the 100 % stair planner refuses a tread in another doorway's approach above that doorway's
+ * floor (`treadRefusal`, bedrock-interactives.ts); this planner knows only the doorways' closed cells (`doorCells`),
+ * not their approaches. 5482 at 400 percent (census 2026-11-16, recon_v3 with Doors 2 and 3 overlapping in one
+ * doorway) lays a 1.5-block riser of Door 2's facade run across Door 3's straight lines (`sim.ts --sizes=400`,
+ * "Door 3 ... the pack's TREAD"). Not changed here: any tread-planner change is judged on every device-proven route
+ * first (CLAUDE.md "A tread run's SIDE is a wall").
  */
 export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], lane?: TreadLaneCheck, fine?: FineReachColumns, carve?: SizeCarve): TreadPlan {
   const f = sizePct / 100;

@@ -639,6 +639,7 @@ export const REGRESSIONS: RegressionCase[] = [
   ...audit1115Regressions(),
   // The 2026-11-16 generality census gate (output/gengate-6fa0afa6): sets that are not favourites, judged on the gate's packs.
   ...gen1116Regressions(),
+  ...census1116Regressions(),
   // The world's cases (water, bodies): regressions-world.ts.
   ...WORLD_REGRESSIONS,
   // Round 30m's open device defects: regressions-30m.ts.
@@ -688,6 +689,33 @@ function turnableTapCase(set: string, stem: string, size: number, label: string)
       return { reproduced: !!v, attribution: 'pack', evidence: v ?? `${label} moved` };
     },
   };
+}
+
+/**
+ * A generality-census doorway finding (gate `output/gengate-6fa0afa6/`, 2026-11-16) that was the SIMULATOR's: its pack
+ * passes once the simulator judges the line right, so it is KNOWN-UNREPRODUCED on the census pack (`limits` says what
+ * was wrong) and guards the current build of the set - the gate builds it, as every `newStem` - against any doorway
+ * line on those doors failing for the pack's own reasons.
+ */
+function censusDoorwayCase(set: string, stem: string, size: number, labels: readonly string[], limits: string): RegressionCase {
+  return {
+    id: `census-doorway-${set}-${size}`, title: `${set} ${labels.join(', ')} at ${size} percent: every doorway line is crossed or attributed (census 2026-11-16)`,
+    evidence: `output/gengate-6fa0afa6/gate.md, gate-child-play.json (place-${size}-*); test/sim-census-doorways.test.ts`,
+    oldPack: `${ROUND}/gengate-6fa0afa6/${stem}.mcaddon`, newStem: stem, expectNew: 'pass', knownUnreproduced: true, limits,
+    scenario: pack => ({ name: `census-doorway-${set}-${size}`, steps: [{ kind: 'place', size, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'doorwayLines', only: labels.map(l => doorIndex(pack, l)) }], allowLines: allow }),
+    judge: r => {
+      const v = r.violations.find(x => x.invariant === 'doorway-line' && labels.some(l => x.message.startsWith(`${l} `)));
+      return { reproduced: !!v, attribution: 'pack', evidence: v ? `${v.invariant}: ${v.message}` : `no doorway-line violation on ${labels.join(', ')} (${r.violations.length} violations)` };
+    },
+  };
+}
+
+/** The generality census's cases (2026-11-16, IX-05): the two sets whose doorway findings were the simulator's. */
+function census1116Regressions(): RegressionCase[] {
+  return [
+    censusDoorwayCase('5482', '5482-ultimate-house-building-set', 200, ['Door 1', 'Door 2', 'Door 3'], "the census's HOLE on Door 2/3 was the simulator's: the doorway step left Door 1 open after its lines, the floor under the stacked Door 2 (fixed: each door is closed again after its lines)"),
+    censusDoorwayCase('6164', '6164-rescue-building-set', 400, ['Door 1'], "the census's TREAD stop on Door 1 was the simulator's: its porch lines fell 2.3 blocks off the doorway's level where the model draws nothing, then met the tread under the doorway (fixed: such a stop is judged by the fall)"),
+  ];
 }
 
 /** The 2026-11-15 audit's cases (a function: the set above spreads it before this module's tail runs). */
