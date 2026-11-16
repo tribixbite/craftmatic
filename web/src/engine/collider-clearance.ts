@@ -11,7 +11,8 @@
  * form containing every part box - and a raised ceiling where a sneaking
  * player fits but a standing one does not. A proposal is applied only when:
  *
- *   1. SUBSET      the form lies inside the old full cell (never less free space);
+ *   1. SUBSET      the form lies inside the old full cell (never less free space) - or, under a gap no
+ *                  player fits, inside the cell to the block top (a floor + wall form's wall runs there);
  *   2. SUPERSET    it contains the cell's geometry (a wall trim), or it is the ceiling rule;
  *   3. DOOR        no closed leaf reaches the cell and the doorway cut left it as built;
  *   4. FLOOR       a cell whose top is a standing surface keeps its top sixteenth full,
@@ -381,8 +382,15 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     if (!span) continue;
     report.cells++;
     const geometry = layerBoxes(a);
-    const to = COLLIDER_KIT.cover(geometry)!;
     const built: ColliderForm = { v: 0, lo: span[0], hi: span[1] };
+    // Rule 1's low-gap exception: under a gap no player fits (`headroomAbove` < a sneaking player, over the grid as
+    // built, where the cell above is still its full footprint), no position over the cell's top exists before the
+    // trim, so a floor + wall form may run its wall past the geometry's top to the block top. Without it a cell of
+    // floor plate and furniture a quarter block wide ending under the block top shipped FULL (910032 Door 4: the
+    // cover's floor + wall form needs geometry to the block top).
+    const lowGap = built.hi < 16 && headroomAbove(x, z, y * 16 + built.hi) < SNEAK_NEED16;
+    const to = COLLIDER_KIT.cover(geometry, lowGap ? 16 - built.hi : 0)!;
+    const bound: ColliderForm = to.v !== 0 && COLLIDER_KIT.VARIANTS[to.v]!.kind === 1 && lowGap ? { v: 0, lo: built.lo, hi: 16 } : built;
     if (to.v === 0) { report.alreadyTight++; continue; }
     const p: Proposal = { i, x, y, z, rule: 'wall', from: built, to };
     // 3. The doorway cut left the cell as built, and no closed leaf reaches it.
@@ -390,7 +398,7 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     if (!now || now.v !== 0 || now.lo !== built.lo || now.hi !== built.hi) { refuse(p, 'door-cut'); continue; }
     if (leafCells.has(i)) { refuse(p, 'door-leaf'); continue; }
     // 1, 2. Subset of the old cell, superset of the geometry (by construction; asserted).
-    if (!formWithin(to, built) || !formContains(to, geometry)) throw new Error(`clearance: cover of cell ${x},${y},${z} is not between its geometry and its full cell`);
+    if (!formWithin(to, bound) || !formContains(to, geometry)) throw new Error(`clearance: cover of cell ${x},${y},${z} is not between its geometry and its full cell`);
     // 4. A standing surface on top keeps its top sixteenth full - unless it is only a wall's top over open air.
     if (headroomAbove(x, z, y * 16 + built.hi) >= SNEAK_NEED16) {
       const top = COLLIDER_KIT.formBoxes(to.v, to.lo, to.hi).filter(b => b[3] === built.hi);

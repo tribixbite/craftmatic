@@ -48,8 +48,13 @@ export interface ColliderFormKit {
   variantOf(id: string): number;
   /** The boxes a form's collision box consists of. */
   formBoxes(v: number, lo: number, hi: number): Box16[];
-  /** The form of least volume containing every box (null for none); a full-footprint result is always v = 0. */
-  cover(boxes: ReadonlyArray<readonly number[]>): ColliderForm | null;
+  /**
+   * The form of least volume containing every box (null for none); a full-footprint result is always v = 0.
+   * `topSlack` (sixteenths, default 0) lets a floor + wall form be chosen for boxes whose top is that much under the
+   * block top: its wall then runs past the geometry to the block top. Only a caller that has proved no player's box
+   * can take that strip passes it (collider-clearance.ts, rule 1's low-gap exception).
+   */
+  cover(boxes: ReadonlyArray<readonly number[]>, topSlack?: number): ColliderForm | null;
   /** The two state names a collider block of `encoding` carries (`COLLIDER_STATES` / `COLLIDER_PAIR_STATES`). */
   stateNames(encoding: ColliderStateEncoding): { lo: string; hi: string };
   /**
@@ -140,7 +145,7 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
     if (d.kind === 1) return hi < 16 ? [[0, 16, lo, hi, 0, 16], [q[0], q[1], hi, 16, q[2], q[3]]] : [[0, 16, lo, hi, 0, 16]];
     return lo > 0 ? [[q[0], q[1], 0, lo, q[2], q[3]], [0, 16, lo, hi, 0, 16]] : [[0, 16, lo, hi, 0, 16]];
   };
-  const cover = (boxes: ReadonlyArray<readonly number[]>): ColliderForm | null => {
+  const cover = (boxes: ReadonlyArray<readonly number[]>, topSlack?: number): ColliderForm | null => {
     let Y0 = 16, Y1 = 0, bx0 = 16, bx1 = 0, bz0 = 16, bz1 = 0, any = false;
     for (const b of boxes) {
       if (!(b[1]! > b[0]! && b[3]! > b[2]! && b[5]! > b[4]!)) continue;
@@ -169,8 +174,8 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
       }
       return hit ? [x0, x1, z0, z1] : null;
     };
-    // Floor + wall: full band Y0..m, shape m..16 (only when the geometry reaches the block top).
-    if (Y1 === 16) for (let m = Y0 + 1; m <= 15; m++) {
+    // Floor + wall: full band Y0..m, shape m..16 (only when the geometry reaches the block top, or `topSlack` of it).
+    if (Y1 >= 16 - (topSlack || 0)) for (let m = Y0 + 1; m <= Math.min(15, Y1 - 1); m++) {
       const up = within(m, 16);
       if (!up) continue;
       const s = smallest(up[0], up[1], up[2], up[3]);

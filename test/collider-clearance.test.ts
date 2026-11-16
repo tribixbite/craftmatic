@@ -320,6 +320,37 @@ describe('applyColliderClearance', () => {
     applyColliderClearance(s.input());
     expect(s.form(1, 1, 2)).toEqual({ v: 0, lo: 0, hi: 15 });
   });
+
+  /**
+   * 910032 Door 4 (audit 2026-11-15 A-11, cells (2,0,5)/(2,0,6) of its geometry dump): a floor plate under furniture
+   * a quarter block wide, the furniture's top at 15/16 with the next row's part 2-3 sixteenths over it. The cover's
+   * floor + wall form runs its wall to the block top, so it was never proposed for geometry ending at 15: the cell
+   * shipped FULL 0..15 and sealed the doorway's - side. Its wall's top sixteenth lies in a gap no player fits.
+   */
+  const sparseFurniture = (ceilingOver: boolean) => {
+    const s = scene(3, 3, 3);
+    // The floor plate (0..4 full), and a post along -x a quarter block wide rising to 15/16.
+    s.solid(1, 0, 1, [[0, 16, 0, 4, 0, 16], [0, 4, 6, 15, 11, 16]]);
+    // The part of the furniture in the row above, starting 2/16 over the post's top: no one stands on the post.
+    if (ceilingOver) s.solid(1, 1, 1, [[0, 1, 1, 4, 0, 7]]);
+    return s;
+  };
+  it('pulls a full cell over a floor plate and sparse furniture under a low gap back to a floor + wall form (910032 Door 4)', () => {
+    const s = sparseFurniture(true);
+    const before = s.form(1, 0, 1)!;
+    expect(before).toEqual({ v: 0, lo: 0, hi: 15 });
+    applyColliderClearance(s.input());
+    const f = s.form(1, 0, 1)!;
+    expect(K.VARIANTS[f.v]!.kind).toBe(1);
+    expect(formContains(f, layerBoxes(s.layers.get(s.idx(1, 0, 1))!))).toBe(true);
+    // The floor stays the floor plate; the wall is the post's quarter band.
+    expect(K.formBoxes(f.v, f.lo, f.hi)).toEqual([[0, 16, 0, 4, 0, 16], [0, 4, 4, 16, 0, 16]]);
+  });
+  it('keeps the full cell when the furniture\'s top is open to the sky: a standing surface is not raised', () => {
+    const s = sparseFurniture(false);
+    applyColliderClearance(s.input());
+    expect(s.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 15 });
+  });
 });
 
 describe('figures read a form as the full collider it replaced (bedrock-figure-life.ts blockSpan)', () => {
