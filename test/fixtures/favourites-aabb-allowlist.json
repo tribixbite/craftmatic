@@ -10,13 +10,9 @@
   },
   "43267": {
     "28318.dat": "Both Studio tables map LEGO 28318 to '28318.dat', a file neither the LDraw library (ldraw_ref) nor Studio's library ships. TODO(ldraw-missing).",
-    "28705.dat": "Rebrickable 'Hair Long Wavy with Bangs Swept Back (Moana)': no LDraw file, unmapped in both Studio tables. TODO(ldraw-missing)."
+    "28705.dat": "Rebrickable 'Hair Long Wavy with Bangs Swept Back (Moana)': both Studio tables map it to 28705.dat, which no library ships; Studio's UnOfficial bl_28705.dat ('MINI DOLL, WIG, WAVY, NO. 5') is the mould but in the LDD frame (origin at its bottom, y -53.5 .. 0, where LDraw doll hairs run about -12.6 .. 44 from the crown): a y shift near 44 and an unmeasured z are needed. TODO(ldraw-missing)."
   },
   "75397": {
-    "56203.dat": "Mecabricks FLEXIBLE part: a straight rigid 3mm hose (mecabricks_parts/configs: path along z, centred, 160/192/248/392 mm = BrickLink 75c20/75c24/75c31/75c49). The 75cNN generator draws LDraw's frame (from the end, along y); a Mecabricks-frame variant (centred, along z) needs its placement frame confirmed against the rigging it joins - one end of each lies near parts, the other does not (measured 2026-11-15). TODO(mb-flexible-hose).",
-    "60677.dat": "Mecabricks FLEXIBLE part: a straight rigid 3mm hose (mecabricks_parts/configs: path along z, centred, 160/192/248/392 mm = BrickLink 75c20/75c24/75c31/75c49). The 75cNN generator draws LDraw's frame (from the end, along y); a Mecabricks-frame variant (centred, along z) needs its placement frame confirmed against the rigging it joins - one end of each lies near parts, the other does not (measured 2026-11-15). TODO(mb-flexible-hose).",
-    "85523.dat": "Mecabricks FLEXIBLE part: a straight rigid 3mm hose (mecabricks_parts/configs: path along z, centred, 160/192/248/392 mm = BrickLink 75c20/75c24/75c31/75c49). The 75cNN generator draws LDraw's frame (from the end, along y); a Mecabricks-frame variant (centred, along z) needs its placement frame confirmed against the rigging it joins - one end of each lies near parts, the other does not (measured 2026-11-15). TODO(mb-flexible-hose).",
-    "85526.dat": "Mecabricks FLEXIBLE part: a straight rigid 3mm hose (mecabricks_parts/configs: path along z, centred, 160/192/248/392 mm = BrickLink 75c20/75c24/75c31/75c49). The 75cNN generator draws LDraw's frame (from the end, along y); a Mecabricks-frame variant (centred, along z) needs its placement frame confirmed against the rigging it joins - one end of each lies near parts, the other does not (measured 2026-11-15). TODO(mb-flexible-hose).",
     "98109d1.dat": "Mecabricks decorated id; 98109 in no library, no Studio row, not in mecabricks_align. TODO(mb-unresolved).",
     "98112d1.dat": "Mecabricks decorated id; 98112 in no library, no Studio row, not in mecabricks_align. TODO(mb-unresolved).",
     "98113.dat": "Rebrickable 'Arm, Jabba The Hutt': no LDraw file, no Studio row; mecabricks_align 'unresolved'. TODO(mb-unresolved).",
@@ -26,21 +22,15 @@
     "19303.dat": "Rebrickable 'Helmet / Mask, High Sides': no LDraw file, no Studio row; mecabricks_align 'unresolved'. TODO(mb-unresolved).",
     "28976.dat": "Mecabricks design id: no LDraw file, no Studio row; mecabricks_align 'unresolved' (Mecabricks mesh present, frame unmeasured). TODO(mb-unresolved).",
     "29453.dat": "Rebrickable 'Neckwear Cape, Short [Shiny Satin Fabric]' (cloth): no LDraw file, no Studio row. TODO(mb-unresolved).",
-    "68054.dat": "Rebrickable 'Hipwear Coattails, Tattered Ends' (cloth): no LDraw file, no Studio row. TODO(mb-unresolved).",
-    "80133.dat": "Hinge Plate 1 x 4 Swivel Top: ldraw_lxfv56.xml maps it to 2430.dat with an LDD offset, but this is a MECABRICKS source and mecabricks_align says 'unresolved'. Measured 2026-11-15 (output/audit-parts/mbframe.ts): the Mecabricks mesh under the alias table's F = diag(1,-1,1) is 2430 turned 180 degrees about X (y -7.9..0 vs 0..8, z -19.7..7 vs -8..20, centre shift 0.4/-8/-12.4 LDU), so a filename alias would hang every plate one plate low with its knuckle on the wrong side. Needs clego mb_partmap to learn 80133 -> 2430 so mb_align bakes the turn at harvest. TODO(mb-hinge-frame).",
-    "80134.dat": "Hinge Plate 1 x 4 Swivel Base -> 2429.dat in ldraw_lxfv56.xml; same Mecabricks frame finding as 80133 (centre shift -0.2/-8/-12.4 LDU). TODO(mb-hinge-frame)."
+    "68054.dat": "Rebrickable 'Hipwear Coattails, Tattered Ends' (cloth): no LDraw file, no Studio row. TODO(mb-unresolved)."
   },
   "76286": {
     "28710.dat": "Both Studio tables map LEGO 28710 to '28710.dat', which neither the LDraw library nor Studio's library ships. TODO(ldraw-missing)."
   },
   "76417": {
-    "1004705.dat": "LDD id over a million (a sticker-range / element id), unmapped in both Studio tables and in clego's DOLL_ROWS; no geometry anywhere. TODO(ldd-hubcap-alias).",
-    "1011115.dat": "as 1004705 (unmapped million-range LDD id). TODO(ldd-hubcap-alias).",
-    "1011124.dat": "the cart's four hubcaps: unmapped million-range LDD id, the tracker's TODO(ldd-hubcap-alias).",
-    "104814.dat": "Rebrickable 'Wing, Scalloped with Holes' (cloth): no LDraw file, no Studio row. TODO(ldraw-missing).",
-    "3469.dat": "LDD id with no row in either Studio table and no LDraw file (not the 3469 of any library). TODO(ldd-unmapped).",
-    "49972.dat": "Rebrickable 'Animal Body Part, Dinosaur, Baryonyx Lower Jaw': ldraw_lxfv56.xml maps it to bl_49972.dat, which Studio's 2020 library does not ship. TODO(ldd-unmapped).",
-    "68503.dat": "Rebrickable 'Weapon Sword with Bat, Jewels': no LDraw file, no Studio row. TODO(ldraw-missing).",
-    "79511.dat": "LDD id with no row in either Studio table and no LDraw file. TODO(ldd-unmapped)."
+    "1004705.dat": "IDENTIFIED, frame unknown: the LXFML's itemNos 6270027/28/32 are Rebrickable elements of 36752 'Equipment Wand Sprue [Complete Set of 2]' (LDraw 36752c01), and the 4 sprues' colours (70, 308, 0, 0) give exactly the inventory's 8 wands. But no Mecabricks or LDD mesh exists for 1004705, and 36752c01 stands its wands along y (bounds y -44 .. 12.7) where the 4 loose sprues lie on the ground at identity: a rename would stand them through the floor. TODO(ldd-hubcap-alias).",
+    "104814.dat": "Rebrickable 104814 'Wing, Scalloped with Holes' (CLOTH, item 6452510): no LDraw/Studio file, no Studio row. TODO(ldraw-missing).",
+    "3469.dat": "Rebrickable 3469pr0001 'Creature Body Part, Dragon Head Long with Horns' (elements.csv item 6454441): no LDraw or Studio file under 3469*, bl_3469* or any row in either Studio table; no Mecabricks mesh. TODO(ldraw-missing).",
+    "68503.dat": "Rebrickable 68503pat0001 'Weapon Sword with Bat, Jewels' (Sword of Gryffindor, item 6306750): no LDraw/Studio file or row; the Mecabricks mesh's best library fit is 0.547 (18395, a flame). TODO(ldraw-missing)."
   }
 }

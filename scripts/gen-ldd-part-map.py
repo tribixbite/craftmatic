@@ -117,6 +117,21 @@ CURATED_ROWS: dict[str, list] = {
     # MINIDOLL_SLOT_CORRECTION for non-doll headgear in lxf-parser.ts; clego's
     # converter seats it with reconvert_dbix.seat_doll_headgear).
     '53117': ['bl_53117pb02.dat', 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+    # 76417's LDD-only ids (audit 2026-11-15 A-07, TODO(ldd-hubcap-alias)); neither Studio table names them.
+    # 1011124 / 1011115: the two covers of element 6336204, which Rebrickable's elements.csv files as part 72210
+    #   "Wheel Covers [Complete Set]"; 76417's inventory has 72210a x4 (5 spoke) and 72210b x2 + 2 spare (9 spoke),
+    #   the DBIX LXFML 1011124 x4 (the cart) and 1011115 x4 (2 in the model, 2 loose). The Mecabricks meshes of
+    #   the same ids fit LDraw's 72210a / 72210b (official 2023 and Studio's BL copy bound alike, z -4 .. 1) at
+    #   1.000 / 0.963 turned a quarter about x with the disc 4 LDU along its axis: R_align = Rx(90),
+    #   t_align = F (0, 0, 4) / 25. The cart's covers then sit 3 .. 8 LDU over their 85861 plates, on the stud axis.
+    '1011124': ['72210a.dat', 0.0, 0.0, -0.16, 1.570796, 1.0, 0.0, 0.0],
+    '1011115': ['72210b.dat', 0.0, 0.0, -0.16, 1.570796, 1.0, 0.0, 0.0],
+    # 79511: a later design id of Rebrickable 34316 "Hair Long Parted in Front" (elements.csv 6353442 / 6356926),
+    #   which both Studio tables map 34316 -> 34316.dat at identity.
+    '79511': ['34316.dat', 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+    # 49972 "Baryonyx Lower Jaw": Studio's own ldraw_lxfv56.xml row, verbatim (bl_49972.dat, "ANIMAL JAW, NO. 4",
+    #   in Studio's UnOfficial library and on the prod mirror, HTTP 200 2026-11-15) - the 53117 exception again.
+    '49972': ['bl_49972.dat', 2.0, 0.8, 0.0, 0.0, 1.0, 0.0, 0.0],
 }
 
 # Mini-doll moulds LDD numbers anew that neither Studio table maps (the same

@@ -293,6 +293,49 @@ describe('case 3: coverage against the REAL shipped table', () => {
     });
   });
 
+  describe('LDD design ids neither Studio table maps, traced to a mould (gen-ldd-part-map.py CURATED_ROWS, TODO(ldd-hubcap-alias))', () => {
+    const measured = (): LxfMeasuredTable => applyMeasuredBound(validateTable(
+      JSON.parse(readFileSync(join(process.cwd(), 'web/public/ldd-measured-align.json'), 'utf-8')),
+      MEASURED_ALIGN_URL, validateMeasuredAlign,
+    ) as LxfMeasuredTable);
+
+    it('a 76417 cart hub cap (LDD 1011124, element 6336204 = 72210) covers its 85861 plate\'s stud, centred on its axis', () => {
+      // DBIX LXFML 76417 (VX1035766_sm01) refIDs 4517 / 4504. 72210a's drawn box is [-22.5, -22.5, -4] .. [22.5, 22.5, 1]
+      // (the official file and Studio's BL copy agree): a disc whose axis is its own z. The Mecabricks mesh of 1011124
+      // fits it at 1.000 turned a quarter about x and 4 LDU along the axis, which puts the disc 3..8 LDU over the
+      // plate's top, round the open stud.
+      const { bricks } = buildLxfPlacements([
+        { designID: '85861', materialId: 26, boneCount: 1, transformation: '5.0649174346287E-07,0.99999999999983,-2.3536004672075E-07,-0.99999999999986,5.064917435739E-07,0,0,2.3536004683191E-07,0.99999999999997,3.8400123304964,25.899999696728,-1.8400056469031' },
+        { designID: '1011124', materialId: 26, boneCount: 1, transformation: '0,2.3536004689314E-07,0.99999999999997,-0.99999999999986,5.064917435739E-07,0,-5.0649174346287E-07,-0.99999999999983,2.3536004678198E-07,3.5200123304966,25.899999858806,-1.840005646903' },
+      ], table, measured());
+      const [plate, cap] = bricks;
+      expect(plate!.part).toBe('85861.dat');
+      expect(cap!.part).toBe('72210a.dat');
+      const toPlate = (p: number[]): number[] => {
+        const d = [p[0]! - plate!.x, p[1]! - plate!.y, p[2]! - plate!.z];
+        const r = plate!.rot!;
+        return [0, 1, 2].map(c => r[c]! * d[0]! + r[3 + c]! * d[1]! + r[6 + c]! * d[2]!);
+      };
+      const corners: number[][] = [];
+      for (const x of [-22.5, 22.5]) for (const y of [-22.5, 22.5]) for (const z of [-4, 1]) {
+        const r = cap!.rot!;
+        corners.push(toPlate([cap!.x + r[0]! * x + r[1]! * y + r[2]! * z, cap!.y + r[3]! * x + r[4]! * y + r[5]! * z, cap!.z + r[6]! * x + r[7]! * y + r[8]! * z]));
+      }
+      const lo = [0, 1, 2].map(k => Math.min(...corners.map(c => c[k]!)));
+      const hi = [0, 1, 2].map(k => Math.max(...corners.map(c => c[k]!)));
+      expect(lo[1]).toBeCloseTo(-8, 3);                    // the disc's outer face 8 LDU over the plate top
+      expect(hi[1]).toBeCloseTo(-3, 3);                    // its back 3 LDU over it, round the 4 LDU stud
+      expect(Math.abs((lo[0]! + hi[0]!) / 2)).toBeLessThan(0.01);  // on the stud's axis
+      expect(Math.abs((lo[2]! + hi[2]!) / 2)).toBeLessThan(0.01);
+    });
+
+    it('the 9-spoke cover (1011115), 79511 hair and 49972 jaw have rows naming real moulds', () => {
+      expect(real['1011115']).toEqual(['72210b.dat', 0, 0, -0.16, 1.570796, 1, 0, 0]);
+      expect(real['79511']).toEqual(['34316.dat', 0, 0, 0, 0, 1, 0, 0]);
+      expect(real['49972']).toEqual(['bl_49972.dat', 2, 0.8, 0, 0, 1, 0, 0]);
+    });
+  });
+
   it('reports mapped vs unmapped placements for a PARTIALLY covered model', () => {
     const covered = Object.keys(table.entries)[0]!;
     // A 12-float column-major bone at the origin, identity rotation.

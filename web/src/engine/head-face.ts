@@ -182,7 +182,8 @@ export function clearFaceArt(): void { faceArt.clear(); }
  */
 export const faceKey = (part: string): string => {
   const stem = part.toLowerCase().replace(/\\/g, '/').replace(/^.*\//, '').replace(/\.dat$/, '');
-  const m = /^(?:3626[bc]?|28621)(pb?)([0-9a-z]+)$/.exec(stem);
+  // `bl_` is Studio's BrickLink copy of the same printed head (10326's `bl_3626cpb3214`): the same print.
+  const m = /^(?:bl_)?(?:3626[bc]?|28621)(pb?)([0-9a-z]+)$/.exec(stem);
   return m ? `3626${m[1]}${m[2]}` : stem;
 };
 
