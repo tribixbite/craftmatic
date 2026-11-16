@@ -240,7 +240,9 @@ export function vehicleCarriedParts(vehicles: readonly CarryingVehicle[], meshes
     const carried = v.opens ? dry.items.slice(0, VEHICLE_PART.MAX) : [];
     const left = dry.items.slice(carried.length);
     items.push(carried);
-    // TODO(vehicle-interactives): a native vehicle (rotorcraft, flyer) has no script to answer a tap on its parts.
+    // A native ROTORCRAFT's parts open too (vehicle-driver.js answers the tap, `opens`). Left fixed: a component flown
+    // as a `flyer` (a creator's motion hint; a set-canon flyer mount is not a vehicle component) - vehicle-driver.js
+    // would answer it the same way, unmeasured. # TODO(vehicle-interactives): carry a flyer component's parts too.
     const fixed = v.opens
       ? `stays fixed on ${v.label}: the ${v.kind} carries at most ${VEHICLE_PART.MAX} moving parts (one actor property each)`
       : `stays fixed on ${v.label}: a native ${v.kind} has no script to answer a tap on its parts`;

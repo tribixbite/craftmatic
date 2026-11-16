@@ -80,7 +80,7 @@ import { floorBelow, standsAt } from '../../scenario/approach.js';
 import { teleport } from '../../script-host/facades.js';
 import { CORE_HANDLERS, findEntity } from '../../scenario/runner.js';
 import { lookAt } from '../../input/touch.js';
-import { VEHICLE_PART, pickVehiclePart, vehiclePartProperty, vehicleSlideWorldPath, type VehiclePartRuntime, type VehicleSlideRuntime } from '../../../engine/vehicle-parts.js';
+import { VEHICLE_PART, pickVehiclePart, pickVehicleTap, vehiclePartProperty, vehicleSlideWorldPath, type VehiclePartRuntime, type VehicleSlideRuntime } from '../../../engine/vehicle-parts.js';
 import { pivotRotation } from '../../../engine/bedrock-geometry-faces.js';
 import { SLIDE_SEAT_OVER_DRAWN, heightOverDrawn, onRunout } from './play.js';
 
@@ -131,6 +131,28 @@ export function scriptedVehicleTypes(pack: CraftmaticPack): ScriptedTypeFacts[] 
     ...(Array.isArray(t.bodyPivot) ? { bodyPivot: t.bodyPivot } : {}),
     slides: Array.isArray(t.slides) ? t.slides : [],
   }));
+}
+
+/**
+ * The NATIVE vehicles of a pack that carry moving parts (a rotorcraft's doors: vehicle-driver.js answers a tap on
+ * them, vehicle-parts.ts), read from `scripts/vehicle-driver.js`'s config, as part-carrying facts: `mode` 'plane',
+ * a nominal footprint (only where a fresh one is spawned beside the child), no slides. The device flies them itself,
+ * so no course step drives them.
+ */
+export function nativePartTypes(pack: CraftmaticPack): ScriptedTypeFacts[] {
+  const text = packText(pack.pack, 'scripts/vehicle-driver.js');
+  if (!text) return [];
+  const at = text.indexOf('({"');
+  if (at < 0) return [];
+  const cfg = extractJsonAfter(text.slice(at), '(') as { vehicles?: Array<{ typeId?: string; parts?: VehiclePartRuntime[] }> } | undefined;
+  return (cfg?.vehicles ?? []).filter(v => v.typeId && Array.isArray(v.parts) && v.parts.length).map(v => ({
+    typeId: v.typeId!, mode: 'plane' as const, noseReach: 4, halfWidth: 2, height: 2, draft: BOAT.DRAFT, parts: v.parts!, slides: [],
+  }));
+}
+
+/** Every vehicle type that carries moving parts: the scripted ones and the native ones (`nativePartTypes`). */
+export function partVehicleTypes(pack: CraftmaticPack): ScriptedTypeFacts[] {
+  return [...scriptedVehicleTypes(pack).filter(t => t.parts.length), ...nativePartTypes(pack)];
 }
 
 /**
@@ -280,7 +302,8 @@ function bandOverlaps(v: SimEntity, f: ScriptedTypeFacts, lo: number, hi: number
 
 /** The vehicle course's step handlers. */
 export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, StepHandler> {
-  const types = new Map(scriptedVehicleTypes(pack).map(t => [t.typeId, t]));
+  // The native part carriers too: only the `vehicleParts` step reaches them (no course is laid for a native vehicle).
+  const types = new Map([...scriptedVehicleTypes(pack), ...nativePartTypes(pack)].map(t => [t.typeId, t]));
   /**
    * Spawn the vehicle and seat the child on it, heading +x (yaw -90) turned `skew` degrees toward +z, at `at` on the
    * ground. `lookAway` (degrees): the child mounts looking that far off the heading, and the seat turns them onto it
@@ -374,9 +397,9 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
    * board points - a tap on nothing raises no event at all (quirk `tap-is-hit`); `who` is left standing there,
    * looking at it. `crowded`: some spot's view meant something else.
    */
-  const findTapSpot = async (ctx: StepContext, who: SimEntity, v: SimEntity, b: readonly number[], means: (eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }) => boolean): Promise<{ chosen?: TapSpot; spots: number; crowded: boolean; reach: number }> => {
+  const findTapSpot = async (ctx: StepContext, who: SimEntity, v: SimEntity, b: readonly number[], means: (eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }) => boolean, reachBlocks: number = VEHICLE_PART.REACH_BLOCKS): Promise<{ chosen?: TapSpot; spots: number; crowded: boolean; reach: number }> => {
     const mid = { x: (b[0]! + b[3]!) / 2, y: (b[1]! + b[4]!) / 2, z: (b[2]! + b[5]!) / 2 };
-    const reach = VEHICLE_PART.REACH_BLOCKS * Math.max(1, v.scale()) - 0.1;
+    const reach = reachBlocks * Math.max(1, v.scale()) - 0.1;
     const gapTo = (eye: { x: number; y: number; z: number }): number => Math.hypot(Math.max(b[0]! - eye.x, 0, eye.x - b[3]!), Math.max(b[1]! - eye.y, 0, eye.y - b[4]!), Math.max(b[2]! - eye.z, 0, eye.z - b[5]!));
     const half = Math.max(b[3]! - b[0]!, b[5]! - b[2]!) / 2;
     const spots: TapSpot[] = [];
@@ -446,9 +469,11 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
         // An open part answers over its open and closed boxes together (`pickVehiclePart`): the child taps that.
         const shutBox = worldBox(v, part, false), openBox = worldBox(v, part, true);
         const b = before !== 0 ? shutBox.map((q, a) => (a < 3 ? Math.min(q, openBox[a]!) : Math.max(q, openBox[a]!))) : shutBox;
-        // The runtime picks the parts and the slides together, in that order (bedrock-vehicle.ts `tapPart`).
-        const boxes = [...f.parts, ...f.slides.map(sl => ({ closed: sl.box, open: sl.box }))];
-        const means = (eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }): boolean => pickVehiclePart(boxes, poseOf(v, f), v.scale(), eye, dir, boxes.map((_q, j) => j < f.parts.length && value(v, j) !== 0), VEHICLE_PART) === i;
+        // The runtime's own tap pick over the parts and the slides (bedrock-vehicle.ts `tapPart`, `pickVehicleTap`).
+        const means = (eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }): boolean => {
+          const m = pickVehicleTap(pickVehiclePart, f.parts, f.slides, poseOf(v, f), v.scale(), eye, dir, f.parts.map((_q, j) => value(v, j) !== 0), false, VEHICLE_PART);
+          return !!m && 'part' in m && m.part === i;
+        };
         const found = await findTapSpot(ctx, ctx.player, v, b, means);
         if (!found.spots && found.crowded) {
           ctx.violate({ invariant: 'vehicle-part-opens', message: `${f.typeId} part ${i} (${part.noun}): from every spot within reach a tap picks another part first`, evidence: { box: b.map(r3) } });
@@ -568,16 +593,16 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
       const vehicleSeats = (v: SimEntity): SimEntity[] => ctx.sim.engine.loadedEntities(v.dimension).filter(e => e.typeId === seatType && e.dynamic.get(ownerKey) === v.id);
       /** The runtime's pick over a vehicle's parts and slides (parked) or its slides alone (moving), as `tapPart`. */
       const means = (v: SimEntity, f: ScriptedTypeFacts, j: number, moving: boolean) => (eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }): boolean => {
-        const slides = f.slides.map(sl => ({ closed: sl.box, open: sl.box }));
-        const boxes = moving ? slides : [...f.parts, ...slides];
-        const open = boxes.map((_q, i) => !moving && i < f.parts.length && Number(v.properties.get(prop(vehiclePartProperty(i))) ?? 0) !== 0);
-        return pickVehiclePart(boxes, poseOf(v, f), v.scale(), eye, dir, open, VEHICLE_PART) === (moving ? j : f.parts.length + j);
+        const open = f.parts.map((_q, i) => Number(v.properties.get(prop(vehiclePartProperty(i))) ?? 0) !== 0);
+        const m = pickVehicleTap(pickVehiclePart, f.parts, f.slides, poseOf(v, f), v.scale(), eye, dir, open, moving, VEHICLE_PART);
+        return !!m && 'slide' in m && m.slide === j;
       };
       /** Ride slide j of the parked vehicle from a tap: 'rode', 'unreachable' (no spot on foot), or 'failed' (violated). */
       const rideOne = async (v: SimEntity, f: ScriptedTypeFacts, j: number): Promise<'rode' | 'unreachable' | 'failed'> => {
         const slide = f.slides[j]!, k = v.scale();
         const b = boxInWorld(v, slide.box, poseOf(v, f));
-        const found = await findTapSpot(ctx, ctx.player, v, b, means(v, f, j, false));
+        // A slide is ridden from as far as the child sees it along the view ray (`SLIDE_REACH_BLOCKS`): a roof slide from the ground.
+        const found = await findTapSpot(ctx, ctx.player, v, b, means(v, f, j, false), VEHICLE_PART.SLIDE_REACH_BLOCKS);
         if (!found.spots) { ctx.note(`${f.typeId} slide ${j}: out of reach on foot at scale ${r3(k)} (no floor within ${r3(found.reach)} blocks of its box)`); return 'unreachable'; }
         if (!found.chosen) { ctx.violate({ invariant: 'vehicle-part-tap-target', message: `${f.typeId} slide ${j}: from the ${found.spots} spot(s) a child can tap it from, the tap lands on neither the vehicle's hit box nor a board point`, evidence: { box: b.map(r3) } }); return 'failed'; }
         // Where the runtime should start it: the path turned to where the vehicle stands NOW.

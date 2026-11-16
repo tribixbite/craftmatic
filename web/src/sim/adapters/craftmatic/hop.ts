@@ -218,7 +218,7 @@ export function hopHandlers(packs: { coaster?: CraftmaticPack; flyer?: Craftmati
     async slideIntoParked(step: AnyStep, ctx: StepContext) {
       const slidePack = packs.slide, carPack = packs.car;
       if (!slidePack?.rides || !carPack?.vehicleTypes[0]) throw new Error('slideIntoParked: needs a slide pack and a car pack');
-      const index = Number(step['index'] ?? slidePack.rides.rides.find(r => r.kind === 'slide')?.index ?? -1);
+      const index = Number(step['index'] ?? slidePack.rides.rides.find(r => r.kind === 'slide' && !r.onVehicle)?.index ?? -1);
       const actor = slidePack.placement.actors.find(a => a.ridePath && (a as { ride?: number }).ride === index);
       const path = actor?.ridePath;
       if (!path || path.length < 2) throw new Error(`slideIntoParked: slide ${index} has no path`);
@@ -287,7 +287,7 @@ export function hopCases(addons: { coaster?: Addon; flyer?: Addon; slide?: Addon
       addons: [addons.coaster, addons.flyer], handlers,
     });
   }
-  if (slide && car && addons.slide && addons.car && slide.rides?.rides.some(r => r.kind === 'slide')) {
+  if (slide && car && addons.slide && addons.car && slide.rides?.rides.some(r => r.kind === 'slide' && !r.onVehicle)) {
     out.push({
       scenario: {
         name: 'hop-slide-into-car', description: `Park ${car.placement.label}'s car at the foot of ${slide.placement.label}'s slide and slide into it, then drive off.`,

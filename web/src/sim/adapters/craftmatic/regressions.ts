@@ -101,7 +101,7 @@ export function regressionVerdict(c: Pick<RegressionCase, 'expectNew' | 'limits'
 const ROUND = 'C:/git/craftmatic/output';
 const allow = [...CRAFTMATIC_ALLOWED_LINES];
 const place: Step[] = [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }];
-const rideIndex = (pack: CraftmaticPack, kind: string): number => pack.rides?.rides.find(r => r.kind === kind)?.index ?? -1;
+const rideIndex = (pack: CraftmaticPack, kind: string): number => pack.rides?.rides.find(r => r.kind === kind && !r.onVehicle)?.index ?? -1;
 const doorIndex = (pack: CraftmaticPack, label: string): number => pack.interactives?.items.findIndex(it => it.label === label) ?? -1;
 const r3 = (v: number): number => Math.round(v * 1000) / 1000;
 const violated = (r: ScenarioResult, invariant: string, text?: RegExp): string | undefined => {

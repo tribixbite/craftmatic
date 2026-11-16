@@ -697,7 +697,11 @@ outside the export bounds, against 4 in 3 doorways from the `.io`) is unchanged
 > view ray, else within 60 degrees of the view, toggles; otherwise the tap boards as before, and a hold always boards.
 > Moving (speed > 0.05), every swinging part closes and taps board: an open leaf stands outside the footprint the move
 > resolver sweeps. Levers and turnables stay as left. A vehicle has no colliders, so the doorway rules do not apply:
-> a parked bus is entered by its seats. A native rotorcraft or flyer keeps its parts fixed (no script answers a tap).
+> a parked bus is entered by its seats. A native ROTORCRAFT's parts open too (2026-11-15, `audit-vslide`): the
+> device flies it, and vehicle-driver.js answers a hit on it with the same pick and shuts the swinging parts once it
+> moves (the windowed speed, or its own step over the 2-tick pass: the window alone saw a start a second late). Only
+> a component flown as a `flyer` keeps its parts fixed (`TODO(vehicle-interactives)`). A board column also stands
+> under every part or slide the clipped 8-wide hull hit box leaves out at the live size and turn (`tapAt`).
 > The pick turns the eye and view back by the body's leftover lean (`fl_pitch`/`fl_bank`, the drive animation's
 > `[-pitch, 0, -bank]` on `body` about its pivot, shipped as the type's `bodyPivot`), so a part is tested where the
 > leaned body draws it. Device-unproven: whether a touch tap's view direction is the camera centre or the finger's
@@ -707,11 +711,16 @@ outside the export bounds, against 4 in 3 doorways from the `.io`) is unchanged
 > WORLD path the placement wrote; a vehicle drives away from any such path. So a scripted vehicle ships each slide
 > it carries (`findSlides` over its bricks) as a `VehicleSlideRuntime`: the running line and the slide part's box in
 > its ENTITY frame (`sourceToEntityBlocks`: level, `A`, origin, scale, half round), and a `slide` entry of rides.js
-> with `onVehicle` (no seat placed). A tap picks the slide's box together with the parts; on a PARKED vehicle the
+> with `onVehicle` (no seat placed). A tap picks (`pickVehicleTap`) a part the view RAY enters, else a slide it
+> enters within `SLIDE_REACH_BLOCKS` 8 (x the size above 100 %: 41395's slide is on the roof, 4.2-7.9 blocks up, which
+> no child climbs - the device delivers the tap through the hull box or a board column, the runtime rides the slide
+> the child looks at), else a part by the view cone; on a PARKED vehicle the
 > vehicle runtime turns the path to where it stands (`vehicleSlideWorldPath`), spawns the pack's ride seat at the top
 > with rides.js's own keys plus `craftmatic:ride_owner`, copies the placement tags (Undo) and seats the tapper
 > `RETRY_TICKS` later; rides.js runs it as any slide (same path runner, same `colliderBodyProbe` set-down), skips the
-> owner vehicle in the foot's hop and REMOVES the seat at the foot. Moving, the tap is refused with an action-bar line;
+> owner vehicle in the foot's hop and REMOVES the seat at the foot. The probe reads blocks only, so a roof slide's foot
+> (41395's, 4.5 blocks up the bus) set the rider down on air over the hull: once off the seat the vehicle runtime sets
+> them down beside the hull as a dismount is (`setDown` / `vehicleEgress`, the foot standing for the seat). Moving, the tap is refused with an action-bar line;
 > a rider of the vehicle never starts it. A native vehicle's slide stays fixed geometry (reported). Sim step
 > `vehicleSlides`. Not followed: the parked lean on the path (`TODO(vehicle-slide-lean)`, ~0.15 blocks on a 3-block
 > chute at 3 degrees), and a driver who drives off while someone is still sliding (the path stays where it began).

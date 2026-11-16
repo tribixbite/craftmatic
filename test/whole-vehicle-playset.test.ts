@@ -131,6 +131,22 @@ describe('what a whole-model vehicle carries (A-02, PROC-19)', () => {
     expect(s.drove).toBeGreaterThan(1);
   }, 240_000);
 
+  it('a native rotorcraft\'s door opens from a tap while it is parked (TODO vehicle-interactives)', async () => {
+    // The same hull titled a helicopter: a native rotorcraft (`vehicleMotionOf`), flown by the device's own controller.
+    const heli = await build('Rescue Helicopter', BUS, 'given');
+    const rows = (heli.diag.interactivity?.rows ?? []) as Array<{ cls: string; part: string; verdict: string; reason?: string }>;
+    expect(rows.find(r => r.cls === 'door' && r.part === '60623')).toMatchObject({ verdict: 'rides' });
+    const addon = await readAddon(heli.bytes, 'heli-parts');
+    const pack = readCraftmaticPack(addon)!;
+    const r = await runScenario({ name: 'heli-parts', steps: [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'vehicleParts' }], invariants: [] },
+      [addon], { handlers: craftmaticHandlers(pack, addon) });
+    expect(r.steps.filter(s => !s.ok).map(s => s.error)).toEqual([]);
+    expect(r.violations.map(v => v.message)).toEqual([]);
+    // Opened parked, shut while it flew off, opened again where it set down, its drawn leaf where the pick tests it.
+    expect(r.state['vehicleParts']).toMatchObject({ parts: 1, opened: 1, closedWhileMoving: true, reopenedAfterDrive: true, followed: true });
+    expect((r.state['vehicleParts'] as { drove: number }).drove).toBeGreaterThan(1);
+  }, 240_000);
+
   it('a furniture seat a vehicle carries rides as one of its passenger seats', async () => {
     seedBoxParts(EXTRA);
     const bricks = parseLDrawDocument(BUS.join('\n')).bricks;

@@ -3,7 +3,7 @@
  * parked vehicle meant, from the eye and the view alone (a touch tap's finger is never reported).
  */
 import { describe, expect, it } from 'vitest';
-import { VEHICLE_PART, pickVehiclePart, vehiclePartAnimation } from '../web/src/engine/vehicle-parts.js';
+import { VEHICLE_PART, pickVehiclePart, pickVehicleTap, vehiclePartAnimation, vehicleSlideWorldPath } from '../web/src/engine/vehicle-parts.js';
 import { boneTransforms } from '../web/src/engine/bedrock-geometry-faces.js';
 
 /** Two doors on a car's flanks, entity frame at 100 %: left at x -1.1, right at x +1.1, both 1 block long, 1.5 tall. */
@@ -71,6 +71,27 @@ describe('which part a tap on a parked vehicle meant (pickVehiclePart, A-02)', (
     expect(pickVehiclePart([cupboard], { ...POSE, pitch, bank, pivot: [0, 0, 0] }, 1, eye, dir, [false], { ...VEHICLE_PART, CONE_DEG: 0 })).toBe(0);
     // And the same view on the unleaned body misses it (the box is where the body would be level).
     expect(pickVehiclePart([cupboard], { ...POSE, pitch: 0, bank: 0, pivot: [0, 0, 0] }, 1, eye, dir, [false], { ...VEHICLE_PART, CONE_DEG: 0 })).toBe(-1);
+  });
+
+  it('rides a roof slide the child looks up at from the ground, a part on the view ray first, and only the slide while moving', () => {
+    // A slide on the roof 4.2-7.9 blocks up (41395's), entity frame at 100 %.
+    const slides = [{ box: [-3.4, 4.2, -6.7, 1.1, 7.9, -4.1] }];
+    const eye = { x: 10 - 1.2, y: 65.62, z: 20 - 8 };
+    const up = { x: -0.2, y: 3.2, z: 2.3 };
+    // Out of a part's 2.5-block reach (it is 2.6 up), inside the slide's: ridden.
+    expect(pickVehicleTap(pickVehiclePart, DOORS, slides, POSE, 1, eye, up, shut, false, VEHICLE_PART)).toEqual({ slide: 0 });
+    // The same view while the vehicle moves still names the slide (the runtime refuses it); looking at a door names the door.
+    expect(pickVehicleTap(pickVehiclePart, DOORS, slides, POSE, 1, eye, up, shut, true, VEHICLE_PART)).toEqual({ slide: 0 });
+    expect(pickVehicleTap(pickVehiclePart, DOORS, slides, POSE, 1, { x: 8, y: 65.6, z: 20 }, { x: 1, y: -0.3, z: 0 }, shut, false, VEHICLE_PART)).toEqual({ part: 0 });
+    // Moving, a door is never answered (the tap boards as before).
+    expect(pickVehicleTap(pickVehiclePart, DOORS, slides, POSE, 1, { x: 8, y: 65.6, z: 20 }, { x: 1, y: -0.3, z: 0 }, shut, true, VEHICLE_PART)).toBeNull();
+  });
+
+  it('turns and scales the running line of a slide to where the vehicle stands', () => {
+    const w = vehicleSlideWorldPath([[0, 2, 1], [1, 1, 3]], { x: 10, y: 64, z: 20, yaw: 90 }, 2);
+    // Bedrock yaw 90: entity +z is world -x, entity +x world +z.
+    expect(w[0]!.x).toBeCloseTo(8, 9); expect(w[0]!.y).toBeCloseTo(68, 9); expect(w[0]!.z).toBeCloseTo(20, 9);
+    expect(w[1]!.x).toBeCloseTo(4, 9); expect(w[1]!.z).toBeCloseTo(22, 9);
   });
 
   it('eases every part toward its own property in the client animation', () => {

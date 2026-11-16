@@ -24,7 +24,7 @@ import type { Addon } from '../../pack/pack.js';
 import { readCraftmaticPack, type CraftmaticPack } from './pack-facts.js';
 import { wandHandlers } from './wand.js';
 import { COLLIDER_SLACK, FIGURE_TYPE, MODEL_FOOTHOLD, playHandlers, placedOf, staticDrawn, tapPart } from './play.js';
-import { registerAppearance, scriptedVehicleTypes, vehicleCourseHandlers } from './vehicle-course.js';
+import { partVehicleTypes, registerAppearance, scriptedVehicleTypes, vehicleCourseHandlers } from './vehicle-course.js';
 import { DrawnWalkWorld, drawnReaches, drawnTopOver, drawnWalkEngine, packAppearance } from './drawn.js';
 import { firstPersonSnapshot } from './snapshot.js';
 import { lookAt, pick } from '../../input/touch.js';
@@ -264,7 +264,7 @@ export function childPlayScenarios(pack: CraftmaticPack, options: ChildPlayOptio
     variants.push([size, 0], [size, 90]);
   }
   const common = { allowLines: [...CRAFTMATIC_ALLOWED_LINES], yieldingLines: [...CRAFTMATIC_YIELDING_LINES] };
-  const partVehicles = scriptedVehicleTypes(pack).filter(t => t.parts.length);
+  const partVehicles = partVehicleTypes(pack);
   const slideVehicles = scriptedVehicleTypes(pack).filter(t => t.slides.length);
   for (const [size, rot] of variants) {
     const steps: Step[] = [{ kind: 'place', size, rotation: rot }, { kind: 'wait', ticks: 40 }];
@@ -279,6 +279,8 @@ export function childPlayScenarios(pack: CraftmaticPack, options: ChildPlayOptio
   const play: Step[] = [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }];
   if (options.shots) play.push({ kind: 'snapshot', name: 'placed' });
   for (const r of pack.rides?.rides ?? []) {
+    // A vehicle's slide has no placed seat: the `vehicleSlides` step rides it from a tap on the parked vehicle.
+    if (r.onVehicle) continue;
     if (r.kind === 'slide') play.push({ kind: 'rideSlide', index: r.index, board: 'tap' });
     if (r.kind === 'lift') play.push({ kind: 'rideLift', index: r.index, trips: 3 });
   }

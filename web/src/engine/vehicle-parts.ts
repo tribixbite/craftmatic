@@ -26,8 +26,11 @@
  * size and turn (`ScriptedVehicleType.tapAt`, `boardPointPlaces`): 41395's interior window at 150 % sat 6 blocks out
  * over the middle of the bus, under no edge column, and a tap on it raised no event.
  *
- * Only a SCRIPTED vehicle (cars, hover craft, boats, ships: `isScriptedVehicle`) gets them: a native rotorcraft or
- * flyer has no script to answer the tap; its parts stay fixed geometry and are reported.
+ * A SCRIPTED vehicle (cars, hover craft, boats, ships: `isScriptedVehicle`) gets them, and a native ROTORCRAFT too: the
+ * device flies it, and vehicle-driver.js (playable-addon.ts `vehicleDriverRuntime`) answers a tap on its parts with the
+ * same pick and shuts the swinging ones once it moves (its windowed speed or its own step over 2 ticks). Its body's
+ * lean is not followed there (a parked rotorcraft is level: its nose-down lean follows ground speed). A component flown
+ * as a `flyer` keeps its parts fixed geometry, reported (`TODO(vehicle-interactives)`, interactivity-stage.ts).
  */
 import type { ParsedBrick } from './ldraw-parser.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
@@ -51,6 +54,13 @@ export const VEHICLE_PART = {
   CLOSE_SPEED: 0.05,
   /** The leaf's swing (the interactives' `SWING_SECONDS`, bedrock-interactives.ts). */
   SWING_SECONDS: 0.4,
+  /**
+   * Blocks from the eye along the view ray to a SLIDE's box (times the scale above 100 %) for a tap to ride it. A
+   * slide on a vehicle often sits on its roof (41395's foot is 4.5 blocks up the bus), which no child climbs: the
+   * device delivers the tap through the hull hit box or a board column within ~3 blocks of the eye, and the runtime
+   * then rides the slide the child is LOOKING at, up to this far (the view ray only, never the cone).
+   */
+  SLIDE_REACH_BLOCKS: 8,
 } as const;
 export type VehiclePartParams = typeof VEHICLE_PART;
 
@@ -246,6 +256,30 @@ export function bodyPivotOf(geometry: unknown): number[] | undefined {
     return [r3((p[0] ?? 0) / 16), r3((p[1] ?? 0) / 16), r3(-(p[2] ?? 0) / 16)];
   }
   return undefined;
+}
+
+/**
+ * What a tap on a vehicle meant (pure; serialised into `scripts/vehicles.js`, `pick` is `pickVehiclePart`): a part the
+ * view RAY enters within reach first; else a slide the view ray enters within `SLIDE_REACH_BLOCKS` (a roof slide is
+ * looked up at from the ground); else a part by the view cone (`pickVehiclePart`'s last rule). `moving`: slides only
+ * (a part neither opens nor shuts while the vehicle moves; a slide is answered so the runtime can refuse it).
+ * Null: nothing meant (the tap boards).
+ */
+export function pickVehicleTap(pick: typeof pickVehiclePart, parts: ReadonlyArray<{ closed: readonly number[]; open: readonly number[] }>, slides: ReadonlyArray<{ box: readonly number[] }>, pose: { x: number; y: number; z: number; yaw: number; pitch?: number; bank?: number; pivot?: readonly number[] }, k: number, eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, open: readonly boolean[], moving: boolean, P: { REACH_BLOCKS: number; CONE_DEG: number; PAD_BLOCKS: number; TIE_BLOCKS: number; SLIDE_REACH_BLOCKS: number }): { part: number } | { slide: number } | null {
+  if (!moving && parts.length) {
+    const ray = pick(parts, pose, k, eye, dir, open, { ...P, CONE_DEG: 0 });
+    if (ray >= 0) return { part: ray };
+  }
+  if (slides.length) {
+    const boxes = slides.map(sl => ({ closed: sl.box, open: sl.box }));
+    const i = pick(boxes, pose, k, eye, dir, boxes.map(() => false), { ...P, REACH_BLOCKS: P.SLIDE_REACH_BLOCKS, CONE_DEG: 0 });
+    if (i >= 0) return { slide: i };
+  }
+  if (!moving && parts.length) {
+    const cone = pick(parts, pose, k, eye, dir, open, P);
+    if (cone >= 0) return { part: cone };
+  }
+  return null;
 }
 
 /**
