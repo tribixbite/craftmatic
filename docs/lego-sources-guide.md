@@ -1809,9 +1809,9 @@ exist in the LDraw library of 2026-11-16 but not in `ldraw_ref/` (2026-09-18): 3
 No.2552`, and a texture (`decoration.color.name` in the v2 schema, `textures.decoration.name` in v1) whose stem is
 the decoration id (old letter refs such as `3626aq` carry texture `3626d43`). Nothing names a BrickLink or LDraw
 print. The NAME is LEGO's own element name (`MINI HEAD, NO. 2552` is element 6221340, which the print map already
-knows as `n:6221340` -> 3626pb2060), but no local table maps LEGO names to elements: DBIX LXFMLs name 93 heads
-`NO. N`, matching none of the 1,099 Mecabricks decorations. That table is the largest lever left (it needs an
-online catalogue; not built).
+knows as `n:6221340` -> 3626pb2060). No local table maps LEGO names to elements, but Rebrickable numbers a head
+print with the same number: `3626cpr2552` is element 6221340 in clego's `elements.csv` (see "The head's name"
+below).
 
 **What is recovered.**
 - clego `geograde/mb_head_decorations.py` re-runs the harvest's `to_ldraw(meta_out=)` over the scene cache and finds
@@ -1841,6 +1841,41 @@ online catalogue; not built).
   with no LDraw part (face art can draw them). Gate v2 A/B: 142 identical grades, 2 lose one connection each (a
   `3626c` print replaces LDraw's `3626.dat`, which is moved to the solid-stud `3626b`), no lost placements or
   unknown parts. No census set or favourite file changed.
+
+**The head's name (gen-mbname, 2026-11-16).** `scripts/mb-head-names.ts`: name `Mini Head No.N` (every spelling:
+`Minifig Head No. N`, `Mini Head "No. N"`, `Mini Head, No. N`, `Head No.N`; not `Mini Head - Ice Planet No.1` or
+`No.788-2`) -> Rebrickable `<mould>pr<N>` (3626c, 3626b, 3626a, 28621) -> its elements (`elements.csv`) -> the print
+map's `e:` (LDraw print) / `n:` (`3626pb<N>`) rows.
+- **The number alone is not enough.** Rebrickable numbers each mould on its own (`3626bpr0752` and `3626cpr0752` are
+  different faces), and a Mecabricks author who lacks a face picks a near one. Against the heads a DBIX / IOModel2V2
+  donor matched (`bun scripts/mb-head-names.ts --check --decorations=...`, one verdict per distinct head): where the
+  named part is in the set's own Rebrickable inventory (`rebrickable_tables/`, its minifigs included) 69 agree and
+  7 disagree (35 sets, 53 distinct names, 4 of them the smile); where it is not, 0 agree, 29 disagree (a Catwoman
+  head in a City police set, the 2015 Captain America in a 2021 set). So a head takes the chain's print ONLY when the
+  set's inventory holds the part; two moulds' parts in one inventory with different faces, a part whose elements
+  name two faces, a part with no element (498 heads, mostly old `3626bpr`) or no print row are refused. LDR / OMR
+  donors agree 5, disagree 13 on inventory-held heads: their authors draw LDraw's nearest print (`3626p01`).
+- 24 renamed heads drawn from the LDraw files (`output/gen-mbname/heads-sample.png` in the worktree) each show the
+  face Rebrickable's part name describes (Bane's mask, the skeleton, Sensei Wu, the freckled Tommy).
+- `_mb_decoration_votes.ts --names --from-votes=scripts/mb-decoration-votes.json --plan=<out>`: the name is a basis
+  after a direct full-vocabulary match and an accepted vote row (a conflicting name is refused: 0 such heads);
+  `--from-votes` reuses the committed votes, because a fresh matcher pass would read the metas written since as
+  votes. 2,692 heads by name; of the 5,026 decorated heads, 518 have no number in their name, 637 + 215 name a part
+  the set does not hold, 204 a number Rebrickable has no head for, 32 sit in sets Rebrickable has no inventory for.
+- **A splice must find the head where it IS.** `mb_head_decorations.json` records line indexes of the file as first
+  harvested; after gen-mbface inserted metas, patching by index renamed a torso, a tile and a camera of 21358 into
+  heads. clego `mb_head_prints.locate` keeps the index only while that line is still the head, else takes the one
+  head line at its position (a legacy `<ref>.dat` head: by x/z and name, up to 24 LDU off its recorded y).
+- Written 2026-11-16 (clego `gen-mbname`): 1,107 MecabricksLDR files (969 a set's first pick), 1,393 renames to an
+  LDraw print and 1,278 `HEAD_PRINT` metas; backups `C:/git/clego/_face_backup_20261116_mbname/`. Census first
+  picks: 9 of the first 60 sets (30 heads: real faces 0 -> 7, named prints 0 -> 16) and 7 of the second 60 (29
+  heads: 0 -> 7 and 0 -> 7); of the favourites only 76269 (32 heads, named 19 -> 24). Gate v2 A/B over 137 files
+  (every census / favourite file + 120 drawn with seed 1116; the full 1,107 ran ~10 files a minute on the shared
+  box): 121 identical grades, no lost placement; 14 files where a legacy `<ref>.dat` head (unknown to geograde,
+  drawn by craftmatic as its `3626a` alias at the same transform) becomes a known print that connects to nothing
+  - it sits at its torso's origin, a brick low, TODO(mb-legacy-head-ref) - so components rise by the heads renamed
+  and 7 are "refused" on connected pairs per part; 1 loses one connection (a `3626c` print for LDraw's `3626`). TODO(mb-name-rb-keyword): 58 more heads whose part has no element
+  could be read through LDraw's `!KEYWORDS Rebrickable` headers.
 
 ## Boxed parts, baseplates and stale IOModel2V2 files (audit 2026-11-15, A-07 / A-09)
 

@@ -106,13 +106,17 @@ describe('the name chain inside the head decisions', () => {
 });
 
 const CORPUS = 'C:/git/clego/lego_sets';
-const HAVE_MB = existsSync(`${CORPUS}/MecabricksLDR/76263.ldr`);
+const HAVE_MB = existsSync(`${CORPUS}/MecabricksLDR/7208.ldr`);
 
 /**
  * Heads the written Mecabricks conversions name a print for, at least, after the name chain was written
- * (clego `geograde/mb_head_prints.py --write`, 2026-11-16). Before: the gen-mbface counts in brackets.
+ * (clego `geograde/mb_head_prints.py --write`, 2026-11-16; census sets and the favourite 76269, each its set's first
+ * pick). Before: 0 in each but 76269, which held 19 (`_face_print_transfer.ts`).
  */
-const NAME_PRINT_FLOORS: Readonly<Record<string, number>> = {};
+const NAME_PRINT_FLOORS: Readonly<Record<string, number>> = {
+  'MecabricksLDR/2263.ldr': 2, 'MecabricksLDR/2507.ldr': 5, 'MecabricksLDR/6860.ldr': 5, 'MecabricksLDR/7208.ldr': 4,
+  'MecabricksLDR/3222.ldr': 2, 'MecabricksLDR/76269.ldr': 24,
+};
 
 describe.skipIf(!HAVE_MB)('Mecabricks conversions name the prints their head names give (corpus)', () => {
   it('meets each written file\'s floor of heads naming a print', async () => {
