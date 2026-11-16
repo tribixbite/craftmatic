@@ -46,7 +46,15 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   within 8 studs in 16 sets. RUNNING (worktrees `.worktrees/<x>` from `2d19dd6e`, same brief): `gen-door` (5482,
   6164 classes + regression cases), `gen-veh2` (6243 view; planes on wheels, trains without track, 2/3-wheelers,
   planes inside scenes), `gen-face` (print lookup for any set, face transfer, a CONTENT section in the gate).
-  Then a second census sample (next 60) to check the fixes generalise.
+  MERGED: gen-face, gen-veh2, gen-door (`cda5f7b9`, CI green). gen-face's gate content section was never called:
+  wired in `f134493e` (`--content-only` keeps the step rows).
+- SECOND CENSUS 2026-11-16 (60 other sets, `output/gen-1116-sample2.txt`, gate `output/gengate2-cda5f7b9`):
+  child play 700/712 (fails: 5582 Door 2 holes 150-400 %, 2504 tread across Door 2 at 150 % + door under ground at
+  400 %, 6194 an unprotected 6.5-block fall, 6753 truck driver sees 9 of 28 rays per side), 27 vehicles pass the
+  course. Content: real faces 30 of 138 heads, 52 boxed placements (8097 `ls11` x40), 270 floating parts.
+  RUNNING (worktrees from `f134493e`): `gen-door2` (5582, 2504, 6194, 5482 Door 3 at 400 % `TODO(gen-door-stair)`),
+  `gen-mix3` (6753 view; boxed ids from both censuses through the general alias rules), `gen-mbface` (Mecabricks
+  head decorations -> LDraw prints, from `87ebfa17`).
 
 ### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
 The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles
