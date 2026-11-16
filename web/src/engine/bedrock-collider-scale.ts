@@ -1014,7 +1014,16 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
   const doorwayColumns = approaches.map(() => new Set<number>());
   approaches.forEach((a, d) => {
     const floor16 = Math.round(a.floor16 * f);
-    for (const [x, z] of a.columns) for (const k of worldColumns(x, z)) {
+    // A door turned off the grid axes (6194's 45-degree Door 1) has its approach sampled along the diagonal normal,
+    // one cell per step: the cells a 0.6-wide body crosses between two diagonal neighbours are not in it, and a tread
+    // laid there stood across every line through the doorway (census 2026-11-16, 150 %). Fill each diagonal step's
+    // two corner cells; an axis-aligned approach has none, so it is unchanged.
+    const own = [...a.columns.map(([x, z]) => [x, z] as const), ...a.cells.map(c => [c[0]!, c[2]!] as const)];
+    const columns = new Map<string, readonly [number, number]>(a.columns.map(c => [`${c[0]},${c[1]}`, c]));
+    for (const p of own) for (const q of own) if (Math.abs(p[0] - q[0]) === 1 && Math.abs(p[1] - q[1]) === 1) {
+      for (const c of [[p[0], q[1]], [q[0], p[1]]] as const) if (!a.cells.some(k => k[0] === c[0] && k[2] === c[1])) columns.set(`${c[0]},${c[1]}`, c);
+    }
+    for (const [x, z] of columns.values()) for (const k of worldColumns(x, z)) {
       doorwayColumns[d]!.add(k);
       const list = approachAt.get(k);
       if (list) { if (!list.some(e => e.d === d)) list.push({ d, floor16 }); } else approachAt.set(k, [{ d, floor16 }]);

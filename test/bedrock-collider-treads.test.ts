@@ -769,6 +769,15 @@ describe('a run never stands across another doorway\'s line (census 2026-11-16: 
     expect(tallIn(plan, 2, 5, 12, 13, 9).length).toBeGreaterThan(0);
     assertNeverBlocks(cells, p.dims, plan);
   });
+  it('protects the cells a body crosses between two DIAGONAL approach steps of a door turned 45 degrees (6194 Door 1 at 150 %)', () => {
+    const p = platform(), cells = colliderSourceCells(colliders(p.dims, p.runs));
+    // A 45-degree doorway: its closed cell (3, 3), its approach sampled along the diagonal normal, (2, 4) then (1, 5).
+    const diagonal = { columns: [[2, 4], [1, 5]] as Array<[number, number]>, floor16: 0, cells: [[3, 0, 3, 0, 16]] };
+    const plan = planColliderTreads(cells, p.dims, 200, 0, [], [], undefined, undefined, undefined, [diagonal]);
+    // The corner cell (2, 5) between the two steps is world x 4-5, z 10-11 at 200 percent.
+    expect(tallIn(plan, 4, 5, 10, 11, 9)).toEqual([]);
+    assertNeverBlocks(cells, p.dims, plan);
+  });
   it('keeps a run that climbs TO that doorway (its own approach, arriving at its floor)', () => {
     const p = platform(), cells = colliderSourceCells(colliders(p.dims, p.runs));
     // A doorway on the platform's west edge (100 % x 3, floor 14): its approach is the west face's ground.
