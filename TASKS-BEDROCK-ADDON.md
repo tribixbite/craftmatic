@@ -38,8 +38,15 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   - 42172 still coarse (30 % at 2 LDU); vehicle `flyer` parts fixed (`TODO(vehicle-interactives)`).
 - OPEN (device only): tap-to-board after the tap rule change (VEH-17 now DONE-OFFLINE), touch-tap aim on vehicle
   parts, eased swing on a vehicle, chase-ease, Saga cockpit lag, 400 % cube split culling, faces drawn.
-- NEXT: generality ("any set as good as the favourites"): start from AUDIT.md section 4 and the 200-set census
-  below; run the same gate over a census sample (`_favourites_gate.ts <sets...>`).
+- GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
+  --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
+  --out=output/gengate-6fa0afa6`): 60/60 built, child play 710/720 (fails: 5482 windows out of reach + doorway holes
+  at 200/400 %, 6164 a tread across Door 1 at 400 %, 6243 boat driver's right view), 17 vehicles pass the course.
+  Content (no local face art): 14 of 69 figures with a real face, 11 boxed placements in 6 sets, 836 loose parts
+  within 8 studs in 16 sets. RUNNING (worktrees `.worktrees/<x>` from `2d19dd6e`, same brief): `gen-door` (5482,
+  6164 classes + regression cases), `gen-veh2` (6243 view; planes on wheels, trains without track, 2/3-wheelers,
+  planes inside scenes), `gen-face` (print lookup for any set, face transfer, a CONTENT section in the gate).
+  Then a second census sample (next 60) to check the fixes generalise.
 
 ### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
 The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles
