@@ -1231,6 +1231,24 @@ describe('getting off a scripted vehicle (SEAT-05: vehicleEgress)', () => {
     const along = Math.abs(r.at.z - 0.5), across = Math.abs(r.at.x - 0.5);
     expect(Math.max(along - 6.36, across - 3) - 0.3).toBeGreaterThanOrEqual(VEHICLE_EGRESS.FLOAT_MARGIN - 1e-9);
   });
+  it('a car whose footprint overlaps a 3-high wall stays on the ground, never climbing the wall a block a tick, and its rider is set down between the walls (42172, regression mclaren-walls-30m, SEAT-05, VEH-08)', () => {
+    // The Saga 30m set-up: walls 4 blocks apart, the McLaren's drawn footprint (2.24 half wide) 0.74 into the west one.
+    // The footprint support read (A-12) took each next block of the wall as a one-block STEP (its top within STEP_UP
+    // of the base, the block over it never looked at), so the empty car rose a block every few ticks to the wall's top
+    // and its rider then read it as airborne and floated down beyond the wall.
+    const car: ScriptedVehicleType = { mode: 'car', noseReach: 3.49, halfWidth: 2.24, height: 1.79 };
+    const fills = [-2, 3].map(x => ({ id: 'minecraft:stone', from: [x, 64, -8] as [number, number, number], to: [x, 66, 9] as [number, number, number] }));
+    const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 }, yaw: 0, seat: [0, 0.3, -0.78], egress: true, fills });
+    host.run(40);
+    expect(host.entity.location.y).toBeCloseTo(64, 3);
+    host.sneak();
+    host.run(40);
+    const p = host.player.location;
+    expect(host.player.ridingOn).toBeUndefined();
+    expect(p.x).toBeGreaterThanOrEqual(-1 + 0.3 - 1e-6);
+    expect(p.x).toBeLessThanOrEqual(3 - 0.3 + 1e-6);
+    expect(p.y).toBeCloseTo(64, 3);
+  });
   it('the shipped runtime sets the McLaren\'s rider down between the walls it is parked in, never beyond one (scripts/vehicles.js on the simulator, SEAT-05)', () => {
     const car: ScriptedVehicleType = { mode: 'car', noseReach: 3.49, halfWidth: 2.24, height: 1.79 };
     const fills = [-2, 3].map(x => ({ id: 'minecraft:stone', from: [x, 64, -8] as [number, number, number], to: [x, 66, 9] as [number, number, number] }));

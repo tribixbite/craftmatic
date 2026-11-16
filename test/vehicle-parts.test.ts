@@ -87,6 +87,22 @@ describe('which part a tap on a parked vehicle meant (pickVehiclePart, A-02)', (
     expect(pickVehicleTap(pickVehiclePart, DOORS, slides, POSE, 1, { x: 8, y: 65.6, z: 20 }, { x: 1, y: -0.3, z: 0 }, shut, true, VEHICLE_PART)).toBeNull();
   });
 
+  it('a tap aimed at the hull boards: a part answers only a tap whose view ray is ON it, never one merely near it (regression fresh-car-tap-50-30zd)', () => {
+    // The 50 % McLaren of the regression, parked at yaw 90: its steering wheel (a turnable) sits inside the cabin, and the
+    // child 2 blocks south of the root looks at the car's middle. The view ray passes the wheel's box; the 60-degree
+    // cone then took the tap meant to board for the wheel, and nobody boarded.
+    const wheel = [{ closed: [0.372, 0.694, 0.416, 0.833, 1.155, 0.561], open: [0.373, 0.694, 0.416, 0.833, 1.155, 0.561] }];
+    const pose = { x: 9.5, y: -60, z: 0.25, yaw: 90 };
+    const eye = { x: 9.5, y: -58.38, z: -1.75 }, toHull = { x: 0, y: -0.47786709020297374, z: 0.8784321511084069 };
+    expect(pickVehicleTap(pickVehiclePart, wheel, [], pose, 0.5, eye, toHull, [false], false, VEHICLE_PART)).toBeNull();
+    // The same wheel looked AT (the ray through its box's centre) still turns.
+    const c = [0, 1, 2].map(a => (wheel[0]!.closed[a]! + wheel[0]!.closed[a + 3]!) / 2 * 0.5);
+    // Entity frame -> world at yaw 90 (+x turns toward +z): world x = -ez, world z = ex.
+    const at = { x: pose.x - c[2]!, y: pose.y + c[1]!, z: pose.z + c[0]! };
+    const look = { x: at.x - eye.x, y: at.y - eye.y, z: at.z - eye.z };
+    expect(pickVehicleTap(pickVehiclePart, wheel, [], pose, 0.5, eye, look, [false], false, VEHICLE_PART)).toEqual({ part: 0 });
+  });
+
   it('turns and scales the running line of a slide to where the vehicle stands', () => {
     const w = vehicleSlideWorldPath([[0, 2, 1], [1, 1, 3]], { x: 10, y: 64, z: 20, yaw: 90 }, 2);
     // Bedrock yaw 90: entity +z is world -x, entity +x world +z.

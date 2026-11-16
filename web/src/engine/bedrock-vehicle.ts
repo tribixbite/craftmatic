@@ -2232,8 +2232,12 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
             let support: number | null = null;
             for (let i = 0; i <= rows; i++) for (let j = 0; j <= cols; j++) {
               const a = -L + 2 * L * i / rows, sd = -W + 2 * W * j / cols;
-              const g = groundUnder(dim, st.x + fx * a + rx * sd, st.z + fz * a + rz * sd, footY, P.STEP_UP, 2, hover);
-              if (g !== null && g <= footY + P.STEP_UP + 1e-6 && (support === null || g > support)) support = g;
+              const px = st.x + fx * a + rx * sd, pz = st.z + fz * a + rz * sd;
+              const g = groundUnder(dim, px, pz, footY, P.STEP_UP, 2, hover);
+              // A step has air on it: a top with more solid right over it is a WALL's face, read one block at a time
+              // (the window ends a step over the base), and taking it climbed a parked car up a 3-high wall its
+              // footprint overlapped, a block every few ticks (42172, regression mclaren-walls-30m).
+              if (g !== null && g <= footY + P.STEP_UP + 1e-6 && (support === null || g > support) && !solidAt(dim, px, g + 0.1, pz) && !solidAt(dim, px, g + 0.6, pz)) support = g;
             }
             if (support !== null && (ground === null || (ground - st.y <= P.STEP_UP && support + lift > ground))) ground = support + lift;
           }

@@ -9,7 +9,7 @@
  *   - one float actor property per part (`craftmatic:vpart_<k>`) is its angle (a drawer's or sliding door's distance,
  *     LDU); the client eases toward it in Molang over `SWING_SECONDS`, as an interactive does;
  *   - the scripted-vehicle runtime (bedrock-vehicle.ts) answers a TAP on the parked vehicle: a part within
- *     `REACH_BLOCKS` of the eye that the view points at (`pickVehiclePart`) toggles; any other tap boards as before.
+ *     `REACH_BLOCKS` of the eye whose box the view RAY enters (`pickVehiclePart`, `CONE_DEG` 0) toggles; any other tap boards as before.
  *     A hold still boards (the native mount), so a child can always get in;
  *   - while the vehicle moves, every swinging part (door, gate, cabinet, window, hatch, lid, drawer) is CLOSED and a
  *     tap does not open it (`closesWhenMoving`): an open leaf stands outside the hull the move resolver sweeps
@@ -44,8 +44,16 @@ export const VEHICLE_PART = {
   MAX: 16,
   /** Blocks from the eye to a part's box (padded) for a tap to reach it: the Survival tap reaches ~3 (Saga 30w). */
   REACH_BLOCKS: 2.5,
-  /** Degrees off the view a part may be and still be the tapped one, when the view ray itself misses every part. */
-  CONE_DEG: 60,
+  /**
+   * Degrees off the view a part may be and still be the tapped one, when the view ray itself misses every part: 0, a
+   * part answers only a tap whose view ray is ON its (padded) box. At 60 the cone took every tap a child aimed at a
+   * parked car's middle for whatever part sat near the view - a fresh 50 % McLaren turned its steering wheel and never
+   * boarded (regression `fresh-car-tap-50-30zd`, 2026-11-15) - so a tap boards unless it is aimed at a part.
+   * # TODO(vehicle-parts-touch-aim): unmeasured on a phone whether a touch tap's view direction is the camera's centre
+   * or the finger's ray; if it is the centre, a door tapped at the screen's edge boards instead of opening (the hold
+   * boards anyway, so nothing is lost but the door).
+   */
+  CONE_DEG: 0,
   /** Blocks past the nearest box the view ray enters within which a box whose centre is nearer the ray wins instead. */
   TIE_BLOCKS: 0.25,
   /** Blocks every part box is padded by (a door leaf is a fraction of a block thick). */
@@ -261,7 +269,7 @@ export function bodyPivotOf(geometry: unknown): number[] | undefined {
 /**
  * What a tap on a vehicle meant (pure; serialised into `scripts/vehicles.js`, `pick` is `pickVehiclePart`): a part the
  * view RAY enters within reach first; else a slide the view ray enters within `SLIDE_REACH_BLOCKS` (a roof slide is
- * looked up at from the ground); else a part by the view cone (`pickVehiclePart`'s last rule). `moving`: slides only
+ * looked up at from the ground); else (only with `CONE_DEG` > 0) a part by the view cone (`pickVehiclePart`'s last rule). `moving`: slides only
  * (a part neither opens nor shuts while the vehicle moves; a slide is answered so the runtime can refuse it).
  * Null: nothing meant (the tap boards).
  */
@@ -275,7 +283,8 @@ export function pickVehicleTap(pick: typeof pickVehiclePart, parts: ReadonlyArra
     const i = pick(boxes, pose, k, eye, dir, boxes.map(() => false), { ...P, REACH_BLOCKS: P.SLIDE_REACH_BLOCKS, CONE_DEG: 0 });
     if (i >= 0) return { slide: i };
   }
-  if (!moving && parts.length) {
+  // A part by the view cone only where the cone is configured (`CONE_DEG` 0: never - a tap aimed at the hull boards).
+  if (!moving && parts.length && P.CONE_DEG > 0) {
     const cone = pick(parts, pose, k, eye, dir, open, P);
     if (cone >= 0) return { part: cone };
   }
