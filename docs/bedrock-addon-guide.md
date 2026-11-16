@@ -1708,6 +1708,13 @@ throughout and nothing from the new packs placed:
   What it was is unknown; do not quote 260k for anything any more.
 - Drawn cuboids remain a separate limit (~50-100k visible hold 60 fps,
   ~150k hold 30); the budget expresses resident definitions only.
+- **The four favourites over the `standard` tier's 60,000 (audit A-19, 2026-11-15)** are within this budget:
+  10261 88,949 (18.5 %), 10303 87,906, 76417 68,904, 76269 60,491 resident cuboids (favourites sweep `4da29033`).
+  The shell is most of each (74,650 / 70,629 / 57,672 / 46,668) and is already COARSENED by the grain planner, which
+  asks 217,068 / 143,911 / 131,338 / 110,578 cuboids at 2 LDU and ships at fidelity 0.907 / 0.927 / 0.956 /
+  0.948 (0.932 / 0.942 / 0.964 / 0.957 at 2 LDU), so any further cut is a fidelity loss; the rest is figures
+  (7,289 / 4,964 / 7,625 / 13,503), ride cars (6,194 / 6,708 / 3,288 / -) and doors. Not reduced: the 60k tier is a
+  "~8 such packs at once" planning number, not a measured limit.
 - **Milano 76286-v2 (mast fix): PASS at 100 %** — the v2 ship rests its gear
   on the ground (`ceiling/shots/milano-v2-100-view.jpg`); 400 % not tested.
 - Traps: **`adb push` does not truncate a shorter target** — reverting a 137-line
