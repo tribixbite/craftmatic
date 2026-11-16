@@ -60,7 +60,7 @@
  * hover controller is a stand-in for the device's, whose stepping is not modelled.
  */
 
-import { entityKey, sizeEventOf } from './namespace.js';
+import { entityKey, nsId, sizeEventOf } from './namespace.js';
 import type { AnyStep, Scenario, StepContext, StepHandler } from '../../scenario/types.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { vehicleCameraEntry, type CraftmaticPack } from './pack-facts.js';
@@ -361,7 +361,9 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
     async vehicleParts(step: AnyStep, ctx: StepContext) {
       const wanted = step['type'] ? [typeOf(step)] : [...types.values()].filter(t => t.parts.length);
       const sum = { parts: 0, opened: 0, unreachable: 0, closedWhileMoving: true, drove: 0, reopenedAfterDrive: false, followed: false };
-      const value = (v: SimEntity, i: number): number => Number(v.properties.get(vehiclePartProperty(i)) ?? 0);
+      // The pack's own namespace (a rewritten twin's `NS:vpart_0`, sim-namespace.test.ts), never the literal `craftmatic:`.
+      const prop = (name: string): string => nsId(pack.namespace, name.replace(/^[^:]+:/, ''));
+      const value = (v: SimEntity, i: number): number => Number(v.properties.get(prop(vehiclePartProperty(i))) ?? 0);
       /** Part i's box (closed or open) in the world at the vehicle's pose: [x0, y0, z0, x1, y1, z1]. */
       const worldBox = (v: SimEntity, part: VehiclePartRuntime, open: boolean): number[] => {
         const b = open ? part.open : part.closed, k = v.scale(), r = v.rotation.y * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
@@ -497,8 +499,8 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
           // The part's own swing, without the body's lean: a parked car keeps its last squat (fl_pitch, up to 3 degrees),
           // which the runtime's pick does not model (# TODO(vehicle-parts-lean): 0.14 blocks at the far end of 41395's
           // 13-block bus at 100 %, inside the pick's pad).
-          const props: Record<string, number | boolean | string> = { ...Object.fromEntries(v.properties), [FLIGHT_PROPS.pitch]: 0, [FLIGHT_PROPS.bank]: 0 };
-          const closedProps = { ...props, [vehiclePartProperty(swing)]: 0 };
+          const props: Record<string, number | boolean | string> = { ...Object.fromEntries(v.properties), [prop(FLIGHT_PROPS.pitch)]: 0, [prop(FLIGHT_PROPS.bank)]: 0 };
+          const closedProps = { ...props, [prop(vehiclePartProperty(swing))]: 0 };
           const set = registeredAppearance(pack.pack)?.animations?.get(f.typeId);
           const shut = drawnBoxes(entry, v.location, v.rotation.y, v.scale(), 'near', animatedPoses(set, closedProps));
           const open = drawnBoxes(entry, v.location, v.rotation.y, v.scale(), 'near', animatedPoses(set, props));
