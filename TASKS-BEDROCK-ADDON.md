@@ -9,85 +9,39 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
-### IN FLIGHT 2026-11-15: replica-set polish (the user: business work paused)
-The user (2026-11-15): "polish the functionality and appearance and performance of the lego replica sets for the
-moment before building our in house ones. Have fable 5.2 audit the mcaddon generation for the ~28 favorite packs
-and spot any flaws or gaps. then you fill them. When done and all tested with no outstanding work from audit send
-me all 28 addons and continue work on modularization- making any set as high quality and functional as the
-individually tested 28". The favourites list has 40 sets (memory `user-favorite-sets`); all 40 are in scope.
-1. DONE: sweep at `4e5963dc` (40/40 valid, `output/favsweep-4e5963dc/`) and the Fable audit
-   `output/audit-1115/AUDIT.md`: 22 findings A-01..A-22, one blocker, a 40-row scorecard, a "does not
-   generalise" section. A-01 (blocker) FIXED `3fa06170`: the sweep now builds under the LEGO tab's label
-   (`legoTabLabel`) and names packs with the regression set's stem (`packStem`), `--with-gabby`, `--faces=DIR`.
-2. FIXING (2026-11-15), one Opus agent per worktree `.worktrees/audit-<x>` / branch `audit-<x>` from `3fa06170`,
-   common brief `output/audit-1115/brief-common.md` (worktree-only, fail-first, no merge/push):
-   - `wveh`: A-02 whole-model vehicles keep interactivity, A-01 rest (untitled car sized/seated as named), A-15
-     size advice, 42663 camper-van-vs-scene.
-   - `vrun`: A-12 big vehicles trapped at the hill, A-14 vehicle camera.
-   - `vgrain`: A-21 42172 export 2,353 s, A-03 vehicle cuboid budget.
-   - `door`: A-04 doorway floors/colliders at 200/400 %, A-22 turnables at 50 %, A-11 sealed doorways, A-20 doors.
-   - `place`: A-05 Undo board points at 400 %, A-06 Size/Rotate off the aim, A-16 gate sizes (a gate command),
-     then A-17/18/19.
-   - `parts`: A-07 boxed parts, A-08 floaters (orchestrator decision: drop small loose pieces > 8 studs clear,
-     keep sub-builds and figures, list every drop), A-09 76457 baseplates, A-13 figures left in the shell.
-   - `faces`: A-10 default faces (census, LDraw prints first, route-2 art into `output/faces-art-1115/`, FIG-04
-     row corrected).
-   Gate for every re-sweep (A-16, merged): `bun scripts/_favourites_gate.ts --build --with-gabby --out=output/<new dir>`
-   (sweep, child play at 50/100/150/200/400, vehicles, regressions; report `<dir>/gate.md`).
-   - `vix`: A-02 remainder - a scripted vehicle's doors, lids, cupboards, windows, levers, turnables are bones of
-     its own geometry (vehicle-parts.ts), opened by a tap while parked, shut while it moves; sim step `vehicleParts`
-     (vehicles scenario and every child-play size).
-   - `vslide` (branch `audit-vslide`, NOT merged): a scripted vehicle's slide is ridden from a tap on the parked
-     vehicle (path in its entity frame, resolved at the tap; seat spawned there, removed at the foot; refused with a
-     line while it moves; a roof slide is ridden from the ground within 8 blocks along the view ray; the rider is set
-     down beside the hull); sim step `vehicleSlides`. A board column stands under any part or slide the 8-wide hull
-     hit box leaves out (`tapAt`: 41395's window at 150 %). A native rotorcraft's parts open (vehicle-driver.js). The
-     part pick follows the parked lean. Still open: a `flyer` component's parts (`TODO(vehicle-interactives)`), the
-     lean on a slide's path (`TODO(vehicle-slide-lean)`), a driver leaving while someone slides; device checks: a
-     touch tap's view direction (`TODO(vehicle-parts-touch-aim)`), the swing sign on a vehicle, the eased swing drawn,
-     a roof slide boarded by a real tap from the ground (Survival reach to the hull box / column).
-   MERGED: vrun, place, door, vgrain, wveh, faces, parts, vix (all seven + the follow-up).
-   GATE RUNNING on `e7da6e47` (all merged): `output/favgate-e7da6e47` = sweep `--with-gabby
-   --faces=C:/git/craftmatic/output/faces-art-1115` then `bun scripts/_favourites_gate.ts --out=<dir>` (logs
-   `<dir>.sweep.log`, `<dir>.gate.log`, report `<dir>/gate.md`).
-   WAVE 2 RUNNING (worktrees `.worktrees/audit-<x>` from `e7da6e47`, same brief): `render` A-17 hatching, A-18 cubes
-   past the cull root, A-19 permutations/resident cuboids; `doors2` 910004 Door 5 @200, 910032 Door 4 clearance,
-   walk-attribution ceilings, brick-built door detector, 50 %/90 colliders on the child; `content2` 76269 hinge-plate
-   frame, hoses / LDD ids, face print transfer from a set's other source, IOModel2V2 corpus A/B + regen; `vslide`
-   slides on parked vehicles, part taps outside the hull hit box, native flyer parts, lean in the pick.
-   Open, device-only: chase-ease, Saga cockpit lag, touch-tap aim on vehicle parts, eased swing drawn.
-   Merge each after review + full suite (merge commits), then one sweep `--with-gabby --faces=...` + sim at
-   `--sizes=50,100,150,200,400` + `--scenario=vehicles` + `--scenario=regressions` over the same directory.
-3. When no audit finding is open: send the user all 40 packs (one zip, built from a commit), then the
-   generality work below (any set as good as the favourites; AUDIT.md section 4 lists what does not generalise).
-- **Faces (A-10, FIG-04 PARTIAL; branch `audit-faces`).** Build the user's favourite packs WITH the route-2 face
-  art, which only a local build can seed:
-  `bun scripts/_favorites_export_sweep.ts --out output/<new dir> --faces=C:/git/craftmatic/output/faces-art-1115`
-  (one `--faces=` dir; `output/faces-art-1115/` holds the 0926 art plus 44 new, 10 rejected by eye, see its
-  `REVIEW.md`). Census of what every favourite head gets:
-  `CRAFTMATIC_LDRAW_MIRROR=off bun scripts/_face_census.ts --faces=C:/git/craftmatic/output/faces-art-1115
-  --missing=<ids.txt>`; new art for the listed ids: `python -I scripts/gen-face-art.py <dir> --ids <ids.txt>`.
-  Head placements with their own face: 75 of 319 before, 207 after (`test/favourites-faces.test.ts` floors).
-  Left: 100 heads have no print identity in their source (Mecabricks 76269 / 75397 / 71040, 10326's no-print
-  `.io`, 71043's LXF, 36 DBIX heads whose element has no print row, 9 plain heads in LDraw and .io sources) and 12 heads
-  name one of 11 prints with no usable art (10 rejected crops, 3626pb2658 has no BrickLink photo). The web app
-  never fetches photos: shipping route 2 to users is the user's licence decision (open), so a pack the LEGO tab
-  exports has 116 of 319 (the LDraw prints only).
-  Packs rebuilt on `audit-faces` with the art (`.worktrees/audit-faces/output/faces-1115/sweep-faces/`, 15 sets
-  with default faces in the audit): heads drawn with their own face 14 -> 112 of 147; without art (the LEGO tab)
-  10303 0 -> 7 of 11, 76417 2 -> 2 of 17 (`sweep-nofaces/`). Sim at 50-400 %: the same failures as the audit's
-  baseline, except 76286 (now a vehicle under its name label: 2 boarding-point Undo leftovers, identical on a
-  3fa06170 build without faces, so A-05's class, not faces). Open: 10303 fig2's hair sits over its face (same on
-  the audit build; the head looks under the hair's front), `TODO(face-source-transfer)` (branch audit-content2):
-  `_face_print_transfer.ts` gave 76269 19 prints (16 of 32 heads real with art); open: 10326's 3 matches sit in an
-  `.io` first pick (not written), 75397 / 71040 / 10365 have no donor naming a print, ungrouped heads are not matched.
-- Branch `audit-content2` + clego `audit-content2`: hinge plates, Mecabricks flex hoses (510 in 137 files) and 76417's
-  covers / hair / jaw resolved; left on the allowlist with traced evidence: 1004705 (36752 sprue, frame unknown),
-  3469, 68503, 104814, 28705 (bl_ copy in the LDD frame), the Mecabricks `d1` / cloth ids. TODO(mb-flexible-other):
-  strings, pneumatic tubes, chains, belts. TODO(io2-regen): the 70-file A/B is mixed (boxes 518 -> 34 over 53, but
-  gate v2 rejects 27 incl. 10 worse), see the sources guide; next is publishing the gate's per-file accepts.
-  41703's 35-part and 71043's 45-part loose builds stay by
-  the 30-part rule; 77092 at 50 % turned 90 now lands a collider on the child's block (A-06 class).
+### 2026-11-16: replica-set polish (PROC-19) - audit fixed, packs sent; NEXT generality
+The user (2026-11-15) asked for a Fable audit of the favourites' add-on generation, every finding fixed and tested,
+all favourite packs sent, then "modularization - making any set as high quality and functional as the individually
+tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`).
+- DONE: audit `output/audit-1115/AUDIT.md` (22 findings, scorecard, "does not generalise" section 4). Fixed in
+  waves 1-3 (branches `audit-*`, all merged into main by `530b6d3f`; history in `git log --merges --grep=audit-`).
+- FINAL GATE `530b6d3f`: `bun scripts/_favourites_gate.ts --build --with-gabby --faces=C:/git/craftmatic/output/faces-art-1115
+  --out=output/favgate-530b6d3f` (sweep now also builds every regression pack): 47/47 built, child play 564/564 at
+  50-400 %, vehicles PASS, regressions 0 failed / 2 not tested. Report `output/favgate-530b6d3f/gate.md`.
+- SENT 2026-11-16: `output/share-2026-11-16-530b6d3f/craftmatic-favourites-530b6d3f-part{1,2}of2.zip` (40 packs,
+  `PACKS.md` with hashes; one 40.8 MiB zip exceeds the 30 MiB upload limit). Not yet on a device.
+- OPEN (offline):
+  - Regression cases `gate1-throwout-76417` and `door3-figure-inside-76417-30r` are NOT TESTED: the replayed device
+    tap no longer picks Gate 1 / no open-door trial runs (stale poses; child play taps both and passes).
+  - 910032 Door 4 SEALED by its landing guard (`TODO(clearance-tight-910032)`: judge trims near a door by that door's
+    walk). 11371 Doors 2/4 need collider corner forms (`TODO(collider-corner-forms)`, new block ids). 42670 Door 3
+    tread across the ground route.
+  - Brick-built doors (10354, 42639 gate, 910049 gate): every candidate hinge line is held rigid
+    (`TODO(brick-hinge-holds)`, docs/bedrock-interactivity.md).
+  - Coplanar pairs on moving actors (coaster cars, ride seats, riders: `TODO(a17-moving)`); 10303 1.03 / 10261 0.89
+    block faces left.
+  - Boxed parts on `test/fixtures/favourites-aabb-allowlist.json` (76417 1004705 wand sprue, 3469/68503/104814 no mould,
+    43267 28705 bl_ frame unmeasured); flexible strings/tubes/chains (`TODO(mb-flexible-other)`).
+  - Faces: 100-ish heads with no print in any source; the web app ships LDraw prints only (route-2 art is local,
+    licence decision is the user's).
+  - IOModel2V2 regeneration: A/B on 70 files mixed (`output/audit-content2/io2-ab/`), publish only gate accepts.
+  - clego branch `audit-content2` NOT merged into clego master: another session holds uncommitted
+    `mecabricks_align.json` there (272 lines); its corpus files are already in place and published.
+  - 42172 still coarse (30 % at 2 LDU); vehicle `flyer` parts fixed (`TODO(vehicle-interactives)`).
+- OPEN (device only): tap-to-board after the tap rule change (VEH-17 now DONE-OFFLINE), touch-tap aim on vehicle
+  parts, eased swing on a vehicle, chase-ease, Saga cockpit lag, 400 % cube split culling, faces drawn.
+- NEXT: generality ("any set as good as the favourites"): start from AUDIT.md section 4 and the 200-set census
+  below; run the same gate over a census sample (`_favourites_gate.ts <sets...>`).
 
 ### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
 The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles
