@@ -148,3 +148,124 @@ describe('a whole model that is a car its title does not name (findWholeModelVeh
     expect(classifyVehicleKind('Batwing Battle Over Gotham City (6863-1)', 'auto')).toBe('plane');
   });
 });
+
+/**
+ * VEH-20 census class 1 (2026-11-16): planes on landing gear rode as cars (31060, 7345), a helicopter on three
+ * wheels (6866) and a bike or trike with no title word were static, a train with no track was static (4841), and a
+ * plane inside a scene stayed static (6863's Batwing, 76269's Quinjet). The kind is read from the GEOMETRY: wings
+ * reaching past the body on both sides fly, a flat rotor on top hovers, a bike frame on two wheels drives.
+ */
+/** A fuselage along x (4 bricks, 3 layers), at `at`; `wings`: a left and a right wing reaching 160 past its sides. */
+function aircraft(s: ReturnType<typeof scene>, at: Vec3, opts: { wings?: boolean; gear?: number; rotor?: boolean; cockpit?: boolean } = {}): ParsedBrick[] {
+  const [ox, oy, oz] = at;
+  const out: ParsedBrick[] = [];
+  for (let k = 0; k < 12; k++) out.push(s.add('3001.dat', 'Brick  2 x  4', [-40, -24, -20], [40, 0, 20], [ox - 80 + (k % 4) * 80, oy - 16 - 24 * Math.floor(k / 4), oz]));
+  if (opts.wings) {
+    out.push(s.add('wingL.dat', 'Wing  3 x  8 Left', [-60, -8, -160], [60, 0, 0], [ox + 40, oy - 40, oz - 20]));
+    out.push(s.add('wingR.dat', 'Wing  3 x  8 Right', [-60, -8, 0], [60, 0, 160], [ox + 40, oy - 40, oz + 20]));
+    // Its cockpit: a windscreen on the fuselage's nose (a plane is flown from somewhere).
+    if (opts.cockpit ?? true) out.push(s.add('windscreen.dat', 'Windscreen  2 x  4 x  2', [-20, -16, -20], [20, 0, 20], [ox - 100, oy - 88, oz]));
+  }
+  const gear = opts.gear ?? 0;
+  const wheelsAt: Array<[number, number]> = gear === 3 ? [[-100, 0], [140, -16], [140, 16]] : gear === 4 ? [[-100, -16], [-100, 16], [140, -16], [140, 16]] : [];
+  for (const [x, z] of wheelsAt) out.push(s.add('wheel.dat', 'Wheel 11mm D. x 6mm', [-8, -8, -4], [8, 8, 4], [ox + x, oy - 8, oz + z]));
+  // A main rotor lying flat on the cabin roof, wider than the cabin.
+  if (opts.rotor) out.push(s.add('2479.dat', 'Propellor  4 Blade  5 Diameter', [-65, -4, -65], [65, 4, 65], [ox, oy - 92, oz]));
+  return out;
+}
+
+describe('a vehicle whose KIND the geometry decides (VEH-20 census class 1)', () => {
+  it('a plane on its landing gear flies: wings reaching past the body on both sides beat the wheels it stands on', () => {
+    const s = scene();
+    aircraft(s, [0, 0, 0], { wings: true, gear: 4 });
+    const whole = findWholeModelVehicles(s.bricks, s.meshes);
+    expect(whole.components).toHaveLength(1);
+    expect(whole.components[0]).toMatchObject({ kind: 'plane', motion: 'plane' });
+    expect(whole.components[0]!.bricks).toHaveLength(s.bricks.length);
+    expect(whole.components[0]!.provenance).toMatch(/wings/);
+  });
+  it('a helicopter on three wheels hovers: a flat rotor on top, nothing over it', () => {
+    const s = scene();
+    aircraft(s, [0, 0, 0], { gear: 3, rotor: true });
+    const whole = findWholeModelVehicles(s.bricks, s.meshes);
+    expect(whole.components).toHaveLength(1);
+    expect(whole.components[0]).toMatchObject({ kind: 'plane', motion: 'rotor' });
+    expect(whole.components[0]!.provenance).toMatch(/rotor/);
+  });
+  it('a plane that is most of a scene (6863) is found in it; the building stays', () => {
+    const s = scene();
+    s.add('3811.dat', 'Baseplate 32 x 32', [-320, 0, -320], [320, 4, 320], [0, 0, 0]);
+    for (let k = 0; k < 20; k++) s.add('3001.dat', 'Brick  2 x  4', [-40, -24, -20], [40, 0, 20], [-200 + (k % 2) * 80, -24 * Math.floor(k / 2), -280]);
+    const plane = aircraft(s, [60, -200, 100], { wings: true });
+    const found = findSceneVehicles(s.bricks, s.meshes);
+    expect(plane.length / s.bricks.length).toBeGreaterThan(SCENE_VEHICLES.MAX_SHARE);
+    expect(found.components).toHaveLength(1);
+    expect(found.components[0]).toMatchObject({ kind: 'plane', motion: 'plane' });
+    expect(new Set(found.components[0]!.bricks)).toEqual(new Set(plane));
+  });
+  it('a two-wheeled bike drives, whole or in a scene; a two-wheeled cart without a bike frame does not', () => {
+    const bike = (s: ReturnType<typeof scene>, at: Vec3, frame: boolean): ParsedBrick[] => {
+      const out = [s.add(frame ? 'bike.dat' : 'cart.dat', frame ? 'Bike  2 Wheel Motorcycle Frame  2 x  6 x  3' : 'Plate  2 x  6', [-60, -50, -10], [60, 0, 10], [at[0], at[1] - 20, at[2]])];
+      for (const x of [-70, 70]) out.push(s.add('spoked.dat', 'Wheel  6 x 14 Spoked with Stub Axles', [-20, -20, -4], [20, 20, 4], [at[0] + x, at[1] - 20, at[2]]));
+      for (let k = 0; k < 14; k++) out.push(s.add('3023.dat', 'Plate  1 x  2', [-10, -8, -20], [10, 0, 20], [at[0] - 50 + (k % 7) * 20 - 10 * Math.floor(k / 7), at[1] - 70 - 8 * Math.floor(k / 7), at[2]]));
+      return out;
+    };
+    const one = scene();
+    bike(one, [0, 0, 0], true);
+    const whole = findWholeModelVehicles(one.bricks, one.meshes);
+    expect(whole.components).toHaveLength(1);
+    expect(whole.components[0]).toMatchObject({ kind: 'car' });
+    expect(whole.components[0]!.provenance).toMatch(/bike/);
+    const town2 = town();
+    const ridden = bike(town2, [-250, 0, 250], true);
+    const inScene = findSceneVehicles(town2.bricks, town2.meshes).components.find(c => c.bricks.includes(ridden[0]!));
+    expect(inScene).toMatchObject({ kind: 'car' });
+    const cart = scene();
+    bike(cart, [0, 0, 0], false);
+    expect(findWholeModelVehicles(cart.bricks, cart.meshes).components).toHaveLength(0);
+  });
+  it('a train with no track of its own drives on land as a car; one standing on its track is the rail engine\'s', () => {
+    const train = (withTrack: boolean): ReturnType<typeof scene> => {
+      const s = scene();
+      // The base rides on a block over each axle (the wheels' tops at -24), the body on the base.
+      s.add('92340.dat', 'Train Base  6 x 24', [-240, -8, -60], [240, 0, 60], [0, -48, 0]);
+      for (const x of [-200, -120, 120, 200]) {
+        s.add('3004.dat', 'Brick  1 x  2', [-10, -24, -60], [10, 0, 60], [x, -24, 0]);
+        for (const z of [-50, 50]) s.add('57878.dat', 'Train Wheel with Closed Centre for Wheel Bogie', [-12, -12, -4], [12, 12, 4], [x, -12, z]);
+      }
+      for (let k = 0; k < 12; k++) s.add('3001.dat', 'Brick  2 x  4', [-40, -24, -20], [40, 0, 20], [-200 + (k % 6) * 80, -56, (k < 6 ? -20 : 20)]);
+      if (withTrack) for (const x of [-160, 0, 160]) s.add('track.dat', 'Train Track  9V Straight', [-80, 0, -64], [80, 8, 64], [x, 0, 0]);
+      return s;
+    };
+    const free = train(false);
+    const found = findWholeModelVehicles(free.bricks, free.meshes);
+    expect(found.components).toHaveLength(1);
+    expect(found.components[0]).toMatchObject({ kind: 'car' });
+    expect(found.components[0]!.provenance).toMatch(/no track/);
+    const railed = train(true);
+    expect(findWholeModelVehicles(railed.bricks, railed.meshes).components).toHaveLength(0);
+  });
+  it('false finds: a tower with wings at its sides, a car with a spoiler, a ceiling fan under a roof', () => {
+    // A tower (taller than long) with a wing at each side: not a plane.
+    const tower = scene();
+    for (let k = 0; k < 40; k++) tower.add('3001.dat', 'Brick  2 x  4', [-40, -24, -20], [40, 0, 20], [(k % 2) * 80 - 40, -24 * Math.floor(k / 2), 0]);
+    tower.add('wingL.dat', 'Wing  3 x  8 Left', [-60, -8, -160], [60, 0, 0], [0, -200, -20]);
+    tower.add('wingR.dat', 'Wing  3 x  8 Right', [-60, -8, 0], [60, 0, 160], [0, -200, 20]);
+    tower.add('windscreen.dat', 'Windscreen  2 x  4 x  2', [-20, -16, -20], [20, 0, 20], [0, -480, 0]);
+    expect(findWholeModelVehicles(tower.bricks, tower.meshes).components).toHaveLength(0);
+    // A creature spreading wing parts as fins, with no windscreen, seat, wheel or propeller to fly it from (76269's
+    // Leviathan): not a plane.
+    const beast = scene();
+    aircraft(beast, [0, 0, 0], { wings: true, cockpit: false });
+    for (let k = 0; k < 6; k++) beast.add('3023.dat', 'Plate  1 x  2', [-10, -8, -20], [10, 0, 20], [-100 + k * 20, -96, 0]);
+    expect(findWholeModelVehicles(beast.bricks, beast.meshes).components).toHaveLength(0);
+    // A car with a spoiler wing centred on its roof stays a car.
+    const car = wholeCar(3);
+    car.add('spoiler.dat', 'Wing  2 x  4 Right', [-20, -8, -40], [20, 0, 40], [60, -100, 0]);
+    expect(findWholeModelVehicles(car.bricks, car.meshes).components[0]).toMatchObject({ kind: 'car' });
+    // A flat propeller under a roof (a fan in a room on wheels, the roof 66 over it) is no main rotor: the car stays a car.
+    const room = wholeCar(3);
+    room.add('2479.dat', 'Propellor  4 Blade  5 Diameter', [-65, -4, -65], [65, 4, 65], [0, -22, 0]);
+    expect(findWholeModelVehicles(room.bricks, room.meshes).components[0]).toMatchObject({ kind: 'car' });
+  });
+});

@@ -130,7 +130,7 @@ const isSteering = (part: string, description: string): boolean => isSteeringWhe
  * The "largest translucent part" cockpit rule reads glass by size alone.
  */
 export const NOT_GLASS = /\b(Engine|Cylinder|Piston|Light|Lamp|Lens|Jewel|Gem|Crystal|Flame|Fire|Lightsaber|Energy|Effect|Balloon|Bubble|Plant|Flower|Leaf|Leaves|Antenna|Minifig|Bottle|Cup|Ice|Dish|Cone|Bar)\b/i;
-const isCanopyMould = (part: string, description: string): boolean => CANOPY_PARTS.has(baseMould(part)) || /^(Windscreen|Canopy|Cockpit|Windshield)\b/i.test(description.replace(/^[~=_]+\s*/, ''));
+export const isCanopyMould = (part: string, description: string): boolean => CANOPY_PARTS.has(baseMould(part)) || /^(Windscreen|Canopy|Cockpit|Windshield)\b/i.test(description.replace(/^[~=_]+\s*/, ''));
 
 /** Technic pins and axles buried inside the model: geometry weight without silhouette. */
 const TECHNIC_INTERNAL = new Set([

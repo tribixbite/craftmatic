@@ -544,17 +544,16 @@ export async function runSchemPipeline(
       // become rideable where they stand; ride cars and trains stay the rail
       // engine's. Only in auto mode, and never for a title that IS a vehicle.
       if (!byom && (input.vehicleMode ?? 'auto') === 'auto' && !found.components.length && !(heuristics && isWholeVehicleLabel(label))) {
-        const { findSceneVehicles, findWholeModelVehicles } = await import('./scene-vehicles.js');
-        const inScene = findSceneVehicles(source.bricks, sourceMeshes);
-        for (const component of inScene.components) found.components.push(withPlayableBounds({ ...component, label: `${label} ${component.label.toLowerCase()}` }));
-        const judged = inScene.candidates.filter(c => c.kind || c.wheels || c.oars || c.hull);
+        const { geometryVehicles } = await import('./scene-vehicles.js');
+        // The vehicles standing in it, and (no car or boat among them, no scenery title) the vehicle the model
+        // itself is, over what they leave (VEH-20; one call shared with the scale plan, `modelVehicleFromGeometry`).
+        const geo = geometryVehicles(source.bricks, sourceMeshes, heuristics && isSceneryLabel(label));
+        for (const component of geo.inScene) found.components.push(withPlayableBounds({ ...component, label: `${label} ${component.label.toLowerCase()}` }));
+        const judged = geo.candidates.filter(c => c.kind || c.wheels || c.oars || c.hull);
         if (judged.length) warnings.push(`Scene vehicles: ${judged.map(c => `${c.kind ?? 'not a vehicle'} (${c.parts} placements at ${c.centre.join(', ')} LDU: ${c.reason})`).join('; ')}.`);
-        // Nothing small in a scene: the model may BE the car its title does not name (VEH-20).
-        if (!found.components.length && !(heuristics && isSceneryLabel(label))) {
-          const whole = findWholeModelVehicles(source.bricks, sourceMeshes);
-          for (const component of whole.components) found.components.push(withPlayableBounds({ ...component, label: whole.components.length === 1 ? label : `${label} ${component.label.toLowerCase()}` }));
-          if (whole.components.length) warnings.push(`Whole-model vehicle: ${whole.components.map(c => c.provenance).join('; ')}.`);
-        }
+        const alone = geo.whole.length === 1 && !geo.inScene.length;
+        for (const component of geo.whole) found.components.push(withPlayableBounds({ ...component, label: alone ? label : `${label} ${component.label.toLowerCase()}` }));
+        if (geo.whole.length) warnings.push(`Whole-model vehicle: ${geo.whole.map(c => c.provenance).join('; ')}.`);
       }
       // A train that stands on its own railway track runs ON it (the coaster
       // engine, driven: bedrock-coaster.ts `RAIL_TRAIN_PHYSICS`), not as a free
