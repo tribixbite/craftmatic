@@ -63,12 +63,15 @@ individually tested 28". The favourites list has 40 sets (memory `user-favorite-
   10303 0 -> 7 of 11, 76417 2 -> 2 of 17 (`sweep-nofaces/`). Sim at 50-400 %: the same failures as the audit's
   baseline, except 76286 (now a vehicle under its name label: 2 boarding-point Undo leftovers, identical on a
   3fa06170 build without faces, so A-05's class, not faces). Open: 10303 fig2's hair sits over its face (same on
-  the audit build; the head looks under the hair's front), `TODO(face-source-transfer)`: carry print ids from a
-  set's DBIX source onto a Mecabricks/no-print first pick (76269's 32 heads).
-- Branch `audit-parts` (A-07/A-08/A-09/A-13, packs `output/favsweep-auditparts-{9f73e0d6,df205771}` in that worktree)
-  plus clego branch `audit-parts-1115`. Open after it: boxed parts left on `test/fixtures/favourites-aabb-allowlist.json`
-  (TODO mb-hinge-frame for 76269's 52 hinge plates, mb-flexible-hose, ldd-hubcap-alias); IOModel2V2 regeneration of
-  the other ~795 files (TODO io2-regen, needs a corpus A/B); 41703's 35-part and 71043's 45-part loose builds stay by
+  the audit build; the head looks under the hair's front), `TODO(face-source-transfer)` (branch audit-content2):
+  `_face_print_transfer.ts` gave 76269 19 prints (16 of 32 heads real with art); open: 10326's 3 matches sit in an
+  `.io` first pick (not written), 75397 / 71040 / 10365 have no donor naming a print, ungrouped heads are not matched.
+- Branch `audit-content2` + clego `audit-content2`: hinge plates, Mecabricks flex hoses (510 in 137 files) and 76417's
+  covers / hair / jaw resolved; left on the allowlist with traced evidence: 1004705 (36752 sprue, frame unknown),
+  3469, 68503, 104814, 28705 (bl_ copy in the LDD frame), the Mecabricks `d1` / cloth ids. TODO(mb-flexible-other):
+  strings, pneumatic tubes, chains, belts. TODO(io2-regen): the 70-file A/B is mixed (boxes 518 -> 34 over 53, but
+  gate v2 rejects 27 incl. 10 worse), see the sources guide; next is publishing the gate's per-file accepts.
+  41703's 35-part and 71043's 45-part loose builds stay by
   the 30-part rule; 77092 at 50 % turned 90 now lands a collider on the child's block (A-06 class).
 
 ### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
@@ -276,10 +279,8 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   blocks with 76417 unbound) and were `/fill`ed to air for y -60..-29; the sweep of y -28..91 over the same 224 x 224
   found 22 more in the origin's cube (y -28..3) and 0 in the other 195, re-run 0 (`pixel-sweep/shots/fill/c24_y0.png`,
   `fill-index.txt`): world 924 is clean. Wait for a 400 % Undo to finish (top-down view clear) before leaving.
-  TODO(ldd-hubcap-alias): 1011124/1011115 (72210b/72210a) and 1004705 (36752 wand sprue), 104814, 49972, 68503,
-  79511, 3469 ship as AABB boxes in 76417's shell; the DBIX pose puts the hub cap's disc horizontal, so the LDD
-  frame differs from LDraw's - verify against instructions (`C:/git/clego/lego_sets/PDF/6477035-38.pdf`) before
-  adding aliases. `C:/git/clego/lego_sets/IO/76417.io` is NOT authentic (our converter; no 80566). Pixel trap: `_pixel_cmd.sh` with a coordinate ending `.0`
+  TODO(ldd-hubcap-alias): only 1004705 (36752 wand sprue, frame unknown) is left of 76417's LDD-only ids;
+  1011124 / 1011115 are 72210a / 72210b (Mecabricks-mesh frame fit), 79511 is 34316, 49972 is bl_49972. `C:/git/clego/lego_sets/IO/76417.io` is NOT authentic (our converter; no 80566). Pixel trap: `_pixel_cmd.sh` with a coordinate ending `.0`
   NPEs in `input text` and pauses the game; write `-45`. Pixel leftovers (ours, delete file by file if needed):
   `LoopCoaste(62)`/`(63)`, `GringottsW(40)`/`(41)`, `GringottsW(42)` (05a), probe `Craftmatic(21)`/`(22)` BP + `(10)`/`(11)` RP pack folders,
   `/sdcard/Download/000-*.mcaddon`.
