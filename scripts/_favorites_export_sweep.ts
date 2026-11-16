@@ -26,6 +26,7 @@
 import { existsSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { firstPickSource, legoTabLabel, packStem, readModelsIndex, sweepTargets } from './favourite-sets.ts';
+import { coarsenedShareOf, type EntityContentDiag } from './pack-content.ts';
 
 const argv = process.argv.slice(2);
 const outIndex = argv.indexOf('--out');
@@ -116,14 +117,10 @@ for (const b of builds) {
     row.warnings = report.warnings ?? [];
     const entities = report.entities ?? {};
     row.entities = Object.keys(entities).length;
-    let planned = 0, coarsened = 0;
     for (const [name, diag] of Object.entries(entities)) {
       const plan = diag.grainPlan;
       if (!plan) continue;
       const at = plan.placementsAtGrain ?? {};
-      const total = Object.values(at).reduce((sum, n) => sum + n, 0);
-      planned += total;
-      coarsened += total - (at[String(plan.requested ?? (plan as { requestedMicrocellLdu?: number }).requestedMicrocellLdu)] ?? 0);
       row.grains.push({
         entity: name,
         requested: (plan as { requestedMicrocellLdu?: number }).requestedMicrocellLdu ?? 0,
@@ -135,7 +132,7 @@ for (const b of builds) {
         fidelityAtRequested: Number(plan.fidelityAtRequested), placementsAtGrain: at,
       });
     }
-    row.coarsenedShare = planned ? +(coarsened / planned).toFixed(4) : null;
+    row.coarsenedShare = coarsenedShareOf(entities as Record<string, EntityContentDiag>);
   } catch (e) {
     row.error = `report parse: ${e instanceof Error ? e.message : String(e)}`;
   }
