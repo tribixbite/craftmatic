@@ -140,5 +140,8 @@ describe('face census causes (generality census 2026-11-16)', () => {
     expect(defaultFaceCause(row({}), 'ReconV3/3570.ldr')).toBe('no print id: PDF reconstruction');
     expect(defaultFaceCause(row({ face: 'doll-default', doll: true }), 'OMR/3942-1.mpd')).toBe('plain mini-doll head');
     expect(defaultFaceCause(row({}), 'OMR/5972-1.mpd')).toBe('no print id: plain head in the source');
+    expect(defaultFaceCause(row({}), 'DbixConvV3/77092_sm01.ldr')).toBe('no print id: DBIX element and decoration in no print table');
+    // A doll head that names a print LDraw lacks is short of a print, not a plain doll.
+    expect(defaultFaceCause(row({ face: 'doll-default', doll: true, print: '92198pr0050' }), 'DbixConvV3/41703.ldr')).toBe('named, no LDraw print');
   });
 });

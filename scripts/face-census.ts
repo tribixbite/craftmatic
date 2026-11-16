@@ -115,11 +115,12 @@ export function summariseHeads(rows: readonly HeadCensusRow[]): HeadCensusSummar
  */
 export function defaultFaceCause(row: HeadCensusRow, sourcePath: string): string | null {
   if (isRealFace(row.face)) return null;
-  if (row.face === 'doll-default') return 'plain mini-doll head';
   if (row.print) return 'named, no LDraw print';
+  if (row.face === 'doll-default') return 'plain mini-doll head';
   const dir = sourcePath.replace(/\\/g, '/').split('/')[0]!.toLowerCase();
   if (/^mecabricks/.test(dir)) return 'no print id: Mecabricks decoration lost in conversion';
   if (/^(eurobricks|lxf|huntarchive)/.test(dir) || /\.lxfml?$/i.test(sourcePath)) return 'no print id: LDD decoration not in the print table';
   if (/^(reconv\d|reconstructed|recongpu|pdf)/.test(dir)) return 'no print id: PDF reconstruction';
+  if (/^dbix/.test(dir)) return 'no print id: DBIX element and decoration in no print table';
   return 'no print id: plain head in the source';
 }
