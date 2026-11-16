@@ -81,3 +81,27 @@ describe.skipIf(!existsSync(`${CENSUS}/2507-fire-temple.json`))('gate content ov
     expect(row.boxedParts).toEqual(['38117']);
   });
 });
+
+describe('the gate report carries the content section (PROC-19, 2026-11-16)', () => {
+  // The first gate runs with the content code merged wrote no content section at all, and `--content-only` rewrote
+  // gate.md with an empty body reading "passed", deleting the step results (output/gengate2-cda5f7b9).
+  it('appends the content section after the step rows', async () => {
+    const { withContentSection } = await import('../scripts/_favourites_gate.ts');
+    const steps = '# Favourites gate\n\nDirectory: `x`; FAILED.\n\n## child-play: FAIL (exit 1), 6.8 min\n\nrows\n';
+    const out = withContentSection(steps, '## content (reported, not judged)\n\ntotals\n');
+    expect(out).toContain('## child-play: FAIL (exit 1)');
+    expect(out).toContain('## content (reported, not judged)');
+    expect(out.indexOf('## child-play')).toBeLessThan(out.indexOf('## content'));
+  });
+
+  it('a content-only run replaces only the content section and keeps the steps and their verdict', async () => {
+    const { withContentSection } = await import('../scripts/_favourites_gate.ts');
+    const first = withContentSection('# Favourites gate\n\nDirectory: `x`; FAILED.\n\n## vehicles: PASS, 0.7 min\n\nok\n', '## content (reported, not judged)\n\nold totals\n');
+    const again = withContentSection(first, '## content (reported, not judged)\n\nnew totals\n');
+    expect(again).toContain('FAILED');
+    expect(again).toContain('## vehicles: PASS');
+    expect(again).toContain('new totals');
+    expect(again).not.toContain('old totals');
+    expect(again.match(/## content/g)?.length).toBe(1);
+  });
+});

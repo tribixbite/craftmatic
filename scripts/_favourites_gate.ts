@@ -25,7 +25,7 @@
  * Exit 1 when any step fails. A full gate over 40 packs takes about 25 minutes on this machine (child play ~19).
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { contentSection, contentTotals, packContent, readBuildReports } from './pack-content.ts';
 
 /** The wand sizes the favourites gate places: the sizes a child picks that have failed before (A-16). */
@@ -80,7 +80,8 @@ async function main(): Promise<void> {
   mkdirSync(dir, { recursive: true });
   const sets = argv.filter(a => !a.startsWith('--'));
   const faces = argv.find(a => a.startsWith('--faces='))?.slice('--faces='.length);
-  const steps = argv.includes('--content-only') ? [] : gateSteps({ dir, sets, withGabby: argv.includes('--with-gabby'), build: argv.includes('--build'), faces });
+  const contentOnly = argv.includes('--content-only');
+  const steps = contentOnly ? [] : gateSteps({ dir, sets, withGabby: argv.includes('--with-gabby'), build: argv.includes('--build'), faces });
   const rows: string[] = [];
   let failed = false;
   for (const step of steps) {
@@ -95,10 +96,38 @@ async function main(): Promise<void> {
     console.log(`[gate] ${step.name}: exit ${code} in ${minutes} min`);
     rows.push(`## ${step.name}: ${code === 0 ? 'PASS' : `FAIL (exit ${code})`}, ${minutes} min\n\n\`bun ${args.join(' ')}\`\n\n\`\`\`\n${summaryLines(out).join('\n')}\n\`\`\`\n`);
   }
+  const section = contentFor(dir);
+  if (contentOnly) {
+    // Keep the steps' results and verdict; only the content numbers are refreshed.
+    const existing = existsSync(`${dir}/gate.md`) ? readFileSync(`${dir}/gate.md`, 'utf8') : `# Favourites gate\n\nDirectory: \`${dir}\`; content only, no step was run.\n`;
+    writeFileSync(`${dir}/gate.md`, section ? withContentSection(existing, section) : existing);
+    console.log(`[gate] content: ${dir}/gate.md`);
+    process.exit(0);
+  }
   const report = `# Favourites gate\n\nDirectory: \`${dir}\`; sizes ${FAVOURITES_GATE_SIZES.join(', ')} percent; ${failed ? 'FAILED' : 'passed'}.\nLogs: \`gate-<step>.log\`, JSON: \`gate-<step>.json\`.\n\n${rows.join('\n')}`;
-  writeFileSync(`${dir}/gate.md`, report);
+  writeFileSync(`${dir}/gate.md`, section ? withContentSection(report, section) : report);
   console.log(`[gate] report: ${dir}/gate.md`);
   process.exit(failed ? 1 : 0);
+}
+
+/**
+ * The report with `section` (the content section, `contentSection`) as its LAST section: an older content section is
+ * replaced, every step row and the verdict line are kept. A `--content-only` run passes the existing gate.md, so it
+ * refreshes the content numbers without erasing the step results (2026-11-16: it rewrote gate.md as an empty
+ * "passed" report, and no full run wrote the section at all).
+ */
+export function withContentSection(report: string, section: string): string {
+  const at = report.search(/^## content\b/m);
+  const steps = (at >= 0 ? report.slice(0, at) : report).replace(/\s+$/, '');
+  return `${steps}\n\n${section.replace(/\s+$/, '')}\n`;
+}
+
+/** The content section over the build reports in `dir` (empty when there are none); also writes gate-content.json. */
+function contentFor(dir: string): string {
+  const rows = readBuildReports(dir).map(({ stem, report }) => packContent(stem, report));
+  if (!rows.length) return '';
+  writeFileSync(`${dir}/gate-content.json`, JSON.stringify({ totals: contentTotals(rows), rows }, null, 1));
+  return contentSection(rows);
 }
 
 // Run as a script only (`import.meta.main` is Bun's); the test imports the pure parts.
