@@ -778,6 +778,17 @@ describe('a run never stands across another doorway\'s line (census 2026-11-16: 
     expect(tallIn(plan, 4, 5, 10, 11, 9)).toEqual([]);
     assertNeverBlocks(cells, p.dims, plan);
   });
+  it('keeps the treads that restore the MODEL\'s own stair where it stands in a doorway\'s approach (the 100 % player meets those risers too)', () => {
+    const house = stairHouse(), cells = colliderSourceCells(colliders(house.dims, house.runs));
+    // Every stair column counted as a doorway's approach, the doorway at the ground floor's level (top of the plate).
+    const columns = house.stair.x.flatMap(x => house.stair.z.map(z => [x, z] as [number, number]));
+    for (const pct of [300, 400]) {
+      const bare = planColliderTreads(cells, house.dims, pct, 0);
+      const plan = planColliderTreads(cells, house.dims, pct, 0, [], [], undefined, undefined, undefined, [{ columns, floor16: 3, cells: [[0, 0, 4, 3, 16]] }]);
+      expect(treadsOnly(bare).length).toBeGreaterThan(0);
+      expect(treadsOnly(plan)).toEqual(treadsOnly(bare));
+    }
+  });
   it('keeps a run that climbs TO that doorway (its own approach, arriving at its floor)', () => {
     const p = platform(), cells = colliderSourceCells(colliders(p.dims, p.runs));
     // A doorway on the platform's west edge (100 % x 3, floor 14): its approach is the west face's ground.

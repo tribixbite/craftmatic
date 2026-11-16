@@ -1008,8 +1008,28 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) out.push(colKey(x, z));
     return out;
   };
-  /** Per world column, the doorways (their floor at this size, world sixteenths, and index) whose approach it is. */
-  const approachAt = new Map<number, Array<{ d: number; floor16: number }>>();
+  /** Per world column, the doorways (their floor at this size, world sixteenths, at 100 %, and index) whose approach it is. */
+  const approachAt = new Map<number, Array<{ d: number; floor16: number; floor100: number }>>();
+  /** The 100 % grid's collider spans per column (absolute sixteenths): what the model itself stands in an approach (`newWallAt`). */
+  const spans100 = new Map<string, Array<[number, number]>>();
+  if (approaches.length) for (const c of cells) {
+    const k = `${c.x},${c.z}`, list = spans100.get(k), sp: [number, number] = [c.y * 16 + c.lo, c.y * 16 + c.hi];
+    if (list) list.push(sp); else spans100.set(k, [sp]);
+  }
+  /**
+   * Whether a tread of top `top16` (world sixteenths) in world column (x, z) is a WALL the model never had there: at
+   * the model's own scale it stands more than a step over the 100 % column's top under it (or the doorway's floor,
+   * where the column is lower). A tread that
+   * restores the model's own riser - a stair of the model past the door, ramped over the floor before it - stands
+   * within a step of what a 100 % player meets in that column, and is kept.
+   */
+  const newWallAt = (x: number, z: number, top16: number, floor100: number): boolean => {
+    const s = sourceCellOf(Math.floor((x + 0.5) / f), Math.floor((z + 0.5) / f), dims, rotation);
+    const at100 = top16 / f;
+    let top100 = 0;
+    for (const [lo, hi] of spans100.get(`${s.x},${s.z}`) ?? []) if (lo < at100) top100 = Math.max(top100, hi);
+    return at100 > Math.max(top100, floor100) + STEP16;
+  };
   /** Per doorway, every world column of its approach and its closed cells: where a run may arrive at it. */
   const doorwayColumns = approaches.map(() => new Set<number>());
   approaches.forEach((a, d) => {
@@ -1026,19 +1046,20 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     for (const [x, z] of columns.values()) for (const k of worldColumns(x, z)) {
       doorwayColumns[d]!.add(k);
       const list = approachAt.get(k);
-      if (list) { if (!list.some(e => e.d === d)) list.push({ d, floor16 }); } else approachAt.set(k, [{ d, floor16 }]);
+      if (list) { if (!list.some(e => e.d === d)) list.push({ d, floor16, floor100: a.floor16 }); } else approachAt.set(k, [{ d, floor16, floor100: a.floor16 }]);
     }
     for (const c of a.cells) for (const k of worldColumns(c[0]!, c[2]!)) doorwayColumns[d]!.add(k);
   });
   /**
    * Whether a run arriving at `q` with treads `tops` in `cols` stands across another doorway's line: a tread in a
-   * doorway's approach more than a step over that doorway's floor, on a run that does not arrive at that doorway.
+   * doorway's approach more than a step over that doorway's floor, a wall the 100 % model never stood there
+   * (`newWallAt`), on a run that does not arrive at that doorway.
    */
   const crossesApproach = (q: Surface, cols: ReadonlyArray<{ x: number; z: number }>, tops: readonly number[]): boolean => {
     if (!approachAt.size) return false;
     const qk = colKey(q.x, q.z);
     return cols.some((c, k) => (approachAt.get(colKey(c.x, c.z)) ?? []).some(e =>
-      tops[k]! > e.floor16 + STEP16 && !(doorwayColumns[e.d]!.has(qk) && Math.abs(q.t - e.floor16) <= STEP16)));
+      tops[k]! > e.floor16 + STEP16 && newWallAt(c.x, c.z, tops[k]!, e.floor100) && !(doorwayColumns[e.d]!.has(qk) && Math.abs(q.t - e.floor16) <= STEP16)));
   };
   const failed = new Set<number>();               // edges refused, never retried
   const edgeKey = (p: Surface, q: Surface): number => grid.key(p.x, p.z, p.t) * 4 + (q.x > p.x ? 0 : q.x < p.x ? 1 : q.z > p.z ? 2 : 3);
