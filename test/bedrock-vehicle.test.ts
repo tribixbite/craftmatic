@@ -1620,3 +1620,16 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     expect(pointsNow()).toHaveLength(3);
   });
 });
+
+describe('the course post a turning plane swings its tail into stands OUTSIDE the plane at the start (sim harness)', () => {
+  it('a small plane (31060 stunt plane, half width 0.79) gets a post clear of its side; the favourites keep their post', async () => {
+    const { postCellBeyond } = await import('../web/src/sim/adapters/craftmatic/vehicle-course.js');
+    // The side edge at -240.5 - halfWidth; the post's near face must lie beyond it (lower z), never inside the hull.
+    for (const hw of [0.79, 5.82, 8.31, 8.98, 15]) {
+      const edge = -240.5 - hw, cell = postCellBeyond(edge, 0.7);
+      expect(cell + 1).toBeLessThanOrEqual(edge);
+    }
+    // The X-wing's (7140) post is where the device-reproduction case put it (cell -248, 0.68 off its side).
+    expect(postCellBeyond(-240.5 - 5.82, 0.7)).toBe(-248);
+  });
+});

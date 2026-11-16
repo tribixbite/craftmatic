@@ -176,6 +176,15 @@ export function modelDirToWorld(facts: PlacementFacts, placed: Placed, d: Vec3):
   return { x: q.x - o.x, y: q.y - o.y, z: q.z - o.z };
 }
 
+/** Every vehicle's kind (`car`, `plane`, `boat`) in `scripts/vehicle-camera.js`, by type id; empty when it ships none. */
+export function vehicleCameraKinds(pack: Pack): Map<string, string> {
+  const text = packText(pack, 'scripts/vehicle-camera.js');
+  const at = text ? text.indexOf('({"vehicles":') : -1;
+  if (!text || at < 0) return new Map();
+  const cfg = extractJsonAfter(text.slice(at), '(') as { vehicles?: Array<{ typeId?: string; kind?: string }> } | undefined;
+  return new Map((cfg?.vehicles ?? []).filter(c => c.typeId).map(c => [c.typeId!, String(c.kind ?? '?')]));
+}
+
 /**
  * A vehicle's entry in `scripts/vehicle-camera.js` (the camera runtime's first argument, `({"vehicles": ...})`):
  * whether its runtime is scripted, and the cockpit eye (hotbar slot 9) in the rideable seat's frame at 100 %
