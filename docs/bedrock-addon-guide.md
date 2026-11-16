@@ -5153,7 +5153,20 @@ cut into runs along the normal's dominant axis, and each pair's distance is
 measured over its OVERLAP (`CoplanarHit.lead` / `leadBack`), which the
 separation pushes against. The audit is position-independent since, so counts
 before 2026-11-15 under-read near-parallel pairs; compare builds only under one
-version of the tool.
+version of the tool. `buriedFaceTest` had the same fault (contacts indexed by plane offset) and
+reads contacts over the overlap since. One pass now settles a plane's layers
+(each pair is a constraint `disp(w) >= disp(l) + offset - lead`, relaxed), a
+pass after a push measures only near the moved faces, and the cap is 16.
+
+Result (`_render_fault_audit.ts` at the final tool, packs built with face art
+like the favourites gate `favgate-e7da6e47`, pairs / block faces before ->
+after): 11374 710 / 2.25 -> 0 / 0.00, 76269 678 / 2.79 -> 5 / 0.01, 75397
+152 / 0.81 -> 0, 41395 22 / 0.06 -> 0, 42663 32 / 0.08 -> 0, 10303 575 /
+1.83 -> 322 / 1.03, 10261 198 / 1.30 -> 70 / 0.89. What is left on the two
+coasters is their cars (and 10303's counterweight) measured at the station
+record point, where every car of a train is recorded; the ride spaces them
+along the track (`TODO(a17-moving)`). Over the 40 favourites the baseline at
+this tool is 10,627 pairs / 40.43 block faces (sweep `4da29033`).
 
 **What it does not fix**: the horizontal striping under 42703's arches and
 on round columns (Saga, `saga/after-42703-arch-b6c1c882.jpg`) is the stair-step
