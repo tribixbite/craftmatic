@@ -697,10 +697,24 @@ outside the export bounds, against 4 in 3 doorways from the `.io`) is unchanged
 > view ray, else within 60 degrees of the view, toggles; otherwise the tap boards as before, and a hold always boards.
 > Moving (speed > 0.05), every swinging part closes and taps board: an open leaf stands outside the footprint the move
 > resolver sweeps. Levers and turnables stay as left. A vehicle has no colliders, so the doorway rules do not apply:
-> a parked bus is entered by its seats. A native rotorcraft or flyer keeps its parts fixed (no script answers a tap),
-> and a SLIDE on a vehicle stays fixed geometry: its ride runs a world path the placement wrote and a separate seat
-> entity, neither of which follows a vehicle that has driven away. Device-unproven: whether a touch tap's view
-> direction is the camera centre or the finger's ray (`TODO(vehicle-parts-touch-aim)`; the cone covers either).
+> a parked bus is entered by its seats. A native rotorcraft or flyer keeps its parts fixed (no script answers a tap).
+> The pick turns the eye and view back by the body's leftover lean (`fl_pitch`/`fl_bank`, the drive animation's
+> `[-pitch, 0, -bank]` on `body` about its pivot, shipped as the type's `bodyPivot`), so a part is tested where the
+> leaned body draws it. Device-unproven: whether a touch tap's view direction is the camera centre or the finger's
+> ray (`TODO(vehicle-parts-touch-aim)`; the cone covers either).
+>
+> **A slide on a vehicle (2026-11-15, branch `audit-vslide`).** A building's slide is a ride seat at the top of a
+> WORLD path the placement wrote; a vehicle drives away from any such path. So a scripted vehicle ships each slide
+> it carries (`findSlides` over its bricks) as a `VehicleSlideRuntime`: the running line and the slide part's box in
+> its ENTITY frame (`sourceToEntityBlocks`: level, `A`, origin, scale, half round), and a `slide` entry of rides.js
+> with `onVehicle` (no seat placed). A tap picks the slide's box together with the parts; on a PARKED vehicle the
+> vehicle runtime turns the path to where it stands (`vehicleSlideWorldPath`), spawns the pack's ride seat at the top
+> with rides.js's own keys plus `craftmatic:ride_owner`, copies the placement tags (Undo) and seats the tapper
+> `RETRY_TICKS` later; rides.js runs it as any slide (same path runner, same `colliderBodyProbe` set-down), skips the
+> owner vehicle in the foot's hop and REMOVES the seat at the foot. Moving, the tap is refused with an action-bar line;
+> a rider of the vehicle never starts it. A native vehicle's slide stays fixed geometry (reported). Sim step
+> `vehicleSlides`. Not followed: the parked lean on the path (`TODO(vehicle-slide-lean)`, ~0.15 blocks on a 3-block
+> chute at 3 degrees), and a driver who drives off while someone is still sliding (the path stays where it began).
 
 Built and gated offline (`output/bedrock-entity-qa/round-2026-09-17/`, vitest 1,627
 passing); the device claims are listed in `TASKS-BEDROCK-ADDON.md` until the Pixel

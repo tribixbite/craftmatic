@@ -24,7 +24,7 @@
  */
 import type { VehicleWheelBone } from './ldraw-entity-compiler.js';
 import { floatActorProperty } from './bedrock-json.js';
-import { pickVehiclePart, type VehiclePartParams, type VehiclePartRuntime } from './vehicle-parts.js';
+import { pickVehiclePart, vehicleSlideWorldPath, type VehiclePartParams, type VehiclePartRuntime, type VehicleSlideRuntime, type VehicleSlideSeatConfig } from './vehicle-parts.js';
 import { COLLIDER_STATES, colliderBodyProbe, colliderFormKit, type ColliderBodyProbe, type EscapeOptions } from './collider-form.js';
 
 declare const world: any;
@@ -1371,6 +1371,8 @@ export interface ScriptedVehicleType {
   parts?: VehiclePartRuntime[];
   /** Its `body` bone's pivot, entity frame at 100 % (blocks): where the drive animation's lean turns the body (the pick follows it). */
   bodyPivot?: number[];
+  /** The slides it carries, ridden while it is parked (vehicle-parts.ts `VehicleSlideRuntime`). */
+  slides?: VehicleSlideRuntime[];
 }
 
 /** What the scripted-vehicle runtime is told about the pack. */
@@ -1398,6 +1400,8 @@ export interface ScriptedVehicleConfig {
   board?: BoardRuntimeConfig | undefined;
   /** The moving parts' constants (`VEHICLE_PART`) and property prefix; absent: no type carries parts. */
   parts?: (VehiclePartParams & { propertyPrefix: string }) | undefined;
+  /** The ride seat a slide on a vehicle spawns (rides.js runs it); absent: no type carries a slide. */
+  slides?: VehicleSlideSeatConfig | undefined;
 }
 
 /**
@@ -1416,7 +1420,7 @@ export interface ScriptedVehicleConfig {
  * sixteenths, a bottom slab's lower half, a top slab's upper half, a full
  * block otherwise; plants, torches, snow layers and light blocks are passed.
  */
-export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: typeof flightStep, boat: typeof boatStep, car: typeof carStep, sweep: typeof sweepFootprint, night: typeof isNightTime, lightCell: typeof headlightCell, resolve: typeof resolveMove, egress?: typeof vehicleEgress, body?: ColliderBodyProbe, places?: typeof boardPointPlaces, pickPart?: typeof pickVehiclePart): void {
+export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: typeof flightStep, boat: typeof boatStep, car: typeof carStep, sweep: typeof sweepFootprint, night: typeof isNightTime, lightCell: typeof headlightCell, resolve: typeof resolveMove, egress?: typeof vehicleEgress, body?: ColliderBodyProbe, places?: typeof boardPointPlaces, pickPart?: typeof pickVehiclePart, slidePath?: typeof vehicleSlideWorldPath): void {
   const F = config.flight, B = config.boat, C = config.car, H = config.hover, FP = config.footprint, MV = config.move, HL = config.headlights, DYN = config.dynamic;
   const COL = config.colliders;
   const typeIds = Object.keys(config.types);
@@ -1712,12 +1716,70 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
    * A TAP on a parked vehicle that meant one of its parts (`pickVehiclePart`: near the eye, under the view) opens or
    * closes it (a turnable turns a step) and is answered: true. Moving, or no part meant: false, and the tap boards.
    */
+  /** A slide's seat this runtime spawned and the tick it did, by `<vehicle id>:<slide>` (rides.js removes it at the foot). */
+  const slideSeats = new Map<string, { seat: any; at: number }>();
+  const say = (player: any, line: string): void => { try { player.onScreenDisplay.setActionBar(line); } catch { /* left */ } };
+  /**
+   * Ride slide `j` of the parked `vehicle` (vehicle-parts.ts `VehicleSlideRuntime`): its path turned to where the vehicle
+   * stands now, a ride seat spawned at its top carrying it (rides.js's own keys: index, path, scale, and the owner so the
+   * foot's hop skips this vehicle and the seat goes once ridden), the vehicle's placement tags copied (Undo takes it), and
+   * the player seated `RETRY_TICKS` later (quirk `add-rider-spawn-tick`), checked and retried, then the ride command.
+   */
+  const rideSlide = (player: any, vehicle: any, kind: ScriptedVehicleType, j: number, pose: { x: number; y: number; z: number; yaw: number }, k: number): void => {
+    const SL = config.slides, slide = kind.slides?.[j];
+    if (!SL || !slide || !slidePath) return;
+    const key = `${vehicle.id}:${j}`, held = slideSeats.get(key);
+    if (held && alive(held.seat)) {
+      let busy = false;
+      try { busy = (held.seat.getComponent('minecraft:rideable')?.getRiders?.() ?? []).length > 0; } catch { busy = false; }
+      if (busy) { say(player, 'Someone is on the slide - wait for them to reach the bottom'); return; }
+      try { held.seat.remove(); } catch { /* gone */ }
+    }
+    const path = slidePath(slide.path, pose, k);
+    if (path.length < 2) return;
+    let seat: any;
+    try { seat = vehicle.dimension.spawnEntity(SL.seatType, path[0]); } catch { return; }
+    try {
+      seat.setDynamicProperty(SL.keys.index, slide.ride);
+      seat.setDynamicProperty(SL.keys.path, JSON.stringify(path));
+      seat.setDynamicProperty(SL.keys.scale, k);
+      seat.setDynamicProperty(SL.keys.owner, vehicle.id);
+    } catch { try { seat.remove(); } catch { /* gone */ } return; }
+    const prefix = config.board?.placementTagPrefix;
+    if (prefix) { try { for (const t of vehicle.getTags()) if (String(t).startsWith(prefix)) seat.addTag(t); } catch { /* untagged */ } }
+    slideSeats.set(key, { seat, at: system.currentTick });
+    const retry = config.board?.params.RETRY_TICKS ?? 2, tries = config.board?.params.RETRIES ?? 2;
+    let n = 0;
+    const attempt = (): void => {
+      if (!alive(player) || !alive(seat)) return;
+      if (ridingOn(player)?.id === seat.id) return;
+      let ok = false;
+      try { ok = seat.getComponent('minecraft:rideable')?.addRider?.(player) === true; } catch { ok = false; }
+      if (ok) return;
+      if (n++ < tries) { system.runTimeout(attempt, retry); return; }
+      const l = seat.location;
+      try { player.runCommand(`ride @s start_riding @e[type=${SL.seatType},c=1,x=${l.x},y=${l.y},z=${l.z},r=1]`); } catch { /* left */ }
+    };
+    system.runTimeout(attempt, retry);
+    // A seat nobody took (every attempt refused) would stand where the vehicle WAS: it goes after three seconds empty.
+    system.runTimeout(() => {
+      if (!alive(seat)) return;
+      let riders = 0;
+      try { riders = (seat.getComponent('minecraft:rideable')?.getRiders?.() ?? []).length; } catch { riders = 0; }
+      if (!riders) { try { seat.remove(); } catch { /* gone */ } slideSeats.delete(key); }
+    }, 60);
+    if (telemetry) console.warn(`CMVT ${JSON.stringify({ slide: j, ride: slide.ride, top: path[0] })}`);
+  };
   const tapPart = (player: any, vehicle: any): boolean => {
     if (!PT || !player || player.typeId !== 'minecraft:player' || !vehicle) return false;
     const kind = config.types[String(vehicle.typeId)];
-    if (!kind?.parts?.length) return false;
+    const parts = kind?.parts ?? [], slides = kind?.slides ?? [];
+    if (!kind || (!parts.length && !slides.length)) return false;
     const st = states.get(vehicle.id);
-    if (st && (Math.abs(st.speed || 0) > PT.CLOSE_SPEED || Math.abs(st.vy || 0) > PT.CLOSE_SPEED)) return false;
+    const moving = !!st && (Math.abs(st.speed || 0) > PT.CLOSE_SPEED || Math.abs(st.vy || 0) > PT.CLOSE_SPEED);
+    // A rider of this very vehicle taps from inside it: its parts answer, never its slide (they would leave the wheel).
+    const aboard = ridingOn(player)?.id === vehicle.id;
+    if (moving && (!slides.length || aboard)) return false;
     let eye: any, dir: any, loc: any, yaw = 0, k = 1;
     try { eye = player.getHeadLocation(); dir = player.getViewDirection(); loc = vehicle.location; yaw = Number(vehicle.getRotation().y) || 0; } catch { return false; }
     try { const sc = Number(vehicle.getComponent('minecraft:scale')?.value); if (Number.isFinite(sc) && sc > 0) k = sc; } catch { /* unscaled */ }
@@ -1725,9 +1787,21 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     // The body's leftover lean (a parked car's last squat), which the drive animation draws (`vehicleClientAnimation`).
     let pitch = 0, bank = 0;
     try { pitch = Number(vehicle.getProperty(config.props.pitch)) || 0; bank = Number(vehicle.getProperty(config.props.bank)) || 0; } catch { /* level */ }
-    const i = pickPart!(kind.parts, { x: loc.x, y: loc.y, z: loc.z, yaw, pitch, bank, ...(kind.bodyPivot ? { pivot: kind.bodyPivot } : {}) }, k, eye, dir, values.map(v => v !== 0), PT);
+    const pose = { x: loc.x, y: loc.y, z: loc.z, yaw, pitch, bank, ...(kind.bodyPivot ? { pivot: kind.bodyPivot } : {}) };
+    // The parts and the slides are picked together, a slide by its part's box (never "open").
+    const usable = aboard ? [] : slides;
+    const boxes = moving ? usable.map(sl => ({ closed: sl.box, open: sl.box })) : [...parts, ...usable.map(sl => ({ closed: sl.box, open: sl.box }))];
+    const flags = moving ? usable.map(() => false) : [...values.map(v => v !== 0), ...usable.map(() => false)];
+    const i = boxes.length ? pickPart!(boxes, pose, k, eye, dir, flags, PT) : -1;
     if (i < 0) return false;
-    const part = kind.parts[i]!;
+    const first = moving ? 0 : parts.length;
+    if (i >= first) {
+      // A slide: refused while the vehicle moves (its path would leave the chute behind), else ridden from where it stands.
+      if (moving) { say(player, 'The slide works when the vehicle is parked - wait for it to stop'); return true; }
+      rideSlide(player, vehicle, kind, i - first, { x: loc.x, y: loc.y, z: loc.z, yaw }, k);
+      return true;
+    }
+    const part = parts[i]!;
     setPart(vehicle, kind, i, part.kind === 'turnable' ? (values[i]! + part.angle) % 36000 : values[i] !== 0 ? 0 : part.angle);
     if (telemetry) console.warn(`CMVT ${JSON.stringify({ part: i, kind: part.kind, value: partsOf(vehicle, kind)[i] })}`);
     return true;
@@ -2286,5 +2360,5 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
 export function scriptedVehicleScript(config: ScriptedVehicleConfig): string {
   // The collider body probe the seats and rides use, over this pack's collider states: the set-down's floors, room and walk exits.
   const probe = `(${colliderBodyProbe.toString()})((${colliderFormKit.toString()})(), ${JSON.stringify(config.colliders?.loState ?? COLLIDER_STATES.lo)}, ${JSON.stringify(config.colliders?.hiState ?? COLLIDER_STATES.hi)})`;
-  return `import { world, system } from "@minecraft/server";\n(${scriptedVehicleRuntime.toString()})(${JSON.stringify(config)}, ${flightStep.toString()}, ${boatStep.toString()}, ${carStep.toString()}, ${sweepFootprint.toString()}, ${isNightTime.toString()}, ${headlightCell.toString()}, ${resolveMove.toString()}, ${vehicleEgress.toString()}, ${probe}, ${boardPointPlaces.toString()}, ${pickVehiclePart.toString()});\n`;
+  return `import { world, system } from "@minecraft/server";\n(${scriptedVehicleRuntime.toString()})(${JSON.stringify(config)}, ${flightStep.toString()}, ${boatStep.toString()}, ${carStep.toString()}, ${sweepFootprint.toString()}, ${isNightTime.toString()}, ${headlightCell.toString()}, ${resolveMove.toString()}, ${vehicleEgress.toString()}, ${probe}, ${boardPointPlaces.toString()}, ${pickVehiclePart.toString()}, ${vehicleSlideWorldPath.toString()});\n`;
 }

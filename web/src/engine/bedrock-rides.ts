@@ -159,6 +159,8 @@ export interface SceneRide {
   startStop?: number;
   /** A lift: the car's placements (its own moving entity, out of the shell). */
   carBricks?: ParsedBrick[];
+  /** A slide: the slide part's box, LDraw (what a tap on a slide a VEHICLE carries aims at, vehicle-parts.ts). */
+  boxLdu?: { min: Vec3; max: Vec3 };
 }
 
 const IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -302,7 +304,7 @@ export function findSlides(bricks: readonly ParsedBrick[], meshes: ReadonlyMap<s
     const m = meshes.get(b.part);
     if (!m || !isSlideDescription(m.description)) continue;
     const pathLdu = slidePathLdu(b, m);
-    if (pathLdu) out.push({ kind: 'slide', label: 'Slide', part: b.part.replace(/\.dat$/i, ''), pathLdu });
+    if (pathLdu) out.push({ kind: 'slide', label: 'Slide', part: b.part.replace(/\.dat$/i, ''), pathLdu, boxLdu: worldBox(b, m) });
   }
   return out;
 }
@@ -498,7 +500,7 @@ export interface RideRuntimeConfig {
    * car's type for a lift or an orbit's cloud, and for an orbit its own seat
    * type (figures only) and the figure type it carries and re-seats.
    */
-  rides: Array<{ kind: RideKind; carType?: string; startStop?: number; seatType?: string; riderType?: string }>;
+  rides: Array<{ kind: RideKind; carType?: string; startStop?: number; seatType?: string; riderType?: string; /** A slide a scripted vehicle of this type carries: no seat is placed, the vehicle's runtime spawns one (vehicle-parts.ts). */ onVehicle?: string }>;
   constants: typeof RIDE;
   /** The hop kit's config (bedrock-ride-hop.ts): a slide's set-down boards a mountable parked at its foot. */
   hop?: HopKitConfig;
@@ -515,7 +517,7 @@ declare const system: any;
  */
 function ridesRuntime(config: RideRuntimeConfig, body?: ColliderBodyProbe, hop?: HopKit): void {
   const R = config.constants;
-  const K = { index: 'craftmatic:ride', path: 'craftmatic:ride_path', exits: 'craftmatic:ride_exits', scale: 'craftmatic:ride_scale', stop: 'craftmatic:ride_stop', dir: 'craftmatic:ride_dir' };
+  const K = { index: 'craftmatic:ride', path: 'craftmatic:ride_path', exits: 'craftmatic:ride_exits', scale: 'craftmatic:ride_scale', stop: 'craftmatic:ride_stop', dir: 'craftmatic:ride_dir', owner: 'craftmatic:ride_owner' };
   type P = { x: number; y: number; z: number };
   interface Run {
     seat: any; rider: any; kind: string; path: P[]; lens: number[]; s: number; end: number; v: number; f: number; car?: any; carOffset?: P; target?: number; exit?: P; done?: number; home?: P;
@@ -651,12 +653,16 @@ function ridesRuntime(config: RideRuntimeConfig, body?: ColliderBodyProbe, hop?:
       for (const r of riders) {
         if (r?.typeId !== 'minecraft:player') continue;
         let target: any;
-        try { target = hop.nearestAt(run.seat.dimension, at, reach, new Set([run.seat.id])); } catch { target = undefined; }
+        // A slide a vehicle carries (`K.owner`): its own vehicle stands at the foot and is no seat to slide into.
+        const owner = read(run.seat, K.owner);
+        try { target = hop.nearestAt(run.seat.dimension, at, reach, new Set([run.seat.id, ...(typeof owner === 'string' ? [owner] : [])])); } catch { target = undefined; }
         if (target && hop.board(r, target)) boarded.add(r.id);
       }
     }
     for (const r of riders) { if (boarded.has(r.id)) continue; try { r.teleport(at, { keepVelocity: false }); } catch { /* left */ } }
     if (run.kind === 'lift') { try { run.seat.setDynamicProperty(K.stop, run.target); } catch { /* gone */ } running.delete(run.seat.id); }
+    // A vehicle's slide seat was spawned for this one ride, where the vehicle stood: it goes (the next tap spawns another).
+    else if (typeof read(run.seat, K.owner) === 'string') { try { run.seat.remove(); } catch { /* gone */ } running.delete(run.seat.id); }
     else run.done = system.currentTick;
   };
   const hasOrbits = config.rides.some(r => r.kind === 'orbit');

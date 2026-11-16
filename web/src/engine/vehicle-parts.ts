@@ -92,6 +92,64 @@ export interface VehiclePartRuntime {
   open: number[];
 }
 
+/**
+ * A SLIDE a scripted vehicle carries (the bus's playground slide, 41395's 11267), as the runtime sees it: the ride's
+ * index in `scripts/rides.js`, its running line (top to foot, then the run-out: bedrock-rides.ts `slidePathLdu`) and the
+ * slide part's box, both in the ENTITY frame at yaw 0 and 100 % (blocks; +z the nose), as a part's boxes are.
+ *
+ * A building's slide is a ride seat standing at the top of a WORLD path the placement wrote; a vehicle drives away
+ * from any such path. So the vehicle's slide is resolved when it is ridden: a tap on the slide of the PARKED vehicle
+ * (picked with its parts, `pickVehiclePart` over the slide's box) has the vehicle runtime turn the path to where the
+ * vehicle stands now (`vehicleSlideWorldPath`), spawn the pack's ride seat at its top carrying that path and seat the
+ * tapper; rides.js then runs it as any slide (its own path runner and set-down through `colliderBodyProbe`) and
+ * removes the seat at the foot (`craftmatic:ride_owner`). A tap on it while the vehicle moves is refused, with a line
+ * saying why. A slide on a native vehicle (rotorcraft, flyer) stays fixed geometry: no script starts it.
+ */
+export interface VehicleSlideRuntime {
+  /** Its index in rides.js's `rides` (a `slide` entry with `onVehicle`). */
+  ride: number;
+  /** Its running line, entity frame at 100 % (blocks). */
+  path: number[][];
+  /** The slide part's box, entity frame at 100 %: x0, y0, z0, x1, y1, z1. */
+  box: number[];
+}
+
+/** What the vehicle runtime needs to start a slide (the rides' seat type and dynamic property keys, rides.js's own). */
+export interface VehicleSlideSeatConfig {
+  seatType: string;
+  keys: { index: string; path: string; scale: string; owner: string };
+}
+
+/** The ride seat's dynamic property naming the vehicle a slide's seat belongs to (rides.js removes such a seat at the foot). */
+export const RIDE_OWNER_PROPERTY = 'craftmatic:ride_owner';
+
+/**
+ * A point of the compiled vehicle's SOURCE (LDraw, as the pipeline found the slide) in the entity frame at 100 % (blocks):
+ * levelled with the model, into the render frame (`A`), less the origin, scaled - then half round, x and z, as the
+ * geometry is drawn (`renderSeatToEntity`, `extraPlacement`).
+ */
+export function sourceToEntityBlocks(t: { A: readonly number[]; origin: readonly number[]; scale: number; level?: { rotation: readonly number[]; centre: readonly number[] } }, p: readonly number[]): number[] {
+  let q = [p[0]!, p[1]!, p[2]!];
+  if (t.level) {
+    const R = t.level.rotation, c = t.level.centre, d = [q[0]! - c[0]!, q[1]! - c[1]!, q[2]! - c[2]!];
+    q = [0, 1, 2].map(i => R[i * 3]! * d[0]! + R[i * 3 + 1]! * d[1]! + R[i * 3 + 2]! * d[2]! + c[i]!);
+  }
+  const A = t.A, r = [0, 1, 2].map(i => A[i * 3]! * q[0]! + A[i * 3 + 1]! * q[1]! + A[i * 3 + 2]! * q[2]!);
+  const k = t.scale / 16, r3 = (v: number): number => Math.round(v * 1000) / 1000 || 0;
+  return [r3(-(r[0]! - t.origin[0]!) * k), r3((r[1]! - t.origin[1]!) * k), r3(-(r[2]! - t.origin[2]!) * k)];
+}
+
+/**
+ * A vehicle slide's running line in the WORLD where the vehicle stands (pure; serialised into `scripts/vehicles.js`):
+ * every point scaled by the vehicle's live scale `k` and turned by its Bedrock yaw (0 faces +z, +x turns toward +z,
+ * as `boardPointPlaces` turns its columns). The body's leftover lean is not followed (# TODO(vehicle-slide-lean): a
+ * parked car's 3 degrees move a 3-block chute's top ~0.15 blocks; the seat runs over the drawn bed within that).
+ */
+export function vehicleSlideWorldPath(path: ReadonlyArray<readonly number[]>, pose: { x: number; y: number; z: number; yaw: number }, k: number): Array<{ x: number; y: number; z: number }> {
+  const r = pose.yaw * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+  return path.map(p => ({ x: pose.x + (p[0]! * c - p[2]! * s) * k, y: pose.y + p[1]! * k, z: pose.z + (p[0]! * s + p[2]! * c) * k }));
+}
+
 /** `description.properties` of a vehicle carrying `count` parts (float literals: bedrock-json.ts). */
 export function vehiclePartProperties(count: number): Record<string, unknown> {
   const out: Record<string, unknown> = {};

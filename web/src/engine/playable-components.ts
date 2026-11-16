@@ -31,6 +31,8 @@ export interface PlayableBrickComponent {
   extraSeatBricks?: ParsedBrick[];
   /** The doors, lids and cupboards it carries, as bones of its own geometry (vehicle-parts.ts, audit A-02). */
   vehicleParts?: import('./vehicle-parts.js').VehiclePartSpec[];
+  /** The slides it carries (LDraw, source frame): ridden while it is parked (vehicle-parts.ts `VehicleSlideRuntime`). */
+  vehicleSlides?: Array<{ part: string; pathLdu: Array<[number, number, number]>; boxLdu: { min: [number, number, number]; max: [number, number, number] } }>;
 }
 
 const CAR_WORDS = /\b(car|truck|bus|buggy|racer|roadster|batmobile|tumbler|vehicle|tractor|loader|motorcycle|motorbike|bike|kart|delorean|de lorean|time machine|ferrari|porsche|lamborghini|mclaren|bugatti|koenigsegg|corvette|mustang|mercedes|audi|bmw|formula 1|f1|jeep|suv|van|pickup|dragster|hot rod|hotrod|rover|speed champions|speed champion|hypercar|supercar|automobile|limo|limousine|cab|taxi|crawler|quad|atv|go-kart|speedster|hovercraft|locomotive|camper|convertible|coupe|sedan|mini cooper|aston martin|land rover|defender|volkswagen|caterham|ecto-1|ecto 1)\b/i;

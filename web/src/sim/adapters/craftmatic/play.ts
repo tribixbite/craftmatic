@@ -71,7 +71,7 @@ const rideSeat = (ctx: StepContext, pack: CraftmaticPack, index: number): SimEnt
  */
 // TODO(tilted-colliders): this reads a turned cube's CORNER box top (a sloped chute's highest corner), not its
 // surface under the seat (`drawnTopOver`); the 10788 slide limits were measured against it, so it stays until re-measured.
-function heightOverDrawn(boxes: readonly DrawnBox[], p: Vec3, radius: number): number | undefined {
+export function heightOverDrawn(boxes: readonly DrawnBox[], p: Vec3, radius: number): number | undefined {
   let top = -Infinity;
   for (const { box: b } of boxes) {
     if (p.x < b.x0 - radius || p.x > b.x1 + radius || p.z < b.z0 - radius || p.z > b.z1 + radius) continue;

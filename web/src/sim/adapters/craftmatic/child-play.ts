@@ -265,11 +265,14 @@ export function childPlayScenarios(pack: CraftmaticPack, options: ChildPlayOptio
   }
   const common = { allowLines: [...CRAFTMATIC_ALLOWED_LINES], yieldingLines: [...CRAFTMATIC_YIELDING_LINES] };
   const partVehicles = scriptedVehicleTypes(pack).filter(t => t.parts.length);
+  const slideVehicles = scriptedVehicleTypes(pack).filter(t => t.slides.length);
   for (const [size, rot] of variants) {
     const steps: Step[] = [{ kind: 'place', size, rotation: rot }, { kind: 'wait', ticks: 40 }];
     if (pack.interactives?.items.length) steps.push({ kind: 'tapInteractives' }, { kind: 'doorwayLines' });
     // A vehicle's own doors, lids and cupboards (vehicle-parts.ts, A-02): opened on the parked vehicle at this size and turn.
     if (partVehicles.length) steps.push({ kind: 'vehicleParts' });
+    // A vehicle's slides: ridden from a tap while it is parked at this size and turn (A-02).
+    if (slideVehicles.length) steps.push({ kind: 'vehicleSlides' });
     steps.push({ kind: 'undo' });
     out.push({ name: `place-${size}-${rot}`, description: `Place at ${size} percent, turn ${rot}; tap every moving part; walk every doorway; Undo.`, steps, ...common });
   }

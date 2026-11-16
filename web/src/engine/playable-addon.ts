@@ -50,7 +50,7 @@ import { HOP, HOP_TAGS, hopKitConfig, hopRuntimeConfig, hopScript, type HopSourc
 import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, pressFlashOverlay, ballAnimation, ballProperties, buttonPressAnimation, consoleAssets, consoleHideAnimation, pressProperties, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
 import { BOARD, BOARD_OWNER_PROPERTY, BOARD_POINTS_PROPERTY, BOAT, PLACEMENT_TAG_PREFIX, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, VEHICLE_DYNAMIC, VEHICLE_EGRESS, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
-import { VEHICLE_PART, bodyPivotOf, closesWhenMoving, vehiclePartAnimation, vehiclePartBoxes, vehiclePartProperties, vehiclePartProperty, type VehiclePartRuntime, type VehiclePartSpec } from './vehicle-parts.js';
+import { RIDE_OWNER_PROPERTY, VEHICLE_PART, bodyPivotOf, closesWhenMoving, sourceToEntityBlocks, type VehicleSlideRuntime, vehiclePartAnimation, vehiclePartBoxes, vehiclePartProperties, vehiclePartProperty, type VehiclePartRuntime, type VehiclePartSpec } from './vehicle-parts.js';
 import { COLLIDER_KIT, ESCAPE_OPTIONS } from './collider-form.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { COCKPIT_CLIENT_LAGS, FREE_LOOK, NATIVE_HEADING_PROPERTY, NATIVE_STEER, cockpitCamera, cockpitLagFor, type CockpitClientLag, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type FreeLookParams, type NativeSteerParams } from './vehicle-free-look.js';
@@ -83,6 +83,8 @@ export interface PlayableGridComponent {
     extraSeatBricks?: ParsedBrick[];
     /** The doors, lids and cupboards it carries, as bones of its own geometry (vehicle-parts.ts, audit A-02). */
     vehicleParts?: VehiclePartSpec[];
+    /** The slides it carries (LDraw, source frame): ridden while it is parked (vehicle-parts.ts `VehicleSlideRuntime`). */
+    vehicleSlides?: Array<{ part: string; pathLdu: Array<[number, number, number]>; boxLdu: { min: [number, number, number]; max: [number, number, number] } }>;
     /** Spawn center in the stationary model's block coordinates. */
     x?: number;
     y?: number;
@@ -3427,6 +3429,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const driverVehicles: VehicleDriverConfig['vehicles'] = [];
     /** Fixed-wing aircraft and boats moved by scripts/vehicles.js (bedrock-vehicle.ts), with half their length for the bow probe. */
     const scriptedTypes: ScriptedVehicleConfig['types'] = {};
+    /** The slides scripted vehicles carry, in vehicle order: each is a `slide` ride of rides.js on that vehicle (`VehicleSlideRuntime`). */
+    const vehicleSlides: Array<{ typeId: string; label: string; part: string; runtime: VehicleSlideRuntime }> = [];
     /** Whether any scripted vehicle carries moving parts (`scripts/vehicles.js` then gets their constants). */
     let vehiclePartsShipped = false;
     const cameraVehicles: VehicleCameraConfig[] = [];
@@ -3533,6 +3537,20 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             partRuntime = carriedParts.map((part, k) => ({ kind: part.kind, noun: part.noun, angle: part.angleDeg, closes: closesWhenMoving(part.kind), closed: boxes[k]?.closed ?? [], open: boxes[k]?.open ?? [] }));
             const bodyPivot = bodyPivotOf(ldrawGeo.value);
             scriptedTypes[fullTypeId] = { ...scriptedTypes[fullTypeId]!, parts: partRuntime, ...(bodyPivot ? { bodyPivot } : {}) };
+            vehiclePartsShipped = true;
+        }
+        // Its slides (vehicle-parts.ts `VehicleSlideRuntime`): ridden while it is parked, the path turned to where it stands
+        // when a tap boards it. Their ride indices in rides.js are given below, after the building's rides and orbits.
+        if (scripted && ldrawGeo && c.vehicleSlides?.length) {
+            const geo = ldrawGeo;
+            const slides: VehicleSlideRuntime[] = c.vehicleSlides.map(sl => {
+                const corners = [0, 1, 2, 3, 4, 5, 6, 7].map(n => sourceToEntityBlocks(geo.transform, [(n & 1 ? sl.boxLdu.max : sl.boxLdu.min)[0], (n & 2 ? sl.boxLdu.max : sl.boxLdu.min)[1], (n & 4 ? sl.boxLdu.max : sl.boxLdu.min)[2]]));
+                const box = [0, 1, 2].map(a => Math.min(...corners.map(q => q[a]!))).concat([0, 1, 2].map(a => Math.max(...corners.map(q => q[a]!))));
+                return { ride: -1, path: sl.pathLdu.map(q => sourceToEntityBlocks(geo.transform, q)), box };
+            });
+            const bodyPivot = scriptedTypes[fullTypeId]!.bodyPivot ?? bodyPivotOf(ldrawGeo.value);
+            scriptedTypes[fullTypeId] = { ...scriptedTypes[fullTypeId]!, slides, ...(bodyPivot ? { bodyPivot } : {}) };
+            for (const [k, sl] of c.vehicleSlides.entries()) vehicleSlides.push({ typeId: fullTypeId, label: c.label, part: sl.part, runtime: slides[k]! });
             vehiclePartsShipped = true;
         }
         // A scripted vehicle whose driver's eye left the cabin keeps its rider at the helm (`helmSeatPlan`).
@@ -4011,7 +4029,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // A mount companion's orbit (above) is a ride of the same script, listed
     // after them; it needs the script and the seat geometry, not the player seat.
     let ridesConfig: RideRuntimeConfig | undefined;
-    if (options.rides?.items.length || orbitRides.length) {
+    /** The ride seat a scripted vehicle's slide spawns (scripts/vehicles.js `slides`); absent: no vehicle carries a slide. */
+    let vehicleSlideSeat: import('./vehicle-parts.js').VehicleSlideSeatConfig | undefined;
+    if (options.rides?.items.length || orbitRides.length || vehicleSlides.length) {
         const rideSeatId = entityId(`${id}_ride`, 'r');
         const rideSeatType = `${PACK_NAMESPACE}:${rideSeatId}`;
         files.push(
@@ -4055,6 +4075,16 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             extraComponents.push({ id: `${rideSeatId}_${i + 1}`, label: rideLabel, kind: 'seat', provenance: r.kind === 'slide' ? `slide: sit at the top to slide down its chute (${r.path.length} points)` : `lift: sit in the car to ride to the next floor (${r.path.length} stops)` });
         }
         for (const o of orbitRides) rideList.push({ kind: 'orbit', carType: o.carType, seatType: o.seatType, ...(o.riderType ? { riderType: o.riderType } : {}) });
+        // A vehicle's slides: no seat is placed (the vehicle moves); its runtime spawns one where the vehicle is parked.
+        for (const sl of vehicleSlides) {
+            sl.runtime.ride = rideList.length;
+            rideList.push({ kind: 'slide', onVehicle: sl.typeId });
+            extraComponents.push({ id: `${rideSeatId}_v${sl.runtime.ride + 1}`, label: `${sl.label} slide`, kind: 'seat', provenance: `slide ${sl.part} on ${sl.label}: tap it beside the parked vehicle to slide down its chute (${sl.runtime.path.length} points)` });
+        }
+        if (vehicleSlides.length) {
+            vehicleSlideSeat = { seatType: rideSeatType, keys: { index: 'craftmatic:ride', path: 'craftmatic:ride_path', scale: 'craftmatic:ride_scale', owner: RIDE_OWNER_PROPERTY } };
+            warnings.push(`${label}: ${vehicleSlides.length} slide${vehicleSlides.length === 1 ? '' : 's'} on a vehicle (${vehicleSlides.map(v => `${v.part} on ${v.label}`).join(', ')}): tap it beside the parked vehicle to ride it.`);
+        }
         ridesConfig = { seatType: rideSeatType, rides: rideList, constants: RIDE, hop: hopKitConfig(PACK_NAMESPACE), ...(flags.compactColliderStates ? { colliderStates: { lo: colliderStates.lo, hi: colliderStates.hi } } : {}) };
         if (options.rides?.items.length) warnings.push(`${label}: rides - ${rideList.filter(r => r.kind === 'slide').length} slide(s) and ${rideList.filter(r => r.kind === 'lift').length} lift(s); sit on one to ride it.`);
     }
@@ -4321,6 +4351,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         egress: VEHICLE_EGRESS, escape: ESCAPE_OPTIONS,
         ...(boardConfig ? { board: boardConfig } : {}),
         ...(vehiclePartsShipped ? { parts: { ...VEHICLE_PART, propertyPrefix: vehiclePartProperty(0).replace(/0$/, '') } } : {}),
+        ...(vehicleSlideSeat ? { slides: vehicleSlideSeat } : {}),
     })) });
     if (interactiveConfig) files.push({ name: `${bp}scripts/interactives.js`, data: text(interactivesScript(interactiveConfig)) });
     if (ridesConfig) files.push({ name: `${bp}scripts/rides.js`, data: text(ridesScript(ridesConfig)) });

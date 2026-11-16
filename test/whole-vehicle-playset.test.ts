@@ -24,6 +24,8 @@ const EXTRA = {
   cmwheel: ['0 Wheel 48mm D. x 12mm', ...box6(-24, 24, -24, 24, -6, 6)].join('\n'),
   '60623': ['0 Door  1 x  4 x  6 with 4 Panes and Stud Handle', ...box6(-4, 67, 3, 137, -3, 3)].join('\n'),
   '4079': ['0 Minifig Seat  2 x  2', ...box6(-20, 20, -40, 8, -20, 25)].join('\n'),
+  // A playground slide (`isSlideDescription`): ten 16-LDU steps falling 12 each along +z, its base at y 0.
+  cmslide: ['0 Slide  2 x 10 x  5 Straight', ...Array.from({ length: 10 }, (_, i) => box6(-20, 20, -120 + i * 12, 0, i * 16, (i + 1) * 16)).flat()].join('\n'),
 };
 
 const line = (color: number, x: number, y: number, z: number, part: string): string => `1 ${color} ${x} ${y} ${z} 1 0 0 0 1 0 0 0 1 ${part}`;
@@ -46,7 +48,10 @@ const TABLE = [
 ];
 const BUS_PARTS = BUS.length;
 
-async function build(label: string, lines: string[]): Promise<{ bytes: Uint8Array; files: Map<string, Uint8Array>; warnings: string[]; scale: number | undefined; cue: string | undefined; diag: any }> {
+/** The bus with a slide hung on its flank: its top beside the roof, its foot on the ground 160 LDU out (3 blocks). */
+const SLIDE_BUS = [...BUS, line(15, 0, 0, 40, 'cmslide.dat')];
+
+async function build(label: string, lines: string[], scale: 'auto' | 'given' = 'auto'): Promise<{ bytes: Uint8Array; files: Map<string, Uint8Array>; warnings: string[]; scale: number | undefined; cue: string | undefined; diag: any }> {
   seedBoxParts(EXTRA);
   const bricks = parseLDrawDocument(lines.join('\n')).bricks;
   const result = await runSchemPipeline({
@@ -54,7 +59,7 @@ async function build(label: string, lines: string[]): Promise<{ bytes: Uint8Arra
     format: 'mcaddon', packStem: 'BusDemo', packLabel: label, profile: 'default', lightFill: false, shapes: false,
     vehicleMode: 'auto', vehicleFacing: 'auto', entityQuality: 'balanced', modelScale: 1,
     // The caller planned the scale as `auto` (ui/schem-export.ts, scripts/_playable_ref.ts): the pipeline may size it from the geometry.
-    addonScaleChoice: 'auto',
+    ...(scale === 'auto' ? { addonScaleChoice: 'auto' as const } : {}),
     pipelineStamp: FIXED_STAMP, sourceProvenance: null,
   });
   const files = await unzipAll(result.bytes!);
@@ -108,6 +113,21 @@ describe('what a whole-model vehicle carries (A-02, PROC-19)', () => {
     expect(r.violations.map(v => v.message)).toEqual([]);
     const s = r.state['vehicleParts'] as { parts: number; opened: number; closedWhileMoving: boolean; drove: number; reopenedAfterDrive: boolean; followed: boolean };
     expect(s).toMatchObject({ parts: 1, opened: 1, closedWhileMoving: true, reopenedAfterDrive: true, followed: true });
+    expect(s.drove).toBeGreaterThan(1);
+  }, 240_000);
+
+  it('a slide on a parked bus is ridden from a tap, refused while it drives, and rides with it to where it parks', async () => {
+    // At minifig scale (the scale given): the slide is a child's size.
+    const bus = await build('Long Bus', SLIDE_BUS, 'given');
+    expect(bus.warnings.some(w => /slide cmslide/.test(w) && /ride it while it is parked/.test(w))).toBe(true);
+    const addon = await readAddon(bus.bytes, 'bus-slide');
+    const pack = readCraftmaticPack(addon)!;
+    const r = await runScenario({ name: 'bus-slide', steps: [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'vehicleSlides' }], invariants: [] },
+      [addon], { handlers: craftmaticHandlers(pack, addon) });
+    expect(r.steps.filter(s => !s.ok).map(s => s.error)).toEqual([]);
+    expect(r.violations.map(v => v.message)).toEqual([]);
+    const s = r.state['vehicleSlides'] as { slides: number; rode: number; refusedMoving: boolean; rodeAfterDrive: boolean; drove: number; seatsLeft: number };
+    expect(s).toMatchObject({ slides: 1, rode: 1, refusedMoving: true, rodeAfterDrive: true, seatsLeft: 0 });
     expect(s.drove).toBeGreaterThan(1);
   }, 240_000);
 

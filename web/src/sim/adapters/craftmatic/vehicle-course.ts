@@ -80,8 +80,9 @@ import { floorBelow, standsAt } from '../../scenario/approach.js';
 import { teleport } from '../../script-host/facades.js';
 import { CORE_HANDLERS, findEntity } from '../../scenario/runner.js';
 import { lookAt } from '../../input/touch.js';
-import { VEHICLE_PART, pickVehiclePart, vehiclePartProperty, type VehiclePartRuntime } from '../../../engine/vehicle-parts.js';
+import { VEHICLE_PART, pickVehiclePart, vehiclePartProperty, vehicleSlideWorldPath, type VehiclePartRuntime, type VehicleSlideRuntime } from '../../../engine/vehicle-parts.js';
 import { pivotRotation } from '../../../engine/bedrock-geometry-faces.js';
+import { SLIDE_SEAT_OVER_DRAWN, heightOverDrawn, onRunout } from './play.js';
 
 /** The view a player's rotation looks along (the facade's `getViewDirection`). */
 const viewDirectionOf = (e: SimEntity): { x: number; y: number; z: number } => viewDirection(e.rotation.y, e.rotation.x);
@@ -113,6 +114,8 @@ export interface ScriptedTypeFacts {
   parts: VehiclePartRuntime[];
   /** Its `body` bone's pivot (entity frame, blocks at 100 %), where the lean the pick follows turns it; absent: the origin. */
   bodyPivot?: number[];
+  /** The slides it carries, ridden while it is parked (vehicle-parts.ts `VehicleSlideRuntime`). */
+  slides: VehicleSlideRuntime[];
 }
 
 /** The scripted vehicle types of a pack, read from `scripts/vehicles.js`'s config (the runtime's first argument). */
@@ -121,11 +124,12 @@ export function scriptedVehicleTypes(pack: CraftmaticPack): ScriptedTypeFacts[] 
   if (!text) return [];
   const at = text.indexOf('({"types":');
   if (at < 0) return [];
-  const cfg = extractJsonAfter(text.slice(at), '(') as { types?: Record<string, { mode?: string; noseReach?: number; halfWidth?: number; height?: number; draft?: number; parts?: VehiclePartRuntime[]; bodyPivot?: number[] }> } | undefined;
+  const cfg = extractJsonAfter(text.slice(at), '(') as { types?: Record<string, { mode?: string; noseReach?: number; halfWidth?: number; height?: number; draft?: number; parts?: VehiclePartRuntime[]; bodyPivot?: number[]; slides?: VehicleSlideRuntime[] }> } | undefined;
   return Object.entries(cfg?.types ?? {}).map(([typeId, t]) => ({
     typeId, mode: (t.mode ?? 'car') as ScriptedTypeFacts['mode'], noseReach: Number(t.noseReach ?? 1), halfWidth: Number(t.halfWidth ?? 0.5), height: Number(t.height ?? 1), draft: Number(t.draft ?? BOAT.DRAFT),
     parts: Array.isArray(t.parts) ? t.parts : [],
     ...(Array.isArray(t.bodyPivot) ? { bodyPivot: t.bodyPivot } : {}),
+    slides: Array.isArray(t.slides) ? t.slides : [],
   }));
 }
 
@@ -338,6 +342,70 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
     for (let x = b.x0; x <= b.x1; x++) for (let z = b.z0; z <= b.z1; z++) for (let y = FLAT_GROUND_Y; y <= top; y++) { setBlock(ctx, x, y, z, 'minecraft:stone'); cells.push([x, y, z]); }
     return cells;
   };
+  // The pack's own namespace (a rewritten twin's `NS:vpart_0`, sim-namespace.test.ts), never the literal `craftmatic:`.
+  const prop = (name: string): string => nsId(pack.namespace, name.replace(/^[^:]+:/, ''));
+  /** The vehicle's pose as the runtime's pick reads it: its yaw and its body's leftover lean (`FLIGHT_PROPS`). */
+  const poseOf = (v: SimEntity, f: ScriptedTypeFacts): { x: number; y: number; z: number; yaw: number; pitch: number; bank: number; pivot?: number[] } => ({
+    ...v.location, yaw: v.rotation.y, pitch: Number(v.properties.get(prop(FLIGHT_PROPS.pitch)) ?? 0) || 0, bank: Number(v.properties.get(prop(FLIGHT_PROPS.bank)) ?? 0) || 0, ...(f.bodyPivot ? { pivot: f.bodyPivot } : {}),
+  });
+  /**
+   * An entity-frame box (x0, y0, z0, x1, y1, z1 at 100 %) in the world at the vehicle's pose: [x0, y0, z0, x1, y1, z1].
+   * With `lean`, the body's turn as the drive animation draws it: [-pitch, 0, -bank] about the body pivot, in the
+   * geometry JSON's frame (the entity frame mirrored in z, sixteenths), through the drawn geometry's own transform.
+   */
+  const boxInWorld = (v: SimEntity, b: readonly number[], lean?: { pitch: number; bank: number; pivot?: number[] }): number[] => {
+    const k = v.scale(), r = v.rotation.y * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+    const pv = lean?.pivot ?? [0, 0, 0];
+    const T = lean && (lean.pitch || lean.bank) ? pivotRotation([-lean.pitch, 0, -lean.bank], [pv[0]! * 16, pv[1]! * 16, -pv[2]! * 16]) : undefined;
+    const xs: number[] = [], ys: number[] = [], zs: number[] = [];
+    for (const x0 of [b[0]!, b[3]!]) for (const y0 of [b[1]!, b[4]!]) for (const z0 of [b[2]!, b[5]!]) {
+      let x = x0, y = y0, z = z0;
+      if (T) { const j = [x * 16, y * 16, -z * 16]; x = (T[0]! * j[0]! + T[1]! * j[1]! + T[2]! * j[2]! + T[3]!) / 16; y = (T[4]! * j[0]! + T[5]! * j[1]! + T[6]! * j[2]! + T[7]!) / 16; z = -(T[8]! * j[0]! + T[9]! * j[1]! + T[10]! * j[2]! + T[11]!) / 16; }
+      xs.push(v.location.x + (x * c - z * s) * k); ys.push(v.location.y + y * k); zs.push(v.location.z + (x * s + z * c) * k);
+    }
+    return [Math.min(...xs), Math.min(...ys), Math.min(...zs), Math.max(...xs), Math.max(...ys), Math.max(...zs)];
+  };
+  type TapSpot = { feet: { x: number; y: number; z: number }; gap: number; aim: { x: number; y: number; z: number } };
+  /**
+   * Where `who` can stand to tap the world box `b` of vehicle `v` so that the runtime's own pick from that eye and view
+   * `means` it: every spot round the box on a free floor (`standsAt`) with the eye within the pick's reach
+   * (`REACH_BLOCKS` x the scale above 100 %), aiming at its middle, low on it, or its point nearest the eye; nearest
+   * first. The chosen spot is the first whose DEVICE pick (`pick`, a tap's ray) also lands on the vehicle or one of its
+   * board points - a tap on nothing raises no event at all (quirk `tap-is-hit`); `who` is left standing there,
+   * looking at it. `crowded`: some spot's view meant something else.
+   */
+  const findTapSpot = async (ctx: StepContext, who: SimEntity, v: SimEntity, b: readonly number[], means: (eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }) => boolean): Promise<{ chosen?: TapSpot; spots: number; crowded: boolean; reach: number }> => {
+    const mid = { x: (b[0]! + b[3]!) / 2, y: (b[1]! + b[4]!) / 2, z: (b[2]! + b[5]!) / 2 };
+    const reach = VEHICLE_PART.REACH_BLOCKS * Math.max(1, v.scale()) - 0.1;
+    const gapTo = (eye: { x: number; y: number; z: number }): number => Math.hypot(Math.max(b[0]! - eye.x, 0, eye.x - b[3]!), Math.max(b[1]! - eye.y, 0, eye.y - b[4]!), Math.max(b[2]! - eye.z, 0, eye.z - b[5]!));
+    const half = Math.max(b[3]! - b[0]!, b[5]! - b[2]!) / 2;
+    const spots: TapSpot[] = [];
+    let crowded = false;
+    for (const out of [0.5, 1, 1.6, 2.4]) for (let a = 0; a < 16; a++) {
+      const x = mid.x + Math.cos(a * Math.PI / 8) * (half + out), z = mid.z + Math.sin(a * Math.PI / 8) * (half + out);
+      const y = floorBelow(ctx.sim.engine, v.dimension, x, Math.max(v.location.y, mid.y) + 0.5, z, Math.max(4, mid.y - v.location.y + 4));
+      if (y === undefined || !standsAt(ctx.sim.engine, v.dimension, { x, y, z })) continue;
+      const eye = { x, y: y + PLAYER_EYE, z };
+      const g = gapTo(eye);
+      if (g > reach) continue;
+      const inset = (lo: number, hi: number, q: number): number => Math.max(lo + Math.min(0.05, (hi - lo) / 4), Math.min(hi - Math.min(0.05, (hi - lo) / 4), q));
+      const aims = [mid, { x: mid.x, y: inset(b[1]!, b[4]!, b[1]!), z: mid.z }, { x: inset(b[0]!, b[3]!, eye.x), y: inset(b[1]!, b[4]!, eye.y), z: inset(b[2]!, b[5]!, eye.z) }];
+      for (const aim of aims) {
+        if (!means(eye, { x: aim.x - eye.x, y: aim.y - eye.y, z: aim.z - eye.z })) { crowded = true; continue; }
+        spots.push({ feet: { x, y, z }, gap: g, aim });
+      }
+    }
+    spots.sort((p1, p2) => p1.gap - p2.gap);
+    const isTarget = (e: SimEntity | undefined): boolean => !!e && (e === v || /_board_\d+$/.test(e.typeId));
+    for (const sp of spots) {
+      // Where the child really stands a tick later (a body pushed out of a board point is not where it was put).
+      teleport(ctx.sim.host, who, sp.feet);
+      await ctx.run(1);
+      lookAt(who, sp.aim);
+      if (means(who.headLocation(), viewDirectionOf(who)) && isTarget(pick(ctx.sim.engine, who).entity)) return { chosen: sp, spots: spots.length, crowded, reach };
+    }
+    return { spots: spots.length, crowded, reach };
+  };
   /** Where a vehicle is boarded for a check on open ground: a boat on a pool of its own (aground it cannot move), anything else on the ground. */
   const onWater = (ctx: StepContext, f: ScriptedTypeFacts, at: { x: number; z: number }): { x: number; z: number; y?: number } => {
     if (f.mode !== 'boat') return at;
@@ -365,95 +433,39 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
     async vehicleParts(step: AnyStep, ctx: StepContext) {
       const wanted = step['type'] ? [typeOf(step)] : [...types.values()].filter(t => t.parts.length);
       const sum = { parts: 0, opened: 0, unreachable: 0, closedWhileMoving: true, drove: 0, reopenedAfterDrive: false, followed: false };
-      // The pack's own namespace (a rewritten twin's `NS:vpart_0`, sim-namespace.test.ts), never the literal `craftmatic:`.
-      const prop = (name: string): string => nsId(pack.namespace, name.replace(/^[^:]+:/, ''));
       const value = (v: SimEntity, i: number): number => Number(v.properties.get(prop(vehiclePartProperty(i))) ?? 0);
-      /** The vehicle's pose as the runtime's pick reads it: its yaw and its body's leftover lean (`FLIGHT_PROPS`). */
-      const poseOf = (v: SimEntity, f: ScriptedTypeFacts): { x: number; y: number; z: number; yaw: number; pitch: number; bank: number; pivot?: number[] } => ({
-        ...v.location, yaw: v.rotation.y, pitch: Number(v.properties.get(prop(FLIGHT_PROPS.pitch)) ?? 0) || 0, bank: Number(v.properties.get(prop(FLIGHT_PROPS.bank)) ?? 0) || 0, ...(f.bodyPivot ? { pivot: f.bodyPivot } : {}),
-      });
-      /** Part i's box (closed or open) in the world at the vehicle's pose: [x0, y0, z0, x1, y1, z1]. */
-      const worldBox = (v: SimEntity, part: VehiclePartRuntime, open: boolean, lean?: { pitch: number; bank: number; pivot?: number[] }): number[] => {
-        const b = open ? part.open : part.closed, k = v.scale(), r = v.rotation.y * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
-        // With `lean`, the body's turn as the drive animation draws it: [-pitch, 0, -bank] about the body pivot, in the
-        // geometry JSON's frame (the entity frame mirrored in z, sixteenths), through the drawn geometry's own transform.
-        const pv = lean?.pivot ?? [0, 0, 0];
-        const T = lean && (lean.pitch || lean.bank) ? pivotRotation([-lean.pitch, 0, -lean.bank], [pv[0]! * 16, pv[1]! * 16, -pv[2]! * 16]) : undefined;
-        const xs: number[] = [], ys: number[] = [], zs: number[] = [];
-        for (const x0 of [b[0]!, b[3]!]) for (const y0 of [b[1]!, b[4]!]) for (const z0 of [b[2]!, b[5]!]) {
-          let x = x0, y = y0, z = z0;
-          if (T) { const j = [x * 16, y * 16, -z * 16]; x = (T[0]! * j[0]! + T[1]! * j[1]! + T[2]! * j[2]! + T[3]!) / 16; y = (T[4]! * j[0]! + T[5]! * j[1]! + T[6]! * j[2]! + T[7]!) / 16; z = -(T[8]! * j[0]! + T[9]! * j[1]! + T[10]! * j[2]! + T[11]!) / 16; }
-          xs.push(v.location.x + (x * c - z * s) * k); ys.push(v.location.y + y * k); zs.push(v.location.z + (x * s + z * c) * k);
-        }
-        return [Math.min(...xs), Math.min(...ys), Math.min(...zs), Math.max(...xs), Math.max(...ys), Math.max(...zs)];
-      };
+      /** Part i's box (closed or open) in the world at the vehicle's pose (with `lean`, turned by the body's lean). */
+      const worldBox = (v: SimEntity, part: VehiclePartRuntime, open: boolean, lean?: { pitch: number; bank: number; pivot?: number[] }): number[] => boxInWorld(v, open ? part.open : part.closed, lean);
       /**
-       * Stand where a child could tap part i - the nearest spot round it on a floor, the body free (`standsAt`), the eye
-       * within the pick's reach of the part's box (`pickVehiclePart`: `REACH_BLOCKS` x the scale above 100 %) - look at
-       * it and tap. 'unreachable' when no such spot exists: a vehicle has no floors, so a cupboard high in a 400 % bus is
-       * out of reach on foot (the model's size, not a fault of the pick).
+       * Stand where a child could tap part i (`findTapSpot`: the runtime's pick means THIS part, the device's pick lands on
+       * the vehicle or a board point) and tap. 'unreachable' when no spot is within reach: a vehicle has no floors, so a
+       * cupboard high in a 400 % bus is out of reach on foot (the model's size, not a fault of the pick).
        */
       const tapOn = async (v: SimEntity, f: ScriptedTypeFacts, i: number): Promise<'changed' | 'unchanged' | 'unreachable'> => {
         const part = f.parts[i]!, before = value(v, i);
         // An open part answers over its open and closed boxes together (`pickVehiclePart`): the child taps that.
         const shutBox = worldBox(v, part, false), openBox = worldBox(v, part, true);
         const b = before !== 0 ? shutBox.map((q, a) => (a < 3 ? Math.min(q, openBox[a]!) : Math.max(q, openBox[a]!))) : shutBox;
-        const mid = { x: (b[0]! + b[3]!) / 2, y: (b[1]! + b[4]!) / 2, z: (b[2]! + b[5]!) / 2 };
-        const reach = VEHICLE_PART.REACH_BLOCKS * Math.max(1, v.scale()) - 0.1;
-        const gapTo = (eye: { x: number; y: number; z: number }): number => Math.hypot(Math.max(b[0]! - eye.x, 0, eye.x - b[3]!), Math.max(b[1]! - eye.y, 0, eye.y - b[4]!), Math.max(b[2]! - eye.z, 0, eye.z - b[5]!));
-        const half = Math.max(b[3]! - b[0]!, b[5]! - b[2]!) / 2;
-        // Every spot round it on a free floor within the pick's reach whose view at the part the runtime's own pick gives
-        // to THIS part (a child who opens a neighbour steps aside and tries again), nearest first.
-        const spots: Array<{ feet: { x: number; y: number; z: number }; gap: number; aim: { x: number; y: number; z: number } }> = [];
-        let crowded = false;
-        for (const out of [0.5, 1, 1.6, 2.4]) for (let a = 0; a < 16; a++) {
-          const x = mid.x + Math.cos(a * Math.PI / 8) * (half + out), z = mid.z + Math.sin(a * Math.PI / 8) * (half + out);
-          const y = floorBelow(ctx.sim.engine, v.dimension, x, Math.max(v.location.y, mid.y) + 0.5, z, Math.max(4, mid.y - v.location.y + 4));
-          if (y === undefined || !standsAt(ctx.sim.engine, v.dimension, { x, y, z })) continue;
-          const eye = { x, y: y + PLAYER_EYE, z };
-          const g = gapTo(eye);
-          if (g > reach) continue;
-          // Where on the part the finger lands: its middle, low on it, or its point nearest the eye (inset a little).
-          const inset = (lo: number, hi: number, q: number): number => Math.max(lo + Math.min(0.05, (hi - lo) / 4), Math.min(hi - Math.min(0.05, (hi - lo) / 4), q));
-          const aims = [mid, { x: mid.x, y: inset(b[1]!, b[4]!, b[1]!), z: mid.z }, { x: inset(b[0]!, b[3]!, eye.x), y: inset(b[1]!, b[4]!, eye.y), z: inset(b[2]!, b[5]!, eye.z) }];
-          for (const aim of aims) {
-            const dir = { x: aim.x - eye.x, y: aim.y - eye.y, z: aim.z - eye.z };
-            if (pickVehiclePart(f.parts, poseOf(v, f), v.scale(), eye, dir, f.parts.map((_q, j) => value(v, j) !== 0), VEHICLE_PART) !== i) { crowded = true; continue; }
-            spots.push({ feet: { x, y, z }, gap: g, aim });
-          }
-        }
-        spots.sort((p1, p2) => p1.gap - p2.gap);
-        if (!spots.length && crowded) {
+        // The runtime picks the parts and the slides together, in that order (bedrock-vehicle.ts `tapPart`).
+        const boxes = [...f.parts, ...f.slides.map(sl => ({ closed: sl.box, open: sl.box }))];
+        const means = (eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }): boolean => pickVehiclePart(boxes, poseOf(v, f), v.scale(), eye, dir, boxes.map((_q, j) => j < f.parts.length && value(v, j) !== 0), VEHICLE_PART) === i;
+        const found = await findTapSpot(ctx, ctx.player, v, b, means);
+        if (!found.spots && found.crowded) {
           ctx.violate({ invariant: 'vehicle-part-opens', message: `${f.typeId} part ${i} (${part.noun}): from every spot within reach a tap picks another part first`, evidence: { box: b.map(r3) } });
           return 'unchanged';
         }
-        if (!spots.length) {
-          ctx.note(`${f.typeId} part ${i} (${part.noun.toLowerCase()} ${part.kind}) at scale ${r3(v.scale())}: out of reach on foot - no floor within ${r3(reach)} blocks of it (a vehicle has no floors; its box spans y ${r3(b[1]! - v.location.y)}..${r3(b[4]! - v.location.y)} over the vehicle's base)`);
+        if (!found.spots) {
+          ctx.note(`${f.typeId} part ${i} (${part.noun.toLowerCase()} ${part.kind}) at scale ${r3(v.scale())}: out of reach on foot - no floor within ${r3(found.reach)} blocks of it (a vehicle has no floors; its box spans y ${r3(b[1]! - v.location.y)}..${r3(b[4]! - v.location.y)} over the vehicle's base)`);
           return 'unreachable';
         }
-        // The device's own pick must land on the vehicle (its hull hit box) or one of its board points: a tap on nothing
-        // raises no event at all (quirk `tap-is-hit`).
-        const isTarget = (e: SimEntity | undefined): boolean => !!e && (e === v || /_board_\d+$/.test(e.typeId));
-        let chosen: (typeof spots)[number] | undefined;
-        for (const sp of spots) {
-          // Where the child really stands a tick later (a body pushed out of a board point is not where it was put):
-          // the device's pick lands on the vehicle and the runtime's pick, from that eye and view, means this part.
-          teleport(ctx.sim.host, ctx.player, sp.feet);
-          await ctx.run(1);
-          lookAt(ctx.player, sp.aim);
-          const head = ctx.player.headLocation(), view = viewDirectionOf(ctx.player);
-          const means = pickVehiclePart(f.parts, poseOf(v, f), v.scale(), head, view, f.parts.map((_q, j) => value(v, j) !== 0), VEHICLE_PART);
-          if (means === i && isTarget(pick(ctx.sim.engine, ctx.player).entity)) { chosen = sp; break; }
-        }
-        if (!chosen) {
-          ctx.violate({ invariant: 'vehicle-part-tap-target', message: `${f.typeId} part ${i} (${part.noun}): from the ${spots.length} spot(s) a child can tap it from, the tap lands on neither the vehicle's hit box nor a board point`, evidence: { box: b.map(r3), spots: spots.length } });
+        if (!found.chosen) {
+          ctx.violate({ invariant: 'vehicle-part-tap-target', message: `${f.typeId} part ${i} (${part.noun}): from the ${found.spots} spot(s) a child can tap it from, the tap lands on neither the vehicle's hit box nor a board point`, evidence: { box: b.map(r3), spots: found.spots } });
           return 'unchanged';
         }
         const r = tap(ctx.sim.engine, ctx.player);
         await ctx.run(12);
-        const bestGap = chosen.gap;
         const changed = value(v, i) !== before;
-        ctx.note(`${f.typeId} part ${i} (${part.noun.toLowerCase()} ${part.kind}): a tap with the eye ${r3(bestGap)} blocks off it picked ${r.entity ? r.entity.typeId : r.blockedBy ? `the block ${r.blockedBy}` : 'nothing'}; ${before} -> ${value(v, i)}`);
+        ctx.note(`${f.typeId} part ${i} (${part.noun.toLowerCase()} ${part.kind}): a tap with the eye ${r3(found.chosen.gap)} blocks off it picked ${r.entity ? r.entity.typeId : r.blockedBy ? `the block ${r.blockedBy}` : 'nothing'}; ${before} -> ${value(v, i)}`);
         return changed ? 'changed' : 'unchanged';
       };
       for (const f of wanted) {
@@ -536,6 +548,128 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
         if (value(v, swing) !== 0) await tapOn(v, f, swing);
       }
       ctx.state['vehicleParts'] = sum;
+    },
+
+    /**
+     * The slides a scripted vehicle carries (vehicle-parts.ts `VehicleSlideRuntime`), as a child uses them: standing
+     * beside the PARKED vehicle, a tap on the slide seats the child at its top and slides them down the chute the
+     * vehicle draws (`slide-rides-in-chute`, the building slide's limit), sets them down standing (`rider-set-down`) and
+     * leaves no seat behind; then the child drives off, and a second child's tap on the slide of the MOVING vehicle is
+     * refused with a line saying why (`vehicle-slide-refused-moving`); where it parks, the same tap rides the slide from
+     * the vehicle's NEW pose (`vehicle-slide-follows`). `{ type? }`; the totals go to `state.vehicleSlides`.
+     */
+    async vehicleSlides(step: AnyStep, ctx: StepContext) {
+      const wanted = step['type'] ? [typeOf(step)] : [...types.values()].filter(t => t.slides.length);
+      const sum = { slides: 0, rode: 0, unreachable: 0, refusedMoving: false, rodeAfterDrive: false, drove: 0, seatsLeft: 0, worstOverDrawn: -Infinity };
+      const seatType = pack.rides?.seatType;
+      if (!seatType) { if (wanted.length) ctx.violate({ invariant: 'vehicle-slide-rides', message: 'a vehicle carries a slide but the pack ships no ride seat (scripts/rides.js)', evidence: {} }); ctx.state['vehicleSlides'] = sum; return; }
+      const appearance = registeredAppearance(pack.pack);
+      const ownerKey = prop('craftmatic:ride_owner'), pathKey = prop('craftmatic:ride_path');
+      const vehicleSeats = (v: SimEntity): SimEntity[] => ctx.sim.engine.loadedEntities(v.dimension).filter(e => e.typeId === seatType && e.dynamic.get(ownerKey) === v.id);
+      /** The runtime's pick over a vehicle's parts and slides (parked) or its slides alone (moving), as `tapPart`. */
+      const means = (v: SimEntity, f: ScriptedTypeFacts, j: number, moving: boolean) => (eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }): boolean => {
+        const slides = f.slides.map(sl => ({ closed: sl.box, open: sl.box }));
+        const boxes = moving ? slides : [...f.parts, ...slides];
+        const open = boxes.map((_q, i) => !moving && i < f.parts.length && Number(v.properties.get(prop(vehiclePartProperty(i))) ?? 0) !== 0);
+        return pickVehiclePart(boxes, poseOf(v, f), v.scale(), eye, dir, open, VEHICLE_PART) === (moving ? j : f.parts.length + j);
+      };
+      /** Ride slide j of the parked vehicle from a tap: 'rode', 'unreachable' (no spot on foot), or 'failed' (violated). */
+      const rideOne = async (v: SimEntity, f: ScriptedTypeFacts, j: number): Promise<'rode' | 'unreachable' | 'failed'> => {
+        const slide = f.slides[j]!, k = v.scale();
+        const b = boxInWorld(v, slide.box, poseOf(v, f));
+        const found = await findTapSpot(ctx, ctx.player, v, b, means(v, f, j, false));
+        if (!found.spots) { ctx.note(`${f.typeId} slide ${j}: out of reach on foot at scale ${r3(k)} (no floor within ${r3(found.reach)} blocks of its box)`); return 'unreachable'; }
+        if (!found.chosen) { ctx.violate({ invariant: 'vehicle-part-tap-target', message: `${f.typeId} slide ${j}: from the ${found.spots} spot(s) a child can tap it from, the tap lands on neither the vehicle's hit box nor a board point`, evidence: { box: b.map(r3) } }); return 'failed'; }
+        // Where the runtime should start it: the path turned to where the vehicle stands NOW.
+        const want = vehicleSlideWorldPath(slide.path, { ...v.location, yaw: v.rotation.y }, k);
+        tap(ctx.sim.engine, ctx.player);
+        for (let t = 0; t < 20 && ctx.player.ridingOn?.typeId !== seatType; t++) await ctx.run(1);
+        const seat = ctx.player.ridingOn;
+        if (!seat || seat.typeId !== seatType) { ctx.violate({ invariant: 'tap-boards-ride', message: `${f.typeId} slide ${j}: a tap beside the parked vehicle boarded ${seat ? seat.typeId : 'nothing'}`, evidence: { at: { x: r3(v.location.x), y: r3(v.location.y), z: r3(v.location.z) } } }); return 'failed'; }
+        let path: Array<{ x: number; y: number; z: number }> = [];
+        try { path = JSON.parse(String(seat.dynamic.get(pathKey))); } catch { path = []; }
+        const off = path.length ? Math.hypot(path[0]!.x - want[0]!.x, path[0]!.y - want[0]!.y, path[0]!.z - want[0]!.z) : Infinity;
+        if (!(off <= 0.05 * Math.max(1, k))) ctx.violate({ invariant: 'vehicle-slide-follows', message: `${f.typeId} slide ${j}: the seat's path starts ${r3(off)} blocks from the slide's top where the vehicle stands`, evidence: { want: want[0], got: path[0] } });
+        const runout = path.length >= 2 && Math.abs(path[path.length - 1]!.y - path[path.length - 2]!.y) < 1e-6 ? { foot: path[path.length - 2]!, end: path[path.length - 1]! } : undefined;
+        let worst = -Infinity, ticks = 0, reported = false;
+        for (; ticks < 600 && ctx.player.ridingOn === seat; ticks++) {
+          await ctx.run(1);
+          if (!appearance || (runout && onRunout(seat.location, runout))) continue;
+          const h = heightOverDrawn(entityDrawn(appearance, v) ?? [], seat.location, 0);
+          if (h === undefined) continue;
+          worst = Math.max(worst, h);
+          if (!reported && h > SLIDE_SEAT_OVER_DRAWN * Math.max(1, k) && (reported = true)) ctx.violate({ invariant: 'slide-rides-in-chute', message: `${f.typeId} slide ${j}: the rider runs ${r3(h)} blocks over the chute the vehicle draws`, evidence: { seat: seat.location, over: r3(h) } });
+        }
+        sum.worstOverDrawn = Math.max(sum.worstOverDrawn, r3(worst));
+        const y0 = ctx.player.location.y;
+        await ctx.run(20);
+        if (!ctx.player.ridingOn && y0 - ctx.player.location.y > 1) ctx.violate({ invariant: 'rider-set-down', message: `${f.typeId} slide ${j}: the player dropped ${r3(y0 - ctx.player.location.y)} blocks from where the slide set it down`, evidence: { at: ctx.player.location } });
+        ctx.note(`${f.typeId} slide ${j}: rode ${ticks} ticks from a tap ${r3(found.chosen.gap)} blocks off it; the seat ran at most ${r3(worst)} blocks over the drawn chute; set down at ${JSON.stringify({ x: r3(ctx.player.location.x), y: r3(ctx.player.location.y), z: r3(ctx.player.location.z) })}`);
+        if (ctx.player.ridingOn) { ctx.violate({ invariant: 'rider-set-down', message: `${f.typeId} slide ${j}: still riding after ${ticks} ticks`, evidence: {} }); return 'failed'; }
+        return 'rode';
+      };
+      for (const f of wanted) {
+        let v = findEntity(ctx.sim, ctx.player, { type: f.typeId });
+        if (!v) {
+          const at = { x: Math.floor(ctx.player.location.x) + 0.5 + Math.ceil(f.noseReach + f.halfWidth) + 4, y: FLAT_GROUND_Y, z: Math.floor(ctx.player.location.z) + 0.5 };
+          v = ctx.sim.engine.spawnEntity(f.typeId, 'overworld', at);
+          await ctx.run(4);
+        }
+        let first = -1;
+        for (let j = 0; j < f.slides.length; j++) {
+          sum.slides++;
+          const got = await rideOne(v, f, j);
+          if (got === 'rode') { sum.rode++; if (first < 0) first = j; } else if (got === 'unreachable') sum.unreachable++;
+        }
+        await ctx.run(5);
+        sum.seatsLeft += vehicleSeats(v).length;
+        if (first < 0) continue;
+        // In, off down the road; a second child beside it taps the slide while it moves.
+        const start = { ...v.location };
+        await CORE_HANDLERS['hold']!({ kind: 'hold', target: { where: (e: SimEntity) => e === v, label: f.typeId } }, ctx);
+        if (ctx.player.ridingOn !== v) { ctx.violate({ invariant: 'tap-boards-ride', message: `a hold on ${f.typeId} did not mount it`, evidence: { at: start } }); continue; }
+        ctx.player.rotation.y = v.rotation.y;
+        const watcher = ctx.sim.addPlayer('Watcher', { x: start.x, y: FLAT_GROUND_Y, z: start.z + 30 });
+        let movingTicks = 0, tried = false;
+        for (let t = 0; t < 60; t++) {
+          ctx.sim.controls.set(ctx.player.id, { forward: 1, strafe: 0, jump: false });
+          const was = { ...v.location };
+          await ctx.run(1);
+          if (Math.hypot(v.location.x - was.x, v.location.z - was.z) > 0.01) movingTicks++;
+          if (tried || movingTicks < 6) continue;
+          // Beside the moving slide, looking at it, in this one tick: the runtime must refuse it and say so.
+          const b = boxInWorld(v, f.slides[first]!.box), mid = { x: (b[0]! + b[3]!) / 2, y: (b[1]! + b[4]!) / 2, z: (b[2]! + b[5]!) / 2 };
+          const half = Math.max(b[3]! - b[0]!, b[5]! - b[2]!) / 2;
+          for (let a = 0; a < 16 && !tried; a++) for (const out of [0.4, 0.9]) {
+            const feet = { x: mid.x + Math.cos(a * Math.PI / 8) * (half + out), y: FLAT_GROUND_Y, z: mid.z + Math.sin(a * Math.PI / 8) * (half + out) };
+            if (!standsAt(ctx.sim.engine, v.dimension, feet)) continue;
+            teleport(ctx.sim.host, watcher, feet);
+            lookAt(watcher, mid);
+            if (!means(v, f, first, true)(watcher.headLocation(), viewDirectionOf(watcher))) continue;
+            const hit = pick(ctx.sim.engine, watcher).entity;
+            if (hit !== v) continue;
+            const since = ctx.sim.engine.timeline.entries.length;
+            tap(ctx.sim.engine, watcher);
+            await ctx.run(6);
+            const said = ctx.sim.engine.timeline.entries.slice(since).some(e => e.kind === 'actionbar' && /parked/.test(String(e.text)));
+            sum.refusedMoving = !watcher.ridingOn && !vehicleSeats(v).length && said;
+            if (!sum.refusedMoving) ctx.violate({ invariant: 'vehicle-slide-refused-moving', message: `${f.typeId}: a tap on its slide while it drove ${watcher.ridingOn ? `seated the child on ${watcher.ridingOn.typeId}` : said ? 'left a seat behind' : 'said nothing'}`, evidence: { at: feet } });
+            tried = true;
+            break;
+          }
+        }
+        if (!tried) ctx.note(`${f.typeId}: no spot beside its moving slide where a tap lands on it; the moving refusal was not tested`);
+        ctx.sim.controls.set(ctx.player.id, { forward: 0, strafe: 0, jump: false });
+        await ctx.run(40);
+        sum.drove = Math.max(sum.drove, r2(Math.hypot(v.location.x - start.x, v.location.z - start.z)));
+        await CORE_HANDLERS['sneak']!({ kind: 'sneak' }, ctx);
+        await ctx.run(30);
+        // Where it parked: the same tap rides the slide from there.
+        if (sum.drove > 1) sum.rodeAfterDrive = (await rideOne(v, f, first)) === 'rode';
+        await ctx.run(5);
+        sum.seatsLeft += vehicleSeats(v).length;
+      }
+      ctx.state['vehicleSlides'] = sum;
     },
 
     async dismountEverySize(step: AnyStep, ctx: StepContext) {
@@ -1020,6 +1154,8 @@ export function vehicleScenarios(pack: CraftmaticPack): Scenario[] {
     steps: [
       // Its doors, lids and cupboards open on a tap while it is parked, close as it drives off and ride with it (A-02).
       ...(t.parts.length ? [{ kind: 'vehicleParts', type: t.typeId }] : []),
+      // Its slides are ridden from a tap while it is parked, refused while it moves, and follow it (A-02).
+      ...(t.slides.length ? [{ kind: 'vehicleSlides', type: t.typeId }] : []),
       { kind: 'stuckCourse', type: t.typeId },
       // A ship also with Jump held: the old flight model's throttle (its stick alone never moved it), the new one's "up".
       ...(t.mode === 'plane' ? [{ kind: 'stuckCourse', type: t.typeId, policy: 'forward+jump' }] : []),
@@ -1044,6 +1180,7 @@ function boatScenario(t: ScriptedTypeFacts): Scenario {
     steps: [
       // Its lids, hatches and cupboards open on a tap while it is parked (A-02); a boat parked on land does not drive off.
       ...(t.parts.length ? [{ kind: 'vehicleParts', type: t.typeId }] : []),
+      ...(t.slides.length ? [{ kind: 'vehicleSlides', type: t.typeId }] : []),
       { kind: 'boatCourse', type: t.typeId },
       { kind: 'waterEgress', type: t.typeId },
       { kind: 'cameraRecentre', type: t.typeId },
