@@ -1783,10 +1783,8 @@ named, which is how the `faceKey` gap for Studio's `bl_` head copies was found.
 census sets (`output/gengate-6fa0afa6`) the first picks place 91 heads; 26 had their own face, 28 after this round.
 Of the 63 left, 60 name no print at all, which no lookup can fix:
 - **Mecabricks** (`MecabricksLDR/`, 10 census sets, ~31 heads): the converter writes the align table's stem, so a
-  scene's `3626d1019` becomes plain `3626`. The decoration survives in clego's `mecabricks_scene_cache/` (1,669
-  scenes reference a decorated head, 1,071 distinct Mecabricks decorations) but nothing maps a Mecabricks
-  decoration to a BrickLink/LDraw print. The `.lxf` vote below would learn one from sets with an OMR / IOModel2V2
-  donor. TODO(mecabricks-head-decoration).
+  scene's `3626d1019` becomes plain `3626`. See "Mecabricks head decorations" below for what is now recovered;
+  the census sets' and favourites' decorations are not among them. TODO(mecabricks-head-decoration).
 - **Old LDD `.lxf`** (`Eurobricks*`, `LXF/`): 4,491 decorated head placements, 216 distinct 5-6 digit decorations,
   and until now no `d:` row for any (DBIX decorations are 7-digit, another id space). `gen-ldd-print-map.py` now
   reads Studio's own `ldraw.xml` `<Decoration>` head rows, and `scripts/_ldd_decoration_votes.ts` (run with
@@ -1804,6 +1802,45 @@ Studio's 148 copies are framed like 3626c and those whose print LDraw has (19) a
 50 have their origin at the head's bottom (TODO(bl-head-frame)). Of the 101 named prints the favourites still lack, 3
 exist in the LDraw library of 2026-11-16 but not in `ldraw_ref/` (2026-09-18): 3626pb2873 (`3626cp1y`), 3626pb3698
 (`28621p1b`), 3626pb3849 (`28621p1c`) - a library refresh, not a table change.
+
+## Mecabricks head decorations (2026-11-16, FIG-04 / PROC-19)
+
+**What a scene says.** A decorated head is its own library element: `extra.reference` `3626d1299`, name `Mini Head
+No.2552`, and a texture (`decoration.color.name` in the v2 schema, `textures.decoration.name` in v1) whose stem is
+the decoration id (old letter refs such as `3626aq` carry texture `3626d43`). Nothing names a BrickLink or LDraw
+print. The NAME is LEGO's own element name (`MINI HEAD, NO. 2552` is element 6221340, which the print map already
+knows as `n:6221340` -> 3626pb2060), but no local table maps LEGO names to elements: DBIX LXFMLs name 93 heads
+`NO. N`, matching none of the 1,099 Mecabricks decorations. That table is the largest lever left (it needs an
+online catalogue; not built).
+
+**What is recovered.**
+- clego `geograde/mb_head_decorations.py` re-runs the harvest's `to_ldraw(meta_out=)` over the scene cache and finds
+  the one shipped line each decorated head became (part + position to 0.01 LDU; files harvested before MB_ALIGN v7
+  by their `<ref>.dat` name, up to 24 LDU off along Y, TODO(mb-legacy-head-ref)): 1,859 files, 5,026 heads, 235
+  unmatched, 1,099 decorations -> `geograde/mb_head_decorations.json`.
+- `bun scripts/_mb_decoration_votes.ts --decorations=<that json> --plan=<out>` (with `CRAFTMATIC_LDRAW_MIRROR=off`
+  in the environment) runs the face-transfer matcher against the same sets' OMR / IOModel2V2 / DbixConv / LDR files
+  (`scripts/decoration-votes.ts`, the code `_ldd_decoration_votes.ts` now shares; its output on 5 sets is identical
+  to the old script's). 283 sets have a donor; 177 votes over 121 decorations.
+- A head is written when (a) a DBIX or IOModel2V2 donor matched THAT figure (`FULL_VOCABULARY_DONOR`: both can
+  name every print) and no donor said otherwise - 119 heads; or (b) its decoration's tally passes the LDD vote rule
+  (>= 2 sets, rivals <= 25 %, the smile from 5) - 10 decorations, 110 heads, every row DBIX-backed. An OMR / LDR
+  match only votes: those files can only place prints LDraw has, and 852751's LDR gave "Wild West Wyldstyle"
+  Leia's `3626bps0`, six Star Wars LDR files the plain smile.
+- **A decoration is not always one face.** Across sets 28 of 32 set pairs agree (DBIX donors alone 15 of 19); 10354's
+  DBIX file pairs three heads wearing `3626d1195` with three different prints. A Mecabricks author reuses a
+  decoration where the library lacks the face, so a direct match beats the table. Leave-one-set-out: 6 agree, 0
+  disagree, 136 with no row from the other sets.
+- clego `geograde/mb_head_prints.py --plan <plan> --write` builds `mb_head_prints.json` and splices it in: a print
+  LDraw draws is a RENAME to the same mould's print (the hollow-stud `3626c` print first; never a BrickLink-style
+  `3626cpb<N>` name, which no library ships - LDraw's own print of that id instead), any other a `0 !CRAFTMATIC
+  HEAD_PRINT` line. The harvest writes the same (`to_ldraw(head_print_for=)`, read by `--run` and `--recolor`);
+  checked on all 144 files: every head print the harvest writes is in the splice.
+- Written 2026-11-16: 144 MecabricksLDR files (123 are a set's first pick), backups
+  `C:/git/clego/_face_backup_20261116_mbface/`; over their 1,025 heads, real faces 0 -> 122, 107 more name a print
+  with no LDraw part (face art can draw them). Gate v2 A/B: 142 identical grades, 2 lose one connection each (a
+  `3626c` print replaces LDraw's `3626.dat`, which is moved to the solid-stud `3626b`), no lost placements or
+  unknown parts. No census set or favourite file changed.
 
 ## Boxed parts, baseplates and stale IOModel2V2 files (audit 2026-11-15, A-07 / A-09)
 

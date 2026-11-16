@@ -42,6 +42,9 @@ export interface FigureSig {
   /**
    * The head's part stem when the PART NAME is a library print (`3626cp0e`), else null: such a print is carried
    * as a rename to that part (the library draws it), never as a meta.
+   * TODO(face-transfer-bl-rename): a BrickLink-style name (`3626cpb1993`, IOModel2V2 donors) is set here too, and
+   * no LDraw library ships that file; `_mb_decoration_votes.ts` `chooseHeadPrint` refuses it as a rename target,
+   * `_face_print_transfer.ts` does not yet.
    */
   printedPart: string | null;
   /** Weighted multiset of `role:colour` (and `headwear:<family>:colour`) keys. */
