@@ -694,7 +694,9 @@ outside the export bounds, against 4 in 3 doorways from the `.io`) is unchanged
 > driven by one float actor property `craftmatic:vpart_<k>` that the client eases toward. So the part rides with the
 > vehicle for free: no owned entity, no per-tick teleport, no extra native call per tick. A TAP on the parked vehicle
 > (hull or board point) goes to `pickVehiclePart` first: a part whose box is within 2.5 blocks of the eye and on the
-> view ray, else within 60 degrees of the view, toggles; otherwise the tap boards as before, and a hold always boards.
+> view ray toggles; otherwise the tap boards as before, and a hold always boards. (A 60-degree view cone, the first
+> rule, took a tap aimed at a fresh 50 % McLaren's body for its steering wheel and boarded nobody: regression
+> `fresh-car-tap-50-30zd`, 2026-11-15; `VEHICLE_PART.CONE_DEG` is 0.)
 > Moving (speed > 0.05), every swinging part closes and taps board: an open leaf stands outside the footprint the move
 > resolver sweeps. Levers and turnables stay as left. A vehicle has no colliders, so the doorway rules do not apply:
 > a parked bus is entered by its seats. A native ROTORCRAFT's parts open too (2026-11-15, `audit-vslide`): the
@@ -705,7 +707,7 @@ outside the export bounds, against 4 in 3 doorways from the `.io`) is unchanged
 > The pick turns the eye and view back by the body's leftover lean (`fl_pitch`/`fl_bank`, the drive animation's
 > `[-pitch, 0, -bank]` on `body` about its pivot, shipped as the type's `bodyPivot`), so a part is tested where the
 > leaned body draws it. Device-unproven: whether a touch tap's view direction is the camera centre or the finger's
-> ray (`TODO(vehicle-parts-touch-aim)`; the cone covers either).
+> ray (`TODO(vehicle-parts-touch-aim)`; if it is the centre, a door tapped at the screen's edge boards instead).
 >
 > **A slide on a vehicle (2026-11-15, branch `audit-vslide`).** A building's slide is a ride seat at the top of a
 > WORLD path the placement wrote; a vehicle drives away from any such path. So a scripted vehicle ships each slide
@@ -714,7 +716,7 @@ outside the export bounds, against 4 in 3 doorways from the `.io`) is unchanged
 > with `onVehicle` (no seat placed). A tap picks (`pickVehicleTap`) a part the view RAY enters, else a slide it
 > enters within `SLIDE_REACH_BLOCKS` 8 (x the size above 100 %: 41395's slide is on the roof, 4.2-7.9 blocks up, which
 > no child climbs - the device delivers the tap through the hull box or a board column, the runtime rides the slide
-> the child looks at), else a part by the view cone; on a PARKED vehicle the
+> the child looks at), never a part by a cone (`CONE_DEG` 0); on a PARKED vehicle the
 > vehicle runtime turns the path to where it stands (`vehicleSlideWorldPath`), spawns the pack's ride seat at the top
 > with rides.js's own keys plus `craftmatic:ride_owner`, copies the placement tags (Undo) and seats the tapper
 > `RETRY_TICKS` later; rides.js runs it as any slide (same path runner, same `colliderBodyProbe` set-down), skips the
