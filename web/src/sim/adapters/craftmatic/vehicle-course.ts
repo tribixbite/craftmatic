@@ -81,6 +81,7 @@ import { teleport } from '../../script-host/facades.js';
 import { CORE_HANDLERS, findEntity } from '../../scenario/runner.js';
 import { lookAt } from '../../input/touch.js';
 import { VEHICLE_PART, pickVehiclePart, vehiclePartProperty, type VehiclePartRuntime } from '../../../engine/vehicle-parts.js';
+import { pivotRotation } from '../../../engine/bedrock-geometry-faces.js';
 
 /** The view a player's rotation looks along (the facade's `getViewDirection`). */
 const viewDirectionOf = (e: SimEntity): { x: number; y: number; z: number } => viewDirection(e.rotation.y, e.rotation.x);
@@ -110,6 +111,8 @@ export interface ScriptedTypeFacts {
   typeId: string; mode: 'car' | 'boat' | 'plane' | 'hover'; noseReach: number; halfWidth: number; height: number; draft: number;
   /** The doors, lids and cupboards it carries (vehicle-parts.ts `VehiclePartRuntime`), part k on `craftmatic:vpart_<k>`. */
   parts: VehiclePartRuntime[];
+  /** Its `body` bone's pivot (entity frame, blocks at 100 %), where the lean the pick follows turns it; absent: the origin. */
+  bodyPivot?: number[];
 }
 
 /** The scripted vehicle types of a pack, read from `scripts/vehicles.js`'s config (the runtime's first argument). */
@@ -118,10 +121,11 @@ export function scriptedVehicleTypes(pack: CraftmaticPack): ScriptedTypeFacts[] 
   if (!text) return [];
   const at = text.indexOf('({"types":');
   if (at < 0) return [];
-  const cfg = extractJsonAfter(text.slice(at), '(') as { types?: Record<string, { mode?: string; noseReach?: number; halfWidth?: number; height?: number; draft?: number; parts?: VehiclePartRuntime[] }> } | undefined;
+  const cfg = extractJsonAfter(text.slice(at), '(') as { types?: Record<string, { mode?: string; noseReach?: number; halfWidth?: number; height?: number; draft?: number; parts?: VehiclePartRuntime[]; bodyPivot?: number[] }> } | undefined;
   return Object.entries(cfg?.types ?? {}).map(([typeId, t]) => ({
     typeId, mode: (t.mode ?? 'car') as ScriptedTypeFacts['mode'], noseReach: Number(t.noseReach ?? 1), halfWidth: Number(t.halfWidth ?? 0.5), height: Number(t.height ?? 1), draft: Number(t.draft ?? BOAT.DRAFT),
     parts: Array.isArray(t.parts) ? t.parts : [],
+    ...(Array.isArray(t.bodyPivot) ? { bodyPivot: t.bodyPivot } : {}),
   }));
 }
 
@@ -364,12 +368,24 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
       // The pack's own namespace (a rewritten twin's `NS:vpart_0`, sim-namespace.test.ts), never the literal `craftmatic:`.
       const prop = (name: string): string => nsId(pack.namespace, name.replace(/^[^:]+:/, ''));
       const value = (v: SimEntity, i: number): number => Number(v.properties.get(prop(vehiclePartProperty(i))) ?? 0);
+      /** The vehicle's pose as the runtime's pick reads it: its yaw and its body's leftover lean (`FLIGHT_PROPS`). */
+      const poseOf = (v: SimEntity, f: ScriptedTypeFacts): { x: number; y: number; z: number; yaw: number; pitch: number; bank: number; pivot?: number[] } => ({
+        ...v.location, yaw: v.rotation.y, pitch: Number(v.properties.get(prop(FLIGHT_PROPS.pitch)) ?? 0) || 0, bank: Number(v.properties.get(prop(FLIGHT_PROPS.bank)) ?? 0) || 0, ...(f.bodyPivot ? { pivot: f.bodyPivot } : {}),
+      });
       /** Part i's box (closed or open) in the world at the vehicle's pose: [x0, y0, z0, x1, y1, z1]. */
-      const worldBox = (v: SimEntity, part: VehiclePartRuntime, open: boolean): number[] => {
+      const worldBox = (v: SimEntity, part: VehiclePartRuntime, open: boolean, lean?: { pitch: number; bank: number; pivot?: number[] }): number[] => {
         const b = open ? part.open : part.closed, k = v.scale(), r = v.rotation.y * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
-        const xs: number[] = [], zs: number[] = [];
-        for (const x of [b[0]!, b[3]!]) for (const z of [b[2]!, b[5]!]) { xs.push(v.location.x + (x * c - z * s) * k); zs.push(v.location.z + (x * s + z * c) * k); }
-        return [Math.min(...xs), v.location.y + b[1]! * k, Math.min(...zs), Math.max(...xs), v.location.y + b[4]! * k, Math.max(...zs)];
+        // With `lean`, the body's turn as the drive animation draws it: [-pitch, 0, -bank] about the body pivot, in the
+        // geometry JSON's frame (the entity frame mirrored in z, sixteenths), through the drawn geometry's own transform.
+        const pv = lean?.pivot ?? [0, 0, 0];
+        const T = lean && (lean.pitch || lean.bank) ? pivotRotation([-lean.pitch, 0, -lean.bank], [pv[0]! * 16, pv[1]! * 16, -pv[2]! * 16]) : undefined;
+        const xs: number[] = [], ys: number[] = [], zs: number[] = [];
+        for (const x0 of [b[0]!, b[3]!]) for (const y0 of [b[1]!, b[4]!]) for (const z0 of [b[2]!, b[5]!]) {
+          let x = x0, y = y0, z = z0;
+          if (T) { const j = [x * 16, y * 16, -z * 16]; x = (T[0]! * j[0]! + T[1]! * j[1]! + T[2]! * j[2]! + T[3]!) / 16; y = (T[4]! * j[0]! + T[5]! * j[1]! + T[6]! * j[2]! + T[7]!) / 16; z = -(T[8]! * j[0]! + T[9]! * j[1]! + T[10]! * j[2]! + T[11]!) / 16; }
+          xs.push(v.location.x + (x * c - z * s) * k); ys.push(v.location.y + y * k); zs.push(v.location.z + (x * s + z * c) * k);
+        }
+        return [Math.min(...xs), Math.min(...ys), Math.min(...zs), Math.max(...xs), Math.max(...ys), Math.max(...zs)];
       };
       /**
        * Stand where a child could tap part i - the nearest spot round it on a floor, the body free (`standsAt`), the eye
@@ -402,7 +418,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
           const aims = [mid, { x: mid.x, y: inset(b[1]!, b[4]!, b[1]!), z: mid.z }, { x: inset(b[0]!, b[3]!, eye.x), y: inset(b[1]!, b[4]!, eye.y), z: inset(b[2]!, b[5]!, eye.z) }];
           for (const aim of aims) {
             const dir = { x: aim.x - eye.x, y: aim.y - eye.y, z: aim.z - eye.z };
-            if (pickVehiclePart(f.parts, { ...v.location, yaw: v.rotation.y }, v.scale(), eye, dir, f.parts.map((_q, j) => value(v, j) !== 0), VEHICLE_PART) !== i) { crowded = true; continue; }
+            if (pickVehiclePart(f.parts, poseOf(v, f), v.scale(), eye, dir, f.parts.map((_q, j) => value(v, j) !== 0), VEHICLE_PART) !== i) { crowded = true; continue; }
             spots.push({ feet: { x, y, z }, gap: g, aim });
           }
         }
@@ -426,7 +442,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
           await ctx.run(1);
           lookAt(ctx.player, sp.aim);
           const head = ctx.player.headLocation(), view = viewDirectionOf(ctx.player);
-          const means = pickVehiclePart(f.parts, { ...v.location, yaw: v.rotation.y }, v.scale(), head, view, f.parts.map((_q, j) => value(v, j) !== 0), VEHICLE_PART);
+          const means = pickVehiclePart(f.parts, poseOf(v, f), v.scale(), head, view, f.parts.map((_q, j) => value(v, j) !== 0), VEHICLE_PART);
           if (means === i && isTarget(pick(ctx.sim.engine, ctx.player).entity)) { chosen = sp; break; }
         }
         if (!chosen) {
@@ -496,17 +512,17 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
         else ctx.violate({ invariant: 'vehicle-part-rides-along', message: `${f.typeId}: after a ${r2(drove)}-block drive a tap beside part ${swing} did not open it`, evidence: { at: v.location } });
         const entry = registeredAppearance(pack.pack)?.byType.get(f.typeId);
         if (entry && again) {
-          // The part's own swing, without the body's lean: a parked car keeps its last squat (fl_pitch, up to 3 degrees),
-          // which the runtime's pick does not model (# TODO(vehicle-parts-lean): 0.14 blocks at the far end of 41395's
-          // 13-block bus at 100 %, inside the pick's pad).
-          const props: Record<string, number | boolean | string> = { ...Object.fromEntries(v.properties), [prop(FLIGHT_PROPS.pitch)]: 0, [prop(FLIGHT_PROPS.bank)]: 0 };
+          // The part's own swing WITH the body's lean the vehicle parked in (fl_pitch / fl_bank): the runtime's pick
+          // follows the lean (`pickVehiclePart` pose pitch/bank), so the drawn leaf must stand in the part's open box
+          // turned by it.
+          const props: Record<string, number | boolean | string> = { ...Object.fromEntries(v.properties) };
           const closedProps = { ...props, [prop(vehiclePartProperty(swing))]: 0 };
           const set = registeredAppearance(pack.pack)?.animations?.get(f.typeId);
           const shut = drawnBoxes(entry, v.location, v.rotation.y, v.scale(), 'near', animatedPoses(set, closedProps));
           const open = drawnBoxes(entry, v.location, v.rotation.y, v.scale(), 'near', animatedPoses(set, props));
           // The cubes that moved when it opened are the part's: their union must be the part's open box at this pose.
           const moved = open.filter((d, j) => { const q = shut[j]?.box; return !!q && Math.abs(q.x0 - d.box.x0) + Math.abs(q.y0 - d.box.y0) + Math.abs(q.z0 - d.box.z0) > 1e-3; });
-          const want = worldBox(v, f.parts[swing]!, true);
+          const want = worldBox(v, f.parts[swing]!, true, poseOf(v, f));
           const got = moved.length ? [Math.min(...moved.map(d => d.box.x0)), Math.min(...moved.map(d => d.box.y0)), Math.min(...moved.map(d => d.box.z0)), Math.max(...moved.map(d => d.box.x1)), Math.max(...moved.map(d => d.box.y1)), Math.max(...moved.map(d => d.box.z1))] : [];
           // Every cube that moved stands inside the part's open box there (a cube ON the hinge line keeps its box and
           // is not among them, so the union may be smaller than the box, never outside it).

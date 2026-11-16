@@ -50,7 +50,7 @@ import { HOP, HOP_TAGS, hopKitConfig, hopRuntimeConfig, hopScript, type HopSourc
 import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, pressFlashOverlay, ballAnimation, ballProperties, buttonPressAnimation, consoleAssets, consoleHideAnimation, pressProperties, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
 import { BOARD, BOARD_OWNER_PROPERTY, BOARD_POINTS_PROPERTY, BOAT, PLACEMENT_TAG_PREFIX, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, VEHICLE_DYNAMIC, VEHICLE_EGRESS, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
-import { VEHICLE_PART, closesWhenMoving, vehiclePartAnimation, vehiclePartBoxes, vehiclePartProperties, vehiclePartProperty, type VehiclePartRuntime, type VehiclePartSpec } from './vehicle-parts.js';
+import { VEHICLE_PART, bodyPivotOf, closesWhenMoving, vehiclePartAnimation, vehiclePartBoxes, vehiclePartProperties, vehiclePartProperty, type VehiclePartRuntime, type VehiclePartSpec } from './vehicle-parts.js';
 import { COLLIDER_KIT, ESCAPE_OPTIONS } from './collider-form.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { COCKPIT_CLIENT_LAGS, FREE_LOOK, NATIVE_HEADING_PROPERTY, NATIVE_STEER, cockpitCamera, cockpitLagFor, type CockpitClientLag, freeLookStart, freeLookStep, nativeSteerStart, nativeSteerStep, type FreeLookParams, type NativeSteerParams } from './vehicle-free-look.js';
@@ -3531,7 +3531,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (scripted && ldrawGeo && carriedParts.length) {
             const boxes = vehiclePartBoxes(ldrawGeo.value, partAnims, unitsPerLdu);
             partRuntime = carriedParts.map((part, k) => ({ kind: part.kind, noun: part.noun, angle: part.angleDeg, closes: closesWhenMoving(part.kind), closed: boxes[k]?.closed ?? [], open: boxes[k]?.open ?? [] }));
-            scriptedTypes[fullTypeId] = { ...scriptedTypes[fullTypeId]!, parts: partRuntime };
+            const bodyPivot = bodyPivotOf(ldrawGeo.value);
+            scriptedTypes[fullTypeId] = { ...scriptedTypes[fullTypeId]!, parts: partRuntime, ...(bodyPivot ? { bodyPivot } : {}) };
             vehiclePartsShipped = true;
         }
         // A scripted vehicle whose driver's eye left the cabin keeps its rider at the helm (`helmSeatPlan`).

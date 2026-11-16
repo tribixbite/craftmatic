@@ -1369,6 +1369,8 @@ export interface ScriptedVehicleType {
   board?: BoardPoint[];
   /** The doors, lids and cupboards it carries, part k on the actor property `craftmatic:vpart_<k>` (vehicle-parts.ts). */
   parts?: VehiclePartRuntime[];
+  /** Its `body` bone's pivot, entity frame at 100 % (blocks): where the drive animation's lean turns the body (the pick follows it). */
+  bodyPivot?: number[];
 }
 
 /** What the scripted-vehicle runtime is told about the pack. */
@@ -1720,7 +1722,10 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     try { eye = player.getHeadLocation(); dir = player.getViewDirection(); loc = vehicle.location; yaw = Number(vehicle.getRotation().y) || 0; } catch { return false; }
     try { const sc = Number(vehicle.getComponent('minecraft:scale')?.value); if (Number.isFinite(sc) && sc > 0) k = sc; } catch { /* unscaled */ }
     const values = partsOf(vehicle, kind);
-    const i = pickPart!(kind.parts, { x: loc.x, y: loc.y, z: loc.z, yaw }, k, eye, dir, values.map(v => v !== 0), PT);
+    // The body's leftover lean (a parked car's last squat), which the drive animation draws (`vehicleClientAnimation`).
+    let pitch = 0, bank = 0;
+    try { pitch = Number(vehicle.getProperty(config.props.pitch)) || 0; bank = Number(vehicle.getProperty(config.props.bank)) || 0; } catch { /* level */ }
+    const i = pickPart!(kind.parts, { x: loc.x, y: loc.y, z: loc.z, yaw, pitch, bank, ...(kind.bodyPivot ? { pivot: kind.bodyPivot } : {}) }, k, eye, dir, values.map(v => v !== 0), PT);
     if (i < 0) return false;
     const part = kind.parts[i]!;
     setPart(vehicle, kind, i, part.kind === 'turnable' ? (values[i]! + part.angle) % 36000 : values[i] !== 0 ? 0 : part.angle);

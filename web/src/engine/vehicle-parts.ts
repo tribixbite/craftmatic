@@ -176,6 +176,21 @@ export function vehiclePartBoxes(geometry: unknown, parts: ReadonlyArray<{ angle
 }
 
 /**
+ * The `body` bone's pivot of a shipped geometry (`.geo.json` value) in the entity frame at 100 % (blocks, JSON z
+ * mirrored): where the drive animation's lean turns the body, for `pickVehiclePart`'s `pose.pivot`. Undefined: no body.
+ */
+export function bodyPivotOf(geometry: unknown): number[] | undefined {
+  const meshes = (geometry as { 'minecraft:geometry'?: Array<{ bones?: Array<{ name: string; pivot?: readonly number[] }> }> } | undefined)?.['minecraft:geometry'] ?? [];
+  for (const mesh of meshes) for (const bone of mesh.bones ?? []) {
+    if (bone.name !== 'body') continue;
+    const p = bone.pivot ?? [0, 0, 0];
+    const r3 = (v: number): number => Math.round(v * 1000) / 1000 || 0;
+    return [r3((p[0] ?? 0) / 16), r3((p[1] ?? 0) / 16), r3(-(p[2] ?? 0) / 16)];
+  }
+  return undefined;
+}
+
+/**
  * Which part a tap on a parked vehicle meant, or -1 (board instead). Pure and self-contained: serialised into
  * `scripts/vehicles.js`. `pose` is the vehicle's (Bedrock yaw: 0 faces +z, +x turns toward +z), `k` its live scale,
  * `eye` and `dir` the player's head and view (world), `open[i]` whether part i is open now (the box over its open and
@@ -188,13 +203,32 @@ export function vehiclePartBoxes(geometry: unknown, parts: ReadonlyArray<{ angle
  * # TODO(vehicle-parts-touch-aim): unmeasured on a phone - whether a touch tap's view direction is the camera's
  * centre or the finger's ray; the cone covers the screen's half-width either way.
  */
-export function pickVehiclePart(parts: ReadonlyArray<{ closed: readonly number[]; open: readonly number[] }>, pose: { x: number; y: number; z: number; yaw: number }, k: number, eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, open: readonly boolean[], P: { REACH_BLOCKS: number; CONE_DEG: number; PAD_BLOCKS: number; TIE_BLOCKS: number }): number {
+export function pickVehiclePart(parts: ReadonlyArray<{ closed: readonly number[]; open: readonly number[] }>, pose: { x: number; y: number; z: number; yaw: number; pitch?: number; bank?: number; pivot?: readonly number[] }, k: number, eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, open: readonly boolean[], P: { REACH_BLOCKS: number; CONE_DEG: number; PAD_BLOCKS: number; TIE_BLOCKS: number }): number {
   const r = pose.yaw * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
   // World -> entity frame (the inverse of the yaw turn `boardPointPlaces` applies), in world blocks (scaled boxes).
   const dx = eye.x - pose.x, dz = eye.z - pose.z;
-  const e = [dx * c + dz * s, eye.y - pose.y, -dx * s + dz * c];
+  let e = [dx * c + dz * s, eye.y - pose.y, -dx * s + dz * c];
   const dl = Math.hypot(dir.x, dir.y, dir.z) || 1;
-  const d = [(dir.x * c + dir.z * s) / dl, dir.y / dl, (-dir.x * s + dir.z * c) / dl];
+  let d = [(dir.x * c + dir.z * s) / dl, dir.y / dl, (-dir.x * s + dir.z * c) / dl];
+  // The body's lean (a parked car keeps its last squat; `FLIGHT_PROPS` pitch and bank, degrees): the drive animation
+  // turns the `body` bone by [-pitch, 0, -bank] about its pivot, which the geometry JSON draws as Rz(bank)·Rx(pitch)
+  // (`pivotRotation`) in its own frame, the entity frame mirrored in z. The boxes are the LEVEL body's, so the eye and
+  // the view are turned back by the inverse, Rx(-pitch)·Rz(-bank), in that JSON frame.
+  const pa = (pose.pitch ?? 0) * Math.PI / 180, ba = (pose.bank ?? 0) * Math.PI / 180;
+  if (pa || ba) {
+    const ca = Math.cos(pa), sa = Math.sin(pa), cb = Math.cos(ba), sb = Math.sin(ba);
+    const unlean = (v: number[]): number[] => {
+      // Entity -> JSON (z mirrored); Rz(-bank) then Rx(-pitch); back.
+      const x0 = v[0]!, y0 = v[1]!, z0 = -v[2]!;
+      const x1 = x0 * cb + y0 * sb, y1 = -x0 * sb + y0 * cb;
+      const y2 = y1 * ca + z0 * sa, z2 = -y1 * sa + z0 * ca;
+      return [x1, y2, -z2];
+    };
+    const pv = [0, 1, 2].map(a => (pose.pivot?.[a] ?? 0) * k);
+    const rel = unlean([e[0]! - pv[0]!, e[1]! - pv[1]!, e[2]! - pv[2]!]);
+    e = [rel[0]! + pv[0]!, rel[1]! + pv[1]!, rel[2]! + pv[2]!];
+    d = unlean(d);
+  }
   const cosCone = Math.cos(P.CONE_DEG * Math.PI / 180);
   // The vehicle's size scales its parts' spacing: the reach grows with it (a 400 % bus's door is 4x as far across);
   // the pad never outgrows a small part (a 50 % lever is a tenth of a block).
