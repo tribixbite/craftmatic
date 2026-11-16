@@ -27,6 +27,9 @@
  *          [--out=scripts/mb-decoration-votes.json] [--plan=OUT.json] [--holdout=OUT.json] [set…]
  *   --plan     per shipped file, the line, decoration and print of every head to write (clego mb_head_prints.py)
  *   --holdout  precision: every set's own votes judged against the table the OTHER sets' votes give
+ *   --names    also the print a head's NAME gives where its set's Rebrickable inventory holds it (mb-head-names.ts)
+ *   --from-votes=<votes json>  re-decide from an earlier run's votes (`detail`) instead of running the matcher. Use
+ *              it once files are written: a fresh pass would read the metas this plan wrote back as votes.
  * Offline: `CRAFTMATIC_LDRAW_MIRROR=off` in the ENVIRONMENT (read at import).
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -38,6 +41,7 @@ import type { ParsedBrick } from '../web/src/engine/ldraw-parser.ts';
 import { printedHeadFor } from '../web/src/engine/ldraw-part-aliases.ts';
 import { HEAD_PRINT_LDRAW } from '../web/src/engine/head-print-ldraw.ts';
 import { partStem } from '../web/src/engine/part-id.ts';
+import { loadRebrickableHeadData, nameChoice, type NameChoice } from './mb-head-names.ts';
 import { CORPUS, acceptVotes, collectVotes, donorFilesBySet, setOfFile, tallyVotes, type DecorationVote, type VoteTally } from './decoration-votes.ts';
 
 /** One decorated head of a shipped Mecabricks file, as clego `mb_head_decorations.py` records it. */
@@ -112,7 +116,7 @@ export function chooseHeadPrint(headPart: string, print: string, donorParts: rea
 
 /** A decision for one decorated head. */
 export type HeadDecision =
-  | ({ line: number; decoration: string; basis: 'votes' | 'own set' } & HeadPrintChoice)
+  | ({ line: number; decoration: string; basis: 'votes' | 'own set' | 'name' } & HeadPrintChoice)
   | { line: number; decoration: string; refused: string };
 
 /**
@@ -153,6 +157,7 @@ export function ownVotesOf(votes: readonly HeadVote[]): Map<string, OwnVotes> {
 export function decideHeads(
   file: string, heads: readonly MbHeadRow[], table: ReadonlyMap<string, { print: string; parts: readonly string[] }>, tally: VoteTally,
   own: ReadonlyMap<string, OwnVotes>, exact: (part: string) => boolean = () => true,
+  byName?: (head: MbHeadRow) => NameChoice,
 ): HeadDecision[] {
   return heads.map(h => {
     const at = { line: h.line, decoration: h.decoration };
@@ -162,11 +167,18 @@ export function decideHeads(
     if (direct && mine!.full.has(direct)) {
       return { ...at, basis: 'own set' as const, ...chooseHeadPrint(h.part, direct, [...(mine!.parts.get(direct) ?? [])], exact) };
     }
+    const named = byName?.(h);
     const accepted = table.get(h.decoration);
     if (accepted) {
+      if (named && 'print' in named && faceKey(named.print) !== faceKey(accepted.print)) {
+        return { ...at, refused: `its name gives ${named.print} (${named.part}), table ${accepted.print}` };
+      }
       if (direct && direct !== accepted.print) return { ...at, refused: `an LDraw-limited donor pairs it with ${direct}, table ${accepted.print}` };
       return { ...at, basis: 'votes' as const, ...chooseHeadPrint(h.part, accepted.print, accepted.parts, exact) };
     }
+    // The name, held by the set's own inventory (`nameChoice`): element identity, which beats an LDraw-limited
+    // donor's nearest-print stand-in.
+    if (named && 'print' in named) return { ...at, basis: 'name' as const, ...chooseHeadPrint(h.part, named.print, named.ldraw ? [named.ldraw] : [], exact) };
     if (direct) return { ...at, refused: `paired with ${direct} only by an LDraw-limited donor` };
     const row = tally[h.decoration];
     return { ...at, refused: row ? `no accepted row (${Object.keys(row).join('/')})` : 'no vote' };
@@ -213,40 +225,51 @@ async function main(): Promise<void> {
     if (!s || (only.size && !only.has(s))) continue;
     targets.set(s, [...(targets.get(s) ?? []), f]);
   }
-  const donors = donorFilesBySet(only);
-  console.log(`${targets.size} sets with decorated Mecabricks heads, ${[...targets.keys()].filter(s => donors.has(s)).length} with a donor that may name prints`);
-  // brick index -> clego line, per target file, so each vote lands on the head the matcher paired.
-  const lineOf = new Map<string, Map<number, number>>();
-  const collected = await collectVotes({
-    targets, donors, provider: createPartGeometryProvider(), log: l => console.log(l),
-    decorationsOf: (path, bricks) => {
-      const rows = attachDecorations(bricks, doc.files[path]!.heads);
-      lineOf.set(path, new Map([...rows].map(([i, h]) => [i, h.line])));
-      return new Map([...rows].map(([i, h]) => [i, h.decoration]));
-    },
-  });
-  const r = {
-    ...collected,
-    votes: collected.votes.flatMap((v): HeadVote[] => {
-      const line = v.head === undefined ? undefined : lineOf.get(v.target)?.get(v.head);
-      return line === undefined ? [] : [{ ...v, line }];
-    }),
-  };
-  // Votes the files already carry (heads printed by an earlier transfer), in every target set, donors or not.
-  for (const [s, files] of targets) {
-    for (const f of files) {
-      const path = `${CORPUS}/${f}`;
-      if (existsSync(path)) r.votes.push(...carriedVotes(s, f, readFileSync(path, 'utf8'), doc.files[f]!.heads));
+  // `--from-votes`: the votes an earlier run wrote (its `detail`), so the plan can be re-decided without the
+  // matcher's minutes-long pass; the run that wrote them read the same corpus.
+  const fromVotes = opt('from-votes');
+  let r: { heads: number; decorated: number; votes: HeadVote[] };
+  if (fromVotes) {
+    const prev = JSON.parse(readFileSync(fromVotes, 'utf8')) as { heads: number; decorated: number; detail: HeadVote[] };
+    const keep = (v: HeadVote): boolean => { const s = setOfFile(v.target.split('/').pop()!); return !!s && targets.has(s); };
+    r = { heads: prev.heads, decorated: prev.decorated, votes: prev.detail.filter(keep) };
+    console.log(`${r.votes.length} votes read from ${fromVotes}`);
+  } else {
+    const donors = donorFilesBySet(only);
+    console.log(`${targets.size} sets with decorated Mecabricks heads, ${[...targets.keys()].filter(s => donors.has(s)).length} with a donor that may name prints`);
+    // brick index -> clego line, per target file, so each vote lands on the head the matcher paired.
+    const lineOf = new Map<string, Map<number, number>>();
+    const collected = await collectVotes({
+      targets, donors, provider: createPartGeometryProvider(), log: l => console.log(l),
+      decorationsOf: (path, bricks) => {
+        const rows = attachDecorations(bricks, doc.files[path]!.heads);
+        lineOf.set(path, new Map([...rows].map(([i, h]) => [i, h.line])));
+        return new Map([...rows].map(([i, h]) => [i, h.decoration]));
+      },
+    });
+    r = {
+      ...collected,
+      votes: collected.votes.flatMap((v): HeadVote[] => {
+        const line = v.head === undefined ? undefined : lineOf.get(v.target)?.get(v.head);
+        return line === undefined ? [] : [{ ...v, line }];
+      }),
+    };
+    // Votes the files already carry (heads printed by an earlier transfer), in every target set, donors or not.
+    for (const [s, files] of targets) {
+      for (const f of files) {
+        const path = `${CORPUS}/${f}`;
+        if (existsSync(path)) r.votes.push(...carriedVotes(s, f, readFileSync(path, 'utf8'), doc.files[f]!.heads));
+      }
     }
   }
   const tally = tallyVotes(r.votes);
   const verdicts = acceptVotes(tally);
-  mkdirSync(dirname(outPath), { recursive: true });
-  writeFileSync(outPath, `${JSON.stringify({
+  if (!fromVotes || opt('out')) mkdirSync(dirname(outPath), { recursive: true });
+  if (!fromVotes || opt('out')) writeFileSync(outPath, `${JSON.stringify({
     generated: 'bun scripts/_mb_decoration_votes.ts', heads: r.heads, decorated: r.decorated, votes: r.votes.length,
     accepted: verdicts.filter(v => 'print' in v).length, tally, verdicts, detail: r.votes,
   }, null, 1)}\n`);
-  console.log(`${r.heads} heads read in sets with donors, ${r.decorated} decorated; ${r.votes.length} votes over ${Object.keys(tally).length} decorations, ${verdicts.filter(v => 'print' in v).length} accepted -> ${outPath}`);
+  console.log(`${r.heads} heads read in sets with donors, ${r.decorated} decorated; ${r.votes.length} votes over ${Object.keys(tally).length} decorations, ${verdicts.filter(v => 'print' in v).length} accepted${!fromVotes || opt('out') ? ` -> ${outPath}` : ''}`);
 
   const hold = opt('holdout');
   if (hold) {
@@ -268,24 +291,27 @@ async function main(): Promise<void> {
       }
     }
     for (const k of Object.keys(HEAD_PRINT_LDRAW)) names.add(`${HEAD_PRINT_LDRAW[k]}.dat`);
+    // `--names`: the print a head's own name gives where its set's inventory holds that part (mb-head-names.ts).
+    const rb = argv.includes('--names') ? loadRebrickableHeadData() : undefined;
+    if (rb) for (const f of Object.values(rb.printMap)) if (f.endsWith('.dat')) names.add(f);
     const exactSet = new Set<string>();
     for (const n of names) if ((await getDatText(n)) !== null && !datSubstitutionFor(n)) exactSet.add(n.toLowerCase());
     const exact = (part: string): boolean => exactSet.has(part.toLowerCase());
     const plan: Record<string, HeadDecision[]> = {};
-    const count = { votes: 0, own: 0, refused: 0, renamed: 0, meta: 0 };
+    const count = { votes: 0, own: 0, name: 0, refused: 0, renamed: 0, meta: 0 };
     for (const [f, v] of Object.entries(doc.files)) {
       const s = setOfFile(f.split('/').pop()!);
       if (!s || (only.size && !only.has(s))) continue;
-      const d = decideHeads(f, v.heads, table, tally, own, exact);
+      const d = decideHeads(f, v.heads, table, tally, own, exact, rb ? (h => nameChoice(h, s, rb)) : undefined);
       for (const x of d) {
         if ('refused' in x) { count.refused++; continue; }
-        if (x.basis === 'votes') count.votes++; else count.own++;
+        if (x.basis === 'votes') count.votes++; else if (x.basis === 'name') count.name++; else count.own++;
         if (x.rename) count.renamed++; else count.meta++;
       }
       if (d.some(x => !('refused' in x))) plan[f] = d;
     }
     writeFileSync(planPath, `${JSON.stringify({ generated: 'bun scripts/_mb_decoration_votes.ts --plan', count, files: plan }, null, 1)}\n`);
-    console.log(`plan: ${count.votes} heads by votes, ${count.own} by their own set (${count.renamed} renames, ${count.meta} metas), ${count.refused} refused, ${Object.keys(plan).length} files -> ${planPath}`);
+    console.log(`plan: ${count.votes} heads by votes, ${count.own} by their own set, ${count.name} by their name (${count.renamed} renames, ${count.meta} metas), ${count.refused} refused, ${Object.keys(plan).length} files -> ${planPath}`);
   }
 }
 
