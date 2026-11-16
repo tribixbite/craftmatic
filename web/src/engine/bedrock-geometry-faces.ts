@@ -595,10 +595,12 @@ export interface CoplanarSeparation {
  * one separation further out (a tile on a plate on a slope, a stack of flush details), so the pushes form chains;
  * each pass settles one more link. Three passes (until 2026-11-15) left 530 pairs in 11374's shell and 8,509 over
  * the 40 favourites (A-17); re-separating those shipped shells settled every one within seven more passes
- * (`output/a17/resep.ts` in the audit-render worktree). Ten is that plus margin; the loop stops as soon as a pass
- * finds nothing to push, so a shell with no chain pays for one pass, as before.
+ * (`output/a17/resep.ts` in the audit-render worktree). The Time Machine body (10300, 250,000 faces) takes 9 pushing
+ * passes; 16 leaves margin. Only the first pass and the closing check measure the whole entity (a pass after a push
+ * looks near the moved faces, `separateCoplanarAgainst`), so a pass costs a fraction of the first, and an entity with
+ * no pair pays for one pass, as before.
  */
-export const COPLANAR_SEPARATION_MAX_PASSES = 10;
+export const COPLANAR_SEPARATION_MAX_PASSES = 16;
 
 export interface CoplanarSeparationOptions {
   offset?: number; passes?: number; planeEps?: number;
@@ -758,8 +760,9 @@ export function separateCoplanarAgainst(placements: readonly AuditActor[], fixed
    * moved face's box (a grid of 32-unit cells), not the whole entity again. A pass that finds nothing to push is
    * followed by a FULL pass, which alone may declare the separation settled and count what is left.
    */
-  const nearSeeds = (all: WorldFace[], seed: (f: WorldFace) => boolean): WorldFace[] => {
-    const G = 32, pad = planeEps + 0.05;
+  const nearSeeds = (all: WorldFace[], seed: (f: WorldFace) => boolean, reach: number): WorldFace[] => {
+    // `reach`: how far the seeds moved. A face a seed USED to press against (buried, so unpaired) is that far from it now.
+    const G = 32, pad = planeEps + reach + 0.05;
     const boxOf = (f: WorldFace): [number, number, number, number, number, number] => {
       const b: [number, number, number, number, number, number] = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
       for (const c of f.corners) for (let k = 0; k < 3; k++) { if (c[k]! < b[k]!) b[k] = c[k]!; if (c[k]! > b[k + 3]!) b[k + 3] = c[k]!; }
@@ -787,14 +790,14 @@ export function separateCoplanarAgainst(placements: readonly AuditActor[], fixed
   };
   if (options.settledOwn && !neighbours.length) return result;
   /** A full pass's faces: all of them, or (`settledOwn`) the entity's faces near its neighbours, and the neighbours. */
-  const fullScope = (all: WorldFace[]): WorldFace[] => (options.settledOwn ? nearSeeds(all, f => f.actor >= own) : all);
-  let moved: Set<string> | null = null;
+  const fullScope = (all: WorldFace[]): WorldFace[] => (options.settledOwn ? nearSeeds(all, f => f.actor >= own, offset * (maxPasses + 1)) : all);
+  let moved: Set<string> | null = null, movedBy = 0;
   for (let pass = 0; ; pass++) {
     const mine = worldFaces(placements);
     const all = neighbours.length ? mine.concat(neighbours) : mine;
     const full = moved === null;
     const seen = moved;
-    const { grow, pending, pendingArea } = plan(seen ? nearSeeds(all, f => f.actor < own && seen.has(`${f.group}:${f.cube}:${f.face}`)) : fullScope(all), all);
+    const { grow, pending, pendingArea } = plan(seen ? nearSeeds(all, f => f.actor < own && seen.has(`${f.group}:${f.cube}:${f.face}`), movedBy) : fullScope(all), all);
     if (pass === 0) { result.pairsFound = pending; result.areaFound = pendingArea / 256; }
     if (!grow.size) {
       // Settled on a full pass: what is left is counted. Settled near the last pushes: check the whole entity.
@@ -815,5 +818,6 @@ export function separateCoplanarAgainst(placements: readonly AuditActor[], fixed
       result.facesGrown++;
     }
     moved = new Set(grow.keys());
+    movedBy = Math.max(...grow.values()) + 0.01;
   }
 }
