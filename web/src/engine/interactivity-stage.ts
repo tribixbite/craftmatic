@@ -97,6 +97,11 @@ export interface InteractivityStageInput {
   toGrid: (p: Vec3) => Vec3;
   /** Cap on moving parts (default `MAX_INTERACTIVES`). */
   max?: number;
+  /**
+   * `toGrid`'s y 0 is the ground the placement stands on (the scene's grid frame): a root under it is moved up onto
+   * it (`groundedAnchors`). Absent for a frame with no ground (a vehicle's own parts, shaped at minifig scale).
+   */
+  groundPlane?: boolean;
 }
 
 export interface InteractivityStageResult {
@@ -104,6 +109,76 @@ export interface InteractivityStageResult {
   items: SceneInteractive[];
   report: InteractivityReport;
   warnings: string[];
+}
+
+/** How far apart (grid blocks) two leaves' mid-planes may lie and still stand in one doorway: about a cell. */
+export const STACK_PLANE_BLOCKS = 0.5;
+/** The gap (grid blocks) under which two leaves one above the other TOUCH: a sixteenth, the colliders' grain. */
+export const STACK_TOUCH_BLOCKS = 1 / 16;
+
+/**
+ * The door and gate leaves to leave STATIC because they stand on another leaf in the same doorway (indices into
+ * `items`). Two leaves stack when they face the same way within `STACK_PLANE_BLOCKS` of one plane, cover at least
+ * half the narrower one's width there, and one stands on the other - their heights touch or overlap
+ * (`STACK_TOUCH_BLOCKS`) and their feet are at least half the shorter leaf's height apart (a double door's two leaves
+ * are side by side at one height). The upper leaf's threshold is then the lower leaf's head room: one door's passage
+ * takes the other's floor, so at most one of them can work. The LOWEST of each stack is the door; it stands on the
+ * floor the stack stands on. PDF reconstructions of the "building set" buckets stack two to four doors in one column
+ * (census 2026-11-16: 5582 Doors 1-2, 5482 Doors 1-4, 3600 Doors 1-2; 5582 Door 2 fell 3.19 blocks at 150 %).
+ * `toGrid` maps LDraw to grid blocks (y up).
+ */
+export function stackedDoorways(items: readonly SceneInteractive[], toGrid: (p: Vec3) => Vec3): Set<number> {
+  interface Leaf { i: number; c: Vec3; a: Vec3; w: number; n: Vec3; y0: number; y1: number }
+  const leaves: Leaf[] = [];
+  items.forEach((it, i) => {
+    if ((it.kind !== 'door' && it.kind !== 'gate') || !it.leaf) return;
+    const L = it.leaf, c = toGrid(L.corner);
+    const pa = toGrid([L.corner[0] + L.along[0], L.corner[1] + L.along[1], L.corner[2] + L.along[2]]);
+    const pu = toGrid([L.corner[0] + L.up[0], L.corner[1] + L.up[1], L.corner[2] + L.up[2]]);
+    const pn = toGrid([L.corner[0] + L.normal[0], L.corner[1] + L.normal[1], L.corner[2] + L.normal[2]]);
+    const a: Vec3 = [pa[0] - c[0], 0, pa[2] - c[2]], w = Math.hypot(a[0], a[2]);
+    const n: Vec3 = [pn[0] - c[0], 0, pn[2] - c[2]], nl = Math.hypot(n[0], n[2]);
+    if (w < 1e-6 || nl < 1e-6) return;
+    leaves.push({ i, c, a: [a[0] / w, 0, a[2] / w], w, n: [n[0] / nl, 0, n[2] / nl], y0: Math.min(c[1], pu[1]), y1: Math.max(c[1], pu[1]) });
+  });
+  const stacked = (p: Leaf, q: Leaf): boolean => {
+    if (Math.abs(p.n[0] * q.n[0] + p.n[2] * q.n[2]) < 0.9) return false;
+    const d: Vec3 = [q.c[0] - p.c[0], 0, q.c[2] - p.c[2]];
+    if (Math.abs(d[0] * p.n[0] + d[2] * p.n[2]) > STACK_PLANE_BLOCKS) return false;
+    // Both leaves' widths on p's width axis: q's runs from its corner along its own direction.
+    const q0 = d[0] * p.a[0] + d[2] * p.a[2], q1 = q0 + q.w * (q.a[0] * p.a[0] + q.a[2] * p.a[2]);
+    const cover = Math.min(p.w, Math.max(q0, q1)) - Math.max(0, Math.min(q0, q1));
+    if (cover < 0.5 * Math.min(p.w, q.w)) return false;
+    const overlap = Math.min(p.y1, q.y1) - Math.max(p.y0, q.y0);
+    return overlap >= -STACK_TOUCH_BLOCKS && Math.abs(q.y0 - p.y0) >= 0.5 * Math.min(p.y1 - p.y0, q.y1 - q.y0);
+  };
+  // Stacks are chains (a tower of four doors): group by union-find, keep each group's lowest leaf.
+  const parent = leaves.map((_, k) => k);
+  const root = (k: number): number => { while (parent[k] !== k) k = parent[k] = parent[parent[k]!]!; return k; };
+  for (let p = 0; p < leaves.length; p++) for (let q = p + 1; q < leaves.length; q++) if (stacked(leaves[p]!, leaves[q]!)) parent[root(p)] = root(q);
+  const lowest = new Map<number, Leaf>();
+  leaves.forEach((l, k) => { const r = root(k), cur = lowest.get(r); if (!cur || l.y0 < cur.y0) lowest.set(r, l); });
+  const out = new Set<number>();
+  leaves.forEach((l, k) => { const g = root(k); if (leaves.some((_, m) => m !== k && root(m) === g) && lowest.get(g) !== l) out.add(l.i); });
+  return out;
+}
+
+/**
+ * Each part with its entity origin (`anchorLdu`, the closed assembly's bottom centre) moved straight up onto the
+ * ground plane (grid y 0) where it lies under it; other parts are returned as they are (the same object). An entity
+ * is lit by the block at its root, so a root inside the ground block draws the part dark (the shell's own root is
+ * lifted into open sky for the same reason, `originAboveModel`); the rig's root bone, the compiled geometry and the
+ * tap boxes all hang off the anchor, and the placement turns and scales about it, so moving it moves nothing drawn.
+ * 2504's right gate leaf, posed upside down by its reconstruction, hangs 0.48 under the ground (census 2026-11-16).
+ */
+export function groundedAnchors(items: readonly SceneInteractive[], toGrid: (p: Vec3) => Vec3): SceneInteractive[] {
+  return items.map(it => {
+    const g = toGrid(it.anchorLdu);
+    if (g[1] >= 0) return it;
+    const perLdu = toGrid([it.anchorLdu[0], it.anchorLdu[1] + 1, it.anchorLdu[2]])[1] - g[1];
+    if (!Number.isFinite(perLdu) || Math.abs(perLdu) < 1e-12) return it;
+    return { ...it, anchorLdu: [it.anchorLdu[0], it.anchorLdu[1] - g[1] / perLdu, it.anchorLdu[2]] as Vec3 };
+  });
 }
 
 /** Run the stage: discover, shape and separate the tap boxes, and report every candidate. */
@@ -117,8 +192,13 @@ export function interactivityStage(input: InteractivityStageInput): Interactivit
   const taken = new Set<ParsedBrick>([...moulded.items.flatMap(it => it.bricks), ...input.seats.flatMap(s => (s.brick ? [s.brick] : []))]);
   const hinged = discoverBrickHinges({ bricks: scenery, meshOf: b => { const m = classified.get(b.part); return m && m.triangles.length ? m : null; }, taken });
   const capped = capInteractives([...moulded.items, ...hinged.items], input.max ?? MAX_INTERACTIVES);
-  const found = { items: capped.items, skipped: [...moulded.skipped, ...capped.skipped], warnings: [...moulded.warnings, ...capped.warnings] };
+  // A door standing on another door in one doorway stays static (`stackedDoorways`); every root is on or over the ground.
+  const grounded = input.groundPlane ? groundedAnchors(capped.items, input.toGrid) : capped.items;
+  const stackedOut = stackedDoorways(grounded, input.toGrid);
+  const stackedItems = grounded.filter((_, k) => stackedOut.has(k));
+  const found = { items: grounded.filter((_, k) => !stackedOut.has(k)), skipped: [...moulded.skipped, ...capped.skipped], warnings: [...moulded.warnings, ...capped.warnings] };
   warnings.push(...found.warnings);
+  if (stackedItems.length) warnings.push(`${stackedItems.length} door${stackedItems.length === 1 ? ' stays' : 's stay'} static: ${stackedItems.map(it => `${it.kind} ${it.part}`).join(', ')} ${stackedItems.length === 1 ? 'stands' : 'stand'} on another door's leaf in the same doorway (only the lowest of a stack opens).`);
   // Tap boxes: each part's own shape, kept off the seats and off each other. A
   // part that cannot keep a box to itself (a turntable under a seat, two
   // coincident rotors) stays static in the shell.
@@ -137,6 +217,7 @@ export function interactivityStage(input: InteractivityStageInput): Interactivit
     it.bricks.forEach((b, i) => verdictOf.set(b, i === 0 ? { verdict: 'found', cls: it.kind, ...(it.builtFrom ? { reason: 'brick-built on a turning joint', description: it.builtFrom } : {}) } : { verdict: 'rides', reason: `rides with ${labelOf(it)}` }));
   }
   for (const it of lostBoxes) verdictOf.set(it.bricks[0]!, { verdict: 'static', reason: 'its tap box cannot be kept clear of a seat or another part', cls: it.kind });
+  for (const it of stackedItems) verdictOf.set(it.bricks[0]!, { verdict: 'static', reason: 'it stands on another door\'s leaf in the same doorway (only the lowest of a stack opens)', cls: it.kind });
   // `skipped` names the mould, not the placement: match by part among the unassigned placements.
   const skippedByPart = new Map<string, string[]>();
   for (const s of found.skipped) { const l = skippedByPart.get(s.part) ?? []; l.push(s.reason); skippedByPart.set(s.part, l); }

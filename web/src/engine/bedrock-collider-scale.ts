@@ -748,6 +748,11 @@ export interface TreadRun {
  * corner (the frame `PlacementActor` positions use).
  */
 export interface ReachTarget { label: string; x: number; y: number; z: number }
+/**
+ * A doorway's APPROACH in the 100 % grid (bedrock-interactives.ts `InteractiveColliderPlan`): the columns in front of
+ * and behind its leaf where a player stands to walk through, its floor (absolute sixteenths) and its closed cells.
+ */
+export interface DoorApproach { columns: ReadonlyArray<readonly [number, number]>; floor16: number; cells: ReadonlyArray<readonly (number | undefined)[]> }
 
 export interface ReachTargetResult extends ReachTarget {
   /** The world column the point lands in at this size and turn, and the columns around it searched (radius in blocks). */
@@ -931,14 +936,14 @@ export const LANE_ROUNDS = 32;
  * (collider-carve.ts), which every grid the plan reads is laid with; the lane
  * walk must be built over it too (`colliderLaneWalk`).
  *
- * TODO(gen-door-stair): the 100 % stair planner refuses a tread in another doorway's approach above that doorway's
- * floor (`treadRefusal`, bedrock-interactives.ts); this planner knows only the doorways' closed cells (`doorCells`),
- * not their approaches. 5482 at 400 percent (census 2026-11-16, recon_v3 with Doors 2 and 3 overlapping in one
- * doorway) lays a 1.5-block riser of Door 2's facade run across Door 3's straight lines (`sim.ts --sizes=400`,
- * "Door 3 ... the pack's TREAD"). Not changed here: any tread-planner change is judged on every device-proven route
- * first (CLAUDE.md "A tread run's SIDE is a wall").
+ * `approaches`: each doorway's approach (`DoorApproach`). As the 100 % stair planner refuses a tread in another
+ * doorway's approach above that doorway's floor (`treadRefusal`, bedrock-interactives.ts), no run here lays a tread
+ * in a doorway's approach standing more than a step over that doorway's floor, unless the run arrives AT that doorway
+ * (its own cells or approach, within a step of its floor): a run past a door is a wall across its line. The census
+ * of 2026-11-16 found 2504's 150 % run up to a 2.8-block ledge laid 1-3 blocks in front of Door 2 (treads to 3.75
+ * blocks, every porch line stopped at its foot), and 5482's 400 % facade run across Door 3's line.
  */
-export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], lane?: TreadLaneCheck, fine?: FineReachColumns, carve?: SizeCarve): TreadPlan {
+export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], lane?: TreadLaneCheck, fine?: FineReachColumns, carve?: SizeCarve, approaches: readonly DoorApproach[] = []): TreadPlan {
   const f = sizePct / 100;
   /**
    * The fine walk stood on the top `src16` of the source column under world column `q` (this size and turn):
@@ -996,6 +1001,36 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
   const treadFloor = new Map<number, number>();   // column key → the floor top a tread replaced there
   const arrivals = new Set<number>();             // columns earlier runs arrive at (their `to` and landing), never converted
   const colKey = (x: number, z: number): number => (x + 1) * (grid.length + 2) + (z + 1);
+  /** The world columns at this size and turn a 100 % column covers. */
+  const worldColumns = (x100: number, z100: number): number[] => {
+    const turned = rotatedCell(x100, z100, dims, rotation);
+    const [x0, x1] = cellColumns(turned.x, f), [z0, z1] = cellColumns(turned.z, f), out: number[] = [];
+    for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) out.push(colKey(x, z));
+    return out;
+  };
+  /** Per world column, the doorways (their floor at this size, world sixteenths, and index) whose approach it is. */
+  const approachAt = new Map<number, Array<{ d: number; floor16: number }>>();
+  /** Per doorway, every world column of its approach and its closed cells: where a run may arrive at it. */
+  const doorwayColumns = approaches.map(() => new Set<number>());
+  approaches.forEach((a, d) => {
+    const floor16 = Math.round(a.floor16 * f);
+    for (const [x, z] of a.columns) for (const k of worldColumns(x, z)) {
+      doorwayColumns[d]!.add(k);
+      const list = approachAt.get(k);
+      if (list) { if (!list.some(e => e.d === d)) list.push({ d, floor16 }); } else approachAt.set(k, [{ d, floor16 }]);
+    }
+    for (const c of a.cells) for (const k of worldColumns(c[0]!, c[2]!)) doorwayColumns[d]!.add(k);
+  });
+  /**
+   * Whether a run arriving at `q` with treads `tops` in `cols` stands across another doorway's line: a tread in a
+   * doorway's approach more than a step over that doorway's floor, on a run that does not arrive at that doorway.
+   */
+  const crossesApproach = (q: Surface, cols: ReadonlyArray<{ x: number; z: number }>, tops: readonly number[]): boolean => {
+    if (!approachAt.size) return false;
+    const qk = colKey(q.x, q.z);
+    return cols.some((c, k) => (approachAt.get(colKey(c.x, c.z)) ?? []).some(e =>
+      tops[k]! > e.floor16 + STEP16 && !(doorwayColumns[e.d]!.has(qk) && Math.abs(q.t - e.floor16) <= STEP16)));
+  };
   const failed = new Set<number>();               // edges refused, never retried
   const edgeKey = (p: Surface, q: Surface): number => grid.key(p.x, p.z, p.t) * 4 + (q.x > p.x ? 0 : q.x < p.x ? 1 : q.z > p.z ? 2 : 3);
   const edits: RunEdit[] = [];
@@ -1115,6 +1150,8 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     };
     const laid = layout(n);
     if (laid === 'headroom') return 'headroom';
+    const treadColumns = (m: number): Array<{ x: number; z: number }> => Array.from({ length: m }, (_, k) => columnAt(k));
+    if (crossesApproach(q, treadColumns(n), laid.tops)) return 'no-run';
     /** The edit that lays the run of `m` treads (`at`: its layout). */
     const build = (m: number, at: { hop16: number; tops: number[]; landing: Surface }): RunEdit => {
       const { hop16, tops, landing } = at;
@@ -1160,7 +1197,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       for (let cand = n + 1; cand < floors.length; cand++) {
         if (floors[cand] !== 0 || !feasible(cand) || hopFor(cand) > AUTO_JUMP16) continue;
         const soft = layout(cand);
-        if (soft !== 'headroom') { const out = { ...build(cand, soft), hard }; if (softSideHolds(out)) return out; }
+        if (soft !== 'headroom' && !crossesApproach(q, treadColumns(cand), soft.tops)) { const out = { ...build(cand, soft), hard }; if (softSideHolds(out)) return out; }
         break;
       }
     }

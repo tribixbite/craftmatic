@@ -751,3 +751,28 @@ describe.skipIf(!existsSync(LIFT_PACK_30K))('10261\'s lift hill at 200 % climbed
     }
   }, 180_000);
 });
+
+describe('a run never stands across another doorway\'s line (census 2026-11-16: 2504 Door 2 at 150 %, 5482 Door 3 at 400 %)', () => {
+  /** The platform's west face at 200 %: world x 3-5 hold the runs, 100 % column x 1-2 in front of a doorway at x 0. */
+  const doorAt = (z: number, floor16: number, x = 0) => ({ columns: [[x + 1, z], [x + 2, z]] as Array<[number, number]>, floor16, cells: [[x, Math.floor(floor16 / 16), z, floor16 % 16, 16]] });
+  const tallIn = (plan: TreadPlan, x0: number, x1: number, z0: number, z1: number, over16: number): TreadBlock[] =>
+    treadsOnly(plan).filter(b => b.x >= x0 && b.x <= x1 && b.z >= z0 && b.z <= z1 && b.y * 16 + b.hi > over16);
+  it('lays no tread more than a step over a ground-floor doorway\'s floor in its approach; the runs elsewhere stay', () => {
+    const p = platform(), cells = colliderSourceCells(colliders(p.dims, p.runs));
+    const bare = planColliderTreads(cells, p.dims, 200, 0);
+    // Without the doorways the west face's runs fill world z 8-11 (100 % z 4-5) up to 21/16.
+    expect(tallIn(bare, 2, 5, 8, 11, 9).length).toBeGreaterThan(0);
+    const plan = planColliderTreads(cells, p.dims, 200, 0, [], [], undefined, undefined, undefined, [doorAt(4, 0), doorAt(5, 0)]);
+    expect(tallIn(plan, 2, 5, 8, 11, 9)).toEqual([]);
+    // The rest of the west face is still climbed.
+    expect(tallIn(plan, 2, 5, 6, 7, 9).length).toBeGreaterThan(0);
+    expect(tallIn(plan, 2, 5, 12, 13, 9).length).toBeGreaterThan(0);
+    assertNeverBlocks(cells, p.dims, plan);
+  });
+  it('keeps a run that climbs TO that doorway (its own approach, arriving at its floor)', () => {
+    const p = platform(), cells = colliderSourceCells(colliders(p.dims, p.runs));
+    // A doorway on the platform's west edge (100 % x 3, floor 14): its approach is the west face's ground.
+    const plan = planColliderTreads(cells, p.dims, 200, 0, [], [], undefined, undefined, undefined, [{ columns: [[2, 4], [1, 4], [4, 4]], floor16: 14, cells: [[3, 0, 4, 14, 16], [3, 1, 4, 0, 16]] }]);
+    expect(tallIn(plan, 2, 5, 8, 9, 9).length).toBeGreaterThan(0);
+  });
+});
