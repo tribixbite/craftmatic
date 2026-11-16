@@ -395,22 +395,35 @@ export function coplanarFaces(faces: readonly WorldFace[], options: CoplanarOpti
   const eps = options.planeEps ?? 0.02, minArea = options.minArea ?? 0.01;
   // Bucket by quantised normal and plane offset; a face also probes the
   // neighbouring offset bucket so a plane straddling a boundary is not missed.
+  // Normals are quantised to 1e-3 per component and a face also probes the NEIGHBOURING buckets: the next plane
+  // offset on its own normal, and the three offsets around it on each of the 26 normals one step away. Two Euler
+  // spellings of one tilt round their normals either side of a step (76269's turned floor, A-17: 121 pairs the
+  // separation never compared), so a bucket of its own normal alone misses them.
   const q = (x: number, s: number): number => Math.round(x / s);
-  const nkey = (n: Vec3): string => `${q(n[0], 1e-3)},${q(n[1], 1e-3)},${q(n[2], 1e-3)}`;
+  const nkey = (a: number, b: number, c: number): string => `${a},${b},${c}`;
   const buckets = new Map<string, number[]>();
+  const keyOf = new Map<string, [number, number, number, number]>();
   faces.forEach((f, i) => {
-    const key = `${nkey(f.normal)}|${Math.floor(f.d / eps)}`;
+    const n: [number, number, number] = [q(f.normal[0], 1e-3), q(f.normal[1], 1e-3), q(f.normal[2], 1e-3)];
+    const dk = Math.floor(f.d / eps);
+    const key = `${nkey(...n)}|${dk}`;
     let list = buckets.get(key);
-    if (!list) buckets.set(key, list = []);
+    if (!list) { buckets.set(key, list = []); keyOf.set(key, [...n, dk]); }
     list.push(i);
   });
   const hits: CoplanarHit[] = [];
   let sameColourArea = 0;
   const seenPair = new Set<string>();
   for (const [key, list] of buckets) {
-    const [nk, dk] = key.split('|');
-    const neighbour = buckets.get(`${nk}|${Number(dk) + 1}`) ?? [];
-    const pool = [...list, ...neighbour];
+    const [nx, ny, nz, dk] = keyOf.get(key)!;
+    const pool = [...list];
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) {
+      const same = a === 0 && b === 0 && c === 0;
+      for (const dd of same ? [1] : [-1, 0, 1]) {
+        const other = buckets.get(`${nkey(nx + a, ny + b, nz + c)}|${dk + dd}`);
+        if (other) pool.push(...other);
+      }
+    }
     // 2D bounding boxes in a shared basis for a sweep over u.
     const f0 = faces[list[0]!]!;
     const [u, v] = planeBasis(f0.normal);

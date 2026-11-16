@@ -118,6 +118,21 @@ describe('coplanar faces', () => {
     expect(entry.groups[0]!.cubes[0]!.origin[2]).toBeLessThan(0);
   });
 
+  it('finds a pair whose normals straddle a quantisation step (two bones turned 0.028 and 0.029 degrees) (A-17)', () => {
+    // 76269's shell shipped 121 such pairs on its turned floor: two Euler spellings of one tilt round their normals
+    // into neighbouring 1e-3 buckets, so the per-bucket sweep never compared them and the separation never ran.
+    const deg = (s: number): number => Math.asin(s) / DEG;
+    const entry = sunkTile();
+    entry.bones = [{ name: 'a', pivot: [0, 0, 0], rotation: [0, 0, deg(0.00049)] }, { name: 'b', pivot: [0, 0, 0], rotation: [0, 0, deg(0.00051)] }];
+    entry.groups[0]!.cubes[0]!.bone = 'a';
+    entry.groups[1]!.cubes[0]!.bone = 'b';
+    const faces = self(entry);
+    const tops = faces.filter(f => f.face === 'up');
+    expect(new Set(tops.map(f => Math.round(f.normal[0] * 1e3))).size).toBe(2);
+    expect(coplanarFaces(faces).hits).toHaveLength(1);
+    expect(separateCoplanarFaces(entry)).toMatchObject({ pairsFound: 1, pairsLeft: 0 });
+  });
+
   it('runs until a CHAIN of pushes settles: each pushed face meets the next one up (A-17)', () => {
     // Six nested blocks of six colours: the second's top sits on the first's plane, and every later top sits one
     // separation above the one before, so each push lands the winner on the next plane. Three passes (the cap
