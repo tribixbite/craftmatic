@@ -789,6 +789,25 @@ describe('a run never stands across another doorway\'s line (census 2026-11-16: 
       expect(treadsOnly(plan)).toEqual(treadsOnly(bare));
     }
   });
+  it('lays ONE run across an approach where it is the only way onto a terrace (10326 at 300 %: the ramp by its back doors to the upper floor)', () => {
+    // A terrace 14/16 high (a jump at 100 %, past it at 200 %) walled on three sides by a rim three blocks high (no
+    // rule restores that); its only climb is the west face, every column of which is a doorway's approach.
+    const dims = { width: 12, height: 4, length: 12 };
+    const g = new BlockGrid(dims.width, dims.height, dims.length);
+    for (let x = 3; x <= 8; x++) for (let z = 3; z <= 8; z++) solidTo(g, x, z, 14);
+    for (let x = 3; x <= 9; x++) for (const z of [2, 9]) solidTo(g, x, z, 48);
+    for (let z = 2; z <= 9; z++) solidTo(g, 9, z, 48);
+    const cells = colliderSourceCells(colliders(dims, encodeColliderRuns(g, COLLIDER_BLOCK_ID).runs));
+    const approach = { columns: [3, 4, 5, 6, 7, 8].flatMap(z => [[1, z], [2, z]] as Array<[number, number]>), floor16: 0, cells: [[0, 0, 5, 0, 16]] };
+    const bare = planColliderTreads(cells, dims, 200, 0);
+    const plan = planColliderTreads(cells, dims, 200, 0, [], [], undefined, undefined, undefined, [approach]);
+    // Bare, the terrace is reached only by its treads; with the approach it is still reached, by fewer runs.
+    expect(bare.after.surfaces).toBeGreaterThan(bare.before.surfaces + 16);
+    expect(plan.after.surfaces).toBe(bare.after.surfaces);
+    expect(plan.runs.length).toBeGreaterThan(0);
+    expect(plan.runs.length).toBeLessThan(bare.runs.length);
+    assertNeverBlocks(cells, dims, plan);
+  });
   it('keeps a run that climbs TO that doorway (its own approach, arriving at its floor)', () => {
     const p = platform(), cells = colliderSourceCells(colliders(p.dims, p.runs));
     // A doorway on the platform's west edge (100 % x 3, floor 14): its approach is the west face's ground.

@@ -126,6 +126,11 @@ export const STACK_TOUCH_BLOCKS = 1 / 16;
  * floor the stack stands on. PDF reconstructions of the "building set" buckets stack two to four doors in one column
  * (census 2026-11-16: 5582 Doors 1-2, 5482 Doors 1-4, 3600 Doors 1-2; 5582 Door 2 fell 3.19 blocks at 150 %).
  * `toGrid` maps LDraw to grid blocks (y up).
+ *
+ * TODO(stacked-door-choice): the lowest is kept by rule, not by which leaf leads somewhere. 5582's kept Door 1 opens
+ * the ground floor, but its static Door 2 was the only way onto the upper storey (the 150 % tread plan reached 4.58
+ * blocks before, the ground only after). Choosing by each candidate's walk (the doorway verdict with the others
+ * static) would need the doorway planner run once per choice.
  */
 export function stackedDoorways(items: readonly SceneInteractive[], toGrid: (p: Vec3) => Vec3): Set<number> {
   interface Leaf { i: number; c: Vec3; a: Vec3; w: number; n: Vec3; y0: number; y1: number }

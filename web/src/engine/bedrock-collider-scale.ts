@@ -1055,8 +1055,11 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
    * doorway's approach more than a step over that doorway's floor, a wall the 100 % model never stood there
    * (`newWallAt`), on a run that does not arrive at that doorway.
    */
+  /** The edges refused for crossing a doorway's approach, retried as gateways by `approachPass`; set while it lays one. */
+  const approachDeferred = new Map<string, { p: Surface; q: Surface }>();
+  let approachAllowed = false;
   const crossesApproach = (q: Surface, cols: ReadonlyArray<{ x: number; z: number }>, tops: readonly number[]): boolean => {
-    if (!approachAt.size) return false;
+    if (!approachAt.size || approachAllowed) return false;
     const qk = colKey(q.x, q.z);
     return cols.some((c, k) => (approachAt.get(colKey(c.x, c.z)) ?? []).some(e =>
       tops[k]! > e.floor16 + STEP16 && newWallAt(c.x, c.z, tops[k]!, e.floor100) && !(doorwayColumns[e.d]!.has(qk) && Math.abs(q.t - e.floor16) <= STEP16)));
@@ -1181,7 +1184,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     const laid = layout(n);
     if (laid === 'headroom') return 'headroom';
     const treadColumns = (m: number): Array<{ x: number; z: number }> => Array.from({ length: m }, (_, k) => columnAt(k));
-    if (crossesApproach(q, treadColumns(n), laid.tops)) return 'no-run';
+    if (crossesApproach(q, treadColumns(n), laid.tops)) { approachDeferred.set(`${p.x},${p.z},${p.t}>${q.x},${q.z},${q.t}`, { p, q }); return 'no-run'; }
     /** The edit that lays the run of `m` treads (`at`: its layout). */
     const build = (m: number, at: { hop16: number; tops: number[]; landing: Surface }): RunEdit => {
       const { hop16, tops, landing } = at;
@@ -1332,6 +1335,40 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     const [x0, x1] = cellColumns(turned.x, f), [z0, z1] = cellColumns(turned.z, f);
     for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) doorColumns.add(colKey(x, z));
   }
+  /**
+   * THE APPROACH PASS. A run refused for standing across a doorway's line (`crossesApproach`) is laid after all
+   * when it is the GATEWAY to enough of the model: laid alone (and climbed on from by another laying walk, as the
+   * main walk would have), the walk reaches at least `CROSS_GATEWAY_PER_TREAD` new surfaces per tread of the
+   * refused run and `CROSS_GATEWAY_MIN` at least; otherwise it and every run laid after it go. 10326's 300 % ramp
+   * in front of its back doors is the only way up to the museum's upper floor (4.67 -> 3 blocks without it), so a
+   * child gets a ramp beside the door there; 2504's 150 % run in front of Door 2 opened nothing the plan did not
+   * reach already, and stays refused. Each run laid here is verified as the slow path verifies (`holds`).
+   */
+  const approachPass = (): void => {
+    for (const { p, q } of [...approachDeferred.values()]) {
+      const reach = walkScaledColliders(grid);
+      if (reach.visited.has(grid.key(q.x, q.z, q.t)) || !reach.visited.has(grid.key(p.x, p.z, p.t))) continue;
+      approachAllowed = true;
+      const e = planRun(p, q, reach.visited);
+      approachAllowed = false;
+      if (typeof e === 'string') continue;
+      const mark = edits.length;
+      apply(e); edits.push(e);
+      layingWalk(false);
+      const walked = walkScaledColliders(grid);
+      const gain = walked.visited.size - reach.visited.size;
+      if (holds(walked) && gain >= Math.max(CROSS_GATEWAY_MIN, CROSS_GATEWAY_PER_TREAD * e.columns.length)) {
+        // Restored after all: no longer unrestored, nor listed as refused.
+        const rk = refuseKey(p, q), was = failedReason.get(rk);
+        if (was !== undefined) { if (unrestored[was] > 0) unrestored[was]--; failedReason.delete(rk); }
+        const at = refused.findIndex(r => refuseKey(r.from, r.to) === rk);
+        if (at >= 0) refused.splice(at, 1);
+        continue;
+      }
+      for (let i = edits.length - 1; i >= mark; i--) revert(edits[i]!);
+      edits.length = mark;
+    }
+  };
   const doorwayPass = (): void => {
     if (!doorColumns.size) return;
     let reach = walkScaledColliders(grid);
@@ -2025,7 +2062,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
   // Fast path: one laying walk, then a single verification from scratch.
   layingWalk(false);
   let after = walkScaledColliders(grid);
-  if (holds(after)) { doorwayPass(); latePass(); lanePass(); crossPass(); guardPasses(); return report(walkScaledColliders(grid), edits, true); }
+  if (holds(after)) { approachPass(); doorwayPass(); latePass(); lanePass(); crossPass(); guardPasses(); return report(walkScaledColliders(grid), edits, true); }
   // Slow path: undo everything and re-plan one run at a time, each verified
   // against the unassisted walk, until a pass lays nothing new.
   for (let i = edits.length - 1; i >= 0; i--) revert(edits[i]!);
@@ -2037,7 +2074,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     if (edits.length === count) break;
   }
   after = walkScaledColliders(grid);
-  if (holds(after)) { doorwayPass(); latePass(); lanePass(); crossPass(); guardPasses(); return report(walkScaledColliders(grid), edits, true); }
+  if (holds(after)) { approachPass(); doorwayPass(); latePass(); lanePass(); crossPass(); guardPasses(); return report(walkScaledColliders(grid), edits, true); }
   for (let i = edits.length - 1; i >= 0; i--) revert(edits[i]!);
   edits.length = 0;
   return report(walkScaledColliders(grid), [], false);

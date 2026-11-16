@@ -1781,9 +1781,40 @@ the simulator got wrong, none a pack fault:
   (a last-resort band down to the reach); and a spot in reach only by less than the colliders' sixteenth at the size
   (a quarter block at 400 %) is the model's to deny, as `COLLIDER_SLACK` is across.
 
-Left open: at 400 % 5482's Door 3 lines stop on a 400 % tread of Door 2's facade run (`TODO(gen-door-stair)`, the
-scaled planner does not know doorway approaches). Guards: `test/sim-census-doorways.test.ts` (on the census packs,
-skipped where they are missing) and three `test/sim-engine.test.ts` cases; regression cases `census-doorway-*`.
+Guards: `test/sim-census-doorways.test.ts` (on the census packs, skipped where they are missing) and three
+`test/sim-engine.test.ts` cases; regression cases `census-doorway-*`. The 400 % Door 3 stop it left open is closed by
+the second census below.
+
+### The second census's door findings were the pack's (2026-11-16, gate `gengate2-cda5f7b9`)
+
+Unlike the first census, these were pipeline faults, one class each:
+
+- **Doors stacked in one doorway.** The PDF-reconstructed "building set" buckets (5582, 5482, 3600) stand two to four
+  door leaves one above the other in the same doorway columns, each touching or overlapping the next by a sliver. The
+  upper leaf's threshold is then the lower leaf's head room, so one door's passage takes the other's floor (5582 Door 2
+  fell 3.19 blocks at its door plane at 150 %). Only the LOWEST leaf of a stack is a door; the rest stay static in the
+  shell (`stackedDoorways`, interactivity-stage.ts: same facing within half a block of one plane, half the narrower
+  width shared, heights touching within a sixteenth, feet half a leaf apart). A double door (side by side) and two
+  storeys with a floor between them are not stacks.
+- **A moving part's root under the ground.** An entity is lit by the block at its root, as a shell is
+  (`originAboveModel`). 2504's right gate leaf, posed upside down by its reconstruction, hangs 0.48 under the ground and
+  its root (the closed assembly's bottom centre) sat in the ground block - 1.93 blocks under at 400 %. A root under
+  the ground plane moves straight up onto it (`groundedAnchors`); the rig, geometry and tap boxes all hang off the
+  anchor and the placement turns and scales about it, so nothing drawn moves. 71040's Door 1 (0.08 under) moves too.
+- **A tread run across another doorway's line above 100 %.** The 100 % stair planner already refused a tread in another
+  doorway's approach above that doorway's floor (`treadRefusal`); the scaled planner knew only the closed cells. It now
+  takes each doorway's approach (`DoorApproach`) and refuses a run with a tread in one more than a step over that
+  doorway's floor AND, at the model's own scale, more than a step over the 100 % column under it - a wall the model
+  never stood in front of the door (`newWallAt`) - unless the run arrives AT that doorway. Without the second test the
+  rule took the model's own stairs past a door (10326 and 21318 lost reach at 150-400 %): a tread that ramps a model
+  riser over the floor before it stays within a step of what a 100 % player meets in that column (2504's 150 % run up to a 2.8-block ledge stood 1-3 blocks
+  in front of Door 2; 5482's 400 % facade run crossed Door 3's line). A door turned 45 degrees has its approach
+  sampled along the diagonal one cell per step, so the planner adds the two corner cells of each diagonal step: without
+  them 6194's 150 % plan moved a refused run to just behind its Door 1's plane.
+
+The fourth finding, 6194's 6.51-block fall, was a native rotorcraft left hovering: a rider who leaves a native mount
+with nothing under the feet now gets slow falling, as off the flyer's cloud (`dismountFloat`, vehicle-driver.js).
+Regression cases `gen2-*`.
 
 ### Known limits
 
