@@ -333,12 +333,19 @@ export const HEAD_DESIGNS: Readonly<Record<string, 'minifig' | 'minidoll'>> = {
   '3626': 'minifig', '28621': 'minifig', '28650': 'minidoll', '92198': 'minidoll', '28649': 'minidoll', '92240': 'minidoll',
 };
 
-/** `1029859;A` -> 1029859; else the first `Part@decoration` token's id; else ''. */
+/**
+ * `1029859;A` -> 1029859; else the first `Part@decoration` token's id; else ''. LDD writes an UNdecorated head as
+ * `decoration="0,0,0"`, read here as '0': the head still goes through the print lookup (its ELEMENT id may name a
+ * print), but it is not a decorated head (`isDecorated`).
+ */
 export function decorationIdOf(briefId: string | null | undefined, partDecoration: string | null | undefined): string {
   const brief = (briefId ?? '').split(';')[0]!.trim();
   if (brief) return brief;
   return (partDecoration ?? '').split(',')[0]!.split('_')[0]!.trim();
 }
+
+/** Whether a decoration id is a real decoration: LDD's `0` (`decoration="0,0,0"`) is a plain head. */
+export const isDecorated = (decorationId: string | undefined): boolean => !!decorationId && decorationId !== '0';
 
 /** True when `v` is a print-table row: a `.dat` file name (`e:`/`d:`) or a bare print id (`n:`). */
 export function validatePrintRow(v: unknown): v is string {
@@ -994,8 +1001,10 @@ export function buildLxfPlacements(
       if (printed?.kind === 'print') { part = printed.file; printedHeads++; }
       else {
         if (printed?.kind === 'identity') headPrint = printed.printId;
-        else if (rec.decorationId !== '0') lddDecoration = rec.decorationId;
-        if (options.printMap?.state === 'ok') unresolvedHeadPrints++;
+        else if (isDecorated(rec.decorationId)) lddDecoration = rec.decorationId;
+        // An undecorated head drawing plain is not an unresolved print (gen-face note 2026-11-16: every
+        // `decoration="0,0,0"` head was counted as one).
+        if (options.printMap?.state === 'ok' && (headPrint || isDecorated(rec.decorationId))) unresolvedHeadPrints++;
       }
     }
 

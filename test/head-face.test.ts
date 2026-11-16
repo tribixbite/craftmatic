@@ -238,6 +238,15 @@ describe('printed heads from the LXFML element and decoration ids', () => {
     const { bricks } = buildLxfPlacements(recs, HEAD_ROW, NO_MEASURED, { printMap: PRINTS });
     expect(bricks.map(b => b.lddDecoration)).toEqual(['59717', undefined, undefined]);
   });
+  it('does not count an undecorated .lxf head (decoration="0,0,0") as a decorated head with no print', () => {
+    // gen-face note (2026-11-16): LDD writes `decoration="0,0,0"` on a plain head; `decorationIdOf` reads '0', and
+    // the diagnostic counted every such head under "decorated heads have no printed LDraw part".
+    expect(decorationIdOf(null, '0,0,0')).toBe('0');
+    const recs = [rec('3626', ['6405179'], decorationIdOf(null, '0,0,0')), rec('3626', [], '0'), rec('3626', [], '59717')];
+    const { bricks, diagnostics: d } = buildLxfPlacements(recs, HEAD_ROW, NO_MEASURED, { printMap: PRINTS });
+    expect(d.unresolvedHeadPrints).toBe(1);
+    expect(bricks.map(b => b.lddDecoration)).toEqual([undefined, undefined, '59717']);
+  });
 });
 
 describe('old LDD head decorations name their print (generality census 2026-11-16)', () => {
