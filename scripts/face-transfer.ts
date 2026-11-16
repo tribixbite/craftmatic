@@ -18,7 +18,9 @@
 import { classifyFigurePart, figureSystemOfTorso, mouldFamilyId, type FigureSystem } from '../web/src/engine/minifig-rig.ts';
 import { groupFigures, isHeadPart } from '../web/src/engine/ldraw-entity-compiler.ts';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.ts';
-import type { LdrawPartMesh } from '../web/src/engine/ldraw-part-geometry.ts';
+import { descriptionOf, type LdrawPartMesh, type PartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.ts';
+import { ldrawColorToBlock } from '../web/src/engine/ldraw-colors.ts';
+import { studioColorToBlock } from '../web/src/engine/studio-colors.ts';
 import { partStem } from '../web/src/engine/part-id.ts';
 import { namedHeadPrint } from './face-census.ts';
 
@@ -178,3 +180,38 @@ export function printFitsHead(headPart: string, print: string): boolean {
   const doll = /^(92198|92240|28649)/.test(stem);
   return doll ? /^(92198|92240|28649)p/i.test(print) : /^(3626|28621)p/i.test(print);
 }
+
+/**
+ * The donor sources for a set, in the order they are tried: the models index's other sources (its try order, the
+ * first pick itself left out), then the corpus's Studio file of the set (`IO/<set>-1.io`) when it exists and the
+ * index does not already list it. Generality census 2026-11-16: 15 of the 60 census sets have ONE indexed source, a
+ * Mecabricks or LDD conversion whose heads name no print, while the corpus holds the set's Studio file (graded out
+ * of the index for its placement, not its parts), which names every printed head by its BrickLink id. A donor only
+ * lends print identity through `decideTransfers`' unambiguous figure match; its placement is never used.
+ */
+export function donorPaths(set: string, indexOrder: readonly string[], exists: (corpusPath: string) => boolean): string[] {
+  const out = indexOrder.slice(1).filter(exists);
+  const studio = `IO/${set}-1.io`;
+  if (!indexOrder.includes(studio) && exists(studio)) out.push(studio);
+  return out;
+}
+
+/** Description words of the parts a figure group can hold; only these are meshed (a 7,000-part set has ~20 heads). */
+const FIGURE_WORDS = /minifig|mini ?doll|minifigure|torso|hair|head|helmet|hat\b|cap\b|hood|hips|legs?\b|arm|hand|wig|bigfig|figure|skirt/i;
+
+/** The meshes `figureSignatures` needs: every part whose description can be a figure's, null for the rest. */
+export async function figureMeshes(
+  bricks: readonly ParsedBrick[], provider: PartGeometryProvider, textOf: (part: string) => Promise<string | null>,
+): Promise<Map<string, LdrawPartMesh | null>> {
+  const meshes = new Map<string, LdrawPartMesh | null>();
+  for (const b of bricks) {
+    if (meshes.has(b.part)) continue;
+    const text = await textOf(b.part);
+    meshes.set(b.part, text !== null && FIGURE_WORDS.test(descriptionOf(text)) ? await provider.getPartMesh(b.part) : null);
+  }
+  return meshes;
+}
+
+/** Exact colour codes within one colour space; Minecraft block names across two (the common, coarser space). */
+export const colourKeyFor = (space: 'bl' | 'ldraw', exact: boolean) => (c: number): string =>
+  exact ? `c${c}` : (space === 'bl' ? studioColorToBlock(c) : ldrawColorToBlock(c));

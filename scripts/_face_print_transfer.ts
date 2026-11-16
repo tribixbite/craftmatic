@@ -4,6 +4,7 @@
  *
  * Usage: bun scripts/_face_print_transfer.ts [set…] [--json=OUT] [--write=DIR]
  *   (no sets)    the 40 favourites
+ * Donors: the index's other sources, then the corpus's Studio file `IO/<set>-1.io` (`donorPaths`).
  *   --json=OUT   every decision per set: accepted (head, print, donor, score) and refused (head, reason)
  *   --write=DIR  write each patched first pick to DIR/<its corpus path>, a `0 !CRAFTMATIC HEAD_PRINT <id>` line
  *                inserted before every accepted head. Only a FLAT text source is written (each head's type-1 line
@@ -14,14 +15,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { setLDrawRoot, getDatText } from '../web/src/engine/ldraw-geometry.ts';
-import { createPartGeometryProvider, descriptionOf, type LdrawPartMesh } from '../web/src/engine/ldraw-part-geometry.ts';
+import { createPartGeometryProvider, type LdrawPartMesh } from '../web/src/engine/ldraw-part-geometry.ts';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.ts';
-import { ldrawColorToBlock } from '../web/src/engine/ldraw-colors.ts';
-import { studioColorToBlock } from '../web/src/engine/studio-colors.ts';
 import { indexedTryOrder } from '../web/src/engine/lego-sources.ts';
 import { FAVOURITES, readModelsIndex } from './favourite-sets.ts';
 import { loadModelBricks } from './model-source.ts';
-import { decideTransfers, figureSignatures, printFitsHead, type FigureSig } from './face-transfer.ts';
+import { colourKeyFor, decideTransfers, donorPaths, figureMeshes, figureSignatures, printFitsHead, type FigureSig } from './face-transfer.ts';
 
 setLDrawRoot('C:/git/clego/extracted/studio_release/app/ldraw');
 if (!process.env.CRAFTMATIC_LDRAW_REF && existsSync('C:/git/clego/ldraw_ref')) process.env.CRAFTMATIC_LDRAW_REF = 'C:/git/clego/ldraw_ref';
@@ -34,30 +33,13 @@ const sets = argv.filter(a => !a.startsWith('--'));
 const index = readModelsIndex();
 const provider = createPartGeometryProvider();
 
-/** Description words of the parts a figure group can hold; only these are meshed (a 7,000-part set has ~20 heads). */
-const FIGURE_WORDS = /minifig|mini ?doll|minifigure|torso|hair|head|helmet|hat\b|cap\b|hood|hips|legs?\b|arm|hand|wig|bigfig|figure|skirt/i;
-
-async function meshesFor(bricks: ParsedBrick[]): Promise<Map<string, LdrawPartMesh | null>> {
-  const meshes = new Map<string, LdrawPartMesh | null>();
-  for (const b of bricks) {
-    if (meshes.has(b.part)) continue;
-    const text = await getDatText(b.part);
-    meshes.set(b.part, text !== null && FIGURE_WORDS.test(descriptionOf(text)) ? await provider.getPartMesh(b.part) : null);
-  }
-  return meshes;
-}
-
 interface Loaded { path: string; bricks: ParsedBrick[]; meshes: Map<string, LdrawPartMesh | null>; space: 'bl' | 'ldraw' }
 async function load(path: string): Promise<Loaded | null> {
   const file = `${CORPUS}/${path}`;
   if (!existsSync(file)) return null;
   const m = await loadModelBricks(file);
-  return { path, bricks: m.bricks, meshes: await meshesFor(m.bricks), space: m.colorSpace };
+  return { path, bricks: m.bricks, meshes: await figureMeshes(m.bricks, provider, getDatText), space: m.colorSpace };
 }
-
-/** Exact colour codes within one colour space; Minecraft block names across two (the common, coarser space). */
-const colourKeyFor = (space: 'bl' | 'ldraw', exact: boolean) => (c: number): string =>
-  exact ? `c${c}` : (space === 'bl' ? studioColorToBlock(c) : ldrawColorToBlock(c));
 
 interface Accepted { head: number; part: string; at: [number, number, number]; print: string; donor: string; score: number; rename?: string }
 interface Refused { head: number; part: string; reason: string }
@@ -76,8 +58,9 @@ for (const set of sets.length ? sets : FAVOURITES) {
   const refusals = new Map<number, string[]>();
   const conflicts = new Set<number>();
   let plain = 0, heads = 0;
-  for (const k of order.slice(1)) {
-    const donor = await load(models[k]!.path);
+  for (const donorPath of donorPaths(set, order.map(k => models[k]!.path), p => existsSync(`${CORPUS}/${p}`))) {
+    let donor: Loaded | null;
+    try { donor = await load(donorPath); } catch (e) { console.log(`${set}: donor ${donorPath} unreadable (${e instanceof Error ? e.message : String(e)})`); continue; }
     if (!donor) continue;
     const exact = donor.space === target.space;
     const key = `${exact}`;
