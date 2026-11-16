@@ -25,7 +25,7 @@ import { readCraftmaticPack, type CraftmaticPack } from './pack-facts.js';
 import { wandHandlers } from './wand.js';
 import { COLLIDER_SLACK, FIGURE_TYPE, MODEL_FOOTHOLD, playHandlers, placedOf, staticDrawn, tapPart } from './play.js';
 import { registerAppearance, scriptedVehicleTypes, vehicleCourseHandlers } from './vehicle-course.js';
-import { DrawnWalkWorld, drawnReaches, drawnTopOver, drawnWalkEngine, packAppearance } from './drawn.js';
+import { DrawnWalkWorld, drawnReaches, drawnTopOver, drawnWalkEngine, entityDrawn, packAppearance } from './drawn.js';
 import { firstPersonSnapshot } from './snapshot.js';
 import { lookAt, pick } from '../../input/touch.js';
 import { pickBoxes } from '../../input/ray.js';
@@ -85,7 +85,10 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
       // collider, tread or guard), so an unreached target is attributed: the model's own, or the pack's (A-20).
       if (ctx.state[APPROACH_KEY] === 'walk' && !ctx.state[MODEL_ROUTE_KEY]) {
         const placed = placedOf(ctx), dim = ctx.player.dimension;
-        const engine = drawnWalkEngine(new DrawnWalkWorld(drawnNow, placed.from.y, MODEL_FOOTHOLD * (placed.sizePct / 100) ** 2)) as unknown as SimEngine;
+        // The closed doorway leaves are drawn too: a door the child reaches only THROUGH itself (a tap spot behind the
+        // closed leaf) is the model's, not the pack's (10326 Door 4, 42670 Door 3, 71040 Door 1 read as the pack's
+        // while the drawn route walked through the closed leaf; audit-doors2, TODO(walk-attribution)).
+        const engine = drawnWalkEngine(new DrawnWalkWorld([...drawnNow, ...closedLeavesDrawn(ctx, appearance, pack)], placed.from.y, MODEL_FOOTHOLD * (placed.sizePct / 100) ** 2)) as unknown as SimEngine;
         // One flood per on-foot origin over the model's box and a margin round it, answering every target asked from there.
         const box = { x0: Math.floor(placed.from.x) - WALK_FLOOD_MARGIN, x1: Math.ceil(placed.to.x) + WALK_FLOOD_MARGIN, z0: Math.floor(placed.from.z) - WALK_FLOOD_MARGIN, z1: Math.ceil(placed.to.z) + WALK_FLOOD_MARGIN };
         const floods = new Map<string, WalkNode[]>();
@@ -208,6 +211,21 @@ function hiddenByModel(ctx: StepContext, part: SimEntity, drawn: readonly DrawnB
     if (!opaque.some(b => rayBox(eye, u, b, len - SIGHT_MARGIN) !== undefined)) return undefined;
   }
   return spots.length;
+}
+
+/**
+ * The drawn cubes of every doorway leaf (a part with `blocking` cells) as it stands now: the leaves `staticDrawn`
+ * leaves out (a doorway line walks through them open). Read while every part is still as placed (closed).
+ */
+function closedLeavesDrawn(ctx: StepContext, appearance: AddonAppearance, pack: CraftmaticPack): DrawnBox[] {
+  const out: DrawnBox[] = [];
+  for (const e of ctx.sim.engine.entities.values()) {
+    if (!e.valid) continue;
+    const ix = e.dynamic.get(ixKeys(pack.namespace).index);
+    if (typeof ix !== 'number' || !(pack.interactives?.items[ix]?.blocking.length ?? 0)) continue;
+    out.push(...(entityDrawn(appearance, e) ?? []));
+  }
+  return out;
 }
 
 /** How close (blocks) a colliders' walk node must stand to a drawn route node's floor to be the same floor: a step. */
