@@ -369,6 +369,19 @@ describe('applyColliderClearance', () => {
     applyColliderClearance(short.input());
     expect(short.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 12 });
   });
+  /**
+   * 10326 Door 3 (audit-doors2, first build of the furniture exception): its - side has nothing DRAWN to stand on
+   * within two blocks, and the furniture's full top was the only level spot outside it - trimmed, the doorway read
+   * SEALED. A top within a jump of a closed leaf's foot and two blocks of it is a doorway's landing, kept whole as
+   * rule 4's wall-top exception keeps one.
+   */
+  it("keeps the furniture's full top where it is a doorway's landing", () => {
+    const s = sparseFurniture(false);
+    const leaf = { x0: 2.5, y0: 0.5, z0: 0.2, x1: 2.6, y1: 2.9, z1: 2.2 };
+    const r = applyColliderClearance(s.input({ leaves: [leaf], leafPlanes: [null] }));
+    expect(s.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 15 });
+    expect(r.furnitureTops).toBe(0);
+  });
 });
 
 describe('figures read a form as the full collider it replaced (bedrock-figure-life.ts blockSpan)', () => {

@@ -285,6 +285,16 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
   }
 
   /**
+   * Whether a standing top at `top16` (absolute sixteenths) in column (x, z) is a doorway's LANDING: within
+   * `LANDING_REACH` blocks of a closed leaf, horizontally, and within `LANDING_RISE` of the leaf's foot. Rule 4's
+   * exceptions never narrow one: it may be the only level spot outside the door.
+   */
+  const landingAt = (x: number, z: number, top16: number): boolean => leaves.some(b => {
+    const dx = Math.max(0, b.x0 - (x + 1), x - b.x1), dz = Math.max(0, b.z0 - (z + 1), z - b.z1);
+    return Math.hypot(dx, dz) <= LANDING_REACH && Math.abs(top16 / 16 - b.y0) <= LANDING_RISE;
+  });
+
+  /**
    * Rule 4's one exception: a standing surface that is only a WALL's top, whose
    * phantom rim (the part of the full top the wall band does not reach)
    * overhangs open air. Then narrowing it to the band takes away nothing but
@@ -329,10 +339,7 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     // Not a doorway's landing: within `LANDING_REACH` blocks of a closed leaf and within a jump of its
     // floor, the rim is where a player steps out of the door. 31141's Doors 3 and 5 open onto such a
     // rim over the street; trimmed, the only level spot outside them was gone (they read ONE-WAY).
-    for (const b of leaves) {
-      const dx = Math.max(0, b.x0 - (x + 1), x - b.x1), dz = Math.max(0, b.z0 - (z + 1), z - b.z1);
-      if (Math.hypot(dx, dz) <= LANDING_REACH && Math.abs(top16 / 16 - b.y0) <= LANDING_RISE) return false;
-    }
+    if (landingAt(x, z, top16)) return false;
     for (const { nx, nz, s } of strips) {
       // The strip's floor: the highest GEOMETRY under it (a trim only lowers a form to its geometry, so
       // this is the lowest the floor can be - the widest span to check), or a kept scene block.
@@ -387,7 +394,9 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
    * top was phantom footing over nothing drawn: a player standing beside the furniture stands on the floor, which
    * the form keeps whole, and the furniture keeps its own top (the band, raised at most `FURNITURE_SLACK16`).
    * 910032 Door 4's - side was such a pair of cells at e7da6e47 (a round table's rim at 15/16, the row over it open).
-   * A floor higher than a step over the cell's bottom (a raised platform) is not this: its top stays whole.
+   * A floor higher than a step over the cell's bottom (a raised platform) is not this: its top stays whole, and so
+   * does a doorway's landing (`landingAt`: 10326 Door 3's - side has nothing drawn to stand on within two blocks,
+   * and the furniture's full top was its only level spot - trimmed, the doorway read SEALED).
    */
   const furnitureForm = (t: ColliderForm): boolean => t.v !== 0 && COLLIDER_KIT.VARIANTS[t.v]!.kind === 1 && t.hi <= APPROACH_STEP16;
 
@@ -417,7 +426,7 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     let furniture = false;
     if (standing) {
       const t = 16 - built.hi <= FURNITURE_SLACK16 ? COLLIDER_KIT.cover(geometry, 16 - built.hi)! : to;
-      if (furnitureForm(t)) { to = t; furniture = true; }
+      if (furnitureForm(t) && !landingAt(x, z, y * 16 + built.hi)) { to = t; furniture = true; }
     }
     const raised = to.v !== 0 && COLLIDER_KIT.VARIANTS[to.v]!.kind === 1 && (lowGap || furniture);
     const bound: ColliderForm = raised ? { v: 0, lo: built.lo, hi: 16 } : built;
