@@ -62,6 +62,13 @@ export interface ClientInvariantOptions {
    * Without it, `camera-on-own-seat` judges every script camera while riding.
    */
   seatCamera?: (player: SimEntity, mount: SimEntity, ctx: InvariantContext) => boolean;
+  /**
+   * Where the script means the camera eye ON THE DRAWN MOUNT, when that is not the drawn seat's eye (a scripted
+   * vehicle whose seat plan moves the cockpit eye off the seat: 75397's helm eye 7.4 over and 0.8 aft of its seat,
+   * `helmSeatPlan`). `camera-on-own-seat` then judges the drawn eye against it, along the mount's HORIZONTAL drawn
+   * heading. Undefined: the drawn seat eye.
+   */
+  seatEye?: (player: SimEntity, mount: SimEntity, ctx: InvariantContext) => { x: number; y: number; z: number } | undefined;
 }
 
 const round = (v: number): number => Math.round(v * 100) / 100;
@@ -115,6 +122,27 @@ export function cameraArrived(camera: DrawnCamera, target: DrawnCamera | undefin
   return d.jumpBlocks <= CAMERA_MAX_EYE_JUMP_BLOCKS + 1e-6 && d.turnDeg <= CAMERA_MAX_TURN_DEG + 1e-6;
 }
 
+/** One frame of the camera-continuous judgement: the drawn camera, the script's target, the drawn seat eye. */
+export interface CameraFrame { camera: DrawnCamera; target: DrawnCamera | undefined; seat?: { x: number; y: number; z: number } }
+
+/**
+ * How far the drawn eye moved in one frame beyond what the script meant (blocks, against the drawn seat; <= 0: none):
+ * its move less the target's own move AND the gap it was still short of the target by. An ease closes that gap over
+ * the frames after the target stops - a 30-block chase boom dragged 6 degrees a tick runs on 3.1, 1.6, 0.8 blocks
+ * once the finger stops (the ease's deceleration, favgate-e7da6e47: every `camera-continuous` of the six vehicles) -
+ * and the script meant it; by the triangle inequality a frame that stays within that reach can only be closing on
+ * the target. An eye that LEAVES a target it sat on (an ease restarted from a stale pose) or overshoots it is the
+ * client's, by the part past the reach.
+ */
+export function eyeJumpExcess(prev: CameraFrame, now: CameraFrame): number {
+  if (!prev.target || !now.target) return 0;
+  const drawn = cameraFrameDelta(prev, now);
+  const meant = cameraFrameDelta({ camera: prev.target, ...(prev.seat ? { seat: prev.seat } : {}) }, { camera: now.target, ...(now.seat ? { seat: now.seat } : {}) });
+  const e = prev.camera.eye, t = prev.target.eye;
+  const gap = Math.hypot(e.x - t.x, e.y - t.y, e.z - t.z);
+  return drawn.jumpBlocks - meant.jumpBlocks - gap;
+}
+
 /**
  * The judgement: what the CLIENT adds frame to frame beyond the script's own target motion. A chase camera's
  * orbit or recentre moves its target a block a frame and the drawn camera follows it: the script means that. A
@@ -148,7 +176,7 @@ function cameraContinuous(): Invariant {
       else if (prev.target && target) {
         const drawn = cameraFrameDelta(prev, now);
         const meant = cameraFrameDelta({ camera: prev.target, ...(prev.seat ? { seat: prev.seat } : {}) }, { camera: target, ...(seat ? { seat } : {}) });
-        const excessTurn = drawn.turnDeg - meant.turnDeg, excessJump = drawn.jumpBlocks - meant.jumpBlocks;
+        const excessTurn = drawn.turnDeg - meant.turnDeg, excessJump = eyeJumpExcess(prev, now);
         if (camera.mode === 'animation' && drawn.turnDeg > CAMERA_MAX_TURN_DEG + 1e-6) ctx.report({ invariant: 'camera-continuous', message: `the animation turned the view ${round(drawn.turnDeg)} degrees in one frame (cap ${CAMERA_MAX_TURN_DEG}: a chart flip drawn as a spin)`, evidence: { turnDeg: round(drawn.turnDeg), mode: camera.mode, eye: pt(camera.eye), profile: client.profile.name } });
         else if (excessTurn > CAMERA_MAX_TURN_DEG + 1e-6) ctx.report({ invariant: 'camera-continuous', message: `the drawn view turned ${round(drawn.turnDeg)} degrees in one frame (${prev.camera.mode} -> ${camera.mode}) where the script's own target turned ${round(meant.turnDeg)} (cap ${CAMERA_MAX_TURN_DEG} beyond the target)`, evidence: { turnDeg: round(drawn.turnDeg), targetTurnDeg: round(meant.turnDeg), from: prev.camera.mode, to: camera.mode, eye: pt(camera.eye), profile: client.profile.name } });
         if (excessJump > CAMERA_MAX_EYE_JUMP_BLOCKS + 1e-6) ctx.report({ invariant: 'camera-continuous', message: `the drawn eye jumped ${round(drawn.jumpBlocks)} blocks against the drawn seat in one frame (${prev.camera.mode} -> ${camera.mode}) where the script's own target moved ${round(meant.jumpBlocks)}`, evidence: { jumpBlocks: round(drawn.jumpBlocks), targetJumpBlocks: round(meant.jumpBlocks), from: prev.camera.mode, to: camera.mode, eye: pt(camera.eye), previous: pt(prev.camera.eye), profile: client.profile.name } });
@@ -172,11 +200,18 @@ function cameraOnOwnSeat(options: ClientInvariantOptions): Invariant {
       const camera = client.drawn(p);
       if (camera.mode === 'own') return;
       const s = drawnSeat(client, p);
-      const lead = seatLead(client, p, camera);
+      // A planned eye off the seat (`seatEye`) is judged on the horizontal heading: the drawn velocity's vertical part
+      // projected a 7-block lift into "6.45 ahead" on 75397 (TODO(helm-eye-judge), closed 2026-11-15).
+      const planned = s ? options.seatEye?.(p, mount, ctx) : undefined;
+      let lead = seatLead(client, p, camera);
+      if (s && planned) {
+        const yaw = client.drawnPose(mount).yaw * Math.PI / 180, fx = -Math.sin(yaw), fz = Math.cos(yaw);
+        lead = (camera.eye.x - planned.x) * fx + (camera.eye.z - planned.z) * fz;
+      }
       if (!s || lead === undefined || s.speed < SEAT_SPEED_FLOOR) return;
       if (Math.abs(lead) > SEAT_EYE_SLACK) {
         reported.add(mount);
-        ctx.report({ invariant: 'camera-on-own-seat', message: `the drawn ${camera.mode} camera sits ${round(lead)} blocks ${lead > 0 ? 'AHEAD of' : 'behind'} the drawn seat eye of ${mount.typeId} at ${round(s.speed)} blocks/s (client ${client.profile.name}, entity lag ${client.profile.entityLagTicks})`, evidence: { lead: round(lead), speed: round(s.speed), mode: camera.mode, eye: pt(camera.eye), seatEye: pt(s.eye), profile: client.profile.name } });
+        ctx.report({ invariant: 'camera-on-own-seat', message: `the drawn ${camera.mode} camera sits ${round(lead)} blocks ${lead > 0 ? 'AHEAD of' : 'behind'} the drawn ${planned ? 'planned cockpit' : 'seat'} eye of ${mount.typeId} at ${round(s.speed)} blocks/s (client ${client.profile.name}, entity lag ${client.profile.entityLagTicks})`, evidence: { lead: round(lead), speed: round(s.speed), mode: camera.mode, eye: pt(camera.eye), seatEye: pt(planned ?? s.eye), profile: client.profile.name } });
       }
     },
   };
