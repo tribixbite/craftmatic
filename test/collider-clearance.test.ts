@@ -346,10 +346,28 @@ describe('applyColliderClearance', () => {
     // The floor stays the floor plate; the wall is the post's quarter band.
     expect(K.formBoxes(f.v, f.lo, f.hi)).toEqual([[0, 16, 0, 4, 0, 16], [0, 4, 4, 16, 0, 16]]);
   });
-  it('keeps the full cell when the furniture\'s top is open to the sky: a standing surface is not raised', () => {
+  /**
+   * 910032 Door 4 at e7da6e47: the same furniture with nothing over it (the row above holds no collider), so its 15/16
+   * top read as a standing surface and rule 4 kept the whole cell. The cell's FLOOR is the plate (within a step of
+   * the cell's bottom): what goes is phantom footing over nothing drawn; the furniture keeps its own top.
+   */
+  it('trims furniture standing on a floor plate under open sky to a floor + wall form; a raised floor or a tall slack keeps the cell', () => {
     const s = sparseFurniture(false);
-    applyColliderClearance(s.input());
-    expect(s.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 15 });
+    const r = applyColliderClearance(s.input());
+    const f = s.form(1, 0, 1)!;
+    expect(K.formBoxes(f.v, f.lo, f.hi)).toEqual([[0, 16, 0, 4, 0, 16], [0, 4, 4, 16, 0, 16]]);
+    expect(r.furnitureTops).toBe(1);
+    expect(r.refused['walkable-top']).toBe(0);
+    // A floor higher than a step over the cell's bottom (a raised platform with a post) is a floor: kept whole.
+    const raised = scene(3, 3, 3);
+    raised.solid(1, 0, 1, [[0, 16, 0, 11, 0, 16], [0, 4, 11, 15, 11, 16]]);
+    applyColliderClearance(raised.input());
+    expect(raised.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 15 });
+    // A post ending more than two sixteenths under the block top is not raised to it.
+    const short = scene(3, 3, 3);
+    short.solid(1, 0, 1, [[0, 16, 0, 4, 0, 16], [0, 4, 6, 12, 11, 16]]);
+    applyColliderClearance(short.input());
+    expect(short.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 12 });
   });
 });
 
