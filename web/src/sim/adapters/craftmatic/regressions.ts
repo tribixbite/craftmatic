@@ -640,6 +640,7 @@ export const REGRESSIONS: RegressionCase[] = [
   // The 2026-11-16 generality census gate (output/gengate-6fa0afa6): sets that are not favourites, judged on the gate's packs.
   ...gen1116Regressions(),
   ...census1116Regressions(),
+  ...gen2Regressions(),
   // The world's cases (water, bodies): regressions-world.ts.
   ...WORLD_REGRESSIONS,
   // Round 30m's open device defects: regressions-30m.ts.
@@ -767,5 +768,39 @@ function gen1116Regressions(): RegressionCase[] {
     aircraftCase('6866', '6866-wolverines-chopper-showdown', 1, 'the helicopter on three wheels is static', `${ROUND}/generality-1106/census/6866.mcaddon`),
     aircraftCase('6863', '6863-batwing-battle-over-gotham-city', 1, 'the Batwing inside a city scene is static', `${ROUND}/generality-1106/census/6863.mcaddon`),
     aircraftCase('76269', '76269-avengers-tower', 1, "the Quinjet stays part of the tower's static shell", `${ROUND}/favgate-530b6d3f/76269-avengers-tower.mcaddon`),
+  ];
+}
+
+/**
+ * The second generality census gate's cases (`output/gengate2-cda5f7b9/`, 2026-11-16): pack faults, reproduced on that
+ * gate's packs and guarded on the current build of each set (the gate builds every `newStem`).
+ */
+function gen2Regressions(): RegressionCase[] {
+  const gate = `${ROUND}/gengate2-cda5f7b9`;
+  const doorways = (set: string, stem: string, size: number, what: string): RegressionCase => ({
+    id: `gen2-doorway-${set}-${size}`, title: `${set} at ${size} percent: ${what}`,
+    evidence: `output/gengate2-cda5f7b9/gate-child-play.log (${set}, place-${size}-0)`,
+    oldPack: `${gate}/${stem}.mcaddon`, newStem: stem, expectNew: 'pass',
+    // Every doorway: the stacked leaves of the census pack are not doors on a new build, so labels do not carry over.
+    scenario: () => ({ name: `gen2-doorway-${set}-${size}`, steps: [{ kind: 'place', size, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'doorwayLines' }], allowLines: allow }),
+    judge: r => { const v = r.violations.find(x => x.invariant === 'doorway-line'); return { reproduced: !!v, attribution: 'pack', evidence: v ? `${v.invariant}: ${v.message}` : `no doorway-line violation (${r.violations.length} violations)` }; },
+  });
+  return [
+    doorways('5582', '5582-ultimate-town-building-set', 150, "Door 2, stacked on Door 1 in one doorway, falls 3.19 blocks at its door plane (HOLE): one door's passage took the other's floor"),
+    doorways('2504', '2504-spinjitzu-dojo', 150, "Door 2's porch lines stop 2.8 blocks out on a tread run laid across its approach up to a 2.8-block ledge"),
+    {
+      id: 'gen2-below-ground-2504-400', title: "2504 at 400 percent: the upside-down gate leaf's root is 1.93 blocks under the ground (lit by the ground block)",
+      evidence: 'output/gengate2-cda5f7b9/gate-child-play.log (2504, place-400-0: nothing-below-ground)',
+      oldPack: `${gate}/2504-spinjitzu-dojo.mcaddon`, newStem: '2504-spinjitzu-dojo', expectNew: 'pass',
+      scenario: () => ({ name: 'gen2-below-ground-2504-400', steps: [{ kind: 'place', size: 400, rotation: 0 }, { kind: 'wait', ticks: 40 }], allowLines: allow }),
+      judge: r => { const v = violated(r, 'nothing-below-ground'); return { reproduced: !!v, attribution: 'pack', evidence: v ?? 'every entity on or over the ground' }; },
+    },
+    {
+      id: 'gen2-hover-fall-6194', title: '6194: getting off the hovering helicopter 6 blocks over the street drops the child 6.51 blocks, no slow falling',
+      evidence: 'output/gengate2-cda5f7b9/gate-child-play.log (6194, play-100-0: no-unprotected-fall)',
+      oldPack: `${gate}/6194-my-lego-town.mcaddon`, newStem: '6194-my-lego-town', expectNew: 'pass',
+      scenario: pack => ({ name: 'gen2-hover-fall-6194', steps: [...place, ...pack.vehicleTypes.map((t): Step => ({ kind: 'driveVehicle', type: t, ticks: 600 }))], allowLines: allow }),
+      judge: r => { const v = violated(r, 'no-unprotected-fall'); return { reproduced: !!v, attribution: 'pack', evidence: v ?? 'no unprotected fall' }; },
+    },
   ];
 }
