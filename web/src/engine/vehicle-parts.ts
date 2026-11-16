@@ -22,12 +22,15 @@
  * doors; an open bus door is a visual and a cue, not a passage.
  *
  * A tap reaches the runtime only through the vehicle's hull hit box (clipped to 8 blocks wide, `BOARD`) or a board
- * point under its far edges, so a part high up beyond both raises no event at all.
- * # TODO(vehicle-parts-hit-box): 41395's interior window at 150 % (the sim's `vehicle-part-tap-target`); a board point
- * under such a part would reach it.
+ * point, so a board column also stands under every part (and slide) the clipped hit box leaves out at the vehicle's
+ * size and turn (`ScriptedVehicleType.tapAt`, `boardPointPlaces`): 41395's interior window at 150 % sat 6 blocks out
+ * over the middle of the bus, under no edge column, and a tap on it raised no event.
  *
- * Only a SCRIPTED vehicle (cars, hover craft, boats, ships: `isScriptedVehicle`) gets them: a native rotorcraft or
- * flyer has no script to answer the tap; its parts stay fixed geometry and are reported.
+ * A SCRIPTED vehicle (cars, hover craft, boats, ships: `isScriptedVehicle`) gets them, and a native ROTORCRAFT too: the
+ * device flies it, and vehicle-driver.js (playable-addon.ts `vehicleDriverRuntime`) answers a tap on its parts with the
+ * same pick and shuts the swinging ones once it moves (its windowed speed or its own step over 2 ticks). Its body's
+ * lean is not followed there (a parked rotorcraft is level: its nose-down lean follows ground speed). A component flown
+ * as a `flyer` keeps its parts fixed geometry, reported (`TODO(vehicle-interactives)`, interactivity-stage.ts).
  */
 import type { ParsedBrick } from './ldraw-parser.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
@@ -51,6 +54,13 @@ export const VEHICLE_PART = {
   CLOSE_SPEED: 0.05,
   /** The leaf's swing (the interactives' `SWING_SECONDS`, bedrock-interactives.ts). */
   SWING_SECONDS: 0.4,
+  /**
+   * Blocks from the eye along the view ray to a SLIDE's box (times the scale above 100 %) for a tap to ride it. A
+   * slide on a vehicle often sits on its roof (41395's foot is 4.5 blocks up the bus), which no child climbs: the
+   * device delivers the tap through the hull hit box or a board column within ~3 blocks of the eye, and the runtime
+   * then rides the slide the child is LOOKING at, up to this far (the view ray only, never the cone).
+   */
+  SLIDE_REACH_BLOCKS: 8,
 } as const;
 export type VehiclePartParams = typeof VEHICLE_PART;
 
@@ -90,6 +100,64 @@ export interface VehiclePartRuntime {
   /** Its drawn box closed and open: x0, y0, z0, x1, y1, z1. */
   closed: number[];
   open: number[];
+}
+
+/**
+ * A SLIDE a scripted vehicle carries (the bus's playground slide, 41395's 11267), as the runtime sees it: the ride's
+ * index in `scripts/rides.js`, its running line (top to foot, then the run-out: bedrock-rides.ts `slidePathLdu`) and the
+ * slide part's box, both in the ENTITY frame at yaw 0 and 100 % (blocks; +z the nose), as a part's boxes are.
+ *
+ * A building's slide is a ride seat standing at the top of a WORLD path the placement wrote; a vehicle drives away
+ * from any such path. So the vehicle's slide is resolved when it is ridden: a tap on the slide of the PARKED vehicle
+ * (picked with its parts, `pickVehiclePart` over the slide's box) has the vehicle runtime turn the path to where the
+ * vehicle stands now (`vehicleSlideWorldPath`), spawn the pack's ride seat at its top carrying that path and seat the
+ * tapper; rides.js then runs it as any slide (its own path runner and set-down through `colliderBodyProbe`) and
+ * removes the seat at the foot (`craftmatic:ride_owner`). A tap on it while the vehicle moves is refused, with a line
+ * saying why. A slide on a native vehicle (rotorcraft, flyer) stays fixed geometry: no script starts it.
+ */
+export interface VehicleSlideRuntime {
+  /** Its index in rides.js's `rides` (a `slide` entry with `onVehicle`). */
+  ride: number;
+  /** Its running line, entity frame at 100 % (blocks). */
+  path: number[][];
+  /** The slide part's box, entity frame at 100 %: x0, y0, z0, x1, y1, z1. */
+  box: number[];
+}
+
+/** What the vehicle runtime needs to start a slide (the rides' seat type and dynamic property keys, rides.js's own). */
+export interface VehicleSlideSeatConfig {
+  seatType: string;
+  keys: { index: string; path: string; scale: string; owner: string };
+}
+
+/** The ride seat's dynamic property naming the vehicle a slide's seat belongs to (rides.js removes such a seat at the foot). */
+export const RIDE_OWNER_PROPERTY = 'craftmatic:ride_owner';
+
+/**
+ * A point of the compiled vehicle's SOURCE (LDraw, as the pipeline found the slide) in the entity frame at 100 % (blocks):
+ * levelled with the model, into the render frame (`A`), less the origin, scaled - then half round, x and z, as the
+ * geometry is drawn (`renderSeatToEntity`, `extraPlacement`).
+ */
+export function sourceToEntityBlocks(t: { A: readonly number[]; origin: readonly number[]; scale: number; level?: { rotation: readonly number[]; centre: readonly number[] } }, p: readonly number[]): number[] {
+  let q = [p[0]!, p[1]!, p[2]!];
+  if (t.level) {
+    const R = t.level.rotation, c = t.level.centre, d = [q[0]! - c[0]!, q[1]! - c[1]!, q[2]! - c[2]!];
+    q = [0, 1, 2].map(i => R[i * 3]! * d[0]! + R[i * 3 + 1]! * d[1]! + R[i * 3 + 2]! * d[2]! + c[i]!);
+  }
+  const A = t.A, r = [0, 1, 2].map(i => A[i * 3]! * q[0]! + A[i * 3 + 1]! * q[1]! + A[i * 3 + 2]! * q[2]!);
+  const k = t.scale / 16, r3 = (v: number): number => Math.round(v * 1000) / 1000 || 0;
+  return [r3(-(r[0]! - t.origin[0]!) * k), r3((r[1]! - t.origin[1]!) * k), r3(-(r[2]! - t.origin[2]!) * k)];
+}
+
+/**
+ * A vehicle slide's running line in the WORLD where the vehicle stands (pure; serialised into `scripts/vehicles.js`):
+ * every point scaled by the vehicle's live scale `k` and turned by its Bedrock yaw (0 faces +z, +x turns toward +z,
+ * as `boardPointPlaces` turns its columns). The body's leftover lean is not followed (# TODO(vehicle-slide-lean): a
+ * parked car's 3 degrees move a 3-block chute's top ~0.15 blocks; the seat runs over the drawn bed within that).
+ */
+export function vehicleSlideWorldPath(path: ReadonlyArray<readonly number[]>, pose: { x: number; y: number; z: number; yaw: number }, k: number): Array<{ x: number; y: number; z: number }> {
+  const r = pose.yaw * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+  return path.map(p => ({ x: pose.x + (p[0]! * c - p[2]! * s) * k, y: pose.y + p[1]! * k, z: pose.z + (p[0]! * s + p[2]! * c) * k }));
 }
 
 /** `description.properties` of a vehicle carrying `count` parts (float literals: bedrock-json.ts). */
@@ -176,6 +244,45 @@ export function vehiclePartBoxes(geometry: unknown, parts: ReadonlyArray<{ angle
 }
 
 /**
+ * The `body` bone's pivot of a shipped geometry (`.geo.json` value) in the entity frame at 100 % (blocks, JSON z
+ * mirrored): where the drive animation's lean turns the body, for `pickVehiclePart`'s `pose.pivot`. Undefined: no body.
+ */
+export function bodyPivotOf(geometry: unknown): number[] | undefined {
+  const meshes = (geometry as { 'minecraft:geometry'?: Array<{ bones?: Array<{ name: string; pivot?: readonly number[] }> }> } | undefined)?.['minecraft:geometry'] ?? [];
+  for (const mesh of meshes) for (const bone of mesh.bones ?? []) {
+    if (bone.name !== 'body') continue;
+    const p = bone.pivot ?? [0, 0, 0];
+    const r3 = (v: number): number => Math.round(v * 1000) / 1000 || 0;
+    return [r3((p[0] ?? 0) / 16), r3((p[1] ?? 0) / 16), r3(-(p[2] ?? 0) / 16)];
+  }
+  return undefined;
+}
+
+/**
+ * What a tap on a vehicle meant (pure; serialised into `scripts/vehicles.js`, `pick` is `pickVehiclePart`): a part the
+ * view RAY enters within reach first; else a slide the view ray enters within `SLIDE_REACH_BLOCKS` (a roof slide is
+ * looked up at from the ground); else a part by the view cone (`pickVehiclePart`'s last rule). `moving`: slides only
+ * (a part neither opens nor shuts while the vehicle moves; a slide is answered so the runtime can refuse it).
+ * Null: nothing meant (the tap boards).
+ */
+export function pickVehicleTap(pick: typeof pickVehiclePart, parts: ReadonlyArray<{ closed: readonly number[]; open: readonly number[] }>, slides: ReadonlyArray<{ box: readonly number[] }>, pose: { x: number; y: number; z: number; yaw: number; pitch?: number; bank?: number; pivot?: readonly number[] }, k: number, eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, open: readonly boolean[], moving: boolean, P: { REACH_BLOCKS: number; CONE_DEG: number; PAD_BLOCKS: number; TIE_BLOCKS: number; SLIDE_REACH_BLOCKS: number }): { part: number } | { slide: number } | null {
+  if (!moving && parts.length) {
+    const ray = pick(parts, pose, k, eye, dir, open, { ...P, CONE_DEG: 0 });
+    if (ray >= 0) return { part: ray };
+  }
+  if (slides.length) {
+    const boxes = slides.map(sl => ({ closed: sl.box, open: sl.box }));
+    const i = pick(boxes, pose, k, eye, dir, boxes.map(() => false), { ...P, REACH_BLOCKS: P.SLIDE_REACH_BLOCKS, CONE_DEG: 0 });
+    if (i >= 0) return { slide: i };
+  }
+  if (!moving && parts.length) {
+    const cone = pick(parts, pose, k, eye, dir, open, P);
+    if (cone >= 0) return { part: cone };
+  }
+  return null;
+}
+
+/**
  * Which part a tap on a parked vehicle meant, or -1 (board instead). Pure and self-contained: serialised into
  * `scripts/vehicles.js`. `pose` is the vehicle's (Bedrock yaw: 0 faces +z, +x turns toward +z), `k` its live scale,
  * `eye` and `dir` the player's head and view (world), `open[i]` whether part i is open now (the box over its open and
@@ -188,13 +295,32 @@ export function vehiclePartBoxes(geometry: unknown, parts: ReadonlyArray<{ angle
  * # TODO(vehicle-parts-touch-aim): unmeasured on a phone - whether a touch tap's view direction is the camera's
  * centre or the finger's ray; the cone covers the screen's half-width either way.
  */
-export function pickVehiclePart(parts: ReadonlyArray<{ closed: readonly number[]; open: readonly number[] }>, pose: { x: number; y: number; z: number; yaw: number }, k: number, eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, open: readonly boolean[], P: { REACH_BLOCKS: number; CONE_DEG: number; PAD_BLOCKS: number; TIE_BLOCKS: number }): number {
+export function pickVehiclePart(parts: ReadonlyArray<{ closed: readonly number[]; open: readonly number[] }>, pose: { x: number; y: number; z: number; yaw: number; pitch?: number; bank?: number; pivot?: readonly number[] }, k: number, eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, open: readonly boolean[], P: { REACH_BLOCKS: number; CONE_DEG: number; PAD_BLOCKS: number; TIE_BLOCKS: number }): number {
   const r = pose.yaw * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
   // World -> entity frame (the inverse of the yaw turn `boardPointPlaces` applies), in world blocks (scaled boxes).
   const dx = eye.x - pose.x, dz = eye.z - pose.z;
-  const e = [dx * c + dz * s, eye.y - pose.y, -dx * s + dz * c];
+  let e = [dx * c + dz * s, eye.y - pose.y, -dx * s + dz * c];
   const dl = Math.hypot(dir.x, dir.y, dir.z) || 1;
-  const d = [(dir.x * c + dir.z * s) / dl, dir.y / dl, (-dir.x * s + dir.z * c) / dl];
+  let d = [(dir.x * c + dir.z * s) / dl, dir.y / dl, (-dir.x * s + dir.z * c) / dl];
+  // The body's lean (a parked car keeps its last squat; `FLIGHT_PROPS` pitch and bank, degrees): the drive animation
+  // turns the `body` bone by [-pitch, 0, -bank] about its pivot, which the geometry JSON draws as Rz(bank)·Rx(pitch)
+  // (`pivotRotation`) in its own frame, the entity frame mirrored in z. The boxes are the LEVEL body's, so the eye and
+  // the view are turned back by the inverse, Rx(-pitch)·Rz(-bank), in that JSON frame.
+  const pa = (pose.pitch ?? 0) * Math.PI / 180, ba = (pose.bank ?? 0) * Math.PI / 180;
+  if (pa || ba) {
+    const ca = Math.cos(pa), sa = Math.sin(pa), cb = Math.cos(ba), sb = Math.sin(ba);
+    const unlean = (v: number[]): number[] => {
+      // Entity -> JSON (z mirrored); Rz(-bank) then Rx(-pitch); back.
+      const x0 = v[0]!, y0 = v[1]!, z0 = -v[2]!;
+      const x1 = x0 * cb + y0 * sb, y1 = -x0 * sb + y0 * cb;
+      const y2 = y1 * ca + z0 * sa, z2 = -y1 * sa + z0 * ca;
+      return [x1, y2, -z2];
+    };
+    const pv = [0, 1, 2].map(a => (pose.pivot?.[a] ?? 0) * k);
+    const rel = unlean([e[0]! - pv[0]!, e[1]! - pv[1]!, e[2]! - pv[2]!]);
+    e = [rel[0]! + pv[0]!, rel[1]! + pv[1]!, rel[2]! + pv[2]!];
+    d = unlean(d);
+  }
   const cosCone = Math.cos(P.CONE_DEG * Math.PI / 180);
   // The vehicle's size scales its parts' spacing: the reach grows with it (a 400 % bus's door is 4x as far across);
   // the pad never outgrows a small part (a 50 % lever is a tenth of a block).

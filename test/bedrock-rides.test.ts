@@ -204,6 +204,16 @@ describe('ride runtime', () => {
     expect(w.seat.location).toEqual(path[0]);
   });
 
+  it('removes a vehicle slide\'s seat once ridden instead of returning it to a top the vehicle may have left (A-02)', () => {
+    const path = [{ x: 0, y: 5, z: 0 }, { x: 4, y: 2, z: 0 }, { x: 6, y: 1, z: 0 }];
+    const w = world(path, 'slide', { 'craftmatic:ride_owner': 'vehicle-1' });
+    w.run(200);
+    expect(w.player.ridingOn).toBeUndefined();
+    expect(w.player.location.x).toBeCloseTo(6, 5);
+    const valid = typeof w.seat.isValid === 'function' ? w.seat.isValid() : w.seat.isValid;
+    expect(valid).toBe(false);
+  });
+
   it('sets the rider down where the body fits: out of a floor slab its planned point sits in (41703, 42652, 10788 lift exits; simulator 2026-09-30)', () => {
     // The shipped module (ridesScript), so the collider body probe it is handed is the one the pack runs.
     const path = [{ x: 0.5, y: 5, z: 0.5 }, { x: 4.5, y: 2, z: 0.5 }, { x: 6.5, y: 1.3, z: 0.5 }];

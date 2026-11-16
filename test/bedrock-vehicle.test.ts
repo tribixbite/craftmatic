@@ -1304,6 +1304,23 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     expect(big).toHaveLength(4);
     expect(big[0]!.z).toBeCloseTo(42 - (BOARD.COLUMN_WIDTH * 3 / 2 - BOARD.OUTSET_BLOCKS), 9);
   });
+  it('stands a column under a part or slide the hull\'s 8-wide hit box no longer covers, where no column already is (TODO vehicle-parts-hit-box: 41395 window at 150 percent)', () => {
+    // A bus like 41395's: nose 6.73 out; a window high in its middle at x 0.37, z 3.6 (entity frame, 100 %).
+    const bus: BoardPoint[] = [{ x: -0.77, z: 6.73, dx: 0, dz: 1 }, { x: -1.45, z: -6.73, dx: 0, dz: -1 }];
+    const window: [number, number] = [0.37, 3.6];
+    // At 100 % the window (3.6 out) is inside the hit box (half 4): no column for it.
+    const at100 = boardPointPlaces(bus, { x: 0, y: 0, z: 0, yaw: 0 }, 1, BOARD, [window]);
+    expect(at100).toEqual(boardPointPlaces(bus, { x: 0, y: 0, z: 0, yaw: 0 }, 1, BOARD));
+    // At 150 % it is 5.4 out, past the hit box, and under no tip column: a column stands under it.
+    const at150 = boardPointPlaces(bus, { x: 0, y: 0, z: 0, yaw: 0 }, 1.5, BOARD, [window]);
+    expect(at150.filter(q => Math.abs(q.x - 0.555) < 0.01 && Math.abs(q.z - 5.4) < 0.01)).toHaveLength(1);
+    // Turned 90 degrees the column turns with the bus (entity +z is world -x).
+    const turned = boardPointPlaces(bus, { x: 0, y: 0, z: 0, yaw: 90 }, 1.5, BOARD, [window]);
+    expect(turned.filter(q => Math.abs(q.x + 5.4) < 0.01 && Math.abs(q.z - 0.555) < 0.01)).toHaveLength(1);
+    // Under a column already standing (the nose's, at 300 %: 20.2 out, its column 17.7..20.7): none added.
+    const tipWindow: [number, number] = [-0.77, 6.4];
+    expect(boardPointPlaces(bus, { x: 0, y: 0, z: 0, yaw: 0 }, 3, BOARD, [tipWindow])).toEqual(boardPointPlaces(bus, { x: 0, y: 0, z: 0, yaw: 0 }, 3, BOARD));
+  });
   it('reads the extremities of a shipped geometry in the entity frame (JSON z mirrored: a cube at JSON -z is the nose)', () => {
     const geo = { 'minecraft:geometry': [{ bones: [{ cubes: [
       { origin: [-8, 0, -160], size: [16, 16, 32] }, // the nose: JSON z -160..-128 = entity z 8..10

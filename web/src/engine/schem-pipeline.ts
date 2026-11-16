@@ -837,8 +837,19 @@ export async function runSchemPipeline(
           for (const component of found.components) {
             for (const b of component.bricks) vehicleBricks.add(b);
             // The same motion class the add-on compiles it as (playable-addon.ts): only a scripted vehicle answers a tap.
-            const opens = isScriptedVehicle(component.kind, component.motion ?? vehicleMotionOf(component.kind, component.label));
-            if (component.bricks.length < source.bricks.length * 0.5) { carrying.push({ label: component.label, kind: component.kind, bricks: component.bricks, opens }); continue; }
+            const motionOf = component.motion ?? vehicleMotionOf(component.kind, component.label);
+            const scripted = isScriptedVehicle(component.kind, motionOf);
+            // A scripted vehicle's runtime answers a tap on its parts, and so does a native ROTORCRAFT's (vehicle-driver.js);
+            // a slide is ridden from a scripted vehicle only (its runtime spawns the seat).
+            const opens = scripted || motionOf === 'rotor';
+            // A slide it carries (bedrock-rides.ts `findSlides`): on a scripted vehicle it is ridden while the vehicle is
+            // parked, its path resolved against where the vehicle stands when a tap boards it (vehicle-parts.ts
+            // `vehicleSlideWorldPath`); on a native one it stays fixed geometry, reported.
+            const slidesFound = findSlides(component.bricks, sourceMeshes);
+            if (scripted && slidesFound.length) component.vehicleSlides = slidesFound.map(r => ({ part: r.part, pathLdu: r.pathLdu, boxLdu: r.boxLdu! }));
+            const slideNames = slidesFound.map(r => `slide ${r.part}`);
+            const slideRides = scripted ? { slides: slideNames } : { rides: slideNames };
+            if (component.bricks.length < source.bricks.length * 0.5) { carrying.push({ label: component.label, kind: component.kind, bricks: component.bricks, opens, ...slideRides }); continue; }
             const inside = await discoverSceneActors(component.bricks, partProvider);
             const passengerSeats: import('./bedrock-scene-actors.js').SceneSeat[] = [];
             const droppedSeats: Array<{ seat: import('./bedrock-scene-actors.js').SceneSeat; reason: string }> = [];
@@ -850,8 +861,7 @@ export async function runSchemPipeline(
             // A seat MOULD is a passenger seat already (`findCockpit`); brick-built furniture and beds are added.
             const extra = passengerSeats.filter(seat => seat.brick && !isSeat(seat.brick.part, sourceMeshes.get(seat.brick.part)?.description ?? '')).map(seat => seat.brick!);
             if (extra.length) component.extraSeatBricks = extra;
-            const slides = findSlides(component.bricks, sourceMeshes).map(r => `slide ${r.part}`);
-            carrying.push({ label: component.label, kind: component.kind, bricks: component.bricks, passengerSeats, droppedSeats, rides: slides, opens });
+            carrying.push({ label: component.label, kind: component.kind, bricks: component.bricks, passengerSeats, droppedSeats, opens, ...slideRides });
           }
           const carried = vehicleCarriedParts(carrying, sourceMeshes, b => isFigurePart(b.part, sourceMeshes.get(b.part)?.description ?? ''));
           warnings.push(...carried.warnings);

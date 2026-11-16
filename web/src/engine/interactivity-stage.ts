@@ -199,8 +199,10 @@ export interface CarryingVehicle {
   /** Furniture seats and beds in it (`discoverSceneActors`) offered to the vehicle as passenger seats; the rest are listed as dropped. */
   passengerSeats?: readonly SceneSeat[];
   droppedSeats?: ReadonlyArray<{ seat: SceneSeat; reason: string }>;
-  /** Slides and other world-path rides found in it, by mould: a ride runs along a fixed path, a vehicle moves. */
+  /** Slides and other world-path rides found in it that stay fixed geometry (a native vehicle's), by mould. */
   rides?: readonly string[];
+  /** Slides ridden while the (scripted) vehicle is parked, by mould (vehicle-parts.ts `VehicleSlideRuntime`). */
+  slides?: readonly string[];
   /**
    * Its moving parts open while it is parked (vehicle-parts.ts): a SCRIPTED vehicle, whose runtime answers the tap.
    * False or absent: a native one (a rotorcraft, a flyer); its parts stay fixed geometry.
@@ -238,7 +240,9 @@ export function vehicleCarriedParts(vehicles: readonly CarryingVehicle[], meshes
     const carried = v.opens ? dry.items.slice(0, VEHICLE_PART.MAX) : [];
     const left = dry.items.slice(carried.length);
     items.push(carried);
-    // TODO(vehicle-interactives): a native vehicle (rotorcraft, flyer) has no script to answer a tap on its parts.
+    // A native ROTORCRAFT's parts open too (vehicle-driver.js answers the tap, `opens`). Left fixed: a component flown
+    // as a `flyer` (a creator's motion hint; a set-canon flyer mount is not a vehicle component) - vehicle-driver.js
+    // would answer it the same way, unmeasured. # TODO(vehicle-interactives): carry a flyer component's parts too.
     const fixed = v.opens
       ? `stays fixed on ${v.label}: the ${v.kind} carries at most ${VEHICLE_PART.MAX} moving parts (one actor property each)`
       : `stays fixed on ${v.label}: a native ${v.kind} has no script to answer a tap on its parts`;
@@ -256,7 +260,8 @@ export function vehicleCarriedParts(vehicles: readonly CarryingVehicle[], meshes
     if (carried.length) warnings.push(`${v.label}: ${carried.length} moving part${carried.length === 1 ? ' opens' : 's open'} on the parked ${v.kind} (${listed(carried)}): tap one standing beside it; doors, lids and cupboards close as it drives off and ride with it.`);
     if (left.length) warnings.push(`${v.label}: ${left.length} moving part${left.length === 1 ? ' stays' : 's stay'} fixed on the ${v.kind} (${listed(left)}): ${v.opens ? `over the ${VEHICLE_PART.MAX}-part cap` : `a native ${v.kind} has no script to answer a tap`}.`);
     if (v.passengerSeats?.length || v.droppedSeats?.length) warnings.push(`${v.label}: ${v.passengerSeats?.length ?? 0} furniture seat${v.passengerSeats?.length === 1 ? '' : 's'} or bed${v.passengerSeats?.length === 1 ? '' : 's'} offered to the ${v.kind} as passenger seats${v.droppedSeats?.length ? `; ${v.droppedSeats.length} dropped (${v.droppedSeats.map(d => `${d.seat.part}: ${d.reason}`).join('; ')})` : ''}.`);
-    if (v.rides?.length) warnings.push(`${v.label}: ${v.rides.length} ride${v.rides.length === 1 ? '' : 's'} (${v.rides.join(', ')}) stay${v.rides.length === 1 ? 's' : ''} fixed geometry on the ${v.kind}: a ride runs along a fixed world path, and the vehicle moves.`);
+    if (v.rides?.length) warnings.push(`${v.label}: ${v.rides.length} ride${v.rides.length === 1 ? '' : 's'} (${v.rides.join(', ')}) stay${v.rides.length === 1 ? 's' : ''} fixed geometry on the ${v.kind}: a native ${v.kind} has no script to start a ride from where it stands.`);
+    if (v.slides?.length) warnings.push(`${v.label}: ${v.slides.length} slide${v.slides.length === 1 ? '' : 's'} on the ${v.kind} (${v.slides.join(', ')}): tap ${v.slides.length === 1 ? 'it' : 'one'} standing beside the parked ${v.kind} to ride it while it is parked; a tap while it moves is refused.`);
   }
   return { rows, warnings, items };
 }
