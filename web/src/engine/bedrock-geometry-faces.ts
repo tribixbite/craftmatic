@@ -556,16 +556,61 @@ const faceArea = (q: readonly Vec3[]): number => Math.hypot(...cross(sub(q[1]!, 
  * neither the separation nor the audit counts it.
  */
 export function buriedFaceTest(faces: readonly WorldFace[]): (f: WorldFace) => boolean {
-  const planeKey = (n: Vec3, d: number, k: number): string => `${Math.round(n[0] * 1e3)},${Math.round(n[1] * 1e3)},${Math.round(n[2] * 1e3)}|${Math.floor(d / CONTACT_EPS) + k}`;
-  const byPlane = new Map<string, WorldFace[]>();
-  for (const f of faces) { const key = planeKey(f.normal, f.d, 0); let list = byPlane.get(key); if (!list) byPlane.set(key, list = []); list.push(f); }
+  // Faces are indexed by normal (quantised to 1e-3) and by the 16-unit cells their boxes cover; a query looks at the
+  // 27 normal buckets around its OPPOSITE normal and the cells its own box covers, and measures the contact over the
+  // overlap. Until 2026-11-15 the index was the plane offset `d`, which for two nearly parallel faces (two Euler
+  // spellings of one tilt) depends on where the model stands: 75397's boat shipped 25 pairs the compile, measuring at
+  // the frame's origin, had judged buried (A-17).
+  const G = 16;
+  const q = (x: number): number => Math.round(x * 1e3);
+  const boxOf = (f: WorldFace): number[] => {
+    const b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    for (const c of f.corners) for (let k = 0; k < 3; k++) { if (c[k]! < b[k]!) b[k] = c[k]!; if (c[k]! > b[k + 3]!) b[k + 3] = c[k]!; }
+    return b;
+  };
+  const cellsOf = (b: number[], pad: number, visit: (key: string) => void): void => {
+    for (let x = Math.floor((b[0]! - pad) / G); x <= Math.floor((b[3]! + pad) / G); x++)
+      for (let y = Math.floor((b[1]! - pad) / G); y <= Math.floor((b[4]! + pad) / G); y++)
+        for (let z = Math.floor((b[2]! - pad) / G); z <= Math.floor((b[5]! + pad) / G); z++) visit(`${x},${y},${z}`);
+  };
+  // Faces by normal now; each normal's cell grid only when a query first needs it (the separation asks about the few
+  // faces of its pairs, and building every grid for a 250,000-face entity each pass cost seconds).
+  const byNormal = new Map<string, WorldFace[]>();
+  for (const f of faces) {
+    const nk = `${q(f.normal[0])},${q(f.normal[1])},${q(f.normal[2])}`;
+    let l = byNormal.get(nk);
+    if (!l) byNormal.set(nk, l = []);
+    l.push(f);
+  }
+  const grids = new Map<string, Map<string, WorldFace[]>>();
+  const gridOf = (nk: string): Map<string, WorldFace[]> | undefined => {
+    let g = grids.get(nk);
+    if (g) return g;
+    const list = byNormal.get(nk);
+    if (!list) return undefined;
+    grids.set(nk, g = new Map());
+    for (const f of list) cellsOf(boxOf(f), 0, cell => { let l = g!.get(cell); if (!l) g!.set(cell, l = []); l.push(f); });
+    return g;
+  };
   return (f: WorldFace): boolean => {
     const area = faceArea(f.corners);
-    const n: Vec3 = [-f.normal[0], -f.normal[1], -f.normal[2]];
-    for (const k of [-1, 0, 1]) for (const o of byPlane.get(planeKey(n, -f.d, k)) ?? []) {
-      if (Math.abs(o.d + f.d) <= CONTACT_EPS && overlapArea(f, o) >= area * 0.98) return true;
-    }
-    return false;
+    const n = [q(-f.normal[0]), q(-f.normal[1]), q(-f.normal[2])];
+    const seen = new Set<WorldFace>();
+    let hit = false;
+    cellsOf(boxOf(f), CONTACT_EPS, cell => {
+      if (hit) return;
+      for (let a = -1; a <= 1 && !hit; a++) for (let b = -1; b <= 1 && !hit; b++) for (let c = -1; c <= 1 && !hit; c++) {
+        for (const o of gridOf(`${n[0]! + a},${n[1]! + b},${n[2]! + c}`)?.get(cell) ?? []) {
+          if (seen.has(o)) continue;
+          seen.add(o);
+          const { area: over, points } = overlapPolygon(f, o);
+          if (over < area * 0.98) continue;
+          // Pressed together over the whole overlap: every point of it within CONTACT_EPS of the other face's plane.
+          if (points.every(p => Math.abs(dot(o.normal, p) - o.d) <= CONTACT_EPS)) { hit = true; break; }
+        }
+      }
+    });
+    return hit;
   };
 }
 

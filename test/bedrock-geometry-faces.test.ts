@@ -152,6 +152,21 @@ describe('coplanar faces', () => {
     for (const x of [0, -13]) expect(coplanarFaces(at(x)).hits).toHaveLength(0);
   });
 
+  it('finds a face buried by a nearly parallel face wherever the model stands (A-17)', () => {
+    // The tile-in-plate pair under a blue plate lying on both, the blue plate on a bone turned 0.05 degrees about a
+    // pivot 13 blocks out: pressed flat over the tile, but its plane offset differs by 0.17 units at the frame's
+    // origin. 75397's boat shipped 25 pairs the compile (at the origin) had judged buried.
+    const entry = sunkTile();
+    entry.groups.push({ ldrawColor: 1, alpha: 1, cubes: [{ bone: 'b', origin: [3, 2.4, 3], size: [12, 2.4, 12] }] });
+    for (const g of entry.groups) for (const c of g.cubes) { c.origin = [c.origin[0] + 200, c.origin[1], c.origin[2]]; c.bone = c.bone === 'b' ? 'b' : 'a'; }
+    entry.bones = [{ name: 'a', pivot: [209, 2.4, 9] }, { name: 'b', pivot: [209, 2.4, 9], rotation: [0, 0, 0.05] }];
+    for (const x of [0, -13, 40]) {
+      const faces = worldFaces([{ typeId: 't', kind: 'shell', entry, at: { x, y: 0, z: 0 }, yawDeg: 0 }]);
+      expect(coplanarFaces(faces).hits).toHaveLength(1);
+      expect(visibleCoplanarHits(faces)).toHaveLength(0);
+    }
+  });
+
   it('settles five colours on ONE plane in one pass, as layers (A-17)', () => {
     // Nested tiles sunk flush into a plate, five colours, one top plane: each pair's winner pushed by its own need
     // alone landed every winner on one plane again, one layer per pass (42172's body: 444 pairs left after 10).
