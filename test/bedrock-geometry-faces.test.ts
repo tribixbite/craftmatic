@@ -152,6 +152,20 @@ describe('coplanar faces', () => {
     for (const x of [0, -13]) expect(coplanarFaces(at(x)).hits).toHaveLength(0);
   });
 
+  it('settles five colours on ONE plane in one pass, as layers (A-17)', () => {
+    // Nested tiles sunk flush into a plate, five colours, one top plane: each pair's winner pushed by its own need
+    // alone landed every winner on one plane again, one layer per pass (42172's body: 444 pairs left after 10).
+    const entry: GeoEntryLike = { bones: [{ name: 'body', pivot: [0, 0, 0] }], groups: [] };
+    for (let k = 0; k < 5; k++) entry.groups.push({ ldrawColor: k + 1, alpha: 1, cubes: [{ bone: 'body', origin: [k * 1.5, -4 - k, k * 1.5], size: [18 - 3 * k, 4 + k, 18 - 3 * k] }] });
+    const r = separateCoplanarFaces(entry, { passes: 1 });
+    expect(r.pairsFound).toBe(10);
+    expect(r.pairsLeft).toBe(0);
+    expect(visibleCoplanarHits(self(entry))).toHaveLength(0);
+    // The smallest tile ends four layers out, each larger one a layer under it.
+    const tops = entry.groups.map(g => g.cubes[0]!.origin[1] + g.cubes[0]!.size[1]);
+    for (let k = 1; k < 5; k++) expect(tops[k]! - tops[k - 1]!).toBeGreaterThanOrEqual(COPLANAR_SEPARATION_UNITS - 1e-9);
+  });
+
   it('runs until a CHAIN of pushes settles: each pushed face meets the next one up (A-17)', () => {
     // Six nested blocks of six colours: the second's top sits on the first's plane, and every later top sits one
     // separation above the one before, so each push lands the winner on the next plane. Three passes (the cap

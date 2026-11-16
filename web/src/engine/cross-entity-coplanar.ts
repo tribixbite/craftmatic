@@ -160,7 +160,8 @@ export function separateEntitiesFromNeighbours(
   for (const [typeId, list] of movable) {
     const shipped = entryOf(typeId)!;
     const actors = list.map(a => toActor(a, shipped.entry));
-    const r = separateCoplanarAgainst(actors, fixed);
+    // Its own pairs were separated when it was compiled: only what meets a neighbour is measured.
+    const r = separateCoplanarAgainst(actors, fixed, { settledOwn: true });
     const cubesRewritten = r.facesGrown ? shipped.writeBack() : 0;
     out.entities[typeId] = { ...r, cubesRewritten };
     if (cubesRewritten) out.changed.push(typeId);

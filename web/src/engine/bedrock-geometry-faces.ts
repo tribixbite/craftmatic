@@ -600,7 +600,15 @@ export interface CoplanarSeparation {
  */
 export const COPLANAR_SEPARATION_MAX_PASSES = 10;
 
-export interface CoplanarSeparationOptions { offset?: number; passes?: number; planeEps?: number }
+export interface CoplanarSeparationOptions {
+  offset?: number; passes?: number; planeEps?: number;
+  /**
+   * The entity's own pairs were already separated (the compiler ran `separateCoplanarFaces` on it): a full pass then
+   * looks only at its faces near the fixed neighbours, and an entity with no neighbour near it is left as it is.
+   * The cross-entity pass sets it; re-measuring a 250,000-face car against nothing cost 5 s a build.
+   */
+  settledOwn?: boolean;
+}
 
 /**
  * Remove every different-colour coplanar overlap from ONE entity's geometry by
@@ -683,14 +691,21 @@ export function separateCoplanarAgainst(placements: readonly AuditActor[], fixed
     for (const f of fixed) if (near(f) && onPlane(f)) neighbours.push({ ...f, actor: own + f.actor });
   }
   const key = (f: { actor: number; group: number; cube: number; face: string }): string => `${f.actor}:${f.group}:${f.cube}:${f.face}`;
-  for (let pass = 0; pass <= maxPasses; pass++) {
-    const mine = worldFaces(placements);
-    const faces = neighbours.length ? mine.concat(neighbours) : mine;
+  /**
+   * One pass's plan over `faces` (all of them, or those near the faces the last pass moved), with the buried test
+   * and face lookup over `all`: the pushes it wants and the visible pairs still closer than `offset`.
+   */
+  const plan = (faces: WorldFace[], all: WorldFace[]): { grow: Map<string, number>; pending: number; pendingArea: number } => {
     const byKey = new Map<string, WorldFace>();
-    for (const f of faces) byKey.set(key(f), f);
-    const buried = buriedFaceTest(faces);
+    for (const f of all) byKey.set(key(f), f);
+    const buried = buriedFaceTest(all);
     const { hits } = coplanarFaces(faces, { planeEps });
-    const grow = new Map<string, number>();
+    // Every pair the pass sees is a constraint `disp(w) >= disp(l) + offset - lead`, the loser's own push included:
+    // N faces of N colours on one plane are N - 1 layers, and pushing each winner by its own pair's need alone put the
+    // pushed faces on one plane again, one layer settled per pass (42172's body still had 444 pairs after 10 passes).
+    // The winner rule is an order (area, volume, alpha, group, cube; a decal or a neighbour never wins), so the
+    // constraints are acyclic and relaxing them settles every layer of a plane in one pass.
+    const constraints: Array<{ w: string; l: string | null; need: number }> = [];
     let pending = 0, pendingArea = 0;
     for (const h of hits) {
       const aOwn = h.a.actor < own, bOwn = h.b.actor < own;
@@ -720,17 +735,76 @@ export function separateCoplanarAgainst(placements: readonly AuditActor[], fixed
       // The winner must lead the loser by `offset` over their overlap (`lead`, measured where they overlap: two planes
       // a fraction of a degree apart are not parallel, so their offsets' difference is not the distance).
       const need = offset - (w === fa ? h.lead : h.leadBack);
-      if (need <= 1e-6) continue;
-      pending++; pendingArea += h.area;
+      if (need > 1e-6) { pending++; pendingArea += h.area; }
       // A decal on a neighbour's plane cannot move: it is left, and counted.
       if (entry.groups[w.group]!.cubes[w.cube]!.faceUv) continue;
-      const k = `${w.group}:${w.cube}:${w.face}`;
-      grow.set(k, Math.max(grow.get(k) ?? 0, need));
+      const lOwn = l.actor < own;
+      constraints.push({ w: `${w.group}:${w.cube}:${w.face}`, l: lOwn ? `${l.group}:${l.cube}:${l.face}` : null, need });
     }
+    const grow = new Map<string, number>();
+    for (let round = 0, changed = true; changed && round < 64; round++) {
+      changed = false;
+      for (const c of constraints) {
+        const want = (c.l ? grow.get(c.l) ?? 0 : 0) + c.need;
+        if (want > (grow.get(c.w) ?? 0) + 1e-6) { grow.set(c.w, want); changed = true; }
+      }
+    }
+    for (const [k, g] of grow) if (g <= 1e-6) grow.delete(k);
+    return { grow, pending, pendingArea };
+  };
+  /**
+   * The faces a pass must look at after the last one moved `moved` (entry-level keys): only a moved face can meet a
+   * plane it did not share before, so a pass after the first measures the faces whose boxes come within reach of a
+   * moved face's box (a grid of 32-unit cells), not the whole entity again. A pass that finds nothing to push is
+   * followed by a FULL pass, which alone may declare the separation settled and count what is left.
+   */
+  const nearSeeds = (all: WorldFace[], seed: (f: WorldFace) => boolean): WorldFace[] => {
+    const G = 32, pad = planeEps + 0.05;
+    const boxOf = (f: WorldFace): [number, number, number, number, number, number] => {
+      const b: [number, number, number, number, number, number] = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+      for (const c of f.corners) for (let k = 0; k < 3; k++) { if (c[k]! < b[k]!) b[k] = c[k]!; if (c[k]! > b[k + 3]!) b[k + 3] = c[k]!; }
+      return b;
+    };
+    const cells = new Map<string, Array<[number, number, number, number, number, number]>>();
+    for (const f of all) {
+      if (!seed(f)) continue;
+      const b = boxOf(f);
+      for (let k = 0; k < 3; k++) { b[k] -= pad; b[k + 3] += pad; }
+      for (let x = Math.floor(b[0] / G); x <= Math.floor(b[3] / G); x++) for (let y = Math.floor(b[1] / G); y <= Math.floor(b[4] / G); y++) for (let z = Math.floor(b[2] / G); z <= Math.floor(b[5] / G); z++) {
+        const k = `${x},${y},${z}`;
+        let l = cells.get(k);
+        if (!l) cells.set(k, l = []);
+        l.push(b);
+      }
+    }
+    return all.filter(f => {
+      const b = boxOf(f);
+      for (let x = Math.floor(b[0] / G); x <= Math.floor(b[3] / G); x++) for (let y = Math.floor(b[1] / G); y <= Math.floor(b[4] / G); y++) for (let z = Math.floor(b[2] / G); z <= Math.floor(b[5] / G); z++) {
+        for (const m of cells.get(`${x},${y},${z}`) ?? []) if (m[0] <= b[3] && b[0] <= m[3] && m[1] <= b[4] && b[1] <= m[4] && m[2] <= b[5] && b[2] <= m[5]) return true;
+      }
+      return false;
+    });
+  };
+  if (options.settledOwn && !neighbours.length) return result;
+  /** A full pass's faces: all of them, or (`settledOwn`) the entity's faces near its neighbours, and the neighbours. */
+  const fullScope = (all: WorldFace[]): WorldFace[] => (options.settledOwn ? nearSeeds(all, f => f.actor >= own) : all);
+  let moved: Set<string> | null = null;
+  for (let pass = 0; ; pass++) {
+    const mine = worldFaces(placements);
+    const all = neighbours.length ? mine.concat(neighbours) : mine;
+    const full = moved === null;
+    const seen = moved;
+    const { grow, pending, pendingArea } = plan(seen ? nearSeeds(all, f => f.actor < own && seen.has(`${f.group}:${f.cube}:${f.face}`)) : fullScope(all), all);
     if (pass === 0) { result.pairsFound = pending; result.areaFound = pendingArea / 256; }
-    // The last pass only measures what is left.
-    if (pass === maxPasses || !grow.size) { result.pairsLeft = pending; return result; }
-    result.passes = pass + 1;
+    if (!grow.size) {
+      // Settled on a full pass: what is left is counted. Settled near the last pushes: check the whole entity.
+      if (full) { result.pairsLeft = pending; return result; }
+      moved = null;
+      continue;
+    }
+    // At the cap the pushes are not made; a full measure counts what is left.
+    if (result.passes >= maxPasses) { result.pairsLeft = full ? pending : plan(fullScope(all), all).pending; return result; }
+    result.passes++;
     for (const [k, g] of grow) {
       const [group, cube, face] = k.split(':') as [string, string, string];
       const c = entry.groups[Number(group)]!.cubes[Number(cube)]!;
@@ -740,6 +814,6 @@ export function separateCoplanarAgainst(placements: readonly AuditActor[], fixed
       if (!side.max) c.origin[side.axis] = Math.round((c.origin[side.axis] - amount) * 100) / 100;
       result.facesGrown++;
     }
+    moved = new Set(grow.keys());
   }
-  return result;
 }
