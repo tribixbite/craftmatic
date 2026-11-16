@@ -916,7 +916,9 @@ interface SeatFixture { label: string; ask: { eye: Vec3; seat: Vec3; evidence: '
 const loadSeatFixture = (name: string): SeatFixture => {
   type Row = number[];
   const raw = JSON.parse(gunzipSync(readFileSync(new URL(`./fixtures/seats/${name}.json.gz`, import.meta.url))).toString('utf8')) as Omit<SeatFixture, 'planned' | 'shipped'> & { planned: Row[]; shipped: Row[] };
-  const boxes = (rows: Row[]): BoxBlocks[] => rows.map(r => ({ min: [r[0]!, r[1]!, r[2]!] as Vec3, max: [r[3]!, r[4]!, r[5]!] as Vec3, ...(r[6] ? { glass: true } : {}) }));
+  // A row is min, max, glass; a turned cube adds its parallelepiped (origin, three edges: `_playable_ref.ts --seat-fixture`).
+  const solidOf = (r: Row): BoxBlocks['solid'] => r.length >= 19 ? parallelepiped([r[7]!, r[8]!, r[9]!], [[r[10]!, r[11]!, r[12]!], [r[13]!, r[14]!, r[15]!], [r[16]!, r[17]!, r[18]!]]) ?? undefined : undefined;
+  const boxes = (rows: Row[]): BoxBlocks[] => rows.map(r => { const solid = solidOf(r); return { min: [r[0]!, r[1]!, r[2]!] as Vec3, max: [r[3]!, r[4]!, r[5]!] as Vec3, ...(r[6] ? { glass: true } : {}), ...(solid ? { solid } : {}) }; });
   return { ...raw, planned: boxes(raw.planned), shipped: boxes(raw.shipped) };
 };
 
@@ -948,6 +950,20 @@ describe('the driver sees out over the cubes the pack ships (VEH-20 class 2)', (
     expect(fanView(f.shipped, redone.plan.eye, AHEAD)).toBe(1);
     expect(eyeOverlap(f.shipped, redone.plan.eye)).toBe(0);
   });
+
+  it('6243: an eye that left the cabin sees out to BOTH sides when a point a little toward the nose does (the fallback searched only up and back)', () => {
+    // Gengate 6fa0afa6: the boat's lookout eye saw the horizon ahead and 23 of 28 rays to its right; the simulator's
+    // driver-sees-ahead invariant (the same driverSeesOut) rejected it. Real boxes: `_playable_ref.ts --seat-fixture`.
+    const f = loadSeatFixture('6243-boat-boxes');
+    const plan = planSeat(f.planned, f.ask.eye, f.ask.seat, f.ask.evidence);
+    const final = replanOnShipped(f.shipped, f.ask, plan).plan;
+    expect(final.ahead?.fallback).toBe(true);
+    expect(fanView(f.shipped, final.eye, AHEAD)).toBe(1);
+    expect(eyeOverlap(f.shipped, final.eye)).toBe(0);
+    expect(seesOut(f.shipped, final.eye)).toBe(true);
+    // A scripted boat keeps its helmsman drawn at the wheel; only the camera left.
+    expect(riderVisibleAt(helmSeatPlan(final)!, 1)).toBe(true);
+  }, 120_000);
 
   it('a plan that already sees out on the shipped cubes is returned as it is; one nothing improves keeps its plan', () => {
     const deck = box([-1, 0, -2], [1, 0.3, 2]);
