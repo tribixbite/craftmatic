@@ -10,7 +10,7 @@
   },
   "43267": {
     "28318.dat": "Both Studio tables map LEGO 28318 to '28318.dat', a file neither the LDraw library (ldraw_ref) nor Studio's library ships. TODO(ldraw-missing).",
-    "28705.dat": "Rebrickable 'Hair Long Wavy with Bangs Swept Back (Moana)': no LDraw file, unmapped in both Studio tables. TODO(ldraw-missing)."
+    "28705.dat": "Rebrickable 'Hair Long Wavy with Bangs Swept Back (Moana)': both Studio tables map it to 28705.dat, which no library ships; Studio's UnOfficial bl_28705.dat ('MINI DOLL, WIG, WAVY, NO. 5') is the mould but in the LDD frame (origin at its bottom, y -53.5 .. 0, where LDraw doll hairs run about -12.6 .. 44 from the crown): a y shift near 44 and an unmeasured z are needed. TODO(ldraw-missing)."
   },
   "75397": {
     "98109d1.dat": "Mecabricks decorated id; 98109 in no library, no Studio row, not in mecabricks_align. TODO(mb-unresolved).",
@@ -28,13 +28,9 @@
     "28710.dat": "Both Studio tables map LEGO 28710 to '28710.dat', which neither the LDraw library nor Studio's library ships. TODO(ldraw-missing)."
   },
   "76417": {
-    "1004705.dat": "LDD id over a million (a sticker-range / element id), unmapped in both Studio tables and in clego's DOLL_ROWS; no geometry anywhere. TODO(ldd-hubcap-alias).",
-    "1011115.dat": "as 1004705 (unmapped million-range LDD id). TODO(ldd-hubcap-alias).",
-    "1011124.dat": "the cart's four hubcaps: unmapped million-range LDD id, the tracker's TODO(ldd-hubcap-alias).",
-    "104814.dat": "Rebrickable 'Wing, Scalloped with Holes' (cloth): no LDraw file, no Studio row. TODO(ldraw-missing).",
-    "3469.dat": "LDD id with no row in either Studio table and no LDraw file (not the 3469 of any library). TODO(ldd-unmapped).",
-    "49972.dat": "Rebrickable 'Animal Body Part, Dinosaur, Baryonyx Lower Jaw': ldraw_lxfv56.xml maps it to bl_49972.dat, which Studio's 2020 library does not ship. TODO(ldd-unmapped).",
-    "68503.dat": "Rebrickable 'Weapon Sword with Bat, Jewels': no LDraw file, no Studio row. TODO(ldraw-missing).",
-    "79511.dat": "LDD id with no row in either Studio table and no LDraw file. TODO(ldd-unmapped)."
+    "1004705.dat": "IDENTIFIED, frame unknown: the LXFML's itemNos 6270027/28/32 are Rebrickable elements of 36752 'Equipment Wand Sprue [Complete Set of 2]' (LDraw 36752c01), and the 4 sprues' colours (70, 308, 0, 0) give exactly the inventory's 8 wands. But no Mecabricks or LDD mesh exists for 1004705, and 36752c01 stands its wands along y (bounds y -44 .. 12.7) where the 4 loose sprues lie on the ground at identity: a rename would stand them through the floor. TODO(ldd-hubcap-alias).",
+    "104814.dat": "Rebrickable 104814 'Wing, Scalloped with Holes' (CLOTH, item 6452510): no LDraw/Studio file, no Studio row. TODO(ldraw-missing).",
+    "3469.dat": "Rebrickable 3469pr0001 'Creature Body Part, Dragon Head Long with Horns' (elements.csv item 6454441): no LDraw or Studio file under 3469*, bl_3469* or any row in either Studio table; no Mecabricks mesh. TODO(ldraw-missing).",
+    "68503.dat": "Rebrickable 68503pat0001 'Weapon Sword with Bat, Jewels' (Sword of Gryffindor, item 6306750): no LDraw/Studio file or row; the Mecabricks mesh's best library fit is 0.547 (18395, a flame). TODO(ldraw-missing)."
   }
 }
