@@ -6,6 +6,9 @@
  * the regression set over the SAME directory, and writes one report.
  */
 import { describe, expect, it } from 'vitest';
+import { existsSync } from 'node:fs';
+import { MODELS_INDEX, packStem, readModelsIndex, sweepTargets } from '../scripts/favourite-sets.ts';
+import { REGRESSIONS } from '../web/src/sim/adapters/craftmatic/regressions.ts';
 import { FAVOURITES_GATE_SIZES, gateSteps } from '../scripts/_favourites_gate.ts';
 import { CHILD_PLAY_SIZES } from '../web/src/sim/adapters/craftmatic/child-play.ts';
 
@@ -19,7 +22,7 @@ describe('favourites gate', () => {
     const steps = gateSteps({ dir: 'output/favgate-x', sets: [], withGabby: true, build: true });
     expect(steps.map(s => s.name)).toEqual(['sweep', 'child-play', 'vehicles', 'regressions']);
     const [sweep, play, vehicles, regressions] = steps;
-    expect(sweep!.argv).toEqual(['scripts/_favorites_export_sweep.ts', '--out', 'output/favgate-x', '--with-gabby']);
+    expect(sweep!.argv).toEqual(['scripts/_favorites_export_sweep.ts', '--out', 'output/favgate-x', '--with-gabby', '--with-regressions']);
     expect(play!.argv).toContain(`--sizes=${FAVOURITES_GATE_SIZES.join(',')}`);
     expect(play!.argv[1]).toBe('output/favgate-x');
     expect(vehicles!.argv).toContain('--scenario=vehicles');
@@ -27,6 +30,25 @@ describe('favourites gate', () => {
     expect(regressions!.argv).toContain('--new=output/favgate-x');
     // Each simulator step writes its own JSON beside the packs, for the report.
     for (const s of [play, vehicles, regressions]) expect(s!.argv.some(a => a.startsWith('--json=output/favgate-x/'))).toBe(true);
+  });
+
+  it('the gate build makes every pack the regression set names (newStem), fixtures included, and passes --faces through', () => {
+    // favgate-e7da6e47 left 10 regressions NOT TESTED: the sweep built no 7140 X-wing and no nimbus fixture.
+    const sweep = gateSteps({ dir: 'd', sets: [], withGabby: false, build: true, faces: 'C:/faces' })[0]!;
+    expect(sweep.argv).toContain('--with-regressions');
+    expect(sweep.argv).toContain('--faces=C:/faces');
+    const plan = sweepTargets({ sets: [], withGabby: false, regressionStems: REGRESSIONS.map(c => c.newStem) });
+    const index = existsSync(MODELS_INDEX) ? readModelsIndex() : undefined;
+    const missing: string[] = [];
+    for (const stem of new Set(REGRESSIONS.map(c => c.newStem))) {
+      if (plan.fixtures.some(f => f.stem === stem)) continue;
+      const set = plan.sets.find(s => stem === s || stem.startsWith(`${s}-`));
+      // With the models index here, the set must also be WRITTEN under that stem (its LEGO-tab name).
+      if (!set || (index && packStem(set, index[set]?.name) !== stem)) missing.push(stem);
+    }
+    expect(missing).toEqual([]);
+    expect(plan.unknown).toEqual([]);
+    for (const f of plan.fixtures) expect(existsSync(f.file)).toBe(true);
   });
 
   it('without --build the packs already in the directory are judged, and named sets narrow the sweep', () => {

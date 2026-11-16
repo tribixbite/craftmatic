@@ -2,19 +2,21 @@
  * The favourites gate (PROC-19, audit A-16): build the favourites as the LEGO tab does and judge them with every
  * simulator suite that a phone round would otherwise answer, over ONE directory, into ONE report.
  *
- *   1. sweep        `_favorites_export_sweep.ts` (LEGO-tab labels, regression stems; `--with-gabby` adds the
- *                   Gabby's Dollhouse packs the regression set also needs);
+ *   1. sweep        `_favorites_export_sweep.ts --with-regressions` (LEGO-tab labels, regression stems): the favourites
+ *                   and every pack the regression set names (the Gabby sets, 7140, the nimbus fixture), so no case is
+ *                   NOT TESTED for want of its pack (favgate-e7da6e47: 10 were);
  *   2. child-play   `sim.ts <dir> --sizes=50,100,150,200,400`: every size step the 2026-11-15 audit found failing.
  *                   `sim.ts` alone places 100 and 150 percent (`CHILD_PLAY_SIZES`, kept quick for development), which
  *                   passed 240 of 240 while 27 of 320 scenarios at 50, 200 and 400 failed in 15 packs;
  *   3. vehicles     `sim.ts <dir> --scenario=vehicles`;
  *   4. regressions  `sim.ts --scenario=regressions --new=<dir>` (the device-bug set on this build).
  *
- * Usage: bun scripts/_favourites_gate.ts [set…] [--out=<dir>] [--build] [--with-gabby]
+ * Usage: bun scripts/_favourites_gate.ts [set…] [--out=<dir>] [--build] [--with-gabby] [--faces=<dir>]
  *   --out=<dir>   the packs' directory (default `output/favgate-<pipeline stamp>`); also where the report goes.
  *   --build       run the sweep first (otherwise the packs already in <dir> are judged). Commit first: the packs
  *                 stamp the pipeline, and the sweep spawns one export per set over the tree as it is then.
- *   set…          only these favourites (the sweep's and the simulator's selection).
+ *   --faces=<dir> face art for every export (the sweep's `--faces=`, `_playable_ref.ts --faces=`).
+ *   set…          only these favourites (the sweep's and the simulator's selection; no regression packs).
  * Output: <dir>/gate.md (one row per step: exit code, minutes, its summary lines) and <dir>/gate-<step>.json.
  * Exit 1 when any step fails. A full gate over 40 packs takes about 25 minutes on this machine (child play ~19).
  */
@@ -28,9 +30,10 @@ export const FAVOURITES_GATE_SIZES: readonly number[] = [50, 100, 150, 200, 400]
 export interface GateStep { name: 'sweep' | 'child-play' | 'vehicles' | 'regressions'; argv: string[] }
 
 /** What the gate runs, in order (pure: the test pins it). `sets` empty = every favourite in `dir`. */
-export function gateSteps(o: { dir: string; sets: readonly string[]; withGabby: boolean; build: boolean }): GateStep[] {
+export function gateSteps(o: { dir: string; sets: readonly string[]; withGabby: boolean; build: boolean; faces?: string | undefined }): GateStep[] {
   const steps: GateStep[] = [];
-  if (o.build) steps.push({ name: 'sweep', argv: ['scripts/_favorites_export_sweep.ts', ...o.sets, '--out', o.dir, ...(o.withGabby ? ['--with-gabby'] : [])] });
+  // A full build also makes every pack the regression step asks for (named sets build only themselves).
+  if (o.build) steps.push({ name: 'sweep', argv: ['scripts/_favorites_export_sweep.ts', ...o.sets, '--out', o.dir, ...(o.withGabby ? ['--with-gabby'] : []), ...(o.sets.length ? [] : ['--with-regressions']), ...(o.faces ? [`--faces=${o.faces}`] : [])] });
   const json = (name: string) => `--json=${o.dir}/gate-${name}.json`;
   // The simulator takes a directory or packs; with named sets, the packs of those sets in the directory.
   const packs = o.sets.length ? o.sets.map(s => `${o.dir}/${s}*.mcaddon`) : [o.dir];
@@ -71,7 +74,8 @@ async function main(): Promise<void> {
   }
   mkdirSync(dir, { recursive: true });
   const sets = argv.filter(a => !a.startsWith('--'));
-  const steps = gateSteps({ dir, sets, withGabby: argv.includes('--with-gabby'), build: argv.includes('--build') });
+  const faces = argv.find(a => a.startsWith('--faces='))?.slice('--faces='.length);
+  const steps = gateSteps({ dir, sets, withGabby: argv.includes('--with-gabby'), build: argv.includes('--build'), faces });
   const rows: string[] = [];
   let failed = false;
   for (const step of steps) {
