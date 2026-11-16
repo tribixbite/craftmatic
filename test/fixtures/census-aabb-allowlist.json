@@ -1,0 +1,28 @@
+{
+  "8097": {},
+  "70615": {
+    "25114d1.dat": "Rebrickable 25114pr0001 'Mask Shark Head ... Front Battery Panel Print' (elements.csv design 34002); both Studio tables map LEGO 25114 to '25114.dat', which neither Studio's library nor ldraw_ref ships; no Mecabricks mesh. TODO(ldraw-missing).",
+    "41079.dat": "IDENTIFIED: Rebrickable 78c09 'Hose, Ribbed 7mm D. 9L' = LDraw 71917 (its !KEYWORDS BrickLink 78c09). But Mecabricks 41079 is a FLEXIBLE part (configs/41079.json, type 'flexible'): each scene instance carries its own path, and the harvest wrote only the bare reference, so a filename alias would draw a straight hose along the wrong axis. The fix is clego's MB_FLEX splice extended to ribbed hoses (71944k01/k02 along the path), as 1d6041b0 did for the flex-system hose. TODO(mb-flexible-other).",
+    "41092.dat": "as 41079: Rebrickable 78c02 'Hose, Ribbed 7mm D. 2L' = LDraw 72504, a Mecabricks FLEXIBLE part placed by path. TODO(mb-flexible-other)."
+  },
+  "2504": {
+    "28350.dat": "Rebrickable 28350pat0001-3 'Minifig Neckwear Armor with Pentagonal Hole in Front, 2 Studs on Back, and Angular Shoulders': no LDraw or Studio file under 28350*, no row in either Studio table, no Mecabricks mesh (_404.json). LDraw 22402 is a different breastplate (4 studs, large pads). TODO(ldraw-missing)."
+  },
+  "910035": {},
+  "72006": {
+    "22395.dat": "Rebrickable 22395 'Headwear Accessory Visor with Horns': no LDraw/Studio file, no Studio row, no Mecabricks mesh (_404.json). TODO(ldraw-missing).",
+    "24101d1.dat": "Rebrickable 24101c01/c02 'Arm Left with Trans-Neon Orange Shoulder and Pin (Nexo Knights Axl)': no LDraw/Studio file under 24101*, no Studio row, no Mecabricks mesh. TODO(ldraw-missing).",
+    "24104d1.dat": "Rebrickable 24104c01/c02 'Arm Right ... (Nexo Knights Axl)', the right of 24101: no LDraw/Studio file, no Studio row, no Mecabricks mesh. TODO(ldraw-missing).",
+    "28350.dat": "as 2504's 28350: no LDraw mould for the angular pentagonal neckwear. TODO(ldraw-missing)."
+  },
+  "70420": {
+    "52672d1.dat": "Rebrickable 52672pat0001 'Animal, Dog, Ghost with Trans-Clear Marble': no LDraw/Studio file under 52672*, no Studio row; a Mecabricks mesh exists but no library part to frame it against. TODO(ldraw-missing).",
+    "52686d1.dat": "Rebrickable 52686pat* 'Hair and Hat, Two Braids and Beanie': no LDraw/Studio file under 52686*, no Studio row; a Mecabricks mesh exists but no library part to frame it against. TODO(ldraw-missing)."
+  },
+  "2507": {
+    "34706.dat": "Unknown to Rebrickable (no part or element row); no LDraw/Studio file, no Studio row; a Mecabricks mesh (84 x 54 x 45 LDU) with no library part to frame it against. TODO(ldraw-missing).",
+    "38117.dat": "Rebrickable 38117pr0054 'Creature, Niffler with Black Eyes and Hair Print': no LDraw/Studio file under 38117*, no Studio row, no Mecabricks mesh (_404.json). TODO(ldraw-missing)."
+  },
+  "77072": {},
+  "5524": {}
+}

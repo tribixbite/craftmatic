@@ -79,9 +79,11 @@ describe('partAliasCandidates', () => {
     expect(partAliasCandidates('44860')[0]).toBe('60897');
     expect(partAliasCandidates('26169')[0]).toBe('4865b');
     expect(partAliasCandidates('49755')[0]).toBe('23443');
-    // Decorated flag: the suffix hop lands on 72154, whose own lookup maps on
-    // to the real LDraw flag — the resolver recurses, so one hop is enough here.
-    expect(partAliasCandidates('72154d13')).toEqual(['72154']);
+    // Decorated flag: the suffix hop lands on 72154, whose own data row maps on
+    // to the real LDraw flag. The viewer's resolver recursed into that row; the
+    // export resolver probes only the listed names, so since 2026-11-16 the hop's
+    // row is listed right after it (generality census: 52684d1 -> bl_52684pb05).
+    expect(partAliasCandidates('72154d13')).toEqual(['72154', '30292a']);
     expect(partAliasCandidates('72154')[0]).toBe('30292a');
     // Technic/Bionicle tooth: LEGO design id x346 → LDraw's 41669.dat, verified
     // byte-identical to the corpus's own embedded x346 mesh (2026-09-21).

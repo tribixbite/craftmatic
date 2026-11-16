@@ -35,6 +35,9 @@ describe('export resolver alias ladder', () => {
     // the unit segment (y 0..1) the hose's matrix stretches.
     writeFileSync(join(root, 'parts', 'u9053.dat'), ['0 ~Technic Flex-System Hose End', '3 16 -2 0 0 2 0 0 0 1 2'].join('\n'));
     writeFileSync(join(root, 'parts', '77.dat'), ['0 ~Technic Flex-System Hose Segment', '3 16 -2 0 0 2 0 0 0 1 2'].join('\n'));
+    // Two unit primitives LSynth's segment parts are built from: a cylinder wall (radius 1, y 0..1) and a disc.
+    writeFileSync(join(root, 'p', '4-4cyli.dat'), ['0 Cylinder 1.0', '4 16 1 1 0 1 0 0 -1 0 0 -1 1 0'].join('\n'));
+    writeFileSync(join(root, 'p', '4-4disc.dat'), ['0 Disc 1.0', '3 16 0 0 0 1 0 0 0 0 1'].join('\n'));
     setLDrawRoot(root);
     setLDrawMirror(null);
   });
@@ -122,6 +125,40 @@ describe('export resolver alias ladder', () => {
     expect(mesh).not.toBeNull();
     expect(mesh!.bounds.min[1]).toBeCloseTo(0, 5);
     expect(mesh!.bounds.max[1]).toBeCloseTo(400, 5);
+    expect(provider.report().unresolved).toEqual([]);
+  });
+
+  it('reads a BrickLink item number as the LDraw part that IS it, and measured Mecabricks design ids as their LDraw mould (generality census 2026-11-16)', () => {
+    // 910035: `55423c01` (BrickLink, train wheel with its rubber ring) is LDraw's `55423` - its `!KEYWORDS BrickLink
+    // 55423c01` - and Studio's own 910035.io writes its composite of the same two sub-parts at the identical matrix.
+    expect(partAliasCandidates('55423c01')[0]).toBe('55423');
+    // Mecabricks design ids whose mesh, in the harvest's frame, bounds like the LDraw mould (centres within 0.3 LDU).
+    expect(partAliasCandidates('4973')[0]).toBe('30602');
+    // A decorated id reaches the mould's row through the ladder's hop (52684d1 -> 52684 -> Studio's bl_ copy).
+    expect(partAliasCandidates('52684d1')).toEqual(['52684', 'bl_52684pb05']);
+    // An LDD design id Studio maps to its own copy with a zero transform (IOModel2V2 77072's banana bunch).
+    expect(partAliasCandidates('3566')[0]).toBe('bl_3566');
+  });
+
+  it('draws LSynth segment parts (lsNN) from LSynth\'s own part files, which no library ships (8097: 40 ls11 boxes)', async () => {
+    // LSynth writes a synthesised hose / band as many placements of its OWN parts; the tool ships them, LDraw does
+    // not. LS11 is the NXT cable segment: a unit cylinder of radius 1 from y 0 to y 1, which each placement's matrix
+    // stretches along the path and scales across (8097's rubber band: 2).
+    const ls11 = synthesizedPartText('ls11')!;
+    expect(ls11).toContain('0 ~LSynth Electric Cable Segment NXT');
+    expect(ls11).toContain('1 16 0 0 0 1 0 0 0 1 0 0 0 1 4-4cyli.dat');
+    expect(synthesizedPartText('LS51')).toContain('Flex-System Hose - Cross Section'); // names are case-blind
+    expect(synthesizedPartText('ls61')).toContain('LS60.dat'); // the string-with-grips segment IS a shifted LS60
+    expect(synthesizedPartText('ls01')).toContain('Constraint Part - Type 1');
+    expect(synthesizedPartText('6397 - LS60')).toContain('Short Straight String Segment'); // OMR's embedded name
+    expect(synthesizedPartText('ls999')).toBeNull();
+    expect(synthesizedPartText('lsynth-3')).toBeNull();
+    const provider = createPartGeometryProvider();
+    const mesh = await provider.getPartMesh('LS11.dat');
+    expect(mesh).not.toBeNull();
+    expect(mesh!.bounds.min[1]).toBeCloseTo(0, 5);
+    expect(mesh!.bounds.max[1]).toBeCloseTo(1, 5);
+    expect(mesh!.bounds.max[0]).toBeCloseTo(1, 5);
     expect(provider.report().unresolved).toEqual([]);
   });
 });
