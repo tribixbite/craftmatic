@@ -83,8 +83,12 @@ export const SCENE_VEHICLES = {
   PLANE_MAX_SHARE: 0.75,
   /** Wings: the wing parts reach at least this far past each side of the body (the other parts), LDU. */
   WING_PAST_BODY: 16,
-  /** ... and span at least this many times the body's width across the same axis. */
-  WING_SPAN_TO_BODY: 1.4,
+  /**
+   * ... and span at least this many times the body's width across the same axis. Census 2026-11-16: the planes found
+   * span 1.60-5.9x (20200's smallest ship 1.60, 6863's Batwing 1.91); 45201's jumbled science-kit recon read 1.42
+   * and is no plane; 5972's jet-engined villain craft reads 1.55 (kept, unverified).
+   */
+  WING_SPAN_TO_BODY: 1.5,
   /** A main ROTOR lies flat: its box's height is at most this share of its widest horizontal side. */
   ROTOR_FLAT: 0.35,
   /** ... and its disc (the flat rotor parts at its level) spans at least this share of the object's longest horizontal side. */
