@@ -117,9 +117,16 @@ export function drawnBoxes(entry: AddonAppearanceEntry, at: Vec3, yawDeg: number
 export function entityDrawn(appearance: AddonAppearance, e: SimEntity): DrawnBox[] | undefined {
   const entry = appearance.byType.get(e.typeId);
   if (!entry) return undefined;
-  const poses = animatedPoses(appearance.animations?.get(e.typeId), Object.fromEntries(e.properties));
+  // Only a moving part's own bones (`ix_root`, `ix_spin`): a vehicle's body lean and its parts' bones keep the level,
+  // shut pose every judgement of it was written against (75397's barge read 5 of 6 rays ahead with its lean posed).
+  // TODO(drawn-poses): decide whether a driven vehicle's view is judged over its leaning body, as the device draws it.
+  const all = animatedPoses(appearance.animations?.get(e.typeId), Object.fromEntries(e.properties));
+  const poses = all ? new Map([...all].filter(([bone]) => IX_BONE.test(bone))) : undefined;
   return drawnBoxes(entry, e.location, e.rotation.y, e.scale(), 'near', poses?.size ? poses : undefined);
 }
+
+/** A moving part's bones (bedrock-interactives.ts): the root its size and turn scale, the leaf its angle swings. */
+const IX_BONE = /^ix_/;
 
 /**
  * The share of forward view rays from `eye` that leave `boxes` without
