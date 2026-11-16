@@ -115,3 +115,15 @@ describe.skipIf(!HAVE_FACE_CORPUS)('favourite figures wear their own faces (corp
     expect(short).toEqual([]);
   }, 1_200_000);
 });
+
+describe('a Studio BrickLink copy of a printed head (`bl_3626cpb<N>`) draws LDraw\'s print of that face', () => {
+  it('reads a bl_ copy framed like 3626c as the LDraw print, and leaves a bl_ copy in another frame alone', async () => {
+    const { printedHeadFor } = await import('../web/src/engine/ldraw-part-aliases.js');
+    // 45202's ReconV3 source places `bl_3626cpb3216`: Studio ships it as the plain head + a PE_TEX texture, so the
+    // pack drew the default face while LDraw prints 3626pb3216 as `3626cp0z` (generality census 2026-11-16).
+    expect(printedHeadFor('bl_3626cpb3216')).toBe('3626cp0z');
+    // `bl_3626pb0405` is 3626cp8k's face but its origin sits at the head's BOTTOM (y -28.45..0 against 3626c's
+    // -4..24): drawing the LDraw print at its transform would move the head, so it is not redirected.
+    expect(printedHeadFor('bl_3626pb0405')).toBeUndefined();
+  });
+});
