@@ -127,3 +127,18 @@ describe('a Studio BrickLink copy of a printed head (`bl_3626cpb<N>`) draws LDra
     expect(printedHeadFor('bl_3626pb0405')).toBeUndefined();
   });
 });
+
+describe('face census causes (generality census 2026-11-16)', () => {
+  it('names why a head wears a default face, from the row and the source lineage', async () => {
+    const { defaultFaceCause } = await import('../scripts/face-census.ts');
+    const row = (o: Partial<import('../scripts/face-census.ts').HeadCensusRow>) => ({ part: '3626c', print: null, served: null, face: 'default' as const, doll: false, ...o });
+    expect(defaultFaceCause(row({ face: 'printed', print: '3626p01' }), 'OMR/x.mpd')).toBeNull();
+    expect(defaultFaceCause(row({ print: '3626pb3484' }), 'DbixConvV3/76417.ldr')).toBe('named, no LDraw print');
+    expect(defaultFaceCause(row({ part: '3626' }), 'MecabricksLDR/2507.ldr')).toBe('no print id: Mecabricks decoration lost in conversion');
+    expect(defaultFaceCause(row({}), 'EurobricksLDR/5378_eurobricks.ldr')).toBe('no print id: LDD decoration not in the print table');
+    expect(defaultFaceCause(row({}), 'LXF/60086_eurobricks.lxf')).toBe('no print id: LDD decoration not in the print table');
+    expect(defaultFaceCause(row({}), 'ReconV3/3570.ldr')).toBe('no print id: PDF reconstruction');
+    expect(defaultFaceCause(row({ face: 'doll-default', doll: true }), 'OMR/3942-1.mpd')).toBe('plain mini-doll head');
+    expect(defaultFaceCause(row({}), 'OMR/5972-1.mpd')).toBe('no print id: plain head in the source');
+  });
+});

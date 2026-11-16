@@ -107,3 +107,19 @@ export function summariseHeads(rows: readonly HeadCensusRow[]): HeadCensusSummar
   }
   return { heads: rows.length, real: printed + art, printed, art, namedDefault, anonymous, missingArt: [...missing].sort() };
 }
+
+/**
+ * Why a head wears a default face, or null when it wears its own (generality census 2026-11-16). A head that NAMES
+ * a print is short of an LDraw print (face art could still draw it); a head with no print id lost it where the
+ * source was made, which the source's lineage (its corpus folder) says.
+ */
+export function defaultFaceCause(row: HeadCensusRow, sourcePath: string): string | null {
+  if (isRealFace(row.face)) return null;
+  if (row.face === 'doll-default') return 'plain mini-doll head';
+  if (row.print) return 'named, no LDraw print';
+  const dir = sourcePath.replace(/\\/g, '/').split('/')[0]!.toLowerCase();
+  if (/^mecabricks/.test(dir)) return 'no print id: Mecabricks decoration lost in conversion';
+  if (/^(eurobricks|lxf|huntarchive)/.test(dir) || /\.lxfml?$/i.test(sourcePath)) return 'no print id: LDD decoration not in the print table';
+  if (/^(reconv\d|reconstructed|recongpu|pdf)/.test(dir)) return 'no print id: PDF reconstruction';
+  return 'no print id: plain head in the source';
+}
