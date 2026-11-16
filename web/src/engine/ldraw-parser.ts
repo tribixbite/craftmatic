@@ -46,6 +46,12 @@ export interface ParsedBrick {
    */
   headPrint?: string;
   /**
+   * An LDD `.lxf`/`.lxfml` head's decoration id when no print table names its print (`lxf-parser.ts`): the head
+   * draws plain, and this id is what `scripts/_ldd_decoration_votes.ts` learns a print for from the same set's
+   * other sources. Diagnostic only; nothing draws from it.
+   */
+  lddDecoration?: string;
+  /**
    * The `0 !CRAFTMATIC FIGURE|SEAT|DOOR|SPAWN|DESIGN` metas written since the previous
    * type-1 line, in file order (see `parseAuthoringMeta`). Authoring tools write
    * them so the add-on pipeline need not guess; they ride on the next placed part

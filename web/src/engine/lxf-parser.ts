@@ -988,11 +988,13 @@ export function buildLxfPlacements(
     // A head with no LDraw print stays the plain mould and carries its print
     // id beside it (`headPrint`), never in the part name.
     let headPrint: string | undefined;
+    let lddDecoration: string | undefined;
     if (HEAD_DESIGNS[rec.designID] && rec.decorationId) {
       const printed = printedHeadFor(rec, options.printMap);
       if (printed?.kind === 'print') { part = printed.file; printedHeads++; }
       else {
         if (printed?.kind === 'identity') headPrint = printed.printId;
+        else if (rec.decorationId !== '0') lddDecoration = rec.decorationId;
         if (options.printMap?.state === 'ok') unresolvedHeadPrints++;
       }
     }
@@ -1043,6 +1045,7 @@ export function buildLxfPlacements(
       color: firstColour, rot: placement.rot,
       x: placement.x, y: placement.y, z: placement.z, part: patterned ?? part,
       ...(headPrint ? { headPrint } : {}),
+      ...(lddDecoration ? { lddDecoration } : {}),
     });
   }
 
