@@ -89,6 +89,10 @@ export const SCENE_VEHICLES = {
    * and is no plane; 5972's jet-engined villain craft reads 1.55 (kept, unverified).
    */
   WING_SPAN_TO_BODY: 1.5,
+  /** ... and at least this share of the wing parts has a twin mirrored across the body's centre line (`WING_MIRROR_SLACK`). */
+  WING_MIRRORED: 0.5,
+  /** How far a wing's mirror twin may sit from the reflected place (`mirroredWings`), LDU. */
+  WING_MIRROR_SLACK: 24,
   /** A main ROTOR lies flat: its box's height is at most this share of its widest horizontal side. */
   ROTOR_FLAT: 0.35,
   /** ... and its disc (the flat rotor parts at its level) spans at least this share of the object's longest horizontal side. */
@@ -162,6 +166,35 @@ const boxOf = (list: Box[]): Box => {
   return { min, max };
 };
 
+/**
+ * How many of these wing boxes have a mirror TWIN (VEH-20): each centre is reflected across the plane through the
+ * wings' centroid normal to their principal axis (the span, power iteration on the 3 x 3 covariance), and a twin is
+ * another wing centre within `slack` of the reflection. In 3D, so a banked or diving plane (6863's Batwing) and a
+ * yawed one (76269's Quinjet) mirror as well as a level one. With a `normal` the plane is normal to it instead
+ * (the caller's lateral axis: 4895's helicopter strings its wing parts along its length, so their principal axis is
+ * its length). Census 2026-11-16: every plane found 0.86-1.00 of its wings, and the favourites' buildings whose
+ * leaves or roofs are wing parts 0.00 (21318, 10354, 71043).
+ */
+export function mirroredWings(wings: readonly Box[], slack: number, normal?: readonly [number, number, number]): number {
+  const c = wings.map(b => [0, 1, 2].map(k => (b.min[k]! + b.max[k]!) / 2));
+  const m = [0, 1, 2].map(k => c.reduce((s, p) => s + p[k]!, 0) / c.length);
+  const C = [0, 1, 2].map(a => [0, 1, 2].map(b => c.reduce((s, p) => s + (p[a]! - m[a]!) * (p[b]! - m[b]!), 0)));
+  let v = normal ? [...normal] : [1, 0.3, 0.2];
+  for (let it = 0; !normal && it < 50; it++) {
+    const n = [0, 1, 2].map(a => C[a]![0]! * v[0]! + C[a]![1]! * v[1]! + C[a]![2]! * v[2]!);
+    const l = Math.hypot(n[0]!, n[1]!, n[2]!);
+    if (!(l > 0)) break;
+    v = n.map(x => x / l);
+  }
+  const reflect = (p: number[]): number[] => {
+    const t = 2 * ((p[0]! - m[0]!) * v[0]! + (p[1]! - m[1]!) * v[1]! + (p[2]! - m[2]!) * v[2]!);
+    return p.map((x, k) => x - t * v[k]!);
+  };
+  const dist = (a: number[], b: number[]): number => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
+  // A wing ON the mirror plane (a tail fin, a centred spoiler) is its own reflection and no twin.
+  return c.filter((p, i) => { const r = reflect(p); return dist(r, p) > slack && c.some((q, j) => j !== i && dist(r, q) <= slack); }).length;
+}
+
 /** The `q` quantile (0..1) of a list of numbers (nearest rank). */
 const quantile = (values: number[], q: number): number => {
   const v = [...values].sort((a, b) => a - b);
@@ -173,13 +206,14 @@ const quantile = (values: number[], q: number): number => {
  *   - a ROTORCRAFT carries a main rotor: rotor or propeller parts lying FLAT (`ROTOR_FLAT`), one disc at the level of
  *     the highest (`ROTOR_LEVEL`) spanning at least `ROTOR_MIN_SPAN` of the object's length, in its upper half, with
  *     at most a quarter of the disc's footprint under anything more than `ROTOR_CLEAR` higher (its own blades and hub
- *     cap are stacked on it; a roof over a fan is not). A plane's
- *     nose propeller and a tail rotor stand on edge and never count. 7345's six crossed `32124` blades (220 LDU of
+ *     cap are stacked on it; a roof over a fan is not). A plane's nose propeller and a tail rotor stand on edge and
+ *     never count. 7345's six crossed `32124` blades (220 LDU of
  *     744), 6866's `2479` (131 of 561);
  *   - a PLANE has wings: two or more wing parts reaching `WING_PAST_BODY` past BOTH sides of the body (every other
  *     part) across one of its two horizontal principal axes, spanning `WING_SPAN_TO_BODY` times the body there. Both
- *     axes are tried: a Batwing is wider than it is long, so its principal axis is its wingspan. A car's spoiler is
- *     centred on its body, and 31060's jet riding on its truck has wings narrower than the truck: neither flies. A
+ *     axes are tried: a Batwing is wider than it is long, so its principal axis is its wingspan. Half the wing parts
+ *     or more have a mirror twin across the span's middle (`mirroredWings`, `WING_MIRRORED`): leaves and roofs do
+ *     not. A car's spoiler is centred on its body, and 31060's jet riding on its truck has wings narrower than the truck: neither flies. A
  *     plane also carries something to fly it from (`cockpit`: a windscreen or canopy, a seat, a steering wheel or a
  *     propeller); a creature's wing-part fins do not fly it.
  * Either way it is no taller than long (`WHOLE_MAX_HEIGHT_TO_LENGTH`: a tower with a wing at each side is a tower).
@@ -235,9 +269,11 @@ export function flightOf(cluster: readonly number[], boxes: readonly Box[], d: (
     const lo = quantile(bodySpans.map(s => s[0]), 0.1), hi = quantile(bodySpans.map(s => s[1]), 0.9);
     const wingSpans = wings.map(i => span(boxes[i]!));
     const wlo = Math.min(...wingSpans.map(s => s[0])), whi = Math.max(...wingSpans.map(s => s[1]));
-    if (wlo <= lo - P.WING_PAST_BODY && whi >= hi + P.WING_PAST_BODY && whi - wlo >= P.WING_SPAN_TO_BODY * Math.max(1, hi - lo)) {
-      return { motion: 'plane', reason: `${wings.length} wings span ${Math.round(whi - wlo)} LDU across a body ${Math.round(hi - lo)} wide, with ${flown} cockpit part${flown === 1 ? '' : 's'}` };
-    }
+    if (!(wlo <= lo - P.WING_PAST_BODY && whi >= hi + P.WING_PAST_BODY && whi - wlo >= P.WING_SPAN_TO_BODY * Math.max(1, hi - lo))) continue;
+    const wingBoxes = wings.map(i => boxes[i]!);
+    const mirrored = Math.max(mirroredWings(wingBoxes, P.WING_MIRROR_SLACK), mirroredWings(wingBoxes, P.WING_MIRROR_SLACK, [ax, 0, az]));
+    if (mirrored < P.WING_MIRRORED * wings.length) continue;
+    return { motion: 'plane', reason: `${wings.length} wings (${mirrored} mirrored) span ${Math.round(whi - wlo)} LDU across a body ${Math.round(hi - lo)} wide, with ${flown} cockpit part${flown === 1 ? '' : 's'}` };
   }
   return null;
 }

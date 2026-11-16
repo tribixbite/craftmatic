@@ -269,3 +269,16 @@ describe('a vehicle whose KIND the geometry decides (VEH-20 census class 1)', ()
     expect(findWholeModelVehicles(room.bricks, room.meshes).components[0]).toMatchObject({ kind: 'car' });
   });
 });
+
+describe('wing parts that do not mirror each other are leaves or roofs, not wings (VEH-20 census: 21318, 10354, 71043)', () => {
+  it('a low house with a seat inside and wing parts sticking out unevenly at both sides is not a plane', () => {
+    const s = scene();
+    // A long, low house (not taller than long): 3 courses of 8 bricks along x, 3 rows across z.
+    for (let k = 0; k < 72; k++) s.add('3001.dat', 'Brick  2 x  4', [-40, -24, -20], [40, 0, 20], [-280 + (k % 8) * 80, -24 * Math.floor(k / 24), -40 + 40 * (Math.floor(k / 8) % 3)]);
+    s.add('chair.dat', 'Minifig Chair', [-10, -20, -10], [10, 0, 10], [0, -72, 0]);
+    // Leaf-like wing parts reaching 160 past each side, at places along the house that do not mirror each other.
+    for (const x of [-260, -40, 180]) s.add('wingL.dat', 'Wing  3 x  8 Left', [-60, -8, -160], [60, 0, 0], [x, -30, -60]);
+    for (const x of [-150, 90]) s.add('wingR.dat', 'Wing  3 x  8 Right', [-60, -8, 0], [60, 0, 160], [x, -54, 60]);
+    expect(findWholeModelVehicles(s.bricks, s.meshes).components).toHaveLength(0);
+  });
+});
