@@ -49,3 +49,24 @@ describe.skipIf(!HAVE_FAVOURITES_CORPUS)('favourites-aabb :: no favourite ships 
     expect(got).toEqual(want);
   }, 900_000);
 });
+
+/**
+ * TODO(mb-hinge-frame), closed 2026-11-15: Mecabricks writes the 1 x 4 swivel hinge pair as LEGO 80133 / 80134; clego's
+ * mb_partmap now maps them to LDraw 2430 / 2429 and its align row bakes the one-plate origin delta into the shipped
+ * lines (`mb_track_splice.py --refs 80133 80134`). A bare filename alias would have hung each plate 8 LDU off. In every
+ * authentic pair (76269's DbixConvV3) the top shares its base's origin, so that is the check.
+ */
+describe.skipIf(!HAVE_FAVOURITES_CORPUS)('favourites-aabb :: 76269 swivel hinge tops sit on their bases', () => {
+  it('every 2430 top of 76269\'s first pick is at a 2429 base origin', async () => {
+    const source = await loadFavouriteSource('76269');
+    expect(source).not.toBeNull();
+    const bricks = source!.doc.bricks;
+    const stem = (p: string) => p.toLowerCase().replace(/\.dat$/, '');
+    const bases = bricks.filter(b => stem(b.part) === '2429');
+    const tops = bricks.filter(b => stem(b.part) === '2430');
+    expect(tops.length).toBe(26);
+    expect(bases.length).toBe(26);
+    const off = tops.map(t => Math.min(...bases.map(b => Math.hypot(t.x - b.x, t.y - b.y, t.z - b.z))));
+    expect(off.filter(d => d > 0.1)).toEqual([]);
+  }, 120_000);
+});

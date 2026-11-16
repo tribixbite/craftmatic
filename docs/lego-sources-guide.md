@@ -1776,8 +1776,19 @@ they were accepted by eye on before/after renders
   need a corpus A/B first. TODO(io2-regen).
 - **`75cNN` (Hose, Rigid 3mm D. NN L) is generated**, `u9053` + `77` stretched to 20 NN LDU + `u9053` turned, exactly
   Studio's own definition (`synthesizedPartText`, both resolvers): 612 placements in 124 corpus files. Mecabricks
-  writes the same hoses under design ids (75397: 60677/85526/56203/85523) as centred, z-aligned flexible parts; those
-  stay boxed until their frame is confirmed. TODO(mb-flexible-hose).
+  writes the same hoses under design ids (75397: 60677/85526/56203/85523) as FLEXIBLE parts: each scene instance
+  carries its own Bezier path (`values` / `v:1`; 4 of 75397's 6 are bent), which the bare reference lost. Since
+  2026-11-15 clego's harvest writes the hose as that same construction bent along the path, one
+  `0 !GEOGRADE MB_FLEX <ref> BEGIN` .. `END` block per hose (`harvest_mecabricks_sets.flex_hose_lines`): 510 hoses in
+  137 MecabricksLDR files spliced in place (`mb_track_splice.py --refs`), 138 of them boxes before, 366 straight
+  Studio `(Needs Work)` stubs. Other flexible kinds (strings, pneumatic tubes, chains, belts, corrugated pipes: 2,318
+  instances / 99 refs in the scene cache) still write the bare reference. TODO(mb-flexible-other).
+- **Mecabricks 80133 / 80134 (1 x 4 swivel hinge top / base) are LDraw 2430 / 2429 one plate off**, not turned: an
+  earlier bbox comparison under F = diag(1,-1,1) read a 180-degree turn, but the harvest's basis is
+  FRAME_SIGN = (1,-1,-1) and mb_align's dense fit keeps the axes (fit 0.9885 / 1.0, delta (0, 8, 0)). Mapped in clego
+  `mb_partmap` with the delta in `mecabricks_align.json` and spliced into 76269 / 21351 / 21348 / 80044 (92 plates);
+  every top then sits on its base's origin, as in each authentic DbixConvV3 pair. When a Mecabricks bbox
+  comparison says "turned", check it under FRAME_SIGN before believing it.
 - **`rename_<id>` is read as `<id>`** (Studio's marker: the same `.io`'s model.ldr places plain `<id>` at the identical
   matrix): 2,528 placements in 185 corpus files.
 - **The 16 x 32 baseplate (LDD 2748 -> `95.dat`) is a Studio row that must be applied INVERSE** like every other
