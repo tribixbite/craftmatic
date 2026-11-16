@@ -36,10 +36,16 @@ individually tested 28". The favourites list has 40 sets (memory `user-favorite-
    (sweep, child play at 50/100/150/200/400, vehicles, regressions; report `<dir>/gate.md`).
    - `vix`: A-02 remainder - a scripted vehicle's doors, lids, cupboards, windows, levers, turnables are bones of
      its own geometry (vehicle-parts.ts), opened by a tap while parked, shut while it moves; sim step `vehicleParts`
-     (vehicles scenario and every child-play size). Open after it: slides on a vehicle stay fixed (world-path ride);
-     native rotorcraft/flyer parts stay fixed; parts outside the 8-wide hull hit box and off the board columns get
-     no tap event (41395's window at 150 %, `TODO(vehicle-parts-hit-box)`); device checks: a touch tap's view
-     direction (`TODO(vehicle-parts-touch-aim)`), the swing sign on a vehicle, the eased swing drawn.
+     (vehicles scenario and every child-play size).
+   - `vslide` (branch `audit-vslide`, NOT merged): a scripted vehicle's slide is ridden from a tap on the parked
+     vehicle (path in its entity frame, resolved at the tap; seat spawned there, removed at the foot; refused with a
+     line while it moves; a roof slide is ridden from the ground within 8 blocks along the view ray; the rider is set
+     down beside the hull); sim step `vehicleSlides`. A board column stands under any part or slide the 8-wide hull
+     hit box leaves out (`tapAt`: 41395's window at 150 %). A native rotorcraft's parts open (vehicle-driver.js). The
+     part pick follows the parked lean. Still open: a `flyer` component's parts (`TODO(vehicle-interactives)`), the
+     lean on a slide's path (`TODO(vehicle-slide-lean)`), a driver leaving while someone slides; device checks: a
+     touch tap's view direction (`TODO(vehicle-parts-touch-aim)`), the swing sign on a vehicle, the eased swing drawn,
+     a roof slide boarded by a real tap from the ground (Survival reach to the hull box / column).
    MERGED: vrun, place, door, vgrain, wveh, faces, parts, vix (all seven + the follow-up).
    Merge each after review + full suite (merge commits), then one sweep `--with-gabby --faces=...` + sim at
    `--sizes=50,100,150,200,400` + `--scenario=vehicles` + `--scenario=regressions` over the same directory.

@@ -1844,7 +1844,7 @@ export const FLYER_SOUNDS = { spawn: 'random.pop', fade: 'random.fizz' } as cons
  * (vehicle-camera.js) looks along it - not along the rider's look, which
  * the carry leaves off the heading by every drag ever made.
  */
-function vehicleDriverRuntime(config: VehicleDriverConfig, look: typeof freeLookStep, lookStart: typeof freeLookStart, steerStart: typeof nativeSteerStart, steer: typeof nativeSteerStep, pickPart?: typeof pickVehiclePart) {
+function vehicleDriverRuntime(config: VehicleDriverConfig, look: typeof freeLookStep, lookStart: typeof freeLookStart, steerStart: typeof nativeSteerStart, steer: typeof nativeSteerStep) {
   const MPH_PER_BLOCK_TICK = 20 * 2.236936;
   const telemetry = { on: false, every: 20 };
   try {
@@ -1953,8 +1953,7 @@ function vehicleDriverRuntime(config: VehicleDriverConfig, look: typeof freeLook
         // never fired for a remount and the HUD went straight to the speed line
         // (Pixel, 2026-09-29, `output/nimbus-pixel-0929/dive-video-strip.jpg`).
         const idle = states.get(vehicle.id);
-        // Nobody aboard is parked for its parts too (a tap opens them again).
-        if (idle) { idle.riderId = undefined; idle.rideStart = undefined; idle.moving = false; }
+        if (idle) { idle.riderId = undefined; idle.rideStart = undefined; }
         continue;
       }
       const flyer = cfg.motion === 'flyer';
@@ -1967,19 +1966,6 @@ function vehicleDriverRuntime(config: VehicleDriverConfig, look: typeof freeLook
       if (state.riderId !== riderId) { state.riderId = riderId; state.rideStart = tick; }
       const vel = riddenVelocity(state, vehicle, tick);
       const mph = Math.hypot(vel.x, vel.z) * MPH_PER_BLOCK_TICK;
-      // A rotorcraft's doors and hatches (vehicle-parts.ts): every swinging one shuts once it moves (or climbs).
-      // Its own position since the last pass too (2 ticks): the windowed speed above takes a second to see a start.
-      let step = 0;
-      try { const l = vehicle.location, q = state.partAt; if (q) step = Math.hypot(l.x - q.x, l.y - q.y, l.z - q.z) / 2; state.partAt = { x: l.x, y: l.y, z: l.z }; } catch { /* unread */ }
-      state.moving = Math.max(Math.hypot(vel.x, vel.y, vel.z), step > config.teleportBlocks ? 0 : step) * 20 > (config.parts?.CLOSE_SPEED ?? Infinity);
-      if (state.moving && cfg.parts?.length && config.parts) {
-        cfg.parts.forEach((part: any, i: number) => {
-          if (!part.closes) return;
-          let v = 0;
-          try { v = Number(vehicle.getProperty(config.parts!.propertyPrefix + i)) || 0; } catch { return; }
-          if (v !== 0) { try { vehicle.setProperty(config.parts!.propertyPrefix + i, 0); vehicle.dimension.playSound('random.door_close', vehicle.location, { volume: 1, pitch: 1 }); } catch { /* not declared */ } }
-        });
-      }
       let jump = false, forwardInput = 0, steerInput = 0, pitch = 0;
       try {
         const m = rider.inputInfo?.getMovementVector?.();
@@ -2052,30 +2038,66 @@ function vehicleDriverRuntime(config: VehicleDriverConfig, look: typeof freeLook
   }, 2);
   try {
     world.afterEvents?.entityHitEntity?.subscribe?.((ev: any) => {
-      const vehicle = ev.hitEntity, player = ev.damagingEntity, cfg: any = vehiclesByType.get(vehicle?.typeId);
-      if (!cfg) return;
-      // A tap on a parked rotorcraft's door or hatch (vehicle-parts.ts `pickVehiclePart`, as the scripted vehicles'
-      // runtime picks): opens or closes it, a turnable turns a step. Moving (`state.moving`, read while it is ridden), or
-      // no part meant: the bell, as before.
-      if (cfg.parts?.length && config.parts && pickPart && player?.typeId === 'minecraft:player' && !states.get(vehicle.id)?.moving) {
-        try {
-          const P = config.parts, loc = vehicle.location, yaw = Number(vehicle.getRotation().y) || 0;
-          let k = 1;
-          try { const sc = Number(vehicle.getComponent('minecraft:scale')?.value); if (Number.isFinite(sc) && sc > 0) k = sc; } catch { /* unscaled */ }
-          const values: number[] = cfg.parts.map((_p: any, i: number) => { try { return Number(vehicle.getProperty(P.propertyPrefix + i)) || 0; } catch { return 0; } });
-          const i = pickPart(cfg.parts, { x: loc.x, y: loc.y, z: loc.z, yaw }, k, player.getHeadLocation(), player.getViewDirection(), values.map(v => v !== 0), P);
-          if (i >= 0) {
-            const part = cfg.parts[i], next = part.kind === 'turnable' ? (values[i]! + part.angle) % 36000 : values[i] !== 0 ? 0 : part.angle;
-            vehicle.setProperty(P.propertyPrefix + i, next);
-            const swings = part.kind !== 'turnable' && part.kind !== 'lever';
-            try { vehicle.dimension.playSound(swings ? (next !== 0 ? 'random.door_open' : 'random.door_close') : 'random.click', loc, { volume: 1, pitch: 1 }); } catch { /* sound unknown */ }
-            return;
-          }
-        } catch { /* fall back to the bell */ }
-      }
-      try { vehicle.dimension?.playSound?.('note.bell', vehicle.location, { volume: 0.8, pitch: 1.2 }); } catch {}
+      try { if (vehiclesByType.has(ev.hitEntity?.typeId)) ev.hitEntity.dimension?.playSound?.('note.bell', ev.hitEntity.location, { volume: 0.8, pitch: 1.2 }); } catch {}
     });
   } catch {}
+}
+
+/**
+ * A native ROTORCRAFT's doors and hatches (vehicle-parts.ts; audit A-02): the device flies it, so this runtime - shipped
+ * in vehicle-driver.js only when a native vehicle carries parts, beside `vehicleDriverRuntime` and leaving it untouched -
+ * answers a tap (a hit) on a PARKED one with the scripted vehicles' own pick (`pickVehiclePart`), and every
+ * `CHECK_TICKS` shuts each swinging part of one that moves (its position stepped over `CLOSE_SPEED`, a teleport aside).
+ * Its lean is not followed (a parked rotorcraft is level: its nose-down lean follows ground speed).
+ */
+function nativeVehiclePartsRuntime(config: VehicleDriverConfig, pickPart: typeof pickVehiclePart): void {
+  const P = config.parts;
+  if (!P) return;
+  const CHECK_TICKS = 2;
+  const byType = new Map<string, any>(config.vehicles.filter(v => v.parts?.length).map(v => [v.typeId, v]));
+  const last = new Map<string, { x: number; y: number; z: number }>();
+  const moving = new Set<string>();
+  const valueOf = (e: any, i: number): number => { try { return Number(e.getProperty(P.propertyPrefix + i)) || 0; } catch { return 0; } };
+  const sound = (e: any, id: string): void => { try { e.dimension.playSound(id, e.location, { volume: 1, pitch: 1 }); } catch { /* sound unknown */ } };
+  system.runInterval(() => {
+    const dims = new Map<string, any>();
+    try { for (const pl of world.getAllPlayers()) if (pl) dims.set(pl.dimension.id, pl.dimension); } catch { /* none */ }
+    for (const dim of dims.values()) for (const [type, cfg] of byType) {
+      let list: any[] = [];
+      try { list = dim.getEntities({ type }); } catch { continue; }
+      for (const e of list) {
+        let l: any;
+        try { l = e.location; } catch { continue; }
+        const q = last.get(e.id);
+        last.set(e.id, { x: l.x, y: l.y, z: l.z });
+        const step = q ? Math.hypot(l.x - q.x, l.y - q.y, l.z - q.z) / CHECK_TICKS : 0;
+        const moves = step <= config.teleportBlocks && step * 20 > P.CLOSE_SPEED;
+        if (!moves) { moving.delete(e.id); continue; }
+        moving.add(e.id);
+        cfg.parts.forEach((part: any, i: number) => {
+          if (!part.closes || valueOf(e, i) === 0) return;
+          try { e.setProperty(P.propertyPrefix + i, 0); sound(e, 'random.door_close'); } catch { /* not declared */ }
+        });
+      }
+    }
+  }, CHECK_TICKS);
+  try {
+    world.afterEvents.entityHitEntity.subscribe((ev: any) => {
+      const vehicle = ev.hitEntity, player = ev.damagingEntity, cfg = byType.get(vehicle?.typeId);
+      if (!cfg || player?.typeId !== 'minecraft:player' || moving.has(vehicle.id)) return;
+      try {
+        const loc = vehicle.location, yaw = Number(vehicle.getRotation().y) || 0;
+        let k = 1;
+        try { const sc = Number(vehicle.getComponent('minecraft:scale')?.value); if (Number.isFinite(sc) && sc > 0) k = sc; } catch { /* unscaled */ }
+        const values: number[] = cfg.parts.map((_p: any, i: number) => valueOf(vehicle, i));
+        const i = pickPart(cfg.parts, { x: loc.x, y: loc.y, z: loc.z, yaw }, k, player.getHeadLocation(), player.getViewDirection(), values.map(v => v !== 0), P);
+        if (i < 0) return;
+        const part = cfg.parts[i], next = part.kind === 'turnable' ? (values[i]! + part.angle) % 36000 : values[i] !== 0 ? 0 : part.angle;
+        vehicle.setProperty(P.propertyPrefix + i, next);
+        sound(vehicle, part.kind !== 'turnable' && part.kind !== 'lever' ? (next !== 0 ? 'random.door_open' : 'random.door_close') : 'random.click');
+      } catch { /* left as it was */ }
+    });
+  } catch { /* not in this API */ }
 }
 
 export type { VehicleDriverConfig };
@@ -2092,7 +2114,9 @@ export function vehicleDriverConfig(vehicles: VehicleDriverConfig['vehicles'], p
 
 /** `scripts/vehicle-driver.js`: the config, the runtime and the pure drag-steering functions it is handed (the text a pack ships). */
 export const vehicleDriverScript = (config: VehicleDriverConfig): string =>
-  `import { world, system } from "@minecraft/server";\n(${vehicleDriverRuntime.toString()})(${JSON.stringify(config)}, ${freeLookStep.toString()}, ${freeLookStart.toString()}, ${nativeSteerStart.toString()}, ${nativeSteerStep.toString()}${config.parts ? `, ${pickVehiclePart.toString()}` : ''});\n`;
+  `import { world, system } from "@minecraft/server";\n(${vehicleDriverRuntime.toString()})(${JSON.stringify(config)}, ${freeLookStep.toString()}, ${freeLookStart.toString()}, ${nativeSteerStart.toString()}, ${nativeSteerStep.toString()});\n`
+  // A native rotorcraft's parts (`nativeVehiclePartsRuntime`): only in a pack where one carries them.
+  + (config.parts ? `(${nativeVehiclePartsRuntime.toString()})(${JSON.stringify(config)}, ${pickVehiclePart.toString()});\n` : '');
 
 /**
  * Chase camera preset, one per vehicle. A rider in first person sits INSIDE
