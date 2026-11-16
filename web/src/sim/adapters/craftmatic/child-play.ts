@@ -32,6 +32,7 @@ import { pickBoxes } from '../../input/ray.js';
 import { rayBox, type Vec3 } from '../../core/vec.js';
 import { PLAYER_EYE_HEIGHT, PLAYER_HEIGHT } from '../../physics/body.js';
 import { quirkValue } from '../../quirks/registry.js';
+import { relayRounding } from '../../../engine/bedrock-collider-scale.js';
 import { rayParallelepiped } from '../../../engine/oriented-box.js';
 import type { SimEntity } from '../../entity/entity.js';
 import type { DrawnBox } from './drawn.js';
@@ -233,6 +234,9 @@ const BLAME_SAME_FLOOR = 9 / 16;
 /** How far round the placed model the MODEL route flood (`DrawnWalkWorld`) walks the ground (blocks). */
 const WALK_FLOOD_MARGIN = 6;
 
+/** How short of the aim another part's pick box may start and still be behind the target (the aim lies ON its box). */
+const OTHER_PART_EPSILON = 1e-3;
+
 /** The lattice step (blocks) `outOfReachByModel` stands the child on, across the reach round a part. */
 export const MODEL_REACH_STEP = 0.25;
 
@@ -258,13 +262,22 @@ export function outOfReachByModel(ctx: StepContext, part: SimEntity, statics: re
   const opaque = statics.filter(d => !d.glass && near(d.box));
   // Another moving part takes a tap aimed through its PICK box (the tap is picked by hit box, glass or not).
   const others = parts.filter(e => e !== part && e.valid).flatMap(e => pickBoxes(e)).filter(near);
-  const ground = placedOf(ctx).from.y;
+  const placed = placedOf(ctx), ground = placed.from.y;
+  // A collider's top is laid in sixteenths of a 100 percent block (`lo`/`hi`) and the re-lay rounds a non-whole size
+  // further: at a size the pack's floor may sit this far under the drawn top, so a spot within reach of the part by
+  // less than that is the model's to deny (as `COLLIDER_SLACK` is across). 5482's Window 3 at 400 percent (census
+  // 2026-11-16): 4.47 from its pane on the drawn floor, 4.72 on the collider a quarter block under it.
+  const f = (placed.sizePct ?? 100) / 100, sink = Math.max(1, f) / 16 + relayRounding(f);
   const blocks = (eye: Vec3, aim: Vec3): boolean => {
     const d = { x: aim.x - eye.x, y: aim.y - eye.y, z: aim.z - eye.z }, len = Math.hypot(d.x, d.y, d.z);
     if (len <= SIGHT_MARGIN) return false;
     const u = { x: d.x / len, y: d.y / len, z: d.z / len }, max = len - SIGHT_MARGIN;
     const hit = (b: DrawnBox): boolean => b.solid ? rayParallelepiped([eye.x, eye.y, eye.z], [u.x, u.y, u.z], b.solid, max) !== undefined : rayBox(eye, u, b.box, max) !== undefined;
-    return opaque.some(hit) || others.some(b => rayBox(eye, u, b, max) !== undefined);
+    // `SIGHT_MARGIN` spares the target's own frame, which is drawn geometry. Another moving part's pick box is not:
+    // the pick takes the first box the ray enters, up to the aim itself (5482's stacked windows, census 2026-11-16:
+    // Window 11's box sat 0.05 over Window 10's and every tap from the one floor in reach entered it in the last
+    // half block, so the device picks Window 11; skipping that half block called Window 10 the pack's to serve).
+    return opaque.some(hit) || others.some(b => rayBox(eye, u, b, len - OTHER_PART_EPSILON) !== undefined);
   };
   let floors = 0, inReach = 0;
   for (let x = lo.x; x <= hi.x + 1e-9; x += MODEL_REACH_STEP) for (let z = lo.z; z <= hi.z + 1e-9; z += MODEL_REACH_STEP) {
@@ -282,6 +295,9 @@ export function outOfReachByModel(ctx: StepContext, part: SimEntity, statics: re
       for (const b of boxes) {
         const aim = { x: Math.max(b.x0, Math.min(eye.x, b.x1)), y: Math.max(b.y0, Math.min(eye.y, b.y1)), z: Math.max(b.z0, Math.min(eye.z, b.z1)) };
         if (Math.hypot(aim.x - eye.x, aim.y - eye.y, aim.z - eye.z) > reach) continue;
+        // ... and still within reach from the eye `sink` lower, where the pack's floor may stand it.
+        const low = eye.y - sink, aimLow = Math.max(b.y0, Math.min(low, b.y1));
+        if (Math.hypot(aim.x - eye.x, aimLow - low, aim.z - eye.z) > reach) continue;
         inReach++;
         if (!blocks(eye, aim)) return undefined;
       }

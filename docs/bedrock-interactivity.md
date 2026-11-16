@@ -1758,6 +1758,33 @@ From the combined engine run on the round-30m packs
 - The not-OK doorways at 100 % are a recorded list (`FAVOURITE_DOORWAYS_NOT_OK_AT_100`,
   scripts/favourite-sets.ts) checked by `_ix_sweep_report.ts --ceilings`.
 
+### The census's door and window findings were the simulator's (2026-11-16)
+
+The generality gate (`output/gengate-6fa0afa6/`, 60 non-favourite sets) failed 9 scenarios in 5482 and 6164, two
+recon_v3 brick-tub reconstructions whose doors and windows interpenetrate in stacks. Every class was a judgement
+the simulator got wrong, none a pack fault:
+
+- **Doors left open between doorways.** `doorwayLines` opened each door and never closed it, so a later door's lines
+  ran with an earlier one swung away - in 5482 the floor under the stacked Door 2. Each door (and its pair) is now
+  tapped shut again after its lines (the reset taps are not judged for falls).
+- **A line that lost the doorway's level.** A porch line starting in the air over nothing (6164 Door 1 at 400 %,
+  2.3 blocks over the ground) fell, walked to the doorway at ground level and met the tread under it; the stop was
+  the tread's. A stop more than a jump under the doorway's floor that the pack would be blamed for is now judged by
+  the fall (`holeFloor` at where the feet left the level): the model's where nothing is drawn there.
+- **Moving parts drawn at 100 %.** A door, window, cabinet, lever or turnable takes its wand size and turn from its
+  `ix_root` bone (`craftmatic:size`, `craftmatic:turn`), not `minecraft:scale`; `entityDrawn` read neither, so every
+  moving part's drawn boxes were 100 % ones at every size. It now poses the bones as the client does (`animatedPoses`).
+- **Another door's shut leaf in a shared doorway** (5482 Doors 2 and 3 claim the same cells) is the model's
+  (`OVERLAP`); at 400 % a shut leaf's cell is a 4-block slab round a leaf under 2 blocks thick.
+- **Taps.** `outOfReachByModel` ignored another part's pick box in the last half block before the aim (a window
+  stacked on the target); the spot search never looked more than 3 blocks under a part though the reach is 4.5
+  (a last-resort band down to the reach); and a spot in reach only by less than the colliders' sixteenth at the size
+  (a quarter block at 400 %) is the model's to deny, as `COLLIDER_SLACK` is across.
+
+Left open: at 400 % 5482's Door 3 lines stop on a 400 % tread of Door 2's facade run (`TODO(gen-door-stair)`, the
+scaled planner does not know doorway approaches). Guards: `test/sim-census-doorways.test.ts` (on the census packs,
+skipped where they are missing) and three `test/sim-engine.test.ts` cases; regression cases `census-doorway-*`.
+
 ### Known limits
 
 - Shapes are quarter-block bands along one axis. A 1-stud wall (6/16) against

@@ -387,6 +387,65 @@ describe('the script host', () => {
     expect(outOfReachByModel(ctx, target, [floor], [target, around])).toMatch(/another moving part stands between the eye and it/);
   });
 
+  it('counts another moving part stacked within half a block of the aim as hiding the target (5482 Window 10 under Window 11, census 2026-11-16, IX-05)', async () => {
+    // Two windows in one stack: the lid's pick box sits 0.05 over the target's and overhangs it by 0.05 toward the
+    // only floor the model draws. Every tap from that floor enters the lid in the last half block before the aim, so
+    // the device picks the lid; the model's sight test skipped that half block (SIGHT_MARGIN, meant for the frame
+    // touching the target's own box) and called the part the pack's to serve.
+    const pane = entityJson('x:pane', { 'minecraft:custom_hit_test': { hitboxes: [{ width: 0.4, height: 1, pivot: [0, 0.5, 0] }] }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
+    const lid = entityJson('x:lid', { 'minecraft:custom_hit_test': { hitboxes: [{ width: 0.5, height: 1, pivot: [0, 0.5, 0] }] }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
+    const sim = new Simulation();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'pane.json': pane, 'lid.json': lid }), 'mini'));
+    const p = sim.addPlayer('Child', { x: 0.5, y: FLAT_GROUND_Y, z: 0.5 });
+    const g = FLAT_GROUND_Y;
+    const target = sim.engine.spawnEntity('x:pane', 'overworld', { x: 12.5, y: g + 8, z: 0.5 });
+    const above = sim.engine.spawnEntity('x:lid', 'overworld', { x: 12.5, y: g + 9.05, z: 0.5 });
+    await sim.run(2);
+    const ctx = { sim, player: p, state: { [PLACED_KEY]: { from: { x: 0, y: g, z: 0 } } } } as unknown as Parameters<typeof outOfReachByModel>[0];
+    // A ledge the model draws beside the stack, half a block over the target's top.
+    const ledge: DrawnBox = { box: { x0: 12.9, x1: 14, y0: g + 9.3, y1: g + 9.5, z0: 0.2, z1: 0.8 }, glass: false };
+    expect(outOfReachByModel(ctx, target, [ledge], [target])).toBeUndefined();
+    expect(outOfReachByModel(ctx, target, [ledge], [target, above])).toMatch(/another moving part stands between the eye and it/);
+  });
+
+  it('leaves the MODEL a spot in reach only by less than the colliders\' sixteenth at the size (5482 Window 3 at 400 percent, census 2026-11-16, IX-05)', async () => {
+    // A collider's top is laid in sixteenths of a 100 percent block, so at 400 percent it may sit a quarter block under
+    // the drawn top: an eye 4.4 under the pane on the drawn ledge is 4.65 from it on the collider. That spot is the
+    // model's to deny at 400 percent, and still the pack's to serve at 100 (4.46).
+    const pane = entityJson('x:pane', { 'minecraft:custom_hit_test': { hitboxes: [{ width: 0.4, height: 1, pivot: [0, 0.5, 0] }] }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
+    const sim = new Simulation();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'pane.json': pane }), 'mini'));
+    const p = sim.addPlayer('Child', { x: 0.5, y: FLAT_GROUND_Y, z: 0.5 });
+    const g = FLAT_GROUND_Y;
+    const target = sim.engine.spawnEntity('x:pane', 'overworld', { x: 12.5, y: g + 8, z: 0.5 });
+    await sim.run(2);
+    const ledge: DrawnBox = { box: { x0: 12.2, x1: 12.8, y0: g + 1.78, y1: g + 1.98, z0: 0.2, z1: 0.8 }, glass: false };
+    const at = (sizePct: number) => ({ sim, player: p, state: { [PLACED_KEY]: { from: { x: 0, y: g, z: 0 }, sizePct } } } as unknown as Parameters<typeof outOfReachByModel>[0]);
+    expect(outOfReachByModel(at(100), target, [ledge], [target])).toBeUndefined();
+    expect(outOfReachByModel(at(400), target, [ledge], [target])).toMatch(/no floor the model draws puts the eye within reach/);
+  });
+
+  it('finds a standing spot more than three blocks under a part when the reach allows it (5482 Window 7, census 2026-11-16, IX-05)', async () => {
+    // A window whose only floor in reach is a ledge 5.2 under the pick box's bottom: the eye stands 3.6 under it,
+    // inside the 4.5-block reach, yet every search scanned floors only 3 blocks under the eye and found none.
+    const pane = entityJson('x:pane', { 'minecraft:custom_hit_test': { hitboxes: [{ width: 0.3, height: 0.9, pivot: [0, 0.45, 0] }] }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
+    const sim = new Simulation();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'pane.json': pane }), 'mini'));
+    const g = FLAT_GROUND_Y;
+    const p = sim.addPlayer('Child', { x: 0.5, y: g, z: 0.5 });
+    // The ground is out of reach: the window hangs 12.2 blocks up; the ledge (a stone column) tops out 5.2 under it.
+    const w = sim.engine.dimension('overworld');
+    const stone = sim.host.resolvePermutation('minecraft:stone');
+    for (let y = g; y < g + 7; y++) w.setPermutation(12, y, 3, stone);
+    const target = sim.engine.spawnEntity('x:pane', 'overworld', { x: 12.5, y: g + 12.2, z: 4.6 });
+    await sim.run(2);
+    const spot = findApproach(sim.engine, p, target);
+    expect(spot).toBeDefined();
+    expect(spot!.feet.y).toBeCloseTo(g + 7, 6);
+    p.location = { ...spot!.feet };
+    expect(tap(sim.engine, p, target).entity).toBe(target);
+  });
+
   it('reads a hit-test box as declared under minecraft:scale, where the collision box is scaled (quirk custom-hit-test-pick, VEH-17)', async () => {
     // A 200 % vehicle: its size group doubles the scale and declares a 4-wide hit-test box over its 2-wide collision box
     // (declared unscaled, realised 4). The pick box is the declared 4, not 8: a pack writes each group's box at that size.
