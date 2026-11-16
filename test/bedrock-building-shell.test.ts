@@ -10,7 +10,8 @@ import { toBedrockBlock } from '../web/src/engine/bedrock-blocks.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { compileLdrawEntityGeometry, type CompiledLdrawGeometry } from '../web/src/engine/ldraw-entity-compiler.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
-import { drawnCubeBox, worldFaces, type BedrockFace, type GeoEntryLike, type Vec3 } from '../web/src/engine/bedrock-geometry-faces.js';
+import { drawnCubeBox, visibleCoplanarHits, worldFaces, type AuditActor, type BedrockFace, type GeoEntryLike, type Vec3 } from '../web/src/engine/bedrock-geometry-faces.js';
+import { entitySpawnsAt, loadAddonPreviewModel, placedPoint } from '../web/src/ui/addon-preview-data.js';
 import { resolveLdrawEntityMaterial } from '../web/src/engine/ldraw-entity-materials.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
@@ -561,15 +562,31 @@ describe('splitStaticShell', () => {
     }
   });
 
-  it('retains and diagnoses a cube that straddles its cell past the reach target', async () => {
-    const huge = await compiledFixture([{ description: { identifier: 'geometry.craftmatic.huge_mesh_0' }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: [{ origin: [-500, -8, -8], size: [1000, 16, 16] }] }] }], [{ color: 4 }]);
-    const result = splitStaticShell('huge', huge);
-    expect(result.chunks).toHaveLength(1);
-    expect(result.chunks[0]!.id).toBe('huge_c0_0_0');
-    expect(result.chunks[0]!.oversizedCubes).toBe(1);
-    expect(result.chunks[0]!.radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toBeGreaterThan(STATIC_SHELL_RADIUS_LIMIT_BLOCKS);
-    expect(result.warnings).toEqual([expect.stringMatching(/1 final cube reaches .* past the .*-block target; retained whole/)]);
-    expect((result.chunks[0]!.geo.value as { 'minecraft:geometry': TestGeometry[] })['minecraft:geometry'][0]!.bones[0]!.cubes).toHaveLength(1);
+  it('cuts a cube that straddles its cell past the reach target into pieces within reach that draw the same box (A-18)', async () => {
+    // A 62.5-block rail along x (plain, and on a bone turned 30 degrees, and box-UV inflated): kept whole it reached
+    // 102 blocks from its cell root at 400 % (10261), past the ~70-block draw ceiling from its far end.
+    for (const [name, rotation, inflate] of [['rail', undefined, undefined], ['turned', [0, 30, 0], undefined], ['thin', undefined, -1]] as const) {
+      const cube = { origin: [-500, -8, -8] as [number, number, number], size: [1000, inflate ? 2.6 : 16, 16] as [number, number, number], ...(inflate ? { inflate } : {}) };
+      const geo = await compiledFixture([{ description: { identifier: `geometry.craftmatic.${name}_mesh_0` }, bones: [{ name: 'body', pivot: [0, 0, 0], ...(rotation ? { rotation: [...rotation] as [number, number, number] } : {}), cubes: [cube] }] }], [{ color: 4 }]);
+      const before = JSON.stringify(geo);
+      const result = splitStaticShell(name, geo);
+      expect(JSON.stringify(geo)).toBe(before);
+      expect(result.warnings.filter(w => /retained whole/.test(w))).toEqual([]);
+      expect(result.chunks.every(c => c.oversizedCubes === 0 && c.radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE <= STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-8)).toBe(true);
+      expect(result.cutCubes).toBe(1);
+      const pieces = result.chunks.flatMap(c => (c.geo.value as { 'minecraft:geometry': TestGeometry[] })['minecraft:geometry'].flatMap(g => g.bones.flatMap(b => b.cubes ?? [])));
+      expect(result.addedCubes).toBe(pieces.length - 1);
+      expect(result.chunks.reduce((n, c) => n + c.geo.diagnostics.cubeCount, 0)).toBe(pieces.length);
+      // Every piece keeps the cube's inflate (the box-UV floor rule) and its own two-decimal box.
+      for (const p of pieces) { expect(p.inflate).toBe(cube.inflate); expect(p.size[1]).toBe(cube.size[1]); expect(p.size[2]).toBe(cube.size[2]); }
+      // The same box is drawn: the pieces' world corners span the original's, and their drawn lengths add up.
+      const corners = (entry: GeoEntryLike, at: { x: number; y: number; z: number }) => worldFaces([{ typeId: 't', kind: 'shell', entry, at, yawDeg: 0 }]).flatMap(f => f.corners);
+      const span = (cs: Vec3[]) => [0, 1, 2].map(k => [Math.min(...cs.map(c => c[k]!)), Math.max(...cs.map(c => c[k]!))].map(v => Math.round(v * 1000) / 1000));
+      const whole = span(corners(entryOf(geo), { x: 0, y: 0, z: 0 }));
+      const cut = span(result.chunks.flatMap(c => corners(entryOf(c.geo), { x: c.offsetBlocks[0], y: c.offsetBlocks[1], z: c.offsetBlocks[2] })));
+      expect(cut).toEqual(whole);
+      expect(pieces.reduce((n, p) => n + drawnCubeBox(p).size[0], 0)).toBeCloseTo(drawnCubeBox(cube).size[0], 6);
+    }
   });
 
   it('keeps a cell root that lies inside a drawn cube, reporting it instead of rejecting the split', async () => {
@@ -763,5 +780,26 @@ describe('the building shell', () => {
     expect(actor).toMatchObject({ x: 2, y: 3, yaw: 0, maxSizeExclusive: 300, doorCandidateIndex: 0, hideAt100: false });
     expect(actor.z).toBeCloseTo(3, 8);
     expect(pack.components.find(c => c.id === 'micro_door_door_leaf_1')?.provenance).toContain('exact source door placement');
+  });
+
+  it('separates a placed part\'s face from the shell face it lies flush on: no hatching BETWEEN entities (A-17)', async () => {
+    const grid = new BlockGrid(5, 4, 5);
+    grid.set(2, 0, 2, 'minecraft:red_concrete');
+    // A blue 1 x 1 brick shipped as its own entity, sunk into the red 2 x 4 so both tops share one plane: the shape of a
+    // door leaf flush with its frame or a turntable on its floor (13 of the 30.5 block faces the 40 favourites hatched).
+    const shellBrick: ParsedBrick = { part: '3001.dat', color: 4, x: 2 * C, y: 0, z: -2 * C, rot: I };
+    const part: ParsedBrick = { part: '3005.dat', color: 1, x: 2 * C + 20, y: 0, z: -2 * C, rot: I };
+    const pack = await buildPlayableAddon(grid, {
+      stem: 'flush', label: 'Flush', partGeometry: provider(), pbr: false,
+      shell: { bricks: [shellBrick], frame },
+      leafActors: [{ bricks: [part], frame, maxSizeExclusive: 300, doorCandidateIndex: 0, hideAt100: false }],
+    });
+    const buffer = pack.bytes.buffer.slice(pack.bytes.byteOffset, pack.bytes.byteOffset + pack.bytes.byteLength) as ArrayBuffer;
+    const model = await loadAddonPreviewModel(buffer);
+    const actors: AuditActor[] = model.entities.filter(e => entitySpawnsAt(e, 100) && model.appearance!.byType.has(e.typeId))
+      .map(e => ({ typeId: e.typeId, kind: e.kind, entry: model.appearance!.byType.get(e.typeId)!, at: placedPoint(e, model.dims, 100, 0), yawDeg: e.yaw }));
+    expect(actors.map(a => a.typeId).sort()).toEqual(['craftmatic:flush_door_leaf_1', 'craftmatic:flush_shell']);
+    const hits = visibleCoplanarHits(worldFaces(actors));
+    expect(hits.filter(h => h.a.actor !== h.b.actor)).toEqual([]);
   });
 });

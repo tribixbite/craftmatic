@@ -591,8 +591,14 @@ standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
   from that cell's root all the same: 10261 keeps three such cubes (one
   reaching 102 blocks at 400 %) and 10326 seventeen (84 blocks), so a part
   of those cubes is not drawn until the camera is within 70 of the root
-  (`oversizedCubes`, warned; splitting a final cube is outside the split's
-  contract, `TODO(cull)`). In the simulator 10261 at 400 % from 40 blocks
+  (`oversizedCubes`, warned). **Since 2026-11-15 (A-18) such a cube is CUT**
+  (`cutOversizedShellCubes`): halved along its longest local axis until each
+  piece reaches within the target from its own cell's root, every piece
+  keeping the cube's rotation, pivot, UV and `inflate`, so the drawn box is
+  the same and the cut faces sit back to back inside it. The added pieces are
+  resident cuboids and are counted in the shell's `cubeCount`; a piece may
+  land in a cell no other cube used, which is a NEW chunk id a world placed
+  with an older pack does not spawn until the model is re-placed. In the simulator 10261 at 400 % from 40 blocks
   west of the pin now draws 1 and 2 of its 4 loaded chunks (nearest root
   53.9 / 57.2 blocks) where the 20-block lattice drew none of 6 (nearest
   87.1). Whether the phone draws a 400 % chunk out to the 70-block ceiling
@@ -5113,6 +5119,20 @@ and whatever shares its plane goes in front; buried pairs are left alone.
 Diagnostics: `coplanar {pairsFound, areaFound, facesGrown, pairsLeft}` per
 entity. After (`b6c1c882`): 76417 264 / 1.0, 76457 214 / 0.98, 10365 121 /
 1.0, 42703 42 / 0.32, 11374 571 / 1.78.
+
+**What survived it (A-17, 2026-11-15)**, 8,509 pairs / 30.5 block faces over
+the 40 favourites: 56 % were pairs INSIDE one shell left by the three-pass
+cap (a push lands the winner on a third face's plane, a chain; re-separating
+the shipped shells settled every one within 7 more passes), and 43 % were
+pairs BETWEEN entities, which a per-entity pass cannot see: a door leaf,
+window or turntable flush with the shell, a figure's foot on a plate, a
+pinball button in its cabinet. The pass now runs to convergence (cap
+`COPLANAR_SEPARATION_MAX_PASSES` 10), and once every entity is placed
+`separateEntitiesFromNeighbours` (cross-entity-coplanar.ts) pushes each
+placed entity's face out in front of the shell chunks and of the entities
+handled before it, rewriting only that entity's geometry. Coaster cars, ride
+cars/seats and riding figures are skipped: their placement record is not
+where they rest (`TODO(a17-moving)`).
 
 **What it does not fix**: the horizontal striping under 42703's arches and
 on round columns (Saga, `saga/after-42703-arch-b6c1c882.jpg`) is the stair-step

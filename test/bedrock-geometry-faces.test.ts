@@ -118,6 +118,22 @@ describe('coplanar faces', () => {
     expect(entry.groups[0]!.cubes[0]!.origin[2]).toBeLessThan(0);
   });
 
+  it('runs until a CHAIN of pushes settles: each pushed face meets the next one up (A-17)', () => {
+    // Six nested blocks of six colours: the second's top sits on the first's plane, and every later top sits one
+    // separation above the one before, so each push lands the winner on the next plane. Three passes (the cap
+    // until 2026-11-15) left the last pair on one plane; 530 such pairs survived in 11374's shell.
+    const step = COPLANAR_SEPARATION_UNITS;
+    const entry: GeoEntryLike = { bones: [{ name: 'body', pivot: [0, 0, 0] }], groups: [] };
+    for (let k = 0; k < 6; k++) {
+      const inset = k * 1.5, top = k === 0 ? 0 : (k - 1) * step;
+      entry.groups.push({ ldrawColor: k + 1, alpha: 1, cubes: [{ bone: 'body', origin: [inset, -4 - k, inset], size: [18 - 2 * inset, top + 4 + k, 18 - 2 * inset] }] });
+    }
+    const r = separateCoplanarFaces(entry);
+    expect(r.pairsFound).toBe(1);
+    expect(r.pairsLeft).toBe(0);
+    expect(visibleCoplanarHits(self(entry))).toHaveLength(0);
+  });
+
   it('resolves a coplanar pair on a turned bone along that bone\'s own face', () => {
     const entry = sunkTile();
     entry.bones = [{ name: 'body', pivot: [0, 0, 0] }, { name: 'r1', pivot: [9, 0, 9], rotation: [0, 37, 0] }];
