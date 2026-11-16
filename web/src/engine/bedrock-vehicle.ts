@@ -1171,7 +1171,7 @@ export interface BoardRuntimeConfig {
  * nothing is). `yawDeg` is Bedrock's
  * (0 faces +z; +x turns toward +z: the colliders' and `drawnBoxes`' turn).
  */
-export function boardPointPlaces(points: readonly BoardPoint[], pose: { x: number; y: number; z: number; yaw: number }, k: number, P: BoardParams): Array<{ x: number; y: number; z: number }> {
+export function boardPointPlaces(points: readonly BoardPoint[], pose: { x: number; y: number; z: number; yaw: number }, k: number, P: BoardParams, tapAt?: ReadonlyArray<readonly [number, number]>): Array<{ x: number; y: number; z: number }> {
   // Columns in the entity frame first (deduplicated there), turned into the world at the end.
   const cols: Array<{ x: number; z: number }> = [];
   const half = P.COLUMN_WIDTH * k / 2;
@@ -1210,6 +1210,16 @@ export function boardPointPlaces(points: readonly BoardPoint[], pose: { x: numbe
     }
   }
   const r = pose.yaw * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+  // A part or slide it carries (`ScriptedVehicleType.tapAt`, its box's centre at 100 %) that the hull's hit box no
+  // longer covers at this size and turn - the box is world-aligned and clipped to `HULL_HIT_HALF_MAX_BLOCKS` either
+  // way, so the test is on the WORLD offset - and that no column stands under yet: a column under it, so a tap on it
+  // raises an event (41395's interior window at 150 %, 6 blocks out over the middle of the bus, under no edge).
+  for (const [px, pz] of tapAt ?? []) {
+    const ex = px * k, ez = pz * k;
+    if (Math.max(Math.abs(ex * c - ez * s), Math.abs(ex * s + ez * c)) <= P.HULL_HIT_HALF_MAX_BLOCKS) continue;
+    if (cols.some(q => Math.abs(q.x - ex) <= half && Math.abs(q.z - ez) <= half)) continue;
+    put(ex, ez);
+  }
   return cols.map(q => ({ x: pose.x + q.x * c - q.z * s, y: pose.y, z: pose.z + q.x * s + q.z * c }));
 }
 export type VehicleEgressParams = typeof VEHICLE_EGRESS;
@@ -1373,6 +1383,8 @@ export interface ScriptedVehicleType {
   bodyPivot?: number[];
   /** The slides it carries, ridden while it is parked (vehicle-parts.ts `VehicleSlideRuntime`). */
   slides?: VehicleSlideRuntime[];
+  /** Where its parts and slides are (their boxes' centres x, z at 100 %, entity frame): a board column stands under one the hull hit box leaves out (`boardPointPlaces`). */
+  tapAt?: Array<[number, number]>;
 }
 
 /** What the scripted-vehicle runtime is told about the pack. */
@@ -1923,7 +1935,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       for (const type of boardTypes) { try { old.push(...dim.getEntities({ type, location: { x: loc.x, y: loc.y, z: loc.z }, maxDistance: reach })); } catch { /* not loaded */ } }
       for (const p of old) { try { if (p.getDynamicProperty(BD.ownerProperty) === e.id) p.remove(); } catch { /* gone */ } }
     }
-    const at = places!(kind.board, { x: loc.x, y: loc.y, z: loc.z, yaw }, k, BD.params);
+    const at = places!(kind.board, { x: loc.x, y: loc.y, z: loc.z, yaw }, k, BD.params, kind.tapAt);
     if (!at.length) { boards.set(e.id, { vehicle: e, key, points: [], want: 0 }); return; }
     const type = boardTypeAt(k), points: any[] = [];
     if (!type) { boards.set(e.id, { vehicle: e, key, points: [], want: 0 }); return; }

@@ -22,9 +22,9 @@
  * doors; an open bus door is a visual and a cue, not a passage.
  *
  * A tap reaches the runtime only through the vehicle's hull hit box (clipped to 8 blocks wide, `BOARD`) or a board
- * point under its far edges, so a part high up beyond both raises no event at all.
- * # TODO(vehicle-parts-hit-box): 41395's interior window at 150 % (the sim's `vehicle-part-tap-target`); a board point
- * under such a part would reach it.
+ * point, so a board column also stands under every part (and slide) the clipped hit box leaves out at the vehicle's
+ * size and turn (`ScriptedVehicleType.tapAt`, `boardPointPlaces`): 41395's interior window at 150 % sat 6 blocks out
+ * over the middle of the bus, under no edge column, and a tap on it raised no event.
  *
  * Only a SCRIPTED vehicle (cars, hover craft, boats, ships: `isScriptedVehicle`) gets them: a native rotorcraft or
  * flyer has no script to answer the tap; its parts stay fixed geometry and are reported.
