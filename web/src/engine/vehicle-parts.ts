@@ -178,7 +178,8 @@ export function vehiclePartBoxes(geometry: unknown, parts: ReadonlyArray<{ angle
 /**
  * Which part a tap on a parked vehicle meant, or -1 (board instead). Pure and self-contained: serialised into
  * `scripts/vehicles.js`. `pose` is the vehicle's (Bedrock yaw: 0 faces +z, +x turns toward +z), `k` its live scale,
- * `eye` and `dir` the player's head and view (world), `open[i]` whether part i is open now (its open box is tested).
+ * `eye` and `dir` the player's head and view (world), `open[i]` whether part i is open now (the box over its open and
+ * closed boxes is tested).
  *
  * A part is a candidate when its padded box is within `REACH_BLOCKS` (times the scale, above 100 %) of the eye. The
  * view ray through a candidate's own box wins (nearest first), then through its padded box; failing both, the candidate nearest the view direction within `CONE_DEG`. The cone is there
@@ -215,9 +216,12 @@ export function pickVehiclePart(parts: ReadonlyArray<{ closed: readonly number[]
   /** Every part whose own box the view ray enters: where, and how far its centre is off the ray. */
   const exacts: Array<{ i: number; t: number; off: number }> = [];
   for (let i = 0; i < parts.length; i++) {
-    const b = open[i] ? parts[i]!.open : parts[i]!.closed;
+    // An open part answers where it is AND where it was (the box over both: a leaf sweeps between them), so a window
+    // opened from below can be closed from the same spot though it swung out of reach.
+    const c0 = parts[i]!.closed, o0 = parts[i]!.open;
     // A part none of whose cubes reached the geometry has no box: never picked.
-    if (b.length < 6) continue;
+    if (c0.length < 6) continue;
+    const b = open[i] && o0.length >= 6 ? [0, 1, 2, 3, 4, 5].map(a => (a < 3 ? Math.min(c0[a]!, o0[a]!) : Math.max(c0[a]!, o0[a]!))) : c0;
     const lo0 = [b[0]! * k, b[1]! * k, b[2]! * k], hi0 = [b[3]! * k, b[4]! * k, b[5]! * k];
     const lo = lo0.map(v => v - pad), hi = hi0.map(v => v + pad);
     // The padded box's point nearest the eye: within reach, or not a candidate.

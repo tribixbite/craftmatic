@@ -377,7 +377,9 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
        */
       const tapOn = async (v: SimEntity, f: ScriptedTypeFacts, i: number): Promise<'changed' | 'unchanged' | 'unreachable'> => {
         const part = f.parts[i]!, before = value(v, i);
-        const b = worldBox(v, part, before !== 0);
+        // An open part answers over its open and closed boxes together (`pickVehiclePart`): the child taps that.
+        const shutBox = worldBox(v, part, false), openBox = worldBox(v, part, true);
+        const b = before !== 0 ? shutBox.map((q, a) => (a < 3 ? Math.min(q, openBox[a]!) : Math.max(q, openBox[a]!))) : shutBox;
         const mid = { x: (b[0]! + b[3]!) / 2, y: (b[1]! + b[4]!) / 2, z: (b[2]! + b[5]!) / 2 };
         const reach = VEHICLE_PART.REACH_BLOCKS * Math.max(1, v.scale()) - 0.1;
         const gapTo = (eye: { x: number; y: number; z: number }): number => Math.hypot(Math.max(b[0]! - eye.x, 0, eye.x - b[3]!), Math.max(b[1]! - eye.y, 0, eye.y - b[4]!), Math.max(b[2]! - eye.z, 0, eye.z - b[5]!));
