@@ -1956,6 +1956,20 @@ gate and 910049's iron gate (no joint line splits them off), cranes, lifts,
 drawbridges and windmills (no turntable joint in the favourites; on axles, see
 above).
 
+Re-checked 2026-11-15 (audit A-11, branch audit-doors2; `bun scripts/_ix_hinges.ts <first pick> --all`):
+10354 40 joint lines, 0 moving (10 `holds`, 20 rejected, 10 too small; its 10 hinge arms 57360 and 8 locking
+hinge plates 44301b form the round arches and are held both sides); 42639 22 lines, 0 moving (2 `holds`: a Technic axle pin
+22961/43093 and a round plate on a bar 85861/63965; 16 too small, 4 rejected; which parts make the garage gate
+was not traced); 910049 128 lines, 0 moving (the
+hinge-brick lines 2429/2430 + 3830/3831 at the ground are all `holds`); 43267 26 lines, 0 moving. 43267's
+four 40066 are ONE-PIECE moulded doors ("Door 1 x 6 x 7 with Arch and Rounded Pillars", a doorstep
+subfile, origin centred): there is no leaf to swing, so static is right unless a pass-through is invented.
+What a general rule needs before it can find the other three: for a `holds` line, WHICH rigid edges cross
+the cut (the diagnostics say only that both sides are held) - if a closed gate is held only by the
+floor's studs under its bottom row or by an overlap with its frame, a rule that drops stud edges under a
+joint's swinging side would split it; that rule has to be measured for false doors over the favourites
+and a sample outside them (the 135 -> 14 review above) before it ships. TODO(brick-hinge-holds).
+
 ## Not verified on a device
 
 Device round 2026-09-24d (packs at 8346fb29): doors render as LEGO, open and
