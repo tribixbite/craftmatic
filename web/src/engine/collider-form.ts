@@ -88,6 +88,10 @@ export interface ColliderFormKit {
   lay(block: { setPermutation(p: unknown): void }, form: ColliderForm, loState: string, hiState: string, resolve: (id: string, states: Record<string, number>) => unknown): boolean;
 }
 
+// TODO(collider-corner-forms): bands span the whole cell along the other axis, so a post a sixteenth square in a
+// cell's corner ships as a quarter-block wall the cell's whole length (11371's lamp post, grid (20, 1..3, 5): with
+// a post's band in the next cell the 0.5-block gap the drawn route walks closes to a 0.6-wide player). Corner
+// shapes would be new block ids (a pack-format change to prove on a device).
 /**
  * Build the kit. `bands` replaces the quarter-block bands (sixteenths, each
  * used along x and along z) - only for measuring what another vocabulary would
