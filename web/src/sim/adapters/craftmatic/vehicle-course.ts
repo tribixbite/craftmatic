@@ -630,7 +630,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
         await ctx.run(20);
         if (!ctx.player.ridingOn && y0 - ctx.player.location.y > 1) ctx.violate({ invariant: 'rider-set-down', message: `${f.typeId} slide ${j}: the player dropped ${r3(y0 - ctx.player.location.y)} blocks from where the slide set it down`, evidence: { at: ctx.player.location } });
         ctx.note(`${f.typeId} slide ${j}: rode ${ticks} ticks from a tap ${r3(found.chosen.gap)} blocks off it; the seat ran at most ${r3(worst)} blocks over the drawn chute; set down at ${JSON.stringify({ x: r3(ctx.player.location.x), y: r3(ctx.player.location.y), z: r3(ctx.player.location.z) })}`);
-        if (ctx.player.ridingOn) { ctx.violate({ invariant: 'rider-set-down', message: `${f.typeId} slide ${j}: still riding after ${ticks} ticks`, evidence: {} }); return 'failed'; }
+        if (ctx.player.ridingOn) { ctx.violate({ invariant: 'rider-set-down', message: `${f.typeId} slide ${j}: after ${ticks} ticks the child rides ${ctx.player.ridingOn.typeId}, not set down`, evidence: {} }); return 'failed'; }
         return 'rode';
       };
       for (const f of wanted) {

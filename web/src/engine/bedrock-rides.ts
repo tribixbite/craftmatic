@@ -517,7 +517,7 @@ declare const system: any;
  */
 function ridesRuntime(config: RideRuntimeConfig, body?: ColliderBodyProbe, hop?: HopKit): void {
   const R = config.constants;
-  const K = { index: 'craftmatic:ride', path: 'craftmatic:ride_path', exits: 'craftmatic:ride_exits', scale: 'craftmatic:ride_scale', stop: 'craftmatic:ride_stop', dir: 'craftmatic:ride_dir', owner: 'craftmatic:ride_owner' };
+  const K = { index: 'craftmatic:ride', path: 'craftmatic:ride_path', exits: 'craftmatic:ride_exits', scale: 'craftmatic:ride_scale', stop: 'craftmatic:ride_stop', dir: 'craftmatic:ride_dir', owner: 'craftmatic:ride_owner', boardOf: 'craftmatic:board_of' };
   type P = { x: number; y: number; z: number };
   interface Run {
     seat: any; rider: any; kind: string; path: P[]; lens: number[]; s: number; end: number; v: number; f: number; car?: any; carOffset?: P; target?: number; exit?: P; done?: number; home?: P;
@@ -653,9 +653,14 @@ function ridesRuntime(config: RideRuntimeConfig, body?: ColliderBodyProbe, hop?:
       for (const r of riders) {
         if (r?.typeId !== 'minecraft:player') continue;
         let target: any;
-        // A slide a vehicle carries (`K.owner`): its own vehicle stands at the foot and is no seat to slide into.
-        const owner = read(run.seat, K.owner);
-        try { target = hop.nearestAt(run.seat.dimension, at, reach, new Set([run.seat.id, ...(typeof owner === 'string' ? [owner] : [])])); } catch { target = undefined; }
+        // A slide a vehicle carries (`K.owner`): its own vehicle stands at the foot and is no seat to slide into, nor
+        // are its board points (bedrock-vehicle.ts `BOARD`: rideables that seat whoever sits on one in that vehicle).
+        const owner = read(run.seat, K.owner), skip = new Set<string>([run.seat.id]);
+        if (typeof owner === 'string') {
+          skip.add(owner);
+          try { for (const e of run.seat.dimension.getEntities({ location: at, maxDistance: reach + config.hop.constants.SCAN_BLOCKS + config.hop.constants.TRAIN_REACH_BLOCKS })) if (read(e, K.boardOf) === owner) skip.add(e.id); } catch { /* none near */ }
+        }
+        try { target = hop.nearestAt(run.seat.dimension, at, reach, skip); } catch { target = undefined; }
         if (target && hop.board(r, target)) boarded.add(r.id);
       }
     }
