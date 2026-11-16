@@ -5141,6 +5141,20 @@ handled before it, rewriting only that entity's geometry. Coaster cars, ride
 cars/seats and riding figures are skipped: their placement record is not
 where they rest (`TODO(a17-moving)`).
 
+Two measuring faults hid the rest (same day). `coplanarFaces` bucketed faces by
+their normal rounded to 1e-3 and by plane offset `d`: two Euler spellings of
+one tilt (76269's turned floor: `[-0.01, 46.71, 1.47]` and
+`[-179.97, 43.29, -178.48]`) are 0.026 degrees apart, so their normals rounded
+into neighbouring buckets, and their offsets - measured at the frame's origin
+- differed by 0.04 units at the compile's origin and by 0.007 at the model's
+placement. The compile measured nothing there and the audit counted 133 pairs
+in one chunk. Candidates now come from the 26 neighbouring normal buckets too,
+cut into runs along the normal's dominant axis, and each pair's distance is
+measured over its OVERLAP (`CoplanarHit.lead` / `leadBack`), which the
+separation pushes against. The audit is position-independent since, so counts
+before 2026-11-15 under-read near-parallel pairs; compare builds only under one
+version of the tool.
+
 **What it does not fix**: the horizontal striping under 42703's arches and
 on round columns (Saga, `saga/after-42703-arch-b6c1c882.jpg`) is the stair-step
 of a curved part at the 2 LDU grain, drawn with face shading. It is geometry,
