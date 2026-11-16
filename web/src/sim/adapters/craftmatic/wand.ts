@@ -123,7 +123,7 @@ export function wandHandlers(pack: CraftmaticPack): Record<string, StepHandler> 
       const p = ctx.player;
       const target = aimAtGround(ctx, ahead);
       let confirmed: ShownForm | undefined;
-      let presses = 0, refused = false, entered = false;
+      let presses = 0, refused = false, entered = false, heldPrompts = 0;
       // Beyond the aim's reach, the origin is entered as coordinates (the runtime anchors at the block under the aim).
       const typed = Math.hypot(target.x - p.location.x, target.z - p.location.z) > WAND_AIM_REACH;
       ctx.sim.host.chooser = (form: ShownForm): FormAnswer => {
@@ -139,6 +139,12 @@ export function wandHandlers(pack: CraftmaticPack): Record<string, StepHandler> 
           // The menu back again after Place, again and again: the pack refuses this placement (a child would stop).
           if (++presses > MAX_PLACE_PRESSES) { refused = true; return { cancel: true }; }
           return { button: 'Place' };
+        }
+        // The wand's held-player prompt (A-06: the footprint would build colliders round the child): a child takes the
+        // first offer, as the prompt reads. Noted, so a run shows the model was moved off the aim.
+        if (/^Someone is standing where it goes$/.test(title) && form.buttons.some(b => plainText(b) === 'Find a clear spot nearby')) {
+          heldPrompts++;
+          return { button: 'Find a clear spot nearby' };
         }
         if (/^Place .*\?$/.test(title) && form.buttons.includes('Place now')) {
           confirmed = form;
@@ -170,6 +176,7 @@ export function wandHandlers(pack: CraftmaticPack): Record<string, StepHandler> 
       const at = { anchor: sum.origin, rotation, sizePct: size, from: sum.origin, to: { x: sum.origin.x + sum.dims.w - 1, y: sum.origin.y + sum.dims.h - 1, z: sum.origin.z + sum.dims.l - 1 } };
       const placed: Placed = { ...at, corner: modelCorner(pack.placement, at) };
       ctx.state[PLACED_KEY] = placed;
+      if (heldPrompts) ctx.note(`held-player prompt: Find a clear spot nearby (${heldPrompts}x): the aimed footprint held the child, the wand moved the model`);
       ctx.note(`placed at ${sum.origin.x},${sum.origin.y},${sum.origin.z} ${size} % turn ${rotation}: ${line}`);
     },
 
