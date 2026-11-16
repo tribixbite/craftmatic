@@ -41,6 +41,15 @@ individually tested 28". The favourites list has 40 sets (memory `user-favorite-
      no tap event (41395's window at 150 %, `TODO(vehicle-parts-hit-box)`); device checks: a touch tap's view
      direction (`TODO(vehicle-parts-touch-aim)`), the swing sign on a vehicle, the eased swing drawn.
    MERGED: vrun, place, door, vgrain, wveh, faces, parts, vix (all seven + the follow-up).
+   GATE RUNNING on `e7da6e47` (all merged): `output/favgate-e7da6e47` = sweep `--with-gabby
+   --faces=C:/git/craftmatic/output/faces-art-1115` then `bun scripts/_favourites_gate.ts --out=<dir>` (logs
+   `<dir>.sweep.log`, `<dir>.gate.log`, report `<dir>/gate.md`).
+   WAVE 2 RUNNING (worktrees `.worktrees/audit-<x>` from `e7da6e47`, same brief): `render` A-17 hatching, A-18 cubes
+   past the cull root, A-19 permutations/resident cuboids; `doors2` 910004 Door 5 @200, 910032 Door 4 clearance,
+   walk-attribution ceilings, brick-built door detector, 50 %/90 colliders on the child; `content2` 76269 hinge-plate
+   frame, hoses / LDD ids, face print transfer from a set's other source, IOModel2V2 corpus A/B + regen; `vslide`
+   slides on parked vehicles, part taps outside the hull hit box, native flyer parts, lean in the pick.
+   Open, device-only: chase-ease, Saga cockpit lag, touch-tap aim on vehicle parts, eased swing drawn.
    Merge each after review + full suite (merge commits), then one sweep `--with-gabby --faces=...` + sim at
    `--sizes=50,100,150,200,400` + `--scenario=vehicles` + `--scenario=regressions` over the same directory.
 3. When no audit finding is open: send the user all 40 packs (one zip, built from a commit), then the
