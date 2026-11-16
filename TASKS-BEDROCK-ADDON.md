@@ -65,7 +65,9 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
      31060 + stunt plane, 6866 + helicopter + bike, 6863 + Batwing, 60086/5886/8969 + helicopter, 3661 + motorbike,
      6231 bike, 5893 4x4 (a bike part widened its wheel slack), 20200 two ships, 6745/3063/4895/6194 aircraft, 5972
      (jet-engined villain craft, kind unverified). Favourite changed: 76269 (Quinjet now flies; its Leviathan's wing
-     fins are refused for want of a cockpit part). Rebuilt packs `.worktrees/gen-veh2/output/veh2-b/`: sim child play
+     fins are refused for want of a cockpit part); the probe also flags 41703's three-wheeler, but the pipeline's
+     repaired bricks keep it static (rebuilt pack identical to favgate-530b6d3f apart from face art). Wing parts must
+     MIRROR (`mirroredWings`): the first census read 21318, 10354 and 71043 (leaves, roofs) as planes. Rebuilt packs `.worktrees/gen-veh2/output/veh2-b/`: sim child play
      at 50-400 % and vehicles pass. OPEN: 6863's Joker helicopter (posed tilted, taller than long), 4841's source is
      a jumbled recon (no train to find), the device has never flown an untitled aircraft. Earlier: Rebuilt on the branch
      (`.worktrees/gen-veh-1106/output/gen-veh-1106-sim.md`): 12 of the 13 now ride, and 6 pass every scenario. The rest
@@ -80,6 +82,9 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
      Rebuilt with them (`.worktrees/gen-view-1106/output/view-after-sim.md`), all 5 sets see out, and none of the
      favourite seat plans changed.
 
+     6243 FIXED on `gen-veh2` (`7394a07b`): its lookout eye saw ahead with a mast 5 of 28 rays to its right; the
+     fallback now also searches up to `AHEAD_FALLBACK.forward` toward the nose for an eye that sees out both sides
+     (right 28/28 on the rebuilt pack; regression `lookout-sides-6243`).
      Side-view policy: the user said yes (2026-11-09) and asked for screenshots and the trade-offs first. Branch
      `gen-side-1109` (worktree `.worktrees/gen-side-1109`, `5c48d918` WIP, NOT merged; 4 unit tests in
      `test/cockpit-seat.test.ts` fail, because their cabins have solid walls beside the eye) makes the sides
