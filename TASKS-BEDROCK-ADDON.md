@@ -149,6 +149,14 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
     (2504), the sim's figure-in-front tap gap;
   - class 2's side-view policy: branch `gen-side-1109` built and shown to the user, waits on merge or no;
   - re-run the census (`output/generality-1106/run-census.sh`, into a NEW output dir).
+- 2026-11-16 branch `gen-door` (worktree `.worktrees/gen-door`, NOT merged): the 60-set gate
+  `output/gengate-6fa0afa6/` failed 9 child-play scenarios in 5482 and 6164; all were the SIMULATOR's judgement
+  (docs/bedrock-interactivity.md "The census's door and window findings were the simulator's"). After, on the same
+  packs and on rebuilds (`output/gengate-door-86856fda/`, `_favourites_gate.ts 5482 6164 --build`): 2 fail, both 5482
+  at 400 % - Door 3's lines stop on a 400 % tread of the OVERLAPPING Door 2's facade run (`TODO(gen-door-stair)`:
+  the scaled tread planner, bedrock-collider-scale.ts, knows doorway cells, not approaches; any change there is
+  judged on the SCALE-06 `_walk_line.ts` routes first). Also open: the candidate rule above (drop the lower of two
+  overlapping leaves) would retire this and 5582 together.
 - Step 4: a per-vehicle drive check for every census vehicle: the sim's vehicles scenario (move 20 blocks, turn,
   camera follows, dismount gives the camera back, never inside a wall), plus `_cockpit_view.ts` renders
   (`driverSeesOut`). Then BDS 1.26.63.1 (`C:/git/bds/`) beside the sim for API fidelity, then one Pixel round.
