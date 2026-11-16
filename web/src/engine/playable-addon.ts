@@ -30,7 +30,8 @@ import { creatorFigureBehavior, minifigWandScript } from './bedrock-minifig-wand
 import { MAX_PRINT_LAYERS, MINIFIG_CREATOR_COLOURS, POSE_PROPERTY, type MinifigLibrarySpec, type MinifigCreatorConfig, type CreatorSlot } from './minifig-creator-types.js';
 import { CREATOR_POSES, creatorPoseAnimations, ldrawColourName } from './minifig-creator.js';
 import { isTrackPart } from './coaster-track.js';
-import { COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior, splitStaticShell, type ShellCell, type ColliderSourceBox } from './bedrock-building-shell.js';
+import { separateEntitiesFromNeighbours } from './cross-entity-coplanar.js';
+import { isShellEntityId, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior, splitStaticShell, type ShellCell, type ColliderSourceBox } from './bedrock-building-shell.js';
 import { CLEARANCE_REFUSALS, applyColliderClearance, type ClearanceReport, type GridBox } from './collider-clearance.js';
 import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
@@ -2966,6 +2967,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     };
     /** Face-atlas textures already written, by name: the chunks of one shell share one atlas file. */
     const emittedFaceAtlases = new Set<string>();
+    /** Every compiled entity's geometry and the index of its `.geo.json` in `files`, by type id (`separateEntitiesFromNeighbours`). */
+    const shippedGeometries = new Map<string, { fileIndex: number; geo: EmittableGeometry }>();
     /**
      * Emit one compiled entity's four files (+ swatches, LOD hull).
      * `faceAtlasName` binds a face atlas under a shared name instead of the
@@ -3050,6 +3053,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 }
             }
         }
+        // The geometry file's index, so the cross-entity separation (below, once every entity is placed) can rewrite it.
+        shippedGeometries.set(`${PACK_NAMESPACE}:${ecid}`, { fileIndex: files.length + 2, geo });
         files.push(
             { name: `${bp}entities/${ecid}.json`, data: json(behavior) },
             { name: `${rp}entity/${ecid}.entity.json`, data: json(clientEntity(ecid, bindings, 'entity', animations, lod)) },
@@ -3255,6 +3260,11 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             // Original collider boxes and aggregate diagnostics remain below.
             const split = splitStaticShell(shellId, sgeo);
             warnings.push(...split.warnings);
+            // Cubes cut to stay in draw reach of their cell's root at 400 % (A-18) are resident cuboids like any other.
+            if (split.addedCubes) {
+                diagnostics[shellId] = { ...diagnostics[shellId]!, cubeCount: diagnostics[shellId]!.cubeCount + split.addedCubes };
+                warnings.push(`${label}: ${split.cutCubes} shell cube${split.cutCubes === 1 ? '' : 's'} reached past the ${STATIC_SHELL_RADIUS_LIMIT_BLOCKS}-block draw target from ${split.cutCubes === 1 ? 'its' : 'their'} cell root at ${STATIC_SHELL_CULL_MAX_SCALE * 100} percent and ${split.cutCubes === 1 ? 'was' : 'were'} cut along the longest axis into pieces within it (+${split.addedCubes} cuboids, the same drawn boxes).`);
+            }
             const chunked = split.chunks.some(chunk => chunk.id !== shellId);
             for (const [index, chunk] of split.chunks.entries()) {
                 const chunkLabel = chunked ? `${label} bricks ${index + 1}` : `${label} bricks`;
@@ -4232,6 +4242,19 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         addEntityName(`${PACK_NAMESPACE}:${screenId}`, `${label} Control Screen`, false);
         for (const s of screens)
             actors.push({ typeId: `${PACK_NAMESPACE}:${screenId}`, label: s.label, x: Math.round(s.x), y: Math.round(s.y), z: Math.round(s.z) });
+    }
+    // Coplanar faces BETWEEN entities (A-17): every placed compiled entity is separated from the shell chunks it sits
+    // in and from the entities before it, its own geometry JSON rewritten (cross-entity-coplanar.ts). The per-entity
+    // pass in the compiler cannot see a door leaf flush with its frame or a turntable on its floor.
+    const crossCoplanar = separateEntitiesFromNeighbours(actors, new Map([...shippedGeometries].map(([t, s]) => [t, s.geo])), isShellEntityId);
+    for (const typeId of crossCoplanar.changed) {
+        const s = shippedGeometries.get(typeId)!;
+        files[s.fileIndex] = { name: files[s.fileIndex]!.name, data: geoJson(s.geo.value) };
+    }
+    {
+        const rows = Object.values(crossCoplanar.entities);
+        const found = rows.reduce((n, r) => n + r.pairsFound, 0), left = rows.reduce((n, r) => n + r.pairsLeft, 0);
+        if (found) warnings.push(`${label}: ${found} different-colour face pair${found === 1 ? '' : 's'} BETWEEN entities (a part's face on the shell's plane) separated over ${crossCoplanar.changed.length} entit${crossCoplanar.changed.length === 1 ? 'y' : 'ies'}${left ? `; ${left} left (may hatch on the device)` : ''}.`);
     }
     // One animation file serves every minifig entity: the rig's bone names are shared.
     if (minifigsEmitted) files.push({ name: `${rp}animations/craftmatic_minifig.animation.json`, data: json(MINIFIG_ANIMATIONS) });

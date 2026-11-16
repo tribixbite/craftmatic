@@ -591,8 +591,14 @@ standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
   from that cell's root all the same: 10261 keeps three such cubes (one
   reaching 102 blocks at 400 %) and 10326 seventeen (84 blocks), so a part
   of those cubes is not drawn until the camera is within 70 of the root
-  (`oversizedCubes`, warned; splitting a final cube is outside the split's
-  contract, `TODO(cull)`). In the simulator 10261 at 400 % from 40 blocks
+  (`oversizedCubes`, warned). **Since 2026-11-15 (A-18) such a cube is CUT**
+  (`cutOversizedShellCubes`): halved along its longest local axis until each
+  piece reaches within the target from its own cell's root, every piece
+  keeping the cube's rotation, pivot, UV and `inflate`, so the drawn box is
+  the same and the cut faces sit back to back inside it. The added pieces are
+  resident cuboids and are counted in the shell's `cubeCount`; a piece may
+  land in a cell no other cube used, which is a NEW chunk id a world placed
+  with an older pack does not spawn until the model is re-placed. In the simulator 10261 at 400 % from 40 blocks
   west of the pin now draws 1 and 2 of its 4 loaded chunks (nearest root
   53.9 / 57.2 blocks) where the 20-block lattice drew none of 6 (nearest
   87.1). Whether the phone draws a 400 % chunk out to the 70-block ceiling
@@ -1727,6 +1733,13 @@ throughout and nothing from the new packs placed:
   What it was is unknown; do not quote 260k for anything any more.
 - Drawn cuboids remain a separate limit (~50-100k visible hold 60 fps,
   ~150k hold 30); the budget expresses resident definitions only.
+- **The four favourites over the `standard` tier's 60,000 (audit A-19, 2026-11-15)** are within this budget:
+  10261 88,949 (18.5 %), 10303 87,906, 76417 68,904, 76269 60,491 resident cuboids (favourites sweep `4da29033`).
+  The shell is most of each (74,650 / 70,629 / 57,672 / 46,668) and is already COARSENED by the grain planner, which
+  asks 217,068 / 143,911 / 131,338 / 110,578 cuboids at 2 LDU and ships at fidelity 0.907 / 0.927 / 0.956 /
+  0.948 (0.932 / 0.942 / 0.964 / 0.957 at 2 LDU), so any further cut is a fidelity loss; the rest is figures
+  (7,289 / 4,964 / 7,625 / 13,503), ride cars (6,194 / 6,708 / 3,288 / -) and doors. Not reduced: the 60k tier is a
+  "~8 such packs at once" planning number, not a measured limit.
 - **Milano 76286-v2 (mast fix): PASS at 100 %** — the v2 ship rests its gear
   on the ground (`ceiling/shots/milano-v2-100-view.jpg`); 400 % not tested.
 - Traps: **`adb push` does not truncate a shorter target** — reverting a 137-line
@@ -5138,6 +5151,47 @@ and whatever shares its plane goes in front; buried pairs are left alone.
 Diagnostics: `coplanar {pairsFound, areaFound, facesGrown, pairsLeft}` per
 entity. After (`b6c1c882`): 76417 264 / 1.0, 76457 214 / 0.98, 10365 121 /
 1.0, 42703 42 / 0.32, 11374 571 / 1.78.
+
+**What survived it (A-17, 2026-11-15)**, 8,509 pairs / 30.5 block faces over
+the 40 favourites: 56 % were pairs INSIDE one shell left by the three-pass
+cap (a push lands the winner on a third face's plane, a chain; re-separating
+the shipped shells settled every one within 7 more passes), and 43 % were
+pairs BETWEEN entities, which a per-entity pass cannot see: a door leaf,
+window or turntable flush with the shell, a figure's foot on a plate, a
+pinball button in its cabinet. The pass now runs to convergence (cap
+`COPLANAR_SEPARATION_MAX_PASSES` 10), and once every entity is placed
+`separateEntitiesFromNeighbours` (cross-entity-coplanar.ts) pushes each
+placed entity's face out in front of the shell chunks and of the entities
+handled before it, rewriting only that entity's geometry. Coaster cars, ride
+cars/seats and riding figures are skipped: their placement record is not
+where they rest (`TODO(a17-moving)`).
+
+Two measuring faults hid the rest (same day). `coplanarFaces` bucketed faces by
+their normal rounded to 1e-3 and by plane offset `d`: two Euler spellings of
+one tilt (76269's turned floor: `[-0.01, 46.71, 1.47]` and
+`[-179.97, 43.29, -178.48]`) are 0.026 degrees apart, so their normals rounded
+into neighbouring buckets, and their offsets - measured at the frame's origin
+- differed by 0.04 units at the compile's origin and by 0.007 at the model's
+placement. The compile measured nothing there and the audit counted 133 pairs
+in one chunk. Candidates now come from the 26 neighbouring normal buckets too,
+cut into runs along the normal's dominant axis, and each pair's distance is
+measured over its OVERLAP (`CoplanarHit.lead` / `leadBack`), which the
+separation pushes against. The audit is position-independent since, so counts
+before 2026-11-15 under-read near-parallel pairs; compare builds only under one
+version of the tool. `buriedFaceTest` had the same fault (contacts indexed by plane offset) and
+reads contacts over the overlap since. One pass now settles a plane's layers
+(each pair is a constraint `disp(w) >= disp(l) + offset - lead`, relaxed), a
+pass after a push measures only near the moved faces, and the cap is 16.
+
+Result (`_render_fault_audit.ts` at the final tool, packs built with face art
+like the favourites gate `favgate-e7da6e47`, pairs / block faces before ->
+after): 11374 710 / 2.25 -> 0 / 0.00, 76269 678 / 2.79 -> 5 / 0.01, 75397
+152 / 0.81 -> 0, 41395 22 / 0.06 -> 0, 42663 32 / 0.08 -> 0, 10303 575 /
+1.83 -> 322 / 1.03, 10261 198 / 1.30 -> 70 / 0.89. What is left on the two
+coasters is their cars (and 10303's counterweight) measured at the station
+record point, where every car of a train is recorded; the ride spaces them
+along the track (`TODO(a17-moving)`). Over the 40 favourites the baseline at
+this tool is 10,627 pairs / 40.43 block faces (sweep `4da29033`).
 
 **What it does not fix**: the horizontal striping under 42703's arches and
 on round columns (Saga, `saga/after-42703-arch-b6c1c882.jpg`) is the stair-step

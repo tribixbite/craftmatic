@@ -369,6 +369,16 @@ boxes are identical (test/marketplace-blocks.test.ts compares all 43 x 136). Two
 the one spelling (identity for `lo`/`hi`; the encoding is read from the state name, a name ending `_a` is compact) and
 every runtime that lays or reads a collider goes through them or through `ColliderBodyProbe.readSpan`; the structure
 tiles' palette is respelled by `compactColliderPalette`. NOT device-proven: the dev pack keeps `lo`/`hi`.
+**Why the dev pack stays at 11,008 (audit A-19, checked 2026-11-15).** The 10,000 limit is the Marketplace's; the
+release profile already meets it (6,192), and the dev pack is what the phones and saved worlds hold. Neither cheaper
+spelling is compatible with a world placed by an earlier dev pack: the placed collider blocks carry `lo`/`hi`, and
+the shipped block ids are shared by every pack bound to the world (`craftmatic:collider*`, one namespace).
+Registering only the forms a pack uses would REMOVE ids an older build laid (the wand re-lays at every size and turn,
+so the set a model uses is not fixed), and Bedrock turns a placed block whose id no pack defines into an "Unknown"
+block (CurseForge "Unknown Block Remover", r/MinecraftMod); the release update policy forbids it outright ("never
+remove a shipped entity, block or item id", docs/plans/business-D-free-releases.md section 8). Respelling `lo`/`hi` as
+`cell_a`/`cell_b` invalidates every placed block's states. So the dev pack keeps all 43 x 256; a store build uses the
+profile.
 Own brick blocks (`flags.brickBlocks`, marketplace/blocks.ts): `<ns>:brick_<colour>` and `<ns>:plate_<colour>`, no
 states (1 permutation each), textures `textures/blocks/craftmatic_brick_<colour>[_top].png`, replacing the vanilla
 `concrete_<colour>.png` overrides. The two

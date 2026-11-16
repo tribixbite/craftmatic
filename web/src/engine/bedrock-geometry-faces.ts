@@ -373,8 +373,16 @@ export interface CoplanarHit {
   b: { actor: number; colour: string; group: number; cube: number; face: string };
   /** Overlap area, model units² (256 = one block face). */
   area: number;
-  /** The gap between the two planes, model units (0 = exactly coplanar). */
+  /** The least distance between the two planes over the overlap, model units (0 = they touch or cross there). */
   gap: number;
+  /**
+   * How far face `a` stands IN FRONT of face `b`'s plane over the overlap, at its worst corner (model units, along
+   * `b`'s normal; negative = behind). Two planes a fraction of a degree apart (two Euler spellings of one tilt) are
+   * not parallel, so a plane-offset difference measured at the frame's origin is not the distance where they overlap.
+   */
+  lead: number;
+  /** The same for face `b` in front of face `a`'s plane. */
+  leadBack: number;
   /** A point of the overlap region in the shared frame, blocks. */
   at: Vec3;
   normal: Vec3;
@@ -387,61 +395,115 @@ export interface CoplanarOptions {
   minArea?: number;
 }
 
+/** The overlap of two (near-)coplanar quads as a polygon on the first face's plane, model units; empty when none. */
+function overlapPolygon(a: WorldFace, b: WorldFace): { area: number; points: Vec3[] } {
+  const [u, v] = planeBasis(a.normal);
+  const proj = (q: readonly Vec3[]): P2[] => {
+    const p = q.map(c => [dot(c, u), dot(c, v)] as P2);
+    return area2(p) < 0 ? p.reverse() : p;
+  };
+  const clipped = clipPolygon(proj(a.corners), proj(b.corners));
+  if (clipped.length < 3) return { area: 0, points: [] };
+  // Back onto the first face's plane: p = s·u + t·v + d·n (u, v, n orthonormal).
+  const points = clipped.map(([s, t]): Vec3 => [
+    s * u[0] + t * v[0] + a.d * a.normal[0], s * u[1] + t * v[1] + a.d * a.normal[1], s * u[2] + t * v[2] + a.d * a.normal[2],
+  ]);
+  return { area: Math.abs(area2(clipped)), points };
+}
+
 /**
  * Every pair of drawn faces that share a plane and a facing, overlap by a
  * positive area and differ in colour (`hits`), plus the same-colour total.
+ *
+ * Candidates: faces are grouped by their normal quantised to 1e-3 per component, and a group is measured together
+ * with the 26 groups one step away (two Euler spellings of one tilt round their normals either side of a step:
+ * 76269's turned floor, A-17). Within that pool the faces are cut into runs that touch along the normal's dominant
+ * axis (each face's extent on that axis, widened by `planeEps`), and each run is swept over its 2-D boxes in the
+ * plane. The distance between two planes is then measured WHERE THEY OVERLAP (`lead`), never as the difference of
+ * their plane offsets: two planes 0.026 degrees apart differ by 0.04 units in offset at the frame's origin and by
+ * 0.007 at the model 20 blocks out, so the offset test found 23 of a 76269 chunk's 133 pairs at the origin and all
+ * of them at its placement - and the compile, which measures at the origin, left the rest.
  */
 export function coplanarFaces(faces: readonly WorldFace[], options: CoplanarOptions = {}): { hits: CoplanarHit[]; sameColourArea: number } {
   const eps = options.planeEps ?? 0.02, minArea = options.minArea ?? 0.01;
-  // Bucket by quantised normal and plane offset; a face also probes the
-  // neighbouring offset bucket so a plane straddling a boundary is not missed.
-  const q = (x: number, s: number): number => Math.round(x / s);
-  const nkey = (n: Vec3): string => `${q(n[0], 1e-3)},${q(n[1], 1e-3)},${q(n[2], 1e-3)}`;
-  const buckets = new Map<string, number[]>();
+  const q = (x: number): number => Math.round(x / 1e-3);
+  const nkey = (a: number, b: number, c: number): string => `${a},${b},${c}`;
+  const groups = new Map<string, { n: [number, number, number]; list: number[] }>();
   faces.forEach((f, i) => {
-    const key = `${nkey(f.normal)}|${Math.floor(f.d / eps)}`;
-    let list = buckets.get(key);
-    if (!list) buckets.set(key, list = []);
-    list.push(i);
+    const n: [number, number, number] = [q(f.normal[0]), q(f.normal[1]), q(f.normal[2])];
+    const key = nkey(...n);
+    let g = groups.get(key);
+    if (!g) groups.set(key, g = { n, list: [] });
+    g.list.push(i);
+  });
+  // Each face's box, once.
+  const lo = new Float64Array(faces.length * 3), hi = new Float64Array(faces.length * 3);
+  faces.forEach((f, i) => {
+    for (let k = 0; k < 3; k++) {
+      let a = Infinity, b = -Infinity;
+      for (const c of f.corners) { if (c[k]! < a) a = c[k]!; if (c[k]! > b) b = c[k]!; }
+      lo[i * 3 + k] = a; hi[i * 3 + k] = b;
+    }
   });
   const hits: CoplanarHit[] = [];
   let sameColourArea = 0;
   const seenPair = new Set<string>();
-  for (const [key, list] of buckets) {
-    const [nk, dk] = key.split('|');
-    const neighbour = buckets.get(`${nk}|${Number(dk) + 1}`) ?? [];
-    const pool = [...list, ...neighbour];
-    // 2D bounding boxes in a shared basis for a sweep over u.
-    const f0 = faces[list[0]!]!;
-    const [u, v] = planeBasis(f0.normal);
-    const box = pool.map(i => {
-      const c = faces[i]!.corners;
-      const us = c.map(p => dot(p, u)), vs = c.map(p => dot(p, v));
-      return { i, u0: Math.min(...us), u1: Math.max(...us), v0: Math.min(...vs), v1: Math.max(...vs) };
-    }).sort((a, b) => a.u0 - b.u0);
+  for (const { n: [nx, ny, nz], list } of groups.values()) {
+    const pool = [...list];
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) {
+      if (a === 0 && b === 0 && c === 0) continue;
+      const other = groups.get(nkey(nx + a, ny + b, nz + c));
+      if (other) pool.push(...other.list);
+    }
     const inList = new Set(list);
-    for (let x = 0; x < box.length; x++) {
-      const A = box[x]!;
-      for (let y = x + 1; y < box.length && box[y]!.u0 < A.u1 - 1e-6; y++) {
-        const B = box[y]!;
-        // Pairs wholly inside the neighbour bucket are that bucket's business.
-        if (!inList.has(A.i) && !inList.has(B.i)) continue;
-        if (B.v0 >= A.v1 - 1e-6 || A.v0 >= B.v1 - 1e-6) continue;
-        const fa = faces[A.i]!, fb = faces[B.i]!;
-        const gap = Math.abs(fa.d - fb.d);
-        if (gap > eps) continue;
-        const pk = A.i < B.i ? `${A.i}:${B.i}` : `${B.i}:${A.i}`;
-        if (seenPair.has(pk)) continue;
-        seenPair.add(pk);
-        const area = overlapArea(fa, fb);
-        if (area < minArea) continue;
-        if (fa.colour === fb.colour) { sameColourArea += area; continue; }
-        const c = fa.corners.reduce<Vec3>((s, p) => [s[0] + p[0] / 4, s[1] + p[1] / 4, s[2] + p[2] / 4], [0, 0, 0]);
-        hits.push({
-          a: { actor: fa.actor, colour: fa.colour, group: fa.group, cube: fa.cube, face: fa.face },
-          b: { actor: fb.actor, colour: fb.colour, group: fb.group, cube: fb.cube, face: fb.face },
-          area, gap, at: [c[0] / 16, c[1] / 16, c[2] / 16], normal: fa.normal,
-        });
+    const f0 = faces[list[0]!]!;
+    const ax = Math.abs(f0.normal[0]), ay = Math.abs(f0.normal[1]), az = Math.abs(f0.normal[2]);
+    const k = ax >= ay && ax >= az ? 0 : ay >= az ? 1 : 2;
+    pool.sort((i, j) => lo[i * 3 + k]! - lo[j * 3 + k]!);
+    const [u, v] = planeBasis(f0.normal);
+    // Runs of faces whose extents on the dominant axis touch (within eps): only they can share a plane.
+    for (let start = 0; start < pool.length;) {
+      let end = start + 1, reach = hi[pool[start]! * 3 + k]!;
+      while (end < pool.length && lo[pool[end]! * 3 + k]! <= reach + eps) { reach = Math.max(reach, hi[pool[end]! * 3 + k]!); end++; }
+      const run = pool.slice(start, end);
+      start = end;
+      if (run.length < 2 || !run.some(i => inList.has(i))) continue;
+      const box = run.map(i => {
+        const cs = faces[i]!.corners;
+        const us = cs.map(p => dot(p, u)), vs = cs.map(p => dot(p, v));
+        return { i, u0: Math.min(...us), u1: Math.max(...us), v0: Math.min(...vs), v1: Math.max(...vs) };
+      }).sort((a, b) => a.u0 - b.u0);
+      for (let x = 0; x < box.length; x++) {
+        const A = box[x]!;
+        for (let y = x + 1; y < box.length && box[y]!.u0 < A.u1 - 1e-6; y++) {
+          const B = box[y]!;
+          // A pair with neither face in this group is another group's business.
+          if (!inList.has(A.i) && !inList.has(B.i)) continue;
+          if (B.v0 >= A.v1 - 1e-6 || A.v0 >= B.v1 - 1e-6) continue;
+          // Boxes apart by more than eps on any axis cannot share a plane over an overlap.
+          let apart = false;
+          for (let t = 0; t < 3 && !apart; t++) apart = lo[B.i * 3 + t]! > hi[A.i * 3 + t]! + eps || lo[A.i * 3 + t]! > hi[B.i * 3 + t]! + eps;
+          if (apart) continue;
+          const pk = A.i < B.i ? `${A.i}:${B.i}` : `${B.i}:${A.i}`;
+          if (seenPair.has(pk)) continue;
+          seenPair.add(pk);
+          const fa = faces[A.i]!, fb = faces[B.i]!;
+          const { area, points } = overlapPolygon(fa, fb);
+          if (area < minArea) continue;
+          // The first face's plane over the overlap, measured against the second's plane along its normal.
+          let smin = Infinity, smax = -Infinity;
+          for (const p of points) { const s = dot(fb.normal, p) - fb.d; if (s < smin) smin = s; if (s > smax) smax = s; }
+          const gap = smin > 0 ? smin : smax < 0 ? -smax : 0;
+          if (gap > eps) continue;
+          if (fa.colour === fb.colour) { sameColourArea += area; continue; }
+          const cosab = dot(fa.normal, fb.normal);
+          const c = points.reduce<Vec3>((s, p) => [s[0] + p[0] / points.length, s[1] + p[1] / points.length, s[2] + p[2] / points.length], [0, 0, 0]);
+          hits.push({
+            a: { actor: fa.actor, colour: fa.colour, group: fa.group, cube: fa.cube, face: fa.face },
+            b: { actor: fb.actor, colour: fb.colour, group: fb.group, cube: fb.cube, face: fb.face },
+            area, gap, lead: smin, leadBack: Math.min(-smin * cosab, -smax * cosab), at: [c[0] / 16, c[1] / 16, c[2] / 16], normal: fa.normal,
+          });
+        }
       }
     }
   }
@@ -494,16 +556,61 @@ const faceArea = (q: readonly Vec3[]): number => Math.hypot(...cross(sub(q[1]!, 
  * neither the separation nor the audit counts it.
  */
 export function buriedFaceTest(faces: readonly WorldFace[]): (f: WorldFace) => boolean {
-  const planeKey = (n: Vec3, d: number, k: number): string => `${Math.round(n[0] * 1e3)},${Math.round(n[1] * 1e3)},${Math.round(n[2] * 1e3)}|${Math.floor(d / CONTACT_EPS) + k}`;
-  const byPlane = new Map<string, WorldFace[]>();
-  for (const f of faces) { const key = planeKey(f.normal, f.d, 0); let list = byPlane.get(key); if (!list) byPlane.set(key, list = []); list.push(f); }
+  // Faces are indexed by normal (quantised to 1e-3) and by the 16-unit cells their boxes cover; a query looks at the
+  // 27 normal buckets around its OPPOSITE normal and the cells its own box covers, and measures the contact over the
+  // overlap. Until 2026-11-15 the index was the plane offset `d`, which for two nearly parallel faces (two Euler
+  // spellings of one tilt) depends on where the model stands: 75397's boat shipped 25 pairs the compile, measuring at
+  // the frame's origin, had judged buried (A-17).
+  const G = 16;
+  const q = (x: number): number => Math.round(x * 1e3);
+  const boxOf = (f: WorldFace): number[] => {
+    const b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    for (const c of f.corners) for (let k = 0; k < 3; k++) { if (c[k]! < b[k]!) b[k] = c[k]!; if (c[k]! > b[k + 3]!) b[k + 3] = c[k]!; }
+    return b;
+  };
+  const cellsOf = (b: number[], pad: number, visit: (key: string) => void): void => {
+    for (let x = Math.floor((b[0]! - pad) / G); x <= Math.floor((b[3]! + pad) / G); x++)
+      for (let y = Math.floor((b[1]! - pad) / G); y <= Math.floor((b[4]! + pad) / G); y++)
+        for (let z = Math.floor((b[2]! - pad) / G); z <= Math.floor((b[5]! + pad) / G); z++) visit(`${x},${y},${z}`);
+  };
+  // Faces by normal now; each normal's cell grid only when a query first needs it (the separation asks about the few
+  // faces of its pairs, and building every grid for a 250,000-face entity each pass cost seconds).
+  const byNormal = new Map<string, WorldFace[]>();
+  for (const f of faces) {
+    const nk = `${q(f.normal[0])},${q(f.normal[1])},${q(f.normal[2])}`;
+    let l = byNormal.get(nk);
+    if (!l) byNormal.set(nk, l = []);
+    l.push(f);
+  }
+  const grids = new Map<string, Map<string, WorldFace[]>>();
+  const gridOf = (nk: string): Map<string, WorldFace[]> | undefined => {
+    let g = grids.get(nk);
+    if (g) return g;
+    const list = byNormal.get(nk);
+    if (!list) return undefined;
+    grids.set(nk, g = new Map());
+    for (const f of list) cellsOf(boxOf(f), 0, cell => { let l = g!.get(cell); if (!l) g!.set(cell, l = []); l.push(f); });
+    return g;
+  };
   return (f: WorldFace): boolean => {
     const area = faceArea(f.corners);
-    const n: Vec3 = [-f.normal[0], -f.normal[1], -f.normal[2]];
-    for (const k of [-1, 0, 1]) for (const o of byPlane.get(planeKey(n, -f.d, k)) ?? []) {
-      if (Math.abs(o.d + f.d) <= CONTACT_EPS && overlapArea(f, o) >= area * 0.98) return true;
-    }
-    return false;
+    const n = [q(-f.normal[0]), q(-f.normal[1]), q(-f.normal[2])];
+    const seen = new Set<WorldFace>();
+    let hit = false;
+    cellsOf(boxOf(f), CONTACT_EPS, cell => {
+      if (hit) return;
+      for (let a = -1; a <= 1 && !hit; a++) for (let b = -1; b <= 1 && !hit; b++) for (let c = -1; c <= 1 && !hit; c++) {
+        for (const o of gridOf(`${n[0]! + a},${n[1]! + b},${n[2]! + c}`)?.get(cell) ?? []) {
+          if (seen.has(o)) continue;
+          seen.add(o);
+          const { area: over, points } = overlapPolygon(f, o);
+          if (over < area * 0.98) continue;
+          // Pressed together over the whole overlap: every point of it within CONTACT_EPS of the other face's plane.
+          if (points.every(p => Math.abs(dot(o.normal, p) - o.d) <= CONTACT_EPS)) { hit = true; break; }
+        }
+      }
+    });
+    return hit;
   };
 }
 
@@ -529,6 +636,28 @@ export interface CoplanarSeparation {
 }
 
 /**
+ * How many times the separation re-measures and pushes again. A pushed face can land on the plane of a THIRD face
+ * one separation further out (a tile on a plate on a slope, a stack of flush details), so the pushes form chains;
+ * each pass settles one more link. Three passes (until 2026-11-15) left 530 pairs in 11374's shell and 8,509 over
+ * the 40 favourites (A-17); re-separating those shipped shells settled every one within seven more passes
+ * (`output/a17/resep.ts` in the audit-render worktree). The Time Machine body (10300, 250,000 faces) takes 9 pushing
+ * passes; 16 leaves margin. Only the first pass and the closing check measure the whole entity (a pass after a push
+ * looks near the moved faces, `separateCoplanarAgainst`), so a pass costs a fraction of the first, and an entity with
+ * no pair pays for one pass, as before.
+ */
+export const COPLANAR_SEPARATION_MAX_PASSES = 16;
+
+export interface CoplanarSeparationOptions {
+  offset?: number; passes?: number; planeEps?: number;
+  /**
+   * The entity's own pairs were already separated (the compiler ran `separateCoplanarFaces` on it): a full pass then
+   * looks only at its faces near the fixed neighbours, and an entity with no neighbour near it is left as it is.
+   * The cross-entity pass sets it; re-measuring a 250,000-face car against nothing cost 5 s a build.
+   */
+  settledOwn?: boolean;
+}
+
+/**
  * Remove every different-colour coplanar overlap from ONE entity's geometry by
  * pushing the winning face of each pair out by `offset` (in place: the cubes'
  * `origin`/`size` are rewritten in their own bone frame, so a rotated bone's
@@ -544,51 +673,188 @@ export interface CoplanarSeparation {
  *
  * Decal cubes (per-face UV) are never moved: they already stand proud of the
  * head (`DECAL_PROUD_LDU`). Far-only groups (the LOD hull) are left alone.
- * Runs up to `passes` times, re-measuring, because a pushed face can meet a
- * third face; what is left is returned rather than hidden.
+ * Runs up to `passes` times (`COPLANAR_SEPARATION_MAX_PASSES`), re-measuring,
+ * because a pushed face can meet a third face; what is left is returned rather
+ * than hidden.
  */
-export function separateCoplanarFaces(entry: AddonAppearanceEntry, options: { offset?: number; passes?: number; planeEps?: number } = {}): CoplanarSeparation {
+export function separateCoplanarFaces(entry: AddonAppearanceEntry, options: CoplanarSeparationOptions = {}): CoplanarSeparation {
+  return separateCoplanarAgainst([{ typeId: 'self', kind: 'self', entry, at: { x: 0, y: 0, z: 0 }, yawDeg: 0 }], [], options);
+}
+
+/**
+ * `separateCoplanarFaces` for an entity drawn among OTHER entities: `placements` are every placement of one entity
+ * (all sharing one `entry`, the geometry that is rewritten) in the shared frame, and `fixed` the drawn faces of what
+ * stands around them (`worldFaces` of the neighbours), which this pass may not move. A door leaf flush with its
+ * frame, a turntable on its floor, a figure's foot on a plate: a separate entity's face on the shell's plane hatches
+ * exactly as a pair inside one entity does (A-17: 13 of the 30.5 block faces left over the 40 favourites were such
+ * pairs), but the shell is already shipped and shared by every neighbour, so it is the placed entity's face that is
+ * pushed out - the detail in front of the surface it sits on, as the rule above picks inside an entity. A decal face
+ * on a neighbour's plane cannot move and is counted as left.
+ *
+ * Pairs between two placements of the same entity are not separated (one cube draws both, so growing it moves
+ * both faces), and pairs among the fixed faces are the neighbours' own business. The fixed faces are clipped to the
+ * placements' reach once, so a door in a 500,000-face shell measures only the faces near it.
+ */
+export function separateCoplanarAgainst(placements: readonly AuditActor[], fixed: readonly WorldFace[], options: CoplanarSeparationOptions = {}): CoplanarSeparation {
   const offset = options.offset ?? COPLANAR_SEPARATION_UNITS;
-  const maxPasses = options.passes ?? 3;
-  const actor: AuditActor = { typeId: 'self', kind: 'self', entry, at: { x: 0, y: 0, z: 0 }, yawDeg: 0 };
+  const maxPasses = options.passes ?? COPLANAR_SEPARATION_MAX_PASSES;
+  const planeEps = Math.max(options.planeEps ?? 0.02, offset * 0.5);
+  const entry = placements[0]!.entry;
+  if (placements.some(p => p.entry !== entry)) throw new Error('separateCoplanarAgainst: every placement must share one entry (the geometry it rewrites).');
+  const own = placements.length;
   const result: CoplanarSeparation = { pairsFound: 0, areaFound: 0, facesGrown: 0, pairsLeft: 0, passes: 0 };
-  for (let pass = 0; pass <= maxPasses; pass++) {
-    const faces = worldFaces([actor]);
+  // The neighbours' faces that can meet this entity, re-indexed after the placements (`own + actor`) so keys never
+  // collide: inside the entity's own box and on (or facing) one of its own planes, each widened by every push the
+  // passes can make plus the plane tolerance. A face on no plane of the entity can neither pair with one of its faces
+  // nor bury one (`buriedFaceTest` reads the opposite face on the same plane), so a door in a 500,000-face shell
+  // measures a few hundred neighbours, not the shell.
+  let neighbours: WorldFace[] = [];
+  if (fixed.length) {
+    const lo: Vec3 = [Infinity, Infinity, Infinity], hi: Vec3 = [-Infinity, -Infinity, -Infinity];
+    const pad = offset * (maxPasses + 1) + planeEps + 0.01;
+    const nkey = (n: Vec3): string => `${Math.round(n[0] * 1e3)},${Math.round(n[1] * 1e3)},${Math.round(n[2] * 1e3)}`;
+    const planes = new Map<string, number[]>();
+    const addPlane = (n: Vec3, d: number): void => { const k = nkey(n); let l = planes.get(k); if (!l) planes.set(k, l = []); l.push(d); };
+    for (const f of worldFaces(placements)) {
+      for (const c of f.corners) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k]!, c[k]!); hi[k] = Math.max(hi[k]!, c[k]!); }
+      addPlane(f.normal, f.d); addPlane([-f.normal[0], -f.normal[1], -f.normal[2]], -f.d);
+    }
+    for (const l of planes.values()) l.sort((a, b) => a - b);
+    const onPlane = (f: WorldFace): boolean => {
+      const l = planes.get(nkey(f.normal));
+      if (!l) return false;
+      let a = 0, b = l.length;
+      while (a < b) { const m = (a + b) >> 1; if (l[m]! < f.d - pad) a = m + 1; else b = m; }
+      return a < l.length && l[a]! <= f.d + pad;
+    };
+    const near = (f: WorldFace): boolean => {
+      for (let k = 0; k < 3; k++) {
+        let a = Infinity, b = -Infinity;
+        for (const c of f.corners) { if (c[k]! < a) a = c[k]!; if (c[k]! > b) b = c[k]!; }
+        if (b < lo[k]! - pad || a > hi[k]! + pad) return false;
+      }
+      return true;
+    };
+    for (const f of fixed) if (near(f) && onPlane(f)) neighbours.push({ ...f, actor: own + f.actor });
+  }
+  const key = (f: { actor: number; group: number; cube: number; face: string }): string => `${f.actor}:${f.group}:${f.cube}:${f.face}`;
+  /**
+   * One pass's plan over `faces` (all of them, or those near the faces the last pass moved), with the buried test
+   * and face lookup over `all`: the pushes it wants and the visible pairs still closer than `offset`.
+   */
+  const plan = (faces: WorldFace[], all: WorldFace[]): { grow: Map<string, number>; pending: number; pendingArea: number } => {
     const byKey = new Map<string, WorldFace>();
-    for (const f of faces) byKey.set(`${f.group}:${f.cube}:${f.face}`, f);
-    const buried = buriedFaceTest(faces);
-    const { hits } = coplanarFaces(faces, { planeEps: Math.max(options.planeEps ?? 0.02, offset * 0.5) });
-    const grow = new Map<string, number>();
+    for (const f of all) byKey.set(key(f), f);
+    const buried = buriedFaceTest(all);
+    const { hits } = coplanarFaces(faces, { planeEps });
+    // Every pair the pass sees is a constraint `disp(w) >= disp(l) + offset - lead`, the loser's own push included:
+    // N faces of N colours on one plane are N - 1 layers, and pushing each winner by its own pair's need alone put the
+    // pushed faces on one plane again, one layer settled per pass (42172's body still had 444 pairs after 10 passes).
+    // The winner rule is an order (area, volume, alpha, group, cube; a decal or a neighbour never wins), so the
+    // constraints are acyclic and relaxing them settles every layer of a plane in one pass.
+    const constraints: Array<{ w: string; l: string | null; need: number }> = [];
     let pending = 0, pendingArea = 0;
     for (const h of hits) {
-      const fa = byKey.get(`${h.a.group}:${h.a.cube}:${h.a.face}`)!, fb = byKey.get(`${h.b.group}:${h.b.cube}:${h.b.face}`)!;
-      const ca = entry.groups[fa.group]!.cubes[fa.cube]!, cb = entry.groups[fb.group]!.cubes[fb.cube]!;
-      if (ca.faceUv && cb.faceUv) continue;
-      const ga = entry.groups[fa.group]!, gb = entry.groups[fb.group]!;
-      const vol = (c: typeof ca): number => Math.abs(c.size[0] * c.size[1] * c.size[2]);
-      const areaA = faceArea(fa.corners), areaB = faceArea(fb.corners);
-      // A decal is never moved; whatever shares its plane (a fringe, a visor,
-      // a hood) is in front of the face, so it is the one pushed out.
-      const aWins = cb.faceUv ? true : ca.faceUv ? false
-        : Math.abs(areaA - areaB) > 1e-6 ? areaA < areaB
-        : Math.abs(vol(ca) - vol(cb)) > 1e-6 ? vol(ca) < vol(cb)
-          : ga.alpha !== gb.alpha ? ga.alpha > gb.alpha
-            : fa.group !== fb.group ? fa.group > fb.group : fa.cube > fb.cube;
-      const [w, l] = aWins ? [fa, fb] : [fb, fa];
+      const aOwn = h.a.actor < own, bOwn = h.b.actor < own;
+      if (!aOwn && !bOwn) continue;
+      if (aOwn && bOwn && h.a.actor !== h.b.actor) continue;
+      const fa = byKey.get(key(h.a))!, fb = byKey.get(key(h.b))!;
+      let w: WorldFace, l: WorldFace;
+      if (aOwn && bOwn) {
+        const ca = entry.groups[fa.group]!.cubes[fa.cube]!, cb = entry.groups[fb.group]!.cubes[fb.cube]!;
+        if (ca.faceUv && cb.faceUv) continue;
+        const ga = entry.groups[fa.group]!, gb = entry.groups[fb.group]!;
+        const vol = (c: typeof ca): number => Math.abs(c.size[0] * c.size[1] * c.size[2]);
+        const areaA = faceArea(fa.corners), areaB = faceArea(fb.corners);
+        // A decal is never moved; whatever shares its plane (a fringe, a visor,
+        // a hood) is in front of the face, so it is the one pushed out.
+        const aWins = cb.faceUv ? true : ca.faceUv ? false
+          : Math.abs(areaA - areaB) > 1e-6 ? areaA < areaB
+          : Math.abs(vol(ca) - vol(cb)) > 1e-6 ? vol(ca) < vol(cb)
+            : ga.alpha !== gb.alpha ? ga.alpha > gb.alpha
+              : fa.group !== fb.group ? fa.group > fb.group : fa.cube > fb.cube;
+        [w, l] = aWins ? [fa, fb] : [fb, fa];
+      } else {
+        // This entity's face goes in front of the neighbour's.
+        [w, l] = aOwn ? [fa, fb] : [fb, fa];
+      }
       if (buried(w) || buried(l)) continue;
-      // Both share the normal; the winner must lead the loser by `offset` along it.
-      const need = l.d - w.d + offset;
-      if (need <= 1e-6) continue;
-      pending++; pendingArea += h.area;
-      const key = `${w.group}:${w.cube}:${w.face}`;
-      grow.set(key, Math.max(grow.get(key) ?? 0, need));
+      // The winner must lead the loser by `offset` over their overlap (`lead`, measured where they overlap: two planes
+      // a fraction of a degree apart are not parallel, so their offsets' difference is not the distance).
+      const need = offset - (w === fa ? h.lead : h.leadBack);
+      if (need > 1e-6) { pending++; pendingArea += h.area; }
+      // A decal on a neighbour's plane cannot move: it is left, and counted.
+      if (entry.groups[w.group]!.cubes[w.cube]!.faceUv) continue;
+      const lOwn = l.actor < own;
+      constraints.push({ w: `${w.group}:${w.cube}:${w.face}`, l: lOwn ? `${l.group}:${l.cube}:${l.face}` : null, need });
     }
+    const grow = new Map<string, number>();
+    for (let round = 0, changed = true; changed && round < 64; round++) {
+      changed = false;
+      for (const c of constraints) {
+        const want = (c.l ? grow.get(c.l) ?? 0 : 0) + c.need;
+        if (want > (grow.get(c.w) ?? 0) + 1e-6) { grow.set(c.w, want); changed = true; }
+      }
+    }
+    for (const [k, g] of grow) if (g <= 1e-6) grow.delete(k);
+    return { grow, pending, pendingArea };
+  };
+  /**
+   * The faces a pass must look at after the last one moved `moved` (entry-level keys): only a moved face can meet a
+   * plane it did not share before, so a pass after the first measures the faces whose boxes come within reach of a
+   * moved face's box (a grid of 32-unit cells), not the whole entity again. A pass that finds nothing to push is
+   * followed by a FULL pass, which alone may declare the separation settled and count what is left.
+   */
+  const nearSeeds = (all: WorldFace[], seed: (f: WorldFace) => boolean, reach: number): WorldFace[] => {
+    // `reach`: how far the seeds moved. A face a seed USED to press against (buried, so unpaired) is that far from it now.
+    const G = 32, pad = planeEps + reach + 0.05;
+    const boxOf = (f: WorldFace): [number, number, number, number, number, number] => {
+      const b: [number, number, number, number, number, number] = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+      for (const c of f.corners) for (let k = 0; k < 3; k++) { if (c[k]! < b[k]!) b[k] = c[k]!; if (c[k]! > b[k + 3]!) b[k + 3] = c[k]!; }
+      return b;
+    };
+    const cells = new Map<string, Array<[number, number, number, number, number, number]>>();
+    for (const f of all) {
+      if (!seed(f)) continue;
+      const b = boxOf(f);
+      for (let k = 0; k < 3; k++) { b[k] -= pad; b[k + 3] += pad; }
+      for (let x = Math.floor(b[0] / G); x <= Math.floor(b[3] / G); x++) for (let y = Math.floor(b[1] / G); y <= Math.floor(b[4] / G); y++) for (let z = Math.floor(b[2] / G); z <= Math.floor(b[5] / G); z++) {
+        const k = `${x},${y},${z}`;
+        let l = cells.get(k);
+        if (!l) cells.set(k, l = []);
+        l.push(b);
+      }
+    }
+    return all.filter(f => {
+      const b = boxOf(f);
+      for (let x = Math.floor(b[0] / G); x <= Math.floor(b[3] / G); x++) for (let y = Math.floor(b[1] / G); y <= Math.floor(b[4] / G); y++) for (let z = Math.floor(b[2] / G); z <= Math.floor(b[5] / G); z++) {
+        for (const m of cells.get(`${x},${y},${z}`) ?? []) if (m[0] <= b[3] && b[0] <= m[3] && m[1] <= b[4] && b[1] <= m[4] && m[2] <= b[5] && b[2] <= m[5]) return true;
+      }
+      return false;
+    });
+  };
+  if (options.settledOwn && !neighbours.length) return result;
+  /** A full pass's faces: all of them, or (`settledOwn`) the entity's faces near its neighbours, and the neighbours. */
+  const fullScope = (all: WorldFace[]): WorldFace[] => (options.settledOwn ? nearSeeds(all, f => f.actor >= own, offset * (maxPasses + 1)) : all);
+  let moved: Set<string> | null = null, movedBy = 0;
+  for (let pass = 0; ; pass++) {
+    const mine = worldFaces(placements);
+    const all = neighbours.length ? mine.concat(neighbours) : mine;
+    const full = moved === null;
+    const seen = moved;
+    const { grow, pending, pendingArea } = plan(seen ? nearSeeds(all, f => f.actor < own && seen.has(`${f.group}:${f.cube}:${f.face}`), movedBy) : fullScope(all), all);
     if (pass === 0) { result.pairsFound = pending; result.areaFound = pendingArea / 256; }
-    // The last pass only measures what is left.
-    if (pass === maxPasses || !grow.size) { result.pairsLeft = pending; return result; }
-    result.passes = pass + 1;
-    for (const [key, g] of grow) {
-      const [group, cube, face] = key.split(':') as [string, string, string];
+    if (!grow.size) {
+      // Settled on a full pass: what is left is counted. Settled near the last pushes: check the whole entity.
+      if (full) { result.pairsLeft = pending; return result; }
+      moved = null;
+      continue;
+    }
+    // At the cap the pushes are not made; a full measure counts what is left.
+    if (result.passes >= maxPasses) { result.pairsLeft = full ? pending : plan(fullScope(all), all).pending; return result; }
+    result.passes++;
+    for (const [k, g] of grow) {
+      const [group, cube, face] = k.split(':') as [string, string, string];
       const c = entry.groups[Number(group)]!.cubes[Number(cube)]!;
       const side = FACE_SIDE[face]!;
       const amount = Math.ceil(g * 100 - 1e-6) / 100; // the compiler writes two decimals: round UP so the lead survives
@@ -596,6 +862,7 @@ export function separateCoplanarFaces(entry: AddonAppearanceEntry, options: { of
       if (!side.max) c.origin[side.axis] = Math.round((c.origin[side.axis] - amount) * 100) / 100;
       result.facesGrown++;
     }
+    moved = new Set(grow.keys());
+    movedBy = Math.max(...grow.values()) + 0.01;
   }
-  return result;
 }

@@ -118,6 +118,85 @@ describe('coplanar faces', () => {
     expect(entry.groups[0]!.cubes[0]!.origin[2]).toBeLessThan(0);
   });
 
+  it('finds a pair whose normals straddle a quantisation step (two bones turned 0.028 and 0.029 degrees) (A-17)', () => {
+    // 76269's shell shipped 121 such pairs on its turned floor: two Euler spellings of one tilt round their normals
+    // into neighbouring 1e-3 buckets, so the per-bucket sweep never compared them and the separation never ran.
+    const deg = (s: number): number => Math.asin(s) / DEG;
+    const entry = sunkTile();
+    entry.bones = [{ name: 'a', pivot: [0, 0, 0], rotation: [0, 0, deg(0.00049)] }, { name: 'b', pivot: [0, 0, 0], rotation: [0, 0, deg(0.00051)] }];
+    entry.groups[0]!.cubes[0]!.bone = 'a';
+    entry.groups[1]!.cubes[0]!.bone = 'b';
+    const faces = self(entry);
+    const tops = faces.filter(f => f.face === 'up');
+    expect(new Set(tops.map(f => Math.round(f.normal[0] * 1e3))).size).toBe(2);
+    expect(coplanarFaces(faces).hits).toHaveLength(1);
+    expect(separateCoplanarFaces(entry)).toMatchObject({ pairsFound: 1, pairsLeft: 0 });
+  });
+
+  it('measures two nearly parallel planes where they overlap, wherever the model stands (A-17)', () => {
+    // A plate and a tile sunk into it on bones turned 0 and 0.05 degrees about pivots 12.5 blocks out: the planes
+    // cross over the tile, but their offsets differ by 0.17 units at the frame's origin. The offset test found the
+    // pair only when the model stood near the origin (76269's chunk: 23 of 133 pairs at the origin, the compile's frame).
+    const entry = sunkTile();
+    for (const g of entry.groups) for (const c of g.cubes) c.origin = [c.origin[0] + 200, c.origin[1], c.origin[2]];
+    entry.bones = [{ name: 'a', pivot: [209, 2.4, 9] }, { name: 'b', pivot: [209, 2.4, 9], rotation: [0, 0, 0.05] }];
+    entry.groups[0]!.cubes[0]!.bone = 'a';
+    entry.groups[1]!.cubes[0]!.bone = 'b';
+    const at = (x: number) => worldFaces([{ typeId: 't', kind: 'shell', entry, at: { x, y: 0, z: 0 }, yawDeg: 0 }]);
+    for (const x of [0, -13, 40]) {
+      const { hits } = coplanarFaces(at(x));
+      expect(hits).toHaveLength(1);
+      expect(hits[0]!.gap).toBeLessThan(0.02);
+    }
+    expect(separateCoplanarFaces(entry)).toMatchObject({ pairsFound: 1, pairsLeft: 0 });
+    for (const x of [0, -13]) expect(coplanarFaces(at(x)).hits).toHaveLength(0);
+  });
+
+  it('finds a face buried by a nearly parallel face wherever the model stands (A-17)', () => {
+    // The tile-in-plate pair under a blue plate lying on both, the blue plate on a bone turned 0.05 degrees about a
+    // pivot 13 blocks out: pressed flat over the tile, but its plane offset differs by 0.17 units at the frame's
+    // origin. 75397's boat shipped 25 pairs the compile (at the origin) had judged buried.
+    const entry = sunkTile();
+    entry.groups.push({ ldrawColor: 1, alpha: 1, cubes: [{ bone: 'b', origin: [3, 2.4, 3], size: [12, 2.4, 12] }] });
+    for (const g of entry.groups) for (const c of g.cubes) { c.origin = [c.origin[0] + 200, c.origin[1], c.origin[2]]; c.bone = c.bone === 'b' ? 'b' : 'a'; }
+    entry.bones = [{ name: 'a', pivot: [209, 2.4, 9] }, { name: 'b', pivot: [209, 2.4, 9], rotation: [0, 0, 0.05] }];
+    for (const x of [0, -13, 40]) {
+      const faces = worldFaces([{ typeId: 't', kind: 'shell', entry, at: { x, y: 0, z: 0 }, yawDeg: 0 }]);
+      expect(coplanarFaces(faces).hits).toHaveLength(1);
+      expect(visibleCoplanarHits(faces)).toHaveLength(0);
+    }
+  });
+
+  it('settles five colours on ONE plane in one pass, as layers (A-17)', () => {
+    // Nested tiles sunk flush into a plate, five colours, one top plane: each pair's winner pushed by its own need
+    // alone landed every winner on one plane again, one layer per pass (42172's body: 444 pairs left after 10).
+    const entry: GeoEntryLike = { bones: [{ name: 'body', pivot: [0, 0, 0] }], groups: [] };
+    for (let k = 0; k < 5; k++) entry.groups.push({ ldrawColor: k + 1, alpha: 1, cubes: [{ bone: 'body', origin: [k * 1.5, -4 - k, k * 1.5], size: [18 - 3 * k, 4 + k, 18 - 3 * k] }] });
+    const r = separateCoplanarFaces(entry, { passes: 1 });
+    expect(r.pairsFound).toBe(10);
+    expect(r.pairsLeft).toBe(0);
+    expect(visibleCoplanarHits(self(entry))).toHaveLength(0);
+    // The smallest tile ends four layers out, each larger one a layer under it.
+    const tops = entry.groups.map(g => g.cubes[0]!.origin[1] + g.cubes[0]!.size[1]);
+    for (let k = 1; k < 5; k++) expect(tops[k]! - tops[k - 1]!).toBeGreaterThanOrEqual(COPLANAR_SEPARATION_UNITS - 1e-9);
+  });
+
+  it('runs until a CHAIN of pushes settles: each pushed face meets the next one up (A-17)', () => {
+    // Six nested blocks of six colours: the second's top sits on the first's plane, and every later top sits one
+    // separation above the one before, so each push lands the winner on the next plane. Three passes (the cap
+    // until 2026-11-15) left the last pair on one plane; 530 such pairs survived in 11374's shell.
+    const step = COPLANAR_SEPARATION_UNITS;
+    const entry: GeoEntryLike = { bones: [{ name: 'body', pivot: [0, 0, 0] }], groups: [] };
+    for (let k = 0; k < 6; k++) {
+      const inset = k * 1.5, top = k === 0 ? 0 : (k - 1) * step;
+      entry.groups.push({ ldrawColor: k + 1, alpha: 1, cubes: [{ bone: 'body', origin: [inset, -4 - k, inset], size: [18 - 2 * inset, top + 4 + k, 18 - 2 * inset] }] });
+    }
+    const r = separateCoplanarFaces(entry);
+    expect(r.pairsFound).toBe(1);
+    expect(r.pairsLeft).toBe(0);
+    expect(visibleCoplanarHits(self(entry))).toHaveLength(0);
+  });
+
   it('resolves a coplanar pair on a turned bone along that bone\'s own face', () => {
     const entry = sunkTile();
     entry.bones = [{ name: 'body', pivot: [0, 0, 0] }, { name: 'r1', pivot: [9, 0, 9], rotation: [0, 37, 0] }];

@@ -43,7 +43,7 @@ import type { LegoEntityQuality } from './ldraw-part-prototype.js';
 import { COLLIDER_KIT, COLLIDER_STATES } from './collider-form.js';
 import { addLayerBox, newCellLayers, type CellLayers } from './collider-clearance.js';
 import { ACTOR_DRAW_CEILING_BLOCKS, LOD_CULL_MARGIN_BLOCKS } from './bedrock-lod-hull.js';
-import { boneTransforms, cubeCorners, drawnCubeBox, type GeoCubeLike } from './bedrock-geometry-faces.js';
+import { boneTransforms, cubeCorners, drawnCubeBox, type Affine, type GeoCubeLike } from './bedrock-geometry-faces.js';
 import { JUMP_HEIGHT_BLOCKS } from './addon-scale.js';
 
 /** The custom collider block and its two sixteenth states. */
@@ -146,6 +146,10 @@ export interface StaticShellChunk {
 export interface StaticShellSplitResult {
   chunks: StaticShellChunk[];
   warnings: string[];
+  /** Cubes cut because one reached past the draw target from its cell's root (`cutOversizedShellCubes`, A-18). */
+  cutCubes: number;
+  /** Cuboids those cuts added (pieces minus the cubes they replace): resident, so the pack's count must include them. */
+  addedCubes: number;
 }
 
 interface ShellJsonCube extends Record<string, unknown> {
@@ -277,6 +281,110 @@ export function shellChunkRoot(cell: ShellCell, floorY: number, cubes: readonly 
  */
 export const shellCellReachBlocks = (f: number): number => (Math.sqrt(3) / 2 * STATIC_SHELL_CELL_BLOCKS + STATIC_SHELL_STRADDLE_MARGIN_BLOCKS) * f;
 
+/** Every drawn cube of a shell document, with its drawn centre and corners (blocks, JSON frame). */
+function shellCubeRecords(shellId: string, geometries: readonly ShellJsonGeometry[]): ShellCubeRecord[] {
+  const records: ShellCubeRecord[] = [];
+  let order = 0;
+  geometries.forEach((geometry, geometryIndex) => {
+    const bones = geometry.bones ?? [];
+    const transforms = jsonBoneTransforms(bones);
+    bones.forEach((bone, boneIndex) => (bone.cubes ?? []).forEach((cube, cubeIndex) => {
+      if (cube.rotation && !cube.pivot) throw new Error(`${shellId}: geometry ${geometryIndex} bone ${bone.name} cube ${cubeIndex} is rotated but carries no pivot; the compiler writes both, so this is not its output.`);
+      const drawn = drawnCubeBox(cube);
+      const { center, corners } = drawnCorners(cube, drawn, transforms.get(bone.name)!, bone.name);
+      records.push({ order: order++, geometry: geometryIndex, bone: boneIndex, cube: cubeIndex, center, corners });
+    }));
+  });
+  return records;
+}
+
+/** A shell geometry's bone transforms (`boneTransforms` over its JSON bones). */
+const jsonBoneTransforms = (bones: readonly ShellJsonBone[]): Map<string, Affine> => boneTransforms(bones.map(bone => ({
+  name: bone.name, pivot: bone.pivot ?? [0, 0, 0],
+  ...(bone.rotation ? { rotation: bone.rotation } : {}),
+  ...(bone.parent ? { parent: bone.parent } : {}),
+})));
+
+/** A drawn box's corners and centre, blocks in the JSON frame, through its bone's transform and its own turn. */
+function drawnCorners(cube: ShellJsonCube, drawn: { origin: [number, number, number]; size: [number, number, number] }, transform: Affine, bone: string): { center: Vec3; corners: Vec3[] } {
+  const shape: GeoCubeLike = {
+    bone, origin: drawn.origin, size: drawn.size,
+    ...(cube.rotation ? { rotation: cube.rotation } : {}),
+    ...(cube.pivot ? { pivot: cube.pivot } : {}),
+  };
+  const corners = cubeCorners(shape, transform).map(p => p.map(value => value / 16) as Vec3);
+  const center = [0, 1, 2].map(axis => corners.reduce((sum, p) => sum + p[axis]!, 0) / corners.length) as Vec3;
+  return { center, corners };
+}
+
+/** A piece shorter than this (model units, one block) along its longest axis is never cut again. */
+const MIN_CUT_UNITS = 16;
+
+/**
+ * Cut every box-UV cube that reaches past `STATIC_SHELL_RADIUS_LIMIT_BLOCKS` from its cell's root at the largest wand
+ * factor into pieces that each reach within it from their OWN cell's root (A-18, COL-03). Until 2026-11-15 such a
+ * cube was "retained whole": 46 chunks in 25 favourites kept one reaching 55-102 blocks from its root at 400 %, so its
+ * far end was past the ~70-block draw ceiling of the chunk's root while the player stood beside it.
+ *
+ * A cube is halved along its LONGEST local axis (two-decimal cut, the compiler's precision) and each half is cut
+ * again until it fits; every piece keeps the cube's rotation, pivot, UV and `inflate`, so the pieces draw exactly
+ * the cube's box (the cut faces are back to back inside it, same colour, never seen). Rounding the half to two
+ * decimals keeps the pieces' sum exactly the cube's length. The cell root used is the cell's centre
+ * (`shellCellRoot`), the root a chunk keeps unless every cube fits from the floor plane (`shellChunkRoot`), so a
+ * piece judged in reach stays in reach. A face-UV (decal) cube is a head print, never this long, and is not cut.
+ * The input is not mutated: a geometry with a cut cube is copied with new cube arrays.
+ */
+function cutOversizedShellCubes(geometries: ShellJsonGeometry[], floorY: number): { geometries: ShellJsonGeometry[]; cutCubes: number; addedCubes: number } {
+  let cutCubes = 0, addedCubes = 0;
+  const fits = (center: Vec3, corners: Vec3[]): boolean => {
+    const root = shellCellRoot(shellCellOf(center, floorY), floorY);
+    let reach = 0;
+    for (const p of corners) reach = Math.max(reach, Math.hypot(p[0] - root[0], p[1] - root[1], p[2] - root[2]));
+    return reach * STATIC_SHELL_CULL_MAX_SCALE <= STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-9;
+  };
+  const out = geometries.map(geometry => {
+    const transforms = jsonBoneTransforms(geometry.bones ?? []);
+    let changed = false;
+    const bones = (geometry.bones ?? []).map(bone => {
+      if (!bone.cubes?.length) return bone;
+      const transform = transforms.get(bone.name)!;
+      let boneChanged = false;
+      const cubes = bone.cubes.flatMap(cube => {
+        if (cube.uv && typeof cube.uv === 'object' && !Array.isArray(cube.uv)) return [cube];
+        const k = typeof cube.inflate === 'number' ? cube.inflate : 0;
+        const pieces: Array<{ origin: [number, number, number]; size: [number, number, number] }> = [];
+        const visit = (box: { origin: [number, number, number]; size: [number, number, number] }): void => {
+          const { center, corners } = drawnCorners(cube, box, transform, bone.name);
+          const axis = box.size[0] >= box.size[1] && box.size[0] >= box.size[2] ? 0 : box.size[1] >= box.size[2] ? 1 : 2;
+          if (fits(center, corners) || box.size[axis] < 2 * MIN_CUT_UNITS) { pieces.push(box); return; }
+          const half = round2(box.size[axis] / 2);
+          const a = { origin: [...box.origin] as [number, number, number], size: [...box.size] as [number, number, number] };
+          const b = { origin: [...box.origin] as [number, number, number], size: [...box.size] as [number, number, number] };
+          a.size[axis] = half;
+          b.origin[axis] = round2(box.origin[axis] + half);
+          b.size[axis] = round2(box.size[axis] - half);
+          visit(a); visit(b);
+        };
+        const drawn = drawnCubeBox(cube);
+        visit({ origin: drawn.origin, size: drawn.size });
+        if (pieces.length === 1) return [cube];
+        cutCubes++; addedCubes += pieces.length - 1; boneChanged = true;
+        // Back to the declared box: `inflate` k grows the declared box by k on every side (`drawnCubeBox`).
+        return pieces.map(p => ({
+          ...cube,
+          origin: [round2(p.origin[0] + k), round2(p.origin[1] + k), round2(p.origin[2] + k)] as [number, number, number],
+          size: [round2(p.size[0] - 2 * k), round2(p.size[1] - 2 * k), round2(p.size[2] - 2 * k)] as [number, number, number],
+        }));
+      });
+      if (!boneChanged) return bone;
+      changed = true;
+      return { ...bone, cubes };
+    });
+    return changed ? { ...geometry, bones } : geometry;
+  });
+  return { geometries: out, cutCubes, addedCubes };
+}
+
 /**
  * Split an already-finished static shell into locally rooted actors on a
  * fixed lattice.
@@ -303,41 +411,23 @@ export const shellCellReachBlocks = (f: number): number => (Math.sqrt(3) / 2 * S
  */
 export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): StaticShellSplitResult {
   const document = geo.value as ShellJsonDocument;
-  const geometries = document?.['minecraft:geometry'];
+  let geometries = document?.['minecraft:geometry'];
   if (!Array.isArray(geometries) || geometries.length !== geo.meshes.length)
     throw new Error(`${shellId}: compiled shell geometry/mesh counts do not match (${geometries?.length ?? 0}/${geo.meshes.length}).`);
 
-  const records: ShellCubeRecord[] = [];
-  let order = 0;
-  geometries.forEach((geometry, geometryIndex) => {
-    const bones = geometry.bones ?? [];
-    const transforms = boneTransforms(bones.map(bone => ({
-      name: bone.name, pivot: bone.pivot ?? [0, 0, 0],
-      ...(bone.rotation ? { rotation: bone.rotation } : {}),
-      ...(bone.parent ? { parent: bone.parent } : {}),
-    })));
-    bones.forEach((bone, boneIndex) => (bone.cubes ?? []).forEach((cube, cubeIndex) => {
-      if (cube.rotation && !cube.pivot) throw new Error(`${shellId}: geometry ${geometryIndex} bone ${bone.name} cube ${cubeIndex} is rotated but carries no pivot; the compiler writes both, so this is not its output.`);
-      const drawn = drawnCubeBox(cube);
-      const shape: GeoCubeLike = {
-        bone: bone.name, origin: drawn.origin, size: drawn.size,
-        ...(cube.rotation ? { rotation: cube.rotation } : {}),
-        ...(cube.pivot ? { pivot: cube.pivot } : {}),
-      };
-      const corners = cubeCorners(shape, transforms.get(bone.name)!).map(p => p.map(value => value / 16) as Vec3);
-      const center = [0, 1, 2].map(axis => corners.reduce((sum, p) => sum + p[axis]!, 0) / corners.length) as Vec3;
-      records.push({ order: order++, geometry: geometryIndex, bone: boneIndex, cube: cubeIndex, center, corners });
-    }));
-  });
-
+  let records = shellCubeRecords(shellId, geometries);
   const originalRadius = shellRadius(records, [0, 0, 0]);
   const bonesOf = (g: ShellJsonGeometry[]): number => g.reduce((n, geometry) => n + geometry.bones.length, 0);
   if (originalRadius * STATIC_SHELL_CULL_MAX_SCALE <= STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-9) {
-    return { chunks: [{ id: shellId, cell: [0, 0, 0], geo, offsetBlocks: [0, 0, 0], radiusBlocks: originalRadius, oversizedCubes: 0, buriedRootCubes: 0, bones: bonesOf(geometries) }], warnings: [] };
+    return { chunks: [{ id: shellId, cell: [0, 0, 0], geo, offsetBlocks: [0, 0, 0], radiusBlocks: originalRadius, oversizedCubes: 0, buriedRootCubes: 0, bones: bonesOf(geometries) }], warnings: [], cutCubes: 0, addedCubes: 0 };
   }
 
   // The model's floor plane in the JSON frame (`originLiftBlocks` blocks under the lifted origin): the y lattice's anchor.
   const floorY = -(geo.originLiftBlocks ?? 0);
+  // A cube whose centre is in a cell but which reaches past the draw target from that cell's root (a long rail, a
+  // baseplate run merged across cells) is cut into pieces each within reach of its OWN cell's root (A-18).
+  const cut = cutOversizedShellCubes(geometries, floorY);
+  if (cut.cutCubes) { geometries = cut.geometries; records = shellCubeRecords(shellId, geometries); }
   // Cells in a fixed order (x, then y, then z), so the chunk list - and with it
   // every per-chunk warning and diagnostic - reads the same from one build to the next.
   const partitions = new Map<string, { cell: ShellCell; records: ShellCubeRecord[] }>();
@@ -409,7 +499,7 @@ export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): S
     // A cube that straddles the cell is drawn from this root all the same; one
     // that still reaches past the target at the max scale is counted and named.
     const oversizedCubes = partition.filter(record => cubeReach(record, root) * STATIC_SHELL_CULL_MAX_SCALE > STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-9).length;
-    if (oversizedCubes) warnings.push(`${id}: ${oversizedCubes} final cube${oversizedCubes === 1 ? '' : 's'} reach${oversizedCubes === 1 ? 'es' : ''} up to ${(radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toFixed(2)} blocks from the cell root at ${STATIC_SHELL_CULL_MAX_SCALE}x, past the ${STATIC_SHELL_RADIUS_LIMIT_BLOCKS}-block target; retained whole (a cube straddling the ${STATIC_SHELL_CELL_BLOCKS}-block lattice by more than ${STATIC_SHELL_STRADDLE_MARGIN_BLOCKS} blocks).`);
+    if (oversizedCubes) warnings.push(`${id}: ${oversizedCubes} final cube${oversizedCubes === 1 ? '' : 's'} reach${oversizedCubes === 1 ? 'es' : ''} up to ${(radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toFixed(2)} blocks from the cell root at ${STATIC_SHELL_CULL_MAX_SCALE}x, past the ${STATIC_SHELL_RADIUS_LIMIT_BLOCKS}-block target, though cut to pieces under ${2 * MIN_CUT_UNITS / 16} blocks long (cutOversizedShellCubes): a piece that short cannot reach that far from its own cell, so this is not the compiler's output.`);
     let buriedRootCubes = 0;
     for (const record of records) {
       const box = shellBounds([record]);
@@ -443,7 +533,7 @@ export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): S
       radiusBlocks, oversizedCubes, buriedRootCubes, bones: bonesOf(chunkGeometries),
     };
   });
-  return { chunks, warnings };
+  return { chunks, warnings, cutCubes: cut.cutCubes, addedCubes: cut.addedCubes };
 }
 
 /**
