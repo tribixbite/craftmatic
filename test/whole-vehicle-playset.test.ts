@@ -14,6 +14,10 @@ import { runSchemPipeline } from '../web/src/engine/schem-pipeline.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import { compileLdrawEntityGeometry } from '../web/src/engine/ldraw-entity-compiler.js';
 import { FIXED_STAMP, box6, seedBoxParts, text, unzipAll } from './pack-profile-support.js';
+import { readAddon } from '../web/src/sim/pack/pack.js';
+import { readCraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.js';
+import { craftmaticHandlers } from '../web/src/sim/adapters/craftmatic/child-play.js';
+import { runScenario } from '../web/src/sim/scenario/runner.js';
 
 /** Stand-ins for the parts the bus is built of, beyond `PARTS`: a road wheel, a door leaf and a seat mould. */
 const EXTRA = {
@@ -42,7 +46,7 @@ const TABLE = [
 ];
 const BUS_PARTS = BUS.length;
 
-async function build(label: string, lines: string[]): Promise<{ files: Map<string, Uint8Array>; warnings: string[]; scale: number | undefined; cue: string | undefined; diag: any }> {
+async function build(label: string, lines: string[]): Promise<{ bytes: Uint8Array; files: Map<string, Uint8Array>; warnings: string[]; scale: number | undefined; cue: string | undefined; diag: any }> {
   seedBoxParts(EXTRA);
   const bricks = parseLDrawDocument(lines.join('\n')).bricks;
   const result = await runSchemPipeline({
@@ -55,7 +59,7 @@ async function build(label: string, lines: string[]): Promise<{ files: Map<strin
   });
   const files = await unzipAll(result.bytes!);
   const diag = JSON.parse(text(files.get([...files.keys()].find(n => n.endsWith('craftmatic-diagnostics.json'))!)!));
-  return { files, warnings: result.mcpack?.warnings ?? [], scale: result.mcpack?.scale?.scale, cue: result.mcpack?.scale?.cue, diag };
+  return { bytes: result.bytes!, files, warnings: result.mcpack?.warnings ?? [], scale: result.mcpack?.scale?.scale, cue: result.mcpack?.scale?.cue, diag };
 }
 /** The one vehicle entity's behaviour file. */
 const vehicle = (files: Map<string, Uint8Array>): any => {
@@ -83,13 +87,28 @@ describe('a whole-model vehicle is the same vehicle with or without a title (A-0
 });
 
 describe('what a whole-model vehicle carries (A-02, PROC-19)', () => {
-  it('reports every moving part it carries and why it stays fixed on the vehicle', async () => {
+  it('reports every moving part it carries and that it opens on the parked vehicle', async () => {
     const bus = await build('90001', BUS);
     const rows = (bus.diag.interactivity?.rows ?? []) as Array<{ cls: string; part: string; verdict: string; reason?: string; count: number }>;
     const door = rows.find(r => r.cls === 'door' && r.part === '60623');
-    expect(door).toMatchObject({ verdict: 'excluded', count: 1 });
-    expect(door!.reason).toMatch(/stays fixed on .*vehicle/);
-    expect(bus.warnings.some(w => /moving part.* stays? fixed on/.test(w) && /door 60623/.test(w))).toBe(true);
+    expect(door).toMatchObject({ verdict: 'rides', count: 1 });
+    expect(door!.reason).toMatch(/opens on .* while it is parked/);
+    expect(bus.warnings.some(w => /moving part.* open(s)? on the parked car/.test(w) && /door 60623/.test(w))).toBe(true);
+    // One float actor property per part on the vehicle itself (the bone is in the vehicle's own geometry).
+    expect(vehicle(bus.files)['minecraft:entity'].description.properties['craftmatic:vpart_0']).toMatchObject({ type: 'float', client_sync: true });
+  }, 240_000);
+
+  it('a tap opens the parked bus door, the door closes as the bus drives off and opens again where it parked', async () => {
+    const bus = await build('90001', BUS);
+    const addon = await readAddon(bus.bytes, 'bus-parts');
+    const pack = readCraftmaticPack(addon)!;
+    const r = await runScenario({ name: 'bus-parts', steps: [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'vehicleParts' }], invariants: [] },
+      [addon], { handlers: craftmaticHandlers(pack, addon) });
+    expect(r.steps.filter(s => !s.ok).map(s => s.error)).toEqual([]);
+    expect(r.violations.map(v => v.message)).toEqual([]);
+    const s = r.state['vehicleParts'] as { parts: number; opened: number; closedWhileMoving: boolean; drove: number; reopenedAfterDrive: boolean; followed: boolean };
+    expect(s).toMatchObject({ parts: 1, opened: 1, closedWhileMoving: true, reopenedAfterDrive: true, followed: true });
+    expect(s.drove).toBeGreaterThan(1);
   }, 240_000);
 
   it('a furniture seat a vehicle carries rides as one of its passenger seats', async () => {

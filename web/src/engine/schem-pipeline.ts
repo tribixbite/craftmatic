@@ -821,17 +821,24 @@ export async function runSchemPipeline(
             seats.push({ x: p[0], y: p[1], z: p[2], yaw: yawForFacing(s.facingLdu), label: s.part === 'bed' ? 'Bed' : `Seat (${s.part})` });
           }
           // A-02: what each vehicle entity carries. A whole-model vehicle (half the model or more: a bus, a camper,
-          // a ship) offers its furniture seats and beds as passenger seats, so they ride with it; every moving part
-          // and ride it carries is reported as staying fixed, with why (`vehicleCarriedParts`). The stage below
-          // then judges only what is not a vehicle's.
+          // a ship) offers its furniture seats and beds as passenger seats, so they ride with it. A SCRIPTED
+          // vehicle's doors, lids, cupboards, levers and turnables become bones of its own geometry that open on a
+          // tap while it is parked and ride with it (vehicle-parts.ts); a native one's and every ride it carries
+          // are reported as staying fixed, with why (`vehicleCarriedParts`). The stage below then judges only what
+          // is not a vehicle's.
           const { vehicleCarriedParts } = await import('./interactivity-stage.js');
           const { findSlides } = await import('./bedrock-rides.js');
           const { MAX_PASSENGER_SEATS, isSeat } = await import('./ldraw-entity-compiler.js');
+          const { isScriptedVehicle } = await import('./playable-addon.js');
+          const { vehicleMotionOf } = await import('./bedrock-vehicle.js');
+          const { interactiveNoun } = await import('./bedrock-interactives.js');
           const carrying: import('./interactivity-stage.js').CarryingVehicle[] = [];
           const vehicleBricks = new Set<ParsedBrick>();
           for (const component of found.components) {
             for (const b of component.bricks) vehicleBricks.add(b);
-            if (component.bricks.length < source.bricks.length * 0.5) { carrying.push({ label: component.label, kind: component.kind, bricks: component.bricks }); continue; }
+            // The same motion class the add-on compiles it as (playable-addon.ts): only a scripted vehicle answers a tap.
+            const opens = isScriptedVehicle(component.kind, component.motion ?? vehicleMotionOf(component.kind, component.label));
+            if (component.bricks.length < source.bricks.length * 0.5) { carrying.push({ label: component.label, kind: component.kind, bricks: component.bricks, opens }); continue; }
             const inside = await discoverSceneActors(component.bricks, partProvider);
             const passengerSeats: import('./bedrock-scene-actors.js').SceneSeat[] = [];
             const droppedSeats: Array<{ seat: import('./bedrock-scene-actors.js').SceneSeat; reason: string }> = [];
@@ -844,10 +851,14 @@ export async function runSchemPipeline(
             const extra = passengerSeats.filter(seat => seat.brick && !isSeat(seat.brick.part, sourceMeshes.get(seat.brick.part)?.description ?? '')).map(seat => seat.brick!);
             if (extra.length) component.extraSeatBricks = extra;
             const slides = findSlides(component.bricks, sourceMeshes).map(r => `slide ${r.part}`);
-            carrying.push({ label: component.label, kind: component.kind, bricks: component.bricks, passengerSeats, droppedSeats, rides: slides });
+            carrying.push({ label: component.label, kind: component.kind, bricks: component.bricks, passengerSeats, droppedSeats, rides: slides, opens });
           }
           const carried = vehicleCarriedParts(carrying, sourceMeshes, b => isFigurePart(b.part, sourceMeshes.get(b.part)?.description ?? ''));
           warnings.push(...carried.warnings);
+          found.components.forEach((component, i) => {
+            const parts = carried.items[i] ?? [];
+            if (parts.length) component.vehicleParts = parts.map(it => ({ kind: it.kind, part: it.part, noun: interactiveNoun(it), bricks: it.bricks, pivotLdu: it.pivotLdu, axisLdu: it.axisLdu, angleDeg: it.angleDeg, ...(it.slide ? { slide: true } : {}) }));
+          });
           if (entityDoors) {
             // Every door, gate, hatch, opening window, cupboard, lever and
             // turnable becomes its own hinged entity of the exact LEGO parts,
@@ -872,8 +883,10 @@ export async function runSchemPipeline(
               bricks: source.bricks.filter(b => !vehicleBricks.has(b)), meshes: scene.meshes, owned, seats: sceneSeats,
               seatPoints: seats.map(s => [s.x, s.y, s.z] as [number, number, number]), toGrid: p => sceneGridPoint(frame, p),
             });
-            const carriedCount = carried.rows.reduce((n, r) => n + r.count, 0);
-            interactivityReport = { ...stage.report, rows: [...stage.report.rows, ...carried.rows], totals: { ...stage.report.totals, excluded: stage.report.totals.excluded + carriedCount } };
+            // A vehicle's own moving parts ride with it (verdict `rides`); what it leaves fixed is `excluded`.
+            const totals = { ...stage.report.totals };
+            for (const r of carried.rows) totals[r.verdict] += r.count;
+            interactivityReport = { ...stage.report, rows: [...stage.report.rows, ...carried.rows], totals };
             for (const it of stage.items) census.owners.push({ label: it.kind, use: 'none', bricks: new Set(it.bricks), reason: `moves with a ${it.kind}`, ...(it.kind === 'turnable' ? { decoration: true } : {}) });
             if (stage.items.length) {
               interactives = { items: stage.items, frame };

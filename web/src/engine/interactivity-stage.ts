@@ -21,6 +21,7 @@ import { classifiedDescription, withClassifiedDescriptions, type LdrawPartMesh, 
 import { cleanPartId } from './ldraw-entity-compiler.js';
 import { MAX_INTERACTIVES, capInteractives, discoverInteractives, interactiveHitboxes, interactiveKindOf, separateHitboxes, type InteractiveKind, type SceneInteractive } from './bedrock-interactives.js';
 import { discoverBrickHinges, type HingeLineReport } from './brick-hinges.js';
+import { VEHICLE_PART, closesWhenMoving } from './vehicle-parts.js';
 import type { SceneSeat } from './bedrock-scene-actors.js';
 
 /** What a player does with a part: a moving part's kind, a seat, or a bed (a seat on its mattress). */
@@ -187,7 +188,7 @@ export function interactivitySummary(label: string, report: InteractivityReport)
   const found = Object.entries(report.found).map(([k, n]) => `${n} ${k}${n === 1 ? '' : 's'}`).join(', ') || 'nothing';
   const unhandled = report.rows.filter(r => r.verdict === 'unhandled');
   const statics = report.rows.filter(r => r.verdict === 'static');
-  return `${label}: interactivity found ${found}; ${report.totals.static} static (${statics.map(r => `${r.part} x${r.count}`).join(', ') || 'none'}); ${report.totals.unhandled} unhandled (${unhandled.map(r => `${r.cls} ${r.part} x${r.count}`).join(', ') || 'none'}); ${report.totals.excluded} owned by vehicles, figures or rides.`;
+  return `${label}: interactivity found ${found}; ${report.totals.static} static (${statics.map(r => `${r.part} x${r.count}`).join(', ') || 'none'}); ${report.totals.unhandled} unhandled (${unhandled.map(r => `${r.cls} ${r.part} x${r.count}`).join(', ') || 'none'}); ${report.totals.excluded} owned by vehicles, figures or rides; ${report.totals.rides} ride${report.totals.rides === 1 ? 's' : ''} with a vehicle or a ride.`;
 }
 
 /** A vehicle entity and the placements it carries, for `vehicleCarriedParts`. */
@@ -200,19 +201,25 @@ export interface CarryingVehicle {
   droppedSeats?: ReadonlyArray<{ seat: SceneSeat; reason: string }>;
   /** Slides and other world-path rides found in it, by mould: a ride runs along a fixed path, a vehicle moves. */
   rides?: readonly string[];
+  /**
+   * Its moving parts open while it is parked (vehicle-parts.ts): a SCRIPTED vehicle, whose runtime answers the tap.
+   * False or absent: a native one (a rotorcraft, a flyer); its parts stay fixed geometry.
+   */
+  opens?: boolean;
 }
 
 /**
  * What a VEHICLE entity carries that would move or seat a player in a building (audit 2026-11-15 A-02): the
- * stage is run over the vehicle's own placements as if they were scenery, and every moving part it would have
- * made is reported as staying fixed on the vehicle, with why. A vehicle is one moving entity: a hinged part needs
- * its own entity on a fixed frame (bedrock-interactives.ts), and nothing in the runtime carries one along yet.
- * Seats and beds ride with it as its passenger seats where they were offered one. Nothing is dropped silently:
- * every row names the vehicle.
+ * stage is run over the vehicle's own placements as if they were scenery. On a scripted vehicle (`opens`) every
+ * moving part it finds, up to `VEHICLE_PART.MAX`, becomes one of the vehicle's own hinged bones (vehicle-parts.ts):
+ * it opens on a tap while the vehicle is parked and rides with it - `items[i]` are vehicle i's, for the compiler.
+ * On a native one, and past the cap, a part stays fixed on the vehicle, reported with why. Seats and beds ride with
+ * it as its passenger seats where they were offered one. Nothing is dropped silently: every row names the vehicle.
  */
-export function vehicleCarriedParts(vehicles: readonly CarryingVehicle[], meshes: ReadonlyMap<string, LdrawPartMesh | null>, isFigure: (b: ParsedBrick) => boolean): { rows: InteractivityRow[]; warnings: string[] } {
+export function vehicleCarriedParts(vehicles: readonly CarryingVehicle[], meshes: ReadonlyMap<string, LdrawPartMesh | null>, isFigure: (b: ParsedBrick) => boolean): { rows: InteractivityRow[]; warnings: string[]; items: SceneInteractive[][] } {
   const rows: InteractivityRow[] = [];
   const warnings: string[] = [];
+  const items: SceneInteractive[][] = [];
   const rowOf = (cls: InteractivityClass, b: ParsedBrick, verdict: InteractivityVerdict, reason: string, groups: Map<string, InteractivityRow>): void => {
     const m = meshes.get(b.part);
     const part = cleanPartId(b.part);
@@ -226,22 +233,30 @@ export function vehicleCarriedParts(vehicles: readonly CarryingVehicle[], meshes
     const groups = new Map<string, InteractivityRow>();
     const owned = new Map<ParsedBrick, string>();
     for (const b of v.bricks) if (isFigure(b)) owned.set(b, 'a figure');
-    // TODO(vehicle-interactives): carry hinged parts on a moving vehicle (bones in the vehicle's own geometry
-    // driven by an actor property, or an owned entity the vehicle runtime moves with it); needs the vehicle runtime.
     // Tap boxes are shaped in blocks at minifig scale (53.33 LDU, y up), as the real stage shapes them in grid blocks.
     const dry = interactivityStage({ bricks: v.bricks, meshes, owned, seats: [], seatPoints: [], toGrid: p => [p[0] / 53.33, -p[1] / 53.33, p[2] / 53.33], max: Number.MAX_SAFE_INTEGER });
-    const fixed = `stays fixed on ${v.label}: a moving vehicle carries no hinged parts yet (a ${v.kind} is one entity; a moving part needs its own on a fixed frame)`;
-    for (const it of dry.items) rowOf(it.kind, it.bricks[0]!, 'excluded', fixed, groups);
+    const carried = v.opens ? dry.items.slice(0, VEHICLE_PART.MAX) : [];
+    const left = dry.items.slice(carried.length);
+    items.push(carried);
+    // TODO(vehicle-interactives): a native vehicle (rotorcraft, flyer) has no script to answer a tap on its parts.
+    const fixed = v.opens
+      ? `stays fixed on ${v.label}: the ${v.kind} carries at most ${VEHICLE_PART.MAX} moving parts (one actor property each)`
+      : `stays fixed on ${v.label}: a native ${v.kind} has no script to answer a tap on its parts`;
+    const opens = (it0Kind: InteractiveKind): string => `opens on ${v.label} while it is parked: a bone of the ${v.kind}'s own geometry, so it rides with it${closesWhenMoving(it0Kind) ? '; it closes as the vehicle moves' : ''}`;
+    for (const it of carried) rowOf(it.kind, it.bricks[0]!, 'rides', opens(it.kind), groups);
+    for (const it of left) rowOf(it.kind, it.bricks[0]!, 'excluded', fixed, groups);
     for (const s of v.passengerSeats ?? []) if (s.brick) rowOf(s.part === 'bed' ? 'bed' : 'seat', s.brick, 'excluded', `rides with ${v.label}: offered to it as a passenger seat`, groups);
     for (const d of v.droppedSeats ?? []) if (d.seat.brick) rowOf(d.seat.part === 'bed' ? 'bed' : 'seat', d.seat.brick, 'excluded', `dropped on ${v.label}: ${d.reason}`, groups);
     rows.push(...groups.values());
-    if (dry.items.length) {
+    const listed = (list: readonly SceneInteractive[]): string => {
       const named = new Map<string, number>();
-      for (const it of dry.items) { const k = `${it.kind} ${cleanPartId(it.part)}`; named.set(k, (named.get(k) ?? 0) + 1); }
-      warnings.push(`${v.label}: ${dry.items.length} moving part${dry.items.length === 1 ? ' stays' : 's stay'} fixed on the ${v.kind} (${[...named].map(([k, n]) => (n > 1 ? `${k} x${n}` : k)).join(', ')}): a moving vehicle carries no hinged parts yet.`);
-    }
+      for (const it of list) { const k = `${it.kind} ${cleanPartId(it.part)}`; named.set(k, (named.get(k) ?? 0) + 1); }
+      return [...named].map(([k, n]) => (n > 1 ? `${k} x${n}` : k)).join(', ');
+    };
+    if (carried.length) warnings.push(`${v.label}: ${carried.length} moving part${carried.length === 1 ? ' opens' : 's open'} on the parked ${v.kind} (${listed(carried)}): tap one standing beside it; doors, lids and cupboards close as it drives off and ride with it.`);
+    if (left.length) warnings.push(`${v.label}: ${left.length} moving part${left.length === 1 ? ' stays' : 's stay'} fixed on the ${v.kind} (${listed(left)}): ${v.opens ? `over the ${VEHICLE_PART.MAX}-part cap` : `a native ${v.kind} has no script to answer a tap`}.`);
     if (v.passengerSeats?.length || v.droppedSeats?.length) warnings.push(`${v.label}: ${v.passengerSeats?.length ?? 0} furniture seat${v.passengerSeats?.length === 1 ? '' : 's'} or bed${v.passengerSeats?.length === 1 ? '' : 's'} offered to the ${v.kind} as passenger seats${v.droppedSeats?.length ? `; ${v.droppedSeats.length} dropped (${v.droppedSeats.map(d => `${d.seat.part}: ${d.reason}`).join('; ')})` : ''}.`);
     if (v.rides?.length) warnings.push(`${v.label}: ${v.rides.length} ride${v.rides.length === 1 ? '' : 's'} (${v.rides.join(', ')}) stay${v.rides.length === 1 ? 's' : ''} fixed geometry on the ${v.kind}: a ride runs along a fixed world path, and the vehicle moves.`);
   }
-  return { rows, warnings };
+  return { rows, warnings, items };
 }

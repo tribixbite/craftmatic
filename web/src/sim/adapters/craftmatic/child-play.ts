@@ -24,7 +24,7 @@ import type { Addon } from '../../pack/pack.js';
 import { readCraftmaticPack, type CraftmaticPack } from './pack-facts.js';
 import { wandHandlers } from './wand.js';
 import { COLLIDER_SLACK, FIGURE_TYPE, MODEL_FOOTHOLD, playHandlers, placedOf, staticDrawn, tapPart } from './play.js';
-import { registerAppearance, vehicleCourseHandlers } from './vehicle-course.js';
+import { registerAppearance, scriptedVehicleTypes, vehicleCourseHandlers } from './vehicle-course.js';
 import { DrawnWalkWorld, drawnReaches, drawnTopOver, drawnWalkEngine, packAppearance } from './drawn.js';
 import { firstPersonSnapshot } from './snapshot.js';
 import { lookAt, pick } from '../../input/touch.js';
@@ -264,9 +264,12 @@ export function childPlayScenarios(pack: CraftmaticPack, options: ChildPlayOptio
     variants.push([size, 0], [size, 90]);
   }
   const common = { allowLines: [...CRAFTMATIC_ALLOWED_LINES], yieldingLines: [...CRAFTMATIC_YIELDING_LINES] };
+  const partVehicles = scriptedVehicleTypes(pack).filter(t => t.parts.length);
   for (const [size, rot] of variants) {
     const steps: Step[] = [{ kind: 'place', size, rotation: rot }, { kind: 'wait', ticks: 40 }];
     if (pack.interactives?.items.length) steps.push({ kind: 'tapInteractives' }, { kind: 'doorwayLines' });
+    // A vehicle's own doors, lids and cupboards (vehicle-parts.ts, A-02): opened on the parked vehicle at this size and turn.
+    if (partVehicles.length) steps.push({ kind: 'vehicleParts' });
     steps.push({ kind: 'undo' });
     out.push({ name: `place-${size}-${rot}`, description: `Place at ${size} percent, turn ${rot}; tap every moving part; walk every doorway; Undo.`, steps, ...common });
   }

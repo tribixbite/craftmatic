@@ -1812,7 +1812,7 @@ one of these files fails the check until its row is written.
 | `VehicleEgressInput`, `VehicleEgressProbe` | interface | The vehicle's pose and footprint, the seat and Bedrock's set-down, airborne / waterline; the world probes (floor, room, walk exit, water, the collider probe's escape). |
 | `VehicleEgressHow` | type | `native` / `moved` / `beside` / `escape` / `plain` / `float` / `swim` / `none`. |
 | `vehicleEgress` | function | SERIALISED. The set-down: Bedrock's own spot when it is outside the hull and walkable, else a walkable floor on a ring beside the footprint at the vehicle's ground level (nearest the seat first), the collider probe's escape, a waterline swim, or a float beside a vehicle in the air (SEAT-05). |
-| `scriptedVehicleRuntime` | function | SERIALISED. Per tick: input, probes (solid spans: collider sixteenths, slabs), step, swept footprint, headlight, teleport, properties, HUD; a rider gone since the last tick is set down (`vehicleEgress` over the collider body probe). |
+| `scriptedVehicleRuntime` | function | SERIALISED. Per tick: input, probes (solid spans: collider sixteenths, slabs), step, swept footprint, headlight, teleport, properties, HUD; a rider gone since the last tick is set down (`vehicleEgress` over the collider body probe); a tap on a parked vehicle's door or cupboard turns it (`pickVehiclePart`) and a moving one's swing shut (vehicle-parts.ts). |
 | `scriptedVehicleScript` | function | Serialises the runtime, the three steppers, the helpers, `vehicleEgress` and the collider body probe into `BP/scripts/vehicles.js` (§5). |
 <!-- /physics-spec:exports -->
 
@@ -2165,4 +2165,5 @@ Physics-named files that are not physics:
 | `web/src/engine/playable-components.ts` | Classifies bricks into vehicle components. |
 | `web/src/engine/scene-vehicles.ts` | Finds the vehicles standing in a scene (geometry: clusters, wheels, oars). |
 | `web/src/engine/vehicle-facing.ts` | Infers which end of a vehicle is its nose. |
+| `web/src/engine/vehicle-parts.ts` | A vehicle's doors, lids and cupboards as bones of its own geometry: hinge bones, actor properties, drawn boxes and the tap pick (`pickVehiclePart`, serialised into `vehicles.js`); no force, no motion (audit A-02). |
 <!-- /physics-spec:not-physics -->

@@ -34,7 +34,13 @@ individually tested 28". The favourites list has 40 sets (memory `user-favorite-
      row corrected).
    Gate for every re-sweep (A-16, merged): `bun scripts/_favourites_gate.ts --build --with-gabby --out=output/<new dir>`
    (sweep, child play at 50/100/150/200/400, vehicles, regressions; report `<dir>/gate.md`).
-   MERGED: vrun, place, door, vgrain, wveh, faces, parts; follow-up `audit-vix` (moving hinged parts on whole-model vehicles, A-02 rest) running.
+   - `vix`: A-02 remainder - a scripted vehicle's doors, lids, cupboards, windows, levers, turnables are bones of
+     its own geometry (vehicle-parts.ts), opened by a tap while parked, shut while it moves; sim step `vehicleParts`
+     (vehicles scenario and every child-play size). Open after it: slides on a vehicle stay fixed (world-path ride);
+     native rotorcraft/flyer parts stay fixed; parts outside the 8-wide hull hit box and off the board columns get
+     no tap event (41395's window at 150 %, `TODO(vehicle-parts-hit-box)`); device checks: a touch tap's view
+     direction (`TODO(vehicle-parts-touch-aim)`), the swing sign on a vehicle, the eased swing drawn.
+   MERGED: vrun, place, door, vgrain, wveh, faces, parts, vix (all seven + the follow-up).
    Merge each after review + full suite (merge commits), then one sweep `--with-gabby --faces=...` + sim at
    `--sizes=50,100,150,200,400` + `--scenario=vehicles` + `--scenario=regressions` over the same directory.
 3. When no audit finding is open: send the user all 40 packs (one zip, built from a commit), then the

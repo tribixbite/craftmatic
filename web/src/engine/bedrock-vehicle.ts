@@ -24,6 +24,7 @@
  */
 import type { VehicleWheelBone } from './ldraw-entity-compiler.js';
 import { floatActorProperty } from './bedrock-json.js';
+import { pickVehiclePart, type VehiclePartParams, type VehiclePartRuntime } from './vehicle-parts.js';
 import { COLLIDER_STATES, colliderBodyProbe, colliderFormKit, type ColliderBodyProbe, type EscapeOptions } from './collider-form.js';
 
 declare const world: any;
@@ -94,7 +95,7 @@ const n = (v: number): string => String(Math.round(v * 10000) / 10000);
  * into playable-addon's `ClientAnimations`; `file` is the resource pack's
  * `animations/<cid>.animation.json`.
  */
-export function vehicleClientAnimation(cid: string, motion: VehicleMotion, wheels: readonly VehicleWheelBone[], scripted = motion === 'plane' || motion === 'boat' || motion === 'hover'): {
+export function vehicleClientAnimation(cid: string, motion: VehicleMotion, wheels: readonly VehicleWheelBone[], scripted = motion === 'plane' || motion === 'boat' || motion === 'hover', parts?: { bones: Record<string, unknown>; initialize: string[]; preAnimation: string[] }): {
   id: string; file: unknown;
   client: { animations: Record<string, string>; animate: string[]; initialize: string[]; preAnimation: string[] };
 } {
@@ -145,6 +146,8 @@ export function vehicleClientAnimation(cid: string, motion: VehicleMotion, wheel
     const spin = `v.cm_wheel / ${n(Math.max(0.05, w.radiusBlocks))}`;
     bones[w.name] = { rotation: [spin, w.end === 1 && g.steerMax ? 'v.cm_steer' : 0, 0] };
   }
+  // The doors, lids and cupboards the vehicle carries (vehicle-parts.ts `vehiclePartAnimation`).
+  if (parts) { Object.assign(bones, parts.bones); initialize.push(...parts.initialize); preAnimation.push(...parts.preAnimation); }
   return {
     id,
     file: { format_version: '1.8.0', animations: { [id]: { loop: true, bones } } },
@@ -1364,6 +1367,8 @@ export interface ScriptedVehicleType {
   car?: Partial<Record<keyof typeof CAR, number>>;
   /** Its drawn extremities at 100 % (`boardPointsOf`), where board points stand while it is parked and empty (`BOARD`). */
   board?: BoardPoint[];
+  /** The doors, lids and cupboards it carries, part k on the actor property `craftmatic:vpart_<k>` (vehicle-parts.ts). */
+  parts?: VehiclePartRuntime[];
 }
 
 /** What the scripted-vehicle runtime is told about the pack. */
@@ -1389,6 +1394,8 @@ export interface ScriptedVehicleConfig {
   escape?: EscapeOptions | undefined;
   /** The pack's board point entity (`BOARD`); absent in an older pack or a hand-built test config: no board points. */
   board?: BoardRuntimeConfig | undefined;
+  /** The moving parts' constants (`VEHICLE_PART`) and property prefix; absent: no type carries parts. */
+  parts?: (VehiclePartParams & { propertyPrefix: string }) | undefined;
 }
 
 /**
@@ -1407,7 +1414,7 @@ export interface ScriptedVehicleConfig {
  * sixteenths, a bottom slab's lower half, a top slab's upper half, a full
  * block otherwise; plants, torches, snow layers and light blocks are passed.
  */
-export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: typeof flightStep, boat: typeof boatStep, car: typeof carStep, sweep: typeof sweepFootprint, night: typeof isNightTime, lightCell: typeof headlightCell, resolve: typeof resolveMove, egress?: typeof vehicleEgress, body?: ColliderBodyProbe, places?: typeof boardPointPlaces): void {
+export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: typeof flightStep, boat: typeof boatStep, car: typeof carStep, sweep: typeof sweepFootprint, night: typeof isNightTime, lightCell: typeof headlightCell, resolve: typeof resolveMove, egress?: typeof vehicleEgress, body?: ColliderBodyProbe, places?: typeof boardPointPlaces, pickPart?: typeof pickVehiclePart): void {
   const F = config.flight, B = config.boat, C = config.car, H = config.hover, FP = config.footprint, MV = config.move, HL = config.headlights, DYN = config.dynamic;
   const COL = config.colliders;
   const typeIds = Object.keys(config.types);
@@ -1675,6 +1682,51 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
   };
   /** What `player` rides now, if anything. */
   const ridingOn = (player: any): any => { try { return player.getComponent('minecraft:riding')?.entityRidingOn; } catch { return undefined; } };
+  // ─── Moving parts (vehicle-parts.ts, audit A-02): doors, lids and cupboards drawn by the vehicle's own bones ───
+  const PT = config.parts && pickPart ? config.parts : undefined;
+  /** Each part's value per vehicle, read from its actor properties once a session (they persist with the world), then kept. */
+  const partValues = new Map<string, number[]>();
+  const partsOf = (e: any, kind: ScriptedVehicleType): number[] => {
+    let v = partValues.get(e.id);
+    if (!v) {
+      v = (kind.parts ?? []).map((_p, i) => { try { return Number(e.getProperty(PT!.propertyPrefix + i)) || 0; } catch { return 0; } });
+      partValues.set(e.id, v);
+    }
+    return v;
+  };
+  const setPart = (e: any, kind: ScriptedVehicleType, i: number, value: number): void => {
+    try { e.setProperty(PT!.propertyPrefix + i, value); } catch { return; }
+    partsOf(e, kind)[i] = value;
+    const part = kind.parts![i]!;
+    const swings = part.kind !== 'turnable' && part.kind !== 'lever';
+    try { e.dimension.playSound(swings ? (value !== 0 ? 'random.door_open' : 'random.door_close') : 'random.click', e.location, { volume: 1, pitch: 1 }); } catch { /* sound unknown */ }
+  };
+  /** Close every part that swings out of the hull (`closesWhenMoving`): the vehicle is moving. */
+  const closeParts = (e: any, kind: ScriptedVehicleType): void => {
+    const values = partsOf(e, kind);
+    kind.parts!.forEach((part, i) => { if (part.closes && values[i] !== 0) setPart(e, kind, i, 0); });
+  };
+  /**
+   * A TAP on a parked vehicle that meant one of its parts (`pickVehiclePart`: near the eye, under the view) opens or
+   * closes it (a turnable turns a step) and is answered: true. Moving, or no part meant: false, and the tap boards.
+   */
+  const tapPart = (player: any, vehicle: any): boolean => {
+    if (!PT || !player || player.typeId !== 'minecraft:player' || !vehicle) return false;
+    const kind = config.types[String(vehicle.typeId)];
+    if (!kind?.parts?.length) return false;
+    const st = states.get(vehicle.id);
+    if (st && (Math.abs(st.speed || 0) > PT.CLOSE_SPEED || Math.abs(st.vy || 0) > PT.CLOSE_SPEED)) return false;
+    let eye: any, dir: any, loc: any, yaw = 0, k = 1;
+    try { eye = player.getHeadLocation(); dir = player.getViewDirection(); loc = vehicle.location; yaw = Number(vehicle.getRotation().y) || 0; } catch { return false; }
+    try { const sc = Number(vehicle.getComponent('minecraft:scale')?.value); if (Number.isFinite(sc) && sc > 0) k = sc; } catch { /* unscaled */ }
+    const values = partsOf(vehicle, kind);
+    const i = pickPart!(kind.parts, { x: loc.x, y: loc.y, z: loc.z, yaw }, k, eye, dir, values.map(v => v !== 0), PT);
+    if (i < 0) return false;
+    const part = kind.parts[i]!;
+    setPart(vehicle, kind, i, part.kind === 'turnable' ? (values[i]! + part.angle) % 36000 : values[i] !== 0 ? 0 : part.angle);
+    if (telemetry) console.warn(`CMVT ${JSON.stringify({ part: i, kind: part.kind, value: partsOf(vehicle, kind)[i] })}`);
+    return true;
+  };
   /**
    * Seat `player` in `vehicle` (from a board point). A player the device mounted on the point is taken off it FIRST and
    * added to the vehicle `RETRY_TICKS` later: ejected and added in one tick, the Pixel (round 30p, Sneak off: 13 of 13
@@ -1737,7 +1789,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     try { player.sendMessage?.(line); } catch { /* not a player */ }
   };
   /** A hold or a tap on a board point: off the point if the device seated them on it, into its vehicle. */
-  const boardFrom = (player: any, point: any): void => {
+  const boardFrom = (player: any, point: any, tap = false): void => {
     if (!BD || !player || player.typeId !== 'minecraft:player' || !point || !isBoard(point.typeId)) return;
     // A rider of anything but a board point is never pulled out by a tap on another vehicle's point (Saga 30u: seated in
     // the McLaren, a tap toward the Milano hit its point and moved the player across, 2 of 2).
@@ -1752,6 +1804,8 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       try { point.remove(); } catch { /* gone */ }
       return;
     }
+    // A tap on a point under a parked vehicle's door, meant for the door, opens it instead (`tapPart`).
+    if (tap && !on && tapPart(player, vehicle)) return;
     // `seatIn` takes the player off the point first, a tick apart from the seating.
     seatIn(player, vehicle);
   };
@@ -1833,7 +1887,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
         system.run(() => { boardLog('hold', player, point); boardFrom(player, point); });
       });
     } catch { /* not in this API: the native mount on the point is moved into the vehicle by `tendBoard` */ }
-    try { world.afterEvents.entityHitEntity.subscribe((ev: any) => { if (isBoard(ev.hitEntity?.typeId)) { boardLog('tap', ev.damagingEntity, ev.hitEntity); boardFrom(ev.damagingEntity, ev.hitEntity); } }); } catch { /* not in this API */ }
+    try { world.afterEvents.entityHitEntity.subscribe((ev: any) => { if (isBoard(ev.hitEntity?.typeId)) { boardLog('tap', ev.damagingEntity, ev.hitEntity); boardFrom(ev.damagingEntity, ev.hitEntity, true); } }); } catch { /* not in this API */ }
     /**
      * The HULL boards too (VEH-17, Saga 30t). A tap on the vehicle itself is a hit, which nothing answered: only its
      * board points did, and a child taps the ship it sees. A hold under the 100 % Milano ~7 blocks from its root showed
@@ -1847,6 +1901,8 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
      */
     const boardHull = (how: string, player: any, vehicle: any): void => {
       if (!player || player.typeId !== 'minecraft:player' || !vehicle || !config.types[String(vehicle.typeId)]) return;
+      // A tap meant for one of its doors or cupboards opens it (a rider's too); a hold always boards.
+      if (how === 'hull-tap' && tapPart(player, vehicle)) return;
       if (ridingOn(player)) return;
       boardLog(how, player, vehicle);
       seatIn(player, vehicle);
@@ -1931,6 +1987,8 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
           // size until it is moved by something else. The set-down reads the live scale (`liveK` below).
         }
         const k = st.scale || 1;
+        // Moving: its doors, lids and cupboards swing shut (a JS check each tick; native calls only when one closes).
+        if (PT && kind.parts?.length && Math.abs(st.speed || 0) > PT.CLOSE_SPEED) closeParts(e, kind);
         let riders: any[] = [];
         try { riders = e.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch { /* none */ }
         const driver = riders.find((r: any) => r && r.typeId === 'minecraft:player');
@@ -2223,5 +2281,5 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
 export function scriptedVehicleScript(config: ScriptedVehicleConfig): string {
   // The collider body probe the seats and rides use, over this pack's collider states: the set-down's floors, room and walk exits.
   const probe = `(${colliderBodyProbe.toString()})((${colliderFormKit.toString()})(), ${JSON.stringify(config.colliders?.loState ?? COLLIDER_STATES.lo)}, ${JSON.stringify(config.colliders?.hiState ?? COLLIDER_STATES.hi)})`;
-  return `import { world, system } from "@minecraft/server";\n(${scriptedVehicleRuntime.toString()})(${JSON.stringify(config)}, ${flightStep.toString()}, ${boatStep.toString()}, ${carStep.toString()}, ${sweepFootprint.toString()}, ${isNightTime.toString()}, ${headlightCell.toString()}, ${resolveMove.toString()}, ${vehicleEgress.toString()}, ${probe}, ${boardPointPlaces.toString()});\n`;
+  return `import { world, system } from "@minecraft/server";\n(${scriptedVehicleRuntime.toString()})(${JSON.stringify(config)}, ${flightStep.toString()}, ${boatStep.toString()}, ${carStep.toString()}, ${sweepFootprint.toString()}, ${isNightTime.toString()}, ${headlightCell.toString()}, ${resolveMove.toString()}, ${vehicleEgress.toString()}, ${probe}, ${boardPointPlaces.toString()}, ${pickVehiclePart.toString()});\n`;
 }
