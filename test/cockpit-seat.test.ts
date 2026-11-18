@@ -768,6 +768,30 @@ describe('every seat sees the horizon ahead (AHEAD), whatever its evidence', () 
     expect(left.fitScale).toBeNull();
   });
 
+  it('a closed cab whose eye sees ahead only over its dashboard, its doors at the face, leaves the cab for a point that sees out both sides (6753, gengate2 cda5f7b9)', () => {
+    // A truck cab: floor, doors 0.65 to each side of the eye, a roof at 2, a glass windscreen and a dashboard in front
+    // of the steering wheel's eye. Over the dashboard the eye sees the horizon ahead, never the sides (the doors are
+    // within a block): the user's rule is that the driver sees out ahead AND to both sides, and where nothing in the
+    // cabin does, the eye leaves it. Until 2026-11-16 a cabin eye that saw ahead only was taken first.
+    const glass = (min: Vec3, max: Vec3): BoxBlocks => ({ min, max, glass: true });
+    const cab = [
+      box([-0.75, 0, -3], [0.75, 0.3, 3]),
+      box([-0.75, 0.3, -1], [-0.65, 2, 1]), box([0.65, 0.3, -1], [0.75, 2, 1]),
+      box([-0.75, 2, -1], [0.75, 2.1, 1]),
+      glass([-0.65, 0.3, -1.05], [0.65, 2, -1]),
+      box([-0.75, 0.3, 1], [0.75, 2, 1.1]),
+      box([-0.65, 0.3, -0.9], [0.65, 1.6, -0.8]),
+    ];
+    const eye: Vec3 = [0, 1.46, 0];
+    const seat: Vec3 = [0, eye[1] - RIDER_EYE_ABOVE_SEAT, 0];
+    expect(seesAhead(cab, eye)).toBe(false);
+    const plan = planSeat(cab, eye, seat, 'steering');
+    expect(plan.ahead!.before).toBe(0);
+    expect(seesOut(cab, plan.eye)).toBe(true);
+    expect(plan.ahead!.sides!.after.left).toBeGreaterThanOrEqual(SIDES.minClear);
+    expect(plan.ahead!.sides!.after.right).toBeGreaterThanOrEqual(SIDES.minClear);
+  });
+
   it('lets the eye leave a roofed cabin that cannot see ahead, over the model, and hides the body (76286, Saga 30g)', () => {
     // A roofed seat with a bulkhead across the car ahead of it, taller than the cabin search can rise.
     const hull = [
@@ -939,16 +963,27 @@ describe('the driver sees out over the cubes the pack ships (VEH-20 class 2)', (
 
   it('4997: a plan that saw ahead on the planned boxes only is asked again on the shipped cubes', () => {
     const f = loadSeatFixture('4997-boat-boxes');
+    // Since 2026-11-16 (6753) every search for an eye that sees out runs before an ahead-only eye is taken: the boat's
+    // own planned boxes hold a cabin eye that sees out, and it sees out on the shipped cubes too.
     const plan = planSeat(f.planned, f.ask.eye, f.ask.seat, f.ask.evidence);
-    // The planner's own boxes say the horizon is clear ahead; the cubes the pack ships say 4 of 6 rays (the camera is in a hull plank).
-    expect(fanView(f.planned, plan.eye, AHEAD)).toBe(1);
-    expect(fanView(f.shipped, plan.eye, AHEAD)).toBeLessThan(AHEAD.minClear);
-    // d9a37549 asked again only when the plan SAW OUT on the planned boxes (sides included): this one never did.
-    expect(seesOut(f.planned, plan.eye)).toBe(false);
-    const redone = replanOnShipped(f.shipped, f.ask, plan);
+    expect(seesOut(f.planned, plan.eye)).toBe(true);
+    expect(seesOut(f.shipped, plan.eye)).toBe(true);
+    expect(replanOnShipped(f.shipped, f.ask, plan).replanned).toBe(false);
+    // A plan that sees ahead only over the planned boxes (the kind this boat had until then: on the shipped cubes 4
+    // of 6 rays, the camera in a hull plank) is still asked again on the shipped cubes. d9a37549 asked again only
+    // when the plan SAW OUT on the planned boxes (sides included): this one never did. Synthetic: a deck, a panel
+    // 0.4 beside the face on the planned boxes, and on the shipped cubes a plank grown over the eye's line ahead.
+    const deck = box([-1, 0, -3], [1, 0.3, 3]), panel = box([-0.5, 0, -1], [-0.4, 1.8, 0.3]);
+    const planned = [deck, panel], shipped = [deck, panel, box([-1, 1.3, -1.2], [1, 1.6, -1.1])];
+    const ask = { eye: [0, 1.46, 0] as Vec3, seat: [0, 0.34, 0] as Vec3, evidence: 'seat' as const };
+    const aheadOnly = { ...planSeat(planned, ask.eye, ask.seat, 'seat'), eye: ask.eye };
+    expect(fanView(planned, ask.eye, AHEAD)).toBe(1);
+    expect(seesOut(planned, ask.eye)).toBe(false);
+    expect(fanView(shipped, ask.eye, AHEAD)).toBeLessThan(AHEAD.minClear);
+    const redone = replanOnShipped(shipped, ask, aheadOnly);
     expect(redone.replanned).toBe(true);
-    expect(fanView(f.shipped, redone.plan.eye, AHEAD)).toBe(1);
-    expect(eyeOverlap(f.shipped, redone.plan.eye)).toBe(0);
+    expect(seesOut(shipped, redone.plan.eye)).toBe(true);
+    expect(eyeOverlap(shipped, redone.plan.eye)).toBe(0);
   });
 
   it('6243: an eye that left the cabin sees out to BOTH sides when a point a little toward the nose does (the fallback searched only up and back)', () => {
@@ -963,6 +998,20 @@ describe('the driver sees out over the cubes the pack ships (VEH-20 class 2)', (
     expect(seesOut(f.shipped, final.eye)).toBe(true);
     // A scripted boat keeps its helmsman drawn at the wheel; only the camera left.
     expect(riderVisibleAt(helmSeatPlan(final)!, 1)).toBe(true);
+  }, 120_000);
+
+  it('6753: a truck cab whose only eye that sees ahead has its doors at the face leaves the cab for one that sees out both sides', () => {
+    // Gengate2 cda5f7b9: the plan took a cabin eye over the dashboard that saw the horizon ahead and 10 of 28 rays to
+    // each side (the fixture records it: `plan.ahead.sides.after` 0.357); the simulator's driver-sees-ahead rejected
+    // it. Real boxes from `_playable_ref.ts --seat-fixture` (the 0.25x display truck).
+    const f = loadSeatFixture('6753-truck-boxes');
+    const plan = planSeat(f.planned, f.ask.eye, f.ask.seat, f.ask.evidence);
+    const final = replanOnShipped(f.shipped, f.ask, plan).plan;
+    expect(seesOut(f.planned, plan.eye)).toBe(true);
+    expect(seesOut(f.shipped, final.eye)).toBe(true);
+    expect(eyeOverlap(f.shipped, final.eye)).toBe(0);
+    // A scripted truck keeps its driver drawn at the wheel where the eye left the cab; only the camera left.
+    if (final.ahead?.fallback) expect(helmSeatPlan(final)!.seat).toEqual(final.ahead.helm!.seat);
   }, 120_000);
 
   it('a plan that already sees out on the shipped cubes is returned as it is; one nothing improves keeps its plan', () => {

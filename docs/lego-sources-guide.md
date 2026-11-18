@@ -1883,4 +1883,24 @@ online catalogue; not built).
   placement (backups `C:/git/clego/_dbix_backup_20261115_auditparts/`). A full reconversion of those files differs
   in 2-267 other lines (drift since their last conversion), so it was not shipped.
 - What still ships as a box is listed with its reason in `test/fixtures/favourites-aabb-allowlist.json`; the guard
-  `test/favourites-aabb.test.ts` fails on any change either way.
+  `test/favourites-aabb.test.ts` fails on any change either way. The census sets' residue is
+  `test/fixtures/census-aabb-allowlist.json` (`test/census-aabb.test.ts`), the same check.
+- **Generality census 2026-11-16 (branch `gen-mix3`).** Corpus walk of every name no library, embedded section or
+  ladder hop serves: 3,157 names / 201,261 placements / 4,295 files. Three general rules now reach part of it:
+  * LSynth's own `ls<NN>` parts (`lsynth-parts.ts`, see the renderer guide): 19 names, 160,615 placements, 266 files.
+  * BrickLink item numbers (`bricklink-ldraw.ts`, `scripts/gen-bricklink-ldraw.py`): a library part's
+    `!KEYWORDS BrickLink <X>` is the identity, and every corpus `.io` proves the frame - `model2.ldr` (BrickLink
+    names) against `model.ldr` (the LDraw names Studio wrote) at an identical matrix. 72 rows (`55423c01` -> `55423`,
+    `x187` -> `3648a`, `78c02` -> `72504`, ...); left out: 751 keywords no `.io` pairs, 212 ambiguous, 15 Studio
+    draws as another part (`731c06`: keyword 76138, Studio 41838), 2 inconsistent. The keyword join alone reached
+    2,390 placements in 503 files; Studio's pairs agree on 1,943 of them and disagree on 320 - why the pairs gate it.
+  * A ladder hop reads the hop's data row (`52684d1` -> `52684` -> `bl_52684pb05`), which the export resolver
+    missed (the viewer re-entered its own ladder per hop).
+  Rows added by measurement: Mecabricks `4973` -> `30602`, `52684` -> `bl_52684pb05` (mesh vs mould centres within
+  0.3 LDU under FRAME_SIGN), LDD `3566` -> `bl_3566` (Studio's zero-transform row; clego's DbixConvV3 writes it).
+  A Mecabricks frame is NOT the LDD frame in general (3001: LDD row tx -1.2 cm, Mecabricks centred), so Studio's
+  zero-transform rows are no rule for Mecabricks names; of the 43 such rows the census found, Studio's pairs agree on
+  51 placements, disagree on 24 and say nothing on 291, so they stay per-row with a measurement.
+  Mecabricks ribbed hoses (`41079` 9L, `41092` 2L = LDraw 71917 / 72504) are FLEXIBLE parts placed by path, like the
+  flex-system hoses clego's `MB_FLEX` splice writes; the same splice for ribbed hoses (71944k01/k02 along the path)
+  is TODO(mb-flexible-other).

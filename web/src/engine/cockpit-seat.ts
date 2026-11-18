@@ -689,16 +689,19 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
       if (!pick || (drawn0 && drawn && !pick.drawn)) pick = { e, drawn };
       if (!drawn0 || drawn) break;
     }
+    // The sides are REQUIRED (the user, 2026-11-09; 42639's raised door filled 35 % of the Saga's view, and the
+    // user's rule restated 2026-11-16: the driver sees out ahead AND to both sides, and where nothing in the cabin
+    // does, the eye leaves the cabin). So every search for an eye that sees out comes first - up or back here
+    // (`pick`), another cockpit along the inside (`cabinEye(true)`), then out of the cabin (`AHEAD_FALLBACK`) - and
+    // an eye that sees ahead only is the last resort, taken only where none of them sees out and the eye did not
+    // see ahead before. Until 2026-11-16 that ahead-only eye was taken BEFORE the cabin and fallback searches when
+    // the first eye saw nothing ahead: 6753's truck cab put its eye over the dashboard with both doors at the face
+    // (9 of 28 rays each side, gengate2 cda5f7b9). An eye that saw ahead with a panel at one side of the face
+    // never moves to one that only sees ahead, which it already did; where no point sees out it stays.
     if (pick) take(pick.e, measure(seatOf(pick.e)), false);
-    // The sides are REQUIRED (the user, 2026-11-09; 42639's raised door filled 35 % of the Saga's view): an eye
-    // that sees ahead with a panel at one side of the face moves like one that does not, to another cockpit
-    // that sees out on both sides, else out of the cabin to a point that does - never to one that only sees
-    // ahead, which it already did. Where no such point exists the eye stays where it was.
-    else if (!seesAheadBefore && aheadOnly) take(aheadOnly.e, measure(seatOf(aheadOnly.e)), false);
-    else if ((cabin = cabinEye(seesAheadBefore))) take(cabin, measure(seatOf(cabin)), false, true);
+    else if ((cabin = cabinEye(true))) take(cabin, measure(seatOf(cabin)), false, true);
     else {
       // No eye in the cabin sees out: leave it, the nearest point up or back that does (`AHEAD_FALLBACK`).
-      const sidesOnly = seesAheadBefore;
       const f = AHEAD_FALLBACK, zs = boxes.flatMap(b => [b.min[2], b.max[2]]), tail = Math.max(...zs);
       const out: Array<{ e: Vec3; move: number }> = [];
       // A seat the evidence put BEHIND the tail (8153's canopy-parts seat is 0.11 past it) has no point 'back' that is
@@ -712,17 +715,17 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
       out.sort((a, b) => a.move - b.move);
       let near: { e: Vec3; move: number } | null = null, both: Vec3 | null = null;
       for (const c of out) {
-        if (!sidesOnly && near && c.move > near.move + f.sideSlack + 1e-9) break;
+        // An eye that saw ahead looks for both sides over the whole reach; one that did not, within the slack first.
+        if (!seesAheadBefore && near && c.move > near.move + f.sideSlack + 1e-9) break;
         if (eyeOverlap(boxes, c.e) > 0 || !aheadOf(c.e)) continue;
         near ??= c;
         if (driverSeesOut(1, sideView(boxes, c.e))) { both = c.e; break; }
       }
-      // The sides are REQUIRED (2026-11-09): where nothing up or back within the slack sees out to both sides, the
-      // nearest point that does anywhere in the fallback's reach - further up or back, or TOWARD THE NOSE by up to
-      // `forward` - is taken before an eye that sees ahead only. 6243's lookout eye 1.2 over its helm saw the
-      // horizon ahead and 23 of 28 rays to its right (a mast within a block); 0.75 toward the bow and 0.1 higher it
-      // sees out both sides (gengate 6fa0afa6, the simulator's driver-sees-ahead). A plan that found such a point
-      // within the slack is unchanged.
+      // Where nothing up or back within the slack sees out to both sides, the nearest point that does anywhere in
+      // the fallback's reach - further up or back, or TOWARD THE NOSE by up to `forward` - is taken before an eye
+      // that sees ahead only. 6243's lookout eye 1.2 over its helm saw the horizon ahead and 23 of 28 rays to its
+      // right (a mast within a block); 0.75 toward the bow and 0.1 higher it sees out both sides (gengate 6fa0afa6,
+      // the simulator's driver-sees-ahead). A plan that found such a point within the slack is unchanged.
       if (!both) {
         const head = Math.min(...zs), wider: Array<{ e: Vec3; move: number }> = [...out];
         for (let j = 0; from[1] + j * f.step <= modelTop + VIEW.overTop + 1e-9; j++) for (let k = 1; k * f.step <= f.forward + 1e-9; k++) {
@@ -737,10 +740,17 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
           break;
         }
       }
-      const e = both ?? (sidesOnly ? undefined : near?.e);
       const helm = { seat: best.seat, steps: best.steps };
       // Only an eye out there: the body is hidden at every size (`riderVisibleSizes` reads `fits`).
-      if (e) { take(e, measure(seatOf(e)).map(s => ({ ...s, fits: false })), true); ahead.helm = helm; }
+      const leave = (e: Vec3): void => { take(e, measure(seatOf(e)).map(s => ({ ...s, fits: false })), true); ahead.helm = helm; };
+      if (both) leave(both);
+      else if (!seesAheadBefore) {
+        // Nothing anywhere sees out to both sides: the nearest eye that at least sees the horizon ahead - up or
+        // back in the cabin, else along its inside, else out of it.
+        const inCabin = aheadOnly?.e ?? cabinEye(false);
+        if (inCabin) take(inCabin, measure(seatOf(inCabin)), false, !aheadOnly);
+        else if (near) leave(near.e);
+      }
     }
   }
   return { eye: best.eye, seat: best.seat, fitScale: fitOf(best.steps), steps: best.steps, moved: best.moved, search, eyeMoved, ...(view ? { view } : {}), ahead };

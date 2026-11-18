@@ -527,29 +527,12 @@ export function normId(id: string): string {
 }
 
 /**
- * Synthetic placeholder for LSynth segment parts (`ls<NN>`) that are absent
- * from the LDraw library (they ship with the LSynth tool only). Mirrors the
- * one bundled example we have (ls10.dat, "Electric Cable Segment"): a unit
- * segment spanning y ∈ [0, 1] whose placement matrix stretches it along the
- * synthesized hose path. Cylinder radius 4.5 LDU ≈ ribbed-hose/pneumatic
- * girth; per-file matrices leave the radial axes ~unit so the radius reads
- * from the part. Returns null for names that aren't LSynth segments.
+ * A part GENERATED for a name no library ships (`synthesizedPartText`, engine/ldraw-part-aliases.ts): the rigid
+ * hose `75cNN` and LSynth's own `lsNN` segments and constraints, so the viewer draws what the export ships. Until
+ * 2026-11-16 the viewer drew every `lsNN` as one 4.5 LDU stand-in cylinder of its own; the export drew a box.
  */
 function synthesizeLsSegment(stem: string): string | null {
-  // Shared generated parts first (the rigid hose `75cNN`, engine/ldraw-part-aliases.ts), so the viewer draws what
-  // the export ships.
-  const generated = synthesizedPartText(stem);
-  if (generated !== null) return generated;
-  if (!/^ls\d{1,3}$/i.test(stem)) return null;
-  return [
-    `0 ~LSynth Segment ${stem} (synthesized placeholder)`,
-    `0 Name: ${stem}.dat`,
-    '0 !LDRAW_ORG Unofficial_Part',
-    '0 BFC CERTIFY CCW',
-    '1 16 0 0 0 4.5 0 0 0 1 0 0 0 4.5 4-4cyli.dat',
-    '1 16 0 0 0 4.5 0 0 0 1 0 0 0 4.5 4-4edge.dat',
-    '1 16 0 1 0 4.5 0 0 0 1 0 0 0 4.5 4-4edge.dat',
-  ].join('\n');
+  return synthesizedPartText(stem);
 }
 
 function applyMat(v: Vec3, R: readonly number[], T: Vec3): Vec3 {
@@ -994,7 +977,7 @@ async function fetchDatText(id: string): Promise<string | null> {
       if (!sawTransient) {
         const lsSeg = synthesizeLsSegment(stem);
         if (lsSeg !== null) {
-          console.info(`[ldraw] synthesized LSynth segment placeholder for ${stem}.dat`);
+          console.info(`[ldraw] generated part text for ${stem}.dat`);
           datTextCache.set(key, lsSeg);
           return lsSeg;
         }
@@ -1042,12 +1025,11 @@ async function fetchDatText(id: string): Promise<string | null> {
       // reference them externally with matrices that STRETCH a unit-height
       // segment along the hose path (verified: 8010 Darth Vader places 181
       // LS50/LS51 segments this way — all previously rendered as missing).
-      // Synthesize the standard segment shape: a cylinder spanning y∈[0,1]
-      // (ls10.dat's convention), radius ~4 LDU — the placement matrix does
-      // the rest. Approximate but restores whole hoses that were invisible.
+      // Their text is LSynth's own (engine/lsynth-parts.ts, shared with the
+      // export); the placement matrix does the rest.
       const lsSeg = synthesizeLsSegment(stem);
       if (lsSeg !== null) {
-        console.info(`[ldraw] synthesized LSynth segment placeholder for ${stem}.dat`);
+        console.info(`[ldraw] generated part text for ${stem}.dat`);
         datTextCache.set(key, lsSeg);
         return lsSeg;
       }
