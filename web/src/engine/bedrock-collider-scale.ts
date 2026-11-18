@@ -1058,6 +1058,12 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
   /** The edges refused for crossing a doorway's approach, retried as gateways by `approachPass`; set while it lays one. */
   const approachDeferred = new Map<string, { p: Surface; q: Surface }>();
   let approachAllowed = false;
+  /**
+   * Set when the last `planRun` was refused for crossing an approach. Such a refusal is about THAT target surface: it
+   * must not mark the edge key `failed`, which is per source surface and direction, or every other level of the
+   * neighbour column is never tried from there (10326 at 150 % turn 180 lost a level the base plan reached that way).
+   */
+  let lastRefusalApproach = false;
   const crossesApproach = (q: Surface, cols: ReadonlyArray<{ x: number; z: number }>, tops: readonly number[]): boolean => {
     if (!approachAt.size || approachAllowed) return false;
     const qk = colKey(q.x, q.z);
@@ -1085,6 +1091,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
    * riser already serves, so it is refused instead.
    */
   const planRun = (p: Surface, q: Surface, visited: SurfaceSet): RunEdit | UnrestoredReason | 'no-rule' => {
+    lastRefusalApproach = false;
     const ownerAt = edits.findIndex(e => e.to.x === p.x && e.to.z === p.z && e.to.t === p.t);
     if (ownerAt < 0) return planRunCore(p, q, visited);
     const owner = edits[ownerAt]!;
@@ -1184,7 +1191,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     const laid = layout(n);
     if (laid === 'headroom') return 'headroom';
     const treadColumns = (m: number): Array<{ x: number; z: number }> => Array.from({ length: m }, (_, k) => columnAt(k));
-    if (crossesApproach(q, treadColumns(n), laid.tops)) { approachDeferred.set(refuseKey(p, q), { p, q }); return 'no-run'; }
+    if (crossesApproach(q, treadColumns(n), laid.tops)) { approachDeferred.set(refuseKey(p, q), { p, q }); lastRefusalApproach = true; return 'no-run'; }
     /** The edit that lays the run of `m` treads (`at`: its layout). */
     const build = (m: number, at: { hop16: number; tops: number[]; landing: Surface }): RunEdit => {
       const { hop16, tops, landing } = at;
@@ -1307,7 +1314,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       const counted = !!retry && failedReason.has(rk);
       const e = planRun(p, q, visited);
       if (e === 'no-rule') return false;
-      if (typeof e === 'string') { if (!counted) { refuse(p, q, e); failed.add(ek); } return false; }
+      if (typeof e === 'string') { if (!counted) { refuse(p, q, e); if (!lastRefusalApproach) failed.add(ek); } return false; }
       apply(e); edits.push(e);
       if (verifyEach && !holds(walkScaledColliders(grid))) { revert(e); edits.pop(); if (!counted) { refuse(p, q, 'verify'); failed.add(ek); } return false; }
       // A refused edge restored now is no longer unrestored.
@@ -1394,7 +1401,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
             if (failed.has(ek)) continue;
             const e = planRun(p, q, reach.visited);
             if (e === 'no-rule') continue;
-            if (typeof e === 'string') { refuse(p, q, e); failed.add(ek); continue; }
+            if (typeof e === 'string') { refuse(p, q, e); if (!lastRefusalApproach) failed.add(ek); continue; }
             apply(e); edits.push(e);
             const walked = walkScaledColliders(grid);
             if (!holds(walked)) { revert(e); edits.pop(); refuse(p, q, 'verify'); failed.add(ek); continue; }
