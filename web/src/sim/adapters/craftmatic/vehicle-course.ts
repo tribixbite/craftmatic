@@ -403,7 +403,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
   type TapSpot = { feet: { x: number; y: number; z: number }; gap: number; aim: { x: number; y: number; z: number } };
   /**
    * Where `who` can stand to tap the world box `b` of vehicle `v` so that the runtime's own pick from that eye and view
-   * `means` it: every spot round the box on a free floor (`standsAt`) with the eye within the pick's reach
+   * `means` it: where `who` stands now and every spot round the box on a free floor (`standsAt`) with the eye within the pick's reach
    * (`REACH_BLOCKS` x the scale above 100 %), aiming at its middle, low on it, or its point nearest the eye; nearest
    * first. The chosen spot is the first whose DEVICE pick (`pick`, a tap's ray) also lands on the vehicle or one of its
    * board points - a tap on nothing raises no event at all (quirk `tap-is-hit`); `who` is left standing there,
@@ -416,8 +416,12 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
     const half = Math.max(b[3]! - b[0]!, b[5]! - b[2]!) / 2;
     const spots: TapSpot[] = [];
     let crowded = false;
-    for (const out of [0.5, 1, 1.6, 2.4]) for (let a = 0; a < 16; a++) {
-      const x = mid.x + Math.cos(a * Math.PI / 8) * (half + out), z = mid.z + Math.sin(a * Math.PI / 8) * (half + out);
+    // Round the box, and first where the child stands now: after a tap opened a part the child taps again from the
+    // same spot, which the ring round the wider open + shut box can miss (8097's hatch at 200 %: the only floor near it
+    // is the model's ledge the first tap stood on).
+    const ring: Array<{ x: number; z: number }> = [{ x: who.location.x, z: who.location.z }];
+    for (const out of [0.5, 1, 1.6, 2.4]) for (let a = 0; a < 16; a++) ring.push({ x: mid.x + Math.cos(a * Math.PI / 8) * (half + out), z: mid.z + Math.sin(a * Math.PI / 8) * (half + out) });
+    for (const { x, z } of ring) {
       const y = floorBelow(ctx.sim.engine, v.dimension, x, Math.max(v.location.y, mid.y) + 0.5, z, Math.max(4, mid.y - v.location.y + 4));
       if (y === undefined || !standsAt(ctx.sim.engine, v.dimension, { x, y, z })) continue;
       const eye = { x, y: y + PLAYER_EYE, z };
