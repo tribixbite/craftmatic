@@ -52,10 +52,13 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   child play 700/712 (fails: 5582 Door 2 holes 150-400 %, 2504 tread across Door 2 at 150 % + door under ground at
   400 %, 6194 an unprotected 6.5-block fall, 6753 truck driver sees 9 of 28 rays per side), 27 vehicles pass the
   course. Content: real faces 30 of 138 heads, 52 boxed placements (8097 `ls11` x40), 270 floating parts.
-  MERGED: gen-mix3, gen-mbname, gen-mbface, gen-door2 (main `9f5bdf2e`). RE-RUN of both census gates on `9f5bdf2e`
-  RUNNING: `output/gengate-9f5bdf2e/` then `output/gengate2-9f5bdf2e/` (logs `output/gengate*-9f5bdf2e.log`); compare
-  with the numbers above. RUNNING: `gen-hatch` (worktree `.worktrees/gen-hatch`): 8097 hatch taps at 150-400 %
-  (`TODO(vehicle-part-tap-scaled)`, VEH-20).
+  MERGED: gen-mix3, gen-mbname, gen-mbface, gen-door2 (main `9f5bdf2e`). gen-hatch MERGED (`ae27f5be`): a vehicle part too high for a
+  board column on the base gets a lifted one (8097's hatches tap at 50-400 %; open: a high part INSIDE the hull box's
+  footprint, `TODO(vehicle-part-tap-scaled)`; a floating board point is not device-tested). NEXT: re-run both census
+  gates on current main into NEW dirs and compare with the numbers above:
+  `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build --out=output/gengate-<sha>`, then the
+  same with `gen-1116-sample2.txt` -> `output/gengate2-<sha>`. The 2026-11-18 run (`gengate-9f5bdf2e`) was stopped
+  by Claude Code for low system memory after 5 of 60 builds; re-run only when the machine is otherwise idle.
 
 ### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
 The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles
