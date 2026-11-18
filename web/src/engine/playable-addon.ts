@@ -22,7 +22,8 @@ import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
 import { helmSeatPlan, passengerHeld, passengerSurface, renderSeatToEntity, riderVisibleSizes, roofMap, surfaceOnTop, RIDE_ON_TOP_BELOW, ROOF_SEAT_BELOW_SURFACE, RIDER_EYE_ABOVE_SEAT, seatAtOnTop, type RoofMap, type SeatPlan } from './cockpit-seat.js';
 import type { VehicleSeatReport } from './seat-census.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendation, type SceneGridFrame } from './bedrock-scene-actors.js';
-import { fineReachColumns, type DoorApproach, type FineReachColumns, type SourceCell } from './bedrock-collider-scale.js';
+import { ScaledColliderGrid, fineReachColumns, walkScaledColliders, type DoorApproach, type FineReachColumns, type SourceCell } from './bedrock-collider-scale.js';
+import { doorStacks } from './interactivity-stage.js';
 import type { ModelBox } from './collider-carve.js';
 import { MINIDOLL_CLIENT_ANIMATIONS, MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CLIENT_ANIMATIONS, figureClientAnimations } from './minifig-rig.js';
 import { minifigFromSpec } from './minifig-rig.js';
@@ -3343,7 +3344,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             // a window pane, a turntable's load); a doorway's closed cells are
             // laid by the runtime, so its boxes stay out of the static grid.
             const staticIxBoxes: Array<{ min: Vec3; max: Vec3 }> = [];
-            const compiledIx: Array<{ it: SceneInteractive; typeId: string; label: string; hit: InteractiveHitboxes }> = [];
+            const compiledIx: Array<{ it: SceneInteractive; typeId: string; label: string; hit: InteractiveHitboxes; boxes: ColliderSourceBox[] }> = [];
             const ixCounts = new Map<string, number>();
             // Tap boxes that follow each part's own shape, kept off each other
             // and off the seats before anything is compiled (bedrock-interactives.ts).
@@ -3377,10 +3378,17 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     actors.push({ typeId, label: `${label} ${ixLabel.toLowerCase()}`, x: at[0], y: at[1] + igeo.originLiftBlocks, z: at[2], yaw: 0, interactive: compiledIx.length });
                     extraComponents.push({ id: ixId, label: `${label} ${ixLabel.toLowerCase()}`, kind: 'shell', provenance: `${it.bricks.length} source placement${it.bricks.length === 1 ? '' : 's'} (${it.part}) hinged at the measured ${it.kind === 'turnable' ? 'spin axis' : 'hinge'}` });
                     if (!PASSAGE_KINDS.has(it.kind)) staticIxBoxes.push(...(igeo.partBoxesLdu ?? []));
-                    compiledIx.push({ it, typeId, label: ixLabel, hit });
+                    compiledIx.push({ it, typeId, label: ixLabel, hit, boxes: igeo.partBoxesLdu ?? [] });
                 } catch (e) {
                     warnings.push(`${label}: ${ixLabel.toLowerCase()} (${it.part}) could not be compiled (${e instanceof Error ? e.message : String(e)}); it is missing from the build.`);
                 }
+            }
+            // Doors stacked in one doorway (interactivity-stage.ts `doorStacks`): only one of a stack can work, so the
+            // one that leads somewhere opens and the rest are held shut (`fixed`), their closed boxes static colliders.
+            for (const k of chooseStackedDoors(compiledIx, { scenery, staticBoxes: [...(sgeo.partBoxesLdu ?? []), ...staticIxBoxes], frame: options.shell.frame, keepClear: options.colliderKeepClear })) {
+                compiledIx[k] = { ...compiledIx[k]!, it: { ...compiledIx[k]!.it, fixed: true } };
+                staticIxBoxes.push(...compiledIx[k]!.boxes);
+                warnings.push(`${label}: ${compiledIx[k]!.label.toLowerCase()} is held shut: it stands on another door's leaf in the same doorway, and the other one leads further.`);
             }
             const colliderBoxes = [...(sgeo.partBoxesLdu ?? []), ...staticIxBoxes];
             const colliders = buildColliderGrid(scenery, colliderBoxes, options.shell.frame, options.colliderKeepClear);
@@ -4685,4 +4693,34 @@ export function measureCoasterTrain(route: { points: readonly Vec3[]; closed: bo
     const spacing = Math.round(pitches.reduce((s, v) => s + v, 0) / pitches.length * 1000) / 1000;
     if (!(spacing > 0)) return undefined;
     return { count: pitches.length + 1, spacing, riders: arcs.length, pitches: pitches.map(p => Math.round(p * 1000) / 1000) };
+}
+
+/**
+ * Which doors of each stack in one doorway (interactivity-stage.ts `doorStacks`) to hold SHUT (indices into `compiled`):
+ * every one but the door whose opening lets the 100 % walk reach the most surfaces of the model, the lowest on a tie.
+ * Each candidate is judged on the collider grid as it would ship - the others' closed boxes static, its own doorway
+ * cut by the doorway planner - walked from outside with its leaf open. Keeping the lowest by rule cost 5582 its upper
+ * storey and 5482 its door tower (census 2026-11-16); a stack is rare, so the extra grids cost little.
+ */
+export function chooseStackedDoors(compiled: ReadonlyArray<{ it: SceneInteractive; boxes: ColliderSourceBox[] }>, ctx: { scenery: Parameters<typeof buildColliderGrid>[0]; staticBoxes: readonly ColliderSourceBox[]; frame: SceneGridFrame; keepClear?: Parameters<typeof buildColliderGrid>[3] }): Set<number> {
+    const stacks = doorStacks(compiled.map(c => c.it), p => sceneGridPoint(ctx.frame, p));
+    const held = new Set(stacks.flatMap(g => g.slice(1)));
+    if (!stacks.length) return held;
+    const reachWith = (fixed: ReadonlySet<number>): number => {
+        const cg = buildColliderGrid(ctx.scenery, [...ctx.staticBoxes, ...[...fixed].flatMap(k => compiled[k]!.boxes)], ctx.frame, ctx.keepClear);
+        planInteractiveColliders(cg.grid, compiled.map((c, k) => fixed.has(k) ? { ...c.it, fixed: true } : c.it), ctx.frame, cg.layers);
+        const dims = { width: cg.grid.width, height: cg.grid.height, length: cg.grid.length };
+        const cells = colliderSourceCells({ ...dims, runs: encodeColliderRuns(cg.grid, COLLIDER_BLOCK_ID).runs });
+        return walkScaledColliders(new ScaledColliderGrid(cells, dims, 1, 0)).surfaces;
+    };
+    for (const stack of stacks) {
+        let best = stack[0]!, bestReach = -1;
+        for (const c of stack) {
+            const fixed = new Set([...held].filter(k => !stack.includes(k)).concat(stack.filter(k => k !== c)));
+            const reach = reachWith(fixed);
+            if (reach > bestReach) { best = c; bestReach = reach; }
+        }
+        for (const k of stack) if (k === best) held.delete(k); else held.add(k);
+    }
+    return held;
 }

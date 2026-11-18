@@ -808,6 +808,22 @@ describe('a run never stands across another doorway\'s line (census 2026-11-16: 
     expect(plan.runs.length).toBeLessThan(bare.runs.length);
     assertNeverBlocks(cells, dims, plan);
   });
+  it('lays a run across an approach where it is the only way onto a ledge, however small (exploration first: 10326 at 150 %, 42670 at 400 %)', () => {
+    // A ledge one cell by two, 14/16 high, walled on three sides by a rim three blocks high; its only climb is the
+    // west face, in a doorway's approach. At 200 % it is 8 surfaces, under any count a gateway rule would ask.
+    const dims = { width: 8, height: 4, length: 8 };
+    const g = new BlockGrid(dims.width, dims.height, dims.length);
+    for (const z of [3, 4]) solidTo(g, 3, z, 14);
+    for (const z of [2, 5]) for (const x of [3, 4]) solidTo(g, x, z, 48);
+    for (let z = 2; z <= 5; z++) solidTo(g, 4, z, 48);
+    const cells = colliderSourceCells(colliders(dims, encodeColliderRuns(g, COLLIDER_BLOCK_ID).runs));
+    const approach = { columns: [[1, 3], [2, 3], [1, 4], [2, 4]] as Array<[number, number]>, floor16: 0, cells: [[0, 0, 3, 0, 16]] };
+    const bare = planColliderTreads(cells, dims, 200, 0);
+    const plan = planColliderTreads(cells, dims, 200, 0, [], [], undefined, undefined, undefined, [approach]);
+    expect(bare.after.surfaces).toBeGreaterThan(bare.before.surfaces);
+    expect(plan.after.surfaces).toBe(bare.after.surfaces);
+    assertNeverBlocks(cells, dims, plan);
+  });
   it('keeps a run that climbs TO that doorway (its own approach, arriving at its floor)', () => {
     const p = platform(), cells = colliderSourceCells(colliders(p.dims, p.runs));
     // A doorway on the platform's west edge (100 % x 3, floor 14): its approach is the west face's ground.

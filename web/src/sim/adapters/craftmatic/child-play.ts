@@ -135,6 +135,8 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
       for (const part of parts) {
         const idx = e2n(part.dynamic.get(IX.index));
         const label = pack.interactives?.items[idx]?.label ?? part.typeId;
+        // A door of a stack held shut by the export (`fixed`, playable-addon.ts `chooseStackedDoors`) is meant not to move.
+        if (pack.interactives?.items[idx]?.fixed) { ctx.note(`${label}: held shut (another door of its stack opens)`); continue; }
         const state = (): string => JSON.stringify([part.dynamic.get(IX.open), part.properties.get(nsId(pack.namespace, 'angle'))]);
         const before = state();
         // No spot over the pack's colliders picks the part: when the MODEL itself offers none either (no drawn floor

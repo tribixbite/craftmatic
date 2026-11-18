@@ -1184,7 +1184,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     const laid = layout(n);
     if (laid === 'headroom') return 'headroom';
     const treadColumns = (m: number): Array<{ x: number; z: number }> => Array.from({ length: m }, (_, k) => columnAt(k));
-    if (crossesApproach(q, treadColumns(n), laid.tops)) { approachDeferred.set(`${p.x},${p.z},${p.t}>${q.x},${q.z},${q.t}`, { p, q }); return 'no-run'; }
+    if (crossesApproach(q, treadColumns(n), laid.tops)) { approachDeferred.set(refuseKey(p, q), { p, q }); return 'no-run'; }
     /** The edit that lays the run of `m` treads (`at`: its layout). */
     const build = (m: number, at: { hop16: number; tops: number[]; landing: Surface }): RunEdit => {
       const { hop16, tops, landing } = at;
@@ -1336,37 +1336,45 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) doorColumns.add(colKey(x, z));
   }
   /**
-   * THE APPROACH PASS. A run refused for standing across a doorway's line (`crossesApproach`) is laid after all
-   * when it is the GATEWAY to enough of the model: laid alone (and climbed on from by another laying walk, as the
-   * main walk would have), the walk reaches at least `CROSS_GATEWAY_PER_TREAD` new surfaces per tread of the
-   * refused run and `CROSS_GATEWAY_MIN` at least; otherwise it and every run laid after it go. 10326's 300 % ramp
-   * in front of its back doors is the only way up to the museum's upper floor (4.67 -> 3 blocks without it), so a
-   * child gets a ramp beside the door there; 2504's 150 % run in front of Door 2 opened nothing the plan did not
-   * reach already, and stays refused. Each run laid here is verified as the slow path verifies (`holds`).
+   * THE APPROACH PASS. A run refused for standing across a doorway's line (`crossesApproach`) is judged against
+   * what it would open, after the main walk has laid every other way up: laid alone, and climbed on from by another
+   * laying walk that may cross approaches too (a staircase up a facade past a door is several runs), it is kept
+   * when the walk then reaches ANY surface nothing else reached; otherwise it and every run laid after it go. Rounds
+   * repeat while one is kept (a refused edge whose foot only a kept run reaches is tried in the next round).
+   * Exploration first: 10326's 300 % ramp beside its back doors is the only way to the museum's upper floor, and
+   * 42670's 400 % facade runs the only way onto its upper storeys; 2504's 150 % run across Door 2's line opened
+   * nothing the plan did not reach already, and stays refused. Each kept chain is verified (`holds`).
    */
   const approachPass = (): void => {
-    for (const { p, q } of [...approachDeferred.values()]) {
-      const reach = walkScaledColliders(grid);
-      if (reach.visited.has(grid.key(q.x, q.z, q.t)) || !reach.visited.has(grid.key(p.x, p.z, p.t))) continue;
-      approachAllowed = true;
-      const e = planRun(p, q, reach.visited);
-      approachAllowed = false;
-      if (typeof e === 'string') continue;
-      const mark = edits.length;
-      apply(e); edits.push(e);
-      layingWalk(false);
-      const walked = walkScaledColliders(grid);
-      const gain = walked.visited.size - reach.visited.size;
-      if (holds(walked) && gain >= Math.max(CROSS_GATEWAY_MIN, CROSS_GATEWAY_PER_TREAD * e.columns.length)) {
-        // Restored after all: no longer unrestored, nor listed as refused.
-        const rk = refuseKey(p, q), was = failedReason.get(rk);
-        if (was !== undefined) { if (unrestored[was] > 0) unrestored[was]--; failedReason.delete(rk); }
-        const at = refused.findIndex(r => refuseKey(r.from, r.to) === rk);
-        if (at >= 0) refused.splice(at, 1);
-        continue;
+    for (let round = 0; round < LANE_ROUNDS; round++) {
+      let kept = false;
+      for (const [rk, { p, q }] of [...approachDeferred]) {
+        const reach = walkScaledColliders(grid);
+        if (reach.visited.has(grid.key(q.x, q.z, q.t))) { approachDeferred.delete(rk); continue; }
+        if (!reach.visited.has(grid.key(p.x, p.z, p.t))) continue;
+        const mark = edits.length;
+        approachAllowed = true;
+        const e = planRun(p, q, reach.visited);
+        if (typeof e !== 'string') { apply(e); edits.push(e); layingWalk(false); }
+        approachAllowed = false;
+        approachDeferred.delete(rk);
+        if (typeof e === 'string') continue;
+        const walked = walkScaledColliders(grid);
+        let opens = false;
+        for (const k of walked.visited) if (!reach.visited.has(k)) { opens = true; break; }
+        if (opens && holds(walked)) {
+          kept = true;
+          // Restored after all: no longer unrestored, nor listed as refused.
+          const was = failedReason.get(rk);
+          if (was !== undefined) { if (unrestored[was] > 0) unrestored[was]--; failedReason.delete(rk); }
+          const at = refused.findIndex(r => refuseKey(r.from, r.to) === rk);
+          if (at >= 0) refused.splice(at, 1);
+          continue;
+        }
+        for (let i = edits.length - 1; i >= mark; i--) revert(edits[i]!);
+        edits.length = mark;
       }
-      for (let i = edits.length - 1; i >= mark; i--) revert(edits[i]!);
-      edits.length = mark;
+      if (!kept) break;
     }
   };
   const doorwayPass = (): void => {
