@@ -162,21 +162,21 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
     (2504), the sim's figure-in-front tap gap;
   - class 2's side-view policy: branch `gen-side-1109` built and shown to the user, waits on merge or no;
   - re-run the census (`output/generality-1106/run-census.sh`, into a NEW output dir).
-- 2026-11-16/18 branch `gen-door2` (worktree `.worktrees/gen-door2`, head 4d677d75+, NOT merged), second census gate
+- 2026-11-16/18 branch `gen-door2` (worktree `.worktrees/gen-door2`, NOT merged), second census gate
   `output/gengate2-cda5f7b9/` (700/712): four PACK faults fixed, docs/bedrock-interactivity.md "The second census's
-  door findings were the pack's". (1) Stacked door leaves in one doorway: only the lowest opens (`stackedDoorways`;
-  5582, 5482, 3600). (2) A moving part's root under the ground moves up onto it (`groundedAnchors`; 2504's
-  upside-down gate leaf, also 71040 Door 1 by 0.08). (3) The scaled tread planner keeps runs off other doorways'
-  approaches where a tread would be a wall the 100 % model never had (`DoorApproach`, `newWallAt`, corner cells of a
-  45-degree door), unless the run is the gateway onto the model (`approachPass`). (4) Getting off a hovering native
-  rotorcraft gives slow falling (`dismountFloat`, 6194). Gate `bun scripts/_favourites_gate.ts 5582 5482 2504 6194
-  --build --out=output/gen2gate-final` (worktree): child play 48/48 (was 41/48), regressions `gen2-*` 4/4 OK.
-  Favourites vs a base build of f134493e (`output/gd2/base-packs2/`): 76419, 21063 and 21318 identical apart from
-  stamps (three SCALE-06 `_walk_line.ts` lines identical); 10326, 41732, 42670 and 910004 have tread changes; their
-  sim at 50-400 % passes. OPEN: 42670 at 400 % turns 0/180 reaches 3.63 instead of 5.5 blocks (-386 surfaces) and
-  10326 at 150 % turn 180 reaches 2.63 instead of 3.58 (`TODO`: find the refused run with `_tread_run_diff.py` and
-  decide whether it is a gateway the pass misses); 5582's upper storey and 5482's door tower are no longer reached
-  (`TODO(stacked-door-choice)`).
+  door findings were the pack's". (1) Stacked door leaves in one doorway: the one leading furthest opens, the others are
+  held shut (`doorStacks`, `chooseStackedDoors`, `fixed`; 5582, 5482, 3600). (2) A moving part's root under the ground
+  moves up onto it (`groundedAnchors`; 2504, 71040 Door 1). (3) The scaled tread planner keeps runs off other
+  doorways' approaches where a tread is a wall the 100 % model never had (`DoorApproach`, `newWallAt`, 45-degree corner
+  cells), unless the run's chain reaches anything else unreached (`approachPass`). (4) Off a hovering native rotorcraft:
+  slow falling (`dismountFloat`, 6194). Gate `bun scripts/_favourites_gate.ts 5582 5482 2504 6194 --build
+  --out=output/gen2gate-v4` (worktree): child play 48/48, regressions `gen2-*` 4/4. Favourites vs a base build of
+  f134493e (`output/gd2/base-packs2/`), tread-plan surfaces over 16 plans: 10326 25,792 -> 26,135, 42670 52,846 ->
+  52,950, 910004 and 21318 equal, 41732 61,010 -> 60,939; every plan's highest point equal or higher. OPEN: per-plan
+  dips with the highest unchanged - 41732 400 % turns 0/90 -34 each, 300 % turn 90 -7; 42670 300 % turn 270 -27 and
+  turn 90 -8; 10326 300 % turn 270 -1 (runs re-planned in a different order; 42670's turn 270 has a refused edge whose
+  foot no plan reaches any more). 5482 at 300/400 % reaches less than the census pack whose four doors cut each
+  other's floors. 76419 and 21063 identical to base apart from stamps; SCALE-06 lines identical.
 - Step 4: a per-vehicle drive check for every census vehicle: the sim's vehicles scenario (move 20 blocks, turn,
   camera follows, dismount gives the camera back, never inside a wall), plus `_cockpit_view.ts` renders
   (`driverSeesOut`). Then BDS 1.26.63.1 (`C:/git/bds/`) beside the sim for API fidelity, then one Pixel round.

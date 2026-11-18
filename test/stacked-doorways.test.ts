@@ -4,7 +4,7 @@
  * The PDF-reconstructed "building set" buckets (5582, 5482, 3600) place two to four door leaves one above the other
  * in the same doorway columns, each touching or overlapping the next by a sliver: the upper leaf's threshold is the
  * lower leaf's head room, so one door's passage removes the other's floor (5582 Door 2 fell 3.19 blocks at its door
- * plane at 150 %). Only the LOWEST leaf of such a stack is a working door; the rest stay static in the shell.
+ * plane at 150 %). One leaf of such a stack works (the export keeps the one leading furthest, `chooseStackedDoors`); `stackedDoorways` is the keep-the-lowest fallback tested here.
  *
  * 2504's right gate leaf is posed upside down by the reconstruction and hangs 0.48 block under the ground: an entity
  * is lit by the block at its root, so a root inside the ground block draws the door dark (the shells' lift, see

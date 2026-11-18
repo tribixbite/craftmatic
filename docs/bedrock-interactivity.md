@@ -1792,10 +1792,16 @@ Unlike the first census, these were pipeline faults, one class each:
 - **Doors stacked in one doorway.** The PDF-reconstructed "building set" buckets (5582, 5482, 3600) stand two to four
   door leaves one above the other in the same doorway columns, each touching or overlapping the next by a sliver. The
   upper leaf's threshold is then the lower leaf's head room, so one door's passage takes the other's floor (5582 Door 2
-  fell 3.19 blocks at its door plane at 150 %). Only the LOWEST leaf of a stack is a door; the rest stay static in the
-  shell (`stackedDoorways`, interactivity-stage.ts: same facing within half a block of one plane, half the narrower
-  width shared, heights touching within a sixteenth, feet half a leaf apart). A double door (side by side) and two
-  storeys with a floor between them are not stacks.
+  fell 3.19 blocks at its door plane at 150 %). One door per stack works (`doorStacks`, interactivity-stage.ts: same
+  facing within half a block of one plane, half the narrower width shared, heights touching within a sixteenth, feet
+  half a leaf apart; a double door and two storeys with a floor between are not stacks). The export keeps the one
+  whose opening lets the 100 % walk reach the most surfaces, each candidate judged on the shipped collider grid with
+  the others' boxes static (`chooseStackedDoors`, playable-addon.ts); the others are held SHUT (`fixed`: their own
+  entity, sized and turned with the placement, static collider boxes, no doorway, a tap says it is stuck; the
+  simulator does not tap them and reads a stop on their cells as the model's stack). Keeping the lowest by rule had
+  cost 5582 its upper storey (tread plans 26,190 -> 26,048 surfaces; chosen: 36,992, Door 2) and 5482 its tower
+  (34,342 -> 25,232; chosen: 30,436, Door 2 - the census's 34,342 came from four doors that all cut each other's
+  floors).
 - **A moving part's root under the ground.** An entity is lit by the block at its root, as a shell is
   (`originAboveModel`). 2504's right gate leaf, posed upside down by its reconstruction, hangs 0.48 under the ground and
   its root (the closed assembly's bottom centre) sat in the ground block - 1.93 blocks under at 400 %. A root under
@@ -1807,7 +1813,12 @@ Unlike the first census, these were pipeline faults, one class each:
   doorway's floor AND, at the model's own scale, more than a step over the 100 % column under it - a wall the model
   never stood in front of the door (`newWallAt`) - unless the run arrives AT that doorway. Without the second test the
   rule took the model's own stairs past a door (10326 and 21318 lost reach at 150-400 %): a tread that ramps a model
-  riser over the floor before it stays within a step of what a 100 % player meets in that column (2504's 150 % run up to a 2.8-block ledge stood 1-3 blocks
+  riser over the floor before it stays within a step of what a 100 % player meets in that column. Exploration comes
+  first: after the main walk the approach pass lays each refused run whose chain reaches ANY surface nothing else
+  reached (crossing approaches allowed along the chain, then each crossing run of it that opens nothing removed
+  again), and an approach refusal never marks the laying walk's edge key failed - that key is per source surface and
+  direction, so one refusal hid every other level of the neighbour column (10326 at 150 % turn 180 and 42670 at
+  400 % turns 0/180 lost a storey that way) (2504's 150 % run up to a 2.8-block ledge stood 1-3 blocks
   in front of Door 2; 5482's 400 % facade run crossed Door 3's line). A door turned 45 degrees has its approach
   sampled along the diagonal one cell per step, so the planner adds the two corner cells of each diagonal step: without
   them 6194's 150 % plan moved a refused run to just behind its Door 1's plane.
