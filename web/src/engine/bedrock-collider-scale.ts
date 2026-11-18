@@ -1059,12 +1059,6 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
   const approachDeferred = new Map<string, { p: Surface; q: Surface }>();
   let approachAllowed = false;
   /**
-   * The deferred edge the approach pass is laying (`approachPass`): while it lays one and climbs on from it, a run
-   * across an approach is allowed - except another edge already deferred, which waits for its own turn (or every
-   * column of a refused face came back at once with the first: the terrace test, 12 runs for one).
-   */
-  let approachRetry: string | undefined;
-  /**
    * Set when the last `planRun` was refused for crossing an approach. Such a refusal is about THAT target surface: it
    * must not mark the edge key `failed`, which is per source surface and direction, or every other level of the
    * neighbour column is never tried from there (10326 at 150 % turn 180 lost a level the base plan reached that way).
@@ -1198,7 +1192,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     if (laid === 'headroom') return 'headroom';
     const treadColumns = (m: number): Array<{ x: number; z: number }> => Array.from({ length: m }, (_, k) => columnAt(k));
     const approachKey = refuseKey(p, q);
-    const approachBypass = approachAllowed && (approachKey === approachRetry || !approachDeferred.has(approachKey));
+    const approachBypass = approachAllowed;
     if (!approachBypass && crossesApproach(q, treadColumns(n), laid.tops)) { approachDeferred.set(approachKey, { p, q }); lastRefusalApproach = true; return 'no-run'; }
     /** The edit that lays the run of `m` treads (`at`: its layout). */
     const build = (m: number, at: { hop16: number; tops: number[]; landing: Surface }): RunEdit => {
@@ -1368,17 +1362,29 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
         if (reach.visited.has(grid.key(q.x, q.z, q.t))) { approachDeferred.delete(rk); continue; }
         if (!reach.visited.has(grid.key(p.x, p.z, p.t))) continue;
         const mark = edits.length;
-        approachAllowed = true; approachRetry = rk;
+        approachAllowed = true;
         const e = planRun(p, q, reach.visited);
         approachDeferred.delete(rk);
         if (typeof e !== 'string') { apply(e); edits.push(e); layingWalk(false); }
-        approachAllowed = false; approachRetry = undefined;
+        approachAllowed = false;
         if (typeof e === 'string') continue;
         const walked = walkScaledColliders(grid);
         let opens = false;
         for (const k of walked.visited) if (!reach.visited.has(k)) { opens = true; break; }
         if (opens && holds(walked)) {
           kept = true;
+          // Judged against what it replaces: a run of the chain (not the retried one) that crosses an approach and
+          // opens nothing the rest of the plan does not reach goes again, newest first - with every refusal lifted
+          // the chain walk lays each refused column of a face at once (the terrace guard: 12 runs for 1).
+          let size = walked.visited.size;
+          for (let i = edits.length - 1; i > mark; i--) {
+            const r = edits[i]!;
+            if (!crossesApproach(r.to, r.columns, r.columns.map(c => c.top16))) continue;
+            revert(r); edits.splice(i, 1);
+            const without = walkScaledColliders(grid);
+            if (without.visited.size >= size && holds(without)) { size = without.visited.size; continue; }
+            edits.splice(i, 0, r); apply(r);
+          }
           // Restored after all: no longer unrestored, nor listed as refused.
           const was = failedReason.get(rk);
           if (was !== undefined) { if (unrestored[was] > 0) unrestored[was]--; failedReason.delete(rk); }
