@@ -540,6 +540,13 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
           if (!e.valid || typeof j !== 'number' || own.has(j) || !(ix.items[j]?.blocking.length) || e.dynamic.get(IX.open) === true) continue;
           for (const b of doorwayGeometry({ dims: ix.dims }, ix.items[j]!, f, placed.rotation as QuarterTurn).own) shutLeafCells.add(`${placed.anchor.x + b.x},${placed.anchor.y + b.y},${placed.anchor.z + b.z}`);
         }
+        // A door held shut by the export (`fixed`, the unchosen doors of a stack) has no closed cells of its own: its
+        // leaf's boxes are STATIC colliders, laid whole-cell over the 100 % cells its leaf touches. A stop there is on
+        // that shut door, the model's stack, as a stop on another door's shut leaf is.
+        for (const [j, other] of ix.items.entries()) {
+          if (own.has(j) || !other.fixed || !other.leaf) continue;
+          for (const b of doorwayGeometry({ dims: ix.dims }, { ...other, blocking: leafCells100(other.leaf) }, f, placed.rotation as QuarterTurn).own) shutLeafCells.add(`${placed.anchor.x + b.x},${placed.anchor.y + b.y},${placed.anchor.z + b.z}`);
+        }
         if (!geo.own.length) { ctx.note(`${it.label}: no closed blocks at ${placed.sizePct} percent; its lines are not walked`); continue; }
         const n = geo.n, floorY = placed.anchor.y + geo.centre.y;
         const columns = new Map<string, Vec3>();
@@ -1202,4 +1209,14 @@ async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], treads
   const message = `${text}; ${stopCause(tread)}`;
   finding(ctx, { kind: 'STOP', where, model: false, pendingMessage: message, start: pt(start), stoppedAt: pt(at), block: hit?.block, ...(tread.length ? { tread } : {}) });
   return { crossed: false, pending: { message, evidence: { start: pt(start), stoppedAt: pt(at), treads: tread, jumps } } };
+}
+
+/** The 100 % grid cells (`[x, y, z, 0, 16]`) a leaf's closed box touches (`InteractiveRuntimeItem.leaf`, model blocks). */
+function leafCells100(leaf: { c: number[]; a: number[]; u: number[]; n: number[]; t: number }): Array<[number, number, number, number, number]> {
+  const pts: number[][] = [];
+  for (const s of [0, 1]) for (const t of [0, 1]) for (const d of [-0.5, 0.5]) pts.push([0, 1, 2].map(i => leaf.c[i]! + s * leaf.a[i]! + t * leaf.u[i]! + d * leaf.t * leaf.n[i]!));
+  const lo = [0, 1, 2].map(i => Math.floor(Math.min(...pts.map(p => p[i]!)) + 1e-6)), hi = [0, 1, 2].map(i => Math.ceil(Math.max(...pts.map(p => p[i]!)) - 1e-6) - 1);
+  const out: Array<[number, number, number, number, number]> = [];
+  for (let x = lo[0]!; x <= hi[0]!; x++) for (let y = lo[1]!; y <= hi[1]!; y++) for (let z = lo[2]!; z <= hi[2]!; z++) out.push([x, y, z, 0, 16]);
+  return out;
 }
