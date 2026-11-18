@@ -52,9 +52,10 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   child play 700/712 (fails: 5582 Door 2 holes 150-400 %, 2504 tread across Door 2 at 150 % + door under ground at
   400 %, 6194 an unprotected 6.5-block fall, 6753 truck driver sees 9 of 28 rays per side), 27 vehicles pass the
   course. Content: real faces 30 of 138 heads, 52 boxed placements (8097 `ls11` x40), 270 floating parts.
-  RUNNING (worktrees from `f134493e`): `gen-door2` (5582, 2504, 6194, 5482 Door 3 at 400 % `TODO(gen-door-stair)`),
-  `gen-mix3` (6753 view; boxed ids from both censuses through the general alias rules), `gen-mbface` (Mecabricks
-  head decorations -> LDraw prints, from `87ebfa17`).
+  MERGED: gen-mix3, gen-mbname, gen-mbface, gen-door2 (main `9f5bdf2e`). RE-RUN of both census gates on `9f5bdf2e`
+  RUNNING: `output/gengate-9f5bdf2e/` then `output/gengate2-9f5bdf2e/` (logs `output/gengate*-9f5bdf2e.log`); compare
+  with the numbers above. RUNNING: `gen-hatch` (worktree `.worktrees/gen-hatch`): 8097 hatch taps at 150-400 %
+  (`TODO(vehicle-part-tap-scaled)`, VEH-20).
 
 ### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
 The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles
@@ -170,7 +171,7 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
     (2504), the sim's figure-in-front tap gap;
   - class 2's side-view policy: branch `gen-side-1109` built and shown to the user, waits on merge or no;
   - re-run the census (`output/generality-1106/run-census.sh`, into a NEW output dir).
-- 2026-11-16/18 branch `gen-door2` (worktree `.worktrees/gen-door2`, NOT merged), second census gate
+- 2026-11-16/18 branch `gen-door2` MERGED 2026-11-18 (`9f5bdf2e`, suite 4662 passed), second census gate
   `output/gengate2-cda5f7b9/` (700/712): four PACK faults fixed, docs/bedrock-interactivity.md "The second census's
   door findings were the pack's". (1) Stacked door leaves in one doorway: the one leading furthest opens, the others are
   held shut (`doorStacks`, `chooseStackedDoors`, `fixed`; 5582, 5482, 3600). (2) A moving part's root under the ground
