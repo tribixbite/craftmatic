@@ -159,15 +159,7 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
        part no drawn floor reaches as the MODEL's (`outOfReachByModel`); violations fell 40 -> 10 and 48 -> 18.
      - OPEN sim gap: the rest are windows whose only tap spot has a walking figure in front of it. The runtime
        passes a tap on a figure through to the part behind it; the sim's spot search does not.
-  7. **Doorway lines**, OPEN, two design questions (the agent stopped rather than patch again):
-     - 2504 at 150 %: the access stair up to Door 1 runs across Door 2's OUTSIDE approach, up to 3.75 tall (pack
-       x 15-19, z 10-11). The stair planner's "blocks nothing" check passes because Door 2's threshold is still
-       reached from inside. Options: protect each door's approach columns from other doors' stairs, or require a
-       threshold to stay reachable from every side it was reached from before. Judge either on every
-       device-proven walk route (SCALE-06 `_walk_line.ts` lines).
-     - 5582 is a bad source: Door 1 (y 0-2.25) and Door 2 (y 2.125-4.6) overlap in the same columns, with a slab
-       through Door 1's leaf, so one door's passage removes the other's landing. There is no consistent answer;
-       a candidate rule is to drop the lower door when two leaves overlap.
+  7. **Doorway lines**: FIXED on branch `gen-door2` (see the 2026-11-16 gen-door2 entry below).
 
   Seat audit (`census/audit.md`): 271 seat places; the player can sit at 224; 47 have no use. Regressions at
   `4da29033`: 38 NOT TESTED. The regression set looks for round-named packs
@@ -178,14 +170,21 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
     (2504), the sim's figure-in-front tap gap;
   - class 2's side-view policy: branch `gen-side-1109` built and shown to the user, waits on merge or no;
   - re-run the census (`output/generality-1106/run-census.sh`, into a NEW output dir).
-- 2026-11-16 branch `gen-door` (worktree `.worktrees/gen-door`, NOT merged): the 60-set gate
-  `output/gengate-6fa0afa6/` failed 9 child-play scenarios in 5482 and 6164; all were the SIMULATOR's judgement
-  (docs/bedrock-interactivity.md "The census's door and window findings were the simulator's"). After, on the same
-  packs and on rebuilds (`output/gengate-door-86856fda/`, `_favourites_gate.ts 5482 6164 --build`): 2 fail, both 5482
-  at 400 % - Door 3's lines stop on a 400 % tread of the OVERLAPPING Door 2's facade run (`TODO(gen-door-stair)`:
-  the scaled tread planner, bedrock-collider-scale.ts, knows doorway cells, not approaches; any change there is
-  judged on the SCALE-06 `_walk_line.ts` routes first). Also open: the candidate rule above (drop the lower of two
-  overlapping leaves) would retire this and 5582 together.
+- 2026-11-16/18 branch `gen-door2` (worktree `.worktrees/gen-door2`, NOT merged), second census gate
+  `output/gengate2-cda5f7b9/` (700/712): four PACK faults fixed, docs/bedrock-interactivity.md "The second census's
+  door findings were the pack's". (1) Stacked door leaves in one doorway: the one leading furthest opens, the others are
+  held shut (`doorStacks`, `chooseStackedDoors`, `fixed`; 5582, 5482, 3600). (2) A moving part's root under the ground
+  moves up onto it (`groundedAnchors`; 2504, 71040 Door 1). (3) The scaled tread planner keeps runs off other
+  doorways' approaches where a tread is a wall the 100 % model never had (`DoorApproach`, `newWallAt`, 45-degree corner
+  cells), unless the run's chain reaches anything else unreached (`approachPass`). (4) Off a hovering native rotorcraft:
+  slow falling (`dismountFloat`, 6194). Gate `bun scripts/_favourites_gate.ts 5582 5482 2504 6194 --build
+  --out=output/gen2gate-v4` (worktree): child play 48/48, regressions `gen2-*` 4/4. Favourites vs a base build of
+  f134493e (`output/gd2/base-packs2/`), tread-plan surfaces over 16 plans: 10326 25,792 -> 26,135, 42670 52,846 ->
+  52,950, 910004 and 21318 equal, 41732 61,010 -> 60,939; every plan's highest point equal or higher. OPEN: per-plan
+  dips with the highest unchanged - 41732 400 % turns 0/90 -34 each, 300 % turn 90 -7; 42670 300 % turn 270 -27 and
+  turn 90 -8; 10326 300 % turn 270 -1 (runs re-planned in a different order; 42670's turn 270 has a refused edge whose
+  foot no plan reaches any more). 5482 at 300/400 % reaches less than the census pack whose four doors cut each
+  other's floors. 76419 and 21063 identical to base apart from stamps; SCALE-06 lines identical.
 - Step 4: a per-vehicle drive check for every census vehicle: the sim's vehicles scenario (move 20 blocks, turn,
   camera follows, dismount gives the camera back, never inside a wall), plus `_cockpit_view.ts` renders
   (`driverSeesOut`). Then BDS 1.26.63.1 (`C:/git/bds/`) beside the sim for API fidelity, then one Pixel round.

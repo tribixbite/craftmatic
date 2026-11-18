@@ -22,7 +22,8 @@ import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
 import { helmSeatPlan, passengerHeld, passengerSurface, renderSeatToEntity, riderVisibleSizes, roofMap, surfaceOnTop, RIDE_ON_TOP_BELOW, ROOF_SEAT_BELOW_SURFACE, RIDER_EYE_ABOVE_SEAT, seatAtOnTop, type RoofMap, type SeatPlan } from './cockpit-seat.js';
 import type { VehicleSeatReport } from './seat-census.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendation, type SceneGridFrame } from './bedrock-scene-actors.js';
-import { fineReachColumns, type FineReachColumns, type SourceCell } from './bedrock-collider-scale.js';
+import { ScaledColliderGrid, fineReachColumns, walkScaledColliders, type DoorApproach, type FineReachColumns, type SourceCell } from './bedrock-collider-scale.js';
+import { doorStacks } from './interactivity-stage.js';
 import type { ModelBox } from './collider-carve.js';
 import { MINIDOLL_CLIENT_ANIMATIONS, MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CLIENT_ANIMATIONS, figureClientAnimations } from './minifig-rig.js';
 import { minifigFromSpec } from './minifig-rig.js';
@@ -1799,6 +1800,11 @@ interface VehicleDriverConfig {
   steer: NativeSteerParams;
   /** The mount's dynamic property the held heading is written to every tick, for the chase camera (`NATIVE_HEADING_PROPERTY`). */
   headingProperty: string;
+  /**
+   * A player who leaves a native mount with no solid block within `dropBlocks` under the feet is given slow falling
+   * for `ticks` (`FLYER.DISMOUNT_DROP_BLOCKS` / `DISMOUNT_SLOW_FALL_TICKS`, as off the flyer's cloud and the coaster).
+   */
+  dismountFloat: { dropBlocks: number; ticks: number };
 }
 /** Ticks between two Jump effects (sound and flame) of a rotorcraft. */
 export const ROTOR_BOOST_COOLDOWN_TICKS = 30;
@@ -1946,12 +1952,47 @@ function vehicleDriverRuntime(config: VehicleDriverConfig, look: typeof freeLook
     for (const id of [...steering.keys()]) if (!seen.has(id)) steering.delete(id);
   }, 1);
 
+  /** Whether a solid block lies within `dismountFloat.dropBlocks` under the feet at `loc` (an unloaded block counts as none: the effect is harmless on the ground). */
+  const groundUnder = (dim: any, loc: any): boolean => {
+    const x = Math.floor(loc.x), z = Math.floor(loc.z), feet = Math.floor(loc.y);
+    for (let dy = 0; dy <= config.dismountFloat.dropBlocks; dy++) {
+      try { const b = dim.getBlock({ x, y: feet - dy, z }); if (b && !b.isAir && !b.isLiquid) return true; } catch { /* unloaded: no ground known */ }
+    }
+    return false;
+  };
+  /**
+   * The players aboard each mount at the last interval, so one who left (sneak, an eject) is seen at the next. The
+   * Script API has no dismount event, so the riders are polled, as the flyer's cloud does (bedrock-flyer.ts). A
+   * native rotorcraft hovers wherever it is left: a sneak off 6 blocks over the street dropped the census child
+   * 6.51 blocks (6194, 2026-11-16), so a rider who leaves one in the air floats down.
+   */
+  const aboard = new Map<string, Map<string, any>>();
+  const floatDown = (player: any): void => {
+    // Off the mount and onto another (a hop, bedrock-ride-hop.ts): not falling.
+    try { if (player.getComponent('minecraft:riding')?.entityRidingOn) return; } catch { /* not riding */ }
+    let dim: any, loc: any;
+    try { dim = player.dimension; loc = player.location; } catch { return; }
+    if (groundUnder(dim, loc)) return;
+    try { player.addEffect('slow_falling', config.dismountFloat.ticks, { amplifier: 0, showParticles: false }); } catch { /* no effect */ }
+    try { player.onScreenDisplay.setActionBar('Floating down'); } catch { /* no HUD */ }
+  };
   let tick = 0;
   system.runInterval(() => {
     tick += 2;
+    const live = new Set<string>();
     for (const { vehicle, config: cfg } of activeVehicles()) {
       let riders: any[] = [];
       try { riders = vehicle.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch {}
+      // Who left since the last interval: floated down if nothing is under them.
+      let vid = '';
+      try { vid = String(vehicle.id); } catch { /* gone */ }
+      if (vid) {
+        live.add(vid);
+        const now = new Map<string, any>();
+        for (const r of riders) { try { if (r.typeId === 'minecraft:player') now.set(String(r.id), r); } catch { /* gone */ } }
+        for (const [pid, p] of aboard.get(vid) ?? []) if (!now.has(pid)) floatDown(p);
+        if (now.size) aboard.set(vid, now); else aboard.delete(vid);
+      }
       const rider = riders.find((e: any) => e.typeId === 'minecraft:player') ?? riders[0];
       if (!rider) {
         // Nobody aboard ends the ride: the next rider, the same player back on this
@@ -2115,6 +2156,7 @@ export function vehicleDriverConfig(vehicles: VehicleDriverConfig['vehicles'], p
     vehicles, boostCooldownTicks: ROTOR_BOOST_COOLDOWN_TICKS, descendOn: AIRCRAFT_DESCEND_ON, descendOff: AIRCRAFT_DESCEND_OFF, puffParticle: FLYER_PUFF_PARTICLE,
     divePitchDeg: FLYER.DIVE_PITCH_DEG, rideHintTicks: FLYER.RIDE_HINT_TICKS, speedWindowTicks: DRIVER_SPEED_WINDOW_TICKS, teleportBlocks: DRIVER_TELEPORT_BLOCKS,
     altScanBlocks: DRIVER_ALT_SCAN_BLOCKS, freeLook: FREE_LOOK, steer: NATIVE_STEER, headingProperty: NATIVE_HEADING_PROPERTY,
+    dismountFloat: { dropBlocks: FLYER.DISMOUNT_DROP_BLOCKS, ticks: FLYER.DISMOUNT_SLOW_FALL_TICKS },
   };
 }
 
@@ -2902,6 +2944,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     let clearanceReport: ClearanceReport | undefined;
     /** Whether an access stair took a column of `options.accessMargin` (false when none did, or no doorway was planned). */
     let accessMarginUsed = false;
+    /** Each doorway's approach, floor and closed cells (100 % grid): the scaled tread planner keeps runs off them (`planColliderTreads`). */
+    let doorApproaches: DoorApproach[] = [];
     /** What the doorway walk found at 100 % (`doorwayWalkSummary`), for the wand. */
     let ixWalkNote: string | undefined;
     const actors: PlacementActor[] = [];
@@ -3300,7 +3344,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             // a window pane, a turntable's load); a doorway's closed cells are
             // laid by the runtime, so its boxes stay out of the static grid.
             const staticIxBoxes: Array<{ min: Vec3; max: Vec3 }> = [];
-            const compiledIx: Array<{ it: SceneInteractive; typeId: string; label: string; hit: InteractiveHitboxes }> = [];
+            const compiledIx: Array<{ it: SceneInteractive; typeId: string; label: string; hit: InteractiveHitboxes; boxes: ColliderSourceBox[] }> = [];
             const ixCounts = new Map<string, number>();
             // Tap boxes that follow each part's own shape, kept off each other
             // and off the seats before anything is compiled (bedrock-interactives.ts).
@@ -3334,10 +3378,17 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     actors.push({ typeId, label: `${label} ${ixLabel.toLowerCase()}`, x: at[0], y: at[1] + igeo.originLiftBlocks, z: at[2], yaw: 0, interactive: compiledIx.length });
                     extraComponents.push({ id: ixId, label: `${label} ${ixLabel.toLowerCase()}`, kind: 'shell', provenance: `${it.bricks.length} source placement${it.bricks.length === 1 ? '' : 's'} (${it.part}) hinged at the measured ${it.kind === 'turnable' ? 'spin axis' : 'hinge'}` });
                     if (!PASSAGE_KINDS.has(it.kind)) staticIxBoxes.push(...(igeo.partBoxesLdu ?? []));
-                    compiledIx.push({ it, typeId, label: ixLabel, hit });
+                    compiledIx.push({ it, typeId, label: ixLabel, hit, boxes: igeo.partBoxesLdu ?? [] });
                 } catch (e) {
                     warnings.push(`${label}: ${ixLabel.toLowerCase()} (${it.part}) could not be compiled (${e instanceof Error ? e.message : String(e)}); it is missing from the build.`);
                 }
+            }
+            // Doors stacked in one doorway (interactivity-stage.ts `doorStacks`): only one of a stack can work, so the
+            // one that leads somewhere opens and the rest are held shut (`fixed`), their closed boxes static colliders.
+            for (const k of chooseStackedDoors(compiledIx, { scenery, staticBoxes: [...(sgeo.partBoxesLdu ?? []), ...staticIxBoxes], frame: options.shell.frame, keepClear: options.colliderKeepClear })) {
+                compiledIx[k] = { ...compiledIx[k]!, it: { ...compiledIx[k]!.it, fixed: true } };
+                staticIxBoxes.push(...compiledIx[k]!.boxes);
+                warnings.push(`${label}: ${compiledIx[k]!.label.toLowerCase()} is held shut: it stands on another door's leaf in the same doorway, and the other one leads further.`);
             }
             const colliderBoxes = [...(sgeo.partBoxesLdu ?? []), ...staticIxBoxes];
             const colliders = buildColliderGrid(scenery, colliderBoxes, options.shell.frame, options.colliderKeepClear);
@@ -3368,6 +3419,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 }),
             }) : undefined;
             const ixPlans: Array<InteractiveColliderPlan | null> = compiledIx.length ? planInteractiveColliders(colliders.grid, compiledIx.map(c => c.it), options.shell.frame, colliders.layers, avoid) : [];
+            doorApproaches = ixPlans.flatMap(pl => pl?.approach.length && pl.blocking.length ? [{ columns: pl.approach, floor16: pl.floor16, cells: pl.blocking }] : []);
             // Did any access stair take a column of the margin the pipeline widened the grid by?
             const m = options.accessMargin;
             if (m) {
@@ -4388,7 +4440,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // The doorways a 200 % doorway carve opens round (`planDoorwayCarve`): every leaf with a passable size.
     const carveDoorways = interactiveConfig ? interactiveConfig.items.filter(it => it.leaf && it.passSize && it.blocking.length).map(it => ({ cells: it.blocking, passSize: it.passSize! })) : [];
     const carveWith = carveSource && carveDoorways.length ? { ...carveSource, doorways: carveDoorways } : carveSource;
-    const plannedTreads = placementColliders ? await withColliderTreadsAsync(placementColliders, [], doorCells ?? [], fineReach, carveWith) : undefined;
+    const plannedTreads = placementColliders ? await withColliderTreadsAsync(placementColliders, [], doorCells ?? [], fineReach, carveWith, doorApproaches) : undefined;
     // Board points (bedrock-vehicle.ts `BOARD`, VEH-17): one invisible rideable type per size step for every scripted vehicle
     // with drawn extremities. Named here, before the placement script, because Undo must remove them with their vehicle.
     const boardIds = Object.values(scriptedTypes).some(t => t.board?.length)
@@ -4641,4 +4693,34 @@ export function measureCoasterTrain(route: { points: readonly Vec3[]; closed: bo
     const spacing = Math.round(pitches.reduce((s, v) => s + v, 0) / pitches.length * 1000) / 1000;
     if (!(spacing > 0)) return undefined;
     return { count: pitches.length + 1, spacing, riders: arcs.length, pitches: pitches.map(p => Math.round(p * 1000) / 1000) };
+}
+
+/**
+ * Which doors of each stack in one doorway (interactivity-stage.ts `doorStacks`) to hold SHUT (indices into `compiled`):
+ * every one but the door whose opening lets the 100 % walk reach the most surfaces of the model, the lowest on a tie.
+ * Each candidate is judged on the collider grid as it would ship - the others' closed boxes static, its own doorway
+ * cut by the doorway planner - walked from outside with its leaf open. Keeping the lowest by rule cost 5582 its upper
+ * storey and 5482 its door tower (census 2026-11-16); a stack is rare, so the extra grids cost little.
+ */
+export function chooseStackedDoors(compiled: ReadonlyArray<{ it: SceneInteractive; boxes: ColliderSourceBox[] }>, ctx: { scenery: Parameters<typeof buildColliderGrid>[0]; staticBoxes: readonly ColliderSourceBox[]; frame: SceneGridFrame; keepClear?: Parameters<typeof buildColliderGrid>[3] }): Set<number> {
+    const stacks = doorStacks(compiled.map(c => c.it), p => sceneGridPoint(ctx.frame, p));
+    const held = new Set(stacks.flatMap(g => g.slice(1)));
+    if (!stacks.length) return held;
+    const reachWith = (fixed: ReadonlySet<number>): number => {
+        const cg = buildColliderGrid(ctx.scenery, [...ctx.staticBoxes, ...[...fixed].flatMap(k => compiled[k]!.boxes)], ctx.frame, ctx.keepClear);
+        planInteractiveColliders(cg.grid, compiled.map((c, k) => fixed.has(k) ? { ...c.it, fixed: true } : c.it), ctx.frame, cg.layers);
+        const dims = { width: cg.grid.width, height: cg.grid.height, length: cg.grid.length };
+        const cells = colliderSourceCells({ ...dims, runs: encodeColliderRuns(cg.grid, COLLIDER_BLOCK_ID).runs });
+        return walkScaledColliders(new ScaledColliderGrid(cells, dims, 1, 0)).surfaces;
+    };
+    for (const stack of stacks) {
+        let best = stack[0]!, bestReach = -1;
+        for (const c of stack) {
+            const fixed = new Set([...held].filter(k => !stack.includes(k)).concat(stack.filter(k => k !== c)));
+            const reach = reachWith(fixed);
+            if (reach > bestReach) { best = c; bestReach = reach; }
+        }
+        for (const k of stack) if (k === best) held.delete(k); else held.add(k);
+    }
+    return held;
 }

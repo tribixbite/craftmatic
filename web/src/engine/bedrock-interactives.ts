@@ -245,7 +245,12 @@ export interface SceneInteractive {
   /** Degrees each sign of the swing was obstructed in the sweep (samples inside other parts), for diagnostics. */
   sweep?: { chosen: number; other: number };
   /** A BRICK-BUILT assembly on a joint (`brick-hinges.ts`): what it is and what it hangs on, for the report. */
-  builtFrom?: string;
+  builtFrom?: string;  /**
+   * Held SHUT: a door of a stack in one doorway the export did not choose (playable-addon.ts `chooseStackedDoors`). It
+   * stays its own entity (drawn, sized and turned with the placement), its closed boxes are static colliders, it has no
+   * doorway, and a tap says it is stuck.
+   */
+  fixed?: boolean;
 }
 
 export interface InteractiveDiscovery {
@@ -926,7 +931,7 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
   const stairCandidates: StairCandidate[] = [];
   const leafColumnsAll = new Map<string, number>();
   for (const it of items) {
-    if (!PASSAGE_KINDS.has(it.kind) || !it.leaf) { plans.push(null); blockingAll.push([]); continue; }
+    if (!PASSAGE_KINDS.has(it.kind) || !it.leaf || it.fixed) { plans.push(null); blockingAll.push([]); continue; }
     const g = (p: Vec3): Vec3 => sceneGridPoint(frame, p);
     const { corner, along, up } = it.leaf;
     // The leaf box's vertical span in grid rows (the leaf's thickness included, from its own AABB).
@@ -2043,6 +2048,8 @@ export interface InteractiveRuntimeItem {
   angle: number;
   /** Doorways: the smallest wand size (percent) at which the opening is passable; 0 = at no size. Absent: not a doorway. */
   passSize?: number;
+  /** Held shut (`SceneInteractive.fixed`): not a doorway, and a tap is refused. */
+  fixed?: boolean;
   /** The opening at 100 %, blocks (doorways). */
   opening?: { width: number; height: number };
   /** Closed-state cells and the static cells around them (doorways). */
@@ -2100,7 +2107,7 @@ const r1 = (v: number): number => Math.round(v * 10) / 10;
  * minifig-scale one.
  */
 export function interactiveRuntimeItem(it: SceneInteractive, type: string, label: string, plan: InteractiveColliderPlan | null, blocksPerLdu = 1 / LDU_PER_BLOCK): InteractiveRuntimeItem {
-  const doorway = PASSAGE_KINDS.has(it.kind);
+  const doorway = PASSAGE_KINDS.has(it.kind) && !it.fixed;
   const opening = it.openingLdu ? { width: r1(it.openingLdu.width * blocksPerLdu), height: r1(it.openingLdu.height * blocksPerLdu) } : undefined;
   const leafSounds = { open: 'random.door_open', close: 'random.door_close' };
   return {
@@ -2108,6 +2115,7 @@ export function interactiveRuntimeItem(it: SceneInteractive, type: string, label
     ...(doorway ? { passSize: passSizeFor(it.kind, it.openingLdu, undefined, blocksPerLdu) } : {}),
     ...(opening && doorway ? { opening } : {}),
     blocking: plan?.blocking ?? [], neighbours: plan?.neighbours ?? [], shares: [],
+    ...(it.fixed ? { fixed: true } : {}),
     sounds: it.kind === 'turnable' || it.kind === 'lever' ? { open: 'random.click', close: 'random.click' } : leafSounds,
   };
 }
@@ -2445,6 +2453,8 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     const i = itemOf(e), pl = placementOf(e);
     if (i === undefined || !pl) return;
     const it = config.items[i]!;
+    // A door of a stack the export did not choose stays shut (`fixed`).
+    if (it.fixed) { refuse(e, player, `The ${it.label.toLowerCase()} is stuck.`); return; }
     if (it.kind === 'turnable') {
       let a = 0; try { a = Number(e.getDynamicProperty(K.angle)) || 0; } catch { /* fresh */ }
       a += it.angle;

@@ -1,4 +1,4 @@
-import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type FineReachColumns, type GridDims, type LaneWalk, type QuarterTurn, type ReachTarget, type SizeCarve, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
+import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type DoorApproach, type FineReachColumns, type GridDims, type LaneWalk, type QuarterTurn, type ReachTarget, type SizeCarve, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
 import { DOOR_CARVE_SIZES, carvesAt, encodeSizeCarve, encodeTurnedCarve, planDoorwayCarve, planSizeCarve, sizeCarveAt, type CarveDoorway, type ModelBox, type ShippedCarves } from './collider-carve.js';
 import type { PlacementDetail } from '../brickgen/levels/levels.js';
 import { WalkWorld, tickPlayer, type PlayerState } from './addon-walk.js';
@@ -816,7 +816,7 @@ export interface CarveSource {
   doorways?: readonly CarveDoorway[];
 }
 
-function colliderTreadsJob(colliders: PlacementColliders, targets: readonly ReachTarget[], doorCells: ReadonlyArray<readonly (number | undefined)[]>, fineReach?: FineReachColumns, carveSource?: CarveSource): { plan: (pct: number, r: QuarterTurn) => void; result: () => ColliderTreadsResult } {
+function colliderTreadsJob(colliders: PlacementColliders, targets: readonly ReachTarget[], doorCells: ReadonlyArray<readonly (number | undefined)[]>, fineReach?: FineReachColumns, carveSource?: CarveSource, approaches: readonly DoorApproach[] = []): { plan: (pct: number, r: QuarterTurn) => void; result: () => ColliderTreadsResult } {
   // Planned over the grid as it was BEFORE clearance: every clearance form
   // (collider-form.ts) read as the full cell over its vertical extent. A tread
   // only ever fills a column the planner found standable and clear, and its
@@ -843,7 +843,7 @@ function colliderTreadsJob(colliders: PlacementColliders, targets: readonly Reac
         : carvesAt(pct) ? planSizeCarve(formCells, dims, pct, r, carveSource.boxes, carveSource.protect)
           : DOOR_CARVE_SIZES.includes(pct) && carveSource.doorways?.length ? planDoorwayCarve(formCells, dims, pct, r, carveSource.boxes, carveSource.doorways, carveSource.protect) : undefined;
       if (carve?.size) carvesPlanned.set(`${pct}:${r}`, carve);
-      const plan = planColliderTreads(cells, dims, pct, r, targets, doorCells, { walk: colliderLaneWalk(formCells, dims, pct, r, carve), cells: formCells }, fineReach, carve);
+      const plan = planColliderTreads(cells, dims, pct, r, targets, doorCells, { walk: colliderLaneWalk(formCells, dims, pct, r, carve), cells: formCells }, fineReach, carve, approaches);
       const f = pct / 100;
       const { blocks, guardBlocks: _guardBlocks, before, after, ...rest } = plan;
       report.plans.push({ ...rest, blocks: blocks.length, before: { surfaces: before.surfaces, columns: before.columns, highestBlocks: blocksAt100(before.highest16, f) }, after: { surfaces: after.surfaces, columns: after.columns, highestBlocks: blocksAt100(after.highest16, f) } });
@@ -889,8 +889,8 @@ function treadPlanSteps(): Array<[number, QuarterTurn]> {
  * the tiles carry the grid verbatim and the planner is empty there by
  * construction (asserted in test/bedrock-collider-treads.test.ts).
  */
-export function withColliderTreads(colliders: PlacementColliders, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], fineReach?: FineReachColumns, carveSource?: CarveSource): ColliderTreadsResult {
-  const job = colliderTreadsJob(colliders, targets, doorCells, fineReach, carveSource);
+export function withColliderTreads(colliders: PlacementColliders, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], fineReach?: FineReachColumns, carveSource?: CarveSource, approaches: readonly DoorApproach[] = []): ColliderTreadsResult {
+  const job = colliderTreadsJob(colliders, targets, doorCells, fineReach, carveSource, approaches);
   for (const [pct, r] of treadPlanSteps()) job.plan(pct, r);
   return job.result();
 }
@@ -902,8 +902,8 @@ export function withColliderTreads(colliders: PlacementColliders, targets: reado
  * way. The async export path (`buildPlayableAddon`) plans here and hands the result to
  * `buildPlacementPackAssets` as `spec.plannedTreads`.
  */
-export async function withColliderTreadsAsync(colliders: PlacementColliders, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], fineReach?: FineReachColumns, carveSource?: CarveSource): Promise<ColliderTreadsResult> {
-  const job = colliderTreadsJob(colliders, targets, doorCells, fineReach, carveSource);
+export async function withColliderTreadsAsync(colliders: PlacementColliders, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], fineReach?: FineReachColumns, carveSource?: CarveSource, approaches: readonly DoorApproach[] = []): Promise<ColliderTreadsResult> {
+  const job = colliderTreadsJob(colliders, targets, doorCells, fineReach, carveSource, approaches);
   for (const [pct, r] of treadPlanSteps()) {
     job.plan(pct, r);
     await new Promise<void>(resolve => setTimeout(resolve, 0));

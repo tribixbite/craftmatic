@@ -890,7 +890,7 @@ export async function runSchemPipeline(
             }
             const stage = interactivityStage({
               bricks: source.bricks.filter(b => !vehicleBricks.has(b)), meshes: scene.meshes, owned, seats: sceneSeats,
-              seatPoints: seats.map(s => [s.x, s.y, s.z] as [number, number, number]), toGrid: p => sceneGridPoint(frame, p),
+              seatPoints: seats.map(s => [s.x, s.y, s.z] as [number, number, number]), toGrid: p => sceneGridPoint(frame, p), groundPlane: true,
             });
             // A vehicle's own moving parts ride with it (verdict `rides`); what it leaves fixed is `excluded`.
             const totals = { ...stage.report.totals };

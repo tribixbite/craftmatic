@@ -291,6 +291,18 @@ function leafAt(x0: number, width: number, zc: number, height = 2.6, floor = 1):
 }
 
 describe('planInteractiveColliders', () => {
+  it('cuts no doorway for a door held shut (`fixed`, an unchosen door of a stack) and ships it as no doorway', () => {
+    const g = wallGrid(), before = JSON.stringify(g);
+    const shut = { ...leafAt(3.25, 1.5, 5.5), fixed: true };
+    const [plan] = planInteractiveColliders(g, [shut], frame);
+    expect(plan).toBeNull();
+    expect(JSON.stringify(g)).toBe(before);
+    const item = interactiveRuntimeItem(shut, 'craftmatic:t_door_1', 'Door 1', null);
+    expect(item.fixed).toBe(true);
+    expect(item.passSize).toBeUndefined();
+    expect(item.blocking).toEqual([]);
+  });
+
   it('cuts a 1.5-block leaf two columns wide and records its closed cells with the leaf\'s own height', () => {
     const g = wallGrid();
     const [plan] = planInteractiveColliders(g, [leafAt(3.25, 1.5, 5.5)], frame);

@@ -74,3 +74,19 @@ describe.skipIf(!havePacks)('census doorway lines (gengate-6fa0afa6, IX-05)', ()
     expect(r.notes.some(n => /Door 3 column .*another door's shut leaf holds that cell of this doorway \(OVERLAP\)/.test(n))).toBe(true);
   }, 120_000);
 });
+
+/**
+ * The second census (gate `output/gengate2-cda5f7b9/`): a stack's unchosen doors are held shut by the export
+ * (`fixed`, playable-addon.ts `chooseStackedDoors`) and their leaves' boxes become static colliders, laid whole-cell.
+ * Built by this branch into `output/gen2gate-v2/` (local only, skipped where missing).
+ */
+const PACK_5482_V2 = 'output/gen2gate-v2/5482-ultimate-house-building-set.mcaddon';
+describe.skipIf(!existsSync(PACK_5482_V2))('census doorway lines next to doors held shut (gen2gate-v2, IX-05)', () => {
+  it('calls a stop on a held-shut door\'s static leaf cells the model\'s (5482 Door 2 at 200 percent, Doors 1, 3, 4 shut)', async () => {
+    const { addon, pack } = await load(PACK_5482_V2);
+    expect(pack.interactives?.items.filter(it => it.fixed).length).toBe(3);
+    const r = await runScenario({ name: 'held-200', allowLines: [...CRAFTMATIC_ALLOWED_LINES], steps: [{ kind: 'place', size: 200, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'doorwayLines', only: [doorIndex(pack, 'Door 2')] }] }, [addon], { handlers: craftmaticHandlers(pack, addon) });
+    expect(r.violations.filter(v => v.invariant === 'doorway-line').map(v => v.message)).toEqual([]);
+    expect(r.notes.some(n => /Door 2 column .*OVERLAP/.test(n))).toBe(true);
+  }, 120_000);
+});

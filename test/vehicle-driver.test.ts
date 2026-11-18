@@ -322,3 +322,29 @@ describe('the driver: drag steering of the native mount (Saga 30l: one swipe spu
     expect(h.errors()).toEqual([]);
   });
 });
+
+describe('the driver: getting off a native mount in the air floats the rider down (census 2026-11-16, 6194: a 6.51-block fall off the helicopter)', () => {
+  /** The rider's effects as the runtime adds them. */
+  const watchEffects = (w: ReturnType<typeof driverWorld>): Array<{ id: string; ticks: number }> => {
+    const out: Array<{ id: string; ticks: number }> = [];
+    const api = w.h.api(w.player.sim), addEffect = api.addEffect;
+    api.addEffect = (id: string, ticks: number, opts: unknown) => { out.push({ id, ticks }); return addEffect(id, ticks, opts); };
+    return out;
+  };
+  it('a rotorcraft rider who sneaks off 10 blocks over the ground gets slow falling for DISMOUNT_SLOW_FALL_TICKS; on the ground nothing', () => {
+    const w = driverWorld({ kind: 'plane', motion: 'rotor' });
+    const effects = watchEffects(w);
+    w.run(8);
+    w.dismount();
+    w.run(6);
+    expect(effects).toEqual([]); // parked on the ground: nothing to float down from
+    w.board();
+    w.cloud.location = { x: 0, y: 74.4, z: 0 };
+    w.run(8);
+    w.dismount();
+    w.player.sim.location = { x: 0, y: 74.9, z: 0 };
+    w.run(6);
+    expect(effects).toEqual([{ id: 'slow_falling', ticks: FLYER.DISMOUNT_SLOW_FALL_TICKS }]);
+    expect(w.h.errors()).toEqual([]);
+  });
+});

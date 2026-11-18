@@ -751,3 +751,83 @@ describe.skipIf(!existsSync(LIFT_PACK_30K))('10261\'s lift hill at 200 % climbed
     }
   }, 180_000);
 });
+
+describe('a run never stands across another doorway\'s line (census 2026-11-16: 2504 Door 2 at 150 %, 5482 Door 3 at 400 %)', () => {
+  /** The platform's west face at 200 %: world x 3-5 hold the runs, 100 % column x 1-2 in front of a doorway at x 0. */
+  const doorAt = (z: number, floor16: number, x = 0) => ({ columns: [[x + 1, z], [x + 2, z]] as Array<[number, number]>, floor16, cells: [[x, Math.floor(floor16 / 16), z, floor16 % 16, 16]] });
+  const tallIn = (plan: TreadPlan, x0: number, x1: number, z0: number, z1: number, over16: number): TreadBlock[] =>
+    treadsOnly(plan).filter(b => b.x >= x0 && b.x <= x1 && b.z >= z0 && b.z <= z1 && b.y * 16 + b.hi > over16);
+  it('lays no tread more than a step over a ground-floor doorway\'s floor in its approach; the runs elsewhere stay', () => {
+    const p = platform(), cells = colliderSourceCells(colliders(p.dims, p.runs));
+    const bare = planColliderTreads(cells, p.dims, 200, 0);
+    // Without the doorways the west face's runs fill world z 8-11 (100 % z 4-5) up to 21/16.
+    expect(tallIn(bare, 2, 5, 8, 11, 9).length).toBeGreaterThan(0);
+    const plan = planColliderTreads(cells, p.dims, 200, 0, [], [], undefined, undefined, undefined, [doorAt(4, 0), doorAt(5, 0)]);
+    expect(tallIn(plan, 2, 5, 8, 11, 9)).toEqual([]);
+    // The rest of the west face is still climbed.
+    expect(tallIn(plan, 2, 5, 6, 7, 9).length).toBeGreaterThan(0);
+    expect(tallIn(plan, 2, 5, 12, 13, 9).length).toBeGreaterThan(0);
+    assertNeverBlocks(cells, p.dims, plan);
+  });
+  it('protects the cells a body crosses between two DIAGONAL approach steps of a door turned 45 degrees (6194 Door 1 at 150 %)', () => {
+    const p = platform(), cells = colliderSourceCells(colliders(p.dims, p.runs));
+    // A 45-degree doorway: its closed cell (3, 3), its approach sampled along the diagonal normal, (2, 4) then (1, 5).
+    const diagonal = { columns: [[2, 4], [1, 5]] as Array<[number, number]>, floor16: 0, cells: [[3, 0, 3, 0, 16]] };
+    const plan = planColliderTreads(cells, p.dims, 200, 0, [], [], undefined, undefined, undefined, [diagonal]);
+    // The corner cell (2, 5) between the two steps is world x 4-5, z 10-11 at 200 percent.
+    expect(tallIn(plan, 4, 5, 10, 11, 9)).toEqual([]);
+    assertNeverBlocks(cells, p.dims, plan);
+  });
+  it('keeps the treads that restore the MODEL\'s own stair where it stands in a doorway\'s approach (the 100 % player meets those risers too)', () => {
+    const house = stairHouse(), cells = colliderSourceCells(colliders(house.dims, house.runs));
+    // Every stair column counted as a doorway's approach, the doorway at the ground floor's level (top of the plate).
+    const columns = house.stair.x.flatMap(x => house.stair.z.map(z => [x, z] as [number, number]));
+    for (const pct of [300, 400]) {
+      const bare = planColliderTreads(cells, house.dims, pct, 0);
+      const plan = planColliderTreads(cells, house.dims, pct, 0, [], [], undefined, undefined, undefined, [{ columns, floor16: 3, cells: [[0, 0, 4, 3, 16]] }]);
+      expect(treadsOnly(bare).length).toBeGreaterThan(0);
+      expect(treadsOnly(plan)).toEqual(treadsOnly(bare));
+    }
+  });
+  it('lays ONE run across an approach where it is the only way onto a terrace (10326 at 300 %: the ramp by its back doors to the upper floor)', () => {
+    // A terrace 14/16 high (a jump at 100 %, past it at 200 %) walled on three sides by a rim three blocks high (no
+    // rule restores that); its only climb is the west face, every column of which is a doorway's approach.
+    const dims = { width: 12, height: 4, length: 12 };
+    const g = new BlockGrid(dims.width, dims.height, dims.length);
+    for (let x = 3; x <= 8; x++) for (let z = 3; z <= 8; z++) solidTo(g, x, z, 14);
+    for (let x = 3; x <= 9; x++) for (const z of [2, 9]) solidTo(g, x, z, 48);
+    for (let z = 2; z <= 9; z++) solidTo(g, 9, z, 48);
+    const cells = colliderSourceCells(colliders(dims, encodeColliderRuns(g, COLLIDER_BLOCK_ID).runs));
+    const approach = { columns: [3, 4, 5, 6, 7, 8].flatMap(z => [[1, z], [2, z]] as Array<[number, number]>), floor16: 0, cells: [[0, 0, 5, 0, 16]] };
+    const bare = planColliderTreads(cells, dims, 200, 0);
+    const plan = planColliderTreads(cells, dims, 200, 0, [], [], undefined, undefined, undefined, [approach]);
+    // Bare, the terrace is reached only by its treads; with the approach it is still reached, by fewer runs.
+    expect(bare.after.surfaces).toBeGreaterThan(bare.before.surfaces + 16);
+    expect(plan.after.surfaces).toBe(bare.after.surfaces);
+    expect(plan.runs.length).toBeGreaterThan(0);
+    expect(plan.runs.length).toBeLessThan(bare.runs.length);
+    assertNeverBlocks(cells, dims, plan);
+  });
+  it('lays a run across an approach where it is the only way onto a ledge, however small (exploration first: 10326 at 150 %, 42670 at 400 %)', () => {
+    // A ledge one cell by two, 14/16 high, walled on three sides by a rim three blocks high; its only climb is the
+    // west face, in a doorway's approach. At 200 % it is 8 surfaces, under any count a gateway rule would ask.
+    const dims = { width: 8, height: 4, length: 8 };
+    const g = new BlockGrid(dims.width, dims.height, dims.length);
+    for (const z of [3, 4]) solidTo(g, 3, z, 14);
+    for (const z of [2, 5]) for (const x of [3, 4]) solidTo(g, x, z, 48);
+    for (let z = 2; z <= 5; z++) solidTo(g, 4, z, 48);
+    const cells = colliderSourceCells(colliders(dims, encodeColliderRuns(g, COLLIDER_BLOCK_ID).runs));
+    const approach = { columns: [[1, 3], [2, 3], [1, 4], [2, 4]] as Array<[number, number]>, floor16: 0, cells: [[0, 0, 3, 0, 16]] };
+    const bare = planColliderTreads(cells, dims, 200, 0);
+    const plan = planColliderTreads(cells, dims, 200, 0, [], [], undefined, undefined, undefined, [approach]);
+    expect(bare.after.surfaces).toBeGreaterThan(bare.before.surfaces);
+    expect(plan.after.surfaces).toBe(bare.after.surfaces);
+    assertNeverBlocks(cells, dims, plan);
+  });
+  it('keeps a run that climbs TO that doorway (its own approach, arriving at its floor)', () => {
+    const p = platform(), cells = colliderSourceCells(colliders(p.dims, p.runs));
+    // A doorway on the platform's west edge (100 % x 3, floor 14): its approach is the west face's ground.
+    const plan = planColliderTreads(cells, p.dims, 200, 0, [], [], undefined, undefined, undefined, [{ columns: [[2, 4], [1, 4], [4, 4]], floor16: 14, cells: [[3, 0, 4, 14, 16], [3, 1, 4, 0, 16]] }]);
+    expect(tallIn(plan, 2, 5, 8, 9, 9).length).toBeGreaterThan(0);
+  });
+});
