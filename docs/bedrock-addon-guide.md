@@ -709,7 +709,11 @@ outside the export bounds, against 4 in 3 doorways from the `.io`) is unchanged
 > device flies it, and vehicle-driver.js answers a hit on it with the same pick and shuts the swinging parts once it
 > moves (the windowed speed, or its own step over the 2-tick pass: the window alone saw a start a second late). Only
 > a component flown as a `flyer` keeps its parts fixed (`TODO(vehicle-interactives)`). A board column also stands
-> under every part or slide the clipped 8-wide hull hit box leaves out at the live size and turn (`tapAt`).
+> under every part or slide the clipped 8-wide hull hit box leaves out at the live size and turn (`tapAt`). A
+> part whose box bottom is over a base column's top (`COLUMN_HEIGHT` 3 at 100 %) gets its column LIFTED to span it:
+> above 100 % a child taps 8097's hatches (4.1-5.5 up at 100 %) standing level with them on the model, and the
+> tap passed over a column on the base (2026-11-18, `TODO(vehicle-part-tap-scaled)` for a high part inside the hull
+> box's footprint). A slide's column stays on the base: it is tapped looking up from the ground.
 > The pick turns the eye and view back by the body's leftover lean (`fl_pitch`/`fl_bank`, the drive animation's
 > `[-pitch, 0, -bank]` on `body` about its pivot, shipped as the type's `bodyPivot`), so a part is tested where the
 > leaned body draws it. Device-unproven: whether a touch tap's view direction is the camera centre or the finger's
