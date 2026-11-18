@@ -3692,11 +3692,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             for (const [k, sl] of c.vehicleSlides.entries()) vehicleSlides.push({ typeId: fullTypeId, label: c.label, part: sl.part, runtime: slides[k]! });
             vehiclePartsShipped = true;
         }
-        // Where its parts and slides are, so a board column stands under one the clipped hull hit box leaves out.
+        // Where its parts and slides are (centre x, z, then bottom and top y), so a board column stands under one the
+        // clipped hull hit box leaves out, lifted to a part too high for a column on the base (8097's hatch).
         {
             const t = scriptedTypes[fullTypeId];
             const boxes = t ? [...(t.parts ?? []).map(p => p.closed), ...(t.slides ?? []).map(sl => sl.box)].filter(b => b.length >= 6) : [];
-            if (t && boxes.length) scriptedTypes[fullTypeId] = { ...t, tapAt: boxes.map(b => [Math.round((b[0]! + b[3]!) / 2 * 1000) / 1000, Math.round((b[2]! + b[5]!) / 2 * 1000) / 1000] as [number, number]) };
+            if (t && boxes.length) scriptedTypes[fullTypeId] = { ...t, tapAt: boxes.map(b => [(b[0]! + b[3]!) / 2, (b[2]! + b[5]!) / 2, b[1]!, b[4]!].map(q => Math.round(q * 1000) / 1000) as [number, number, number, number]) };
         }
         // A scripted vehicle whose driver's eye left the cabin keeps its rider at the helm (`helmSeatPlan`).
         if (ldrawGeo && scripted && ldrawGeo.seatPlan !== helmSeatPlan(ldrawGeo.seatPlan)) {

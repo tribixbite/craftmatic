@@ -1339,6 +1339,27 @@ describe('board points at a parked vehicle\'s far extremities (VEH-17: the inter
     const tipWindow: [number, number] = [-0.77, 6.4];
     expect(boardPointPlaces(bus, { x: 0, y: 0, z: 0, yaw: 0 }, 3, BOARD, [tipWindow])).toEqual(boardPointPlaces(bus, { x: 0, y: 0, z: 0, yaw: 0 }, 3, BOARD));
   });
+  it('8097: a part higher than a ground column reaches gets its column lifted to cover it at every size (vehicle-part-tap-scaled)', () => {
+    // 8097 Slave I's hatch (part 3190): centre x 0.591, z -5.062, its box y 4.125..5.475 at 100 % (entity frame). The
+    // column under it stood on the base (y 0..3k): above 100 % a child standing level with the hatch tapped over the
+    // column's top, and the hull box (half 4) lay past the 5-block tap reach, so no tap raised an event.
+    const ship: BoardPoint[] = [{ x: 0, z: 7.5, dx: 0, dz: 1 }, { x: 0, z: -7.5, dx: 0, dz: -1 }];
+    const hatch: [number, number, number, number] = [0.591, -5.062, 4.125, 5.475];
+    for (const k of [1.5, 2, 3, 4]) {
+      const at = boardPointPlaces(ship, { x: 0, y: 64, z: 0, yaw: 0 }, k, BOARD, [hatch]);
+      const col = at.filter(q => Math.abs(q.x - 0.591 * k) < 0.01 && Math.abs(q.z + 5.062 * k) < 0.01);
+      expect(col, `column under the hatch at ${k}`).toHaveLength(1);
+      // The column (base y, BOARD.COLUMN_HEIGHT x k tall) spans the hatch's whole height.
+      expect(col[0]!.y - 64).toBeLessThanOrEqual(4.125 * k + 1e-9);
+      expect(col[0]!.y - 64 + BOARD.COLUMN_HEIGHT * k).toBeGreaterThanOrEqual(5.475 * k - 1e-9);
+    }
+    // A part a ground column already reaches (its bottom under the column's top) keeps its column on the base, and a
+    // two-number entry (an older pack) is read as before.
+    const low: [number, number, number, number] = [0.591, -5.062, 0.5, 2];
+    const lowAt = boardPointPlaces(ship, { x: 0, y: 64, z: 0, yaw: 0 }, 2, BOARD, [low]);
+    expect(lowAt.find(q => Math.abs(q.z + 5.062 * 2) < 0.01)!.y).toBe(64);
+    expect(boardPointPlaces(ship, { x: 0, y: 64, z: 0, yaw: 0 }, 2, BOARD, [[0.591, -5.062]]).find(q => Math.abs(q.z + 5.062 * 2) < 0.01)!.y).toBe(64);
+  });
   it('reads the extremities of a shipped geometry in the entity frame (JSON z mirrored: a cube at JSON -z is the nose)', () => {
     const geo = { 'minecraft:geometry': [{ bones: [{ cubes: [
       { origin: [-8, 0, -160], size: [16, 16, 32] }, // the nose: JSON z -160..-128 = entity z 8..10

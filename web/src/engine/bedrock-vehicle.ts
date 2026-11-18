@@ -1171,9 +1171,10 @@ export interface BoardRuntimeConfig {
  * nothing is). `yawDeg` is Bedrock's
  * (0 faces +z; +x turns toward +z: the colliders' and `drawnBoxes`' turn).
  */
-export function boardPointPlaces(points: readonly BoardPoint[], pose: { x: number; y: number; z: number; yaw: number }, k: number, P: BoardParams, tapAt?: ReadonlyArray<readonly [number, number]>): Array<{ x: number; y: number; z: number }> {
-  // Columns in the entity frame first (deduplicated there), turned into the world at the end.
-  const cols: Array<{ x: number; z: number }> = [];
+export function boardPointPlaces(points: readonly BoardPoint[], pose: { x: number; y: number; z: number; yaw: number }, k: number, P: BoardParams, tapAt?: ReadonlyArray<readonly number[]>): Array<{ x: number; y: number; z: number }> {
+  // Columns in the entity frame first (deduplicated there), turned into the world at the end; `lift`: how far over the
+  // vehicle's base a column stands (only a high part's, below).
+  const cols: Array<{ x: number; z: number; lift?: number }> = [];
   const half = P.COLUMN_WIDTH * k / 2;
   // A column within `MERGE_BLOCKS` of one already placed is skipped (the tail's profile spans the wings behind the root).
   const put = (ex: number, ez: number): void => { if (!cols.some(q => Math.abs(q.x - ex) < P.MERGE_BLOCKS && Math.abs(q.z - ez) < P.MERGE_BLOCKS)) cols.push({ x: ex, z: ez }); };
@@ -1214,13 +1215,23 @@ export function boardPointPlaces(points: readonly BoardPoint[], pose: { x: numbe
   // longer covers at this size and turn - the box is world-aligned and clipped to `HULL_HIT_HALF_MAX_BLOCKS` either
   // way, so the test is on the WORLD offset - and that no column stands under yet: a column under it, so a tap on it
   // raises an event (41395's interior window at 150 %, 6 blocks out over the middle of the bus, under no edge).
-  for (const [px, pz] of tapAt ?? []) {
+  // A part whose box bottom (`[x, z, bottom, top]`, 100 %) sits over a base column's top (`COLUMN_HEIGHT`) gets its
+  // column LIFTED so it spans the part (its top at the part's top, never under the base): 8097 Slave I's hatch, 4.1..5.5
+  // over its base at 100 %, was tapped above 100 % from level with it (standing on the model beside it), over the top
+  // of a column standing on the base, with the hull box past the tap's reach - no event (vehicle-part-tap-scaled).
+  // A ground column under it then does not count as one standing under it. A two-number entry (an older pack) is
+  // on the base, as before.
+  // # TODO(vehicle-part-tap-scaled): a part inside the hull box's footprint but over its 100 % top above 100 % (the box a
+  // size event re-declares may not be picked, quirk `hit-test-size-event`) gets no column; none ships today.
+  for (const t of tapAt ?? []) {
+    const px = t[0]!, pz = t[1]!, bottom = t[2], top = t[3];
     const ex = px * k, ez = pz * k;
     if (Math.max(Math.abs(ex * c - ez * s), Math.abs(ex * s + ez * c)) <= P.HULL_HIT_HALF_MAX_BLOCKS) continue;
-    if (cols.some(q => Math.abs(q.x - ex) <= half && Math.abs(q.z - ez) <= half)) continue;
-    put(ex, ez);
+    const lift = bottom !== undefined && top !== undefined && bottom > P.COLUMN_HEIGHT ? Math.max(0, top - P.COLUMN_HEIGHT) * k : 0;
+    if (cols.some(q => Math.abs(q.x - ex) <= half && Math.abs(q.z - ez) <= half && Math.abs((q.lift ?? 0) - lift) <= P.MERGE_BLOCKS)) continue;
+    if (lift > 0) cols.push({ x: ex, z: ez, lift }); else put(ex, ez);
   }
-  return cols.map(q => ({ x: pose.x + q.x * c - q.z * s, y: pose.y, z: pose.z + q.x * s + q.z * c }));
+  return cols.map(q => ({ x: pose.x + q.x * c - q.z * s, y: pose.y + (q.lift ?? 0), z: pose.z + q.x * s + q.z * c }));
 }
 export type VehicleEgressParams = typeof VEHICLE_EGRESS;
 
@@ -1383,8 +1394,12 @@ export interface ScriptedVehicleType {
   bodyPivot?: number[];
   /** The slides it carries, ridden while it is parked (vehicle-parts.ts `VehicleSlideRuntime`). */
   slides?: VehicleSlideRuntime[];
-  /** Where its parts and slides are (their boxes' centres x, z at 100 %, entity frame): a board column stands under one the hull hit box leaves out (`boardPointPlaces`). */
-  tapAt?: Array<[number, number]>;
+  /**
+   * Where its parts and slides are (their boxes' centres x, z at 100 %, entity frame, then the box's bottom and top y):
+   * a board column stands under one the hull hit box leaves out, lifted to a part too high for one on the base
+   * (`boardPointPlaces`). Older packs carry only x, z.
+   */
+  tapAt?: Array<[number, number] | [number, number, number, number]>;
 }
 
 /** What the scripted-vehicle runtime is told about the pack. */
@@ -1946,7 +1961,9 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       // As far as any column can stand: a tip, or a side column under what is drawn across from the axis.
       const step = BD.params.ALONG_STEP_BLOCKS;
       const far = (p: BoardPoint): number => (p.along ?? []).reduce((m: number, a, i) => (a === null ? m : Math.max(m, Math.hypot(i * step, Math.max(Math.abs(a[0]), Math.abs(a[1]))))), Math.hypot(p.x, p.z));
-      const reach = kind.board.reduce((m, p) => Math.max(m, far(p)), 0) * k + BD.params.COLUMN_WIDTH * k + 2;
+      // A lifted column (a high part's, `boardPointPlaces`) stands up to the part's top over the base.
+      const high = (kind.tapAt ?? []).reduce((m, t) => Math.max(m, Number(t[3]) || 0), 0) * k;
+      const reach = kind.board.reduce((m, p) => Math.max(m, far(p)), 0) * k + BD.params.COLUMN_WIDTH * k + 2 + high;
       const old: any[] = [];
       for (const type of boardTypes) { try { old.push(...dim.getEntities({ type, location: { x: loc.x, y: loc.y, z: loc.z }, maxDistance: reach })); } catch { /* not loaded */ } }
       for (const p of old) { try { if (p.getDynamicProperty(BD.ownerProperty) === e.id) p.remove(); } catch { /* gone */ } }
