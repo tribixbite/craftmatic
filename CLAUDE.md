@@ -382,7 +382,12 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   an animation that ENDS before the next `setCamera` flashes the player's
   own view, so plan it past the hand-back (`animTail`). **The client draws
   entities behind the server, and PHONES DIFFER**: Pixel 3.5 ticks, Saga 5.7
-  (marker runs, `camprobe`; property lead 3.3 vs 4.1; round 30zv). A 1.26.52
+  (marker runs, `camprobe`; property lead 3.3 vs 4.1; round 30zv). **And
+  VERSIONS differ**: Minecraft 1.26.62.1 moved the Saga to ~3 (cockpit 3 -> 0.5,
+  coaster 5.7 -> 3; round 2026-11-19c/d), and the fingerprint cannot see a
+  version, so a lag that suddenly "grazes" after an update is the client, not
+  the pack. On 10303 the wrong lag put the eye in the car BEHIND's rider, which
+  looks like the car ahead from inside. A 1.26.52
   camprobe run read the Pixel at 5.3, yet its coaster planned at 5.5 rode WORSE
   than at 3.5 (round 2026-10-20c): judge a lag by a RIDE, not a probe alone,
   and record `versionName` in every round (both phones 1.26.52.3), so a

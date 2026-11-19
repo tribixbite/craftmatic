@@ -34,7 +34,7 @@ rides recorded on screen.
 | A keyframe's rotation is in a **Z-mirrored** frame: `x` is the negated pitch and `y` is `180 − yaw` (the yaw `setCamera` would take). | Every keyframe is converted. Yaw ±90 is its own mirror, which is why probes along 10303's x-aligned loops missed this for a week. | `camera-keyframe-yaw-mirrored` |
 | A `playAnimation` sent while the player is on their own view (no script camera set) is never drawn. | Each animation is **armed**: one un-eased `setCamera` at the animation's first view, then `playAnimation` on the next tick. | `camera-animation-needs-camera` |
 | A `setCamera` sent while an animation plays takes over at once. An animation that **ends** before the next `setCamera` shows the player's own view for the gap. | The end of the hand-back is planned: the camera is cleared deliberately, not left to run out. | `camera-animation-cut` |
-| The client draws entities **behind** the server: Saga 5.7 ticks, Pixel 3.5. An actor property arrives **ahead** of the position sent with it: Saga 4.1 ticks, Pixel 3.3. | A camera on the server's schedule sits in the car ahead. Every pose the camera follows is shifted back to the **drawn** car, per client. | `client-entity-lag`, `property-ahead-of-position` |
+| The client draws entities **behind** the server: Saga 5.7 ticks on 26.52 and ~3 on 1.26.62.1 (derived, section 5), Pixel 3.5. An actor property arrives **ahead** of the position sent with it: Saga 4.1 ticks (26.52), Pixel 3.3. | A camera on the server's schedule sits in the car ahead. Every pose the camera follows is shifted back to the **drawn** car, per client. | `client-entity-lag`, `property-ahead-of-position` |
 | A rider's reported yaw (`getRotation`) is the client's, drawn on the drawn car and reported 7–9 ticks after the server's car yaw. | The player's head turn is measured against the car's yaw that far back, and fitted per rider. | `rider-yaw-lag` |
 
 The table rules out the obvious design. A per-tick `setCamera` cannot roll or
@@ -172,12 +172,16 @@ that matches:
 
 | Client | Fingerprint | `animLag` | `bodyLag` |
 |---|---|---|---|
-| Saga (default; the user's phone) | anything unmatched | 5.7 | 4.1 |
+| Saga on 1.26.62.1 (default; the user's phone) | anything unmatched | 3 (5.7 on 26.52) | 4.1 (26.52; not re-measured) |
 | Pixel 8 Pro | Deferred, render distance 24 | 3.5 | 3.3 |
 
 This is a fingerprint of measured phones, not a model of the cause. An unknown
 client gets the Saga's values. A pack built with `debug` logs each client's
-fingerprint, so a new phone can be measured and added.
+fingerprint, so a new phone can be measured and added. The fingerprint does not
+see the game's VERSION, and a Minecraft update can move a phone's lag: 1.26.62.1
+moved the Saga from 5.7 to about 3 (round 2026-11-19d), so a phone still on 26.52
+now rides ~2.7 ticks ahead of its seat (TODO(coaster-lag-version)). The Pixel's
+row is its 26.51/26.52 reading; it was not re-ridden on its 1.26.60.4.
 
 ## 3. Approaches that were tried and replaced
 
@@ -213,8 +217,9 @@ fingerprint, so a new phone can be measured and added.
   - Pixel, car 2, second loop: 0.4–1.3 s inside the rider ahead.
 
   10303's cars are 2.25 blocks apart, and the eye is 1.12 blocks over the seat,
-  so in a loop the rider ahead is about a block from the eye. Only the FRONT car
-  carries a posed figure, so it is car 2's camera meeting car 1's rider.
+  so in a loop the rider ahead is about a block from the eye. (Since then every car
+  carries a posed rider. On 1.26.62.1 the Saga's grazing was the car BEHIND, from
+  the lag change below.)
   The simulator does not reproduce it (2026-11-06, `output/coast06-eye-1106/`).
   The ride step now reports the eye's clearance to the car ahead and the car
   behind (`eyeInsideCoasterCars` on `EYE_CLEAR_LADDER`). At the measured
@@ -235,6 +240,33 @@ fingerprint, so a new phone can be measured and added.
   A ride takes about 19 minutes.
 - **The Pixel's hand-back** shows a pale panel for one frame on about half the
   laps.
+- **The hand-back race (fixed offline 2026-11-19).** `native` sent its clear on the
+  tick of the animation's last keyframe, and the animation itself was exactly that
+  long. The client plays an animation in real seconds and the server sends the clear
+  on its own clock, so any tick slower than 50 ms during the ~5 s stretch lets the
+  animation end first (telemetry on this Saga reads 19.8-20.2 ticks a second over
+  20 s windows). Round 19d K then showed 2-4 frames of empty sky with the ground far
+  below, no car in view, before the own view returned (`kride2-12fps-73s.jpg` f007).
+  Reading those frames as the ARMING camera (set at the crest of the drop, so the
+  view from ~33 blocks up) is an inference, not a measurement. `planSection` now
+  plans `animTail` (6) ticks past the clear, as `planInversion` always did; the tail
+  is the player's own view carried on. A server more than 6 ticks behind over one
+  stretch (under ~18.9 ticks a second) would still lose the race.
+- **1.26.62.1 changed the Saga's lag (round 2026-11-19d K, fixed offline).** On a
+  pack planned at 26.52's 5.7, the drop and both loops were drawn from ~2.7 ticks
+  BEHIND the drawn seat: through the drop the grey-haired rider of car 3 (the car
+  behind; the round's notes read it as the car ahead) filled the lower half of the
+  view at about 1.2 blocks, then the eye passed inside it as translucent washes, three
+  episodes of 0.2-0.7 s a lap. On the level track the view was normal, because the
+  own view is drawn from the drawn seat. The simulator reproduces this on the device's
+  pack with `--client=saga-26.62`: the eye within 0.3 block of car 3 in 74 frames of
+  one lap and a 2.1-block cut at the hand-back. Replaying that pack at entity lags of
+  1.5, 2.5 and 3.5 (`scripts/sim.ts --entity-lag=`) draws car 3's hair at 0.16, 0.27
+  and 0.85 of the frame height through the drop, against the device's 0.42. The width
+  goes as one over the distance, and that puts the lag at about 3 (2.9-3.1 within the
+  read). The animation has no ease, so 3 is the animation lag; the cockpit's 0.5 then
+  leaves 0.75 of the 0.1 s ease played. The default `animLag` is 3. TODO(client-lag-saga):
+  a marker run on 1.26.62 would turn this derivation into a measurement.
 - **TODO(pixel-ride-lag):** a camprobe run on 1.26.52 reads the Pixel's entity
   lag at 5.1–5.4 ticks, yet the coaster planned at 5.5 rode worse than at 3.5.
   The cause is unexplained.
