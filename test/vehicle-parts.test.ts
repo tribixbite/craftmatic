@@ -118,3 +118,27 @@ describe('which part a tap on a parked vehicle meant (pickVehiclePart, A-02)', (
     expect(a.preAnimation[0]).toContain('q.delta_time * 225');
   });
 });
+
+describe('pickVehiclePart: a part inside an OPEN part\'s sweep box', () => {
+  // 60086's helicopter (census 2026-11-19, gen-veh2 made it a native rotorcraft with parts): its canopy (11289, a lid)
+  // closes over the two control sticks (4593, levers). Open, the canopy answers over the box round its open AND shut
+  // boxes so it can be closed from where it was opened - and that box still held the sticks, so no tap reached them
+  // with the canopy open either (the sim: "from every spot within reach a tap picks another part first").
+  const HELI = [
+    { closed: [0.191, 0.67, -4.222, 1.691, 2.791, -2.345], open: [0.191, 0.146, -2.138, 1.691, 2.293, -0.234] },
+    { closed: [0.619, 0.846, -3.689, 0.862, 1.645, -3.332], open: [0.533, 0.832, -3.702, 0.861, 1.453, -3.008] },
+    { closed: [1.059, 0.838, -3.703, 1.325, 1.602, -3.201], open: [1.059, 0.839, -3.702, 1.412, 1.327, -2.949] },
+  ];
+  const pose = { x: 0, y: 0, z: 0, yaw: 0 };
+  // A child beside the helicopter on its +x side (the right stick nearer) and on its -x side (the left one).
+  const eye = { x: 2.6, y: 1.62, z: -3.51 }, eyeLeft = { x: -0.8, y: 1.62, z: -3.51 };
+  const at = (c: { x: number; y: number; z: number }, from = eye) => ({ x: c.x - from.x, y: c.y - from.y, z: c.z - from.z });
+  it('the canopy open, a tap aimed at a stick inside where it was shut moves the stick', () => {
+    expect(pickVehiclePart(HELI, pose, 1, eyeLeft, at({ x: 0.74, y: 1.25, z: -3.51 }, eyeLeft), [true, false, false], VEHICLE_PART)).toBe(1);
+    expect(pickVehiclePart(HELI, pose, 1, eye, at({ x: 1.19, y: 1.22, z: -3.45 }), [true, false, false], VEHICLE_PART)).toBe(2);
+  });
+  it('the canopy shut, the same tap opens the canopy (the sticks are inside it), and a tap past the sticks still closes the open canopy', () => {
+    expect(pickVehiclePart(HELI, pose, 1, eye, at({ x: 0.74, y: 1.25, z: -3.51 }), [false, false, false], VEHICLE_PART)).toBe(0);
+    expect(pickVehiclePart(HELI, pose, 1, eye, at({ x: 0.9, y: 2.4, z: -3.0 }), [true, false, false], VEHICLE_PART)).toBe(0);
+  });
+});

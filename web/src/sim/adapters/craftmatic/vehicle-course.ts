@@ -518,16 +518,25 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
           v = ctx.sim.engine.spawnEntity(f.typeId, 'overworld', at);
           await ctx.run(4);
         }
+        /** Box a (entity frame, [x0 y0 z0 x1 y1 z1]) inside box b. */
+        const inside = (a: readonly number[], b: readonly number[]): boolean => [0, 1, 2].every(q => a[q]! >= b[q]! - 1e-6 && a[q + 3]! <= b[q + 3]! + 1e-6);
         for (let i = 0; i < f.parts.length; i++) {
           if (f.parts[i]!.closed.length < 6) continue;
           sum.parts++;
+          // A part inside another part's SHUT box is behind it (`pickVehiclePart`: a shut part keeps what is inside its
+          // own box, an open one gives it up): the child opens that part first, as a child opens a canopy to reach the
+          // sticks under it (60086's helicopter), and shuts it again after.
+          const cover = f.parts.findIndex((q, j) => j !== i && q.kind !== 'turnable' && q.closed.length >= 6 && inside(f.parts[i]!.closed, q.closed));
+          const uncovered = cover >= 0 && value(v, cover) === 0 && (await tapOn(v, f, cover)) === 'changed';
+          if (uncovered) ctx.note(`${f.typeId} part ${i} (${f.parts[i]!.noun}) is inside part ${cover} (${f.parts[cover]!.noun}) shut: opened that first`);
           const got = await tapOn(v, f, i);
-          if (got === 'unreachable') { sum.unreachable++; continue; }
+          if (got === 'unreachable') { sum.unreachable++; if (uncovered) await tapOn(v, f, cover); continue; }
           if (got === 'changed') {
             sum.opened++;
             // Back as it was (a turnable keeps its step: it is never "open").
             if (f.parts[i]!.kind !== 'turnable' && (await tapOn(v, f, i)) !== 'changed') ctx.violate({ invariant: 'vehicle-part-opens', message: `${f.typeId} part ${i}: a second tap did not close it`, evidence: { value: value(v, i) } });
-          } else ctx.violate({ invariant: 'vehicle-part-opens', message: `${f.typeId} part ${i} (${f.parts[i]!.noun}): a tap beside the parked vehicle did not open it`, evidence: { at: { x: r3(v.location.x), y: r3(v.location.y), z: r3(v.location.z) }, value: value(v, i) } });
+          } else ctx.violate({ invariant: 'vehicle-part-opens', message: `${f.typeId} part ${i} (${f.parts[i]!.noun}): a tap beside the parked vehicle did not open it${uncovered ? ` (part ${cover} it is inside opened first)` : ''}`, evidence: { at: { x: r3(v.location.x), y: r3(v.location.y), z: r3(v.location.z) }, value: value(v, i) } });
+          if (uncovered) await tapOn(v, f, cover);
         }
         // The first swinging part a child can reach here (by the same search).
         let swing = -1;
