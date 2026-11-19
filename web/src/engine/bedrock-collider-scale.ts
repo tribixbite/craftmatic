@@ -944,6 +944,9 @@ export const LANE_ROUNDS = 32;
  * blocks, every porch line stopped at its foot), and 5482's 400 % facade run across Door 3's line.
  */
 export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], lane?: TreadLaneCheck, fine?: FineReachColumns, carve?: SizeCarve, approaches: readonly DoorApproach[] = []): TreadPlan {
+  // TODO(tread-swap-cost): a plan whose swap pass keeps a swap is planned twice; with the swap pass itself a 400 %
+  // plan of 42670 takes ~60 s where it took ~21 s (exports of the door favourites ~1.5-2.5x longer). Plan only the
+  // passes after the swap pass again, from a snapshot, once the plan state can be copied.
   const stats = { swaps: 0 };
   const plan = planTreadsOnce(cells, dims, sizePct, rotation, targets, doorCells, lane, fine, carve, approaches, true, stats);
   if (!stats.swaps) return plan;
