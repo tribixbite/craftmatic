@@ -36,8 +36,14 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   - clego branch `audit-content2` NOT merged into clego master: another session holds uncommitted
     `mecabricks_align.json` there (272 lines); its corpus files are already in place and published.
   - 42172 still coarse (30 % at 2 LDU); vehicle `flyer` parts fixed (`TODO(vehicle-interactives)`).
-- OPEN (device only): tap-to-board after the tap rule change (VEH-17 now DONE-OFFLINE), touch-tap aim on vehicle
-  parts, eased swing on a vehicle, chase-ease, Saga cockpit lag, 400 % cube split culling, faces drawn.
+- DEVICE ROUND 19a (2026-11-19, test Saga O1N1XT412200373 now at `192.168.0.82:5555` (adb connect; its TLS mDNS port
+  refused), Minecraft 1.26.62.1, packs `output/device-round-2026-11-19a/packs-d622026b/`, brief `brief-saga-19a.md`,
+  notes `saga/notes.md`): A fresh-car tap PASS at 100 % and 200 % (50 % not run); D chase ease PASS; E cockpit at
+  speed REGRESSED (camera behind the drawn car: tail lights face-on; branch `gen-cockpit` diagnosing). NOT RUN (time):
+  B 8097 hatch taps on the lifted board columns + finger vs crosshair, C 41395 eased swing, F 10261 400 % culling
+  (sim predicts partial: chunk roots past the ~70-block draw limit), G faces (10303, 31141). NEXT round 19b: those
+  four, A at 50 %, E repeat after the gen-cockpit fix (fresh seat, no chase drag first, 30 fps frames). The Saga's
+  foreground app was Bambu Handy: return to it after a round.
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
   --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
   --out=output/gengate-6fa0afa6`): 60/60 built, child play 710/720 (fails: 5482 windows out of reach + doorway holes
