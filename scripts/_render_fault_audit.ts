@@ -10,7 +10,10 @@
  */
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { loadAddonPreviewModel, placedPoint, entitySpawnsAt } from '../web/src/ui/addon-preview-data.ts';
+import { loadAddonPreviewModel, placedPoint, entitySpawnsAt, readPackScriptConfig } from '../web/src/ui/addon-preview-data.ts';
+import { coasterParkedCarPoses, type CoasterRuntimeConfig } from '../web/src/engine/bedrock-coaster.ts';
+import { atRest, coasterRestingPoses, firstRestingPoses, liftCarRestingPoses } from '../web/src/engine/cross-entity-coplanar.ts';
+import type { RideRuntimeConfig } from '../web/src/engine/bedrock-rides.ts';
 import { visibleCoplanarHits, thinCubes, worldFaces, type AuditActor, type CoplanarHit } from '../web/src/engine/bedrock-geometry-faces.ts';
 
 const args = process.argv.slice(2);
@@ -32,18 +35,34 @@ for (const file of files.sort()) {
   const app = model.appearance;
   if (!app) { console.log(`${basename(file)}: no appearance`); continue; }
   const actors: AuditActor[] = [];
+  // A coaster car is measured where the runtime PARKS it (`coasterParkedCarPoses`), not at its record: every car of
+  // a train is recorded at the station point; a lift car at every stop it rests at (`liftCarRestingPoses`). An actor
+  // with no known resting pose stays at its record, as before.
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const coaster = await readPackScriptConfig<CoasterRuntimeConfig>(buffer, 'coaster');
+  const rides = await readPackScriptConfig<RideRuntimeConfig>(buffer, 'rides');
+  const resting = firstRestingPoses(
+    coaster ? coasterRestingPoses(coasterParkedCarPoses(coaster)) : undefined,
+    rides ? liftCarRestingPoses(rides.rides, new Map(model.entities.flatMap(e => e.typeId === rides.seatType && e.ride !== undefined && e.ridePath ? [[e.ride, e.ridePath] as const] : []))) : undefined);
+  const atRecord = new Set<number>();
+  let rested = 0;
   for (const e of model.entities) {
     if (!entitySpawnsAt(e, 100)) continue;
     if (only && !only.split(',').some(k => e.kind === k)) continue;
     const entry = app.byType.get(e.typeId);
     if (!entry) continue;
-    actors.push({ typeId: e.typeId, kind: e.kind, entry, at: placedPoint(e, model.dims, 100, 0), yawDeg: e.yaw });
+    const rest = atRest(e, resting);
+    if (rest && rest[0] !== e) rested += rest.length;
+    for (const p of rest ?? [e]) {
+      if (p === e) atRecord.add(actors.length);
+      actors.push({ typeId: e.typeId, kind: e.kind, entry, at: placedPoint(p, model.dims, 100, 0), yawDeg: p.yaw ?? 0 });
+    }
   }
   const faces = worldFaces(actors);
-  // Coaster cars all stand on the station point in the placement record; the
-  // ride runtime spaces them along the track on spawn, so car-against-car
-  // overlaps here are the record, not the game.
-  const hits = visibleCoplanarHits(faces, { planeEps: Number(args.find(a => a.startsWith('--eps='))?.slice(6) ?? 0.02) }).filter(h => !(h.a.actor !== h.b.actor && actors[h.a.actor]!.kind === 'car' && actors[h.b.actor]!.kind === 'car'));
+  // Cars still at their record all stand on the station point; the ride runtime spaces them along the track on
+  // spawn, so car-against-car overlaps between two such cars are the record, not the game.
+  const recordCar = (i: number): boolean => atRecord.has(i) && actors[i]!.kind === 'car';
+  const hits = visibleCoplanarHits(faces, { planeEps: Number(args.find(a => a.startsWith('--eps='))?.slice(6) ?? 0.02) }).filter(h => !(h.a.actor !== h.b.actor && recordCar(h.a.actor) && recordCar(h.b.actor)));
   const sameColourArea = 0;
   const pairArea = new Map<string, { area: number; n: number; worst: CoplanarHit[] }>();
   for (const h of hits) {
@@ -56,7 +75,7 @@ for (const file of files.sort()) {
   }
   const total = hits.reduce((s, h) => s + h.area, 0) / 256;
   const thin = actors.reduce((s, a) => s + thinCubes(a.entry), 0);
-  console.log(`${basename(file)}  actors ${actors.length}  faces ${faces.length.toLocaleString()}  z-fight pairs ${hits.length.toLocaleString()}  area ${total.toFixed(2)} block faces  same-colour ${(sameColourArea / 256).toFixed(2)}  thin cubes ${thin}`);
+  console.log(`${basename(file)}  actors ${actors.length}${rested ? ` (${rested} at a resting pose)` : ''}  faces ${faces.length.toLocaleString()}  z-fight pairs ${hits.length.toLocaleString()}  area ${total.toFixed(2)} block faces  same-colour ${(sameColourArea / 256).toFixed(2)}  thin cubes ${thin}`);
   const rows = [...pairArea].sort((a, b) => b[1].area - a[1].area);
   for (const [key, r] of rows.slice(0, top)) {
     r.worst.sort((a, b) => b.area - a.area);
@@ -72,7 +91,7 @@ for (const file of files.sort()) {
     }
   }
   report[basename(file)] = {
-    actors: actors.length, faces: faces.length, hits: hits.length, area: total, sameColour: sameColourArea / 256, thin,
+    actors: actors.length, restingPoses: rested, faces: faces.length, hits: hits.length, area: total, sameColour: sameColourArea / 256, thin,
     pairs: Object.fromEntries(rows.map(([k, r]) => [k, { n: r.n, area: r.area, worst: r.worst.slice(0, 20).map(h => ({ area: h.area / 256, at: h.at, a: h.a.colour, b: h.b.colour, gap: h.gap, normal: h.normal })) }])),
   };
 }
