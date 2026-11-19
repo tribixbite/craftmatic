@@ -3,35 +3,49 @@
  *
  * `test/fixtures/treads/<set>-inputs.json.gz` is what the export handed the planner for that set at `9f5bdf2e`
  * (`CRAFTMATIC_TREAD_INPUTS`, `treadInputs`): the shipped colliders, the doorways' closed cells and approaches, the
- * fine reach walk and the carve source. Replayed here with the real lane walk (`planTreadsFromInputs`), one plan
- * takes seconds where a rebuild takes minutes.
+ * fine reach walk and the carve source. Replayed with the real lane walk (`planTreadsFromInputs`) by
+ * `scripts/_tread_replay.ts --plans=` in a CHILD process: one 400 % plan runs 20-40 s synchronously, and inside the
+ * vitest worker that blocked its event loop past 60 s under the full suite ("Timeout calling onTaskUpdate").
  *
  * Each case is a plan that reached LESS than the base build of `f134493e` (`.worktrees/gen-door2/output/gd2/
  * base-packs2/`, before the doorway-approach rule) after gen-door2, or after a first fix of it: the floor numbers are
  * that base plan's (surfaces after the treads, highest reached surface in blocks at 100 %), so a favourite never
  * reaches less than it did.
  */
-import { readFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { colliderSourceCells, decodeTreadPlan, planTreadsFromInputs, sizeCarveFor, treadInputsRead, type TreadInputs } from '../web/src/engine/bedrock-placement-pack.js';
+import { colliderSourceCells, decodeTreadPlan, sizeCarveFor, treadInputsRead, type PlacementTreadReport, type TreadInputs } from '../web/src/engine/bedrock-placement-pack.js';
 import { WalkWorld, tickPlayer, type PlayerState } from '../web/src/engine/addon-walk.js';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.js';
 
-const inputsOf = (set: string): TreadInputs =>
-  JSON.parse(gunzipSync(readFileSync(new URL(`./fixtures/treads/${set}-inputs.json.gz`, import.meta.url))).toString('utf8')) as TreadInputs;
+const fixture = (set: string): string => fileURLToPath(new URL(`./fixtures/treads/${set}-inputs.json.gz`, import.meta.url));
+const inputsOf = (set: string): TreadInputs => JSON.parse(gunzipSync(readFileSync(fixture(set))).toString('utf8')) as TreadInputs;
+const REPLAY = fileURLToPath(new URL('../scripts/_tread_replay.ts', import.meta.url));
+const OUT = mkdtempSync(join(tmpdir(), 'tread-replay-'));
 
-/** Plan one size and turn from a set's recorded inputs; the report's per-plan reach. */
-const planOf = (inputs: TreadInputs, pct: number, r: QuarterTurn) => planTreadsFromInputs(inputs, [[pct, r]]).report.plans[0]!;
+type PlanRow = PlacementTreadReport['plans'][number];
+/** Plan one size and turn from a set's recorded inputs in a child process: the report's row and the plan's blocks. */
+async function replayed(set: string, pct: number, r: QuarterTurn): Promise<{ plan: PlanRow; blocks: string }> {
+  const out = join(OUT, `${set}-${pct}-${r}.json`);
+  await promisify(execFile)('bun', [REPLAY, fixture(set), `--sizes=${pct}`, `--turns=${r}`, `--plans=${out}`], { maxBuffer: 1 << 24 });
+  const row = (JSON.parse(readFileSync(out, 'utf8')) as Record<string, { report: PlanRow; blocks: string }>)[`${pct}:${r}`]!;
+  return { plan: row.report, blocks: row.blocks };
+}
+const planOf = async (set: string, pct: number, r: QuarterTurn): Promise<PlanRow> => (await replayed(set, pct, r)).plan;
 
 /** A set's plan at one size (turn 0) and the walk world over it: what the pack lays (no doors drawn shut). */
-function plannedWorld(set: string, pct: number): { world: WalkWorld; plan: ReturnType<typeof planOf> } {
+async function plannedWorld(set: string, pct: number): Promise<{ world: WalkWorld; plan: PlanRow }> {
   const inputs = inputsOf(set);
-  const result = planTreadsFromInputs(inputs, [[pct, 0]]);
+  const { plan, blocks } = await replayed(set, pct, 0);
   const cells = colliderSourceCells(inputs.colliders);
   const dims = { width: inputs.colliders.width, height: inputs.colliders.height, length: inputs.colliders.length };
-  const blocks = decodeTreadPlan(result.colliders.treads?.plans[`${pct}:0`] ?? '');
-  return { plan: result.report.plans[0]!, world: new WalkWorld({ cells, dims, sizePct: pct, rotation: 0, treads: blocks, carve: sizeCarveFor(cells, dims, pct, 0, treadInputsRead(inputs).carve) }) };
+  return { plan, world: new WalkWorld({ cells, dims, sizePct: pct, rotation: 0, treads: decodeTreadPlan(blocks), carve: sizeCarveFor(cells, dims, pct, 0, treadInputsRead(inputs).carve) }) };
 }
 
 /**
@@ -54,48 +68,44 @@ function fanLane(world: WalkWorld, side: 'N' | 'S' | 'W' | 'E', lane: number): {
 }
 
 describe('the scaled tread planner never reaches less than the base build on the favourites\' recorded inputs', () => {
-  it('41732 at 400 % turn 0: a refused merge puts the earlier run back where it stood, so a later undo cannot take it (7746 -> at least 7780 surfaces)', () => {
-    const plan = planOf(inputsOf('41732'), 400, 0);
+  it('41732 at 400 % turn 0: a refused merge puts the earlier run back where it stood, so a later undo cannot take it (7746 -> at least 7780 surfaces)', async () => {
+    const plan = await planOf('41732', 400, 0);
     expect(plan.verified).toBe(true);
     expect(plan.after.surfaces).toBeGreaterThanOrEqual(7780);
     expect(plan.after.highestBlocks).toBeGreaterThanOrEqual(3);
   }, 300_000);
 
-  it('41732 at 300 % turn 90: a run refused across an approach is retried with the runs that took its columns lifted (4352 -> at least 4359)', () => {
-    const plan = planOf(inputsOf('41732'), 300, 90);
+  it('41732 at 300 % turn 90: a run refused across an approach is retried with the runs that took its columns lifted (4352 -> at least 4359)', async () => {
+    const plan = await planOf('41732', 300, 90);
     expect(plan.verified).toBe(true);
     expect(plan.after.surfaces).toBeGreaterThanOrEqual(4359);
     expect(plan.after.highestBlocks).toBeGreaterThanOrEqual(2.79);
   }, 300_000);
 
-  it('41732 at 200 % turn 270: a swap that costs reach in the later passes is planned again without it (top 6.81 blocks kept)', () => {
-    const plan = planOf(inputsOf('41732'), 200, 270);
+  it('41732 at 200 % turn 270: a swap that costs reach in the later passes is planned again without it (top 6.81 blocks kept)', async () => {
+    const plan = await planOf('41732', 200, 270);
     expect(plan.verified).toBe(true);
     expect(plan.after.surfaces).toBeGreaterThanOrEqual(2028);
     expect(plan.after.highestBlocks).toBeGreaterThanOrEqual(6.81);
   }, 300_000);
 
-  it('42670 at 300 % turn 270: the refused edge whose foot no plan reached is reached again (3857 -> at least 3884 surfaces)', () => {
-    const plan = planOf(inputsOf('42670'), 300, 270);
+  it('42670 at 300 % turn 270: the refused edge whose foot no plan reached is reached again (3857 -> at least 3884 surfaces)', async () => {
+    const plan = await planOf('42670', 300, 270);
     expect(plan.verified).toBe(true);
     expect(plan.after.surfaces).toBeGreaterThanOrEqual(3884);
     expect(plan.after.highestBlocks).toBeGreaterThanOrEqual(5.81);
   }, 300_000);
 
-  it('10326 at 150 % turn 180: the swap pass gives back the level a run order took (at least 422 surfaces, 3.58 blocks)', () => {
-    const plan = planOf(inputsOf('10326'), 150, 180);
+  it('10326 at 150 % turn 180: the swap pass gives back the level a run order took (at least 422 surfaces, 3.58 blocks)', async () => {
+    const plan = await planOf('10326', 150, 180);
     expect(plan.verified).toBe(true);
     expect(plan.after.surfaces).toBeGreaterThanOrEqual(422);
     expect(plan.after.highestBlocks).toBeGreaterThanOrEqual(3.58);
   }, 300_000);
 
-  it('21063 at 300 % turn 0: the east flank lanes the Pixel climbed on auto-jump (x 30.5 to 6.25, x 31.5 to 9.13; rounds 30zm/30zn) climb as high', () => {
-    const inputs = inputsOf('21063');
-    const result = planTreadsFromInputs(inputs, [[300, 0]]);
-    expect(result.report.plans[0]!.verified).toBe(true);
-    const cells = colliderSourceCells(inputs.colliders);
-    const dims = { width: inputs.colliders.width, height: inputs.colliders.height, length: inputs.colliders.length };
-    const world = new WalkWorld({ cells, dims, sizePct: 300, rotation: 0, treads: decodeTreadPlan(result.colliders.treads!.plans['300:0']!), carve: sizeCarveFor(cells, dims, 300, 0, treadInputsRead(inputs).carve) });
+  it('21063 at 300 % turn 0: the east flank lanes the Pixel climbed on auto-jump (x 30.5 to 6.25, x 31.5 to 9.13; rounds 30zm/30zn) climb as high', async () => {
+    const { world, plan } = await plannedWorld('21063', 300);
+    expect(plan.verified).toBe(true);
     /** The highest feet of a straight auto-jump walk north from past the south edge (`_walk_line.ts --jump=auto`). */
     const climb = (x: number): number => {
       let s: PlayerState = { x, y: 0, z: world.length + 1.5, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 }, top = 0;
@@ -107,8 +117,8 @@ describe('the scaled tread planner never reaches less than the base build on the
     expect(climb(31.5)).toBeGreaterThanOrEqual(9.13);
   }, 300_000);
 
-  it('21063 at 400 % turn 0: an edge run from the ground is judged by the walks it walls (south lanes x 36.5-38.5 climb to the base build 3.38 / 4.25 / 7.56, no 4-block fall off its top)', () => {
-    const { world, plan } = plannedWorld('21063', 400);
+  it('21063 at 400 % turn 0: an edge run from the ground is judged by the walks it walls (south lanes x 36.5-38.5 climb to the base build 3.38 / 4.25 / 7.56, no 4-block fall off its top)', async () => {
+    const { world, plan } = await plannedWorld('21063', 400);
     expect(plan.verified).toBe(true);
     expect(fanLane(world, 'S', 36.5).top).toBeGreaterThanOrEqual(3.38 - 0.01);
     expect(fanLane(world, 'S', 37.5).top).toBeGreaterThanOrEqual(4.25 - 0.01);
@@ -119,8 +129,8 @@ describe('the scaled tread planner never reaches less than the base build on the
     expect(fanLane(world, 'N', 3.5).top).toBeGreaterThanOrEqual(6 - 0.01);
   }, 300_000);
 
-  it('76419 at 200 % turn 0: a swap lays back the runs it lifted but does not need (south lanes x 1.5 / 2.5 and west lane z 15.5 climb as the base build: 2.69 / 3.25 / 4.83)', () => {
-    const { world, plan } = plannedWorld('76419', 200);
+  it('76419 at 200 % turn 0: a swap lays back the runs it lifted but does not need (south lanes x 1.5 / 2.5 and west lane z 15.5 climb as the base build: 2.69 / 3.25 / 4.83)', async () => {
+    const { world, plan } = await plannedWorld('76419', 200);
     expect(plan.verified).toBe(true);
     expect(plan.after.surfaces).toBeGreaterThanOrEqual(984);
     expect(fanLane(world, 'S', 1.5).top).toBeGreaterThanOrEqual(2.69 - 0.01);
