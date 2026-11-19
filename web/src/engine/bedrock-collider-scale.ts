@@ -944,6 +944,23 @@ export const LANE_ROUNDS = 32;
  * blocks, every porch line stopped at its foot), and 5482's 400 % facade run across Door 3's line.
  */
 export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], lane?: TreadLaneCheck, fine?: FineReachColumns, carve?: SizeCarve, approaches: readonly DoorApproach[] = []): TreadPlan {
+  const stats = { swaps: 0 };
+  const plan = planTreadsOnce(cells, dims, sizePct, rotation, targets, doorCells, lane, fine, carve, approaches, true, stats);
+  if (!stats.swaps) return plan;
+  const without = planTreadsOnce(cells, dims, sizePct, rotation, targets, doorCells, lane, fine, carve, approaches, false, stats);
+  return reachesMore(without, plan) ? without : plan;
+}
+
+/**
+ * Whether plan `a` reaches higher than `b`, or as high and more surfaces. A plan whose swap pass kept a swap is
+ * planned again without it and the one that reaches more ships: a swap judged as it is laid can still cost reach in
+ * the passes after it - 41732 at 200 % turn 270 handed its top's climb to fine runs that the cross pass then reverted
+ * as each other's spares (6.81 -> 6.31 blocks).
+ */
+const reachesMore = (a: TreadPlan, b: TreadPlan): boolean => a.after.highest16 > b.after.highest16 || (a.after.highest16 === b.after.highest16 && a.after.surfaces > b.after.surfaces);
+
+/** One plan (`planColliderTreads`); `swap` runs the swap pass, and `stats.swaps` counts the swaps it kept. */
+function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, targets: readonly ReachTarget[], doorCells: ReadonlyArray<readonly (number | undefined)[]>, lane: TreadLaneCheck | undefined, fine: FineReachColumns | undefined, carve: SizeCarve | undefined, approaches: readonly DoorApproach[], swap: boolean, stats: { swaps: number }): TreadPlan {
   const f = sizePct / 100;
   /**
    * The fine walk stood on the top `src16` of the source column under world column `q` (this size and turn):
@@ -960,9 +977,12 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
   /** Each refused edge's reason (`refuseKey`), so a late-pass restoration can take it back out of `unrestored`. */
   const failedReason = new Map<string, UnrestoredReason>();
   const refuseKey = (p: Surface, q: Surface): string => `${p.x},${p.z},${p.t}>${q.x},${q.z},${q.t}`;
+  /** Every edge refused for want of a run (`no-run`), in refusal order: the swap pass tries them again. */
+  const noRunEdges = new Map<string, { p: Surface; q: Surface }>();
   const refuse = (p: Surface, q: Surface, reason: UnrestoredReason): void => {
     unrestored[reason]++;
     failedReason.set(refuseKey(p, q), reason);
+    if (reason === 'no-run') noRunEdges.set(refuseKey(p, q), { p, q });
     refusedTargets.push(q);
     if (refused.length < MAX_REFUSED_REPORTED) refused.push({ from: p, to: q, rise100: (q.t - p.t) / 16 / f, reason });
   };
@@ -1088,7 +1108,11 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
    * combined run planned over the freed floor, and the earlier run put back
    * unless the combined one is GENTLE (walked without a jump): a steeper
    * merged staircase would replace a gentle climb another column of the same
-   * riser already serves, so it is refused instead.
+   * riser already serves, so it is refused instead. Put back WHERE IT STOOD in
+   * the run order: put back last (until 2026-11-19), it went with the runs laid
+   * after a later pass's mark when that pass undid them (the late pass's batch,
+   * a refused approach chain) and its climb was lost without a check - 41732 at
+   * 400 % lost 34 surfaces and 0.62 blocks of height that way.
    */
   const planRun = (p: Surface, q: Surface, visited: SurfaceSet): RunEdit | UnrestoredReason | 'no-rule' => {
     lastRefusalApproach = false;
@@ -1098,7 +1122,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     revert(owner); edits.splice(ownerAt, 1);
     const result = planRunCore(p, q, visited);
     if (typeof result !== 'string' && result.run.hop16 <= GENTLE_HOP16) return result;
-    edits.push(owner); apply(owner);
+    edits.splice(ownerAt, 0, owner); apply(owner);
     return typeof result === 'string' ? result : 'no-run';
   };
   /**
@@ -1345,6 +1369,43 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) doorColumns.add(colKey(x, z));
   }
   /**
+   * The runs that hold the columns a run from `p` up to `q` would be laid in (its tread line back from `p`, the
+   * landing past it, and `q`'s own column), lifted off the grid newest first with every later run that writes over
+   * one of their cells: where they stand, a refused run judged later finds its columns taken (41732 at 300 % turn 90).
+   */
+  const liftBlockers = (p: Surface, q: Surface): Array<{ at: number; e: RunEdit }> => {
+    const dx = p.x - q.x, dz = p.z - q.z;
+    const line = new Set<number>([colKey(q.x, q.z)]);
+    for (let k = 0; k <= MAX_TREADS_PER_RUN + 1; k++) line.add(colKey(p.x + k * dx, p.z + k * dz));
+    const lifted = new Set<number>();
+    edits.forEach((o, i) => { if (o.columns.some(c => line.has(colKey(c.x, c.z))) || line.has(colKey(o.to.x, o.to.z)) || line.has(colKey(o.landing.x, o.landing.z))) lifted.add(i); });
+    if (!lifted.size) return [];
+    // Closed over later runs writing a lifted run's cells: a revert puts back what a cell held before its run.
+    for (let grew = true; grew;) {
+      grew = false;
+      const cellsOf = new Set<string>();
+      for (const i of lifted) for (const w of edits[i]!.writes) cellsOf.add(`${w.x},${w.block.row},${w.z}`);
+      edits.forEach((o, i) => { if (!lifted.has(i) && i > Math.min(...lifted) && o.writes.some(w => cellsOf.has(`${w.x},${w.block.row},${w.z}`))) { lifted.add(i); grew = true; } });
+    }
+    const out = [...lifted].sort((a, b) => b - a).map(at => ({ at, e: edits[at]! }));
+    for (const { at, e } of out) { revert(e); edits.splice(at, 1); }
+    return out;
+  };
+  /** Lay lifted runs back where they stood, oldest first. */
+  const putBack = (lifted: ReadonlyArray<{ at: number; e: RunEdit }>): void => {
+    for (const { at, e } of [...lifted].sort((a, b) => a.at - b.at)) { edits.splice(at, 0, e); apply(e); }
+  };
+  /**
+   * Undo everything since `snapshot` (the runs as they stood): every run laid since goes, newest first, and every run
+   * of the snapshot that is missing - absorbed into a merged run (`planRun`) along the way - comes back where it stood.
+   */
+  const rollback = (snapshot: readonly RunEdit[]): void => {
+    const was = new Set(snapshot);
+    for (let i = edits.length - 1; i >= 0; i--) if (!was.has(edits[i]!)) { revert(edits[i]!); edits.splice(i, 1); }
+    const now = new Set(edits);
+    snapshot.forEach((e, i) => { if (!now.has(e)) { edits.splice(i, 0, e); apply(e); } });
+  };
+  /**
    * THE APPROACH PASS. A run refused for standing across a doorway's line (`crossesApproach`) is judged against
    * what it would open, after the main walk has laid every other way up: laid alone, and climbed on from by another
    * laying walk that may cross approaches too (a staircase up a facade past a door is several runs), it is kept
@@ -1352,7 +1413,10 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
    * repeat while one is kept (a refused edge whose foot only a kept run reaches is tried in the next round).
    * Exploration first: 10326's 300 % ramp beside its back doors is the only way to the museum's upper floor, and
    * 42670's 400 % facade runs the only way onto its upper storeys; 2504's 150 % run across Door 2's line opened
-   * nothing the plan did not reach already, and stays refused. Each kept chain is verified (`holds`).
+   * nothing the plan did not reach already, and stays refused. Each kept chain is verified (`holds`). A refused run
+   * whose columns an earlier run has taken since (`no-run` when it is retried) is retried with those runs lifted
+   * (`liftBlockers`), kept only where the walk then reaches MORE surfaces than with them (41732 at 300 % turn 90); a
+   * chain that is not kept is undone whole, a run it absorbed included (`rollback`).
    */
   const approachPass = (): void => {
     for (let round = 0; round < LANE_ROUNDS; round++) {
@@ -1361,17 +1425,26 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
         const reach = walkScaledColliders(grid);
         if (reach.visited.has(grid.key(q.x, q.z, q.t))) { approachDeferred.delete(rk); continue; }
         if (!reach.visited.has(grid.key(p.x, p.z, p.t))) continue;
-        const mark = edits.length;
+        const snapshot = [...edits];
         approachAllowed = true;
-        const e = planRun(p, q, reach.visited);
+        let e = planRun(p, q, reach.visited);
         approachDeferred.delete(rk);
+        let displaced: Array<{ at: number; e: RunEdit }> = [];
+        if (e === 'no-run') {
+          displaced = liftBlockers(p, q);
+          if (displaced.length) {
+            e = planRun(p, q, walkScaledColliders(grid).visited);
+            if (typeof e === 'string') { putBack(displaced); displaced = []; }
+          }
+        }
+        const mark = edits.length;
         if (typeof e !== 'string') { apply(e); edits.push(e); layingWalk(false); }
         approachAllowed = false;
         if (typeof e === 'string') continue;
         const walked = walkScaledColliders(grid);
         let opens = false;
         for (const k of walked.visited) if (!reach.visited.has(k)) { opens = true; break; }
-        if (opens && holds(walked)) {
+        if (opens && (!displaced.length || walked.visited.size > reach.visited.size) && holds(walked)) {
           kept = true;
           // Judged against what it replaces: a run of the chain (not the retried one) that crosses an approach and
           // opens nothing the rest of the plan does not reach goes again, newest first - with every refusal lifted
@@ -1392,10 +1465,58 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
           if (at >= 0) refused.splice(at, 1);
           continue;
         }
-        for (let i = edits.length - 1; i >= mark; i--) revert(edits[i]!);
-        edits.length = mark;
+        rollback(snapshot);
       }
       if (!kept) break;
+    }
+  };
+  /**
+   * THE SWAP PASS. A rise refused for want of a run (`no-run`) is often refused only because an earlier run holds a
+   * column the run needs - its tread line, its landing or its foot (the arrival of a run that cannot be merged with
+   * it). Which run takes a column is then the order the laying walk met them in, and a later fix that changes the
+   * order takes one storey and gives another (42670 at 400 % turn 180: a one-tread run onto 45,15 took the foot of
+   * the only climb to the 320 level). So, after the late pass: each such refused edge whose target is still
+   * unreached lifts the runs that hold its columns (`liftBlockers`), is laid, and the laying walk runs again over
+   * the freed columns (a lifted run's own rise is laid again where it still fits). Kept only where the target is
+   * then reached, nothing reached before is lost (bar a floor a tread now covers and the lifted runs' own tread
+   * tops) and the plan holds; otherwise everything goes back as it was.
+   */
+  let swapsKept = 0;
+  const swapPass = (): void => {
+    // A swap that is not kept puts the grid back exactly, so the walks are redone only after a kept one.
+    let reach = walkScaledColliders(grid);
+    for (const [rk, { p, q }] of [...noRunEdges]) {
+      const qk = grid.key(q.x, q.z, q.t);
+      if (reach.visited.has(qk) || !reach.visited.has(grid.key(p.x, p.z, p.t))) continue;
+      const lifted = liftBlockers(p, q);
+      if (!lifted.length) continue;
+      const snapshot = [...edits];
+      const freed = walkScaledColliders(grid);
+      const e = planRun(p, q, freed.visited);
+      if (typeof e === 'string') { putBack(lifted); continue; }
+      apply(e); edits.push(e); layingWalk(false);
+      const walked = walkScaledColliders(grid);
+      const liftedTops = new Set(lifted.flatMap(l => l.e.treadSurfaces.map(s => grid.key(s.x, s.z, s.t))));
+      const loses = (was: ReachResult, now: ReachResult): boolean => {
+        for (const k of was.visited) {
+          if (now.visited.has(k) || liftedTops.has(k)) continue;
+          const s = grid.unkey(k);
+          if (treadFloor.get(colKey(s.x, s.z)) !== s.t) return true;
+        }
+        return false;
+      };
+      const lost = loses(reach, walked);
+      if (!lost && walked.visited.has(qk) && holds(walked)) {
+        noRunEdges.delete(rk);
+        const was = failedReason.get(rk);
+        if (was !== undefined) { if (unrestored[was] > 0) unrestored[was]--; failedReason.delete(rk); }
+        const at = refused.findIndex(r => refuseKey(r.from, r.to) === rk);
+        if (at >= 0) refused.splice(at, 1);
+        reach = walked; swapsKept++;
+        continue;
+      }
+      rollback(snapshot);
+      putBack(lifted);
     }
   };
   const doorwayPass = (): void => {
@@ -2091,19 +2212,19 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
   // Fast path: one laying walk, then a single verification from scratch.
   layingWalk(false);
   let after = walkScaledColliders(grid);
-  if (holds(after)) { approachPass(); doorwayPass(); latePass(); lanePass(); crossPass(); guardPasses(); return report(walkScaledColliders(grid), edits, true); }
+  if (holds(after)) { approachPass(); doorwayPass(); latePass(); if (swap) { swapPass(); stats.swaps = swapsKept; } lanePass(); crossPass(); guardPasses(); return report(walkScaledColliders(grid), edits, true); }
   // Slow path: undo everything and re-plan one run at a time, each verified
   // against the unassisted walk, until a pass lays nothing new.
   for (let i = edits.length - 1; i >= 0; i--) revert(edits[i]!);
   edits.length = 0; failed.clear(); arrivals.clear();
-  unrestored['no-run'] = 0; unrestored.headroom = 0; unrestored.verify = 0; refused.length = 0; refusedTargets.length = 0; failedReason.clear();
+  unrestored['no-run'] = 0; unrestored.headroom = 0; unrestored.verify = 0; refused.length = 0; refusedTargets.length = 0; failedReason.clear(); noRunEdges.clear();
   for (let pass = 0; pass < 64; pass++) {
     const count = edits.length;
     layingWalk(true);
     if (edits.length === count) break;
   }
   after = walkScaledColliders(grid);
-  if (holds(after)) { approachPass(); doorwayPass(); latePass(); lanePass(); crossPass(); guardPasses(); return report(walkScaledColliders(grid), edits, true); }
+  if (holds(after)) { approachPass(); doorwayPass(); latePass(); if (swap) { swapPass(); stats.swaps = swapsKept; } lanePass(); crossPass(); guardPasses(); return report(walkScaledColliders(grid), edits, true); }
   for (let i = edits.length - 1; i >= 0; i--) revert(edits[i]!);
   edits.length = 0;
   return report(walkScaledColliders(grid), [], false);
