@@ -536,6 +536,23 @@ export function thinCubes(entry: AddonAppearanceEntry, thinUnits = 0.01): number
  */
 export const COPLANAR_SEPARATION_UNITS = 0.15;
 
+/**
+ * The push for an entity whose finest part grain is `finestGrainLdu` LDU, drawn at `unitsPerLdu` model units per LDU:
+ * the full `COPLANAR_SEPARATION_UNITS`, or a quarter of one grain step when that is less. Every face of a compiled
+ * part lies on its grain's planes, so a push of a whole step lands the pushed face on the next plane, where it meets
+ * whatever face stands there. A full-size entity's 2-LDU step is 0.6 units and keeps the full push; 10337's car, compiled
+ * at 0.084 units per LDU, has a 0.168-unit step: the full push put each pushed face 0.02 from the next plane, every pass
+ * settled ~5,500 pairs and made as many, 5,543 shipped after the 16-pass cap and the compile took 12 minutes (A-17).
+ * A quarter keeps three stacked layers of pushes clear of the next plane. A model drawn at a quarter of the size is
+ * seen at a quarter of the distance for the same picture, so a quarter of the push holds the same depth margin there.
+ * TODO(lambo-cross-offset): the cross-entity pass (cross-entity-coplanar.ts) still pushes a placed entity by the full
+ * offset against its neighbours; a small vehicle beside a shell should use its own (smaller) push there too.
+ */
+export function coplanarSeparationOffset(finestGrainLdu: number, unitsPerLdu: number): number {
+  const step = finestGrainLdu * unitsPerLdu;
+  return step > 0 ? Math.min(COPLANAR_SEPARATION_UNITS, step / 4) : COPLANAR_SEPARATION_UNITS;
+}
+
 /** Two opposite faces this close (model units) are in contact. */
 const CONTACT_EPS = 0.02;
 
@@ -592,17 +609,33 @@ export function buriedFaceTest(faces: readonly WorldFace[]): (f: WorldFace) => b
     for (const f of list) cellsOf(boxOf(f), 0, cell => { let l = g!.get(cell); if (!l) g!.set(cell, l = []); l.push(f); });
     return g;
   };
+  // Per face, once: its box and area (a query compares against many neighbours, and every pair of a pass asks about
+  // both its faces), and the answer itself. A spinning wheel's hub and tyre put thousands of small faces of one normal
+  // into a few cells, so before these cheap rejections a query clipped a polygon against each of them: 4 ms a query,
+  // 53 s for the 13,000 pairs of 10337's car on every pass, which is why its separation ran for 12 minutes (A-17).
+  const boxes = new Map<WorldFace, number[]>(), areas = new Map<WorldFace, number>(), answers = new Map<WorldFace, boolean>();
+  const boxOnce = (f: WorldFace): number[] => { let b = boxes.get(f); if (!b) boxes.set(f, b = boxOf(f)); return b; };
+  const areaOnce = (f: WorldFace): number => { let a = areas.get(f); if (a === undefined) areas.set(f, a = faceArea(f.corners)); return a; };
+  // Two faces pressed together over an overlap have boxes within the contact tolerance (twice it, for the tilt
+  // between two nearly parallel planes) on every axis.
+  const BOX_PAD = 2 * CONTACT_EPS + 1e-6;
   return (f: WorldFace): boolean => {
-    const area = faceArea(f.corners);
+    const known = answers.get(f);
+    if (known !== undefined) return known;
+    const area = areaOnce(f), fb = boxOnce(f);
     const n = [q(-f.normal[0]), q(-f.normal[1]), q(-f.normal[2])];
     const seen = new Set<WorldFace>();
     let hit = false;
-    cellsOf(boxOf(f), CONTACT_EPS, cell => {
+    cellsOf(fb, CONTACT_EPS, cell => {
       if (hit) return;
       for (let a = -1; a <= 1 && !hit; a++) for (let b = -1; b <= 1 && !hit; b++) for (let c = -1; c <= 1 && !hit; c++) {
         for (const o of gridOf(`${n[0]! + a},${n[1]! + b},${n[2]! + c}`)?.get(cell) ?? []) {
           if (seen.has(o)) continue;
           seen.add(o);
+          // The overlap is no larger than either face: a smaller face can never cover 98 % of this one.
+          if (areaOnce(o) < area * 0.98) continue;
+          const ob = boxOnce(o);
+          if (ob[0]! > fb[3]! + BOX_PAD || fb[0]! > ob[3]! + BOX_PAD || ob[1]! > fb[4]! + BOX_PAD || fb[1]! > ob[4]! + BOX_PAD || ob[2]! > fb[5]! + BOX_PAD || fb[2]! > ob[5]! + BOX_PAD) continue;
           const { area: over, points } = overlapPolygon(f, o);
           if (over < area * 0.98) continue;
           // Pressed together over the whole overlap: every point of it within CONTACT_EPS of the other face's plane.
@@ -610,6 +643,7 @@ export function buriedFaceTest(faces: readonly WorldFace[]): (f: WorldFace) => b
         }
       }
     });
+    answers.set(f, hit);
     return hit;
   };
 }
@@ -633,6 +667,8 @@ export interface CoplanarSeparation {
   /** Overlaps still present after the last pass. */
   pairsLeft: number;
   passes: number;
+  /** The push used, model units (`coplanarSeparationOffset`). */
+  offset?: number;
 }
 
 /**
@@ -702,7 +738,7 @@ export function separateCoplanarAgainst(placements: readonly AuditActor[], fixed
   const entry = placements[0]!.entry;
   if (placements.some(p => p.entry !== entry)) throw new Error('separateCoplanarAgainst: every placement must share one entry (the geometry it rewrites).');
   const own = placements.length;
-  const result: CoplanarSeparation = { pairsFound: 0, areaFound: 0, facesGrown: 0, pairsLeft: 0, passes: 0 };
+  const result: CoplanarSeparation = { pairsFound: 0, areaFound: 0, facesGrown: 0, pairsLeft: 0, passes: 0, offset };
   // The neighbours' faces that can meet this entity, re-indexed after the placements (`own + actor`) so keys never
   // collide: inside the entity's own box and on (or facing) one of its own planes, each widened by every push the
   // passes can make plus the plane tolerance. A face on no plane of the entity can neither pair with one of its faces

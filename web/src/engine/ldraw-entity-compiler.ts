@@ -64,7 +64,7 @@ import { isShipWheel, isSteeringWheel } from './steering-parts.js';
 export { isShipWheel, isSteeringWheel } from './steering-parts.js';
 import { hingeChain } from './hinge-rig.js';
 import { isVehiclePartBone, vehiclePartBones } from './vehicle-parts.js';
-import { boneTransforms, cubeCorners, drawnCubeBox, IDENTITY as AFFINE_IDENTITY, separateCoplanarFaces, type CoplanarSeparation, type GeoEntryLike } from './bedrock-geometry-faces.js';
+import { boneTransforms, coplanarSeparationOffset, cubeCorners, drawnCubeBox, IDENTITY as AFFINE_IDENTITY, separateCoplanarFaces, type CoplanarSeparation, type GeoEntryLike } from './bedrock-geometry-faces.js';
 
 /**
  * Canopy / windscreen moulds — used for COCKPIT DETECTION only. Whether a
@@ -2696,11 +2696,15 @@ export async function compileLdrawEntityGeometry(
 
     const heaviestParts = [...perPart].map(([part, v]) => ({ part, placements: v.placements, cubesEach: v.cubesEach, microcellLdu: v.microcellLdu, cubes: v.placements * v.cubesEach }))
       .sort((a, b) => b.cubes - a.cubes || a.part.localeCompare(b.part)).slice(0, 12);
+    // The finest grain any placed part was compiled at (what the prototype SHIPPED, which can be coarser than asked):
+    // every face of the entity lies on a plane of some part's grain, so the coplanar push is sized under it.
+    let finestMicrocellLdu = Infinity;
+    for (const v of perPart.values()) if (v.microcellLdu > 0 && v.microcellLdu < finestMicrocellLdu) finestMicrocellLdu = v.microcellLdu;
     if (!cullAndMerge) {
       // The planning pass: only the world boxes and stud candidates are needed
       // (for the stud reserve), so the cull and the merge are skipped.
       const cullPlan: HiddenCullPlan = { hidden: new Set(), cellLdu: 0, requestedCellLdu: 0, gridCells: 0, coarsened: false, skipped: false };
-      return { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: 0, cullPlan, mergedCubes: 0, heaviestParts, defaultFaces, headCubesCarved, faceDecalCuboids, facePrinted, faceArtCount, faceDefault };
+      return { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: 0, cullPlan, mergedCubes: 0, heaviestParts, defaultFaces, headCubesCarved, faceDecalCuboids, facePrinted, faceArtCount, faceDefault, finestMicrocellLdu };
     }
 
     // Buried cuboids cost budget and draw calls for nothing: cull them. The
@@ -2730,7 +2734,7 @@ export async function compileLdrawEntityGeometry(
     // Lossless: same-colour face-adjacent body boxes become one (see mergeAlignedCuboids).
     const mergedResult = mergeAlignedCuboids(visibleCuboids);
 
-    return { renderCuboids: mergedResult.cuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: hidden.size, cullPlan, mergedCubes: mergedResult.merged, heaviestParts, defaultFaces, headCubesCarved, faceDecalCuboids, facePrinted, faceArtCount, faceDefault };
+    return { renderCuboids: mergedResult.cuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: hidden.size, cullPlan, mergedCubes: mergedResult.merged, heaviestParts, defaultFaces, headCubesCarved, faceDecalCuboids, facePrinted, faceArtCount, faceDefault, finestMicrocellLdu };
   };
 
   // 5. Exposed studs: a stud whose top is inside another part's box is covered.
@@ -3168,7 +3172,9 @@ export async function compileLdrawEntityGeometry(
       }),
     });
   }
-  const coplanar = separateCoplanarFaces(coplanarEntry);
+  // The push is sized under the entity's finest grain (`coplanarSeparationOffset`): a model compiled small (10337's
+  // car at 0.084 units per LDU) has grain planes closer together than the full push.
+  const coplanar = separateCoplanarFaces(coplanarEntry, { offset: coplanarSeparationOffset(Number.isFinite(built.finestMicrocellLdu) ? built.finestMicrocellLdu : quality.microcellLdu, scale) });
   if (coplanar.pairsLeft) warnings.push(`${cid}: ${coplanar.pairsLeft} different-colour face pair${coplanar.pairsLeft === 1 ? '' : 's'} still share a plane after separation (may hatch on the device).`);
   // Last, once the separation has settled every cube's box: a cube declared
   // under one unit on any axis loses faces on the device (`boxUvSafeCube`).
