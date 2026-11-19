@@ -1453,6 +1453,7 @@ literal inside a function body (`§` marks the number).
 | `FOOTPRINT.MAX_SUBSTEPS` | `web/src/engine/bedrock-vehicle.ts` | 4 | poses/tick | Bounds the cost of a fast turn. |
 | `FOOTPRINT.SUPPORT_MAX_ROWS` | `web/src/engine/bedrock-vehicle.ts` | 24 | rows | Most rows along a car's or hover craft's footprint where the step it stands on is read (at `SPACING` up to this): a long car stands on the highest step under its whole body, not its centre (A-12: 41395, 42172, 75397 hung on the course hill by their band). 42172 at 400 % (112 long) reads 25 rows. |
 | `FOOTPRINT.SUPPORT_MAX_COLS` | `web/src/engine/bedrock-vehicle.ts` | 4 | lines | Most lines across it for the same read (5 points a row at most; two cells each, cached per tick): 41395 15 x 5 = 75 points, about 150 cell reads a tick while it drives. |
+| `FOOTPRINT.CELL_KEEP_TICKS` | `web/src/engine/bedrock-vehicle.ts` | 10 | ticks | How long the runtime keeps what it read of a block cell (span, water, unloaded) before reading it again. Re-read every tick, the support rows and the sweep made 42172 at 100 % read 111 cells a tick at rest with its driver and 127 cruising (simulator), 8-9 / 19-27 ms a tick on the Saga (round 2026-11-19a, 1.26.62.1; 30m's runtime 1-2 ms) while the server fell to ~16 ticks a second and the cockpit camera was drawn behind the car; kept, 0 / 15. A block changed under a vehicle is seen at most half a second late. |
 | `MOVE.DEFLECT_SHARE` | `web/src/engine/bedrock-vehicle.ts` | 0.7 | share of the tick's move | A vehicle whose one half meets a trunk or a post steps sideways by this share of its move: round a tree hit with a corner at full speed in two ticks. |
 | `MOVE.MIN_SIDESTEP` | `web/src/engine/bedrock-vehicle.ts` | 0.1 | blocks/tick | The sidestep's least size, so a car crawling into a tree still edges round it. |
 | `MOVE.MIN_PROGRESS` | `web/src/engine/bedrock-vehicle.ts` | 0.002 | blocks | A retry that moves less than this is not tried. |
@@ -1859,6 +1860,8 @@ one of these files fails the check until its row is written.
 | `CoasterRiderLook` | interface | Its result. |
 | `coasterCarAttitude` | function | SERIALISED. Nose + up → entity yaw and the pitch/roll bones; yaw from the axle, never swivels. |
 | `CoasterCarAttitude` | interface | Its result. |
+| `coasterParkedCarPoses` | function | Export time: every car's datum, yaw, pitch and roll where the runtime parks a NEWLY placed train (platform stop, a second train at its dispatch hold) - the runtime's first-tick `carArc` / `chordAt` / `carPose`, restated because the runtime is serialised whole; `test/bedrock-coaster.test.ts` runs the real runtime against it. Feeds the cross-entity coplanar pass (`cross-entity-coplanar.ts`, A-17) and `_render_fault_audit.ts`. **Change it with the runtime's parked placement.** |
+| `CoasterParkedCarPose` | interface | Its result. |
 | `riderViewBricks`, `RIDER_VIEW`, `RIDER_VIEW_BONE` | function / const | Config time: the car's own parts in front of its rider's eye (the 10303 lap bar), put on the `view` bone the car hides while a player rides it; `RIDER_VIEW` the region in LDU. |
 | `coasterTrackUps` | function | Config time: per-sample physical up (gravity's where upright, the loop normal through a loop, bounded twist). |
 | `TRACK_TWIST_RATE_DEG_PER_BLOCK` | const | Twist bound of `coasterTrackUps`. |

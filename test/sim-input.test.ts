@@ -11,7 +11,7 @@ import { dragRoute } from '../web/src/sim/input/scheme.js';
 import { dragPixels, dragRecords } from '../web/src/sim/input/drag.js';
 import { PIXEL_VIEWPORT, projectToScreen, screenCamera, screenPick, screenRay, touchModeOf } from '../web/src/sim/input/screen.js';
 import { PIXEL_LAYOUT, PhoneScreen, runDeviceScript, translateCommand, type PhoneIO, type ReplayEvent } from '../web/src/sim/input/device-script.js';
-import { COST_CALIBRATION_LOGS, COST_FITS, TICK_BUDGET_WARN_MS, fitCost, parseCmvtSamples, predictedMsPerTick, summarizeCost } from '../web/src/sim/quirks/cost.js';
+import { COST_CALIBRATION_LOGS, COST_FITS, TICK_BUDGET_WARN_MS, fitCost, parseCmvtSamples, predictedMsPerTick, predictedSagaMsFromReads, summarizeCost } from '../web/src/sim/quirks/cost.js';
 import { quirkValue } from '../web/src/sim/quirks/registry.js';
 import { runScenario } from '../web/src/sim/scenario/runner.js';
 import { INPUT_HANDLERS } from '../web/src/sim/input/steps.js';
@@ -294,6 +294,11 @@ describe('the per-tick cost model (quirks/cost.ts: PREDICTED)', () => {
     expect(s.warnings.length).toBe(2);
     expect(s.predicted.saga.p95).toBeGreaterThan(TICK_BUDGET_WARN_MS);
     expect(summarizeCost([]).warnings).toEqual([]);
+  });
+  it('predicts round 19a\'s Saga reading at rest from the block reads the sweep-check line cannot see', () => {
+    // 42172's runtime read 111 cells a tick at rest with its driver; the Saga measured 8.5 ms (the line: 2.5).
+    expect(predictedSagaMsFromReads(111)).toBeCloseTo(8.5, 1);
+    expect(predictedMsPerTick('saga', 0)).toBeLessThan(3);
   });
   const logs = COST_CALIBRATION_LOGS.map(([d, rel]) => [d, `C:/git/craftmatic/output/${rel}`] as const);
   it.skipIf(!logs.every(([, f]) => existsSync(f)))('re-derives the frozen fits from the device content logs', () => {

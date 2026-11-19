@@ -31,7 +31,7 @@ import { creatorFigureBehavior, minifigWandScript } from './bedrock-minifig-wand
 import { MAX_PRINT_LAYERS, MINIFIG_CREATOR_COLOURS, POSE_PROPERTY, type MinifigLibrarySpec, type MinifigCreatorConfig, type CreatorSlot } from './minifig-creator-types.js';
 import { CREATOR_POSES, creatorPoseAnimations, ldrawColourName } from './minifig-creator.js';
 import { isTrackPart } from './coaster-track.js';
-import { separateEntitiesFromNeighbours } from './cross-entity-coplanar.js';
+import { coasterRestingPoses, firstRestingPoses, liftCarRestingPoses, separateEntitiesFromNeighbours } from './cross-entity-coplanar.js';
 import { isShellEntityId, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior, splitStaticShell, type ShellCell, type ColliderSourceBox } from './bedrock-building-shell.js';
 import { CLEARANCE_REFUSALS, applyColliderClearance, type ClearanceReport, type DoorwayRescue, type GridBox } from './collider-clearance.js';
 import type { NoseDirection } from './vehicle-facing.js';
@@ -43,7 +43,7 @@ import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import { resolveEntityQuality, type LegoEntityQuality, type LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterTrackPack, type TrackPackOptions } from './coaster-pack.js';
 import type { GeneratedCoaster } from './coaster-design.js';
-import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
+import { buildCoasterRideAssets, coasterDiagnostics, coasterParkedCarPoses, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
 import { RIDE, ridesScript, type RideKind, type RideRuntimeConfig } from './bedrock-rides.js';
 import { FUNFAIR } from './rides/funfair-physics.js';
 import { funfairScript, type FunfairRuntimeConfig } from './rides/funfair-runtime.js';
@@ -3468,30 +3468,22 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 // every passage leaf closed; then re-read each doorway's
                 // neighbours so a trimmed one is restored trimmed.
                 const frame = options.shell.frame;
-                const leafBox = (c: (typeof compiledIx)[number]): GridBox => {
-                    const b = c.it.boundsLdu, ps = [0, 1].flatMap(i => [0, 1].flatMap(j => [0, 1].map(k => sceneGridPoint(frame, [i ? b.max[0] : b.min[0], j ? b.max[1] : b.min[1], k ? b.max[2] : b.min[2]]))));
-                    return { x0: Math.min(...ps.map(p => p[0])), y0: Math.min(...ps.map(p => p[1])), z0: Math.min(...ps.map(p => p[2])), x1: Math.max(...ps.map(p => p[0])), y1: Math.max(...ps.map(p => p[1])), z1: Math.max(...ps.map(p => p[2])) };
-                };
-                const leaves: GridBox[] = compiledIx.filter(c => PASSAGE_KINDS.has(c.it.kind)).map(leafBox);
-                const leafPlanes = compiledIx.filter(c => PASSAGE_KINDS.has(c.it.kind)).map(({ it }) => {
-                    if (!it.leaf) return null;
-                    const c0 = sceneGridPoint(frame, it.leaf.corner), ca = sceneGridPoint(frame, [it.leaf.corner[0] + it.leaf.along[0], it.leaf.corner[1] + it.leaf.along[1], it.leaf.corner[2] + it.leaf.along[2]]), cu = sceneGridPoint(frame, [it.leaf.corner[0] + it.leaf.up[0], it.leaf.corner[1] + it.leaf.up[1], it.leaf.corner[2] + it.leaf.up[2]]);
-                    return { c: c0, a: [ca[0] - c0[0], ca[1] - c0[1], ca[2] - c0[2]], u: [cu[0] - c0[0], cu[1] - c0[1], cu[2] - c0[2]] };
-                });
+                const { leaves, leafPlanes, heldLeafPlanes } = clearanceLeaves(compiledIx.map(c => c.it), frame);
                 const approaches = ixPlans.flatMap(pl => pl?.approach.length ? [{ columns: pl.approach, floor16: pl.floor16 }] : []);
                 // The doorway rescue (collider-clearance.ts `DoorwayRescue`): a walkable-top trim refused near a doorway is
                 // judged by that doorway's own 100 % walk - the same walk the wand's door count reads below.
                 const rescueItems = compiledIx.length ? buildIxItems() : [];
                 const rescueDims = { width: colliders.grid.width, height: colliders.grid.height, length: colliders.grid.length };
                 const rescue: DoorwayRescue | undefined = rescueItems.some(it => it.passSize !== undefined && it.blocking.length) ? {
-                    doorways: compiledIx.map(c => PASSAGE_KINDS.has(c.it.kind) ? leafBox(c) : null),
+                    // A held-shut door is no doorway (it is not in `leaves` either): only the working leaves are rescued.
+                    doorways: compiledIx.map(c => PASSAGE_KINDS.has(c.it.kind) && !c.it.fixed ? clearanceLeaves([c.it], frame).leaves[0] ?? null : null),
                     verdicts: g => doorwayWalkSummary({
                         cells: colliderSourceCells({ ...rescueDims, runs: encodeColliderRuns(g, COLLIDER_BLOCK_ID).runs }),
                         dims: rescueDims,
                         interactives: { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label, dims: rescueDims, colliders: { block: COLLIDER_BLOCK_ID, loState: colliderStates.lo, hiState: colliderStates.hi }, items: rescueItems, turnProperty: INTERACTIVE_TURN_PROPERTY, sizeProperty: INTERACTIVE_SIZE_PROPERTY },
                     }).verdicts,
                 } : undefined;
-                clearanceReport = applyColliderClearance({ grid: colliders.grid, layers: colliders.layers, leaves, leafPlanes, closedCells: ixPlans.flatMap(pl => pl?.blocking ?? []), approaches, ...(rescue ? { rescue } : {}) });
+                clearanceReport = applyColliderClearance({ grid: colliders.grid, layers: colliders.layers, leaves, leafPlanes, heldLeafPlanes, closedCells: ixPlans.flatMap(pl => pl?.blocking ?? []), approaches, ...(rescue ? { rescue } : {}) });
                 captureDoorwayNeighbours(colliders.grid, ixPlans);
                 const r = clearanceReport;
                 warnings.push(`${label}: clearance - ${r.applied.wall} collider${r.applied.wall === 1 ? '' : 's'} pulled back to the walls' own geometry and ${r.applied.ceiling} low ceiling${r.applied.ceiling === 1 ? '' : 's'} raised to standing height (${r.freedBlocks} blocks freed); refused where not certain: ${CLEARANCE_REFUSALS.filter(k => r.refused[k]).map(k => `${r.refused[k]} ${k}`).join(', ') || 'none'}${r.rescued.trims ? `; ${r.rescued.trims} standing top${r.rescued.trims === 1 ? '' : 's'} trimmed to open ${r.rescued.doorways.map(d => compiledIx[d]?.label ?? `#${d}`).join(', ')} (its own walk)` : ''}${r.verified ? '' : ' (the leak check could not run on a grid this size: nothing trimmed)'}.`);
@@ -3657,6 +3649,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             ldrawGeo = await compileLdrawEntityGeometry(cid, c.kind, c.bricks, {
                 scale: unitsPerLdu,
                 facing: requestedFacing,
+                // A helicopter's slim end is its tail boom, its round lamps no exhaust (vehicle-facing.ts).
+                ...(c.kind === 'plane' && motion0 === 'rotor' ? { rotorcraft: true } : {}),
                 userSeatAnchor: c.seatAnchor,
                 partGeometry: options.partGeometry,
                 quality: vehicleEntityQuality(options.entityQuality, c.bricks.length, modelParts),
@@ -4327,7 +4321,11 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // Coplanar faces BETWEEN entities (A-17): every placed compiled entity is separated from the shell chunks it sits
     // in and from the entities before it, its own geometry JSON rewritten (cross-entity-coplanar.ts). The per-entity
     // pass in the compiler cannot see a door leaf flush with its frame or a turntable on its floor.
-    const crossCoplanar = separateEntitiesFromNeighbours(actors, new Map([...shippedGeometries].map(([t, s]) => [t, s.geo])), isShellEntityId);
+    // A coaster car is separated where the runtime parks it (the platform, the loading bay), with its measured wheelbase.
+    // A lift car is separated at each of its stops (the path its ride seat carries).
+    const parkedCars = coasterConfig && coasterRide ? coasterRestingPoses(coasterParkedCarPoses({ ...coasterConfig, types: coasterRide.types })) : undefined;
+    const liftCars = ridesConfig ? liftCarRestingPoses(ridesConfig.rides, new Map(actors.flatMap(a => a.typeId === ridesConfig!.seatType && a.ride !== undefined && a.ridePath ? [[a.ride, a.ridePath] as const] : []))) : undefined;
+    const crossCoplanar = separateEntitiesFromNeighbours(actors, new Map([...shippedGeometries].map(([t, s]) => [t, s.geo])), isShellEntityId, firstRestingPoses(parkedCars, liftCars));
     for (const typeId of crossCoplanar.changed) {
         const s = shippedGeometries.get(typeId)!;
         files[s.fileIndex] = { name: files[s.fileIndex]!.name, data: geoJson(s.geo.value) };
@@ -4722,6 +4720,31 @@ export function measureCoasterTrain(route: { points: readonly Vec3[]; closed: bo
     const spacing = Math.round(pitches.reduce((s, v) => s + v, 0) / pitches.length * 1000) / 1000;
     if (!(spacing > 0)) return undefined;
     return { count: pitches.length + 1, spacing, riders: arcs.length, pitches: pitches.map(p => Math.round(p * 1000) / 1000) };
+}
+
+/**
+ * The closed leaves clearance protects (collider-clearance.ts rule 3, DOOR: no trim in a cell a closed leaf's
+ * mid-plane crosses, so no slot opens beside it), as grid boxes and mid-planes, index-aligned: every passage part
+ * (door, window, hatch) of the scene that can OPEN. A door held shut (`fixed`, `chooseStackedDoors`) is static
+ * geometry - its closed boxes are laid as colliders like any wall - so its cells are trimmed to it like a wall's: kept
+ * as a closed leaf, the sliver of 3600's held Door 2 in the next column stayed a full-footprint collider two blocks
+ * tall and hid Window 8 from every spot within reach (census 2026-11-19).
+ */
+export function clearanceLeaves(items: readonly SceneInteractive[], frame: SceneGridFrame): { leaves: GridBox[]; leafPlanes: Array<{ c: Vec3; a: number[]; u: number[] } | null>; heldLeafPlanes: Array<{ c: Vec3; a: number[]; u: number[] }> } {
+    const passages = items.filter(it => PASSAGE_KINDS.has(it.kind) && !it.fixed);
+    const plane = (it: SceneInteractive): { c: Vec3; a: number[]; u: number[] } | null => {
+        if (!it.leaf) return null;
+        const c0 = sceneGridPoint(frame, it.leaf.corner), ca = sceneGridPoint(frame, [it.leaf.corner[0] + it.leaf.along[0], it.leaf.corner[1] + it.leaf.along[1], it.leaf.corner[2] + it.leaf.along[2]]), cu = sceneGridPoint(frame, [it.leaf.corner[0] + it.leaf.up[0], it.leaf.corner[1] + it.leaf.up[1], it.leaf.corner[2] + it.leaf.up[2]]);
+        return { c: c0, a: [ca[0] - c0[0], ca[1] - c0[1], ca[2] - c0[2]], u: [cu[0] - c0[0], cu[1] - c0[1], cu[2] - c0[2]] };
+    };
+    const leaves: GridBox[] = passages.map(it => {
+        const b = it.boundsLdu, ps = [0, 1].flatMap(i => [0, 1].flatMap(j => [0, 1].map(k => sceneGridPoint(frame, [i ? b.max[0] : b.min[0], j ? b.max[1] : b.min[1], k ? b.max[2] : b.min[2]]))));
+        return { x0: Math.min(...ps.map(p => p[0])), y0: Math.min(...ps.map(p => p[1])), z0: Math.min(...ps.map(p => p[2])), x1: Math.max(...ps.map(p => p[0])), y1: Math.max(...ps.map(p => p[1])), z1: Math.max(...ps.map(p => p[2])) };
+    });
+    const leafPlanes = passages.map(plane);
+    // A held door's top is its edge, never a floor clearance keeps (collider-clearance.ts `heldLeafPlanes`).
+    const heldLeafPlanes = items.filter(it => PASSAGE_KINDS.has(it.kind) && it.fixed).map(plane).filter((q): q is NonNullable<typeof q> => !!q);
+    return { leaves, leafPlanes, heldLeafPlanes };
 }
 
 /**

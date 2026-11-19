@@ -100,7 +100,7 @@ import type { Scenario, StepHandler } from '../web/src/sim/scenario/types.ts';
 import { execFileSync } from 'node:child_process';
 import { INPUT_HANDLERS } from '../web/src/sim/input/steps.ts';
 import { deviceScriptScenario, inputProbeHandlers, inputScenarios, sneakToggleScenarios, type DeviceScriptInput } from '../web/src/sim/adapters/craftmatic/input-probe.ts';
-import { parseCmvtSamples, summarizeCost, type CostSummary } from '../web/src/sim/quirks/cost.ts';
+import { TICK_BUDGET_WARN_MS, parseCmvtSamples, predictedSagaMsFromReads, summarizeCost, type CostSummary } from '../web/src/sim/quirks/cost.ts';
 import { COSTED_CALLS, type TickCost } from '../web/src/sim/script-host/host.ts';
 import type { Simulation } from '../web/src/sim/core/simulation.ts';
 import { VEHICLE_TELEMETRY_EVENT } from '../web/src/engine/bedrock-vehicle.ts';
@@ -222,6 +222,16 @@ const recordCost = (pack: string, r: ScenarioResult, sim: Simulation | undefined
   const s = summary;
   console.log(`      cost (PREDICTED): ${s.movingSamples ? `sweepChecks p50 ${s.sweepChecksP50} p95 ${s.sweepChecksP95}; Pixel ${s.predicted.pixel.p50}/${s.predicted.pixel.p95} ms, Saga ${s.predicted.saga.p50}/${s.predicted.saga.p95} ms (p50/p95) over ${s.movingSamples} moving samples` : 'no moving vehicle telemetry'}; busiest tick ${maxTick ? `${maxTick.tick}: ${maxTick.calls} calls` : '-'}`);
   for (const w of s.warnings) console.log(`      WARN ${w}`);
+  // The block reads per tick by script, and the Saga's predicted floor from them (`SAGA_MS_PER_BLOCK_READ`, round
+  // 2026-11-19a): the sweep-check line saw 2.9 ms where the Saga measured 19-27 for a runtime reading ~120 cells a tick.
+  for (const source of sources) {
+    const reads = log.map(t => t.bySource[source]?.getBlock ?? 0);
+    const p50 = pctOf(reads, 0.5), p95 = pctOf(reads, 0.95);
+    if (!p95) continue;
+    const floor = Math.round(predictedSagaMsFromReads(p95) * 10) / 10;
+    console.log(`      ${source}: getBlock p50 ${p50} / p95 ${p95} a tick; Saga PREDICTED floor ${Math.round(predictedSagaMsFromReads(p50) * 10) / 10} / ${floor} ms`);
+    if (floor > TICK_BUDGET_WARN_MS) console.log(`      WARN tick-budget: ${source} reads ${p95} blocks a tick (p95): Saga predicted floor ${floor} ms, over ${TICK_BUDGET_WARN_MS}`);
+  }
 };
 /** The cost table (markdown). */
 const costMarkdown = (): string => {

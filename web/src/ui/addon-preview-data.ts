@@ -59,6 +59,9 @@ export interface AddonEntity {
   yaw: number;
   /** The actor this one rides once both are spawned (a figure on a seat). */
   rideOf?: number;
+  /** A ride's seat or car: its index in `scripts/rides.js`'s (or the funfair's) rides, and a seat's stop path (`PlacementActor`). */
+  ride?: number;
+  ridePath?: Array<[number, number, number]>;
   coasterRouteIndex?: number;
   coasterCarIndex?: number;
   /** Spawns only below this wand size (a door leaf the vanilla door replaces). */
@@ -195,7 +198,7 @@ export async function readPackDiagnostics<T = Record<string, any>>(mcaddon: Arra
 }
 
 /** A pack script's embedded `const CONFIG = {...}` (`scripts/<script>.js`), parsed; null when the pack has no such script. */
-export async function readPackScriptConfig<T = Record<string, any>>(mcaddon: ArrayBuffer, script: 'placement' | 'coaster' | 'pinball' | 'interactives'): Promise<T | null> {
+export async function readPackScriptConfig<T = Record<string, any>>(mcaddon: ArrayBuffer, script: 'placement' | 'coaster' | 'pinball' | 'interactives' | 'rides'): Promise<T | null> {
   const text = await readPackText(mcaddon, new RegExp(`(^|/)scripts/${script}\\.js$`));
   return text === undefined ? null : scriptConfig<T>(text) ?? null;
 }
@@ -439,6 +442,8 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
       kind: classifyAddonEntity(a.typeId, a, coasterRoles, pinball?.consoleType),
       x: num(a.x), y: num(a.y), z: num(a.z), yaw: num(a.yaw),
       ...(a.rideOf !== undefined ? { rideOf: a.rideOf } : {}),
+      ...(a.ride !== undefined ? { ride: a.ride } : {}),
+      ...(a.ridePath ? { ridePath: a.ridePath } : {}),
       ...(a.coasterRouteIndex !== undefined ? { coasterRouteIndex: a.coasterRouteIndex } : {}),
       ...(a.coasterCarIndex !== undefined ? { coasterCarIndex: a.coasterCarIndex } : {}),
       ...(a.maxSizeExclusive !== undefined ? { maxSizeExclusive: a.maxSizeExclusive } : {}),

@@ -54,6 +54,23 @@ export const COST_FITS: Readonly<Record<'pixel' | 'saga', CostFit>> = {
   saga: { device: 'saga', interceptMs: 2.4657, msPerCheck: 0.016028, samples: 491, evidence: 'Saga rounds 30j/30k/30l content logs (CMVT sweepChecks / msPerTick)' },
 };
 
+/**
+ * What one BLOCK READ of a script costs on the Saga, ms: a `getBlock` with the property reads that follow it
+ * (`typeId`, `isAir`, `isLiquid`, a collider's `permutation`). The sweep-check line above cannot see reads that are
+ * not sweep probes: round 2026-11-19a's McLaren 42172 runtime (pack d622026b, Minecraft 1.26.62.1) measured a
+ * median 8.5 ms a tick at rest with its driver aboard (CMVT `msPerTick` 02:53:34-02:54:59, sweepChecks 0; the line
+ * predicts 2.5) and 19-27 ms driving (it predicts 2.9), while the simulator counts 111 / 127 `getBlock` a tick for
+ * the same runtime on that car (test/bedrock-vehicle.test.ts "stays cheap", before the cell cache). The rest reading
+ * less the line's intercept over its 111 reads: (8.5 - 2.47) / 111 = 0.054 ms a read. One reading, one phone; the
+ * driving ticks cost more than reads alone explain (teleports, properties, the camera script): a floor, not a fit.
+ */
+export const SAGA_MS_PER_BLOCK_READ = 0.054;
+
+/** The Saga's predicted ms of one tick of a script that makes `blockReads` `getBlock` calls (PREDICTED: a floor). */
+export function predictedSagaMsFromReads(blockReads: number): number {
+  return COST_FITS.saga.interceptMs + SAGA_MS_PER_BLOCK_READ * blockReads;
+}
+
 /** Over this predicted ms per tick the report WARNS (`tick-budget`): half the 50 ms tick, never a failure. */
 export const TICK_BUDGET_WARN_MS = 25;
 

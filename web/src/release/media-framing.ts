@@ -16,13 +16,18 @@
 import { lodFaces } from '../sim/adapters/craftmatic/snapshot.js';
 import { entityRenderCullBlocks } from '../engine/bedrock-lod-hull.js';
 import { entityCollisionFromSources, entitySpawnsAt, placedPoint, type AddonPreviewFiles, type AddonPreviewModel } from '../ui/addon-preview-data.js';
+import { atRest, type RestingPoses } from '../engine/cross-entity-coplanar.js';
 import type { AuditActor, Vec3 } from '../engine/bedrock-geometry-faces.js';
 
 /** An actor placed at the wand size with its realised cull distance. */
 export interface PlacedActor { actor: AuditActor; cull: number }
 
 /** Which actors to place: the `--kinds` and `--type` filters of `_pack_render.ts`. */
-export interface ActorFilter { kinds?: readonly string[]; typeFilter?: string }
+export interface ActorFilter {
+  kinds?: readonly string[]; typeFilter?: string;
+  /** Draw a moving actor where it RESTS (`atRest`: a parked coaster car, a lift car at each stop) instead of at its record. */
+  resting?: RestingPoses;
+}
 
 /**
  * Every actor the wand spawns at `sizePct`: its appearance, point, yaw, scale and realised cull.
@@ -40,7 +45,9 @@ export function placeActors(model: AddonPreviewModel, files: Pick<AddonPreviewFi
     const entry = model.appearance.byType.get(e.typeId);
     if (!entry) continue;
     const box = boxes.get(e.typeId);
-    out.push({ actor: { typeId: e.typeId, kind: e.kind, entry, at: placedPoint(e, model.dims, sizePct, 0), yawDeg: e.yaw, scale }, cull: entityRenderCullBlocks(box ? { width: box.width * scale, height: box.height * scale } : undefined) });
+    for (const p of (filter.resting ? atRest(e, filter.resting) : null) ?? [e]) {
+      out.push({ actor: { typeId: e.typeId, kind: e.kind, entry, at: placedPoint(p, model.dims, sizePct, 0), yawDeg: p.yaw ?? 0, scale }, cull: entityRenderCullBlocks(box ? { width: box.width * scale, height: box.height * scale } : undefined) });
+    }
   }
   return out;
 }

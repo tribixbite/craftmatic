@@ -26,8 +26,10 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
     tread across the ground route.
   - Brick-built doors (10354, 42639 gate, 910049 gate): every candidate hinge line is held rigid
     (`TODO(brick-hinge-holds)`, docs/bedrock-interactivity.md).
-  - Coplanar pairs on moving actors (coaster cars, ride seats, riders: `TODO(a17-moving)`); 10303 1.03 / 10261 0.89
-    block faces left.
+  - Coplanar pairs on moving actors: parked coaster cars and lift cars are separated where they rest since 2026-11-19
+    (10303 0.00, 10261 0.04, 10788 0.00 block faces at parked poses). Left: source-seated figures on their seats
+    (`TODO(a17-moving)`, 10261 fig2 0.04), the fabricated grey cart (10341 0.40). 10337's car body: 5,543 pairs the
+    per-entity pass leaves (3.84 block faces; was 0.24 at the audit) - regression on its wheel bones, unowned.
   - Boxed parts on `test/fixtures/favourites-aabb-allowlist.json` (76417 1004705 wand sprue, 3469/68503/104814 no mould,
     43267 28705 bl_ frame unmeasured); flexible strings/tubes/chains (`TODO(mb-flexible-other)`).
   - Faces: 100-ish heads with no print in any source; the web app ships LDraw prints only (route-2 art is local,
@@ -36,8 +38,16 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   - clego branch `audit-content2` NOT merged into clego master: another session holds uncommitted
     `mecabricks_align.json` there (272 lines); its corpus files are already in place and published.
   - 42172 still coarse (30 % at 2 LDU); vehicle `flyer` parts fixed (`TODO(vehicle-interactives)`).
-- OPEN (device only): tap-to-board after the tap rule change (VEH-17 now DONE-OFFLINE), touch-tap aim on vehicle
-  parts, eased swing on a vehicle, chase-ease, Saga cockpit lag, 400 % cube split culling, faces drawn.
+- DEVICE ROUND 19a (2026-11-19, test Saga O1N1XT412200373 now at `192.168.0.82:5555` (adb connect; its TLS mDNS port
+  refused), Minecraft 1.26.62.1, packs `output/device-round-2026-11-19a/packs-d622026b/`, brief `brief-saga-19a.md`,
+  notes `saga/notes.md`): A fresh-car tap PASS at 100 % and 200 % (50 % not run); D chase ease PASS; E cockpit at
+  speed REGRESSED (camera behind the drawn car; branch `gen-cockpit`: the car script read ~124 blocks a tick since
+  A-12, the Saga server fell to ~16 ticks/s; fix caches cells 10 ticks, pack `output/gen-cockpit-1119/saga-6e57f9bd/`).
+  Round 19b (`saga-19b/notes.md`): B PASS - 8097 hatches tap open/shut via the lifted board columns at 150/200 %; a
+  touch tap acts at the SCREEN CENTRE, not the finger (quirk to add); F as predicted - 10261 400 % draws only chunks
+  within ~70 blocks; G partial (31141 fig6 printed face). NEXT round 19c: E repeat with the gen-cockpit pack (CMVT
+  msPerTick, tick rate, fresh seat, no drag, 30 fps), C 41395 eased swing, A at 50 %, G faces (10303 + 31141 fig1-5
+  front-on), B at 100 %. The Saga's foreground app is Bambu Handy: return to it after a round.
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
   --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
   --out=output/gengate-6fa0afa6`): 60/60 built, child play 710/720 (fails: 5482 windows out of reach + doorway holes
@@ -53,12 +63,16 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   400 %, 6194 an unprotected 6.5-block fall, 6753 truck driver sees 9 of 28 rays per side), 27 vehicles pass the
   course. Content: real faces 30 of 138 heads, 52 boxed placements (8097 `ls11` x40), 270 floating parts.
   MERGED: gen-mix3, gen-mbname, gen-mbface, gen-door2 (main `9f5bdf2e`). gen-hatch MERGED (`ae27f5be`): a vehicle part too high for a
-  board column on the base gets a lifted one (8097's hatches tap at 50-400 %; open: a high part INSIDE the hull box's
-  footprint, `TODO(vehicle-part-tap-scaled)`; a floating board point is not device-tested). NEXT: re-run both census
-  gates on current main into NEW dirs and compare with the numbers above:
-  `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build --out=output/gengate-<sha>`, then the
-  same with `gen-1116-sample2.txt` -> `output/gengate2-<sha>`. The 2026-11-18 run (`gengate-9f5bdf2e`) was stopped
-  by Claude Code for low system memory after 5 of 60 builds; re-run only when the machine is otherwise idle.
+  board column on the base gets a lifted one (8097's hatches; Saga 19b PASS at 150/200 %; open: a high part INSIDE the
+  hull box's footprint, `TODO(vehicle-part-tap-scaled)`).
+- CENSUS RE-RUN on `d622026b` (2026-11-19; `output/gengate-d622026b/`, `output/gengate2-d622026b/`, `gate.md` each):
+  sample 1 child play 710/720 - every 11-16 failure gone (5482, 6164, 6243) but NEW: 3600 Window 8 "behind a wall"
+  (100 %) and 60086's helicopter (levers untappable 100/150 %, hold with a part open does not mount at 400 %, seat
+  0.92 over the drawn top) - branch `gen-regr3` on it; vehicles PASS; real faces 35 of 95 heads (was 14 of 69),
+  boxed 8 in 3 packs (was 11 in 6), floating 863 (was 836). Sample 2 child play 712/712 (was 700/712), vehicles PASS,
+  boxed 12 in 2 packs (was 52), real faces 36 of 138 (was 30), floating 252 (was 270). Regressions 0 failed in both
+  (the step's exit 1 = cases whose packs are not in the sample). Re-run recipe: `bun scripts/_favourites_gate.ts
+  $(cat output/gen-1116-sample.txt) --build --out=output/gengate-<sha>` (~2.5 h), same with sample2 (~1.3 h); new dirs.
 
 ### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
 The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles
@@ -1448,9 +1462,10 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
   The clean canonical 10261 `880a7195` pack reports 175 pairs / 1.62 block
   faces, mostly cross-actor station/car contacts; four audit packs have 0%
   UV-floor surface loss and pass structural validation.
-- [ ] 10261: 49 cross-actor coplanar pairs where the parked cars' grey floor
-  (26021) lies in the station track's red top plane (`_render_fault_audit.ts`);
-  the export's separation pass works within one actor only.
+- [x] 10261: cross-actor coplanar pairs where the parked cars' grey floor
+  (26021) lies in the station track's red top plane: separated at the parked
+  poses since 2026-11-19 (`coasterParkedCarPoses`); 0.04 block faces left, all
+  the seated kiosk figure.
 
 - [ ] Stair-step striping on curved parts (42703 arches, round columns) at 2
   LDU: geometry; only a finer grain or merged steps change it.

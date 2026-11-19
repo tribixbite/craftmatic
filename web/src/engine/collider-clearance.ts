@@ -115,7 +115,14 @@ export interface ClearanceInput {
    */
   approaches?: ReadonlyArray<{ columns: ReadonlyArray<readonly [number, number]>; floor16: number }>;
   /**
-   * The doorway RESCUE (`rescueDoorways` below): judge a refused trim near a doorway by that doorway's own walk. Without
+   * Every leaf held SHUT (a door of a stack the export did not choose, playable-addon.ts `chooseStackedDoors`), as its
+   * mid-plane: static geometry, trimmed like a wall, but its top is a door's top EDGE, never a floor rule 4 keeps -
+   * kept, 3600's held Door 2 left a full-footprint slab beside its leaf's top, in the head of the one spot its
+   * Window 8 is seen from (census 2026-11-19).
+   */
+  heldLeafPlanes?: ReadonlyArray<{ c: readonly number[]; a: readonly number[]; u: readonly number[] }>;
+  /**
+   * The doorway RESCUE (`DoorwayRescue`, step 6 of `applyColliderClearance`): judge a refused trim near a doorway by that doorway's own walk. Without
    * it, rule 4 alone decides (the pipeline before 2026-11-19).
    */
   rescue?: DoorwayRescue;
@@ -284,6 +291,17 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
       for (let y = Math.max(0, Math.floor(b.y0 - e)); y <= Math.min(H - 1, Math.floor(b.y1 + e)); y++)
         for (let z = Math.max(0, Math.floor(b.z0 - e)); z <= Math.min(L - 1, Math.floor(b.z1 + e)); z++) leafCells.add(idx(x, y, z));
   });
+
+  // Cells a held leaf's mid-plane crosses: their standing top is the leaf's edge (rule 4 does not keep it).
+  const heldEdgeCells = new Set<number>();
+  for (const pl of input.heldLeafPlanes ?? []) {
+    const la = Math.hypot(pl.a[0]!, pl.a[1]!, pl.a[2]!), lu = Math.hypot(pl.u[0]!, pl.u[1]!, pl.u[2]!);
+    const ns = Math.max(2, Math.ceil(la * 16)), nt = Math.max(2, Math.ceil(lu * 16));
+    for (let i = 0; i <= ns; i++) for (let j = 0; j <= nt; j++) {
+      const x = Math.floor(pl.c[0]! + pl.a[0]! * i / ns + pl.u[0]! * j / nt), y = Math.floor(pl.c[1]! + pl.a[1]! * i / ns + pl.u[1]! * j / nt), z = Math.floor(pl.c[2]! + pl.a[2]! * i / ns + pl.u[2]! * j / nt);
+      if (inGrid(x, y, z)) heldEdgeCells.add(idx(x, y, z));
+    }
+  }
 
   /** A cell's solid boxes in sixteenths (a kept scene block is the whole block), or none for air. */
   const boxesAt = (x: number, y: number, z: number): Box16[] => {
@@ -497,6 +515,7 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
       if (!top.some(b => b[0] === 0 && b[1] === 16 && b[4] === 0 && b[5] === 16)) {
         if (furniture) report.furnitureTops++;
         else if (approachTop(x, y, z, built)) report.approachTops++;
+        else if (heldEdgeCells.has(i)) report.wallTops++;
         else if (!wallTopRim(x, y, z, to, built)) {
           refuse(p, 'walkable-top');
           // The landing guard's furniture form, when it kept one, is what the rescue tries (it is the tighter trim).

@@ -310,6 +310,8 @@ interface HostOptions {
   scale?: number;
   /** Ship the set-down (`VEHICLE_EGRESS`, `ESCAPE_OPTIONS`) as a real pack does (SEAT-05). */
   egress?: boolean;
+  /** Count the runtime's facade calls per tick (`ScriptHostOptions.costCounters`), read back through `costLog`. */
+  cost?: boolean;
 }
 
 /** The scripted vehicle's type as the pack declares it: the vehicle family, its flight properties, one player seat (and a size's scale). */
@@ -335,6 +337,8 @@ function vehicleHost(o: HostOptions) {
     script: scriptedVehicleScript(hostConfig({ [typeId]: o.type }, { ...(o.colliders ? { colliders: o.colliders } : {}), ...(o.egress ? { egress: VEHICLE_EGRESS, escape: ESCAPE_OPTIONS } : {}) })),
     entities: { [typeId]: vehicleType(o.seat, o.scale) }, colliders: !!o.colliders, terrain: solidBelow(64), timeOfDay: o.time ?? 6000,
   });
+  // simHost builds its own Simulation: the counters are turned on through its options object (read on each call).
+  if (o.cost) (h.host.options as { costCounters?: boolean }).costCounters = true;
   for (const f of o.fills ?? []) {
     const m = /^(.*)\[lo=(\d+),hi=(\d+)\]$/.exec(f.id);
     h.fill({ x: f.from[0], y: f.from[1], z: f.from[2] }, { x: f.to[0], y: f.to[1], z: f.to[2] }, m ? m[1]! : f.id, m ? { 'craftmatic:lo': Number(m[2]), 'craftmatic:hi': Number(m[3]) } : {});
@@ -357,6 +361,8 @@ function vehicleHost(o: HostOptions) {
   h.seat(player, vehicle);
   return {
     entity, poses, placed, dynamic: vehicle.dynamic, player, vehicle, dimension: h.dimension(),
+    /** The runtime's counted calls per tick (`cost: true`), oldest first. */
+    get costLog() { return h.host.costLog; },
     /** Every action-bar line the driver was shown. */
     get bars(): string[] { return h.lines('actionbar', 'Driver'); },
     set: (x: number, y: number, j = false) => { h.controls(player, { strafe: x, forward: y, jump: j }); },
@@ -1652,5 +1658,39 @@ describe('the course post a turning plane swings its tail into stands OUTSIDE th
     }
     // The X-wing's (7140) post is where the device-reproduction case put it (cell -248, 0.68 off its side).
     expect(postCellBeyond(-240.5 - 5.82, 0.7)).toBe(-248);
+  });
+});
+
+describe('a driven car\'s own tick stays cheap (Saga round 2026-11-19a: the cockpit at speed, VEH-06)', () => {
+  // The round's McLaren 42172 at 100 % (its shipped `scripts/vehicles.js` footprint) on flat ground, driver aboard.
+  // On the Saga (1.26.62.1) its runtime measured 8-9 ms a tick at rest with the driver aboard and 19-27 ms driving
+  // (CMVT `msPerTick`, `output/device-round-2026-11-19a/saga/ContentLog-19a.txt` 02:54-02:55), where round 30m's
+  // runtime (6a8c7121) took 1-2 ms on the same car: the server fell to ~16 ticks a second and the cockpit camera,
+  // which rides the pose COCKPIT_TICK_LAG ticks back, was drawn behind the car. In the simulator the same packs read
+  // 124 facade calls a tick (p50) against 17. A cell the runtime read is the same cell next tick: it is read once
+  // and kept for `MOVE.CELL_CACHE_TICKS`, not re-read every tick by every probe that crosses it.
+  const mclaren: ScriptedVehicleType = { mode: 'car', noseReach: 3.49, halfWidth: 2.24, height: 1.79 };
+  const blockReads = (log: ReadonlyArray<{ tick: number; bySource: Record<string, Partial<Record<string, number>>> }>, from: number, to: number): number[] => {
+    const out: number[] = [];
+    for (let t = from; t < to; t++) out.push(log.find(r => r.tick === t)?.bySource['scripts/main.js']?.getBlock ?? 0);
+    return out;
+  };
+  const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
+  it('reads few blocks a tick with the driver aboard at rest, and cruising', () => {
+    const host = vehicleHost({ type: mclaren, at: { x: 0.5, y: 64, z: 0.5 }, cost: true });
+    host.run(40);
+    const t0 = host.costLog.at(-1)?.tick ?? 0;
+    host.run(60);
+    const rest = blockReads(host.costLog, t0 + 1, t0 + 61);
+    host.set(0, 1);
+    host.run(120);
+    const t1 = host.costLog.at(-1)?.tick ?? 0;
+    host.run(100);
+    const cruise = blockReads(host.costLog, t1 + 1, t1 + 101);
+    // It did cruise: the stick held 11 s, the car well down the road at its top speed.
+    expect(host.entity.location.x).toBeGreaterThan(100);
+    const seen = `getBlock a tick, median: at rest ${median(rest)}, cruising ${median(cruise)}`;
+    expect(median(rest), seen).toBeLessThanOrEqual(4);
+    expect(median(cruise), seen).toBeLessThanOrEqual(30);
   });
 });

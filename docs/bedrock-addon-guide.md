@@ -4775,6 +4775,25 @@ the water's surface - every boat used to set its rider down swimming beside
 one); an air set-down floats `FLOAT_MARGIN` 1.5 clear of the footprint.
 Regressions `mclaren-walls-30m`, `xwing-air-park-30m`. Not yet on a device.
 
+### The cockpit at speed behind the car, and the car's own tick (Saga 19a, 2026-11-19)
+
+Round 19a (`output/device-round-2026-11-19a/saga/notes.md` E, Minecraft 1.26.62.1) rode 42172's slot-9 view at
+100 %: right at rest, then from ~13 mph the view showed the car's tail lights and rear deck from behind, changing
+frame to frame (the 30 fps recording; at 3 fps it read as a 0.3 s alternation). The free-look offset was 0
+throughout (CMCAM `yawOff`), so the earlier drag played no part. What differed from round 30m, which passed the
+same ride on 26.52: the car's runtime took 8-9 ms a tick at rest with its driver and 19-27 ms driving (CMVT
+`msPerTick`; 30m 1-2 ms), the server ran ~16 ticks a second during the drive, the screen drew 40 fps (30m 90), and
+the HUD position (the drawn rider) moved in bursts. The cockpit camera rides the vehicle's pose
+`COCKPIT_TICK_LAG` TICKS back, which matches the drawn car only while ticks are steady: when they bunch, the drawn
+car catches up with the newest pose and the camera stays the whole lag behind - about the tail-light distance at
+19 blocks/s. The runtime's cost was A-12's footprint support rows (2026-11-15) re-reading every cell every tick:
+111 `getBlock` a tick at rest, 127 cruising in the simulator. A cell read is now kept for
+`FOOTPRINT.CELL_KEEP_TICKS` (10, a block changed under a vehicle is seen at most half a second late): 0 and 15.
+Every scripted vehicle of every pack runs the same runtime. The simulator's `--cost` line now also prints each
+script's block reads with a Saga floor of 0.054 ms a read (`SAGA_MS_PER_BLOCK_READ`): the sweep-check line had
+predicted 2.9 ms for the tick the Saga measured at 19-27. Whether the overrun was the whole cause, or 1.26.62 also
+moved the Saga's draw lag, is the next ride's question (TODO(cockpit-stall)).
+
 ### The driver's eye sees the road ahead (2026-09-30, `output/cockpit-0930/`)
 
 Pixel round 30f: 42639's car in the cockpit view (hotbar 9) was two thirds
@@ -5179,9 +5198,18 @@ pinball button in its cabinet. The pass now runs to convergence (cap
 `COPLANAR_SEPARATION_MAX_PASSES` 10), and once every entity is placed
 `separateEntitiesFromNeighbours` (cross-entity-coplanar.ts) pushes each
 placed entity's face out in front of the shell chunks and of the entities
-handled before it, rewriting only that entity's geometry. Coaster cars, ride
-cars/seats and riding figures are skipped: their placement record is not
-where they rest (`TODO(a17-moving)`).
+handled before it, rewriting only that entity's geometry. A moving actor is
+separated where it RESTS, never at its record (every car of a train is
+recorded at the station point): a coaster car where the runtime parks a newly
+placed train (`coasterParkedCarPoses`, the runtime's first-tick arithmetic
+restated; `test/bedrock-coaster.test.ts` runs the real runtime against it),
+when that pose is level within 0.25 degrees; a lift car at each of its stops
+(`liftCarRestingPoses`); a lift platform and counterweight at their records
+(the hoist's parked pose). `_render_fault_audit.ts` and `_pack_render.ts
+--parked` place them the same way (`scripts/pack-resting-poses.ts`). Still
+skipped: source-seated figures (how Bedrock places a non-player rider over a
+seat and the sitting pose are unmeasured, `TODO(a17-moving)`), funfair and
+orbit cars, and the fabricated grey cart (no compiled geometry).
 
 Two measuring faults hid the rest (same day). `coplanarFaces` bucketed faces by
 their normal rounded to 1e-3 and by plane offset `d`: two Euler spellings of
@@ -5207,8 +5235,13 @@ after): 11374 710 / 2.25 -> 0 / 0.00, 76269 678 / 2.79 -> 5 / 0.01, 75397
 1.83 -> 322 / 1.03, 10261 198 / 1.30 -> 70 / 0.89. What is left on the two
 coasters is their cars (and 10303's counterweight) measured at the station
 record point, where every car of a train is recorded; the ride spaces them
-along the track (`TODO(a17-moving)`). Over the 40 favourites the baseline at
-this tool is 10,627 pairs / 40.43 block faces (sweep `4da29033`).
+along the track. Over the 40 favourites the baseline at
+this tool is 10,627 pairs / 40.43 block faces (sweep `4da29033`). Measured at
+the parked poses (2026-11-19) those leftovers were 0.28 (10303) and 0.13
+(10261) block faces, most of the record-point figure being cars overlapping
+the shell where no car stands; after separating at the parked poses 0.00 and
+0.04 (the seated kiosk figure), 10788's lift car 0.57 -> 0.00 over its three
+stops, 42703 0.43 -> 0.00.
 
 **What it does not fix**: the horizontal striping under 42703's arches and
 on round columns (Saga, `saga/after-42703-arch-b6c1c882.jpg`) is the stair-step

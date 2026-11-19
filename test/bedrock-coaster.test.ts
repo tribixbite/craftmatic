@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import {
   COASTER_MAX_CARS, PARKED_SIDING_FACTOR, TRACK_TWIST_RATE_DEG_PER_BLOCK, buildCoasterRideAssets, canonicalCoasterCar, coasterCarWheelbaseLdu, coasterCartAssets, coasterMaxSpacing, coasterRoutesFromAssemblies,
   coasterRuntimeConfig, coasterScript, coasterTrackUps, findCoasterStation, planCoasterVehicles, resolveCoasterCars, COASTER_CAR_LENGTH,
-  COASTER_PHYSICS, COASTER_RIDE_PACE, COASTER_RIDER_VIEW, coasterCarAttitude, coasterLoopRadius, coasterRiderLook, coasterRiderView,
+  COASTER_PHYSICS, COASTER_RIDE_PACE, COASTER_RIDER_VIEW, coasterCarAttitude, coasterLoopRadius, coasterParkedCarPoses, coasterRiderLook, coasterRiderView,
 } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterRiderViewConfig, CoasterRoute, CoasterRouteCar, CoasterRuntimeConfig } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterCar } from '../web/src/engine/coaster-assemblies.js';
@@ -32,6 +32,9 @@ import { host } from './_placement-host.js';
 import { simHost, solidBelow } from './_sim-host.js';
 import type { SimEntity } from '../web/src/sim/entity/entity.js';
 import { COASTER_TEST_ORIGIN, coasterEntityTypes } from '../web/src/sim/adapters/craftmatic/coaster.js';
+import { entitySpawnsAt, loadAddonPreviewModel, placedPoint, readPackScriptConfig } from '../web/src/ui/addon-preview-data.js';
+import { atRest, coasterRestingPoses } from '../web/src/engine/cross-entity-coplanar.js';
+import { visibleCoplanarHits, worldFaces, type AuditActor } from '../web/src/engine/bedrock-geometry-faces.js';
 
 // ─── The coaster runtime on the headless simulator (test/_sim-host.ts) ───────
 
@@ -742,6 +745,32 @@ const TRAIN_CARS = 3, TRAIN_SPACING = 2.25;
 const towerTrain = (): CoasterRoute => ({ ...towerRoute('Tower train'), cars: { count: TRAIN_CARS, spacing: TRAIN_SPACING } });
 
 describe('measured train', () => {
+  it('parks a newly placed train exactly where coasterParkedCarPoses says, car by car (A-17 parked separation)', () => {
+    // The exporter separates a parked car's faces from the platform at `coasterParkedCarPoses`; the runtime is
+    // serialized whole, so that function restates its first-tick arithmetic. This runs the REAL runtime and fails if
+    // the two drift: a level curved station (the yaw differs per car) and the wheelbase chord.
+    const points: Array<[number, number, number]> = [];
+    for (let k = 0; k <= 80; k++) { const a = k / 80 * Math.PI; points.push([12 * Math.sin(a), 0, 12 - 12 * Math.cos(a)]); }
+    for (const wheelbase of [0, 1.125]) {
+      const course: CoasterRoute = { label: 'Curved station', points, closed: false, maxSegmentLength: 0.5, cars: { count: 3, spacing: 2.25 } };
+      const h = rideHost(course, { wheelbase });
+      h.run(1);
+      const poses = coasterParkedCarPoses(h.config);
+      expect(poses.map(p => p.index)).toEqual([0, 1, 2]);
+      expect(new Set(poses.map(p => Math.round(p.yaw))).size).toBe(3);
+      h.cars.forEach((car, k) => {
+        const pose = poses[k]!, drawn = datumsOf(car, 1)[0]!;
+        expect(drawn.x - COASTER_TEST_ORIGIN.x).toBeCloseTo(pose.datum[0], 6);
+        expect(drawn.y - COASTER_TEST_ORIGIN.y).toBeCloseTo(pose.datum[1], 6);
+        expect(drawn.z - COASTER_TEST_ORIGIN.z).toBeCloseTo(pose.datum[2], 6);
+        expect(car.yaws[0]).toBeCloseTo(pose.yaw, 6);
+        expect(Math.abs(pose.pitch) + Math.abs(pose.roll)).toBeLessThan(1e-6);
+      });
+      // A tick later the parked train is still there: the pose is where it RESTS, not where it passes.
+      h.run(20);
+      h.cars.forEach((car, k) => expect(datumsOf(car, 1).at(-1)!.x - COASTER_TEST_ORIGIN.x).toBeCloseTo(poses[k]!.datum[0], 6));
+    }
+  });
   it('defaults to a single cart and rejects an unmeasurable train', () => {
     const path = buildCoasterPath(towerRoute().points, false, SPACING + 1e-6);
     expect(resolveCoasterCars(path, undefined)).toEqual({ count: 1, spacing: 0, extent: 0, heading: 0, trains: 1 });
@@ -2174,6 +2203,45 @@ describe.skipIf(!HAVE_CORPUS)("10261 Roller Coaster: its own train under its cha
 const ADDON_INTEGRATED = /buildCoasterRideAssets/.test(readFileSync(new URL('../web/src/engine/playable-addon.ts', import.meta.url), 'utf8'));
 
 describe.skipIf(!ADDON_INTEGRATED)("pack assets with the set's own cars", () => {
+  /** Box parts, so the geometry does not follow whichever LDraw root an earlier test of this file installed. */
+  const boxPart = (x: number, y: number, z: number): string => {
+    const q = (a: number[], b: number[], c: number[], d: number[]): string => `4 16 ${[...a, ...b, ...c, ...d].join(' ')}`;
+    const [x0, x1, y0, y1, z0, z1] = [-x, x, 0, y, -z, z];
+    return ['0 Box', q([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]), q([x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]),
+      q([x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]), q([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]),
+      q([x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]), q([x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1])].join(String.fromCharCode(10));
+  };
+  const BOX_PARTS: Record<string, string> = {
+    '26021.dat': boxPart(60, 10, 40), '3023.dat': boxPart(20, 8, 10), '973.dat': boxPart(15, 30, 10),
+    '3010.dat': boxPart(80, 24, 10), '3001.dat': boxPart(40, 24, 20), '3020.dat': boxPart(40, 8, 20),
+  };
+  it('leaves no coplanar face pair between a PARKED car and the platform it stands on (A-17, a17-moving)', async () => {
+    // Both cars are recorded at the station point (x 10) and park at x 9 and 11, each with a red plate whose top lies
+    // in the plane of a blue shell brick's top (y 1 block) that both overlap: the hatching of a car sunk into its
+    // platform. The pack separates each car where the runtime parks it (`coasterParkedCarPoses`); measured here
+    // exactly as `_render_fault_audit.ts` measures a built pack. Without the parked poses the car-shell pairs remain.
+    const grid = new BlockGrid(12, 2, 4); grid.set(0, 0, 0, 'minecraft:stone');
+    const route = liftRoute({ counterweight: true });
+    route.vehicles = route.vehicles!.map(v => ({ ...v, bricks: [...v.bricks, brick('3020.dat', 0, 0, 0, IDENTITY, 4)] }));
+    const shellFrame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: 20, cellY: 20 };
+    const partGeometry = createPartGeometryProvider({ fetchPartText: async id => BOX_PARTS[id.replace(/^.*\//, '').toLowerCase()] ?? BOX_PARTS[`${id.replace(/^.*\//, '').toLowerCase()}.dat`] ?? null });
+    const pack = await buildPlayableAddon(grid, { stem: 'Coaster', coasterRoutes: [route], partGeometry, shell: { bricks: [brick('3001.dat', 200, -35, 0, IDENTITY, 1)], frame: shellFrame } as never });
+    const buffer = pack.bytes.buffer.slice(pack.bytes.byteOffset, pack.bytes.byteOffset + pack.bytes.byteLength) as ArrayBuffer;
+    const model = await loadAddonPreviewModel(buffer);
+    const config = (await readPackScriptConfig<CoasterRuntimeConfig>(buffer, 'coaster'))!;
+    const resting = coasterRestingPoses(coasterParkedCarPoses(config));
+    const actors: AuditActor[] = model.entities.filter(e => entitySpawnsAt(e, 100) && model.appearance!.byType.has(e.typeId)).flatMap(e =>
+      (atRest(e, resting) ?? []).map(p => ({ typeId: e.typeId, kind: e.kind, entry: model.appearance!.byType.get(e.typeId)!, at: placedPoint(p, model.dims, 100, 0), yawDeg: p.yaw ?? 0 })));
+    const cars = config.routes[0]!.cars;
+    expect(cars.count * cars.trains).toBe(2);
+    expect(actors.filter(a => a.kind === 'car')).toHaveLength(2);
+    expect(actors.some(a => a.kind === 'lift')).toBe(true);
+    // Car against car is left out: this fixture's two cars are coupled closer than a body length, so they intersect
+    // (the pack warns), and copies of ONE type cannot be pushed apart; which faces they share follows the part
+    // library an earlier test of this file installed.
+    const hits = visibleCoplanarHits(worldFaces(actors)).filter(h => h.a.actor !== h.b.actor && actors[h.a.actor]!.typeId !== actors[h.b.actor]!.typeId);
+    expect(hits.map(h => `${actors[h.a.actor]!.typeId} x ${actors[h.b.actor]!.typeId}`)).toEqual([]);
+  });
   it('ships one entity type per car body, the lift and counterweight, and no fabricated cart', async () => {
     const grid = new BlockGrid(12, 2, 4); grid.set(0, 0, 0, 'minecraft:stone');
     const pack = await buildPlayableAddon(grid, { stem: 'Coaster', coasterRoutes: [liftRoute({ counterweight: true })] });

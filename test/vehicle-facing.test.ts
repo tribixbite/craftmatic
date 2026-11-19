@@ -143,6 +143,23 @@ describe('inferVehicleNose', () => {
     expect(d.agreement).toBeLessThan(1); // the narrow-end rule voted for the boom; the canopy outweighed it
   });
 
+  it('a ROTORCRAFT: its round lamps are no exhaust and its slim end is the tail boom (60086, census 2026-11-19)', () => {
+    // 60086's helicopter: canopy and windscreen at -x, the tail boom slim toward +x, two translucent round parts by the
+    // cabin (a searchlight, 4589 cones). Read as a plane, the "engine glow" (3) and the narrow end (1) outvoted the canopy
+    // (1.5) and the windscreen (1): it flew tail first, and the pilot's eye looked down the boom at the rear bulkhead,
+    // so it left the cabin 2.6 blocks up and the seat with it (seat-on-vehicle: 0.92 over the drawn top).
+    const bricks: ParsedBrick[] = [];
+    for (let x = -300; x <= 0; x += 40) for (let z = -60; z <= 60; z += 40) bricks.push({ part: '3001.dat', color: 7, x, y: 0, z, rot: I });
+    for (let x = 40; x <= 300; x += 40) for (const z of [0, 40]) bricks.push({ part: '3001.dat', color: 7, x, y: 0, z, rot: I });
+    bricks.push({ part: '3005.dat', color: 47, x: -260, y: -24, z: 0, rot: I }, { part: '3005.dat', color: 47, x: -260, y: -24, z: 40, rot: I });
+    bricks.push({ part: '4589.dat', color: 47, x: -200, y: 0, z: -60, rot: I }, { part: '4589.dat', color: 47, x: -200, y: 0, z: 60, rot: I });
+    expect(inferVehicleNose(bricks, 'plane').nose).toBe('+x');
+    const d = inferVehicleNose(bricks, 'plane', { rotorcraft: true });
+    expect(d.nose).toBe('-x');
+    expect(d.votes.map(v => v.signal)).not.toContain('engine glow');
+    expect(d.agreement).toBeGreaterThan(0.95);
+  });
+
   it('votes decide the axis when the footprint is nearly square', () => {
     // A square body with a pilot facing −Z: the nose is −Z even though X is marginally longer.
     const bricks = [...body('x', 400, 380), { part: '973.dat', color: 4, x: 0, y: -24, z: 0, rot: I }];
