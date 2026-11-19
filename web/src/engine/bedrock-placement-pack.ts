@@ -896,6 +896,42 @@ export function withColliderTreads(colliders: PlacementColliders, targets: reado
 }
 
 /**
+ * Everything the tread planner reads for one export (`withColliderTreads`'s arguments) as plain JSON. An export run
+ * with `CRAFTMATIC_TREAD_INPUTS=<file>` writes it (playable-addon.ts); `planTreadsFromInputs` replays any of its plans
+ * in seconds (`scripts/_tread_replay.ts`, the real-set tread tests) where a rebuild takes minutes, so a reach change
+ * between two planners can be diffed on the very same inputs.
+ */
+export interface TreadInputs {
+  colliders: PlacementColliders;
+  targets?: ReachTarget[];
+  doorCells: ReadonlyArray<readonly (number | undefined)[]>;
+  /** `FineReachColumns` as its entries. */
+  fine: Array<[number, number[]]> | null;
+  /** `CarveSource` with its `protect` set as an array. */
+  carve: (Omit<CarveSource, 'protect'> & { protect?: string[] }) | null;
+  approaches: DoorApproach[];
+}
+
+/** The tread planner's inputs as JSON-safe data (`TreadInputs`). */
+export function treadInputs(colliders: PlacementColliders, targets: readonly ReachTarget[], doorCells: ReadonlyArray<readonly (number | undefined)[]>, fineReach?: FineReachColumns, carveSource?: CarveSource, approaches: readonly DoorApproach[] = []): TreadInputs {
+  return {
+    colliders, targets: [...targets], doorCells,
+    fine: fineReach ? [...fineReach].map(([k, v]) => [k, [...v]]) : null,
+    carve: carveSource ? { ...carveSource, protect: carveSource.protect ? [...carveSource.protect] : undefined } : null,
+    approaches: [...approaches],
+  };
+}
+
+/** Plan the treads from recorded inputs (`TreadInputs`), at the given size steps and turns (every step by default). */
+export function planTreadsFromInputs(inputs: TreadInputs, steps: ReadonlyArray<readonly [number, QuarterTurn]> = treadPlanSteps()): ColliderTreadsResult {
+  const fine: FineReachColumns | undefined = inputs.fine ? new Map(inputs.fine) : undefined;
+  const carve: CarveSource | undefined = inputs.carve ? { ...inputs.carve, protect: inputs.carve.protect ? new Set(inputs.carve.protect) : undefined } : undefined;
+  const job = colliderTreadsJob(inputs.colliders, inputs.targets ?? [], inputs.doorCells, fine, carve, inputs.approaches);
+  for (const [pct, r] of steps) job.plan(pct, r);
+  return job.result();
+}
+
+/**
  * `withColliderTreads`, yielding to the event loop between plans. One large set's 16 plans run for minutes
  * since the lane and guard passes (10261: ~180 s); in one synchronous stretch that starved the vitest
  * worker's RPC ("Timeout calling onTaskUpdate", 2026-10-08) and would freeze a page's main thread the same

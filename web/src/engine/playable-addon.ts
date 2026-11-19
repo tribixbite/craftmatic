@@ -11,7 +11,7 @@ import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './m
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
 import type { PlacementDetail } from '../brickgen/levels/levels.js';
-import { boardPointsOf, buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, geometryEntityBoxes, geometryHitBox, hitTestAtSize, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsFor, withColliderTreadsAsync, withSizeGroups, type CarveSource, type HitTestBox, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
+import { boardPointsOf, buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, geometryEntityBoxes, geometryHitBox, hitTestAtSize, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsFor, treadInputs, withColliderTreadsAsync, withSizeGroups, type CarveSource, type HitTestBox, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
 import { FLYER, flyerScript, type FlyerRuntimeConfig } from './bedrock-flyer.js';
 import type { CanonMount } from './set-canon.js';
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
@@ -4446,6 +4446,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // The doorways a 200 % doorway carve opens round (`planDoorwayCarve`): every leaf with a passable size.
     const carveDoorways = interactiveConfig ? interactiveConfig.items.filter(it => it.leaf && it.passSize && it.blocking.length).map(it => ({ cells: it.blocking, passSize: it.passSize! })) : [];
     const carveWith = carveSource && carveDoorways.length ? { ...carveSource, doorways: carveDoorways } : carveSource;
+    // `CRAFTMATIC_TREAD_INPUTS=<file>`: write the planner's inputs, to replay its plans without a rebuild (`scripts/_tread_replay.ts`).
+    const treadInputsFile = typeof process !== 'undefined' ? process.env?.['CRAFTMATIC_TREAD_INPUTS'] : undefined;
+    if (treadInputsFile && placementColliders) {
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(treadInputsFile, JSON.stringify(treadInputs(placementColliders, [], doorCells ?? [], fineReach, carveWith, doorApproaches)));
+    }
     const plannedTreads = placementColliders ? await withColliderTreadsAsync(placementColliders, [], doorCells ?? [], fineReach, carveWith, doorApproaches) : undefined;
     // Board points (bedrock-vehicle.ts `BOARD`, VEH-17): one invisible rideable type per size step for every scripted vehicle
     // with drawn extremities. Named here, before the placement script, because Undo must remove them with their vehicle.
