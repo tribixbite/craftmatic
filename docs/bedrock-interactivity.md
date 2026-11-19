@@ -1822,6 +1822,24 @@ Unlike the first census, these were pipeline faults, one class each:
   in front of Door 2; 5482's 400 % facade run crossed Door 3's line). A door turned 45 degrees has its approach
   sampled along the diagonal one cell per step, so the planner adds the two corner cells of each diagonal step: without
   them 6194's 150 % plan moved a refused run to just behind its Door 1's plane.
+- **The per-plan dips after it were the planner's run ORDER, and one was a lost run** (branch `gen-reach`,
+  2026-11-19). Diagnosed on the recorded planner inputs (`CRAFTMATIC_TREAD_INPUTS`, `scripts/_tread_replay.ts`: one
+  plan in seconds, the same inputs through two planners). Three fixes in `planColliderTreads`:
+  - a merge `planRun` refuses puts the earlier run back WHERE IT STOOD; put back last, a pass that undid the runs
+    after its mark (the late pass's batch, a refused approach chain) took it too, with no check (41732 at 400 %:
+    7780 -> 7746 surfaces, top 3.0 -> 2.38 blocks at turn 90); a refused approach chain is undone whole (`rollback`);
+  - a run refused across an approach whose columns another run took meanwhile is retried with those runs lifted
+    (`liftBlockers`), kept where the walk reaches more; the SWAP pass does the same for every `no-run` edge whose
+    target is still unreached, kept where nothing reached is lost; a plan where a swap was kept is planned again
+    without the swap pass and the one that reaches more ships (a swap can still cost reach through the cross pass:
+    41732 at 200 % turn 270);
+  - a late-pass run from the ground may cut off a POCKET at its own floor level (`groundPockets`: as many surfaces
+    as it has treads, touching its tread line). 21063's 300 % east flank lane x 30.5, which the Pixel climbed to
+    6.25 on auto-jump (rounds 30zm/30zn), stood on such a run, which never-block refused once the first fix stopped
+    an undo dropping another run by accident: the lane fell to 0.94. The base build had lost the same 3 plate cells.
+  Lesson: the planner's reach depends on the order it meets rises; a fix that changes the order moves runs in
+  plans it never meant to touch, so judge it on every plan of every door favourite and on the device lanes, not on
+  the plan it was written for.
 
 The fourth finding, 6194's 6.51-block fall, was a native rotorcraft left hovering: a rider who leaves a native mount
 with nothing under the feet now gets slow falling, as off the flyer's cloud (`dismountFloat`, vehicle-driver.js).

@@ -1,5 +1,5 @@
 /**
- * The scaled tread planner on the RECORDED inputs of three favourites (IX-05, PROC-19, branch gen-reach 2026-11-19).
+ * The scaled tread planner on the RECORDED inputs of four favourites (IX-05, PROC-19, branch gen-reach 2026-11-19).
  *
  * `test/fixtures/treads/<set>-inputs.json.gz` is what the export handed the planner for that set at `9f5bdf2e`
  * (`CRAFTMATIC_TREAD_INPUTS`, `treadInputs`): the shipped colliders, the doorways' closed cells and approaches, the
@@ -14,7 +14,8 @@
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { planTreadsFromInputs, type TreadInputs } from '../web/src/engine/bedrock-placement-pack.js';
+import { colliderSourceCells, decodeTreadPlan, planTreadsFromInputs, sizeCarveFor, treadInputsRead, type TreadInputs } from '../web/src/engine/bedrock-placement-pack.js';
+import { WalkWorld, tickPlayer, type PlayerState } from '../web/src/engine/addon-walk.js';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.js';
 
 const inputsOf = (set: string): TreadInputs =>
@@ -57,5 +58,23 @@ describe('the scaled tread planner never reaches less than the base build on the
     expect(plan.verified).toBe(true);
     expect(plan.after.surfaces).toBeGreaterThanOrEqual(422);
     expect(plan.after.highestBlocks).toBeGreaterThanOrEqual(3.58);
+  }, 300_000);
+
+  it('21063 at 300 % turn 0: the east flank lanes the Pixel climbed on auto-jump (x 30.5 to 6.25, x 31.5 to 9.13; rounds 30zm/30zn) climb as high', () => {
+    const inputs = inputsOf('21063');
+    const result = planTreadsFromInputs(inputs, [[300, 0]]);
+    expect(result.report.plans[0]!.verified).toBe(true);
+    const cells = colliderSourceCells(inputs.colliders);
+    const dims = { width: inputs.colliders.width, height: inputs.colliders.height, length: inputs.colliders.length };
+    const world = new WalkWorld({ cells, dims, sizePct: 300, rotation: 0, treads: decodeTreadPlan(result.colliders.treads!.plans['300:0']!), carve: sizeCarveFor(cells, dims, 300, 0, treadInputsRead(inputs).carve) });
+    /** The highest feet of a straight auto-jump walk north from past the south edge (`_walk_line.ts --jump=auto`). */
+    const climb = (x: number): number => {
+      let s: PlayerState = { x, y: 0, z: world.length + 1.5, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 }, top = 0;
+      for (let t = 0; t < 400; t++) { s = tickPlayer(world, s, { move: { x: 0, z: -1 }, jump: false, sneak: false, autoJump: true }).state; top = Math.max(top, s.y); }
+      return top;
+    };
+    // The base build: lane 30.5 6.38 (feet 6.25 where it stops, the device's 6.25), lane 31.5 9.19.
+    expect(climb(30.5)).toBeGreaterThanOrEqual(6.25);
+    expect(climb(31.5)).toBeGreaterThanOrEqual(9.13);
   }, 300_000);
 });

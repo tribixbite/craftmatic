@@ -1303,10 +1303,50 @@ function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: n
   const neverBlocks = (after: ReachResult, laneToo = false, prior?: ReachResult): boolean => {
     const laneFloors = new Set<string>();
     if (laneToo) for (const e of edits) if (e.run.lane) for (const c of e.columns) laneFloors.add(`${c.x},${c.z},${c.floor16}`);
+    const lost: Surface[] = [];
     for (const k of before.visited) {
-      if (after.visited.has(k) || (prior && !prior.visited.has(k))) continue;
+      if (after.visited.has(k) || (prior && !prior.visited.has(k)) || givenUp.has(k)) continue;
       const { x, z, t } = grid.unkey(k);
-      if (treadFloor.get(colKey(x, z)) !== t && !laneFloors.has(`${x},${z},${t}`)) return false;
+      if (treadFloor.get(colKey(x, z)) !== t && !laneFloors.has(`${x},${z},${t}`)) {
+        if (pocketFrom === undefined || laneToo || prior) return false;
+        lost.push({ x, z, t });
+      }
+    }
+    return !lost.length || groundPockets(lost, edits.slice(pocketFrom));
+  };
+  /**
+   * Set while the late pass lays and verifies its runs: the index of its first run. A run it lays from the ground may
+   * then cut off a POCKET (`groundPockets`) - the one case where never-block gives way.
+   */
+  let pocketFrom: number | undefined;
+  /** The pockets the late pass's runs cut off, given up for good: no later check counts them lost again. */
+  const givenUp = new Set<number>();
+  /** The ground at this size, as the cross pass reads it (`groundProbeY`): the pin plane, or a carved base plate. */
+  const ground16 = Math.floor(groundProbeY(f, !!carve?.size) * 16);
+  /**
+   * Whether every lost surface is in a POCKET a late run from the ground cut off: a 4-connected patch of surfaces at
+   * the level of that run's own floor, touching its tread line, no more surfaces than it has treads, the run's foot
+   * at most the ground (`ground16`). 21063's 300 % east flank (lane x 30.5, which the Pixel climbed to 6.25 on
+   * auto-jump in rounds 30zm/30zn) is a run of 5 treads up from the base plate that walls 3 plate cells under the
+   * castle's overhang behind its top tread; never-block refused it once the late pass met it (the climb fell to
+   * 0.94), and the base plan had it only because an undo dropped another run by accident (`planRun`).
+   */
+  const groundPockets = (lost: readonly Surface[], runs: readonly RunEdit[]): boolean => {
+    const left = new Map(lost.map(s => [`${s.x},${s.z},${s.t}`, s]));
+    while (left.size) {
+      const [firstKey, first] = left.entries().next().value as [string, Surface];
+      left.delete(firstKey);
+      const patch = [first];
+      for (let i = 0; i < patch.length; i++) {
+        const s = patch[i]!;
+        for (const [nx, nz] of [[s.x + 1, s.z], [s.x - 1, s.z], [s.x, s.z + 1], [s.x, s.z - 1]] as const) {
+          const k = `${nx},${nz},${s.t}`, n = left.get(k);
+          if (n) { left.delete(k); patch.push(n); }
+        }
+      }
+      const cut = runs.some(e => e.landing.t <= ground16 && e.columns.length >= patch.length && e.columns.some(c => c.floor16 === first.t
+        && patch.some(s => Math.abs(s.x - c.x) + Math.abs(s.z - c.z) === 1)));
+      if (!cut) return false;
     }
     return true;
   };
@@ -1569,6 +1609,7 @@ function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: n
   const latePass = (): void => {
     stackedTargets = true;
     const mark = edits.length, stats = { ...unrestored }, reasons = new Map(failedReason);
+    pocketFrom = mark;
     /**
      * THE MODEL'S EDGE FROM THE GROUND. A rise from the ground (the pin plane)
      * onto the model that the 100 % rule covers but this size breaks is
@@ -1633,6 +1674,15 @@ function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: n
       until(true);
     }
     stackedTargets = false;
+    pocketFrom = undefined;
+    if (edits.length > mark) {
+      const now = walkScaledColliders(grid);
+      for (const k of before.visited) {
+        if (now.visited.has(k)) continue;
+        const { x, z, t } = grid.unkey(k);
+        if (treadFloor.get(colKey(x, z)) !== t) givenUp.add(k);
+      }
+    }
   };
   /**
    * THE CROSS PASS (SCALE-06, Saga round 30zi). A run the FINE walk admitted (`TreadRun.fine`: a rise over the
