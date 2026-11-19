@@ -117,6 +117,17 @@ describe('compileLdrawEntityGeometry', () => {
     expect(r.meshIds).toEqual(['geometry.craftmatic.t_mesh_0']);
   });
 
+  it('sizes the coplanar push under the grain of a model compiled small (10337 car, A-17, FID-03)', async () => {
+    // A 1x1 brick sunk flush into the side of a 2x4: one coplanar pair at any scale. At full size the 2-LDU grain is
+    // 0.6 units and the push stays 0.15; at 10337's 0.084 units per LDU the grain is 0.168 and the push a quarter.
+    const bricks: ParsedBrick[] = [{ part: '3001.dat', color: 4, x: 0, y: 0, z: 0 }, { part: '3005.dat', color: 1, x: 30, y: 0, z: 10 }];
+    const full = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+z' });
+    expect(full.diagnostics.coplanar?.offset).toBe(0.15);
+    const small = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+z', scale: 0.084 });
+    expect(small.diagnostics.coplanar?.offset).toBeCloseTo(0.084 * small.diagnostics.heaviestParts.reduce((m, p) => Math.min(m, p.microcellLdu), Infinity) / 4, 9);
+    expect(small.diagnostics.coplanar?.offset).toBeLessThan(0.15);
+  });
+
   it('places the model in a right-handed frame: LDraw +X is the entity\'s right, nose to −Z, mirrored into JSON', async () => {
     // A 2×4 brick at the origin, a 1×1 brick at LDraw +X, another at the nose (+Z).
     const bricks: ParsedBrick[] = [

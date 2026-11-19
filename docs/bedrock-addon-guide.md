@@ -5243,6 +5243,25 @@ the shell where no car stands; after separating at the parked poses 0.00 and
 0.04 (the seated kiosk figure), 10788's lift car 0.57 -> 0.00 over its three
 stops, 42703 0.43 -> 0.00.
 
+**The push is sized under the entity's grain (2026-11-19).** Every face of a
+compiled part lies on a plane of its grain, and an entity compiled small has
+those planes closer together than the full 0.15-unit push: 10337's car is drawn
+at 0.084 units per LDU, so its 2-LDU grain is 0.168 units and each pushed face
+landed 0.02 from the next grain plane, on whatever face stood there. Every pass
+settled ~5,500 pairs and made as many; the 16-pass cap shipped 5,543, the
+compile spent ~11 of its 12 minutes in the separation (718 s; 47 s after), and the runaway pushes
+visibly mangled the wheels (`output/lambo/wheel-old.png` in the gen-lambo
+worktree). The push is now `coplanarSeparationOffset(finest shipped grain,
+units per LDU)` = min(0.15, a quarter of one grain step), so every full-size
+entity keeps 0.15 and a model compiled below minifig scale pushes less (a
+model drawn at a quarter of the size is seen at a quarter of the distance for
+the same picture). 10337 2,697 / 3.84 -> 4 / 0.00;
+42172 80 / 0.07 -> 41 / 0.03; non-favourites 6753 (0.25x) 3,309 pairs left ->
+0, 669 s -> 61 s; 8289 46 -> 0, 188 s -> 66 s. `buriedFaceTest` now rejects a
+neighbour by area and box before clipping (4 ms -> 0.3 ms a query on the car's
+wheels). Still open: the cross-entity pass pushes a placed entity by the full
+0.15 against its neighbours (`TODO(lambo-cross-offset)`).
+
 **What it does not fix**: the horizontal striping under 42703's arches and
 on round columns (Saga, `saga/after-42703-arch-b6c1c882.jpg`) is the stair-step
 of a curved part at the 2 LDU grain, drawn with face shading. It is geometry,
