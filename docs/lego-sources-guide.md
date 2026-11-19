@@ -1949,3 +1949,9 @@ siblings, `21634` -> 92252). Where the frame differs by a measured offset, `FRAM
 resolvers, recorded as a substitution. A row is valid only for a name every source places in ONE frame: check the
 corpus per lineage first (Mecabricks `28650` also appears in DbixLDR, so it cannot have a row; its fix is clego's
 align row + splice). Evidence for each row is in its comment and REQUIREMENTS VIEW-03.
+
+The Mecabricks Friends dolls are fixed in clego instead (2026-11-19, `geograde/mb_align.py` `DOLL_ROWS`, measured
+in situ against the torso and head): hips 92248 at (0, -11.5, 0.25) and every 94590 / 28650 head written as 92198 at
+(0, 1, -2.5); `mb_track_splice.py --parts dolls` rewrites only those lines of a shipped file (by harvest index, since
+the row renames the part). A decorated Mecabricks part has `color: null`; its material is the library entry's
+`extra.materials` (the harvest reads it since then; only the doll heads were spliced, TODO(mb-null-colour)).

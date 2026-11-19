@@ -187,9 +187,11 @@ export const LDRAW_PART_ALIASES: Readonly<Record<string, string>> = Object.freez
  */
 export interface FrameOffsetAlias { readonly target: string; readonly offset: readonly [number, number, number]; readonly why: string }
 
-// TODO(mb-doll-frame): Mecabricks 28650 (newer doll head) fits 92198 at the same (0, 1, -2.5) but DbixLDR places the
-// same name in the LDD frame, so it needs clego's align row + splice, not a row here; Mecabricks hips 92248 draw ~21 LDU
-// high (its bbox align row) - both clego-side.
+// Mecabricks dolls are fixed at the SOURCE since 2026-11-19 (clego gen-dollframe, `mb_align.DOLL_ROWS`): every 94590 /
+// 28650 head is written as 92198 at its measured row and the hips 92248 at (0, -11.5, 0.25), so the republished
+// MecabricksLDR / MecabricksSearchLDR files no longer name 94590 (test/mecabricks-doll-frame.test.ts). The 94590 row
+// below stays for copies made before that (a cached or older corpus); 28650 never gets one, since DbixLDR places the
+// same name in the LDD frame.
 export const FRAME_OFFSET_ALIASES: Readonly<Record<string, FrameOffsetAlias>> = Object.freeze({
   // Mecabricks only (24 MecabricksLDR sets; no Studio row, no LDD use): the Friends doll HEAD. Its mesh fits 92198's
   // surface at 1.000 with delta (0, 1, -2.5) (clego mb_align fit_score), i.e. 92198 drawn at (0, -1, 2.5); in situ the
