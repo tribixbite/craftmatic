@@ -49,9 +49,12 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   C 41395 side section eases open/shut in ~0.35 s (door not hit, drive-shut not seen); G printed faces on 31141
   fig1-4, 10303 fig2/4, none blank; E STILL FAILS with the gen-cockpit fix merged (20 ticks/s, 3.6-5.1 ms/tick): from
   ~5 mph the view holds on the car's rear - branch `gen-cockpit2` (camera trailing vs a facing flip, decided by
-  `_cockpit_view.ts` frame matching). NEXT round: E repeat with the gen-cockpit2 pack, B 8097 at 100 %, C bus door,
-  G 10303 riders. The Saga's foreground app is Bambu Handy: return to it after a round. 19c left the McLaren wand at
-  rotation 180 / 50 % (was 90).
+  `_cockpit_view.ts` frame matching). Round 19d (`saga-19d/notes.md`, gen-cockpit2 pack 32b0bb79): E PASS (dash and
+  horizon ahead at 43 mph, CMCKP lag 0.5, 20 ticks/s); B 8097 hatch at 100 % PASS; C bus door eased ~0.4 s PASS;
+  K 10303 car 2 still grazes the car ahead from the drop through the loops plus a 1-2 frame hand-back sky flash
+  (gen-coast62). NEXT Saga round: K repeat after gen-coast62 merges (cars 1-3, reset pitch to 0 before boarding),
+  bus drive-shut, G 10303 riders. Foreground app is Bambu Handy: return to it after a round. 19d left the McLaren
+  wand at 90 / 100 %.
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
   --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
   --out=output/gengate-6fa0afa6`): 60/60 built, child play 710/720 (fails: 5482 windows out of reach + doorway holes
