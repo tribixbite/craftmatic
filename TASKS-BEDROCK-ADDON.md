@@ -63,12 +63,16 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   400 %, 6194 an unprotected 6.5-block fall, 6753 truck driver sees 9 of 28 rays per side), 27 vehicles pass the
   course. Content: real faces 30 of 138 heads, 52 boxed placements (8097 `ls11` x40), 270 floating parts.
   MERGED: gen-mix3, gen-mbname, gen-mbface, gen-door2 (main `9f5bdf2e`). gen-hatch MERGED (`ae27f5be`): a vehicle part too high for a
-  board column on the base gets a lifted one (8097's hatches tap at 50-400 %; open: a high part INSIDE the hull box's
-  footprint, `TODO(vehicle-part-tap-scaled)`; a floating board point is not device-tested). NEXT: re-run both census
-  gates on current main into NEW dirs and compare with the numbers above:
-  `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build --out=output/gengate-<sha>`, then the
-  same with `gen-1116-sample2.txt` -> `output/gengate2-<sha>`. The 2026-11-18 run (`gengate-9f5bdf2e`) was stopped
-  by Claude Code for low system memory after 5 of 60 builds; re-run only when the machine is otherwise idle.
+  board column on the base gets a lifted one (8097's hatches; Saga 19b PASS at 150/200 %; open: a high part INSIDE the
+  hull box's footprint, `TODO(vehicle-part-tap-scaled)`).
+- CENSUS RE-RUN on `d622026b` (2026-11-19; `output/gengate-d622026b/`, `output/gengate2-d622026b/`, `gate.md` each):
+  sample 1 child play 710/720 - every 11-16 failure gone (5482, 6164, 6243) but NEW: 3600 Window 8 "behind a wall"
+  (100 %) and 60086's helicopter (levers untappable 100/150 %, hold with a part open does not mount at 400 %, seat
+  0.92 over the drawn top) - branch `gen-regr3` on it; vehicles PASS; real faces 35 of 95 heads (was 14 of 69),
+  boxed 8 in 3 packs (was 11 in 6), floating 863 (was 836). Sample 2 child play 712/712 (was 700/712), vehicles PASS,
+  boxed 12 in 2 packs (was 52), real faces 36 of 138 (was 30), floating 252 (was 270). Regressions 0 failed in both
+  (the step's exit 1 = cases whose packs are not in the sample). Re-run recipe: `bun scripts/_favourites_gate.ts
+  $(cat output/gen-1116-sample.txt) --build --out=output/gengate-<sha>` (~2.5 h), same with sample2 (~1.3 h); new dirs.
 
 ### IN FLIGHT 2026-11-06: Generality census (IX-05, VEH-20) - does it work for ANY set?
 The user asked: "can we generalize to make sure slides, doors, chairs etc work for any set? and do all vehicles
