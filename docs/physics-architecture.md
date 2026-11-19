@@ -1860,6 +1860,8 @@ one of these files fails the check until its row is written.
 | `CoasterRiderLook` | interface | Its result. |
 | `coasterCarAttitude` | function | SERIALISED. Nose + up → entity yaw and the pitch/roll bones; yaw from the axle, never swivels. |
 | `CoasterCarAttitude` | interface | Its result. |
+| `coasterParkedCarPoses` | function | Export time: every car's datum, yaw, pitch and roll where the runtime parks a NEWLY placed train (platform stop, a second train at its dispatch hold) - the runtime's first-tick `carArc` / `chordAt` / `carPose`, restated because the runtime is serialised whole; `test/bedrock-coaster.test.ts` runs the real runtime against it. Feeds the cross-entity coplanar pass (`cross-entity-coplanar.ts`, A-17) and `_render_fault_audit.ts`. **Change it with the runtime's parked placement.** |
+| `CoasterParkedCarPose` | interface | Its result. |
 | `riderViewBricks`, `RIDER_VIEW`, `RIDER_VIEW_BONE` | function / const | Config time: the car's own parts in front of its rider's eye (the 10303 lap bar), put on the `view` bone the car hides while a player rides it; `RIDER_VIEW` the region in LDU. |
 | `coasterTrackUps` | function | Config time: per-sample physical up (gravity's where upright, the loop normal through a loop, bounded twist). |
 | `TRACK_TWIST_RATE_DEG_PER_BLOCK` | const | Twist bound of `coasterTrackUps`. |

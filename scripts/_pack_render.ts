@@ -36,6 +36,7 @@
  *          [--geo-from=<older.mcaddon>]   draw that pack's geometry under this pack's controllers
  *                                          (an older pack with the same ids higher in the world's stack)
  *          [--uvfloor=v] [--hatch] [--lod] [--views=N] [--walk-away=a..b[:step]]
+ *          [--parked]   coaster cars where the runtime parks them, a lift car at each stop (`atRest`)
  *          [--lift=<typeId regex>:<dy>[:<yawDeg>]]   carry matching actors up dy blocks (and turn them): a ride's pose (BIZ-20)
  *   `--size=` is the WAND size in percent (100); `--image=WxH` the picture (a bare `WxH` in --size is
  *   taken as the image too, as before).
@@ -49,6 +50,7 @@ import { paintHatch } from '../web/src/sim/render/rasterizer.ts';
 import { type UvFloorModel } from '../web/src/engine/figure-holes.ts';
 import { boundingRadius, boundsOfActors, centreOf, lookEye, orbitEye, placeActors, sphereFitDistance } from '../web/src/release/media-framing.ts';
 import { decodeFaceAtlases } from '../web/src/release/media-render.ts';
+import { packRestingPoses } from './pack-resting-poses.ts';
 
 const args = process.argv.slice(2);
 const flag = (n: string): string | undefined => args.find(a => a.startsWith(`--${n}=`))?.slice(n.length + 3);
@@ -85,7 +87,9 @@ if (geoFrom) {
 const model = buildAddonPreviewModel(files);
 if (!model.appearance) throw new Error('pack has no appearance');
 /** Every actor placed at the wand size (shared with the media renderer: web/src/release/media-framing.ts). */
-const placedActors = placeActors(model, files, sizePct, { ...(kinds ? { kinds } : {}), ...(typeFilter ? { typeFilter } : {}) });
+// `--parked`: coaster cars where the runtime parks them and a lift car at each stop (`atRest`), not at their records.
+const resting = args.includes('--parked') ? await packRestingPoses(bytes, model) : undefined;
+const placedActors = placeActors(model, files, sizePct, { ...(kinds ? { kinds } : {}), ...(typeFilter ? { typeFilter } : {}), ...(resting ? { resting } : {}) });
 
 // `--lift=<typeId regex>:<dy>[:<yawDeg>]`: carry the matching actors dy blocks up (and turn them), the pose a ride puts them in
 // (a drop tower's ring at the top of its mast, a swing's canopy at full height); repeatable.

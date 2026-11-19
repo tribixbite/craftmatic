@@ -31,7 +31,7 @@ import { creatorFigureBehavior, minifigWandScript } from './bedrock-minifig-wand
 import { MAX_PRINT_LAYERS, MINIFIG_CREATOR_COLOURS, POSE_PROPERTY, type MinifigLibrarySpec, type MinifigCreatorConfig, type CreatorSlot } from './minifig-creator-types.js';
 import { CREATOR_POSES, creatorPoseAnimations, ldrawColourName } from './minifig-creator.js';
 import { isTrackPart } from './coaster-track.js';
-import { separateEntitiesFromNeighbours } from './cross-entity-coplanar.js';
+import { coasterRestingPoses, firstRestingPoses, liftCarRestingPoses, separateEntitiesFromNeighbours } from './cross-entity-coplanar.js';
 import { isShellEntityId, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior, splitStaticShell, type ShellCell, type ColliderSourceBox } from './bedrock-building-shell.js';
 import { CLEARANCE_REFUSALS, applyColliderClearance, type ClearanceReport, type GridBox } from './collider-clearance.js';
 import type { NoseDirection } from './vehicle-facing.js';
@@ -43,7 +43,7 @@ import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import { resolveEntityQuality, type LegoEntityQuality, type LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterTrackPack, type TrackPackOptions } from './coaster-pack.js';
 import type { GeneratedCoaster } from './coaster-design.js';
-import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
+import { buildCoasterRideAssets, coasterDiagnostics, coasterParkedCarPoses, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
 import { RIDE, ridesScript, type RideKind, type RideRuntimeConfig } from './bedrock-rides.js';
 import { FUNFAIR } from './rides/funfair-physics.js';
 import { funfairScript, type FunfairRuntimeConfig } from './rides/funfair-runtime.js';
@@ -4304,7 +4304,11 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // Coplanar faces BETWEEN entities (A-17): every placed compiled entity is separated from the shell chunks it sits
     // in and from the entities before it, its own geometry JSON rewritten (cross-entity-coplanar.ts). The per-entity
     // pass in the compiler cannot see a door leaf flush with its frame or a turntable on its floor.
-    const crossCoplanar = separateEntitiesFromNeighbours(actors, new Map([...shippedGeometries].map(([t, s]) => [t, s.geo])), isShellEntityId);
+    // A coaster car is separated where the runtime parks it (the platform, the loading bay), with its measured wheelbase.
+    // A lift car is separated at each of its stops (the path its ride seat carries).
+    const parkedCars = coasterConfig && coasterRide ? coasterRestingPoses(coasterParkedCarPoses({ ...coasterConfig, types: coasterRide.types })) : undefined;
+    const liftCars = ridesConfig ? liftCarRestingPoses(ridesConfig.rides, new Map(actors.flatMap(a => a.typeId === ridesConfig!.seatType && a.ride !== undefined && a.ridePath ? [[a.ride, a.ridePath] as const] : []))) : undefined;
+    const crossCoplanar = separateEntitiesFromNeighbours(actors, new Map([...shippedGeometries].map(([t, s]) => [t, s.geo])), isShellEntityId, firstRestingPoses(parkedCars, liftCars));
     for (const typeId of crossCoplanar.changed) {
         const s = shippedGeometries.get(typeId)!;
         files[s.fileIndex] = { name: files[s.fileIndex]!.name, data: geoJson(s.geo.value) };

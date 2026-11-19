@@ -1646,6 +1646,62 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
     ...(runtimeRoutes.some(route => route.physics?.DRIVER) ? { inputEvent: FLIGHT_INPUT_EVENT } : {}) };
 }
 
+/** Where one car of a freshly placed train rests before anyone boards (`coasterParkedCarPoses`). */
+export interface CoasterParkedCarPose {
+  route: number;
+  /** The car's index over every train of its route (`coaster_car`): train = index / count, slot = index % count. */
+  index: number;
+  typeId: string;
+  /** Where its bricks are DRAWN from: the track datum under the car, model blocks (placement origin, yaw 0, 100 %). */
+  datum: [number, number, number];
+  /** The entity yaw and the two bone angles (`coasterCarAttitude`), degrees. */
+  yaw: number; pitch: number; roll: number;
+}
+
+/**
+ * Every car's pose where `coasterRuntime` parks a NEWLY placed train, in the model frame: the first train with its
+ * centre at the platform's stop, a second train at its dispatch hold, each car `carArc` along the track from the
+ * centre, pointing along the chord between its wheels, facing `cars.heading` (else the route's direction, else +1).
+ * This is the runtime's own `carArc` / `chordAt` / `carPose` arithmetic for that first tick, restated here because
+ * the runtime is serialized whole and cannot export a closure; `test/bedrock-coaster.test.ts` runs the real
+ * runtime and fails if the two drift. The DRAWN origin of a car is the datum, not the entity position: its body
+ * offset bones carry the bricks back onto the rails, so the datum, yaw, pitch and roll place every brick.
+ * Used to separate a parked car's faces from the platform it stands on (A-17, `cross-entity-coplanar.ts`).
+ */
+export function coasterParkedCarPoses(config: Pick<CoasterRuntimeConfig, 'typeId' | 'routes' | 'types'> & { physics?: { YAW_HOLD_HORIZONTAL?: number } }): CoasterParkedCarPose[] {
+  const headingMin = config.physics?.YAW_HOLD_HORIZONTAL ?? 0.20;
+  const out: CoasterParkedCarPose[] = [];
+  config.routes.forEach((route, r) => {
+    const path = route.path, total = path.length, cars = route.cars, count = cars.count, trains = cars.trains || 1;
+    const wrap = (arc: number): number => path.closed ? ((arc % total) + total) % total : Math.max(0, Math.min(total, arc));
+    const inset = cars.extent / 2 + (cars.endInset || 0);
+    const target = path.closed ? route.station.stop : Math.max(inset, Math.min(total - inset, route.station.stop));
+    const direction: 1 | -1 = route.direction === -1 ? -1 : 1;
+    const facing: 1 | -1 = cars.heading === 1 || cars.heading === -1 ? cars.heading : direction;
+    for (let index = 0; index < count * trains; index++) {
+      const train = Math.floor(index / count), slot = index % count;
+      const typeId = cars.slots?.[index]?.type ?? config.typeId;
+      const centre = train > 0 && route.dispatch ? route.dispatch.hold : target;
+      const arc = wrap(centre + cars.extent / 2 - slot * cars.spacing);
+      const at = sampleCoasterPath(path, arc);
+      const wheelbase = config.types[typeId]?.wheelbase ?? 0;
+      let tangent: number[] = [...at.tangent];
+      if (wheelbase > 0) {
+        const front = sampleCoasterPath(path, wrap(arc + wheelbase / 2)).position, rear = sampleCoasterPath(path, wrap(arc - wheelbase / 2)).position;
+        const chord = [front[0] - rear[0], front[1] - rear[1], front[2] - rear[2]], length = Math.hypot(chord[0]!, chord[1]!, chord[2]!);
+        if (length > 1e-6) tangent = chord.map(v => v / length);
+      }
+      const i = at.segmentIndex, span = path.cumulative[i + 1]! - path.cumulative[i]!;
+      const ratio = span > 0 ? (at.distance - path.cumulative[i]!) / span : 0;
+      const up0 = route.up[i]!, up1 = route.up[i + 1] ?? up0;
+      const up = up0.map((v, axis) => v + (up1[axis]! - v) * ratio);
+      const { yaw, pitch, roll } = coasterCarAttitude(tangent.map(v => v * facing), up, 0, headingMin);
+      out.push({ route: r, index, typeId, datum: [at.position[0], at.position[1], at.position[2]], yaw, pitch, roll });
+    }
+  });
+  return out;
+}
+
 // ─── Pack assets ─────────────────────────────────────────────────────────────
 
 /** A purpose-built ride vehicle for a route whose source has no car of its own. The imported set stays intact. */

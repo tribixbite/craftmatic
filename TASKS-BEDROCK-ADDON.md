@@ -26,8 +26,10 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
     tread across the ground route.
   - Brick-built doors (10354, 42639 gate, 910049 gate): every candidate hinge line is held rigid
     (`TODO(brick-hinge-holds)`, docs/bedrock-interactivity.md).
-  - Coplanar pairs on moving actors (coaster cars, ride seats, riders: `TODO(a17-moving)`); 10303 1.03 / 10261 0.89
-    block faces left.
+  - Coplanar pairs on moving actors: parked coaster cars and lift cars are separated where they rest since 2026-11-19
+    (10303 0.00, 10261 0.04, 10788 0.00 block faces at parked poses). Left: source-seated figures on their seats
+    (`TODO(a17-moving)`, 10261 fig2 0.04), the fabricated grey cart (10341 0.40). 10337's car body: 5,543 pairs the
+    per-entity pass leaves (3.84 block faces; was 0.24 at the audit) - regression on its wheel bones, unowned.
   - Boxed parts on `test/fixtures/favourites-aabb-allowlist.json` (76417 1004705 wand sprue, 3469/68503/104814 no mould,
     43267 28705 bl_ frame unmeasured); flexible strings/tubes/chains (`TODO(mb-flexible-other)`).
   - Faces: 100-ish heads with no print in any source; the web app ships LDraw prints only (route-2 art is local,
@@ -1456,9 +1458,10 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
   The clean canonical 10261 `880a7195` pack reports 175 pairs / 1.62 block
   faces, mostly cross-actor station/car contacts; four audit packs have 0%
   UV-floor surface loss and pass structural validation.
-- [ ] 10261: 49 cross-actor coplanar pairs where the parked cars' grey floor
-  (26021) lies in the station track's red top plane (`_render_fault_audit.ts`);
-  the export's separation pass works within one actor only.
+- [x] 10261: cross-actor coplanar pairs where the parked cars' grey floor
+  (26021) lies in the station track's red top plane: separated at the parked
+  poses since 2026-11-19 (`coasterParkedCarPoses`); 0.04 block faces left, all
+  the seated kiosk figure.
 
 - [ ] Stair-step striping on curved parts (42703 arches, round columns) at 2
   LDU: geometry; only a finer grain or merged steps change it.

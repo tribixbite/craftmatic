@@ -5198,9 +5198,18 @@ pinball button in its cabinet. The pass now runs to convergence (cap
 `COPLANAR_SEPARATION_MAX_PASSES` 10), and once every entity is placed
 `separateEntitiesFromNeighbours` (cross-entity-coplanar.ts) pushes each
 placed entity's face out in front of the shell chunks and of the entities
-handled before it, rewriting only that entity's geometry. Coaster cars, ride
-cars/seats and riding figures are skipped: their placement record is not
-where they rest (`TODO(a17-moving)`).
+handled before it, rewriting only that entity's geometry. A moving actor is
+separated where it RESTS, never at its record (every car of a train is
+recorded at the station point): a coaster car where the runtime parks a newly
+placed train (`coasterParkedCarPoses`, the runtime's first-tick arithmetic
+restated; `test/bedrock-coaster.test.ts` runs the real runtime against it),
+when that pose is level within 0.25 degrees; a lift car at each of its stops
+(`liftCarRestingPoses`); a lift platform and counterweight at their records
+(the hoist's parked pose). `_render_fault_audit.ts` and `_pack_render.ts
+--parked` place them the same way (`scripts/pack-resting-poses.ts`). Still
+skipped: source-seated figures (how Bedrock places a non-player rider over a
+seat and the sitting pose are unmeasured, `TODO(a17-moving)`), funfair and
+orbit cars, and the fabricated grey cart (no compiled geometry).
 
 Two measuring faults hid the rest (same day). `coplanarFaces` bucketed faces by
 their normal rounded to 1e-3 and by plane offset `d`: two Euler spellings of
@@ -5226,8 +5235,13 @@ after): 11374 710 / 2.25 -> 0 / 0.00, 76269 678 / 2.79 -> 5 / 0.01, 75397
 1.83 -> 322 / 1.03, 10261 198 / 1.30 -> 70 / 0.89. What is left on the two
 coasters is their cars (and 10303's counterweight) measured at the station
 record point, where every car of a train is recorded; the ride spaces them
-along the track (`TODO(a17-moving)`). Over the 40 favourites the baseline at
-this tool is 10,627 pairs / 40.43 block faces (sweep `4da29033`).
+along the track. Over the 40 favourites the baseline at
+this tool is 10,627 pairs / 40.43 block faces (sweep `4da29033`). Measured at
+the parked poses (2026-11-19) those leftovers were 0.28 (10303) and 0.13
+(10261) block faces, most of the record-point figure being cars overlapping
+the shell where no car stands; after separating at the parked poses 0.00 and
+0.04 (the seated kiosk figure), 10788's lift car 0.57 -> 0.00 over its three
+stops, 42703 0.43 -> 0.00.
 
 **What it does not fix**: the horizontal striping under 42703's arches and
 on round columns (Saga, `saga/after-42703-arch-b6c1c882.jpg`) is the stair-step
