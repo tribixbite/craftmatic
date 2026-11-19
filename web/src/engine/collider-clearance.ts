@@ -167,6 +167,8 @@ export interface ClearanceReport {
    * the caller's: indices into `rescue.doorways`).
    */
   rescued: { trims: number; doorways: number[] };
+  /** Corner-square trims the leak check put back to their band form (each instead of refusing a block of trims). */
+  cornerFallbacks: number;
   applied: { wall: number; ceiling: number };
   refused: Record<ClearanceRefusal, number>;
   /** Block volume freed (blocks cubed at 100 %). */
@@ -261,7 +263,7 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
   const idx = (x: number, y: number, z: number): number => (x * H + y) * L + z;
   const refused: Record<ClearanceRefusal, number> = { 'door-leaf': 0, 'door-cut': 0, 'walkable-top': 0, leak: 0, unverifiable: 0 };
   const entries: ClearanceEntry[] = [];
-  const report: ClearanceReport = { cells: 0, alreadyTight: 0, wallTops: 0, approachTops: 0, furnitureTops: 0, rescued: { trims: 0, doorways: [] }, applied: { wall: 0, ceiling: 0 }, refused, freedBlocks: 0, leakRounds: [], leaks: [], voxels: 0, millis: 0, verified: true, entries };
+  const report: ClearanceReport = { cells: 0, alreadyTight: 0, wallTops: 0, approachTops: 0, furnitureTops: 0, rescued: { trims: 0, doorways: [] }, cornerFallbacks: 0, applied: { wall: 0, ceiling: 0 }, refused, freedBlocks: 0, leakRounds: [], leaks: [], voxels: 0, millis: 0, verified: true, entries };
 
   /** The collider form the grid holds at a cell (pristine full form after the cut), or null. */
   const formAt = (x: number, y: number, z: number): ColliderForm | null => parseFormState(grid.get(x, y, z));
@@ -454,7 +456,9 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
   const furnitureForm = (t: ColliderForm): boolean => t.v !== 0 && COLLIDER_KIT.VARIANTS[t.v]!.kind === 1 && t.hi <= APPROACH_STEP16;
 
   // ── Wall proposals.
-  type Proposal = { i: number; x: number; y: number; z: number; rule: 'wall' | 'ceiling'; from: ColliderForm; to: ColliderForm };
+  type Proposal = { i: number; x: number; y: number; z: number; rule: 'wall' | 'ceiling'; from: ColliderForm; to: ColliderForm; band?: ColliderForm };
+  /** Whether a form's shape is a corner square (collider-form.ts, after the bands). */
+  const cornerForm = (f: ColliderForm): boolean => f.v !== 0 && COLLIDER_KIT.VARIANTS[f.v]!.shape >= COLLIDER_KIT.BAND_SHAPES;
   const proposals: Proposal[] = [];
   const proposedAt = new Map<number, Proposal>();
   const refuse = (p: Proposal, why: ClearanceRefusal): void => { refused[why]++; entries.push({ x: p.x, y: p.y, z: p.z, rule: p.rule, from: p.from, to: p.to, refused: why }); };
@@ -525,6 +529,11 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
         }
         else report.wallTops++;
       }
+    }
+    // A corner trim's band fallback (the leak check tries it before refusing): the same rules' cover with bands only.
+    if (cornerForm(to)) {
+      const b = COLLIDER_KIT.cover(geometry, lowGap || furniture ? 16 - built.hi : 0, true);
+      if (b && b.v !== 0 && !cornerForm(b) && formWithin(b, bound) && formContains(b, geometry)) p.band = b;
     }
     proposals.push(p);
     proposedAt.set(i, p);
@@ -633,7 +642,9 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     active.clear();
     report.verified = false;
   } else if (proposals.length) {
-    for (let round = 0; ; round++) {
+    // `round` counts only the rounds that refuse: a fallback round (corner trims back to bands, at most once each)
+    // is not one, so it can never push the check into refusing every trim at MAX_LEAK_ROUNDS.
+    for (let round = 0; ; ) {
       const forms = new Map<number, ColliderForm>();
       for (const p of active) forms.set(p.i, p.to);
       const leaks = leaksOf(forms);
@@ -645,9 +656,17 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
         active.clear();
         break;
       }
-      // Refuse every trim within one block of a leak block.
+      // Refuse every trim within one block of a leak block - unless a corner trim is there: then those fall back to
+      // their band form first (a corner frees both strips beside its post, the band one), and nothing is refused
+      // this round.
       const near = nearLeaks(leaks);
       let dropped = 0;
+      const corners = [...active].filter(p => near.has(p.i) && p.band);
+      if (corners.length) {
+        for (const p of corners) { p.to = p.band!; delete p.band; report.cornerFallbacks++; }
+        continue;
+      }
+      round++;
       for (const p of [...active]) if (near.has(p.i)) { active.delete(p); refuse(p, 'leak'); dropped++; }
       if (!dropped) {
         // A leak no trim is near cannot be the trims' doing: it is in the collider world already (reported, not fixed here).

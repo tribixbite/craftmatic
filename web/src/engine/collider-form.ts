@@ -56,7 +56,9 @@ export interface ColliderFormKit {
    * block top: its wall then runs past the geometry to the block top. Only a caller that has proved no player's box
    * can take that strip passes it (collider-clearance.ts, rule 1's low-gap exception).
    */
-  cover(boxes: ReadonlyArray<readonly number[]>, topSlack?: number): ColliderForm | null;
+  cover(boxes: ReadonlyArray<readonly number[]>, topSlack?: number, bandsOnly?: boolean): ColliderForm | null;
+  /** Shapes below this index are the bands; from it on, the corner squares (`cover`'s `bandsOnly` keeps to the bands). */
+  BAND_SHAPES: number;
   /** The two state names a collider block of `encoding` carries (`COLLIDER_STATES` / `COLLIDER_PAIR_STATES`). */
   stateNames(encoding: ColliderStateEncoding): { lo: string; hi: string };
   /**
@@ -122,9 +124,9 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
   const vid = (kind: number, s: number): number => s === 0 ? 0 : VID[kind * SHAPES.length + s]!;
   const area = (s: number): number => (SHAPES[s]![1] - SHAPES[s]![0]) * (SHAPES[s]![3] - SHAPES[s]![2]);
   /** The smallest shape containing a footprint (ties: lowest index). */
-  const smallest = (x0: number, x1: number, z0: number, z1: number): number => {
+  const smallest = (x0: number, x1: number, z0: number, z1: number, n: number = SHAPES.length): number => {
     let best = 0;
-    for (let s = 1; s < SHAPES.length; s++) {
+    for (let s = 1; s < n; s++) {
       const q = SHAPES[s]!;
       if (q[0] <= x0 && q[1] >= x1 && q[2] <= z0 && q[3] >= z1 && area(s) < area(best)) best = s;
     }
@@ -160,7 +162,9 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
     if (d.kind === 1) return hi < 16 ? [[0, 16, lo, hi, 0, 16], [q[0], q[1], hi, 16, q[2], q[3]]] : [[0, 16, lo, hi, 0, 16]];
     return lo > 0 ? [[q[0], q[1], 0, lo, q[2], q[3]], [0, 16, lo, hi, 0, 16]] : [[0, 16, lo, hi, 0, 16]];
   };
-  const cover = (boxes: ReadonlyArray<readonly number[]>, topSlack?: number): ColliderForm | null => {
+  const cover = (boxes: ReadonlyArray<readonly number[]>, topSlack?: number, bandsOnly?: boolean): ColliderForm | null => {
+    // `bandsOnly`: the shapes the kit had before the corner squares (clearance's fallback for a corner trim that leaks).
+    const n = bandsOnly ? BAND_SHAPES : SHAPES.length;
     let Y0 = 16, Y1 = 0, bx0 = 16, bx1 = 0, bz0 = 16, bz1 = 0, any = false;
     for (const b of boxes) {
       if (!(b[1]! > b[0]! && b[3]! > b[2]! && b[5]! > b[4]!)) continue;
@@ -173,7 +177,7 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
       if (b[5]! > bz1) bz1 = b[5]!;
     }
     if (!any) return null;
-    const s0 = smallest(bx0, bx1, bz0, bz1);
+    const s0 = smallest(bx0, bx1, bz0, bz1, n);
     let best: ColliderForm = { v: vid(0, s0), lo: Y0, hi: Y1 };
     let bestVol = area(s0) * (Y1 - Y0);
     /** The footprint bbox of the boxes' parts within the span [a, b). */
@@ -199,13 +203,13 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
     const slabOk = (s: number, a: number, b: number): boolean => {
       if (s < BAND_SHAPES || s0 === 0) return true;
       const q = within(a, b);
-      return !!q && smallest(q[0], q[1], q[2], q[3]) === 0;
+      return !!q && smallest(q[0], q[1], q[2], q[3], n) === 0;
     };
     // Floor + wall: full band Y0..m, shape m..16 (only when the geometry reaches the block top, or `topSlack` of it).
     if (Y1 >= 16 - (topSlack || 0)) for (let m = Y0 + 1; m <= Math.min(15, Y1 - 1); m++) {
       const up = within(m, 16);
       if (!up) continue;
-      const s = smallest(up[0], up[1], up[2], up[3]);
+      const s = smallest(up[0], up[1], up[2], up[3], n);
       if (s === 0) continue;
       const vol = 256 * (m - Y0) + area(s) * (16 - m);
       if (vol < bestVol && slabOk(s, Y0, m)) { bestVol = vol; best = { v: vid(1, s), lo: Y0, hi: m }; }
@@ -214,7 +218,7 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
     if (Y0 === 0) for (let m = 1; m < Y1; m++) {
       const down = within(0, m);
       if (!down) continue;
-      const s = smallest(down[0], down[1], down[2], down[3]);
+      const s = smallest(down[0], down[1], down[2], down[3], n);
       if (s === 0) continue;
       const vol = area(s) * m + 256 * (Y1 - m);
       if (vol < bestVol && slabOk(s, m, Y1)) { bestVol = vol; best = { v: vid(2, s), lo: m, hi: Y1 }; }
@@ -276,7 +280,7 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
       return false;
     }
   };
-  return { SHAPES, VARIANTS, variantOf: (id: string): number => (id in byId ? byId[id]! : -1), formBoxes, cover, stateNames, encodeStates, decodeStates, turnForm, cellPieces, lay };
+  return { SHAPES, BAND_SHAPES, VARIANTS, variantOf: (id: string): number => (id in byId ? byId[id]! : -1), formBoxes, cover, stateNames, encodeStates, decodeStates, turnForm, cellPieces, lay };
 }
 
 /** The kit, built once for the engine (the runtimes build their own from the serialised source). */

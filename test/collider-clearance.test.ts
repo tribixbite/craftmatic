@@ -214,6 +214,34 @@ describe('applyColliderClearance', () => {
     expect(reachable(s.grid)(3, 0, 1)).toBe(false);
   });
 
+  /**
+   * The corner-square forms (2026-11-19): a corner trim frees both strips beside its post, where the band it replaced
+   * freed one, so it can leak where the band did not - and the leak loop then refused every trim within a block of
+   * it, band trims the old kit had shipped included (11371: 14 cells grew, 3.9 blocks³ more collider than before
+   * the corners, genclear-all4). A corner trim near a leak falls back to its band form first.
+   */
+  it('falls back from a leaking corner trim to the band trim that does not leak, before refusing anything', () => {
+    const s = scene(5, 3, 3);
+    for (let x = 0; x < 5; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) {
+      if (x === 0) continue;
+      if (x === 3 && z === 1 && y < 2) continue;
+      s.full(x, y, z);
+    }
+    for (let y = 0; y < 2; y++) s.grid.set(1, y, 1, 'minecraft:air');
+    // The partition: a post in its low-x/low-z corner. The corner square opens x 0.25..1 along z 0.25..1 (outside to
+    // the room); the x band 0..4 the cell long, which holds it too, closes the crossing.
+    for (let y = 0; y < 2; y++) {
+      const a = newCellLayers(); addLayerBox(a, 0, 4, 0, 16, 0, 4);
+      s.layers.set(s.idx(2, y, 1), a);
+      s.grid.set(2, y, 1, colliderState(0, 16));
+    }
+    expect(K.VARIANTS[K.cover([[0, 4, 0, 16, 0, 4]])!.v]!.shape).toBeGreaterThan(14);
+    applyColliderClearance(s.input());
+    const band = K.VARIANTS.findIndex(d => d.kind === 0 && d.shape === 1);
+    expect(s.form(2, 0, 1)).toEqual({ v: band, lo: 0, hi: 16 });
+    expect(reachable(s.grid)(3, 0, 1)).toBe(false);
+  });
+
   it('never trims the frame beside a closed leaf, and does trim a wall away from it', () => {
     const s = scene(5, 3, 4);
     // A wall along z = 2 (geometry a thin slab on its -z side), a door leaf in column x = 2.
