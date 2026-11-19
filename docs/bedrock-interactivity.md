@@ -2073,9 +2073,8 @@ Over the favourites (first picks, LDraw): 80049 2 doors (the teal double
 door on clips), 910004 2 doors (the patchwork door), 910047 2 doors (the
 plank gate) + 1 upstairs door, 76435 1 gate (the stud-covered slab door),
 41395 2 wings, 11371 2 hinged panels (window columns on a tower's hinges).
-Not found: 10354's round door (its hinge 3830/3831 joins two floor
-modules; the round leaf is not on a joint the table knows), 42639's garage
-gate and 910049's iron gate (no joint line splits them off), cranes, lifts,
+Not found: 10354's round door, 42639's garage door and 910049's gate (traced
+below: none hangs on a joint the geometry shows), cranes, lifts,
 drawbridges and windmills (no turntable joint in the favourites; on axles, see
 above).
 
@@ -2087,11 +2086,41 @@ was not traced); 910049 128 lines, 0 moving (the
 hinge-brick lines 2429/2430 + 3830/3831 at the ground are all `holds`); 43267 26 lines, 0 moving. 43267's
 four 40066 are ONE-PIECE moulded doors ("Door 1 x 6 x 7 with Arch and Rounded Pillars", a doorstep
 subfile, origin centred): there is no leaf to swing, so static is right unless a pass-through is invented.
-What a general rule needs before it can find the other three: for a `holds` line, WHICH rigid edges cross
-the cut (the diagnostics say only that both sides are held) - if a closed gate is held only by the
-floor's studs under its bottom row or by an overlap with its frame, a rule that drops stud edges under a
-joint's swinging side would split it; that rule has to be measured for false doors over the favourites
-and a sample outside them (the 135 -> 14 review above) before it ships. TODO(brick-hinge-holds).
+Traced 2026-11-19 (branch gen-brickdoor). A `holds` line now names WHAT holds it: the shortest chain of
+rigid links between the two halves round the cut, each link by its rule (`held round the cut by 3831
+-stacked- 3958 -stud- 3830`), or `nothing small` when both halves reach over 640 parts without crossing
+the line. The joint finder also missed every pair whose halves straddled a 24 LDU hash-cell boundary (it
+compared only connectors in the same cell): fixed, and 42639's swivel hinge at (600, -545, 220) is a line
+now. Over the 42 LDraw first picks no line changed its verdict to `moves` (the moving counts are those
+above). Per set, with the geometry:
+- **10354, the round door.** Its leaf (two 22885 bricks with studs on one side, two 3 x 3 plates on those
+  studs, wedges and claw hinges as trim) sits in the wall's own courses: 22885 is `stacked` on the 1 x 4
+  under it and under the 1 x 3 / 1 x 2 above, and every part round it is square to it. The 18.9 degrees
+  seen in the source is the whole Bag End module's turn, not an open leaf. No turning connector stands on
+  a vertical line at the leaf's edge, and the one hinge brick near (3830/3831 at (2220, -33, 30)) joins
+  two floor modules. Nothing in the geometry says this door turns.
+- **42639, the garage door.** The leaf is a 6 x 8 plate (3036) standing at (600, -104, -27) with four
+  2 x 6 tiles, curved slopes, two 3172 offset-peghole plates and two 24201 on it. It hangs from nothing:
+  the Technic pins 3673 at (540 / 660, -175, -10) that carry the car-launch beams 32524 run along x,
+  20 LDU above the 3172 pegholes, whose axis is z, so no connector mates them (3172 is not in the joint
+  table either: its description, "Offset Peghole", matches no joint family). What holds the closed leaf
+  is its foot: the tiles on edge stand on the ramp 4515's studs and read as `stud` links. The swivel
+  hinge found by the cell fix is the whole upper wing at 28.6 degrees (271 parts, `too big`): the
+  dollhouse wing, not a gate.
+- **910049, the gate.** Its gate is the moulded barred door 60621, which the pack already ships as
+  "Gate 1" (moulded rules); its `SEALED` walk is the model's route. The brick-built candidates - the
+  2429/2430 + 3830/3831 lines (x, z) - are ANGLE joints of the castle's walls (hinge pairs at 36.9 degrees
+  in wall columns up to y -568): at (-120, 0) and (200, -160) walls on both sides are built across the
+  line (`held round the cut by 2429 -stud- 3033 -stud- 3034 -stud- 36756pb01 -stacked- 3666 -stud- 2445
+  -stacked- 2430`), at (360, -280) both halves are inside the model, at (280, -20) 5 parts come away (a
+  trim), at (360, -320) 112 parts that would land 8 and 44 percent in the model turned either way.
+
+Two rules were written and measured, and set aside because they open nothing in the favourites:
+a STUD PIVOT (a part set off the grid about one stud's axis, on a socket of its own stud column, is a
+turning joint: 248 new lines over the 42 first picks, 0 moving), and "a stud holds a part only along that
+part's own up" (a tile on edge across studs is not clutched: what holds 42639's door shut). Neither has a
+door to prove it; they wait for one. TODO(stud-pivot), TODO(garage-linkage) (42639's door turns with the
+launch beams: a linkage, not a hinge line).
 
 ## Not verified on a device
 

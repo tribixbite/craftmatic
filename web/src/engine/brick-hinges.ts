@@ -40,7 +40,15 @@
  *
  * Nothing here names a set. A rule that finds nothing reports why for every
  * joint line it cut (`BrickHingeDiagnostics`), so the next rule is written
- * from evidence.
+ * from evidence; a line that `holds` names the chain of links that holds it.
+ *
+ * TODO(stud-pivot): a part set off the grid about one stud's axis turns on it,
+ * and a stud clutches a part only along that part's own up (a tile on edge on
+ * studs rests on them). Both were measured on the 42 LDraw first picks
+ * (2026-11-19, docs/bedrock-interactivity.md "Brick-built doors") and opened
+ * nothing, so neither ships until a door proves it.
+ * TODO(garage-linkage): 42639's garage door swings with the beams that launch
+ * the car - a linkage of several pins, not one hinge line.
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
@@ -184,16 +192,25 @@ export function findHingeJoints(bricks: readonly ParsedBrick[]): HingeJoint[] {
   const CELL = 24;
   const cells = new Map<string, WorldSnap[]>();
   const key = (x: number, y: number, z: number): string => `${x},${y},${z}`;
+  // Every cell within this of a connector's span also holds it: two halves that mate sit up to
+  // `LINE_TOLERANCE` (+ a clip's slack) apart, and one cell each side of a cell boundary never
+  // met (42639's swivel hinge, its halves at x 599.985 and 600.666, read as no joint at all).
+  const PAD = LINE_TOLERANCE + 4.5;
   for (const w of snaps) {
-    // Register along the connector's whole span so a long bar meets a clip anywhere on it.
-    const steps = Math.max(1, Math.ceil((w.to - w.from) / CELL));
+    // Register along the connector's whole span (samples half a cell apart) so a long bar meets a
+    // clip anywhere on it.
+    const steps = Math.max(1, Math.ceil((w.to - w.from) / (CELL / 2)));
     const seen = new Set<string>();
     for (let i = 0; i <= steps; i++) {
       const q = add(w.p, scale(w.a, w.from + (w.to - w.from) * i / steps));
-      const k = key(Math.floor(q[0] / CELL), Math.floor(q[1] / CELL), Math.floor(q[2] / CELL));
-      if (seen.has(k)) continue;
-      seen.add(k);
-      const l = cells.get(k) ?? []; l.push(w); cells.set(k, l);
+      for (let x = Math.floor((q[0] - PAD) / CELL); x <= Math.floor((q[0] + PAD) / CELL); x++)
+        for (let y = Math.floor((q[1] - PAD) / CELL); y <= Math.floor((q[1] + PAD) / CELL); y++)
+          for (let z = Math.floor((q[2] - PAD) / CELL); z <= Math.floor((q[2] + PAD) / CELL); z++) {
+            const k = key(x, y, z);
+            if (seen.has(k)) continue;
+            seen.add(k);
+            const l = cells.get(k) ?? []; l.push(w); cells.set(k, l);
+          }
     }
   }
   const joints: HingeJoint[] = [];
@@ -415,15 +432,40 @@ export function hingedAssemblies(bricks: readonly ParsedBrick[], graph: RigidGra
       }
       return [...seen];
     };
+    /**
+     * WHAT holds a joint shut: the shortest chain of rigid links from one half to the
+     * other round the cut, each link named by the rule that made it (`RigidGraph.why`).
+     * The diagnostics' answer to "why does this door not open" (docs/bedrock-interactivity.md,
+     * "Brick-built doors"): a gate held only by the floor's studs under its bottom row, or by a
+     * frame it overlaps, reads as such a chain.
+     */
+    const heldBy = (a: number, b: number): string => {
+      const parent = new Map<number, number>([[a, -1]]);
+      const queue = [a];
+      while (queue.length && !parent.has(b) && parent.size <= MAX_HINGED_PARTS * 4) {
+        const i = queue.shift()!;
+        for (const k of graph.edges[i]!) if (!parent.has(k) && !cut.has(`${i}|${k}`)) { parent.set(k, i); queue.push(k); }
+      }
+      if (!parent.has(b)) return '';
+      const chain: number[] = [];
+      for (let k: number = b; k >= 0; k = parent.get(k)!) chain.unshift(k);
+      const name = (k: number): string => partStem(bricks[k]!.part);
+      const rule = (p: number, q: number): string => graph.why.get(p < q ? `${p}|${q}` : `${q}|${p}`) ?? 'link';
+      return chain.map((k, n) => (n === 0 ? name(k) : ` -${rule(chain[n - 1]!, k)}- ${name(k)}`)).join('');
+    };
     // Each joint's two halves: the side that stays small is the one that moves.
     let moving: number[] | null = null;
     let reason = 'every joint on the line is held on both sides by other connections';
+    let held = '';
     let verdict: HingeLine['verdict'] = 'holds';
     for (const j of line.joints) {
       const a = index.get(j.a)!, b = index.get(j.b)!;
       const ra = reach(a, MAX_HINGED_PARTS * 4), rb = reach(b, MAX_HINGED_PARTS * 4);
-      if (ra && rb && ra.includes(b)) continue; // still connected round the cut
-      if (!ra && !rb) continue; // both sides are big: the joint is inside the model, held elsewhere
+      if (ra && rb && ra.includes(b)) { held ||= heldBy(a, b); continue; } // still connected round the cut
+      if (!ra && !rb) { // both sides are big: the joint is inside the model, held elsewhere
+        held ||= heldBy(a, b) || `nothing small: both halves reach over ${MAX_HINGED_PARTS * 4} parts without crossing the line (it is inside the model)`;
+        continue;
+      }
       let side = !ra ? rb! : !rb ? ra : (ra.length <= rb.length ? ra : rb);
       // A lone pin on the joint (a bar held by nothing but the door's own clips: 910004's
       // patchwork door, whose bar the source stands free in its frame) is the PIVOT, not the
@@ -440,6 +482,7 @@ export function hingedAssemblies(bricks: readonly ParsedBrick[], graph: RigidGra
       moving = moving ? [...new Set([...moving, ...side])] : side;
       verdict = 'moves'; reason = '';
     }
+    if (!moving && verdict === 'holds' && held) reason = held.startsWith('nothing small') ? held : `held round the cut by ${held}`;
     out.push({ joints: line.joints, point: line.point, axis: line.axis, ...(moving ? { moving } : {}), verdict: moving ? 'moves' : verdict, reason: moving ? '' : reason });
   }
   return out;
