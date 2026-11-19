@@ -140,6 +140,37 @@ describe('export resolver alias ladder', () => {
     expect(partAliasCandidates('3566')[0]).toBe('bl_3566');
   });
 
+  it('reads design ids whose source frame was measured to COINCIDE with the mould as that mould (gen-boxed 2026-11-19)', () => {
+    // 28976 (76269 + 7 Mecabricks sets): Rebrickable elements.csv gives design 28976 part 46304 (Snow Goggles), and the
+    // Mecabricks mesh in the harvest's frame fits 46304's surface at ZERO delta (clego mb_align fit 1.000).
+    expect(partAliasCandidates('28976')[0]).toBe('46304');
+    // 21634 (41395 + 19 Mecabricks Friends sets): both Studio tables map LEGO 21634 to 92252 (Friends legs, pleated
+    // skirt) at a zero correction, and in every Mecabricks doll the raw legs sit where LDraw's composite puts 92252
+    // under the mesh-fitted torso and head (within 0.8 LDU). A decorated id reaches it through the hop.
+    expect(partAliasCandidates('21634d1')).toEqual(['21634', '92252']);
+  });
+
+  it('draws a frame-offset alias as its mould moved by the MEASURED offset, and reports the stand-in (94590 head, 28705 hair)', async () => {
+    writeFileSync(join(root, 'parts', '92198.dat'), BRICK);
+    writeFileSync(join(root, 'UnOfficial', 'parts', 'bl_28705.dat'), BRICK);
+    const provider = createPartGeometryProvider();
+    // BRICK spans x, z -10..10 and y -24..0. The Mecabricks doll head 94590 IS 92198 (mesh fit 1.000) one LDU lower
+    // and 2.5 LDU forward of 92198's origin: the mould is drawn at (0, -1, 2.5) of the placed name.
+    const head = await provider.getPartMesh('94590d1');
+    expect(head).not.toBeNull();
+    expect(head!.bounds.min).toEqual([-10, -25, -7.5].map(v => expect.closeTo(v, 5)));
+    expect(head!.bounds.max).toEqual([10, -1, 12.5].map(v => expect.closeTo(v, 5)));
+    expect(datSubstitutionFor('94590d1')).toBe('92198');
+    // 28705 (Moana's hair, 9 LDD-lineage sets): Studio's ldraw_lxfv56.xml re-expresses the LDD frame on its own copy
+    // bl_28705 with t = (0.0096, 1.7504, 0.1896) LDD units, applied inverse into LDraw: (-0.24, 43.76, 4.74) LDU.
+    const hair = await provider.getPartMesh('28705');
+    expect(hair).not.toBeNull();
+    expect(hair!.bounds.min).toEqual([-10.24, 19.76, -5.26].map(v => expect.closeTo(v, 2)));
+    expect(hair!.bounds.max).toEqual([9.76, 43.76, 14.74].map(v => expect.closeTo(v, 2)));
+    expect(datSubstitutionFor('28705')).toBe('bl_28705');
+    expect(provider.report().unresolved).toEqual([]);
+  });
+
   it('draws LSynth segment parts (lsNN) from LSynth\'s own part files, which no library ships (8097: 40 ls11 boxes)', async () => {
     // LSynth writes a synthesised hose / band as many placements of its OWN parts; the tool ships them, LDraw does
     // not. LS11 is the NXT cable segment: a unit cylinder of radius 1 from y 0 to y 1, which each placement's matrix

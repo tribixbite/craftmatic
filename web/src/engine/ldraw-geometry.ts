@@ -28,7 +28,7 @@
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
-import { identityAliasFor, partAliasCandidates, printedHeadFor, studioFrameRedirect, synthesizedPartText } from './ldraw-part-aliases.js';
+import { frameOffsetPartText, identityAliasFor, partAliasCandidates, printedHeadFor, studioFrameRedirect, synthesizedPartText } from './ldraw-part-aliases.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { ldrawColorToBlock, LDRAW_COLOR_TO_BLOCK } from './ldraw-colors.js';
 import { type VoxelizeResult, type VoxelizeOptions, TECHNIC_INTERNAL_PARTS } from './ldraw-voxelizer.js';
@@ -540,6 +540,14 @@ async function fetchDatText(id: string): Promise<string | null> {
     }
     // A name built by a fixed rule from parts the library ships (the rigid hose `75cNN`), only after every real
     // definition missed.
+    // A name that IS a mould in a measured other frame (`FRAME_OFFSET_ALIASES`): a one-line part placing the mould at
+    // the offset. Recorded as a substitution, so the stand-in is visible (a decorated `94590d1` draws plain 92198).
+    const framed = key.includes('/') ? null : frameOffsetPartText(key);
+    if (framed !== null && (await fetchDatText(framed.target)) !== null) {
+      datTextCache.set(key, framed.text);
+      datSubstitutions.set(key, framed.target);
+      return framed.text;
+    }
     const generated = key.includes('/') ? null : synthesizedPartText(key);
     if (generated !== null) { datTextCache.set(key, generated); return generated; }
     datTextCache.set(key, null);

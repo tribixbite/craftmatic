@@ -8,7 +8,7 @@
  */
 
 import type { Vec3, Triangle, Edge, PartGeom, UV } from './types.js';
-import { partAliasCandidates, printedHeadFor, studioFrameRedirect, synthesizedPartText } from '../../engine/ldraw-part-aliases.js';
+import { frameOffsetPartText, partAliasCandidates, printedHeadFor, studioFrameRedirect, synthesizedPartText } from '../../engine/ldraw-part-aliases.js';
 
 const datTextCache = new Map<string, string | null>();
 const partGeomCache = new Map<string, PartGeom>();
@@ -530,9 +530,10 @@ export function normId(id: string): string {
  * A part GENERATED for a name no library ships (`synthesizedPartText`, engine/ldraw-part-aliases.ts): the rigid
  * hose `75cNN` and LSynth's own `lsNN` segments and constraints, so the viewer draws what the export ships. Until
  * 2026-11-16 the viewer drew every `lsNN` as one 4.5 LDU stand-in cylinder of its own; the export drew a box.
+ * Also a frame-offset alias (`FRAME_OFFSET_ALIASES`: `94590d1` as 92198 moved by its measured offset), as the export.
  */
 function synthesizeLsSegment(stem: string): string | null {
-  return synthesizedPartText(stem);
+  return synthesizedPartText(stem) ?? frameOffsetPartText(stem)?.text ?? null;
 }
 
 function applyMat(v: Vec3, R: readonly number[], T: Vec3): Vec3 {
