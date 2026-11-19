@@ -207,6 +207,35 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
   turn 90 -8; 10326 300 % turn 270 -1 (runs re-planned in a different order; 42670's turn 270 has a refused edge whose
   foot no plan reaches any more). 5482 at 300/400 % reaches less than the census pack whose four doors cut each
   other's floors. 76419 and 21063 identical to base apart from stamps; SCALE-06 lines identical.
+- 2026-11-19 branch `gen-reach` (NOT merged; worktree `.worktrees/gen-reach`, commits 901ec58c..): the dips above were
+  the tread planner's run ORDER and one lost run (docs/bedrock-interactivity.md "The per-plan dips after it"). Tool:
+  `CRAFTMATIC_TREAD_INPUTS=<f>.json` on any export records the planner's inputs; `bun scripts/_tread_replay.ts <f>.json
+  [--sizes= --turns= --against=<pack>]` replays plans in seconds (inputs of 10 sets: `output/gr/dump/`). Packs
+  `output/gr/after3/` (6b493fb4, clean stamp). Tread-plan surfaces over 16 plans, base build f134493e
+  (`.worktrees/gen-door2/output/gd2/base-packs2/`) / gen-door2 (`output/gr/d<set>/`) -> now: 10326 25,792 / 26,135 ->
+  28,556 (400 % turn 270 3318 vs 3319, one surface, the only favourite plan under base); 42670 52,846 / 52,950 ->
+  53,711; 41732 61,010 / 60,939 -> 61,511; 21318 73,496 -> 75,172; 910004 20,069 -> 20,977; 76419 29,923 -> 32,042;
+  21063 23,537 -> 25,551; every plan's highest equal or higher. Census vs gen-door2: 5582 36,992 -> 38,908; 5482
+  30,436 -> 34,171 (300 % = the old planner on today's inputs, 1,909: the gap to the census pack is the held-shut
+  stacked doors); 2504 35,574 -> 35,696 (400 % turn 0 4,758 vs 4,764, above the base planner's 4,754).
+  Walks (`output/gr/eval.sh`; `eval-base.txt` vs `eval-after3.txt`): the three SCALE-06 route lines identical blocked
+  and auto-jump, 21063 300 % flank lanes 30.5 / 31.5 identical. Fan lanes, lane by lane vs the base build
+  (`output/gr/fan/base-*` vs `after3-*`, scratch tool fan.ts = fan_walk.ts): 76419 200 % and 21063 200 % identical;
+  76419 300 % S 49.5 9.56 -> 7.20 (1 gain); 76419 400 % 8 lower (S 43.5 5.14 -> 4.00, S 61.5 5.88 -> 3.19, W 18.5/19.5
+  3.38 -> 2.50, W 36.5/37.5 4.75 -> 4.56/4.25, W 58.5 1.25 -> 0.94), 10 higher (S 26.5 1.25 -> 7.0 with a new 5.63
+  fall off what it reaches); 21063 300 % 4 lower (E 5.5 9.19 -> 7.88, S 10.5 3.88 -> 3.50, W 66.5 4.26 -> 2.19,
+  W 67.5 3.81 -> 2.88), 3 higher (S 2.5 2.19 -> 10.95); 21063 400 % S 36.5-38.5 back to base, no new fall, 4 lower
+  (E 91.5 2.06 -> 1.25, W 19.5 3.20 -> 2.50, W 89.5 4.25 -> 2.20, W 92.5 1.63 -> 1.25), 5 higher (N 2.5/3.5 2.5 ->
+  7.25/6.0). What each costs (same inputs, one mechanism off): without the run-order fix NONE of those lanes is lower,
+  and 76419 300 % reaches 2,241 surfaces / top 5.55 blocks instead of 2,292 / 5.83, 400 % 3,654 / 5.48 instead of
+  4,164 / 7.44, 21063 300 % 1,735 / 5.88 instead of 2,078 / 8.13, 21063 400 % 2,676 instead of 2,740, and the
+  favourite dips (41732 400 % 7,746) return; without the swap pass 76419 300 % S 49.5, 400 % W 18.5/19.5 and 21063
+  300 % E 5.5 / S 10.5 / W 67.5 are back but 76419 300 % loses 17 surfaces and 0.35 of top, 400 % 219 surfaces and
+  0.67 of top, 21063 300 % 3 surfaces, and 10326 150 % turn 180 its level (3.58 -> 2.62). Sim and regressions:
+  140 scenarios 0 failed (`output/gr/sim-after3.txt`), 0 failed / 11 tested (`regr-after3.txt`). Planning time (42670's 16 plans, replay): 149 s at gen-door2, 273 s
+  without the second plan, ~320 s with it (`TODO(tread-swap-cost)`: the second plan won 2 of 72 plans). NOT done:
+  42670 Door 3's 100 % threshold stair across the ground route (not the scaled planner); a device round on the
+  changed fan lanes.
 - Step 4: a per-vehicle drive check for every census vehicle: the sim's vehicles scenario (move 20 blocks, turn,
   camera follows, dismount gives the camera back, never inside a wall), plus `_cockpit_view.ts` renders
   (`driverSeesOut`). Then BDS 1.26.63.1 (`C:/git/bds/`) beside the sim for API fidelity, then one Pixel round.

@@ -816,6 +816,21 @@ export interface CarveSource {
   doorways?: readonly CarveDoorway[];
 }
 
+/** The carve a size and turn is laid with (collider-carve.ts): the per-size carve, a doorway carve, or none. */
+export function sizeCarveFor(formCells: readonly SourceCell[], dims: GridDims, pct: number, r: QuarterTurn, carveSource?: CarveSource): SizeCarve | undefined {
+  if (!carveSource) return undefined;
+  if (carvesAt(pct)) return planSizeCarve(formCells, dims, pct, r, carveSource.boxes, carveSource.protect);
+  return DOOR_CARVE_SIZES.includes(pct) && carveSource.doorways?.length ? planDoorwayCarve(formCells, dims, pct, r, carveSource.boxes, carveSource.doorways, carveSource.protect) : undefined;
+}
+
+/** `TreadInputs` read back into the planner's types. */
+export function treadInputsRead(inputs: TreadInputs): { fine: FineReachColumns | undefined; carve: CarveSource | undefined } {
+  return {
+    fine: inputs.fine ? new Map(inputs.fine) : undefined,
+    carve: inputs.carve ? { ...inputs.carve, protect: inputs.carve.protect ? new Set(inputs.carve.protect) : undefined } : undefined,
+  };
+}
+
 function colliderTreadsJob(colliders: PlacementColliders, targets: readonly ReachTarget[], doorCells: ReadonlyArray<readonly (number | undefined)[]>, fineReach?: FineReachColumns, carveSource?: CarveSource, approaches: readonly DoorApproach[] = []): { plan: (pct: number, r: QuarterTurn) => void; result: () => ColliderTreadsResult } {
   // Planned over the grid as it was BEFORE clearance: every clearance form
   // (collider-form.ts) read as the full cell over its vertical extent. A tread
@@ -839,9 +854,7 @@ function colliderTreadsJob(colliders: PlacementColliders, targets: readonly Reac
   return {
     plan(pct, r) {
       // The carve first (over the shipped forms, as the runtime lays them); the treads are planned over it.
-      const carve = !carveSource ? undefined
-        : carvesAt(pct) ? planSizeCarve(formCells, dims, pct, r, carveSource.boxes, carveSource.protect)
-          : DOOR_CARVE_SIZES.includes(pct) && carveSource.doorways?.length ? planDoorwayCarve(formCells, dims, pct, r, carveSource.boxes, carveSource.doorways, carveSource.protect) : undefined;
+      const carve = sizeCarveFor(formCells, dims, pct, r, carveSource);
       if (carve?.size) carvesPlanned.set(`${pct}:${r}`, carve);
       const plan = planColliderTreads(cells, dims, pct, r, targets, doorCells, { walk: colliderLaneWalk(formCells, dims, pct, r, carve), cells: formCells }, fineReach, carve, approaches);
       const f = pct / 100;
@@ -892,6 +905,41 @@ function treadPlanSteps(): Array<[number, QuarterTurn]> {
 export function withColliderTreads(colliders: PlacementColliders, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], fineReach?: FineReachColumns, carveSource?: CarveSource, approaches: readonly DoorApproach[] = []): ColliderTreadsResult {
   const job = colliderTreadsJob(colliders, targets, doorCells, fineReach, carveSource, approaches);
   for (const [pct, r] of treadPlanSteps()) job.plan(pct, r);
+  return job.result();
+}
+
+/**
+ * Everything the tread planner reads for one export (`withColliderTreads`'s arguments) as plain JSON. An export run
+ * with `CRAFTMATIC_TREAD_INPUTS=<file>` writes it (playable-addon.ts); `planTreadsFromInputs` replays any of its plans
+ * in seconds (`scripts/_tread_replay.ts`, the real-set tread tests) where a rebuild takes minutes, so a reach change
+ * between two planners can be diffed on the very same inputs.
+ */
+export interface TreadInputs {
+  colliders: PlacementColliders;
+  targets?: ReachTarget[];
+  doorCells: ReadonlyArray<readonly (number | undefined)[]>;
+  /** `FineReachColumns` as its entries. */
+  fine: Array<[number, number[]]> | null;
+  /** `CarveSource` with its `protect` set as an array. */
+  carve: (Omit<CarveSource, 'protect'> & { protect?: string[] }) | null;
+  approaches: DoorApproach[];
+}
+
+/** The tread planner's inputs as JSON-safe data (`TreadInputs`). */
+export function treadInputs(colliders: PlacementColliders, targets: readonly ReachTarget[], doorCells: ReadonlyArray<readonly (number | undefined)[]>, fineReach?: FineReachColumns, carveSource?: CarveSource, approaches: readonly DoorApproach[] = []): TreadInputs {
+  return {
+    colliders, targets: [...targets], doorCells,
+    fine: fineReach ? [...fineReach].map(([k, v]) => [k, [...v]]) : null,
+    carve: carveSource ? { ...carveSource, protect: carveSource.protect ? [...carveSource.protect] : undefined } : null,
+    approaches: [...approaches],
+  };
+}
+
+/** Plan the treads from recorded inputs (`TreadInputs`), at the given size steps and turns (every step by default). */
+export function planTreadsFromInputs(inputs: TreadInputs, steps: ReadonlyArray<readonly [number, QuarterTurn]> = treadPlanSteps()): ColliderTreadsResult {
+  const { fine, carve } = treadInputsRead(inputs);
+  const job = colliderTreadsJob(inputs.colliders, inputs.targets ?? [], inputs.doorCells, fine, carve, inputs.approaches);
+  for (const [pct, r] of steps) job.plan(pct, r);
   return job.result();
 }
 
