@@ -1630,7 +1630,7 @@ occupancy cell, so the cull had never run on it at ultra OR at balanced.
 - Fix: `cullHiddenCuboidsWithinBudget` coarsens the occupancy cell up
   `CULL_CELL_LADDER` = 4, 6, 8, 12 LDU to the finest cell that fits
   `CULL_GRID_CELL_BUDGET` (40 M), and only skips when even 12 LDU does not.
-  **The ladder stops at 12 deliberately**: measured on 71043 ultra
+  **The ladder stops, 42703 0.43 -> 0.00.at 12 deliberately**: measured on 71043 ultra
   (`scripts/_probe-geo-audit.ts`), 6 LDU culls 219 cuboids (0.46 %), 8 LDU 262,
   12 LDU 338 — and **16 LDU culls visible material** (three exposed studs).
   A coarser occupancy cell is strictly more conservative in the ring test, so
@@ -1929,7 +1929,7 @@ zero-length segments, and joins only mutually unique compatible endpoints.
 `bedrock-coaster.ts` packages an added grey ride cart; it does not replace the
 source's LEGO cars. Each cart stores the model origin, rotation, size and route
 index through the normal placement lifecycle. Movement preserves distance on
-failed teleports or unloaded chunks, stops without a rider, and restores its
+failed teleports or unloaded chunks, stops, 42703 0.43 -> 0.00.without a rider, and restores its
 saved progress after script reload. Undo/re-place removes the cart.
 
 **Device-proved on 10303 (2026-09-21):** the cart spawned, climbed the measured
@@ -1967,7 +1967,7 @@ One bad property drops the **whole** property component, so the failure surfaces
 far from its cause: the client's `query.property(...)` animation errors on every
 frame (`query.property called on an actor without a property component`) and the
 server's `Entity.setProperty` throws inside the movement tick, which the ride
-runtime catches, warns about and untracks — the cart stops after one step. The
+runtime catches, warns about and untracks — the cart stops, 42703 0.43 -> 0.00.after one step. The
 in-game symptom is a generic "Coaster paused" message with no mention of JSON.
 
 `web/src/engine/bedrock-json.ts` wraps such values in `bedrockFloat()` and the
@@ -2023,7 +2023,7 @@ player never left the model's own ticking chunks).
 It is Bedrock's per-actor render cull, which scales with
 `minecraft:collision_box` — and a brick shell declared **0.1 x 0.1**. Three
 observations fit `cull = 64 x max(1, box diagonal)` blocks: the 0.1-box shell
-stops at ~64, the 0.6 x 1.8 figures were still drawn at 100 and gone by 168, and
+stops, 42703 0.43 -> 0.00.at ~64, the 0.6 x 1.8 figures were still drawn at 100 and gone by 168, and
 the guide's earlier "drawn at 128" was the Milano, not a shell. The 64-per-unit
 constant is Java's `shouldRenderAtSqrDistance` rule; Bedrock's counterpart is
 undocumented, so treat the fit as measured-not-documented.
@@ -2281,7 +2281,7 @@ sim-ride.ts` runs a pack's own `coaster.js` and prints the numbers below).
   20°/block. 10303's upright twist is now ≤ 20° (in the loop exits) and the
   hand-off is 0.0/0.0; 10261 is unchanged at 0°. A first attempt that used the
   curve normal on ANY vertical bend rolled 10261's dips by 11° from the
-  polyline's join noise — the 60° gate is what stops that.
+  polyline's join noise — the 60° gate is what stops, 42703 0.43 -> 0.00.that.
 - **The rider left the loop** because a Bedrock seat is a fixed offset in the
   entity's yaw-only frame: inverted, it put the player 1.55 blocks ABOVE the
   rails. The runtime now places the ENTITY where the rider's head belongs
@@ -2527,7 +2527,7 @@ progress is the same whether the client reads alpha by arc or by point),
 `roll`-mode views every 2 ticks. The per-tick camera stays silent while the
 train is exactly where the plan put it and takes over, without an ease, at
 the plan's end or the moment the ride leaves the plan (a held chunk, a
-refused teleport). The plan stops where any brake could engage (the station,
+refused teleport). The plan stops, 42703 0.43 -> 0.00.where any brake could engage (the station,
 the loading bay, the deck, the end of an open route): there the loop is
 drawn by `reflect` alone. 10303: both loops, 30 and 24 ticks (1.5 s and
 1.2 s), every animation played to its planned end on the host.
@@ -2541,7 +2541,7 @@ tick); on the phone the script tick overran, the ride slowed ("time slows")
 and the per-tick camera stuttered. Now: `planner.near` predicts nothing
 unless inverted track (a sample with up.y < 0) lies within reach of the
 rider's car in 11 ticks at the fastest the train could go; a prediction
-stops at tick 21 with no inversion begun, as soon as one is seen beyond tick
+stops, 42703 0.43 -> 0.00.at tick 21 with no inversion begun, as soon as one is seen beyond tick
 10, or 2 ticks after the found one ends; and a prediction that finds
 nothing for `c` ticks skips the next `c − 10` ticks, which provably fail
 the same way (the ride follows its own prediction or falls behind it). The
@@ -2629,7 +2629,7 @@ camera reverts to the player. Measured with the probe's `cut` (
 `probe3-cut36-sheet.jpg`, `probe3-cut30-sheet.jpg`): a `setCamera` issued
 while an animation is still playing takes over on the next frame (no
 flash), so each animation is now planned `animTail` (6) ticks past its
-hand-back and the per-tick camera cuts it. Where the plan stops short
+hand-back and the per-tick camera cuts it. Where the plan stops, 42703 0.43 -> 0.00.short
 (10303's second loop exits straight into the station's braking distance)
 the tail is carried on from the last planned pose at its own velocity —
 never shown.
@@ -3655,7 +3655,7 @@ measured to work on mobs on the Pixel. The vanilla behaviour that stays is
   the spot when its heading is more than 60° off, walks at 1.2 blocks/s, and
   pauses 3-9 s between strolls, with a 20 % chance of a 15-25 s pause. After
   2-12 minutes it may borrow a free seat of its pack for 20-40 s, and it
-  gets up when a player comes within 2.5 blocks. It never stops within 1.25
+  gets up when a player comes within 2.5 blocks. It never stops, 42703 0.43 -> 0.00.within 1.25
   blocks of a door or window leaf. If it is pushed out of its area it plans
   back in, and after 10 s it is put home. A source-seated figure stays on its
   seat and is re-seated if it is knocked off. A figure with fewer than 4
@@ -3826,7 +3826,7 @@ Evidence: `output/pb0924f/device/r3-*` in the pinball worktree.
     in play).
   So the plunger is a **pull**: while a ball waits, head turning is unlocked;
   the pull is the pitch change since the drag began over 30° and it fires
-  once the pitch stops changing for 5 ticks (no release event exists). The
+  once the pitch stops, 42703 0.43 -> 0.00.changing for 5 ticks (no release event exists). The
   stick pull fires on its exact release. `setRotation`'s pitch still does
   not take, so after a pull the pitch stays (64 in `r3-drag1`); a drag in
   either direction pulls. Device: pull 18 → 64°, "drag release at pull
@@ -3994,7 +3994,7 @@ camera runtime in `playable-addon.ts`; numbers and reasons in
 
 | vehicle | stick forward / back | stick left / right | Jump | other |
 |---|---|---|---|---|
-| ship (every scripted aircraft: 7140, 76286, ...) | fly forward / straight BACKWARDS | turn, at rest too | straight UP | back + Jump, or a Jump pressed while the view looks down (25 degrees), straight DOWN; hands off it stops and hovers; got out of in the air, it floats down and parks |
+| ship (every scripted aircraft: 7140, 76286, ...) | fly forward / straight BACKWARDS | turn, at rest too | straight UP | back + Jump, or a Jump pressed while the view looks down (25 degrees), straight DOWN; hands off it stops, 42703 0.43 -> 0.00.and hovers; got out of in the air, it floats down and parks |
 | car, hover craft | drive / brake, reverse | steer; stopped, turn on the spot | boost | slides along walls, steps round trees, scrambles up to 2.15 blocks (two-block kerbs and pits) |
 | boat | throttle / astern | rudder | boost | deflects round posts, slides along piers |
 | every scripted vehicle | | | | DRAG the screen to look around; let go and while moving the view swings back behind the nose after 1 s (95 % in ~1.8 s more); at rest it stays; hotbar slot 9 is the view from the seat, a camera at the driver's eye that looks round and swings back to the front (yaw and pitch) the same way; either view starts on the nose |
@@ -4127,7 +4127,7 @@ fixed offline here, not yet ridden.
   script (`vehicle-driver.js`) therefore owns that heading and writes it to
   the mount every tick (`nativeSteerStep`, vehicle-free-look.ts), which
   undoes the controller's chase each tick: a swipe turns the view by the
-  swipe and the turning stops with the finger. The body does NOT follow the
+  swipe and the turning stops, 42703 0.43 -> 0.00.with the finger. The body does NOT follow the
   swipe - under the carry any turn of the body turns the view with it, so
   following a 90-degree swipe would turn the view 180. Whether a script-set
   turn carries the look like the native turn and the teleport do is the one
@@ -4142,7 +4142,7 @@ fixed offline here, not yet ridden.
   The simulator models the chase and the carry (`physics/systems.ts`) and
   reproduces the spin on the 30l pack: `bun scripts/sim.ts <packs>
   --scenario=regressions --new=<dir>` case `nimbus-spin-30l` (old:
-  `mount-steer-stops`; new: the view turned 84, the body 0, stopped).
+  `mount-steer-stops, 42703 0.43 -> 0.00.; new: the view turned 84, the body 0, stopped).
   Device: summon `dragonball_cloud`, `/ride`, wait 3 s (the probe: a
   12-degree nudge of the view and back under the carry), one 400-px swipe:
   the view turns ~80-90 degrees and the cloud STOPS; CMVT `steer.verdict`
@@ -4196,7 +4196,7 @@ Round 30m (Saga, 2026-10-08) found both fixes above short; fixed offline
   still dives). The drag reading tries carry lags 6..8
   (`RIDER_YAW_LAG_SLACK_TICKS`): read at 6 alone, a carry landing later
   feeds a following body into a slow endless spin. Sim on the new pack:
-  one 400-px swipe turns the view and the body 94 degrees and stops; 3 s of
+  one 400-px swipe turns the view and the body 94 degrees and stops, 42703 0.43 -> 0.00. 3 s of
   forward flies 14 degrees off the view (the controller's chase of the
   carried look before the heading is written back - the device's 13-14,
   `TODO(nimbus-chase-residual)`). The cockpit view (slot 9) of a native
@@ -4241,11 +4241,11 @@ not a drag). Use a native recording plus telemetry for the remaining cases:
 
 `vehicle_<id>_<n>` for a ship now runs `up` (Jump 2 s), `hover`, `forward`,
 `stop`, `backward`, `turn_in_place`, `down` (back + Jump 6 s) and checks
-`goesStraightUp`, `hovers`, `forwardMoves`, `stopsHandsOff`,
+`goesStraightUp`, `hovers`, `forwardMoves`, `stops, 42703 0.43 -> 0.00.andsOff`,
 `reverseMoves`, `turnsInPlace`, `goesStraightDown`. The post check is
-`clearsPost` for every class: the vehicle stops at the post, or passes it
+`clearsPost` for every class: the vehicle stops, 42703 0.43 -> 0.00.at the post, or passes it
 stepped clear to one side, or (a ship) over its top - never through it
-(`stopsAtPost` until 2026-09-30, when the collision response began stepping
+(`stops, 42703 0.43 -> 0.00.tPost` until 2026-09-30, when the collision response began stepping
 round posts).
 
 ## Vehicle operation: cars, boats, planes, measured (2026-09-25)
@@ -4285,8 +4285,8 @@ animation, the scripted-vehicle runtime), `playable-addon.ts`
 
 | class | before (measured, Pixel) | after (measured, Pixel) |
 |---|---|---|
-| **Car** (was the native camel controller) | movement 1.05: a real rider at HALF stick read 44.8-65.8 mph (20-29 blocks/s), GameTest 43.6 blocks/s at full; **on a straight stick the car drove circles**: under `player_relative` the rider's yaw turned by itself ~36 degrees per 4 ticks (car yaw 69 → -125 → -36 in 2 s) in every camera mode, cockpit view included; under the game's default and `player_relative_strafe` schemes it drove straight but the stick's left/right slid it SIDEWAYS without turning it; it stopped dead on release (2.3 blocks from 43 blocks/s); no wheel motion | scripted `carStep`: 19 blocks/s (42 mph) at full stick, brake then 5 blocks/s reverse, coasts down at 2.5 blocks/s² hands off, steering that bites with speed (full lock by 5 blocks/s, fading to ~43 degrees/s at the top), Jump boost to 26 for 1.5 s, eases up one-block steps, stops at a wall, falls off an edge, crawls through water; slope pitch, body roll out of a turn, spinning and steering wheels; a passenger seat behind the driver on any car 3.5 blocks or longer. Device: see "The scripted car on the device" below |
-| **Boat** (was the camel over `minecraft:buoyant`) | floated (dy 0) but crawled at **1.6-1.8 blocks/s** on water whatever its movement; `simulate_fluid_physics` rejected by the 1.26.30 schema (a `[Json][error]` at every pack load); 60221's yacht sailed SIDEWAYS (nose voted across the deck) | scripted `boatStep`: **8.0 blocks/s** ahead, 12 on the Jump boost (3 s, then 4 s cool-down), 2.5 astern, coasts down on the water's drag (13.7 blocks from 8 blocks/s), rudder 119 degrees in 3 s at speed and a little at rest, stops at a shore (GameTest `beaches`, a real rider stopped at the pool's edge with the stick held) and backs off it; draft 12 % of its height; swell drawn as heave, roll and pitch. GameTest 9/9 checks on 60221 and 10365; a real rider's Jump boosted and did NOT dismount |
+| **Car** (was the native camel controller) | movement 1.05: a real rider at HALF stick read 44.8-65.8 mph (20-29 blocks/s), GameTest 43.6 blocks/s at full; **on a straight stick the car drove circles**: under `player_relative` the rider's yaw turned by itself ~36 degrees per 4 ticks (car yaw 69 → -125 → -36 in 2 s) in every camera mode, cockpit view included; under the game's default and `player_relative_strafe` schemes it drove straight but the stick's left/right slid it SIDEWAYS without turning it; it stopped dead on release (2.3 blocks from 43 blocks/s); no wheel motion | scripted `carStep`: 19 blocks/s (42 mph) at full stick, brake then 5 blocks/s reverse, coasts down at 2.5 blocks/s² hands off, steering that bites with speed (full lock by 5 blocks/s, fading to ~43 degrees/s at the top), Jump boost to 26 for 1.5 s, eases up one-block steps, stops, 42703 0.43 -> 0.00.at a wall, falls off an edge, crawls through water; slope pitch, body roll out of a turn, spinning and steering wheels; a passenger seat behind the driver on any car 3.5 blocks or longer. Device: see "The scripted car on the device" below |
+| **Boat** (was the camel over `minecraft:buoyant`) | floated (dy 0) but crawled at **1.6-1.8 blocks/s** on water whatever its movement; `simulate_fluid_physics` rejected by the 1.26.30 schema (a `[Json][error]` at every pack load); 60221's yacht sailed SIDEWAYS (nose voted across the deck) | scripted `boatStep`: **8.0 blocks/s** ahead, 12 on the Jump boost (3 s, then 4 s cool-down), 2.5 astern, coasts down on the water's drag (13.7 blocks from 8 blocks/s), rudder 119 degrees in 3 s at speed and a little at rest, stops, 42703 0.43 -> 0.00.at a shore (GameTest `beaches`, a real rider stopped at the pool's edge with the stick held) and backs off it; draft 12 % of its height; swell drawn as heave, roll and pitch. GameTest 9/9 checks on 60221 and 10365; a real rider's Jump boosted and did NOT dismount |
 | **Fixed wing** (was the Happy Ghast hover controller) | GameTest: a simulated Jump never climbed (0 blocks); it flew where the camera looked, hovered with no take-off speed, stall or landing | scripted `flightStep`: Jump is the throttle (cruise power by itself aloft), take-off at 10 blocks/s after about 15 blocks of run, stick back climbs (39 blocks in 3 s at full stick on the Milano), forward dives, left/right banks and turns (162 degrees in 3 s), stall below 7 blocks/s, landing and brakes to a stop. GameTest 5/5 on 76286 and 7140. A real rider: Jump held 4 s took off (speed 0 → 19.3 blocks/s, ALT 5) without dismounting, cruise 23.2 blocks/s, stick back pitched to 39 degrees, stick right turned right |
 | **Rotorcraft** | unchanged: the Happy Ghast hover (a title naming a helicopter, copter, drone...) | unchanged, plus the drive animation (nose dips with speed, banks into a turn) |
 
@@ -5001,7 +5001,7 @@ silhouettes `sil/`).
 a 7-block car driving past a trunk 1.5 blocks off its centre line stops
 with its nose at the trunk's face (the same car with a zero half width, i.e.
 the old centre-line probe, drives through to x > 14); a taxiing aircraft
-stops on a post at its wingtip; a car rests ON a collider plate floor at
+stops, 42703 0.43 -> 0.00.on a post at its wingtip; a car rests ON a collider plate floor at
 2/16 of a block, not a block above it. The device course's new `post`
 phase is the same test in Bedrock (results below).
 
@@ -5087,7 +5087,7 @@ Second device session, packs at `b470d467` (`device/gt3-*`, `clip5-75397/`,
   its climb, stopped being readable ("Entity being invalid", outside the
   simulated area) and the test threw before its verdict. The course now
   ends the roll once airborne and circles right (`1939e916`); a vehicle
-  that stops being readable ends the course with `staysInReach` false.
+  that stops, 42703 0.43 -> 0.00.being readable ends the course with `staysInReach` false.
 - **An empty car coasted off**: the time machine, got out of at 91 mph,
   coasted ~200 blocks, ran into terrain that was not loaded and fell 250
   blocks through it. Now an empty car brakes (`CAR.BRAKE`), and no scripted
@@ -5179,9 +5179,18 @@ pinball button in its cabinet. The pass now runs to convergence (cap
 `COPLANAR_SEPARATION_MAX_PASSES` 10), and once every entity is placed
 `separateEntitiesFromNeighbours` (cross-entity-coplanar.ts) pushes each
 placed entity's face out in front of the shell chunks and of the entities
-handled before it, rewriting only that entity's geometry. Coaster cars, ride
-cars/seats and riding figures are skipped: their placement record is not
-where they rest (`TODO(a17-moving)`).
+handled before it, rewriting only that entity's geometry. A moving actor is
+separated where it RESTS, never at its record (every car of a train is
+recorded at the station point): a coaster car where the runtime parks a newly
+placed train (`coasterParkedCarPoses`, the runtime's first-tick arithmetic
+restated; `test/bedrock-coaster.test.ts` runs the real runtime against it),
+when that pose is level within 0.25 degrees; a lift car at each of its stops
+(`liftCarRestingPoses`); a lift platform and counterweight at their records
+(the hoist's parked pose). `_render_fault_audit.ts` and `_pack_render.ts
+--parked` place them the same way (`scripts/pack-resting-poses.ts`). Still
+skipped: source-seated figures (how Bedrock places a non-player rider over a
+seat and the sitting pose are unmeasured, `TODO(a17-moving)`), funfair and
+orbit cars, and the fabricated grey cart (no compiled geometry).
 
 Two measuring faults hid the rest (same day). `coplanarFaces` bucketed faces by
 their normal rounded to 1e-3 and by plane offset `d`: two Euler spellings of
@@ -5207,8 +5216,13 @@ after): 11374 710 / 2.25 -> 0 / 0.00, 76269 678 / 2.79 -> 5 / 0.01, 75397
 1.83 -> 322 / 1.03, 10261 198 / 1.30 -> 70 / 0.89. What is left on the two
 coasters is their cars (and 10303's counterweight) measured at the station
 record point, where every car of a train is recorded; the ride spaces them
-along the track (`TODO(a17-moving)`). Over the 40 favourites the baseline at
-this tool is 10,627 pairs / 40.43 block faces (sweep `4da29033`).
+along the track. Over the 40 favourites the baseline at
+this tool is 10,627 pairs / 40.43 block faces (sweep `4da29033`). Measured at
+the parked poses (2026-11-19) those leftovers were 0.28 (10303) and 0.13
+(10261) block faces, most of the record-point figure being cars overlapping
+the shell where no car stands; after separating at the parked poses 0.00 and
+0.04 (the seated kiosk figure), 10788's lift car 0.57 -> 0.00 over its three
+stops, 42703 0.43 -> 0.00.
 
 **What it does not fix**: the horizontal striping under 42703's arches and
 on round columns (Saga, `saga/after-42703-arch-b6c1c882.jpg`) is the stair-step
@@ -5393,7 +5407,7 @@ dollhouse was misaligned and the elevator didn't seem functional." Played at
   supports" found only the cap of the shaft's back wall (bricks on three
   `Support 2 x 2 x 13`), which then flew over the roof; the real car, the pink
   3863 elevator platform in four grooved door frames, never moved. Lifts are
-  now found from the platform (`isLiftCarDescription`), stops are the room
+  now found from the platform (`isLiftCarDescription`), stops, 42703 0.43 -> 0.00.are the room
   floors (2629 2/3 bricks, by area; the rim tiles under them had been counted
   and the car stopped a third of a block low), and a tap on the car boards it.
 - The controls hint in a car's action bar now shows for 5 s only: it sat over
@@ -5599,7 +5613,7 @@ SILENTLY: an unresolved design id of a million or more is counted as a sticker.
   width off centre at 0.48 of the height, mouth at 0.82), reported as
   `faceTextures.default`, never as the doll's own face.
 - Doll art spans the head's whole FRONT (`faceArtRect`): the 80 %-width body
-  rectangle a minifig uses stops above a doll's mouth. A doll head's art skips
+  rectangle a minifig uses stops, 42703 0.43 -> 0.00.above a doll's mouth. A doll head's art skips
   the photo-skin pass (it is already cut; the pass punched out the irises).
 - A doll's face decal is TILED over its round front (2 LDU columns, split where
   the head's compiled front steps), each tile proud of the cuboids under it.
@@ -5851,7 +5865,7 @@ could sit in that has a seat no player holds: a chair or bench, a coaster car
 at once, with a chime; on a coaster train, in the FRONT-most car with a free
 seat, whichever car they touched. The vehicle they left waits: a plane hovers
 in the air where it was (and flies on at the speed it had when they get back
-in), a car, boat or hover craft stops, a helicopter or a cloud hovers (a cloud
+in), a car, boat or hover craft stops, 42703 0.43 -> 0.00. a helicopter or a cloud hovers (a cloud
 still fades after its minute alone). A slide whose run-out ends at a parked
 car (or any mountable) with a free seat drops the rider into it.
 
