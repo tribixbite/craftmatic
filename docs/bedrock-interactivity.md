@@ -1837,6 +1837,14 @@ Unlike the first census, these were pipeline faults, one class each:
     as it has treads, touching its tread line). 21063's 300 % east flank lane x 30.5, which the Pixel climbed to
     6.25 on auto-jump (rounds 30zm/30zn), stood on such a run, which never-block refused once the first fix stopped
     an undo dropping another run by accident: the lane fell to 0.94. The base build had lost the same 3 plate cells.
+  - the fan lanes (a straight walk in from outside every lane of the footprint, SCALE-06's `fan_walk.ts`) were judged
+    lane by lane against the base build after it, and three more rules came of it: the late pass's EDGE runs (a way
+    up from the ground onto a surface reached anyway, `edgeSweep`) are judged by the cross pass like fine runs, their
+    softened form against no run (21063 at 400 %: an edge run along z 91 walled the walks north at x 36.5-38.5,
+    7.56 -> 1.25, and a walk west fell 4 blocks off its top); a swap lays back every lifted run the new run does not
+    need (`keepUnneeded`: 76419 at 200 % lost its south-yard run at x 0-3 to a swap at x 13-15); and a swap that does
+    not reach higher or win `CROSS_GATEWAY_MIN` surfaces may not shorten a cross-lane walk from the ground.
+    What is left is per-lane losses that came with the run-order fix itself (see TASKS "gen-reach").
   Lesson: the planner's reach depends on the order it meets rises; a fix that changes the order moves runs in
   plans it never meant to touch, so judge it on every plan of every door favourite and on the device lanes, not on
   the plan it was written for.

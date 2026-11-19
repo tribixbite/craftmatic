@@ -829,6 +829,11 @@ interface RunEdit {
    * cross pass judges instead should this run's side shorten a walk in (`crossPass`).
    */
   hard?: RunEdit;
+  /**
+   * Laid by the late pass's edge sweep (`edgeSweep`): a way up from the ground onto a surface the plan reaches
+   * some other way already. The cross pass judges it as it does a fine run (`crossPass`).
+   */
+  edge?: true;
 }
 
 const noVisited = (r: ReachResult): Omit<ReachResult, 'visited'> => ({ surfaces: r.surfaces, columns: r.columns, highest16: r.highest16 });
@@ -944,9 +949,12 @@ export const LANE_ROUNDS = 32;
  * blocks, every porch line stopped at its foot), and 5482's 400 % facade run across Door 3's line.
  */
 export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = [], lane?: TreadLaneCheck, fine?: FineReachColumns, carve?: SizeCarve, approaches: readonly DoorApproach[] = []): TreadPlan {
-  // TODO(tread-swap-cost): a plan whose swap pass keeps a swap is planned twice; with the swap pass itself a 400 %
-  // plan of 42670 takes ~60 s where it took ~21 s (exports of the door favourites ~1.5-2.5x longer). Plan only the
-  // passes after the swap pass again, from a snapshot, once the plan state can be copied.
+  // TODO(tread-swap-cost): a plan whose swap pass keeps a swap is planned twice. Measured 2026-11-19 on 42670's 16
+  // plans (replay, one process per size): 149 s before gen-reach, 273 s without the second plan, ~320 s with it.
+  // The second plan is not optional: of 72 plans over 7 favourites where a swap was kept, the plan without it
+  // reached more in 2 (41732 200 % turn 270: its top; 21063 400 % turn 0: 344 surfaces), and no cheap signal found
+  // so far tells those two apart (a surface the walk reached before the swap pass and lost at the end happens in all
+  // of them). Plan only the passes after the swap pass again, from a snapshot, once the plan state can be copied.
   const stats = { swaps: 0 };
   const plan = planTreadsOnce(cells, dims, sizePct, rotation, targets, doorCells, lane, fine, carve, approaches, true, stats);
   if (!stats.swaps) return plan;
@@ -1439,6 +1447,28 @@ function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: n
     for (const { at, e } of [...lifted].sort((a, b) => a.at - b.at)) { edits.splice(at, 0, e); apply(e); }
   };
   /**
+   * Of the runs `liftBlockers` lifted for run `e`, lay back every one `e` does not need (none of its columns,
+   * landing, arrival or cells is one of `e`'s), and return those still lifted. The line `liftBlockers` clears runs
+   * the whole run's possible length, and a run lifted there that `e` never touched was laid again elsewhere or
+   * not at all: 76419 at 200 % lost its fine run onto the south yard (x 0-3, z 15) to a swap at x 13-15, and the
+   * walks north at x 1.5 and 2.5 stopped 0.8-1.0 blocks lower.
+   */
+  const keepUnneeded = (lifted: Array<{ at: number; e: RunEdit }>, e: RunEdit): Array<{ at: number; e: RunEdit }> => {
+    const need = new Set<number>([colKey(e.to.x, e.to.z), colKey(e.landing.x, e.landing.z), ...e.columns.map(c => colKey(c.x, c.z))]);
+    const cells = new Set(e.writes.map(w => `${w.x},${w.block.row},${w.z}`));
+    const clash = (o: RunEdit): boolean => o.columns.some(c => need.has(colKey(c.x, c.z))) || need.has(colKey(o.to.x, o.to.z))
+      || need.has(colKey(o.landing.x, o.landing.z)) || o.writes.some(w => cells.has(`${w.x},${w.block.row},${w.z}`));
+    const still = lifted.filter(l => clash(l.e));
+    // A run that wrote a cell a later run still lifted writes over stays lifted too (that run's revert expects it gone).
+    for (let grew = true; grew;) {
+      grew = false;
+      const held = new Set(still.flatMap(l => l.e.writes.map(w => `${w.x},${w.block.row},${w.z}`)));
+      for (const l of lifted) if (!still.includes(l) && still.some(t => t.at > l.at) && l.e.writes.some(w => held.has(`${w.x},${w.block.row},${w.z}`))) { still.push(l); grew = true; }
+    }
+    putBack(lifted.filter(l => !still.includes(l)));
+    return still;
+  };
+  /**
    * Undo everything since `snapshot` (the runs as they stood): every run laid since goes, newest first, and every run
    * of the snapshot that is missing - absorbed into a merged run (`planRun`) along the way - comes back where it stood.
    */
@@ -1478,6 +1508,7 @@ function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: n
           if (displaced.length) {
             e = planRun(p, q, walkScaledColliders(grid).visited);
             if (typeof e === 'string') { putBack(displaced); displaced = []; }
+            else displaced = keepUnneeded(displaced, e);
           }
         }
         const mark = edits.length;
@@ -1531,12 +1562,18 @@ function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: n
     for (const [rk, { p, q }] of [...noRunEdges]) {
       const qk = grid.key(q.x, q.z, q.t);
       if (reach.visited.has(qk) || !reach.visited.has(grid.key(p.x, p.z, p.t))) continue;
-      const lifted = liftBlockers(p, q);
-      if (!lifted.length) continue;
+      const blocksBefore = laidTreadBlocks();
+      const allLifted = liftBlockers(p, q);
+      if (!allLifted.length) continue;
       const snapshot = [...edits];
-      const freed = walkScaledColliders(grid);
-      const e = planRun(p, q, freed.visited);
-      if (typeof e === 'string') { putBack(lifted); continue; }
+      // What the walk reaches with the blockers lifted, without walking again: the walk before the lift plus the
+      // floors their treads covered. A full walk per candidate was most of the pass's time (42670 at 400 % turn 180:
+      // 1,413 lifts for 5 swaps, 26 s of a 41 s plan); whatever this over-reads, the checks below walk for real.
+      const floorsFreed = new Set(allLifted.flatMap(l => l.e.columns.map(c => grid.key(c.x, c.z, c.floor16))));
+      const freed: SurfaceSet = { has: k => reach.visited.has(k) || floorsFreed.has(k), size: reach.visited.size + floorsFreed.size, [Symbol.iterator]: () => [...reach.visited, ...floorsFreed][Symbol.iterator]() };
+      const e = planRun(p, q, freed);
+      if (typeof e === 'string') { putBack(allLifted); continue; }
+      const lifted = keepUnneeded(allLifted, e);
       apply(e); edits.push(e); layingWalk(false);
       const walked = walkScaledColliders(grid);
       const liftedTops = new Set(lifted.flatMap(l => l.e.treadSurfaces.map(s => grid.key(s.x, s.z, s.t))));
@@ -1548,7 +1585,20 @@ function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: n
         }
         return false;
       };
-      const lost = loses(reach, walked);
+      let lost = loses(reach, walked);
+      // Nor may it shorten a straight walk in from the ground into any column it changed (the cross pass's walks,
+      // `crossLaneProbes`) unless it is worth its sides, as the cross pass keeps a gateway: it reaches higher than
+      // the plan did, or at least `CROSS_GATEWAY_MIN` more surfaces. Swaps that won 1-2 surfaces cost 21063's 300 %
+      // east lane z 9.5 (7.13 -> 2.19 blocks) and north lane x 31.5; 10326's 150 % turn 180 swap that gives back a
+      // whole level (2.62 -> 3.58 blocks) shortens one such walk and stays.
+      const worthSides = walked.highest16 > reach.highest16 || walked.visited.size - reach.visited.size >= CROSS_GATEWAY_MIN;
+      if (!lost && lane && !worthSides) {
+        const was = new Set(snapshot);
+        const changed = [...lifted.flatMap(l => l.e.columns), ...edits.filter(o => !was.has(o)).flatMap(o => o.columns)];
+        const probes = crossLaneProbes(grid, reach.visited, changed).filter(pr => pr.from.y <= groundProbeY(f, !!carve?.size) + 1e-9);
+        const now = laidTreadBlocks();
+        lost = probes.some(pr => lane.walk(now, pr.from, pr.dir, LANE_CROSS) < lane.walk(blocksBefore, pr.from, pr.dir, LANE_CROSS) - LANE_SLACK);
+      }
       if (!lost && walked.visited.has(qk) && holds(walked)) {
         noRunEdges.delete(rk);
         const was = failedReason.get(rk);
@@ -1558,8 +1608,9 @@ function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: n
         reach = walked; swapsKept++;
         continue;
       }
+      // Back as it was: the runs laid since the lift go (the ones laid back included), then every lifted run returns.
       rollback(snapshot);
-      putBack(lifted);
+      putBack(allLifted);
     }
   };
   const doorwayPass = (): void => {
@@ -1642,6 +1693,8 @@ function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: n
             // The core planner, never `planRun`: its merge with an earlier run could not be undone by `until`'s revert.
             const e = planRunCore(p, q, reach.visited);
             if (typeof e === 'string') continue;
+            e.edge = true;
+            if (e.hard) e.hard.edge = true;
             apply(e); edits.push(e);
           }
         }
@@ -1705,7 +1758,7 @@ function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: n
    * 2-block side; months of device rounds stand on them) - judge them too once a round shows one in the way.
    */
   const crossPass = (): void => {
-    if (!lane || !edits.some(e => e.run.fine)) return;
+    if (!lane || !edits.some(e => e.run.fine || e.edge)) return;
     /** The forms with every run laid, and the walk over them (the probes' floors); rebuilt after a run is swapped. */
     const laidForms = (): { fg: ScaledColliderGrid; reach: ReachResult } => {
       const fg = new ScaledColliderGrid(lane.cells, dims, f, rotation, carve);
@@ -1787,7 +1840,7 @@ function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: n
     for (let i = edits.length - 1; i >= 0; i--) {
       const e = edits[i]!;
       // A lane run had its own cross walks (`lanePass`); a run a later one writes over is that run's floor.
-      if (!e.run.fine || e.run.lane) continue;
+      if ((!e.run.fine && !e.edge) || e.run.lane) continue;
       const mine = new Set(e.writes.map(w => `${w.x},${w.block.row},${w.z}`));
       if (edits.slice(i + 1).some(o => o.writes.some(w => mine.has(`${w.x},${w.block.row},${w.z}`)))) continue;
       // Only walks that start on the GROUND: the way in from outside. Judged on every reached floor, the pass also
@@ -1808,17 +1861,24 @@ function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: n
       // the full-cell grid as a revert does; where it would not, the softened run is judged as it is.
       if (e.hard) {
         const withHard = withoutRun.concat(e.hard.writes.map(w => ({ x: w.x, y: w.block.row, z: w.z, lo: w.block.lo, hi: w.block.hi })));
-        if (!probes.some(pr => lane.walk(withRun, pr.from, pr.dir, LANE_CROSS) < lane.walk(withHard, pr.from, pr.dir, LANE_CROSS) - LANE_SLACK)) continue;
-        const prior = walkScaledColliders(grid);
-        revert(e); apply(e.hard); edits[i] = e.hard;
-        if (neverBlocks(walkScaledColliders(grid), true, prior)) {
-          allLaid = undefined; reverted = true;
-          ({ fg, reach } = laidForms());
-          // Judge the jump-height form next, at this index.
-          i++;
-          continue;
+        // An EDGE run's softened form that costs no more than its jump form is still judged against no run below:
+        // the plan reaches its top some other way, and its side is a wall a walk in from the ground meets (21063
+        // at 400 %: the edge run along z 91 stopped the walks north at x 36.5-38.5, 7.56 -> 1.25 blocks, and a walk
+        // west along its top fell 4 blocks off its end).
+        const softOk = !probes.some(pr => lane.walk(withRun, pr.from, pr.dir, LANE_CROSS) < lane.walk(withHard, pr.from, pr.dir, LANE_CROSS) - LANE_SLACK);
+        if (softOk && !e.edge) continue;
+        if (!softOk) {
+          const prior = walkScaledColliders(grid);
+          revert(e); apply(e.hard); edits[i] = e.hard;
+          if (neverBlocks(walkScaledColliders(grid), true, prior)) {
+            allLaid = undefined; reverted = true;
+            ({ fg, reach } = laidForms());
+            // Judge the jump-height form next, at this index.
+            i++;
+            continue;
+          }
+          revert(e.hard); apply(e); edits[i] = e;
         }
-        revert(e.hard); apply(e); edits[i] = e;
       }
       // Kept when the walk over the FORMS loses any surface without it (bar its own tread tops; judged before the
       // gateway, which costs a walk of its own and only matters for a run that loses nothing): a climb is worth

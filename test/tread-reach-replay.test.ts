@@ -1,5 +1,5 @@
 /**
- * The scaled tread planner on the RECORDED inputs of four favourites (IX-05, PROC-19, branch gen-reach 2026-11-19).
+ * The scaled tread planner on the RECORDED inputs of five favourites (IX-05, PROC-19, branch gen-reach 2026-11-19).
  *
  * `test/fixtures/treads/<set>-inputs.json.gz` is what the export handed the planner for that set at `9f5bdf2e`
  * (`CRAFTMATIC_TREAD_INPUTS`, `treadInputs`): the shipped colliders, the doorways' closed cells and approaches, the
@@ -23,6 +23,35 @@ const inputsOf = (set: string): TreadInputs =>
 
 /** Plan one size and turn from a set's recorded inputs; the report's per-plan reach. */
 const planOf = (inputs: TreadInputs, pct: number, r: QuarterTurn) => planTreadsFromInputs(inputs, [[pct, r]]).report.plans[0]!;
+
+/** A set's plan at one size (turn 0) and the walk world over it: what the pack lays (no doors drawn shut). */
+function plannedWorld(set: string, pct: number): { world: WalkWorld; plan: ReturnType<typeof planOf> } {
+  const inputs = inputsOf(set);
+  const result = planTreadsFromInputs(inputs, [[pct, 0]]);
+  const cells = colliderSourceCells(inputs.colliders);
+  const dims = { width: inputs.colliders.width, height: inputs.colliders.height, length: inputs.colliders.length };
+  const blocks = decodeTreadPlan(result.colliders.treads?.plans[`${pct}:0`] ?? '');
+  return { plan: result.report.plans[0]!, world: new WalkWorld({ cells, dims, sizePct: pct, rotation: 0, treads: blocks, carve: sizeCarveFor(cells, dims, pct, 0, treadInputsRead(inputs).carve) }) };
+}
+
+/**
+ * A straight walk in from 1.5 blocks outside one side of the footprint along a lane, jumping whenever it is blocked
+ * (the SCALE-06 fan walk, `output/scale06-1015/carve1/tools/fan_walk.ts`): the highest feet and the deepest fall.
+ */
+function fanLane(world: WalkWorld, side: 'N' | 'S' | 'W' | 'E', lane: number): { top: number; fall: number } {
+  const start = side === 'N' ? { x: lane, z: -1.5 } : side === 'S' ? { x: lane, z: world.length + 1.5 } : side === 'W' ? { x: -1.5, z: lane } : { x: world.width + 1.5, z: lane };
+  const dir = side === 'N' ? { x: 0, z: 1 } : side === 'S' ? { x: 0, z: -1 } : side === 'W' ? { x: 1, z: 0 } : { x: -1, z: 0 };
+  const axis = dir.x ? 'x' : 'z';
+  let s: PlayerState = { ...start, y: 0, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 };
+  let jump = false, top = 0, lastFloor = 0, fall = 0;
+  for (let t = 0; t < 400; t++) {
+    const r = tickPlayer(world, s, { move: dir, jump, sneak: false });
+    if (s.onGround) lastFloor = s.y;
+    if (r.state.onGround && !s.onGround) fall = Math.max(fall, lastFloor - r.state.y);
+    s = r.state; jump = r.collided[axis] && s.onGround; top = Math.max(top, s.y);
+  }
+  return { top, fall };
+}
 
 describe('the scaled tread planner never reaches less than the base build on the favourites\' recorded inputs', () => {
   it('41732 at 400 % turn 0: a refused merge puts the earlier run back where it stood, so a later undo cannot take it (7746 -> at least 7780 surfaces)', () => {
@@ -76,5 +105,26 @@ describe('the scaled tread planner never reaches less than the base build on the
     // The base build: lane 30.5 6.38 (feet 6.25 where it stops, the device's 6.25), lane 31.5 9.19.
     expect(climb(30.5)).toBeGreaterThanOrEqual(6.25);
     expect(climb(31.5)).toBeGreaterThanOrEqual(9.13);
+  }, 300_000);
+
+  it('21063 at 400 % turn 0: an edge run from the ground is judged by the walks it walls (south lanes x 36.5-38.5 climb to the base build 3.38 / 4.25 / 7.56, no 4-block fall off its top)', () => {
+    const { world, plan } = plannedWorld('21063', 400);
+    expect(plan.verified).toBe(true);
+    expect(fanLane(world, 'S', 36.5).top).toBeGreaterThanOrEqual(3.38 - 0.01);
+    expect(fanLane(world, 'S', 37.5).top).toBeGreaterThanOrEqual(4.25 - 0.01);
+    expect(fanLane(world, 'S', 38.5).top).toBeGreaterThanOrEqual(7.56 - 0.01);
+    expect(fanLane(world, 'E', 91.5).fall).toBeLessThanOrEqual(3);
+    // The north side's gains stay (the base build: 2.5 and 2.5).
+    expect(fanLane(world, 'N', 2.5).top).toBeGreaterThanOrEqual(7.25 - 0.01);
+    expect(fanLane(world, 'N', 3.5).top).toBeGreaterThanOrEqual(6 - 0.01);
+  }, 300_000);
+
+  it('76419 at 200 % turn 0: a swap lays back the runs it lifted but does not need (south lanes x 1.5 / 2.5 and west lane z 15.5 climb as the base build: 2.69 / 3.25 / 4.83)', () => {
+    const { world, plan } = plannedWorld('76419', 200);
+    expect(plan.verified).toBe(true);
+    expect(plan.after.surfaces).toBeGreaterThanOrEqual(984);
+    expect(fanLane(world, 'S', 1.5).top).toBeGreaterThanOrEqual(2.69 - 0.01);
+    expect(fanLane(world, 'S', 2.5).top).toBeGreaterThanOrEqual(3.25 - 0.01);
+    expect(fanLane(world, 'W', 15.5).top).toBeGreaterThanOrEqual(4.83 - 0.01);
   }, 300_000);
 });
