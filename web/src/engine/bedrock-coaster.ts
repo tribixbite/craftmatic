@@ -2914,7 +2914,8 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       let chain: any = null;
       for (let k = 0; k <= total && rollTrack; k++) {
         chain = riderView(poses[k].nose, poses[k].up, look, chain, 'roll', 40);
-        if (Math.abs(chain.direction[1]) > 0.95) rollTrack = null; else rollTrack.push(chain);
+        // The chart is the planned stretch's: the tail past the clear is the player's own view (weight 0) whatever its chart.
+        if (k <= length && Math.abs(chain.direction[1]) > 0.95) rollTrack = null; else rollTrack.push(chain);
       }
     }
     for (let k = 0; k <= total; k++) {

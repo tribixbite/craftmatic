@@ -2,7 +2,7 @@
  * The generated coaster's rider camera under its zones (WP-C04): `scripts/sim.ts --scenario=coaster-camera`, but able
  * to BOARD a train that has launches.
  *
- *   bun scripts/_coaster_zones_camera.ts <pack.mcaddon> [--client=pixel|saga|both] [--laps=1] [--max=<ticks>]
+ *   bun scripts/_coaster_zones_camera.ts <pack.mcaddon> [--client=pixel|saga|saga-26.62|both] [--laps=1] [--max=<ticks>]
  *
  * WHY NOT `sim.ts --scenario=coaster-camera`. That scenario places the pack and boards the nearest empty car by a hold.
  * The wand takes ~3,400 ticks to place, the unattended train leaves its platform after the dwell, and with a launch it
@@ -21,7 +21,7 @@ import { loadCircuit, toStoppedTrain } from './_coaster_zones_scenarios.ts';
 import { craftmaticHandlers } from '../web/src/sim/adapters/craftmatic/child-play.ts';
 import { clientSteps, craftmaticSeatCamera } from '../web/src/sim/adapters/craftmatic/client-steps.ts';
 import { packAppearance } from '../web/src/sim/adapters/craftmatic/drawn.ts';
-import { attachClient, type ClientProfileName } from '../web/src/sim/client/camera.ts';
+import { attachClient, clientProfile, type ClientProfileName } from '../web/src/sim/client/camera.ts';
 import { clientInvariants } from '../web/src/sim/client/invariants.ts';
 import type { Invariant } from '../web/src/sim/scenario/invariants.ts';
 import { runScenario } from '../web/src/sim/scenario/runner.ts';
@@ -31,8 +31,11 @@ import { CRAFTMATIC_ALLOWED_LINES, CRAFTMATIC_YIELDING_LINES } from '../web/src/
 /** What one ride reports: the scenario result and the per-tick traces. */
 export interface ZonesCameraRide { result: Awaited<ReturnType<typeof runScenario>>; trace: unknown; arcs: Array<[number, number]> }
 
+/** A client to ride on: a named phone, or `saga-26.62` (the Saga as Minecraft 1.26.62.1 draws, `clientProfile`). */
+export type ZonesClient = ClientProfileName | 'saga-26.62';
+
 /** Build the scenario for `bytes` (a generated coaster's pack) on `profile`'s client and ride it `laps` laps. */
-export async function rideCamera(bytes: Uint8Array, source: string, profile: ClientProfileName, laps = 1, maxTicks = 9000): Promise<ZonesCameraRide> {
+export async function rideCamera(bytes: Uint8Array, source: string, profile: ZonesClient, laps = 1, maxTicks = 9000): Promise<ZonesCameraRide> {
   const addon = await readAddon(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, source);
   const pack = readCraftmaticPack(addon)!;
   /** The boarded car's arc every tick, to put the camera's frames on the track (`--trace=` writes it beside the camera trace). */
@@ -45,8 +48,8 @@ export async function rideCamera(bytes: Uint8Array, source: string, profile: Cli
   ];
   const scenario: Scenario = { name: `coaster-zones-camera-${profile}`, description: `Ride the generated coaster ${laps} lap(s) under its zones, watching the drawn camera on the ${profile} client.`, steps, allowLines: [...CRAFTMATIC_ALLOWED_LINES], yieldingLines: [...CRAFTMATIC_YIELDING_LINES] };
   const result = await runScenario(scenario, [addon], {
-    handlers: { ...craftmaticHandlers(pack, addon), ...clientSteps(pack, packAppearance(addon), {}, profile) },
-    invariants: [...clientInvariants({ seatCamera: craftmaticSeatCamera() }), arcProbe], prepare: (sim, player) => { attachClient(sim, player, profile); },
+    handlers: { ...craftmaticHandlers(pack, addon), ...clientSteps(pack, packAppearance(addon), {}, profile === 'saga-26.62' ? 'saga' : profile) },
+    invariants: [...clientInvariants({ seatCamera: craftmaticSeatCamera() }), arcProbe], prepare: (sim, player) => { attachClient(sim, player, clientProfile(profile)); },
   });
   return { result, trace: result.state['cameraTrace'], arcs };
 }
@@ -58,7 +61,7 @@ if ((import.meta as { main?: boolean }).main) {
   const file = args.find(a => !a.startsWith('--'));
   if (!file) { console.error('usage: bun scripts/_coaster_zones_camera.ts <pack.mcaddon> [--client=pixel|saga|both] [--laps=1] [--max=<ticks>] [--trace=<file.json>]'); process.exit(2); }
   const clientFlag = flag('client') ?? 'pixel';
-  const profiles: ClientProfileName[] = clientFlag === 'both' ? ['pixel', 'saga'] : [clientFlag as ClientProfileName];
+  const profiles: ZonesClient[] = clientFlag === 'both' ? ['pixel', 'saga-26.62'] : [clientFlag as ZonesClient];
   let failed = 0;
   for (const profile of profiles) {
     const { result: r, trace, arcs } = await rideCamera(readFileSync(file), file, profile, Number(flag('laps') ?? 1), Number(flag('max') ?? 9000));
