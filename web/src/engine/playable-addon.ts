@@ -3433,9 +3433,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 // every passage leaf closed; then re-read each doorway's
                 // neighbours so a trimmed one is restored trimmed.
                 const frame = options.shell.frame;
-                const { leaves, leafPlanes } = clearanceLeaves(compiledIx.map(c => c.it), frame);
+                const { leaves, leafPlanes, heldLeafPlanes } = clearanceLeaves(compiledIx.map(c => c.it), frame);
                 const approaches = ixPlans.flatMap(pl => pl?.approach.length ? [{ columns: pl.approach, floor16: pl.floor16 }] : []);
-                clearanceReport = applyColliderClearance({ grid: colliders.grid, layers: colliders.layers, leaves, leafPlanes, closedCells: ixPlans.flatMap(pl => pl?.blocking ?? []), approaches });
+                clearanceReport = applyColliderClearance({ grid: colliders.grid, layers: colliders.layers, leaves, leafPlanes, heldLeafPlanes, closedCells: ixPlans.flatMap(pl => pl?.blocking ?? []), approaches });
                 captureDoorwayNeighbours(colliders.grid, ixPlans);
                 const r = clearanceReport;
                 warnings.push(`${label}: clearance - ${r.applied.wall} collider${r.applied.wall === 1 ? '' : 's'} pulled back to the walls' own geometry and ${r.applied.ceiling} low ceiling${r.applied.ceiling === 1 ? '' : 's'} raised to standing height (${r.freedBlocks} blocks freed); refused where not certain: ${CLEARANCE_REFUSALS.filter(k => r.refused[k]).map(k => `${r.refused[k]} ${k}`).join(', ') || 'none'}${r.verified ? '' : ' (the leak check could not run on a grid this size: nothing trimmed)'}.`);
@@ -4701,18 +4701,21 @@ export function measureCoasterTrain(route: { points: readonly Vec3[]; closed: bo
  * as a closed leaf, the sliver of 3600's held Door 2 in the next column stayed a full-footprint collider two blocks
  * tall and hid Window 8 from every spot within reach (census 2026-11-19).
  */
-export function clearanceLeaves(items: readonly SceneInteractive[], frame: SceneGridFrame): { leaves: GridBox[]; leafPlanes: Array<{ c: Vec3; a: number[]; u: number[] } | null> } {
+export function clearanceLeaves(items: readonly SceneInteractive[], frame: SceneGridFrame): { leaves: GridBox[]; leafPlanes: Array<{ c: Vec3; a: number[]; u: number[] } | null>; heldLeafPlanes: Array<{ c: Vec3; a: number[]; u: number[] }> } {
     const passages = items.filter(it => PASSAGE_KINDS.has(it.kind) && !it.fixed);
+    const plane = (it: SceneInteractive): { c: Vec3; a: number[]; u: number[] } | null => {
+        if (!it.leaf) return null;
+        const c0 = sceneGridPoint(frame, it.leaf.corner), ca = sceneGridPoint(frame, [it.leaf.corner[0] + it.leaf.along[0], it.leaf.corner[1] + it.leaf.along[1], it.leaf.corner[2] + it.leaf.along[2]]), cu = sceneGridPoint(frame, [it.leaf.corner[0] + it.leaf.up[0], it.leaf.corner[1] + it.leaf.up[1], it.leaf.corner[2] + it.leaf.up[2]]);
+        return { c: c0, a: [ca[0] - c0[0], ca[1] - c0[1], ca[2] - c0[2]], u: [cu[0] - c0[0], cu[1] - c0[1], cu[2] - c0[2]] };
+    };
     const leaves: GridBox[] = passages.map(it => {
         const b = it.boundsLdu, ps = [0, 1].flatMap(i => [0, 1].flatMap(j => [0, 1].map(k => sceneGridPoint(frame, [i ? b.max[0] : b.min[0], j ? b.max[1] : b.min[1], k ? b.max[2] : b.min[2]]))));
         return { x0: Math.min(...ps.map(p => p[0])), y0: Math.min(...ps.map(p => p[1])), z0: Math.min(...ps.map(p => p[2])), x1: Math.max(...ps.map(p => p[0])), y1: Math.max(...ps.map(p => p[1])), z1: Math.max(...ps.map(p => p[2])) };
     });
-    const leafPlanes = passages.map(it => {
-        if (!it.leaf) return null;
-        const c0 = sceneGridPoint(frame, it.leaf.corner), ca = sceneGridPoint(frame, [it.leaf.corner[0] + it.leaf.along[0], it.leaf.corner[1] + it.leaf.along[1], it.leaf.corner[2] + it.leaf.along[2]]), cu = sceneGridPoint(frame, [it.leaf.corner[0] + it.leaf.up[0], it.leaf.corner[1] + it.leaf.up[1], it.leaf.corner[2] + it.leaf.up[2]]);
-        return { c: c0, a: [ca[0] - c0[0], ca[1] - c0[1], ca[2] - c0[2]], u: [cu[0] - c0[0], cu[1] - c0[1], cu[2] - c0[2]] };
-    });
-    return { leaves, leafPlanes };
+    const leafPlanes = passages.map(plane);
+    // A held door's top is its edge, never a floor clearance keeps (collider-clearance.ts `heldLeafPlanes`).
+    const heldLeafPlanes = items.filter(it => PASSAGE_KINDS.has(it.kind) && it.fixed).map(plane).filter((q): q is NonNullable<typeof q> => !!q);
+    return { leaves, leafPlanes, heldLeafPlanes };
 }
 
 /**

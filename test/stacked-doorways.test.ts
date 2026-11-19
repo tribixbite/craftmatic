@@ -107,4 +107,28 @@ describe('clearanceLeaves: a door held shut is static geometry, so clearance tri
       expect(mid.reduce((a, b) => a + (b[1] - b[0]) * (b[5] - b[4]), 0)).toBeLessThanOrEqual(64);
     }
   });
+
+  it('3600 Door 2: the held leaf top edge beside a wall is no floor to keep - the sliver cell is pulled back to the leaf', () => {
+    // The census's after-fix pack: the cell over the held leaf's last row kept a full-footprint slab at the leaf's
+    // top (rule 4, FLOOR: a standing surface keeps its top) because a wall stands in the next column, so the rim
+    // exception (`wallTopRim`) did not apply; the slab stood in the head of the only spot Window 8 is seen from.
+    const lower = door(3.83, 0, 0.5, 1.16, 2), upper = { ...door(3.83, 2, 0.5, 1.16, 1.9), fixed: true };
+    const W = 6, H = 5, L = 2;
+    const grid = new BlockGrid(W, H, L);
+    const layers: CellLayers = new Map();
+    const idx = (x: number, y: number, z: number): number => (x * H + y) * L + z;
+    const lay = (x: number, y: number, x0: number, x1: number, y1: number, z0: number, z1: number): void => {
+      const a = newCellLayers(); addLayerBox(a, x0, x1, 0, y1, z0, z1);
+      layers.set(idx(x, y, 0), a); grid.set(x, y, 0, colliderState(0, y1));
+    };
+    // The held leaf (top at 3.9 = 14.4/16 of row 3), and a full wall in the column beside it (x = 2).
+    for (const y of [2, 3]) { lay(3, y, 13, 16, y === 3 ? 14 : 16, 7, 9); lay(4, y, 0, 16, y === 3 ? 14 : 16, 7, 9); }
+    for (const y of [0, 1, 2, 3, 4]) lay(2, y, 0, 16, 16, 0, 16);
+    applyColliderClearance({ grid, layers, ...clearanceLeaves([lower, upper], frame), closedCells: [] });
+    const f = parseFormState(grid.get(3, 3, 0))!;
+    const mid = COLLIDER_KIT.formBoxes(f.v, f.lo, f.hi).filter(b => b[2] <= 8 && b[3] > 8);
+    expect(mid.reduce((a, b) => a + (b[1] - b[0]) * (b[5] - b[4]), 0)).toBeLessThanOrEqual(64);
+    const top = COLLIDER_KIT.formBoxes(f.v, f.lo, f.hi).filter(b => b[3] === f.hi);
+    expect(top.some(b => b[0] === 0 && b[1] === 16 && b[4] === 0 && b[5] === 16)).toBe(false);
+  });
 });
