@@ -53,7 +53,7 @@ const png = (w: number, h: number): Uint8Array => {
 
 describe('marketplace-budget', () => {
   it('block permutations are summed over every custom block and states product', () => {
-    // The dev collider set: 43 blocks, each with `lo` and `hi` of 16 values = 256 permutations a block.
+    // The dev collider set: 55 blocks, each with `lo` and `hi` of 16 values = 256 permutations a block.
     const colliders = Array.from({ length: 43 }, (_, i) => ({ path: `blocks/collider_${i}.json`, json: block(`ns:collider_${i}`, { 'ns:lo': range16, 'ns:hi': range16 }) }));
     expect(countBlockPermutations(colliders).total).toBe(11_008);
     // A range-form state, a three-state product and a stateless block (1 permutation).

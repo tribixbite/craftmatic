@@ -278,7 +278,8 @@ def check(path):
         ids = {0: f'{ns}:collider'}
         for v in used:
             if v == 0: continue
-            kind, shape = (v - 1) // 14, (v - 1) % 14 + 1
+            # collider-form.ts: 1..42 are the 14 bands x (w, f, c); 43.. the 4 corner squares (shapes 15..18) x (w, f, c).
+            kind, shape = ((v - 1) // 14, (v - 1) % 14 + 1) if v <= 42 else ((v - 43) // 4, 15 + (v - 43) % 4)
             ids[v] = f'{ns}:collider_{"wfc"[kind]}{shape}'
         for v in sorted(used):
             if ids[v] not in block_ids: problems.append(f'the collider runs use {ids[v]!r} (variant {v}) but the pack defines no such block')

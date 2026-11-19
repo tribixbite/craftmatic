@@ -114,6 +114,26 @@ export interface ClearanceInput {
    * sixteenths). Rule 4's second exception reads them.
    */
   approaches?: ReadonlyArray<{ columns: ReadonlyArray<readonly [number, number]>; floor16: number }>;
+  /**
+   * The doorway RESCUE (`rescueDoorways` below): judge a refused trim near a doorway by that doorway's own walk. Without
+   * it, rule 4 alone decides (the pipeline before 2026-11-19).
+   */
+  rescue?: DoorwayRescue;
+}
+
+/**
+ * What the doorway rescue needs from the caller: each doorway's closed leaf, and the passability walk's verdict
+ * for every doorway over a grid (100 %, turn 0: `doorwayWalkSummary`, interactive-walk.ts). Rule 4 keeps a standing
+ * top whole because it MAY be where a player stands (a doorway's landing, a floor); whether it IS is a question the
+ * walk answers. A doorway the walk calls not OK gets the walkable-top trims refused within `RESCUE_REACH` of its leaf,
+ * applied only when they make it OK and no doorway OK before is worse after (TODO(clearance-tight-910032) closed:
+ * 910032 Door 4's landing guard, 2026-11-19).
+ */
+export interface DoorwayRescue {
+  /** Per doorway (the index the verdicts use) its closed leaf's box, or null for a part that is no doorway. */
+  doorways: ReadonlyArray<GridBox | null>;
+  /** The walk's verdict per doorway over `grid` as it stands ('OK' is walked through both ways). */
+  verdicts(grid: BlockGrid): ReadonlyArray<string | undefined>;
 }
 
 /** One proposal's fate: the cell, what was proposed, and why it was refused (absent when applied). */
@@ -132,6 +152,11 @@ export interface ClearanceReport {
   approachTops: number;
   /** Standing surfaces rule 4 let through because they are furniture's phantom top over a floor plate (`furnitureForm`). */
   furnitureTops: number;
+  /**
+   * Refused walkable-top trims the doorway rescue applied (`DoorwayRescue`), and the doorways they made OK (labels are
+   * the caller's: indices into `rescue.doorways`).
+   */
+  rescued: { trims: number; doorways: number[] };
   applied: { wall: number; ceiling: number };
   refused: Record<ClearanceRefusal, number>;
   /** Block volume freed (blocks cubed at 100 %). */
@@ -176,6 +201,13 @@ const LEAKS_REPORTED = 40;
  */
 export const LANDING_REACH = 2;
 export const LANDING_RISE = 1.25;
+/**
+ * How far from a doorway's closed leaf (blocks, horizontally; rows the leaf spans, one under it to one over) a refused
+ * walkable-top trim is the rescue's candidate: the landing's reach plus the passability walk's approach margin (a
+ * spot at least `SIDE_CLEARANCE` past the leaf it must go ON from, interactive-walk.ts). 910032 Door 4's blockers
+ * stood 0.2-1.9 blocks from its leaf.
+ */
+export const RESCUE_REACH = 2.5;
 /** How far past each end of a closed leaf (blocks) its protected cells reach: a frame's sliver. */
 const LEAF_END_REACH = 0.4;
 /** Above this many voxels the leak check is not run and every trim is refused (`unverifiable`). */
@@ -219,7 +251,7 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
   const idx = (x: number, y: number, z: number): number => (x * H + y) * L + z;
   const refused: Record<ClearanceRefusal, number> = { 'door-leaf': 0, 'door-cut': 0, 'walkable-top': 0, leak: 0, unverifiable: 0 };
   const entries: ClearanceEntry[] = [];
-  const report: ClearanceReport = { cells: 0, alreadyTight: 0, wallTops: 0, approachTops: 0, furnitureTops: 0, applied: { wall: 0, ceiling: 0 }, refused, freedBlocks: 0, leakRounds: [], leaks: [], voxels: 0, millis: 0, verified: true, entries };
+  const report: ClearanceReport = { cells: 0, alreadyTight: 0, wallTops: 0, approachTops: 0, furnitureTops: 0, rescued: { trims: 0, doorways: [] }, applied: { wall: 0, ceiling: 0 }, refused, freedBlocks: 0, leakRounds: [], leaks: [], voxels: 0, millis: 0, verified: true, entries };
 
   /** The collider form the grid holds at a cell (pristine full form after the cut), or null. */
   const formAt = (x: number, y: number, z: number): ColliderForm | null => parseFormState(grid.get(x, y, z));
@@ -405,6 +437,8 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
   const proposals: Proposal[] = [];
   const proposedAt = new Map<number, Proposal>();
   const refuse = (p: Proposal, why: ClearanceRefusal): void => { refused[why]++; entries.push({ x: p.x, y: p.y, z: p.z, rule: p.rule, from: p.from, to: p.to, refused: why }); };
+  /** Wall proposals rule 4 refused (`walkable-top`): the doorway rescue's candidates. */
+  const rescuable: Proposal[] = [];
   for (const [i, a] of layers) {
     const z = i % L, y = Math.floor(i / L) % H, x = Math.floor(i / (L * H));
     const span = layerSpan(a);
@@ -424,13 +458,28 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     // Rule 4's third exception (`furnitureForm`): a standing top over a floor plate and sparse furniture. The floor
     // + wall form may then run its wall up to `FURNITURE_SLACK16` past the furniture's top.
     let furniture = false;
+    /** The furniture form a doorway's landing guard kept from this cell (the rescue may still apply it). */
+    let landingKept: ColliderForm | undefined;
     if (standing) {
       const t = 16 - built.hi <= FURNITURE_SLACK16 ? COLLIDER_KIT.cover(geometry, 16 - built.hi)! : to;
-      if (furnitureForm(t) && !landingAt(x, z, y * 16 + built.hi)) { to = t; furniture = true; }
+      if (furnitureForm(t)) {
+        if (!landingAt(x, z, y * 16 + built.hi)) { to = t; furniture = true; }
+        else landingKept = t;
+      }
     }
     const raised = to.v !== 0 && COLLIDER_KIT.VARIANTS[to.v]!.kind === 1 && (lowGap || furniture);
     const bound: ColliderForm = raised ? { v: 0, lo: built.lo, hi: 16 } : built;
-    if (to.v === 0) { report.alreadyTight++; continue; }
+    if (to.v === 0 && !landingKept) { report.alreadyTight++; continue; }
+    if (to.v === 0) {
+      // Already tight but for the landing guard: only the rescue may trim it (its own checks run there).
+      const now = formAt(x, y, z);
+      if (now && now.v === 0 && now.lo === built.lo && now.hi === built.hi && !leafCells.has(i) && formWithin(landingKept!, { v: 0, lo: built.lo, hi: 16 }) && formContains(landingKept!, geometry)) {
+        const p: Proposal = { i, x, y, z, rule: 'wall', from: built, to: landingKept! };
+        refuse(p, 'walkable-top');
+        rescuable.push(p);
+      } else report.alreadyTight++;
+      continue;
+    }
     const p: Proposal = { i, x, y, z, rule: 'wall', from: built, to };
     // 3. The doorway cut left the cell as built, and no closed leaf reaches it.
     const now = formAt(x, y, z);
@@ -445,7 +494,13 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
       if (!top.some(b => b[0] === 0 && b[1] === 16 && b[4] === 0 && b[5] === 16)) {
         if (furniture) report.furnitureTops++;
         else if (approachTop(x, y, z, built)) report.approachTops++;
-        else if (!wallTopRim(x, y, z, to, built)) { refuse(p, 'walkable-top'); continue; }
+        else if (!wallTopRim(x, y, z, to, built)) {
+          refuse(p, 'walkable-top');
+          // The landing guard's furniture form, when it kept one, is what the rescue tries (it is the tighter trim).
+          const alt = landingKept && formWithin(landingKept, { v: 0, lo: built.lo, hi: 16 }) && formContains(landingKept, geometry) ? landingKept : undefined;
+          rescuable.push(alt ? { ...p, to: alt } : p);
+          continue;
+        }
         else report.wallTops++;
       }
     }
@@ -490,67 +545,86 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
   const active = new Set<Proposal>(proposals);
   const voxels = (W + 2) * VOX * (H + 2) * VOX * (L + 2) * VOX;
   report.voxels = voxels;
+  const PL = L + 2, PH = H + 2;
+  /**
+   * The leak test, built on first use: `leaksOf(forms)` floods the collider world as the grid stands with `forms`
+   * overriding cells (and every closed doorway laid), and returns the padded reach cells it reaches that neither the
+   * colliders as BUILT (the grid on first use, before any trim is applied) nor the part geometry let it reach.
+   */
+  let leakTest: { leaksOf(forms: ReadonlyMap<number, ColliderForm>): number[] } | undefined;
+  const leaksOf = (forms: ReadonlyMap<number, ColliderForm>): number[] => {
+    if (!leakTest) {
+      const flood = new LeakFlood(W, H, L);
+      const closedBoxes: Array<[number, number, number, Box16]> = closedCells.map(c => [c[0]!, c[1]!, c[2]!, [0, 16, c[3]!, c[4]!, 0, 16]]);
+      /** Lay the collider grid (with `over` overriding cells) and the closed doorways. */
+      const colliderWorld = (over: ReadonlyMap<number, ColliderForm>): void => {
+        flood.clear();
+        for (let x = 0; x < W; x++) for (let y = 0; y < H; y++) for (let z = 0; z < L; z++) {
+          const st = grid.get(x, y, z);
+          if (st === 'minecraft:air') continue;
+          const f = over.get(idx(x, y, z)) ?? parseFormState(st);
+          if (!f) { flood.solid16(x, y, z, [0, 16, 0, 16, 0, 16]); continue; } // a kept scene block
+          for (const q of COLLIDER_KIT.formBoxes(f.v, f.lo, f.hi)) flood.solid16(x, y, z, q);
+        }
+        for (const [x, y, z, q] of closedBoxes) flood.solid16(x, y, z, q);
+      };
+      // The part geometry, the closed leaves and the kept scene blocks.
+      flood.clear();
+      for (const [i, la] of layers) {
+        const z = i % L, y = Math.floor(i / L) % H, x = Math.floor(i / (L * H));
+        for (const q of layerBoxes(la)) flood.solid16(x, y, z, q);
+      }
+      for (const q of leaves) flood.solidBox(q);
+      for (let x = 0; x < W; x++) for (let y = 0; y < H; y++) for (let z = 0; z < L; z++) {
+        const st = grid.get(x, y, z);
+        if (st !== 'minecraft:air' && !parseFormState(st)) flood.solid16(x, y, z, [0, 16, 0, 16, 0, 16]);
+      }
+      const reachedGeometry = flood.reach();
+      colliderWorld(new Map());
+      const reachedBefore = flood.reach();
+      leakTest = {
+        leaksOf(over) {
+          colliderWorld(over);
+          const after = flood.reach();
+          const leaks: number[] = [];
+          for (let k = 0; k < after.length; k++) if (after[k] && !reachedBefore[k] && !reachedGeometry[k]) leaks.push(k);
+          return leaks;
+        },
+      };
+    }
+    return leakTest.leaksOf(forms);
+  };
+  /** The grid cells within one block of a leak block (reach cells are padded by one block). */
+  const nearLeaks = (leaks: readonly number[]): Set<number> => {
+    const near = new Set<number>();
+    for (const k of leaks) {
+      const cz = k % PL - 1, cy = Math.floor(k / PL) % PH, cx = Math.floor(k / (PL * PH)) - 1;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+        const x = cx + dx, y = cy + dy, z = cz + dz;
+        if (x >= 0 && y >= 0 && z >= 0 && x < W && y < H && z < L) near.add(idx(x, y, z));
+      }
+    }
+    return near;
+  };
   if (proposals.length && voxels > MAX_LEAK_VOXELS) {
     for (const p of proposals) refuse(p, 'unverifiable');
     active.clear();
     report.verified = false;
   } else if (proposals.length) {
-    const flood = new LeakFlood(W, H, L);
-    const closedBoxes: Array<[number, number, number, Box16]> = closedCells.map(c => [c[0]!, c[1]!, c[2]!, [0, 16, c[3]!, c[4]!, 0, 16]]);
-    /** Lay the collider grid (with `forms` overriding cells) and the closed doorways. */
-    const colliderWorld = (forms: ReadonlyMap<number, ColliderForm>): void => {
-      flood.clear();
-      for (let x = 0; x < W; x++) for (let y = 0; y < H; y++) for (let z = 0; z < L; z++) {
-        const s = grid.get(x, y, z);
-        if (s === 'minecraft:air') continue;
-        const f = forms.get(idx(x, y, z)) ?? parseFormState(s);
-        if (!f) { flood.solid16(x, y, z, [0, 16, 0, 16, 0, 16]); continue; } // a kept scene block
-        for (const b of COLLIDER_KIT.formBoxes(f.v, f.lo, f.hi)) flood.solid16(x, y, z, b);
-      }
-      for (const [x, y, z, b] of closedBoxes) flood.solid16(x, y, z, b);
-    };
-    // The part geometry, the closed leaves and the kept scene blocks.
-    flood.clear();
-    for (const [i, a] of layers) {
-      const z = i % L, y = Math.floor(i / L) % H, x = Math.floor(i / (L * H));
-      for (const b of layerBoxes(a)) flood.solid16(x, y, z, b);
-    }
-    for (const b of leaves) flood.solidBox(b);
-    for (let x = 0; x < W; x++) for (let y = 0; y < H; y++) for (let z = 0; z < L; z++) {
-      const s = grid.get(x, y, z);
-      if (s !== 'minecraft:air' && !parseFormState(s)) flood.solid16(x, y, z, [0, 16, 0, 16, 0, 16]);
-    }
-    const reachedGeometry = flood.reach();
-    colliderWorld(new Map());
-    const reachedBefore = flood.reach();
     for (let round = 0; ; round++) {
       const forms = new Map<number, ColliderForm>();
       for (const p of active) forms.set(p.i, p.to);
-      colliderWorld(forms);
-      const after = flood.reach();
-      const leaks: number[] = [];
-      for (let k = 0; k < after.length; k++) if (after[k] && !reachedBefore[k] && !reachedGeometry[k]) leaks.push(k);
+      const leaks = leaksOf(forms);
       report.leakRounds.push(leaks.length);
-      {
-        const PL = L + 2, PH = H + 2;
-        report.leaks.push(leaks.slice(0, LEAKS_REPORTED).map(k => [Math.floor(k / (PL * PH)) - 1, Math.floor(k / PL) % PH, k % PL - 1]));
-      }
+      report.leaks.push(leaks.slice(0, LEAKS_REPORTED).map(k => [Math.floor(k / (PL * PH)) - 1, Math.floor(k / PL) % PH, k % PL - 1]));
       if (!leaks.length) break;
       if (round + 1 >= MAX_LEAK_ROUNDS) {
         for (const p of active) refuse(p, 'leak');
         active.clear();
         break;
       }
-      // Refuse every trim within one block of a leak block (reach cells are padded by one block).
-      const near = new Set<number>();
-      const PL = L + 2, PH = H + 2;
-      for (const k of leaks) {
-        const cz = k % PL - 1, cy = Math.floor(k / PL) % PH, cx = Math.floor(k / (PL * PH)) - 1;
-        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
-          const x = cx + dx, y = cy + dy, z = cz + dz;
-          if (x >= 0 && y >= 0 && z >= 0 && x < W && y < H && z < L) near.add(idx(x, y, z));
-        }
-      }
+      // Refuse every trim within one block of a leak block.
+      const near = nearLeaks(leaks);
       let dropped = 0;
       for (const p of [...active]) if (near.has(p.i)) { active.delete(p); refuse(p, 'leak'); dropped++; }
       if (!dropped) {
@@ -561,12 +635,69 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
   }
 
   // ── Apply.
-  for (const p of proposals) {
-    if (!active.has(p)) continue;
+  const applyProposal = (p: Proposal): void => {
     grid.set(p.x, p.y, p.z, formState(p.to));
     report.applied[p.rule]++;
     report.freedBlocks += (formVolume(p.from) - formVolume(p.to)) / 4096;
     entries.push({ x: p.x, y: p.y, z: p.z, rule: p.rule, from: p.from, to: p.to });
+  };
+  for (const p of proposals) if (active.has(p)) applyProposal(p);
+
+  // ── 6. The doorway rescue (`DoorwayRescue`): the walkable-top trims rule 4 refused near a doorway the walk calls not
+  // OK, applied when they make it OK. Every candidate passed rules 1-3 before it was recorded and passes the leak
+  // check here; for these cells only, rule 4 is replaced by the doorway's own walk.
+  const rescue = input.rescue;
+  if (rescue && rescuable.length && report.verified && voxels <= MAX_LEAK_VOXELS) {
+    let verdicts = rescue.verdicts(grid);
+    const wasOk = verdicts.map(v => v === 'OK');
+    const taken = new Set<Proposal>();
+    const lay = (ps: readonly Proposal[], on: boolean): void => { for (const p of ps) grid.set(p.x, p.y, p.z, formState(on ? p.to : p.from)); };
+    rescue.doorways.forEach((leaf, d) => {
+      if (!leaf || verdicts[d] === undefined || verdicts[d] === 'OK') return;
+      // The candidates: refused walkable-top trims within RESCUE_REACH of the leaf, in the rows it spans and one either side.
+      const near = rescuable.filter(p => {
+        if (taken.has(p)) return false;
+        const dx = Math.max(0, leaf.x0 - (p.x + 1), p.x - leaf.x1), dz = Math.max(0, leaf.z0 - (p.z + 1), p.z - leaf.z1);
+        return Math.hypot(dx, dz) <= RESCUE_REACH && p.y + 1 >= Math.floor(leaf.y0) - 1 && p.y <= Math.ceil(leaf.y1);
+      });
+      if (!near.length) return;
+      // The leak check over the candidates, as the main pass runs it (the grid already holds the applied trims).
+      let kept = [...near];
+      for (let round = 0; kept.length && round < MAX_LEAK_ROUNDS; round++) {
+        const leaks = leaksOf(new Map(kept.map(p => [p.i, p.to])));
+        if (!leaks.length) break;
+        const bad = nearLeaks(leaks);
+        const next = kept.filter(p => !bad.has(p.i));
+        if (next.length === kept.length) { kept = []; break; } // a leak no candidate is near: refuse them all
+        kept = next;
+      }
+      if (!kept.length) return;
+      /** The doorway OK, and every doorway that was OK still OK. */
+      const judge = (): boolean => {
+        const v = rescue.verdicts(grid);
+        if (v[d] !== 'OK' || wasOk.some((ok, e) => ok && v[e] !== 'OK')) return false;
+        verdicts = v;
+        return true;
+      };
+      lay(kept, true);
+      if (!judge()) { lay(kept, false); return; }
+      // The fewest trims that keep it so: drop each candidate in turn while the doorway stays OK (a restored cell is
+      // the full cell it was, so dropping one can open no leak).
+      for (const p of [...kept]) {
+        lay([p], false);
+        if (judge()) kept = kept.filter(q => q !== p);
+        else lay([p], true);
+      }
+      for (const p of kept) {
+        taken.add(p);
+        refused['walkable-top']--;
+        const k = entries.findIndex(e => e.refused === 'walkable-top' && e.x === p.x && e.y === p.y && e.z === p.z);
+        if (k >= 0) entries.splice(k, 1);
+        applyProposal(p);
+      }
+      report.rescued.trims += kept.length;
+      report.rescued.doorways.push(d);
+    });
   }
   report.freedBlocks = Math.round(report.freedBlocks * 100) / 100;
   report.millis = Math.round(performance.now() - started);

@@ -61,8 +61,11 @@ function reachable(grid: BlockGrid, closed: ReadonlyArray<readonly number[]> = [
 }
 
 describe('collider forms (collider-form.ts)', () => {
-  it('43 block ids in the craftmatic namespace, the full collider first, shapes closed under the quarter turns', () => {
-    expect(K.VARIANTS.length).toBe(43);
+  it('55 block ids in the craftmatic namespace, the full collider first, shapes closed under the quarter turns', () => {
+    expect(K.VARIANTS.length).toBe(55);
+    // The 43 band forms keep their ids and indices (a world an older pack laid keeps its blocks).
+    expect(K.VARIANTS[42]!.id).toBe('craftmatic:collider_c14');
+    expect(K.VARIANTS[43]!.id).toBe('craftmatic:collider_w15');
     expect(K.VARIANTS[0]!.id).toBe('craftmatic:collider');
     for (let v = 1; v < K.VARIANTS.length; v++) for (const r of QUARTER_TURNS) {
       const t = K.turnForm({ v, lo: 3, hi: 12 }, r);
@@ -381,6 +384,76 @@ describe('applyColliderClearance', () => {
     const r = applyColliderClearance(s.input({ leaves: [leaf], leafPlanes: [null] }));
     expect(s.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 15 });
     expect(r.furnitureTops).toBe(0);
+  });
+  /**
+   * TODO(clearance-tight-910032) closed: the landing guard keeps 10326 Door 3 OK and kept 910032 Door 4 SEALED - the same
+   * local rule, opposite outcomes. The rescue asks the doorway's own walk (here a stub that reads the grid): a refused
+   * walkable-top trim near a doorway not OK is applied when it makes the doorway OK and no OK doorway worse.
+   */
+  const leaf = { x0: 2.5, y0: 0.5, z0: 0.2, x1: 2.6, y1: 2.9, z1: 2.2 };
+  const trimmed = (s: ReturnType<typeof sparseFurniture>): boolean => s.form(1, 0, 1)!.v !== 0;
+  it('applies a landing the guard kept whole when the doorway walk says it seals the door, and only then', () => {
+    const s = sparseFurniture(false);
+    const r = applyColliderClearance(s.input({ leaves: [leaf], leafPlanes: [null], rescue: { doorways: [leaf], verdicts: () => [trimmed(s) ? 'OK' : 'SEALED'] } }));
+    expect(K.formBoxes(s.form(1, 0, 1)!.v, s.form(1, 0, 1)!.lo, s.form(1, 0, 1)!.hi)).toEqual([[0, 16, 0, 4, 0, 16], [0, 4, 4, 16, 0, 16]]);
+    expect(r.rescued).toEqual({ trims: 1, doorways: [0] });
+    expect(r.refused['walkable-top']).toBe(0);
+    // 10326 Door 3's case: the walk is OK only with the landing whole - the guard's outcome is kept.
+    const t = sparseFurniture(false);
+    const q = applyColliderClearance(t.input({ leaves: [leaf], leafPlanes: [null], rescue: { doorways: [leaf], verdicts: () => [trimmed(t) ? 'SEALED' : 'OK'] } }));
+    expect(t.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 15 });
+    expect(q.rescued.trims).toBe(0);
+  });
+
+  it('never rescues one doorway at the cost of another that was OK, nor a doorway too far from the trim', () => {
+    const s = sparseFurniture(false);
+    const other = { x0: 0, y0: 0.5, z0: 0, x1: 0.1, y1: 2.9, z1: 1 };
+    applyColliderClearance(s.input({ leaves: [leaf, other], leafPlanes: [null, null], rescue: { doorways: [leaf, other], verdicts: () => [trimmed(s) ? 'OK' : 'SEALED', trimmed(s) ? 'SEALED' : 'OK'] } }));
+    expect(s.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 15 });
+    const far = { x0: 30, y0: 0.5, z0: 0.2, x1: 30.1, y1: 2.9, z1: 2.2 };
+    const t = scene(40, 3, 3);
+    t.solid(1, 0, 1, [[0, 16, 0, 4, 0, 16], [0, 4, 6, 15, 11, 16]]);
+    applyColliderClearance(t.input({ leaves: [leaf], leafPlanes: [null], rescue: { doorways: [far], verdicts: () => [t.form(1, 0, 1)!.v ? 'OK' : 'SEALED'] } }));
+    expect(t.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 15 });
+  });
+});
+
+/**
+ * TODO(collider-corner-forms) closed: 11371 Doors 2 and 4 (grid (20, 1..3, 4..5), favgate-530b6d3f). A lamp post a
+ * sixteenth square in the +x/+z corner of a cell shipped as the kit's x band 12..16 the cell's whole length; with the
+ * neighbouring post's band (x 0..4) the 0.5-block gap between them was too narrow for the 0.6-wide player, though the
+ * drawn model leaves a whole block free beside each post.
+ */
+describe('corner forms: a post in a cell corner is a corner square, not a band the cell long', () => {
+  it('covers a post a sixteenth square in each corner with a corner square of at most 4 x 4 sixteenths', () => {
+    for (const [x0, z0] of [[0, 0], [15, 0], [15, 15], [0, 15]] as const) {
+      const post: Box16 = [x0, x0 + 1, 0, 16, z0, z0 + 1];
+      const f = K.cover([post])!;
+      expect(formContains(f, [post])).toBe(true);
+      const boxes = K.formBoxes(f.v, f.lo, f.hi);
+      expect(boxes.length).toBe(1);
+      const b = boxes[0]!;
+      expect((b[1] - b[0]) * (b[5] - b[4]), `post at ${x0},${z0}`).toBeLessThanOrEqual(16);
+    }
+    // A floor plate under a corner post: the floor stays whole, the wall over it is the corner square.
+    const f = K.cover([[0, 16, 0, 4, 0, 16], [15, 16, 4, 16, 15, 16]])!;
+    expect(K.formBoxes(f.v, f.lo, f.hi)).toEqual([[0, 16, 0, 4, 0, 16], [12, 16, 4, 16, 12, 16]]);
+  });
+
+  it('a player walks between two posts the bands had closed the gap between (11371 Doors 2 and 4)', () => {
+    // Column x = 0: cell z = 1 holds a post on its low-x edge (x 0..3, z 6..11), cell z = 2 a post in its +x/+z corner.
+    const s = scene(1, 3, 4);
+    for (let y = 0; y < 3; y++) {
+      s.solid(0, y, 1, [[0, 3, 0, 16, 6, 11]]);
+      s.solid(0, y, 2, [[15, 16, 0, 16, 15, 16]]);
+    }
+    applyColliderClearance(s.input());
+    const cells = colliderSourceCells({ width: 1, height: 3, length: 4, runs: encodeColliderRuns(s.grid, 'craftmatic:collider').runs });
+    const world = new WalkWorld({ cells, dims: { width: 1, height: 3, length: 4 }, sizePct: 100, rotation: 0, treads: 'none' });
+    let st: PlayerState = { x: 0.55, y: 0, z: -1, vx: 0, vy: 0, vz: 0, onGround: true, sneaking: false, tick: 0 };
+    for (let t = 0; t < 100; t++) st = tickPlayer(world, st, { move: { x: 0, z: 1 }, jump: false, sneak: false }).state;
+    // The band 12..16 in cell z = 2 stopped the player at z 1.7; the corner square lets it on to the post itself.
+    expect(st.z).toBeGreaterThan(2.3);
   });
 });
 

@@ -20,7 +20,8 @@ import { basename, join, resolve } from 'node:path';
 import { crc32 } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { zipSync, zlibSync } from 'fflate';
-import { checkPack, fixed1, pyRepr } from '../web/src/engine/byom/pack-check.ts';
+import { checkPack, colliderVariantId, fixed1, pyRepr } from '../web/src/engine/byom/pack-check.ts';
+import { COLLIDER_KIT } from '../web/src/engine/collider-form.ts';
 
 const ROOT = resolve(__dirname, '..');
 const SCRIPT = join(ROOT, 'scripts', '_mcaddon_check.py');
@@ -233,6 +234,13 @@ const BLOCK = `${BP}blocks/acme/demo/slab.json`;
 // ---------------------------------------------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------------------------------------------
+
+describe('byom-pack-check :: collider ids', () => {
+  it('names every collider variant the kit defines, the corner squares included, by the id the kit gives it', () => {
+    for (let v = 1; v < COLLIDER_KIT.VARIANTS.length; v++) expect(colliderVariantId(v, 'craftmatic'), `v ${v}`).toBe(COLLIDER_KIT.VARIANTS[v]!.id);
+    expect(() => colliderVariantId(COLLIDER_KIT.VARIANTS.length, 'craftmatic')).toThrow();
+  });
+});
 
 describe('byom-pack-check', () => {
   it('pack-check agrees with _mcaddon_check.py on every committed fixture zip, dev and --release', () => {
