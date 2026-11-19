@@ -39,11 +39,13 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
 - DEVICE ROUND 19a (2026-11-19, test Saga O1N1XT412200373 now at `192.168.0.82:5555` (adb connect; its TLS mDNS port
   refused), Minecraft 1.26.62.1, packs `output/device-round-2026-11-19a/packs-d622026b/`, brief `brief-saga-19a.md`,
   notes `saga/notes.md`): A fresh-car tap PASS at 100 % and 200 % (50 % not run); D chase ease PASS; E cockpit at
-  speed REGRESSED (camera behind the drawn car: tail lights face-on; branch `gen-cockpit` diagnosing). NOT RUN (time):
-  B 8097 hatch taps on the lifted board columns + finger vs crosshair, C 41395 eased swing, F 10261 400 % culling
-  (sim predicts partial: chunk roots past the ~70-block draw limit), G faces (10303, 31141). NEXT round 19b: those
-  four, A at 50 %, E repeat after the gen-cockpit fix (fresh seat, no chase drag first, 30 fps frames). The Saga's
-  foreground app was Bambu Handy: return to it after a round.
+  speed REGRESSED (camera behind the drawn car; branch `gen-cockpit`: the car script read ~124 blocks a tick since
+  A-12, the Saga server fell to ~16 ticks/s; fix caches cells 10 ticks, pack `output/gen-cockpit-1119/saga-6e57f9bd/`).
+  Round 19b (`saga-19b/notes.md`): B PASS - 8097 hatches tap open/shut via the lifted board columns at 150/200 %; a
+  touch tap acts at the SCREEN CENTRE, not the finger (quirk to add); F as predicted - 10261 400 % draws only chunks
+  within ~70 blocks; G partial (31141 fig6 printed face). NEXT round 19c: E repeat with the gen-cockpit pack (CMVT
+  msPerTick, tick rate, fresh seat, no drag, 30 fps), C 41395 eased swing, A at 50 %, G faces (10303 + 31141 fig1-5
+  front-on), B at 100 %. The Saga's foreground app is Bambu Handy: return to it after a round.
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
   --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
   --out=output/gengate-6fa0afa6`): 60/60 built, child play 710/720 (fails: 5482 windows out of reach + doorway holes
