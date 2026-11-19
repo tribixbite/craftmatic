@@ -257,6 +257,24 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   1.26.52 camprobe lag 5.5 and every car of a train drawn for its rider's client (20c: the Pixel's camera inside the car
   ahead's rider in every loop 1). The Pixel's probe (5.3) and ride (3.5) disagree: TODO(pixel-ride-lag).
   Rotation/position keyframes share one clock (Saga camprobe v9 `step`); `rotationLead` exists, unset.
+- COAST-06 on Minecraft 1.26.62.1 (2026-11-19, branch gen-coast62, OFFLINE): round 19d K's "grazing" on the Saga
+  (car 2, three 0.2-0.7 s episodes a lap through 10303's drop and loops) was the eye ~2.7 ticks BEHIND the drawn seat,
+  in car 3's grey-haired rider, because 1.26.62.1 draws entities at ~3 ticks where 26.52 drew 5.7 and the pack planned
+  5.7. Derived from the ride's frames (sim `--entity-lag=` sweep, `docs/coaster-loop-camera.md` section 5); default
+  `animLag` 3, `native` animations planned `animTail` past the clear (the 2-4 sky frames at the hand-back). Sim numbers
+  and packs: `output/coast62/` in the gen-coast62 worktree (packs `output/coast62-packs/`, `output/coast62-packs-10261/`,
+  stamp cba70d02). Sim, coaster-camera, `saga-26.62`: device packs (8ac40e70) 10303 car 2 one lap 74 frames within
+  0.3 block of car 3, a 2.1-block hand-back cut; 10261 car 2 one lap 39 frames, 4 violations. Rebuilt, 3 laps:
+  10303 cars 2 and 3 and 10261 car 2 pass, 0 frames within 0.3, worst eye jump <= 0.19, seat lead >= -0.2; the
+  Pixel profile (3.5, unchanged) passes the same rides. Child play `--sizes=50,100,150,200,400`: 12/12 each. NEXT SAGA RIDE (test Saga O1N1XT412200373, record
+  `versionName`): deploy the rebuilt 10303 + 10261 with `--exclusive --prune-stale`; place 10303 at 100 %, rotation 0;
+  before boarding `tp @s ~ ~ ~ 0 0` (boarding keeps the player's pitch, ride 1 of 19d started at -70); ride car 2 for
+  two laps, then car 3 for two, screen-recorded at 30 fps+; pull the content log. Pass: through the drop and both loops
+  the view sits in car 2's seat, car 1's pink-haired rider ~2.25 blocks ahead and never closer than ~1.5, NO grey-haired
+  rider at a block, no translucent washes; the hand-back after loop 2 shows no sky frame and no forward jump. If it
+  still grazes, name WHOSE rider fills the view: car 1's pink hair = the lag is now too LOW (eye ahead), car 3's grey
+  hair = still too HIGH; the head's width over the frame height then gives the lag (the sweep's 0.16 / 0.27 / 0.85 at
+  1.5 / 2.5 / 3.5). Then ride the Pixel (1.26.60.4) car 2 the same way: its 3.5 is a 26.52 reading.
 - OPEN (COAST-06): the camera grazes the car ahead - Saga car 2 0.1-0.3 s translucent washes at loop entries a lap
   (20c); Pixel on the 30zz timing (round 2026-10-20d, `output/device-round-2026-10-20d/pixel/notes.md`): loop 1 clear,
   car 2's loop 2 inside the rider ahead 0.4 / 1.0 / 1.3 s (as 30zz), car 3 clean, a 1-frame pale panel at 3 of 6
