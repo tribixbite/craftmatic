@@ -166,7 +166,68 @@ export const LDRAW_PART_ALIASES: Readonly<Record<string, string>> = Object.freez
   //    `3566` (Plant, Banana Bunch) -> `bl_3566` (ldraw_lxfv56.xml). IOModel2V2 77072 wrote the bare LDD id; clego's
   //    DbixConvV3 conversion of the same set, which applies Studio's rows, writes `bl_3566` with the same rotation.
   '3566': 'bl_3566',
+  // ── gen-boxed 2026-11-19: Mecabricks design ids whose raw harvest frame (align row `unresolved`, delta 0) was
+  //    MEASURED to coincide with the mould. Evidence scripts: the session's `fitpair.py` (clego mb_align fit_score) and
+  //    `doll_rel.py` (part-in-part frames over every MecabricksLDR doll); numbers in REQUIREMENTS VIEW-03.
+  '28976': '46304',   // Minifig Helmet Visor Snow Goggles. Rebrickable elements.csv: all 5 elements of design 28976 are
+                      //   part 46304. Mecabricks mesh vs 46304 surface: fit 1.000 at zero delta (bboxes within 0.2 LDU).
+                      //   76269 + 7 MecabricksLDR sets.
+  '21634': '92252',   // Figure Friends Legs with Pleated Skirt. Both Studio tables map LEGO 21634 -> 92252.dat at a zero
+                      //   correction. No Mecabricks mesh (404), so measured in situ over 14 dolls: the raw legs sit
+                      //   under the mesh-fitted torso 92241 (fit 0.968) at (0, -76.75, 3.19) vs LDraw's composite
+                      //   (0, -76.8, 3.9), and under the doll head 94590 (fit 1.000, row below) at -109.75 vs -110;
+                      //   loose dolls' soles land on y 0. 41395 + 19 MecabricksLDR Friends sets.
 });
+
+/**
+ * A name that IS a library mould in a measured DIFFERENT origin frame: drawn as a generated one-line part placing the
+ * mould at `offset` (LDU, the placed name's local frame), so the source's matrix stays as written. The transform slot a
+ * plain alias lacks (the note above `LDRAW_PART_ALIASES`). A row is valid only for a name that every source places in
+ * ONE frame - checked per source lineage over the corpus when the row is added - since the offset is that frame's.
+ */
+export interface FrameOffsetAlias { readonly target: string; readonly offset: readonly [number, number, number]; readonly why: string }
+
+// TODO(mb-doll-frame): Mecabricks 28650 (newer doll head) fits 92198 at the same (0, 1, -2.5) but DbixLDR places the
+// same name in the LDD frame, so it needs clego's align row + splice, not a row here; Mecabricks hips 92248 draw ~21 LDU
+// high (its bbox align row) - both clego-side.
+export const FRAME_OFFSET_ALIASES: Readonly<Record<string, FrameOffsetAlias>> = Object.freeze({
+  // Mecabricks only (24 MecabricksLDR sets; no Studio row, no LDD use): the Friends doll HEAD. Its mesh fits 92198's
+  // surface at 1.000 with delta (0, 1, -2.5) (clego mb_align fit_score), i.e. 92198 drawn at (0, -1, 2.5); in situ the
+  // head then sits at (0, -109.75, 3.12) from the legs, LDraw's composite (0, -110, 3.9).
+  '94590': { target: '92198', offset: [0, -1, 2.5], why: 'Mecabricks Friends doll head = 92198, mesh fit 1.000 at delta (0, 1, -2.5)' },
+  // LDD lineage only (DbixConvV2/V3, LDR, Reconstructed: 9 sets; no Mecabricks row): Moana's hair. ldraw.xml maps LEGO
+  // 28705 to `28705.dat` at a zero correction, a file no library ships; ldraw_lxfv56.xml names Studio's copy
+  // `bl_28705.dat` with t = (0.0096, 1.7504, 0.1896) LDD units, which applied inverse into LDraw (x 25, F = diag(1,-1,-1))
+  // is (-0.24, 43.76, 4.74). The placed `28705.dat` sits at (0, 0, -3) from its doll head as 92255 does in 92198p01c01,
+  // and the copy then spans y -9.7..43.8 / z -14.8..24.2 like LDraw's long doll hairs (11605, 15677, 92256).
+  '28705': { target: 'bl_28705', offset: [-0.24, 43.76, 4.74], why: 'Studio ldraw_lxfv56.xml row for its own copy bl_28705, applied inverse' },
+});
+
+/** The frame-offset row for a name, or for the first rung of its alias ladder that has one (`94590d1` -> `94590`). */
+export function frameOffsetAliasFor(stem: string): (FrameOffsetAlias & { readonly via: string }) | undefined {
+  const key = stem.toLowerCase().replace(/\.dat$/, '');
+  for (const name of [key, ...partAliasCandidates(key)]) {
+    const row = FRAME_OFFSET_ALIASES[name];
+    if (row) return { ...row, via: name };
+  }
+  return undefined;
+}
+
+/** The generated part text drawing a frame-offset alias: its mould at the measured offset, colour inherited. */
+export function frameOffsetPartText(stem: string): { text: string; target: string } | null {
+  const row = frameOffsetAliasFor(stem);
+  if (!row) return null;
+  const [x, y, z] = row.offset;
+  return {
+    target: row.target,
+    text: [
+      `0 ~${stem} drawn as ${row.target} in its measured frame (${row.why})`,
+      `0 Name: ${stem.toLowerCase().replace(/\.dat$/, '')}.dat`,
+      '0 !LDRAW_ORG Unofficial_Part',
+      `1 16 ${x} ${y} ${z} 1 0 0 0 1 0 0 0 1 ${row.target}.dat`,
+    ].join('\n'),
+  };
+}
 
 /**
  * Names whose LOCAL file is Studio's own `UnOfficial/parts/<name>.dat` in a

@@ -1939,3 +1939,13 @@ map's `e:` (LDraw print) / `n:` (`3626pb<N>`) rows.
   Mecabricks ribbed hoses (`41079` 9L, `41092` 2L = LDraw 71917 / 72504) are FLEXIBLE parts placed by path, like the
   flex-system hoses clego's `MB_FLEX` splice writes; the same splice for ribbed hoses (71944k01/k02 along the path)
   is TODO(mb-flexible-other).
+
+## A boxed mould in a measured other frame (`FRAME_OFFSET_ALIASES`, 2026-11-19)
+
+A plain row in `LDRAW_PART_ALIASES` swaps the FILE only, so it is safe only where the source's frame coincides with
+the mould's (Mecabricks: mesh fit ~1.0 at zero delta, `28976` -> 46304; or measured in situ against mesh-fitted
+siblings, `21634` -> 92252). Where the frame differs by a measured offset, `FRAME_OFFSET_ALIASES`
+(engine/ldraw-part-aliases.ts) draws the name as a generated one-line part placing the mould at that offset, in both
+resolvers, recorded as a substitution. A row is valid only for a name every source places in ONE frame: check the
+corpus per lineage first (Mecabricks `28650` also appears in DbixLDR, so it cannot have a row; its fix is clego's
+align row + splice). Evidence for each row is in its comment and REQUIREMENTS VIEW-03.
