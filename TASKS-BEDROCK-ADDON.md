@@ -259,7 +259,11 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   in car 3's grey-haired rider, because 1.26.62.1 draws entities at ~3 ticks where 26.52 drew 5.7 and the pack planned
   5.7. Derived from the ride's frames (sim `--entity-lag=` sweep, `docs/coaster-loop-camera.md` section 5); default
   `animLag` 3, `native` animations planned `animTail` past the clear (the 2-4 sky frames at the hand-back). Sim numbers
-  and packs: `output/coast62/` in the gen-coast62 worktree. NEXT SAGA RIDE (test Saga O1N1XT412200373, record
+  and packs: `output/coast62/` in the gen-coast62 worktree (packs `output/coast62-packs/`, `output/coast62-packs-10261/`,
+  stamp cba70d02). Sim, coaster-camera, `saga-26.62`: device packs (8ac40e70) 10303 car 2 one lap 74 frames within
+  0.3 block of car 3, a 2.1-block hand-back cut; 10261 car 2 one lap 39 frames, 4 violations. Rebuilt, 3 laps:
+  10303 cars 2 and 3 and 10261 car 2 pass, 0 frames within 0.3, worst eye jump <= 0.19, seat lead >= -0.2; the
+  Pixel profile (3.5, unchanged) passes the same rides. Child play `--sizes=50,100,150,200,400`: 12/12 each. NEXT SAGA RIDE (test Saga O1N1XT412200373, record
   `versionName`): deploy the rebuilt 10303 + 10261 with `--exclusive --prune-stale`; place 10303 at 100 %, rotation 0;
   before boarding `tp @s ~ ~ ~ 0 0` (boarding keeps the player's pitch, ride 1 of 19d started at -70); ride car 2 for
   two laps, then car 3 for two, screen-recorded at 30 fps+; pull the content log. Pass: through the drop and both loops
