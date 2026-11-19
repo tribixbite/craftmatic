@@ -81,8 +81,10 @@ describe('the client model: numbers and derivations', () => {
     const saga = clientProfile('saga');
     expect(saga.basis).toBe('measured');
     expect(saga.entityLagTicks).toBe(5.7); expect(saga.easeFactor).toBe(0.5); expect(saga.propertyLeadTicks).toBe(4.1);
-    // The coaster's defaults are the Saga's (the user's phone): the animation over its drawn seat.
-    expect(drawnCameraLead(23, COASTER_RIDER_VIEW.animLag, 0, saga)).toBeCloseTo(0, 9);
+    // The coaster planned at this client's 5.7 (its defaults until Minecraft 1.26.62.1 moved the Saga, round 19d): the
+    // animation over its drawn seat. The defaults now follow the 1.26.62 Saga (`saga-26.62`, the test below the loop course).
+    expect(drawnCameraLead(23, quirkValue('client-entity-lag', 'sagaTicks'), 0, saga)).toBeCloseTo(0, 9);
+    expect(drawnCameraLead(23, COASTER_RIDER_VIEW.animLag, 0, clientProfile('saga-26.62'))).toBeCloseTo(0, 9);
     // The packs' order: vehicle-camera.js reads the vehicle before vehicles.js moves it (+1 tick on the server's clock).
     const cameraFirst = 1;
     const brackets = [
@@ -452,7 +454,8 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
   }, 60_000);
 
   it('legacy loop mode on the measured Saga: the per-tick camera rides 3.2 ticks AHEAD of the drawn car (5.7 - 1.5 - 1 of ease) and the animation, on the Saga timing, on it: a 3-tick cut at each animation start - why loop mode is retired', () => {
-    const { trace, client } = rideLoop('saga', { mode: 'loop' });
+    // On 26.52 timing (the coaster's defaults then): loop mode was judged on that client.
+    const { trace, client } = rideLoop('saga', { mode: 'loop', animLag: quirkValue('client-entity-lag', 'sagaTicks') });
     expect(client.profile.entityLagTicks).toBe(5.7);
     const steady = trace.rows.filter(r => r.mode === 'free' && (r.speed ?? 0) > 2 && r.lead !== undefined && r.tick - trace.lastHandbackTick > 10);
     const speedAt = (r: { speed?: number }) => (r.speed ?? 0) * TICK_SECONDS;
@@ -474,9 +477,10 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
     const pixelStarts = pixel.trace.rows.filter((r, i) => r.mode === 'animation' && i > 0 && pixel.trace.rows[i - 1]!.mode === 'free');
     for (const r of pixelStarts) expect(r.jumpBlocks, `pixel tick ${r.tick}`).toBeLessThan(0.5);
   }, 60_000);
-  for (const profile of ['pixel', 'saga'] as const) {
+  // The Saga as it runs now (Minecraft 1.26.62.1, `saga-26.62`), which the defaults follow since round 19d.
+  for (const profile of ['pixel', 'saga-26.62'] as const) {
     it(`native mode (the default) on the ${profile}: the player's own view, and one animation per inversion that leaves and rejoins it with no cut and rides the drawn seat (COAST-06, the user 2026-10-18)`, () => {
-      const { trace, client } = rideLoop(profile);
+      const { trace, client } = rideLoop(clientProfile(profile));
       // No per-tick script camera: the own view (drawn from the drawn seat by the client) or an animation, and one
       // tick of the arming free camera before each animation (quirk `camera-animation-needs-camera`: an animation
       // sent from the own view is never drawn, Pixel round 30zr).
@@ -504,9 +508,26 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
       expect(anim.length).toBeGreaterThan(10);
       const bound = () => 0.75;
       for (const r of anim) expect(Math.abs(r.lead!), `${profile} anim tick ${r.tick}`).toBeLessThan(bound());
-      expect(client.profile.name).toBe(profile);
+      expect(client.profile.name).toBe(profile === 'pixel' ? 'pixel' : 'saga');
     }, 60_000);
   }
+
+  it('native mode on the Saga at Minecraft 1.26.62.1 (`saga-26.62`, the same Fancy / 22 fingerprint): the animation rides the drawn seat, where the 26.52 lag 5.7 put the eye ~3 ticks BEHIND it, into the next car\'s rider (COAST-06, round 19d K)', () => {
+    const { trace, client } = rideLoop(clientProfile('saga-26.62'));
+    expect(client.profile.device).toEqual(clientProfile('saga').device);
+    const anim = trace.rows.filter(r => r.mode === 'animation' && (r.speed ?? 0) > 2 && r.lead !== undefined);
+    expect(anim.length).toBeGreaterThan(10);
+    // The lead in TICKS of motion (blocks over blocks per tick): the course is slow, the coaster's drop 3-5x faster.
+    const ticksAhead = (r: { lead?: number; speed?: number }) => r.lead! / ((r.speed ?? 0) * TICK_SECONDS);
+    const median = (xs: number[]): number => { const s = [...xs].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]!; };
+    for (const r of anim) expect(Math.abs(r.lead!), `saga-26.62 anim tick ${r.tick}`).toBeLessThan(0.5);
+    expect(Math.abs(median(anim.map(ticksAhead)))).toBeLessThan(0.3);
+    // The 26.52 Saga's plan (5.7) on this client: the eye behind the drawn seat by the lag difference.
+    const old = rideLoop(clientProfile('saga-26.62'), { animLag: quirkValue('client-entity-lag', 'sagaTicks'), clientTimings: [] });
+    const oldAnim = old.trace.rows.filter(r => r.mode === 'animation' && (r.speed ?? 0) > 2 && r.lead !== undefined);
+    expect(oldAnim.length).toBeGreaterThan(10);
+    expect(median(oldAnim.map(ticksAhead))).toBeLessThan(-(quirkValue('client-entity-lag', 'sagaTicks') - clientProfile('saga-26.62').entityLagTicks) + 0.5);
+  }, 120_000);
 
 });
 

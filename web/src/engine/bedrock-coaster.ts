@@ -504,7 +504,8 @@ export interface CoasterRiderViewConfig {
    * interpolated position. A property the client applies earlier than the position it was sent with turns the body
    * ahead of the car: through a loop the rider's view filled with its own car's bodywork on both phones (round 30zs).
    * MEASURED 3.3 (Pixel probe round 30zt, quirk `property-ahead-of-position`: a property lands 3.30-3.41 ticks before
-   * the position sent with it, at 5, 10 and 20 blocks/s) and 4.1 on the Saga (30zv). A fit of 6 / 5.3 to the
+   * the position sent with it, at 5, 10 and 20 blocks/s) and 4.1 on the Saga (30zv, 26.52; on 1.26.62.1 unmeasured,
+   * kept: TODO(body-lag-2662), a proplag run). A fit of 6 / 5.3 to the
    * loops' lap bar (round 2026-10-20b) moved the bar without removing it on the Saga and swung the car ahead into the
    * Pixel's camera: the bar is hidden instead (`riderViewBricks`). Fractional: interpolated between two ticks' poses. Absent = 0.
    */
@@ -526,7 +527,9 @@ export interface CoasterRiderViewConfig {
    * (Deferred, 24) 3.5 and 3.3. On Minecraft 1.26.52 a camprobe run reads the Pixel's entity lag 5.1-5.4 (round
    * 2026-10-20a), but a coaster planned at 5.5 rode WORSE there (round 2026-10-20c: the camera inside the car ahead's
    * rider in every loop 1; at 3.5, 30zz, only late in loop 2 of car 2), so the Pixel keeps 3.5. TODO(pixel-ride-lag):
-   * why the probe and the ride disagree on the Pixel (the Saga's 5.7 holds in both). The defaults are the Saga's (the user's phone); an unknown client gets them, and
+   * why the probe and the ride disagree on the Pixel (the Saga's 5.7 held in both on 26.52). Minecraft 1.26.62.1 moved the Saga
+   * to ~3 (round 2026-11-19d, `SAGA_2662_ANIM_LAG`); the Pixel's entry is its 26.51/26.52 reading, not re-ridden on its
+   * 1.26.60.4 (TODO(pixel-2660-ride)). The defaults are the Saga's (the user's phone); an unknown client gets them, and
    * `debug` logs every client's fingerprint so a new phone can be measured and added.
    */
   clientTimings?: ReadonlyArray<CoasterClientTiming>;
@@ -592,6 +595,17 @@ export interface CoasterRiderViewConfig {
 }
 
 /**
+ * The default animation lag (`CoasterRiderViewConfig.animLag`): the Saga on Minecraft 1.26.62.1, the user's phone, which
+ * every client the `clientTimings` table does not name gets. DERIVED from round 2026-11-19d K (10303, car 2): planned at
+ * 26.52's measured 5.7, the eye was drawn ~2.7 ticks behind the drawn seat - the rider of the car BEHIND at about 1.2
+ * blocks through the drop, then the eye inside it (the "grazing", COAST-06) - and the simulator draws that rider at the
+ * device's size near an entity lag of 3 (quirk `client-entity-lag` `saga2662Ticks`; `clientProfile('saga-26.62')`).
+ * A phone still on 26.52 shares the Saga's fingerprint (Fancy, 22) and now rides ~2.7 ticks AHEAD of its seat: no API
+ * reports the client's version (TODO(coaster-lag-version), as the cockpit's TODO(cockpit-lag-version)).
+ */
+const SAGA_2662_ANIM_LAG = 3;
+
+/**
  * The rider's baseline view is the car's own frame: the eye where the rider's
  * head is (seat plus seated eye height along the car's real up), looking along
  * the car's nose, turning with every curve and pitching through every climb,
@@ -600,7 +614,7 @@ export interface CoasterRiderViewConfig {
  * always sets where "ahead" is. Values chosen and measured in the guide's
  * "The rider's camera follows the track" section.
  */
-export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'native', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 8, animLag: 5.7, bodyLag: 4.1,
+export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'native', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 8, animLag: SAGA_2662_ANIM_LAG, bodyLag: 4.1,
   clientTimings: [{ label: 'Pixel 8 Pro (Deferred, render distance 24; rounds 30zt, 2026-10-20a)', graphicsMode: 'Deferred', maxRenderDistance: 24, animLag: 3.5, bodyLag: 3.3 }], animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
   steepTilt: 25, steepSpeed: 5, blendTicks: 6, sectionGap: 12, sectionHorizon: 160 };
 
@@ -2860,18 +2874,24 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     // to the plan's end (a brake ahead, the horizon), even so the keyframes stay 0.1 s apart.
     let length = Math.min(plan.poses.length, last + 1 + BLEND);
     if (length % 2) length++;
+    // The animation runs `animTail` ticks PAST the hand-back (`planInversion`'s rule, which `native` lacked until
+    // 2026-11-19): the client plays it in real seconds while the clear is sent on server tick `length`, so a server
+    // that falls behind 20 ticks a second lets it run out first, and the Saga (1.26.62.1, round 19d K) then drew 2-4
+    // frames of empty sky from the arming camera's height at 10303's hand-back. The tail is the player's own view
+    // (weight 0) carried on, so a clear landing anywhere in it meets the view it shows.
+    const total = length + animTail;
     // Keyframe k shows the pose of tick k - lag (`planInversion`'s sequence: history, this tick, the plan,
     // carried on at its own velocity where it stops short).
     const A = Math.ceil(lag);
     const past = history.slice(-(A + 1));
     while (past.length < A + 1) past.unshift(past[0] || { eye: frame.eye, nose: frame.nose, up: frame.up, yaw: frame.yaw });
     const seq = [...past, ...plan.poses];
-    while (seq.length < A + length - lag + 2) {
+    while (seq.length < A + total - lag + 2) {
       const a = seq[seq.length - 2], b = seq[seq.length - 1];
       seq.push({ eye: { x: 2 * b.eye.x - a.eye.x, y: 2 * b.eye.y - a.eye.y, z: 2 * b.eye.z - a.eye.z }, nose: b.nose, up: b.up, yaw: b.yaw });
     }
     const poses: any[] = [];
-    for (let k = 0; k <= length; k++) poses.push(poseAt(seq, k - lag + A));
+    for (let k = 0; k <= total; k++) poses.push(poseAt(seq, k - lag + A));
     // The player's OWN view at tick k is the DRAWN car's yaw (k - lag) plus their head turn `look.yaw`: the client
     // draws a rider's own view on the car it draws, and only REPORTS that yaw some ticks later (`reportLag`, quirk
     // `rider-yaw-lag`). Started from the reported yaw instead (4fed7295), every drop began 35-45 degrees behind the view
@@ -2892,12 +2912,12 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     if (rolledOver) {
       rollTrack = [];
       let chain: any = null;
-      for (let k = 0; k <= length && rollTrack; k++) {
+      for (let k = 0; k <= total && rollTrack; k++) {
         chain = riderView(poses[k].nose, poses[k].up, look, chain, 'roll', 40);
         if (Math.abs(chain.direction[1]) > 0.95) rollTrack = null; else rollTrack.push(chain);
       }
     }
-    for (let k = 0; k <= length; k++) {
+    for (let k = 0; k <= total; k++) {
       const pose = poses[k];
       track = rollTrack ? rollTrack[k] : riderView(pose.nose, pose.up, look, track, 'over', 40);
       const yawNow = (Number.isFinite(pose.yaw) ? pose.yaw : track.yaw - look.yaw) + look.yaw;
@@ -2913,7 +2933,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       if (w >= 1) { ownYaw = track.yaw + wrap(ownYaw - track.yaw); ownPitch = track.pitch + wrap(ownPitch - track.pitch); }
       views.push({ yaw: ownYaw + (track.yaw - ownYaw) * w, pitch: ownPitch + (track.pitch - ownPitch) * w, roll: (track.roll || 0) * w });
     }
-    const animation = splineAnimation(poses, views, length, lead);
+    const animation = splineAnimation(poses, views, total, lead);
     return animation
       ? { ...animation, length, centres: plan.centres.slice(0, length), exact: Math.min(length, plan.exact), first: { eye: poses[0].eye, yaw: views[0].yaw, pitch: views[0].pitch },
           ...(DEBUG ? { debug: { look, pose0: poses[0].yaw, track0: riderView(poses[0].nose, poses[0].up, look, null, 'over', 40).yaw, views: views.slice(0, BLEND + 1).map(v => [round1(v.yaw), round1(v.pitch), round1(v.roll)]), yaws: seq.map(q => round1(q.yaw)) } } : {}) }

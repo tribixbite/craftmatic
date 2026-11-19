@@ -130,7 +130,7 @@ function coasterSim(config: CoasterRuntimeConfig, options: CoasterSimOptions = {
 
 /**
  * The legacy `loop` camera mode (not shipped since `native`, 2026-10-18) as its tests were written: for the Pixel's
- * drawing lag (`animLag` 3.5, no per-client table). The shipped default is the Saga's 5.7 (round 30zv); `loop` was
+ * drawing lag (`animLag` 3.5, no per-client table). The shipped default is the 1.26.62 Saga's ~3 (round 19d; 5.7 on 26.52); `loop` was
  * never re-tuned for it (its hand-back would come before the SHOWN pose is upright).
  */
 const LOOP_MODE = { mode: 'loop' as const, animLag: 3.5, clientTimings: [] };
@@ -2568,10 +2568,10 @@ describe('the rider camera follows the track', () => {
 
   it('loop mode sends each inversion as ONE rolling animation, planned with the ride\'s own arithmetic', () => {
     const ANIM_LAG = LOOP_MODE.animLag;
-    // Measured against a marker: an animation rides the DRAWN entity at lag 5.7 on the Saga (round 30zv, the shipped
-    // default) and 3.5 on the Pixel (2026-09-29, by its fingerprint); the eased per-tick camera at ~1.5 (fractional).
-    // This loop-mode test keeps the Pixel's 3.5 (LOOP_MODE).
-    expect(COASTER_RIDER_VIEW.animLag).toBe(quirkValue('client-entity-lag', 'sagaTicks'));
+    // Measured against a marker: an animation rides the DRAWN entity at lag 5.7 on the 26.52 Saga (round 30zv) and 3.5
+    // on the Pixel (2026-09-29, by its fingerprint); the eased per-tick camera at ~1.5 (fractional). The shipped default
+    // is the Saga on 1.26.62.1 (~3, derived from round 19d's ride). This loop-mode test keeps the Pixel's 3.5 (LOOP_MODE).
+    expect(COASTER_RIDER_VIEW.animLag).toBe(quirkValue('client-entity-lag', 'saga2662Ticks'));
     // The Pixel rides at 3.5 although a camprobe run reads 5.1-5.4 on 1.26.52: planned at 5.5 it rode worse (round 2026-10-20c).
     expect(COASTER_RIDER_VIEW.clientTimings?.find(t => t.graphicsMode === 'Deferred')?.animLag).toBe(quirkValue('client-entity-lag', 'pixel2651Ticks'));
     expect(COASTER_RIDER_VIEW.tickLag).toBe(1.5);
@@ -2896,9 +2896,15 @@ describe('the rider camera follows the track', () => {
       }
       // The loop is drawn: the view passes upside down.
       expect(keys.some(key => rollFrame(keyframeView(key.rotation)).u[1] < -0.9)).toBe(true);
-      // Nothing touches the camera while it plays; it is cleared, back to the player's own view, where it ends.
-      expect(log.filter(e => e.tick > play.tick && e.tick < play.tick + total)).toHaveLength(0);
-      expect(log.filter(e => e.tick === play.tick + total && e.kind === 'clear')).toHaveLength(1);
+      // Nothing touches the camera while it plays; it is cleared, back to the player's own view, `animTail` ticks BEFORE
+      // the animation ends (the hand-back): an animation the client plays in real seconds runs out before a clear sent on
+      // its last tick lands whenever the server falls behind 20 ticks a second, and the Saga (1.26.62.1, round 19d K,
+      // `kride2-12fps-73s.jpg` f007) then drew 2-4 frames of empty sky - no car, the arming camera's height - at the
+      // hand-back after 10303's loops.
+      const tail = COASTER_RIDER_VIEW.animTail;
+      expect(tail).toBeGreaterThanOrEqual(6);
+      expect(log.filter(e => e.tick > play.tick && e.tick < play.tick + total - tail)).toHaveLength(0);
+      expect(log.filter(e => e.tick === play.tick + total - tail && e.kind === 'clear')).toHaveLength(1);
     }
   });
 
