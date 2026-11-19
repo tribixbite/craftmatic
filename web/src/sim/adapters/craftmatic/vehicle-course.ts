@@ -74,7 +74,7 @@ import { liquidSurface, submersion } from '../../world/liquids.js';
 import { PLAYER_HEIGHT, PLAYER_WIDTH } from '../../physics/body.js';
 import type { AddonAppearance } from './appearance.js';
 import { animatedPoses, drawnBoxes, entityDrawn } from './drawn.js';
-import { pick, tap } from '../../input/touch.js';
+import { interactReachesRoot, pick, tap } from '../../input/touch.js';
 import { viewDirection } from '../../core/vec.js';
 import { floorBelow, standsAt } from '../../scenario/approach.js';
 import { teleport } from '../../script-host/facades.js';
@@ -316,6 +316,7 @@ function bandOverlaps(v: SimEntity, f: ScriptedTypeFacts, lo: number, hi: number
 export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, StepHandler> {
   // The native part carriers too: only the `vehicleParts` step reaches them (no course is laid for a native vehicle).
   const types = new Map([...scriptedVehicleTypes(pack), ...nativePartTypes(pack)].map(t => [t.typeId, t]));
+  const nativeTypes = new Set(nativePartTypes(pack).map(t => t.typeId));
   /**
    * Spawn the vehicle and seat the child on it, heading +x (yaw -90) turned `skew` degrees toward +z, at `at` on the
    * ground. `lookAway` (degrees): the child mounts looking that far off the heading, and the seat turns them onto it
@@ -544,6 +545,17 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
         if (swing < 0) continue;
         // In, and off down the road.
         const start = { ...v.location };
+        // A NATIVE vehicle (a rotorcraft: `nativePartTypes`) has no board points (bedrock-vehicle.ts `BOARD`), so the
+        // hold must stand within the interact's reach of its ROOT (quirk `interact-root-reach`): from where the child
+        // opened a part at the far end of a big one (60086's canopy at 400 %, 13+ blocks out) the device shows the Mount
+        // prompt and refuses. That is the vehicle's size, not the open part this step judges: the child walks in first.
+        // TODO(native-board-points): board points for a big native rotorcraft, as a scripted vehicle has.
+        if (nativeTypes.has(f.typeId) && !interactReachesRoot(ctx.player, v)) {
+          const far = r3(Math.hypot(ctx.player.location.x - v.location.x, ctx.player.location.y - v.location.y, ctx.player.location.z - v.location.z));
+          const R = quirkValue('interact-root-reach', 'rootReachBlocks') - 3.5;
+          const near = await findTapSpot(ctx, ctx.player, v, [v.location.x - R, v.location.y, v.location.z - R, v.location.x + R, v.location.y + 1, v.location.z + R], () => true, R);
+          ctx.note(`${f.typeId}: the child stood ${far} blocks from its root, past the hold's reach of a native vehicle's root (no board points); ${near.chosen ? `walked in to ${JSON.stringify(near.chosen.feet)}` : 'no spot within reach picks it'}`);
+        }
         await CORE_HANDLERS['hold']!({ kind: 'hold', target: { where: (e: SimEntity) => e === v, label: f.typeId } }, ctx);
         if (ctx.player.ridingOn !== v) { ctx.violate({ invariant: 'tap-boards-ride', message: `a hold on ${f.typeId} with a part open did not mount it`, evidence: { at: start } }); continue; }
         ctx.player.rotation.y = v.rotation.y;
