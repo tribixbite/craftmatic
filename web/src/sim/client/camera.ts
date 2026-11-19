@@ -90,8 +90,15 @@ export interface ClientProfile {
  * applies actor properties 4.1 ticks early (`sagaLeadTicks`). The pair (4, no ease) derived before
  * from cockpit brackets and the 30g frame counts is superseded.
  */
-export function clientProfile(name: ClientProfileName | 'pixel-26.51'): ClientProfile {
+export function clientProfile(name: ClientProfileName | 'pixel-26.51' | 'saga-26.62'): ClientProfile {
   if (name === 'pixel-26.51') return { ...clientProfile('pixel'), entityLagTicks: quirkValue('client-entity-lag', 'pixel2651Ticks') };
+  // The Saga on 1.26.62.1: DERIVED from one cockpit reading (quirk `cockpit-draw-lag` `ticks`, round 2026-11-19c), which
+  // pins only entity lag - ease lag - the camera-first tick = 0.5. Taken as the 26.52 marker run's half ease (1 tick)
+  // with the entity lag that reading leaves: 2.5. TODO(client-lag-saga): a 1.26.62 marker run separates the two.
+  if (name === 'saga-26.62') {
+    const saga = clientProfile('saga');
+    return { ...saga, basis: 'derived', entityLagTicks: quirkValue('cockpit-draw-lag', 'ticks') + 1 + easeSteadyLagTicks(0.1, saga.easeFactor) };
+  }
   return name === 'saga'
     ? { name, entityLagTicks: quirkValue('client-entity-lag', 'sagaTicks'), easeFactor: quirkValue('camera-ease-lag', 'sagaFactor'), basis: 'measured', propertyLeadTicks: quirkValue('property-ahead-of-position', 'sagaLeadTicks'), device: { graphicsMode: 'Fancy', maxRenderDistance: 22, memoryTier: 4 } }
     : { name: 'pixel', entityLagTicks: quirkValue('client-entity-lag', 'ticks'), easeFactor: quirkValue('camera-ease-lag', 'pixelFactor'), basis: 'measured', propertyLeadTicks: quirkValue('property-ahead-of-position', 'pixelLeadTicks'), device: { graphicsMode: 'Deferred', maxRenderDistance: 24, memoryTier: 4 } };

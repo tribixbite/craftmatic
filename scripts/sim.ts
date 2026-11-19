@@ -125,8 +125,10 @@ const inputs = args.filter(a => !a.startsWith('--'));
 // ─── Package B: the client's eye (web/src/sim/client) ───
 const framesDir = flag('frames');
 const clientFlag = flag('client') ?? (mode === 'coaster-camera' ? 'both' : 'pixel');
-if (!['pixel', 'saga', 'both'].includes(clientFlag)) { console.error('--client= is pixel, saga or both'); process.exit(2); }
-const clientProfiles: ClientProfileName[] = clientFlag === 'both' ? ['pixel', 'saga'] : [clientFlag as ClientProfileName];
+if (!['pixel', 'saga', 'saga-26.62', 'both'].includes(clientFlag)) { console.error('--client= is pixel, saga, saga-26.62 or both'); process.exit(2); }
+/** `saga-26.62`: the Saga as Minecraft 1.26.62.1 draws it (`clientProfile('saga-26.62')`, derived from round 19c); `saga` is its 26.52 marker run. */
+type SimClient = ClientProfileName | 'saga-26.62';
+const clientProfiles: SimClient[] = clientFlag === 'both' ? ['pixel', 'saga'] : [clientFlag as SimClient];
 const uvFloorFlag = flag('uvfloor') as UvFloorModel | undefined;
 const hatchFlag = args.includes('--hatch'), lodFlag = args.includes('--lod');
 const lagsFlag = flag('lag')?.split(',').map(Number).filter(Number.isFinite);
@@ -141,9 +143,9 @@ const clientShots = !!(uvFloorFlag || hatchFlag || lodFlag);
 const fovFlag = Number(flag('fov'));
 const clientStepOptions = { ...(Number.isFinite(fovFlag) && fovFlag > 0 ? { fovDeg: fovFlag } : {}), ...(uvFloorFlag ? { uvFloor: uvFloorFlag } : {}), lod: lodFlag || mode === 'walk-away', paintHatch: hatchFlag, frames: !!framesDir, ...(lagsFlag?.length ? { lags: lagsFlag } : {}) };
 /** The run options that attach the client and its invariants to a scenario. */
-const clientRun = (profile: ClientProfileName, pack?: CraftmaticPack): Pick<RunOptions, 'invariants' | 'prepare'> => ({ invariants: clientInvariants({ seatCamera: craftmaticSeatCamera(), ...(pack ? { seatEye: craftmaticSeatEye(pack) } : {}) }), prepare: (sim, player) => { attachClient(sim, player, (propLeadFlag !== undefined && Number.isFinite(propLeadFlag)) || (otherPropLeadFlag !== undefined && Number.isFinite(otherPropLeadFlag))
+const clientRun = (profile: SimClient, pack?: CraftmaticPack): Pick<RunOptions, 'invariants' | 'prepare'> => ({ invariants: clientInvariants({ seatCamera: craftmaticSeatCamera(), ...(pack ? { seatEye: craftmaticSeatEye(pack) } : {}) }), prepare: (sim, player) => { attachClient(sim, player, (propLeadFlag !== undefined && Number.isFinite(propLeadFlag)) || (otherPropLeadFlag !== undefined && Number.isFinite(otherPropLeadFlag))
       ? { ...clientProfile(profile), ...(propLeadFlag !== undefined && Number.isFinite(propLeadFlag) ? { propertyLeadTicks: propLeadFlag } : {}), ...(otherPropLeadFlag !== undefined && Number.isFinite(otherPropLeadFlag) ? { otherPropertyLeadTicks: otherPropLeadFlag } : {}) }
-      : profile); } });
+      : clientProfile(profile)); } });
 /**
  * Two run-option sets in one: both `prepare` hooks run (cost telemetry, then the client camera) and the
  * invariants concatenate; every other key is taken from whichever set has it, the second winning.

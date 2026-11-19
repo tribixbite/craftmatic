@@ -105,7 +105,8 @@ describe('the client model: numbers and derivations', () => {
     const pixel = clientProfile('pixel'), cameraFirst = 1;
     const lag = cockpitLagFor(pixel.device.graphicsMode, pixel.device.maxRenderDistance, COCKPIT_CLIENT_LAGS, FREE_LOOK.COCKPIT_TICK_LAG);
     expect(Math.abs(drawnCameraLead(19.2, lag + cameraFirst, FREE_LOOK.COCKPIT_EASE_SECONDS, pixel))).toBeLessThan(SEAT_EYE_SLACK / 2);
-    expect(drawnCameraLead(19.2, FREE_LOOK.COCKPIT_TICK_LAG + cameraFirst, FREE_LOOK.COCKPIT_EASE_SECONDS, pixel)).toBeLessThan(-2);
+    // The lag every other client took until round 19c (the Saga's 26.52 reading) sat 2.4 blocks behind the Pixel's seat.
+    expect(drawnCameraLead(19.2, quirkValue('cockpit-draw-lag', 'saga2652Ticks') + cameraFirst, FREE_LOOK.COCKPIT_EASE_SECONDS, pixel)).toBeLessThan(-2);
     // It is the Pixel's marker-measured per-tick coaster camera (the same 0.1 s ease at 1.5), less the camera-first tick.
     expect(lag + cameraFirst).toBeCloseTo(COASTER_RIDER_VIEW.tickLag, 9);
   });
