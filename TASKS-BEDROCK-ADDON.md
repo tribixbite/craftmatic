@@ -45,9 +45,13 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   A-12, the Saga server fell to ~16 ticks/s; fix caches cells 10 ticks, pack `output/gen-cockpit-1119/saga-6e57f9bd/`).
   Round 19b (`saga-19b/notes.md`): B PASS - 8097 hatches tap open/shut via the lifted board columns at 150/200 %; a
   touch tap acts at the SCREEN CENTRE, not the finger (quirk to add); F as predicted - 10261 400 % draws only chunks
-  within ~70 blocks; G partial (31141 fig6 printed face). NEXT round 19c: E repeat with the gen-cockpit pack (CMVT
-  msPerTick, tick rate, fresh seat, no drag, 30 fps), C 41395 eased swing, A at 50 %, G faces (10303 + 31141 fig1-5
-  front-on), B at 100 %. The Saga's foreground app is Bambu Handy: return to it after a round.
+  within ~70 blocks; G partial. Round 19c (`saga-19c/notes.md`): A at 50 % PASS 4/4 (VEH-17 now proven 50/100/200);
+  C 41395 side section eases open/shut in ~0.35 s (door not hit, drive-shut not seen); G printed faces on 31141
+  fig1-4, 10303 fig2/4, none blank; E STILL FAILS with the gen-cockpit fix merged (20 ticks/s, 3.6-5.1 ms/tick): from
+  ~5 mph the view holds on the car's rear - branch `gen-cockpit2` (camera trailing vs a facing flip, decided by
+  `_cockpit_view.ts` frame matching). NEXT round: E repeat with the gen-cockpit2 pack, B 8097 at 100 %, C bus door,
+  G 10303 riders. The Saga's foreground app is Bambu Handy: return to it after a round. 19c left the McLaren wand at
+  rotation 180 / 50 % (was 90).
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
   --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
   --out=output/gengate-6fa0afa6`): 60/60 built, child play 710/720 (fails: 5482 windows out of reach + doorway holes
