@@ -480,6 +480,13 @@ describe('corner forms: a post in a cell corner is a corner square, not a band t
     const f = K.cover(cell)!;
     expect(formContains(f, cell)).toBe(true);
     expect(K.formBoxes(f.v, f.lo, f.hi)).toEqual([[0, 16, 0, 16, 0, 8]]);
+    // 21318 cell (5, 9, 13): a plate x 7..16 two sixteenths high under a post in its +x/low-z corner. The corner split
+    // form is refused (no full layer under its slab), and the band split form the old kit shipped must stand, not a
+    // band the cell's whole height (x 4..16, 3072 against 1408 sixteenths cubed).
+    const plate: Box16[] = [[7, 16, 0, 2, 0, 16], [13, 16, 2, 16, 0, 3]];
+    const p = K.cover(plate)!;
+    expect(formContains(p, plate)).toBe(true);
+    expect(K.formBoxes(p.v, p.lo, p.hi)).toEqual([[0, 16, 0, 2, 0, 16], [12, 16, 2, 16, 0, 16]]);
     // A floor plate under a corner post still takes the floor + corner form (the floor layers ARE full).
     const g = K.cover([[0, 16, 0, 4, 0, 16], [15, 16, 4, 16, 15, 16]])!;
     expect(K.formBoxes(g.v, g.lo, g.hi)).toEqual([[0, 16, 0, 4, 0, 16], [12, 16, 4, 16, 12, 16]]);

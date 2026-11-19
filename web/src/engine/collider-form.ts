@@ -209,19 +209,22 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
     if (Y1 >= 16 - (topSlack || 0)) for (let m = Y0 + 1; m <= Math.min(15, Y1 - 1); m++) {
       const up = within(m, 16);
       if (!up) continue;
-      const s = smallest(up[0], up[1], up[2], up[3], n);
+      let s = smallest(up[0], up[1], up[2], up[3], n);
+      // A corner the slab rule refuses still leaves the band split form the kit had before the corners.
+      if (s !== 0 && !slabOk(s, Y0, m)) s = smallest(up[0], up[1], up[2], up[3], BAND_SHAPES);
       if (s === 0) continue;
       const vol = 256 * (m - Y0) + area(s) * (16 - m);
-      if (vol < bestVol && slabOk(s, Y0, m)) { bestVol = vol; best = { v: vid(1, s), lo: Y0, hi: m }; }
+      if (vol < bestVol) { bestVol = vol; best = { v: vid(1, s), lo: Y0, hi: m }; }
     }
     // Wall + ceiling: shape 0..m, full band m..Y1 (only when the geometry reaches the block bottom).
     if (Y0 === 0) for (let m = 1; m < Y1; m++) {
       const down = within(0, m);
       if (!down) continue;
-      const s = smallest(down[0], down[1], down[2], down[3], n);
+      let s = smallest(down[0], down[1], down[2], down[3], n);
+      if (s !== 0 && !slabOk(s, m, Y1)) s = smallest(down[0], down[1], down[2], down[3], BAND_SHAPES);
       if (s === 0) continue;
       const vol = area(s) * m + 256 * (Y1 - m);
-      if (vol < bestVol && slabOk(s, m, Y1)) { bestVol = vol; best = { v: vid(2, s), lo: m, hi: Y1 }; }
+      if (vol < bestVol) { bestVol = vol; best = { v: vid(2, s), lo: m, hi: Y1 }; }
     }
     return best;
   };
