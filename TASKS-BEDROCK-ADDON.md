@@ -44,7 +44,7 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   speed REGRESSED (camera behind the drawn car; branch `gen-cockpit`: the car script read ~124 blocks a tick since
   A-12, the Saga server fell to ~16 ticks/s; fix caches cells 10 ticks, pack `output/gen-cockpit-1119/saga-6e57f9bd/`).
   Round 19b (`saga-19b/notes.md`): B PASS - 8097 hatches tap open/shut via the lifted board columns at 150/200 %; a
-  touch tap acts at the SCREEN CENTRE, not the finger (quirk to add); F as predicted - 10261 400 % draws only chunks
+  touch tap acts at the SCREEN CENTRE, not the finger (quirk `touch-screen-pick`); F as predicted - 10261 400 % draws only chunks
   within ~70 blocks; G partial. Round 19c (`saga-19c/notes.md`): A at 50 % PASS 4/4 (VEH-17 now proven 50/100/200);
   C 41395 side section eases open/shut in ~0.35 s (door not hit, drive-shut not seen); G printed faces on 31141
   fig1-4, 10303 fig2/4, none blank; E STILL FAILS with the gen-cockpit fix merged (20 ticks/s, 3.6-5.1 ms/tick): from
