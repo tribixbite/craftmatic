@@ -2773,7 +2773,7 @@ function palettePng(palette: string[]): Uint8Array { const w = 16, h = Math.max(
     p += len;
 } const z = concat(Uint8Array.of(0x78, 0x01), ...blocks, u32((b << 16) | a)); return concat(Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10), pngChunk('IHDR', concat(u32(w), u32(h), Uint8Array.of(8, 6, 0, 0, 0))), pngChunk('IDAT', z), pngChunk('IEND', new Uint8Array())); }
 /** What `emitCompiledEntity` reads of a compiled entity: a `CompiledLdrawGeometry` is one; so is a rail chunk (`coaster-pack.ts`). */
-export type EmittableGeometry = LodHullInput & { diagnostics: { cubeCount: number } };
+export type EmittableGeometry = LodHullInput & { diagnostics: { cubeCount: number; coplanar?: { offset?: number } } };
 
 /**
  * The quality a VEHICLE carved out of a model is compiled at (FID-02, audit 2026-11-15 A-03): the vehicle preset
