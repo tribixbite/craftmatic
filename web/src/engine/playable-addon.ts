@@ -3626,6 +3626,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             ldrawGeo = await compileLdrawEntityGeometry(cid, c.kind, c.bricks, {
                 scale: unitsPerLdu,
                 facing: requestedFacing,
+                // A helicopter's slim end is its tail boom, its round lamps no exhaust (vehicle-facing.ts).
+                ...(c.kind === 'plane' && motion0 === 'rotor' ? { rotorcraft: true } : {}),
                 userSeatAnchor: c.seatAnchor,
                 partGeometry: options.partGeometry,
                 quality: vehicleEntityQuality(options.entityQuality, c.bricks.length, modelParts),

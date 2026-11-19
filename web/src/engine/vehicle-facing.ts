@@ -121,6 +121,12 @@ export interface InferNoseOptions {
   meshes?: Map<string, LdrawPartMesh | null>;
   /** Wheel part names recognised by the compiler (positions and radii vote for cars). */
   isWheel?: (brick: ParsedBrick) => boolean;
+  /**
+   * A plane that is a ROTORCRAFT (a main rotor on top: scene-vehicles.ts `flightOf`, or a helicopter's label): it has
+   * no exhausts, so its translucent round parts (searchlights, beacons) do not vote as engine glow, and its slim end
+   * is the TAIL BOOM, so the narrow-end rule votes for the other end.
+   */
+  rotorcraft?: boolean;
 }
 
 /** Infer the nose direction of a LEVELLED, detached-object-free placement set. */
@@ -227,7 +233,7 @@ export function inferVehicleNose(bricks: ParsedBrick[], kind: PlayableKind, opti
    *    than half the other cannot be the hull (a helicopter's tail boom is
    *    asymmetric across the short axis and would vote there).
    */
-  const narrowEnd = (weight: number, axes: ReadonlyArray<'x' | 'z'> = ['x', 'z']): void => {
+  const narrowEnd = (weight: number, axes: ReadonlyArray<'x' | 'z'> = ['x', 'z'], toward: 1 | -1 = 1): void => {
     if (n < 8) return;
     for (const axis of axes) {
       const aSpan = axis === 'x' ? spanX : spanZ;
@@ -241,8 +247,9 @@ export function inferVehicleNose(bricks: ParsedBrick[], kind: PlayableKind, opti
       };
       const wNeg = outer(-1), wPos = outer(1);
       if (wNeg > 0 && wPos > 0 && Math.max(wNeg, wPos) / Math.min(wNeg, wPos) >= 1.3) {
-        const s = wNeg < wPos ? -weight : weight;
-        votes.push({ signal: `narrow end ${axis}`, x: axis === 'x' ? s : 0, z: axis === 'z' ? s : 0, weight, detail: `outer width ${Math.round(wNeg)} vs ${Math.round(wPos)} LDU across ${axis}` });
+        // `toward` -1: the slim end is the tail (a rotorcraft's boom), the nose the other end.
+        const s = (wNeg < wPos ? -weight : weight) * toward;
+        votes.push({ signal: toward > 0 ? `narrow end ${axis}` : `tail boom ${axis}`, x: axis === 'x' ? s : 0, z: axis === 'z' ? s : 0, weight, detail: `outer width ${Math.round(wNeg)} vs ${Math.round(wPos)} LDU across ${axis}` });
       }
     }
   };
@@ -309,7 +316,7 @@ export function inferVehicleNose(bricks: ParsedBrick[], kind: PlayableKind, opti
     //     Strongest plane signal: the Milano's cockpit sits AFT of centre
     //     (its prongs reach forward), so canopy position alone read it 90°
     //     wrong; its four trans-light-blue engine dishes settle it.
-    const glow = bricks.filter(b => isTranslucentColour(b.color) && isRoundGlowPart(b.part, options.meshes?.get(b.part)?.description));
+    const glow = options.rotorcraft ? [] : bricks.filter(b => isTranslucentColour(b.color) && isRoundGlowPart(b.part, options.meshes?.get(b.part)?.description));
     //     Weighted by footprint area: an engine is a 4×4 dish, a nav light a
     //     1×1 round plate, and the Milano has nine of the latter spread about.
     const footprint = (b: ParsedBrick): number => { const m = options.meshes?.get(b.part); return m ? Math.max(1, (m.bounds.max[0] - m.bounds.min[0]) * (m.bounds.max[2] - m.bounds.min[2])) : 400; };
@@ -320,7 +327,7 @@ export function inferVehicleNose(bricks: ParsedBrick[], kind: PlayableKind, opti
     //     Weaker than the exhausts: the Milano's cockpit sits AFT of centre.
     const canopy = bricks.filter(b => isTranslucentColour(b.color) && isGlassPart(b.part, options.meshes?.get(b.part)));
     if (canopy.length >= 1) centroidVote(canopy, 'canopy position', 1.5, 1, 0.08, `${canopy.length} glass placements`);
-    narrowEnd(1);
+    narrowEnd(1, ['x', 'z'], options.rotorcraft ? -1 : 1);
   }
 
   const sumX = votes.reduce((a, v) => a + v.x, 0), sumZ = votes.reduce((a, v) => a + v.z, 0);
