@@ -74,7 +74,7 @@ import { liquidSurface, submersion } from '../../world/liquids.js';
 import { PLAYER_HEIGHT, PLAYER_WIDTH } from '../../physics/body.js';
 import type { AddonAppearance } from './appearance.js';
 import { animatedPoses, drawnBoxes, entityDrawn } from './drawn.js';
-import { pick, tap } from '../../input/touch.js';
+import { interactReachesRoot, pick, tap } from '../../input/touch.js';
 import { viewDirection } from '../../core/vec.js';
 import { floorBelow, standsAt } from '../../scenario/approach.js';
 import { teleport } from '../../script-host/facades.js';
@@ -316,6 +316,7 @@ function bandOverlaps(v: SimEntity, f: ScriptedTypeFacts, lo: number, hi: number
 export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, StepHandler> {
   // The native part carriers too: only the `vehicleParts` step reaches them (no course is laid for a native vehicle).
   const types = new Map([...scriptedVehicleTypes(pack), ...nativePartTypes(pack)].map(t => [t.typeId, t]));
+  const nativeTypes = new Set(nativePartTypes(pack).map(t => t.typeId));
   /**
    * Spawn the vehicle and seat the child on it, heading +x (yaw -90) turned `skew` degrees toward +z, at `at` on the
    * ground. `lookAway` (degrees): the child mounts looking that far off the heading, and the seat turns them onto it
@@ -518,16 +519,25 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
           v = ctx.sim.engine.spawnEntity(f.typeId, 'overworld', at);
           await ctx.run(4);
         }
+        /** Box a (entity frame, [x0 y0 z0 x1 y1 z1]) inside box b. */
+        const inside = (a: readonly number[], b: readonly number[]): boolean => [0, 1, 2].every(q => a[q]! >= b[q]! - 1e-6 && a[q + 3]! <= b[q + 3]! + 1e-6);
         for (let i = 0; i < f.parts.length; i++) {
           if (f.parts[i]!.closed.length < 6) continue;
           sum.parts++;
+          // A part inside another part's SHUT box is behind it (`pickVehiclePart`: a shut part keeps what is inside its
+          // own box, an open one gives it up): the child opens that part first, as a child opens a canopy to reach the
+          // sticks under it (60086's helicopter), and shuts it again after.
+          const cover = f.parts.findIndex((q, j) => j !== i && q.kind !== 'turnable' && q.closed.length >= 6 && inside(f.parts[i]!.closed, q.closed));
+          const uncovered = cover >= 0 && value(v, cover) === 0 && (await tapOn(v, f, cover)) === 'changed';
+          if (uncovered) ctx.note(`${f.typeId} part ${i} (${f.parts[i]!.noun}) is inside part ${cover} (${f.parts[cover]!.noun}) shut: opened that first`);
           const got = await tapOn(v, f, i);
-          if (got === 'unreachable') { sum.unreachable++; continue; }
+          if (got === 'unreachable') { sum.unreachable++; if (uncovered) await tapOn(v, f, cover); continue; }
           if (got === 'changed') {
             sum.opened++;
             // Back as it was (a turnable keeps its step: it is never "open").
             if (f.parts[i]!.kind !== 'turnable' && (await tapOn(v, f, i)) !== 'changed') ctx.violate({ invariant: 'vehicle-part-opens', message: `${f.typeId} part ${i}: a second tap did not close it`, evidence: { value: value(v, i) } });
-          } else ctx.violate({ invariant: 'vehicle-part-opens', message: `${f.typeId} part ${i} (${f.parts[i]!.noun}): a tap beside the parked vehicle did not open it`, evidence: { at: { x: r3(v.location.x), y: r3(v.location.y), z: r3(v.location.z) }, value: value(v, i) } });
+          } else ctx.violate({ invariant: 'vehicle-part-opens', message: `${f.typeId} part ${i} (${f.parts[i]!.noun}): a tap beside the parked vehicle did not open it${uncovered ? ` (part ${cover} it is inside opened first)` : ''}`, evidence: { at: { x: r3(v.location.x), y: r3(v.location.y), z: r3(v.location.z) }, value: value(v, i) } });
+          if (uncovered) await tapOn(v, f, cover);
         }
         // The first swinging part a child can reach here (by the same search).
         let swing = -1;
@@ -535,6 +545,17 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
         if (swing < 0) continue;
         // In, and off down the road.
         const start = { ...v.location };
+        // A NATIVE vehicle (a rotorcraft: `nativePartTypes`) has no board points (bedrock-vehicle.ts `BOARD`), so the
+        // hold must stand within the interact's reach of its ROOT (quirk `interact-root-reach`): from where the child
+        // opened a part at the far end of a big one (60086's canopy at 400 %, 13+ blocks out) the device shows the Mount
+        // prompt and refuses. That is the vehicle's size, not the open part this step judges: the child walks in first.
+        // TODO(native-board-points): board points for a big native rotorcraft, as a scripted vehicle has.
+        if (nativeTypes.has(f.typeId) && !interactReachesRoot(ctx.player, v)) {
+          const far = r3(Math.hypot(ctx.player.location.x - v.location.x, ctx.player.location.y - v.location.y, ctx.player.location.z - v.location.z));
+          const R = quirkValue('interact-root-reach', 'rootReachBlocks') - 3.5;
+          const near = await findTapSpot(ctx, ctx.player, v, [v.location.x - R, v.location.y, v.location.z - R, v.location.x + R, v.location.y + 1, v.location.z + R], () => true, R);
+          ctx.note(`${f.typeId}: the child stood ${far} blocks from its root, past the hold's reach of a native vehicle's root (no board points); ${near.chosen ? `walked in to ${JSON.stringify(near.chosen.feet)}` : 'no spot within reach picks it'}`);
+        }
         await CORE_HANDLERS['hold']!({ kind: 'hold', target: { where: (e: SimEntity) => e === v, label: f.typeId } }, ctx);
         if (ctx.player.ridingOn !== v) { ctx.violate({ invariant: 'tap-boards-ride', message: `a hold on ${f.typeId} with a part open did not mount it`, evidence: { at: start } }); continue; }
         ctx.player.rotation.y = v.rotation.y;

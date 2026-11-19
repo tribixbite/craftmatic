@@ -348,8 +348,8 @@ export function pickVehiclePart(parts: ReadonlyArray<{ closed: readonly number[]
   };
   // Ranked: the view ray through a part's own box (nearest first), then through its padded box, then the cone.
   let bestPadded = -1, paddedT = Infinity, bestCone = -1, bestCos = -Infinity;
-  /** Every part whose own box the view ray enters: where, and how far its centre is off the ray. */
-  const exacts: Array<{ i: number; t: number; off: number }> = [];
+  /** Every part whose own box the view ray enters: where, how far its centre is off the ray, the box (scaled), and whether it is an open part's sweep box. */
+  const exacts: Array<{ i: number; t: number; off: number; lo: number[]; hi: number[]; sweep: boolean }> = [];
   for (let i = 0; i < parts.length; i++) {
     // An open part answers where it is AND where it was (the box over both: a leaf sweeps between them), so a window
     // opened from below can be closed from the same spot though it swung out of reach.
@@ -366,7 +366,7 @@ export function pickVehiclePart(parts: ReadonlyArray<{ closed: readonly number[]
     if (exact < Infinity) {
       const cx = (lo0[0]! + hi0[0]!) / 2 - e[0]!, cy = (lo0[1]! + hi0[1]!) / 2 - e[1]!, cz = (lo0[2]! + hi0[2]!) / 2 - e[2]!;
       const along = cx * d[0]! + cy * d[1]! + cz * d[2]!;
-      exacts.push({ i, t: exact, off: Math.hypot(cx - along * d[0]!, cy - along * d[1]!, cz - along * d[2]!) });
+      exacts.push({ i, t: exact, off: Math.hypot(cx - along * d[0]!, cy - along * d[1]!, cz - along * d[2]!), lo: lo0, hi: hi0, sweep: b !== c0 });
     }
     const padded = rayIn(lo, hi);
     if (padded < paddedT) { paddedT = padded; bestPadded = i; }
@@ -379,10 +379,15 @@ export function pickVehiclePart(parts: ReadonlyArray<{ closed: readonly number[]
   }
   // The nearest box the ray enters, unless another it enters within `TIE_BLOCKS` of it has its centre nearer the ray:
   // overlapping boxes (two stacked drawers' corner boxes, a door before its frame's cupboard) go to the one aimed at.
-  if (exacts.length) {
-    const first = Math.min(...exacts.map(x => x.t)), band = P.TIE_BLOCKS * Math.max(1, k);
-    let best = exacts[0]!;
-    for (const x of exacts) if (x.t <= first + band && (best.t > first + band || x.off < best.off)) best = x;
+  // An OPEN part's sweep box (over its open and shut boxes) is where it can be closed from, not drawn geometry: a part
+  // whose own box the ray enters INSIDE it is aimed at past the open leaf and takes the tap (60086's canopy open, its
+  // control sticks where it was shut, census 2026-11-19). A shut part keeps what is inside its own box: it is in front.
+  const within = (a: { lo: number[]; hi: number[] }, o: { lo: number[]; hi: number[] }): boolean => [0, 1, 2].every(q => a.lo[q]! >= o.lo[q]! - 1e-6 && a.hi[q]! <= o.hi[q]! + 1e-6);
+  const ranked = exacts.filter(o => !(o.sweep && exacts.some(x => x !== o && within(x, o))));
+  if (ranked.length) {
+    const first = Math.min(...ranked.map(x => x.t)), band = P.TIE_BLOCKS * Math.max(1, k);
+    let best = ranked[0]!;
+    for (const x of ranked) if (x.t <= first + band && (best.t > first + band || x.off < best.off)) best = x;
     return best.i;
   }
   return bestPadded >= 0 ? bestPadded : bestCone;

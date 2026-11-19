@@ -651,6 +651,8 @@ export interface CompileLdrawEntityOptions {
   /** A scene vehicle keeps the loose props its cluster carries (`prepareEntityPlacements`). */
   attachLooseProps?: boolean;
   facing?: VehicleFacing;
+  /** A plane flown as a rotorcraft (a helicopter): its facing reads its tail boom and lamps as a helicopter's (`InferNoseOptions.rotorcraft`). */
+  rotorcraft?: boolean;
   userSeatAnchor?: { x: number; y: number; z: number };
   /**
    * Placements that are SEATS though no seat mould names them (audit A-02): the furniture seats and beds
@@ -2424,6 +2426,7 @@ export async function compileLdrawEntityGeometry(
       explicit: options.facing && options.facing !== 'auto' ? options.facing : (kind === 'figure' || kind === 'prop' ? '-z' : undefined),
       meshes,
       isWheel: isWheelPartWith(meshes),
+      ...(options.rotorcraft && kind === 'plane' ? { rotorcraft: true } : {}),
     });
   const nose = facing.nose;
   const isXLongitudinal = facing.axis === 'x';
