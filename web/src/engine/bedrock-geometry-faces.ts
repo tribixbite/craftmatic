@@ -545,8 +545,8 @@ export const COPLANAR_SEPARATION_UNITS = 0.15;
  * settled ~5,500 pairs and made as many, 5,543 shipped after the 16-pass cap and the compile took 12 minutes (A-17).
  * A quarter keeps three stacked layers of pushes clear of the next plane. A model drawn at a quarter of the size is
  * seen at a quarter of the distance for the same picture, so a quarter of the push holds the same depth margin there.
- * TODO(lambo-cross-offset): the cross-entity pass (cross-entity-coplanar.ts) still pushes a placed entity by the full
- * offset against its neighbours; a small vehicle beside a shell should use its own (smaller) push there too.
+ * The cross-entity pass (cross-entity-coplanar.ts) pushes a placed entity against its neighbours by the same push,
+ * read from the entity's compile record (`diagnostics.coplanar.offset`).
  */
 export function coplanarSeparationOffset(finestGrainLdu: number, unitsPerLdu: number): number {
   const step = finestGrainLdu * unitsPerLdu;

@@ -39,6 +39,13 @@ interface JsonGeometry { bones?: JsonBone[] }
 export interface ShippedGeometry {
   value: unknown;
   meshes: ReadonlyArray<{ material: { colorId: number; alpha: number }; faceAtlas?: unknown }>;
+  /**
+   * The compiler's own coplanar record: `offset` is the push its per-entity pass used (`coplanarSeparationOffset` of
+   * the entity's finest shipped grain). The cross-entity pass pushes this entity's faces by the same amount, so a model
+   * compiled below minifig scale is not pushed a whole grain step onto its next plane against a neighbour. Absent (a
+   * rail chunk, a geometry compiled before 2026-11-19): the full `COPLANAR_SEPARATION_UNITS`.
+   */
+  diagnostics?: { coplanar?: { offset?: number } };
 }
 
 /** A shipped geometry read as the audit reads it, and a way to write the separation's edits back into its JSON. */
@@ -228,7 +235,9 @@ export function separateEntitiesFromNeighbours(
     const shipped = entryOf(typeId)!;
     const actors = list.map(a => toActor(a, shipped.entry));
     // Its own pairs were separated when it was compiled: only what meets a neighbour is measured.
-    const r = separateCoplanarAgainst(actors, fixed, { settledOwn: true });
+    // The entity being rewritten decides its own push: only its faces move, so only its grain bounds the step.
+    const offset = geometries.get(typeId)!.diagnostics?.coplanar?.offset;
+    const r = separateCoplanarAgainst(actors, fixed, { settledOwn: true, ...(offset !== undefined ? { offset } : {}) });
     const cubesRewritten = r.facesGrown ? shipped.writeBack() : 0;
     out.entities[typeId] = { ...r, cubesRewritten };
     if (cubesRewritten) out.changed.push(typeId);

@@ -5274,8 +5274,12 @@ the same picture). 10337 2,697 / 3.84 -> 4 / 0.00;
 42172 80 / 0.07 -> 41 / 0.03; non-favourites 6753 (0.25x) 3,309 pairs left ->
 0, 669 s -> 61 s; 8289 46 -> 0, 188 s -> 66 s. `buriedFaceTest` now rejects a
 neighbour by area and box before clipping (4 ms -> 0.3 ms a query on the car's
-wheels). Still open: the cross-entity pass pushes a placed entity by the full
-0.15 against its neighbours (`TODO(lambo-cross-offset)`).
+wheels). The cross-entity pass (`separateEntitiesFromNeighbours`) pushes a
+placed entity against its neighbours by the same push, read from its compile
+record (`diagnostics.coplanar.offset`; a geometry without one, a rail chunk,
+keeps 0.15): only the rewritten entity's faces move, so only its grain bounds
+the step (gen-xoffset 2026-11-19: 42172's car moved 12 cubes, nothing else
+changed in 10337, 6753, 8289, 10303 or 31060).
 
 **What it does not fix**: the horizontal striping under 42703's arches and
 on round columns (Saga, `saga/after-42703-arch-b6c1c882.jpg`) is the stair-step
