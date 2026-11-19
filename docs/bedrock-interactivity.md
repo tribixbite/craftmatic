@@ -458,10 +458,29 @@ with its reason (`craftmatic-diagnostics.json`, `clearance`):
    floor plate) and whose band holds everything above it (a table's rim, a
    post, a lamp), its wall raised at most 2/16 to the block top - unless the
    top is a doorway's LANDING (`landingAt`, the guard below), which kept 10326
-   Door 3 OK (its only level spot outside is such a phantom top) and keeps
-   910032 Door 4 SEALED (`TODO(clearance-tight-910032)`). Over 11 favourites
-   it trimmed 4-55 more cells a set; 42670 Garage door 1 became walkable at
-   100 %; the three device-proven SCALE-06 walk lines read identically.
+   Door 3 OK (its only level spot outside is such a phantom top). Over 11
+   favourites it trimmed 4-55 more cells a set; 42670 Garage door 1 became
+   walkable at 100 %; the three device-proven SCALE-06 walk lines read
+   identically.
+   **6. The doorway rescue** (2026-11-19, `DoorwayRescue`): a local rule cannot
+   tell a landing that keeps a door walkable (10326 Door 3) from one that
+   seals it, so the walk decides. After the leak check, for each doorway the
+   100 % walk (`doorwayWalkSummary`, turn 0, the build's own door count) calls
+   not OK, the walkable-top trims rule 4 refused within `RESCUE_REACH` 2.5
+   blocks of its leaf (the landing guard's furniture form where it kept one)
+   are leak-checked and applied when they make that doorway OK and no doorway
+   OK before is worse; then dropped one at a time while it stays OK. Over the
+   40 favourites and the regression packs (genclear-all) it opened ONE
+   doorway, 6194's Door 1 (a non-favourite), at ~1-2 s more clearance per set.
+   It does not open 910032 Door 4, whose cause was misread: the landing
+   guard's cells stand on the side the walk already passes, and all of the
+   refused trims together leave it SEALED. Its - side is a dining nook 0.75
+   block wide whose only spot past `SIDE_CLEARANCE` is a bench top (1.125),
+   reached by a jump from the doorway column under the lintel (geometry
+   z 4.19..5 at 2.75 in cell (3,2,4)); the column walk needs 1.8 of headroom
+   over that column and refuses, with the lintel trimmed to its band too
+   (`ROOMY_FREE`); with no lintel the door reads OK. A walk-harness question
+   (`TODO(clearance-tight-910032)`, scripts/favourite-sets.ts), not a trim.
    The first exception (`wallTopRim`,
    2026-09-26): the top cell of a WALL may be narrowed to the wall when all of
    these hold, counted as `wallTops` in the report:
