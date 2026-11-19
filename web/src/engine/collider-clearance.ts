@@ -126,8 +126,11 @@ export interface ClearanceInput {
  * for every doorway over a grid (100 %, turn 0: `doorwayWalkSummary`, interactive-walk.ts). Rule 4 keeps a standing
  * top whole because it MAY be where a player stands (a doorway's landing, a floor); whether it IS is a question the
  * walk answers. A doorway the walk calls not OK gets the walkable-top trims refused within `RESCUE_REACH` of its leaf,
- * applied only when they make it OK and no doorway OK before is worse after (TODO(clearance-tight-910032) closed:
- * 910032 Door 4's landing guard, 2026-11-19).
+ * applied only when they make it OK and no doorway OK before is worse after (2026-11-19, built for
+ * TODO(clearance-tight-910032)). Over the 40 favourites and the regression packs (genclear-all) it opened one doorway,
+ * 6194's Door 1. It does NOT open 910032 Door 4: the landing guard's cells there stand on the side the walk already
+ * passes; the sealed side is a dining nook whose only spot past the leaf is a bench top reached by a jump under the
+ * door's lintel, which the column walk refuses (see `FAVOURITE_DOORWAYS_NOT_OK_AT_100`, scripts/favourite-sets.ts).
  */
 export interface DoorwayRescue {
   /** Per doorway (the index the verdicts use) its closed leaf's box, or null for a part that is no doorway. */

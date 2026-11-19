@@ -3479,7 +3479,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     return { c: c0, a: [ca[0] - c0[0], ca[1] - c0[1], ca[2] - c0[2]], u: [cu[0] - c0[0], cu[1] - c0[1], cu[2] - c0[2]] };
                 });
                 const approaches = ixPlans.flatMap(pl => pl?.approach.length ? [{ columns: pl.approach, floor16: pl.floor16 }] : []);
-                // The doorway rescue (TODO(clearance-tight-910032) closed): a walkable-top trim refused near a doorway is
+                // The doorway rescue (collider-clearance.ts `DoorwayRescue`): a walkable-top trim refused near a doorway is
                 // judged by that doorway's own 100 % walk - the same walk the wand's door count reads below.
                 const rescueItems = compiledIx.length ? buildIxItems() : [];
                 const rescueDims = { width: colliders.grid.width, height: colliders.grid.height, length: colliders.grid.length };

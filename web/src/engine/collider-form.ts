@@ -189,6 +189,18 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
       }
       return hit ? [x0, x1, z0, z1] : null;
     };
+    /**
+     * Whether a split form whose wall is shape `s` and whose FULL slab spans [a, b) may be chosen. A corner square
+     * (shape >= BAND_SHAPES) makes the narrow part of a split form so cheap that its full slab wins on volume where no
+     * geometry needs the full footprint, closing a band's free strip (21318 Door 3's beam, 2026-11-19): so when a
+     * band or corner already holds everything (s0 > 0), a corner split form needs a slab over geometry that fills
+     * the footprint. The band forms keep the choice they always had.
+     */
+    const slabOk = (s: number, a: number, b: number): boolean => {
+      if (s < BAND_SHAPES || s0 === 0) return true;
+      const q = within(a, b);
+      return !!q && smallest(q[0], q[1], q[2], q[3]) === 0;
+    };
     // Floor + wall: full band Y0..m, shape m..16 (only when the geometry reaches the block top, or `topSlack` of it).
     if (Y1 >= 16 - (topSlack || 0)) for (let m = Y0 + 1; m <= Math.min(15, Y1 - 1); m++) {
       const up = within(m, 16);
@@ -196,7 +208,7 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
       const s = smallest(up[0], up[1], up[2], up[3]);
       if (s === 0) continue;
       const vol = 256 * (m - Y0) + area(s) * (16 - m);
-      if (vol < bestVol) { bestVol = vol; best = { v: vid(1, s), lo: Y0, hi: m }; }
+      if (vol < bestVol && slabOk(s, Y0, m)) { bestVol = vol; best = { v: vid(1, s), lo: Y0, hi: m }; }
     }
     // Wall + ceiling: shape 0..m, full band m..Y1 (only when the geometry reaches the block bottom).
     if (Y0 === 0) for (let m = 1; m < Y1; m++) {
@@ -205,7 +217,7 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
       const s = smallest(down[0], down[1], down[2], down[3]);
       if (s === 0) continue;
       const vol = area(s) * m + 256 * (Y1 - m);
-      if (vol < bestVol) { bestVol = vol; best = { v: vid(2, s), lo: m, hi: Y1 }; }
+      if (vol < bestVol && slabOk(s, m, Y1)) { bestVol = vol; best = { v: vid(2, s), lo: m, hi: Y1 }; }
     }
     return best;
   };

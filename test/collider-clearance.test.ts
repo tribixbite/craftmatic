@@ -386,9 +386,10 @@ describe('applyColliderClearance', () => {
     expect(r.furnitureTops).toBe(0);
   });
   /**
-   * TODO(clearance-tight-910032) closed: the landing guard keeps 10326 Door 3 OK and kept 910032 Door 4 SEALED - the same
-   * local rule, opposite outcomes. The rescue asks the doorway's own walk (here a stub that reads the grid): a refused
-   * walkable-top trim near a doorway not OK is applied when it makes the doorway OK and no OK doorway worse.
+   * The doorway rescue (built for TODO(clearance-tight-910032)): the landing guard keeps 10326 Door 3 OK, and a local
+   * rule cannot tell where it seals a door instead. The rescue asks the doorway's own walk (here a stub that reads the
+   * grid): a refused walkable-top trim near a doorway not OK is applied when it makes the doorway OK and no OK doorway
+   * worse. On the packs it opened 6194's Door 1 (genclear-all); 910032 Door 4 is sealed by something else.
    */
   const leaf = { x0: 2.5, y0: 0.5, z0: 0.2, x1: 2.6, y1: 2.9, z1: 2.2 };
   const trimmed = (s: ReturnType<typeof sparseFurniture>): boolean => s.form(1, 0, 1)!.v !== 0;
@@ -438,6 +439,22 @@ describe('corner forms: a post in a cell corner is a corner square, not a band t
     // A floor plate under a corner post: the floor stays whole, the wall over it is the corner square.
     const f = K.cover([[0, 16, 0, 4, 0, 16], [15, 16, 4, 16, 15, 16]])!;
     expect(K.formBoxes(f.v, f.lo, f.hi)).toEqual([[0, 16, 0, 4, 0, 16], [12, 16, 4, 16, 12, 16]]);
+  });
+
+  /**
+   * 21318 Door 3 (first build of the corner forms, genclear-all): cell (16, 10, 17) holds a corner post (x 14..16,
+   * z 0..1, layers 0..2) and a beam (z 0..5, layers 9..15). The band z 0..8 the whole height left z 8..16 free; the
+   * corner made a wall + ceiling form cheaper (a corner square 0..9, then the FULL footprint 9..16) though no layer of
+   * the geometry there needs the full footprint - a phantom slab across the door's approach, and the door SEALED.
+   */
+  it('never trades a free band for a full slab no geometry needs: a corner square enters a split form only under a full layer', () => {
+    const cell: Box16[] = [[14, 16, 0, 3, 0, 1], [0, 13, 9, 12, 0, 5], [0, 16, 12, 15, 0, 5], [14, 16, 15, 16, 0, 3]];
+    const f = K.cover(cell)!;
+    expect(formContains(f, cell)).toBe(true);
+    expect(K.formBoxes(f.v, f.lo, f.hi)).toEqual([[0, 16, 0, 16, 0, 8]]);
+    // A floor plate under a corner post still takes the floor + corner form (the floor layers ARE full).
+    const g = K.cover([[0, 16, 0, 4, 0, 16], [15, 16, 4, 16, 15, 16]])!;
+    expect(K.formBoxes(g.v, g.lo, g.hi)).toEqual([[0, 16, 0, 4, 0, 16], [12, 16, 4, 16, 12, 16]]);
   });
 
   it('a player walks between two posts the bands had closed the gap between (11371 Doors 2 and 4)', () => {
