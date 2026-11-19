@@ -25,7 +25,7 @@ import {
   INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, INTERACTIVE_SIZE_PROPERTY, INTERACTIVE_TURN_PROPERTY, interactiveRuntimeItem, passSizeFor, planInteractiveColliders,
   type InteractiveRuntimeConfig, type SceneInteractive,
 } from '../web/src/engine/bedrock-interactives.js';
-import { SHORT_APPROACH_ROOM, doorwayColumnLines, doorwayHoles, jumpHelps, verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.js';
+import { SHORT_APPROACH_ROOM, doorwayColumnLines, doorwayHoles, jumpHelps, surfaceGraph, verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.js';
 import { WalkWorld } from '../web/src/engine/addon-walk.js';
 import { DOORWAY_PASS_HEIGHT_LDU, DOORWAY_PASS_WIDTH_LDU } from '../web/src/engine/addon-scale.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
@@ -185,6 +185,38 @@ describe('the passability walk', () => {
     expect(open.directions.every(d => d.outcome === 'passed')).toBe(true);
     expect(closed.outcome).not.toBe('passed');
     expect(verdictOf(open, closed)).toBe('OK');
+  });
+
+  /**
+   * 21318 Door 3 (genclear-all3, after the corner-square forms): its + side's spot (16, 14) went on only into column
+   * (15, 14), where a bracket under a beam, a sixteenth square at head height, shipped as a corner square (x 15..15.25,
+   * z 14..14.25, y 12.06..12.25) instead of the x band 0..4 the column long. The route reads a box that leaves at
+   * least ROOMY_FREE of the column free as no wall only when it spans the column's other axis, so the band passed and
+   * the smaller corner FILLED the column: no floor under it, no onward move, the doorway SEALED.
+   */
+  it('reads a corner form as no more of a wall than the band it replaced: the column keeps its floor and its moves', () => {
+    const graphOf = (cellForm: string) => {
+      const g = new BlockGrid(3, 3, 3);
+      for (let x = 0; x < 3; x++) for (let z = 0; z < 3; z++) g.set(x, 0, z, colliderState(0, 16));
+      g.set(1, 1, 1, cellForm);
+      const cells: SourceCell[] = [];
+      for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) {
+        const f = parseFormState(g.get(x, y, z));
+        if (f) cells.push({ x, y, z, lo: f.lo, hi: f.hi, ...(f.v ? { v: f.v } : {}) });
+      }
+      const world = new WalkWorld({ cells, dims: { width: 3, height: 3, length: 3 }, sizePct: 100, rotation: 0, treads: 'none' });
+      return surfaceGraph(world, { x0: -1, x1: 3, z0: -1, z1: 3 }, 1);
+    };
+    // A bracket in the low-x/low-z corner of cell (1, 1, 1) at y 1.13..1.25: in a standing player's head over the floor at 1;
+    // the move into its column comes from the far (+z) side, beside the bracket, never through it.
+    const corner = COLLIDER_KIT.cover([[0, 1, 2, 4, 0, 1]])!;
+    expect(COLLIDER_KIT.VARIANTS[corner.v]!.shape).toBeGreaterThan(14);
+    const band = { v: COLLIDER_KIT.VARIANTS.findIndex(d => d.kind === 0 && d.shape === 1), lo: 2, hi: 4 };
+    for (const f of [band, corner]) {
+      const sg = graphOf(formState(f));
+      expect(sg.tops(1, 1), COLLIDER_KIT.VARIANTS[f.v]!.id).toContain(1);
+      expect(sg.moves(1, 2, 1, true).some(m => m.x === 1 && m.z === 1 && m.t === 1), COLLIDER_KIT.VARIANTS[f.v]!.id).toBe(true);
+    }
   });
 
   it('marks a side that is a pocket a block deep SHORT-APPROACH, without changing the verdict (10326 Door 2, Saga round 30h)', () => {

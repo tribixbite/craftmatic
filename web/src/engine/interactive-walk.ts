@@ -161,8 +161,8 @@ function settle(world: WalkWorld, x: number, y: number, z: number, maxDrop: numb
   return s;
 }
 
-/** The local surface graph over one world: columns within a window, the tops a player can stand on, and 4-connected moves between them. */
-function surfaceGraph(world: WalkWorld, window: { x0: number; x1: number; z0: number; z1: number }, k: number) {
+/** The local surface graph over one world: columns within a window, the tops a player can stand on, and 4-connected moves between them (exported for its tests). */
+export function surfaceGraph(world: WalkWorld, window: { x0: number; x1: number; z0: number; z1: number }, k: number) {
   /**
    * The boxes that fill a column for the ROUTE: a clearance form's box
    * (collider-form.ts, a wall pulled back to its geometry) that leaves at
@@ -171,10 +171,20 @@ function surfaceGraph(world: WalkWorld, window: { x0: number; x1: number; z0: nu
    * The per-tick player then collides with the real boxes, so the route is a
    * guide and the physics is the judge.
    */
-  const filling = (x: number, z: number): SolidBox[] => world.boxesInColumn(x, z).filter(b => {
+  const filling = (x: number, z: number): SolidBox[] => world.boxesInColumn(x, z).filter(b => !roomy(b, x, z));
+  /**
+   * A box a player's centre can stand beside in its column: a band that leaves at least `ROOMY_FREE` along its thin
+   * axis, or - since the corner-square forms (collider-form.ts, 2026-11-19) - a corner box spanning neither axis that
+   * leaves `ROOMY_FREE` along either. Read as filling, a corner square under a beam (21318 Door 3's bracket, cell
+   * (15, 12, 14)) took its column's floor though it frees more than the band it replaced, and the doorway SEALED.
+   */
+  const roomy = (b: SolidBox, x: number, z: number): boolean => {
     const freeX = Math.max(b.x0 - x, x + 1 - b.x1), freeZ = Math.max(b.z0 - z, z + 1 - b.z1);
-    return !((b.z1 - b.z0 >= 1 - 1e-6 && freeX >= ROOMY_FREE - 1e-6) || (b.x1 - b.x0 >= 1 - 1e-6 && freeZ >= ROOMY_FREE - 1e-6));
-  });
+    const fullX = b.x1 - b.x0 >= 1 - 1e-6, fullZ = b.z1 - b.z0 >= 1 - 1e-6;
+    if (fullZ && freeX >= ROOMY_FREE - 1e-6) return true;
+    if (fullX && freeZ >= ROOMY_FREE - 1e-6) return true;
+    return !fullX && !fullZ && (freeX >= ROOMY_FREE - 1e-6 || freeZ >= ROOMY_FREE - 1e-6);
+  };
   const clear = (x: number, z: number, y0: number, y1: number): boolean => filling(x, z).every(b => b.y1 <= y0 + 1e-6 || b.y0 >= y1 - 1e-6);
   const topsCache = new Map<string, number[]>();
   const tops = (x: number, z: number): number[] => {
@@ -215,18 +225,25 @@ function surfaceGraph(world: WalkWorld, window: { x0: number; x1: number; z0: nu
    * The part of a column a clearance form leaves free over the player's body
    * at floor `t`: `[ax, bx]` along x and `[az, bz]` along z, column-relative
    * (the whole column when no form stands there). The route only counts
-   * columns whose free part is at least `ROOMY_FREE` wide (`filling`).
+   * columns whose free part is at least `ROOMY_FREE` wide (`filling`). A corner box (`roomy`, spanning neither axis)
+   * narrows the axis ACROSS a move along `along` - a player crosses its column beside it - and, with no move, the axis
+   * that leaves the larger free part.
    */
-  const freePart = (x: number, z: number, t: number): { ax: number; bx: number; az: number; bz: number } => {
+  const freePart = (x: number, z: number, t: number, along?: 'x' | 'z'): { ax: number; bx: number; az: number; bz: number } => {
     let ax = 0, bx = 1, az = 0, bz = 1;
+    const narrowX = (b: SolidBox): void => { const l = b.x0 - x, r = b.x1 - x; if (l >= 1 - r) bx = Math.min(bx, l); else ax = Math.max(ax, r); };
+    const narrowZ = (b: SolidBox): void => { const l = b.z0 - z, r = b.z1 - z; if (l >= 1 - r) bz = Math.min(bz, l); else az = Math.max(az, r); };
     for (const b of world.boxesInColumn(x, z)) {
       if (b.y1 <= t + 1e-6 || b.y0 >= t + PLAYER_NEED - 1e-6) continue;
-      if (b.z1 - b.z0 >= 1 - 1e-6 && b.x1 - b.x0 < 1 - 1e-6) {
-        const l = b.x0 - x, r = b.x1 - x;
-        if (l >= 1 - r) bx = Math.min(bx, l); else ax = Math.max(ax, r);
-      } else if (b.x1 - b.x0 >= 1 - 1e-6 && b.z1 - b.z0 < 1 - 1e-6) {
-        const l = b.z0 - z, r = b.z1 - z;
-        if (l >= 1 - r) bz = Math.min(bz, l); else az = Math.max(az, r);
+      const fullX = b.x1 - b.x0 >= 1 - 1e-6, fullZ = b.z1 - b.z0 >= 1 - 1e-6;
+      if (fullZ && !fullX) narrowX(b);
+      else if (fullX && !fullZ) narrowZ(b);
+      else if (!fullX && !fullZ) {
+        const freeX = Math.max(b.x0 - x, x + 1 - b.x1), freeZ = Math.max(b.z0 - z, z + 1 - b.z1);
+        if (along === 'x') narrowZ(b);
+        else if (along === 'z') narrowX(b);
+        else if (freeX >= freeZ) narrowX(b);
+        else narrowZ(b);
       }
     }
     return { ax, bx, az, bz };
@@ -244,7 +261,8 @@ function surfaceGraph(world: WalkWorld, window: { x0: number; x1: number; z0: nu
    * route ran straight through a door frame's thin wall (42639's Door 1).
    */
   const acrossFace = (x0: number, z0: number, x1: number, z1: number, t: number): boolean => {
-    const a = freePart(x0, z0, t), b = freePart(x1, z1, t);
+    const along = x1 !== x0 ? 'x' : 'z';
+    const a = freePart(x0, z0, t, along), b = freePart(x1, z1, t, along);
     const W = PLAYER_WIDTH_BLOCKS;
     if (x1 > x0) return a.bx >= 1 - 1e-6 && b.ax <= 1e-6 && Math.min(a.bz, b.bz) - Math.max(a.az, b.az) >= W - 1e-6;
     if (x1 < x0) return a.ax <= 1e-6 && b.bx >= 1 - 1e-6 && Math.min(a.bz, b.bz) - Math.max(a.az, b.az) >= W - 1e-6;
