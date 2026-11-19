@@ -2685,6 +2685,19 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
         if (cam && ownHead) { try { cam.location = player.getHeadLocation(); } catch {} }
         let placed = false;
         if (cam) { try { player.camera.setCamera('minecraft:free', cut ? { location: cam.location, rotation: cam.rotation } : { location: cam.location, rotation: cam.rotation, easeOptions: { easeTime: config.freeLook.COCKPIT_EASE_SECONDS, easeType: 'Linear' } }); placed = true; } catch {} }
+        // What the cockpit camera was SENT (telemetry, once a second): the lag this client took, what it reports, the
+        // camera against the vehicle's live pose in the vehicle's frame (x right, z to the nose). Round 19c's CMCAM line
+        // had neither, so the eye's place had to be read off pictures (VEH-06).
+        if (cam && telemetry.on && Number(system.currentTick) % telemetry.every === 0) {
+          try {
+            const at = vehicle.location, vy = Number(vehicle.getRotation().y) || 0, r = vy * Math.PI / 180;
+            const dx = cam.location.x - at.x, dz = cam.location.z - at.z, rd = (n: number): number => Math.round(n * 100) / 100;
+            let graphicsMode = '', maxRenderDistance = NaN;
+            try { graphicsMode = String(player.graphicsMode); } catch { /* not reported */ }
+            try { maxRenderDistance = Number(player.clientSystemInfo.maxRenderDistance); } catch { /* not reported */ }
+            console.warn(`CMCKP ${JSON.stringify({ type: vehicle.typeId, t: Number(system.currentTick), lag: fl.lag, graphicsMode, maxRenderDistance, cut, camRight: rd(dx * Math.cos(r) + dz * Math.sin(r)), camUp: rd(cam.location.y - at.y), camNose: rd(-dx * Math.sin(r) + dz * Math.cos(r)), camYaw: rd(cam.rotation.y), camPitch: rd(cam.rotation.x), vehicleYaw: rd(vy) })}`);
+          } catch { /* gone */ }
+        }
         if (!placed && now && now.chase) { try { player.camera.clear(); } catch {} }
         if (now) now.chase = false;
         continue;

@@ -4794,6 +4794,21 @@ script's block reads with a Saga floor of 0.054 ms a read (`SAGA_MS_PER_BLOCK_RE
 predicted 2.9 ms for the tick the Saga measured at 19-27. Whether the overrun was the whole cause, or 1.26.62 also
 moved the Saga's draw lag, is the next ride's question (TODO(cockpit-stall)).
 
+### The cockpit at speed on 1.26.62: behind the seat, facing the nose (Saga 19c, 2026-11-19)
+
+With the car's tick cheap again (round 19c: 3.6-5.1 ms driving, 20 ticks a second, the HUD position smooth) the
+slot-9 view still left the cabin from ~5 mph and held on the car's rear deck at 43 mph. Grey parts close on both
+sides suggested the camera might face backward. `_cockpit_view.ts` pictures settled it: facing the nose with the eye
+shifted 2-2.5 blocks toward the tail (`--shift=0,0,-2` / `-2.5`) match `saga-19c/shots/e3-speed-full.jpg` (the red
+lamp bar between grey struts, a grey hub cover either side); facing backward (`--yaw=180`) matches no frame
+(`output/gen-cockpit2-1119/cands/`). So the eye trailed the drawn seat by about 2.2 ticks of travel: on
+Minecraft 1.26.62.1 the Saga needs a pose lag of 0.40-0.93, where its 26.52 rounds (30k, 30l) needed 3. The lag
+is now 0.5 for every client the table does not name, the Pixel's own entry, so both phones ride one number. No
+script API reports the client's version, so a phone still on 26.52 now rides ~2.4 blocks ahead
+(TODO(cockpit-lag-version)). With telemetry on, the cockpit camera logs `CMCKP` once a second: the lag it took,
+the graphics mode and render distance the client reports, and where the camera was SENT in the vehicle's frame
+(`camNose`, `camUp`, `camRight`, `camYaw`). Round 19c could not read the eye from the log.
+
 ### The driver's eye sees the road ahead (2026-09-30, `output/cockpit-0930/`)
 
 Pixel round 30f: 42639's car in the cockpit view (hotbar 9) was two thirds
