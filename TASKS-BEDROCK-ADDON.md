@@ -21,9 +21,12 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
 - SENT 2026-11-16: `output/share-2026-11-16-530b6d3f/craftmatic-favourites-530b6d3f-part{1,2}of2.zip` (40 packs,
   `PACKS.md` with hashes; one 40.8 MiB zip exceeds the 30 MiB upload limit). Not yet on a device.
 - OPEN (offline):
-  - 910032 Door 4 SEALED by its landing guard (`TODO(clearance-tight-910032)`: judge trims near a door by that door's
-    walk). 11371 Doors 2/4 need collider corner forms (`TODO(collider-corner-forms)`, new block ids). 42670 Door 3
-    tread across the ground route.
+  - 910032 Door 4 SEALED, re-diagnosed 2026-11-19 (branch gen-clear): not the landing guard; its - side's only
+    approach is a bench top reached by a jump under the lintel, which the COLUMN walk refuses
+    (`TODO(clearance-tight-910032)`, an interactive-walk.ts question; scripts/favourite-sets.ts has the cells). 11371
+    Doors 2/4: corner-square forms (gen-clear, new block ids `_w/_f/_c15..18`, device-unproven) fixed the lamp-post
+    gap; the sim walk now stops at the next cell, a part box the drawn route cuts (turn 0) and a plate over the
+    ground at turn 90 (`TODO(walk-attribution)`). 42670 Door 3 tread across the ground route.
   - Brick-built doors (10354, 42639 gate, 910049 gate): every candidate hinge line is held rigid
     (`TODO(brick-hinge-holds)`, docs/bedrock-interactivity.md).
   - Coplanar pairs on moving actors: parked coaster cars and lift cars are separated where they rest since 2026-11-19
@@ -2011,11 +2014,18 @@ pass logs, sims), packs `output/base3/` (e7da6e47, built from `output/base-tree-
 - DONE: `sim --walk` names where a pack-kept route leaves the colliders' walk (`TapReach.blame`); the model route
   reads closed doorway leaves as drawn (10326 Door 4 was the sim's: ceiling 0). The sim child answers the wand's
   held-player prompt (A-06); 77092 / 42670 / 910032 at 50 % turned 90 already passed at e7da6e47.
-- OPEN `TODO(clearance-tight-910032)`: 910032 Door 4 SEALED - its furniture cells (2,0,5)/(2,0,6) are kept whole as
-  Door 4's landing by the same guard that keeps 10326 Door 3 OK (whose only level spot outside is a phantom top).
-  Next: judge a trim near a doorway by the doorway's own walk before and after, not by a local rule.
-- OPEN `TODO(walk-attribution)` (ceilings in `FAVOURITE_DOOR_ROUTES_PACK_AT_100`): 11371 Doors 2/4 - a corner post
-  1/16 square ships as a quarter-block band the cell's length (`TODO(collider-corner-forms)`, new block ids);
+- OPEN `TODO(clearance-tight-910032)`: 910032 Door 4 SEALED. 2026-11-19 (gen-clear): the doorway rescue
+  (`DoorwayRescue`, judge refused walkable-top trims near a not-OK doorway by its own walk) was built for it and does
+  not open it - all refused trims together leave it SEALED; the landing cells (2,0,5)/(2,0,6) are on the + side the
+  walk already passes. The - side is a dining nook; its only spot past SIDE_CLEARANCE is the bench top (1.125),
+  reached from the doorway column under the lintel (cell (3,2,4)); the column walk needs 1.8 headroom there. With
+  the lintel removed (scratch probe) it reads OK. Next: decide in interactive-walk.ts whether a jump that ends
+  clear of a lintel may start under it - and check on a device whether a player gets onto the bench at all. The
+  rescue opened 6194's Door 1 (a non-favourite regression pack) and no favourite.
+- OPEN `TODO(walk-attribution)` (ceilings in `FAVOURITE_DOOR_ROUTES_PACK_AT_100`): 11371 Doors 2/4 - the corner
+  post's band is fixed (corner-square forms, gen-clear 2026-11-19); the walked route now leaves the colliders at
+  (26.5,-1.5)->(25.7,-1.3) at turn 0 (grid (19, 2..3, 5): a part's layer box x 0..13, z 0..12 the drawn route stands
+  inside) and at a plate 1.25 over the ground at turn 90 (world 13,-59,0);
   42670 Door 3 - a threshold stair's treads across the ground route along the facade; 71040 Door 1 - an overhang's
   layer box 0.1 inside the drawn route.
 - OPEN `TODO(brick-hinge-holds)`: 10354 / 42639 / 910049 brick-built doors - no joint line splits them off (the

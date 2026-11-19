@@ -151,9 +151,10 @@ export const DOOR_LABEL = /^(door|gate|garage door)\b/i;
  * counted. Triaged 2026-11-15 (audit-doors2, `TapReach.blame` names the edge): 10326 Door 4 was the sim's own - the
  * drawn route walked through the closed leaf to a tap spot behind it (the model route now treats closed leaves as
  * drawn, ceiling 0). TODO(walk-attribution): the three left are the pack's and open -
- *   11371 Doors 2 and 4: a lamp post 1/16 block square in the corner of grid cell (20, 1..3, 5) ships as a quarter-
- *     block x-band the cell's whole length (the form kit has bands only, no corner shapes); with a 3/16 post's band in
- *     the next cell the 0.6-wide player no longer fits the 0.5-block gap the drawn route walks;
+ *   11371 Doors 2 and 4: the lamp post in grid cell (20, 1..3, 5) that shipped as a band the cell long is a corner
+ *     square since 2026-11-19 (gen-clear) and the route passes it; it now leaves the colliders one cell on, at grid
+ *     (19, 2..3, 5), inside a part's layer box (x 0..13, z 0..12 sixteenths) the drawn route stands in - part box vs
+ *     drawn cubes, as 71040 Door 1 - and at turn 90 at a plate 1.25 over the ground (world 13,-59,0);
  *   42670 Door 3: a threshold stair's treads (grid (7..9, 0..1, 3), no geometry) stand across the ground route
  *     along the facade the drawn route takes (a tread run's side is a wall);
  *   71040 Door 1: the drawn route passes 0.1 block inside the box of an overhang's layer (grid (3, 1, 9), x 8..16
@@ -161,7 +162,7 @@ export const DOOR_LABEL = /^(door|gate|garage door)\b/i;
  *     drawn-cube tolerance, not a trim clearance missed.
  */
 export const FAVOURITE_DOOR_ROUTES_PACK_AT_100: Readonly<Record<string, number>> = {
-  '11371': 2, // Doors 2 and 4: a corner post's band (no corner forms in the kit)
+  '11371': 2, // Doors 2 and 4: a part's box past the lamp post (the post's band is fixed, 2026-11-19)
   '42670': 1, // Door 3: a threshold stair across the ground route
   '71040': 1, // Door 1: an overhang's layer box 0.1 inside the drawn route
 };

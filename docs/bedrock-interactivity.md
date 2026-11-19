@@ -586,6 +586,13 @@ the neighbour column (a route stepped off 42663's roof through the ceiling
 below); and an approach stands within a jump of the door's floor (a roof over
 the door is not an approach). None of these changes a verdict on the packs
 built before clearance (36 OK, 36 SEALED, 1 SMALL, as the audit found).
+A corner-square form (2026-11-19) is open to the route like a band: a box
+spanning neither axis that leaves half the column free along x or z
+(`roomy`), and it narrows the free part ACROSS the move that passes it. Read
+as filling, 21318 Door 3's bracket under a beam (cell (15, 12, 14), a corner
+square where the band x 0..4 had been) took the + side's onward column and the
+doorway read SEALED (test/doorway-reach.test.ts "reads a corner form as no
+more of a wall").
 
 ### Results over the 40 favourites (2026-09-25, final at `f6e24774`)
 
