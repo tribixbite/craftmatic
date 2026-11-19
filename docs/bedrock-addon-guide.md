@@ -4775,6 +4775,25 @@ the water's surface - every boat used to set its rider down swimming beside
 one); an air set-down floats `FLOAT_MARGIN` 1.5 clear of the footprint.
 Regressions `mclaren-walls-30m`, `xwing-air-park-30m`. Not yet on a device.
 
+### The cockpit at speed behind the car, and the car's own tick (Saga 19a, 2026-11-19)
+
+Round 19a (`output/device-round-2026-11-19a/saga/notes.md` E, Minecraft 1.26.62.1) rode 42172's slot-9 view at
+100 %: right at rest, then from ~13 mph the view showed the car's tail lights and rear deck from behind, changing
+frame to frame (the 30 fps recording; at 3 fps it read as a 0.3 s alternation). The free-look offset was 0
+throughout (CMCAM `yawOff`), so the earlier drag played no part. What differed from round 30m, which passed the
+same ride on 26.52: the car's runtime took 8-9 ms a tick at rest with its driver and 19-27 ms driving (CMVT
+`msPerTick`; 30m 1-2 ms), the server ran ~16 ticks a second during the drive, the screen drew 40 fps (30m 90), and
+the HUD position (the drawn rider) moved in bursts. The cockpit camera rides the vehicle's pose
+`COCKPIT_TICK_LAG` TICKS back, which matches the drawn car only while ticks are steady: when they bunch, the drawn
+car catches up with the newest pose and the camera stays the whole lag behind - about the tail-light distance at
+19 blocks/s. The runtime's cost was A-12's footprint support rows (2026-11-15) re-reading every cell every tick:
+111 `getBlock` a tick at rest, 127 cruising in the simulator. A cell read is now kept for
+`FOOTPRINT.CELL_KEEP_TICKS` (10, a block changed under a vehicle is seen at most half a second late): 0 and 15.
+Every scripted vehicle of every pack runs the same runtime. The simulator's `--cost` line now also prints each
+script's block reads with a Saga floor of 0.054 ms a read (`SAGA_MS_PER_BLOCK_READ`): the sweep-check line had
+predicted 2.9 ms for the tick the Saga measured at 19-27. Whether the overrun was the whole cause, or 1.26.62 also
+moved the Saga's draw lag, is the next ride's question (TODO(cockpit-stall)).
+
 ### The driver's eye sees the road ahead (2026-09-30, `output/cockpit-0930/`)
 
 Pixel round 30f: 42639's car in the cockpit view (hotbar 9) was two thirds

@@ -518,8 +518,17 @@ export type HoverParams = CarParams & { readonly RIDE_HEIGHT: number };
  *     across a car's or hover craft's footprint where the step it stands on is
  *     read (at `SPACING` up to these; A-12): 41395 (13.5 long) 15 x 5 points,
  *     42172 at 400 % (112 long) 25 x 5.
+ *   - `CELL_KEEP_TICKS`: how long the runtime keeps what it read of a block
+ *     cell (its solid span, water, or unloaded), ticks. Every probe of every
+ *     tick reads through it, and a cell read is the same cell the next tick:
+ *     re-read every tick, the footprint support rows and the sweep cost the
+ *     McLaren 42172 ~110-130 `getBlock` a tick plus their property reads in
+ *     the simulator, 8-9 ms a tick at rest with its driver and 19-27 ms
+ *     driving on the Saga (round 2026-11-19a; round 30m's runtime 1-2 ms), and
+ *     the phone's server fell to ~16 ticks a second. A block changed under a
+ *     vehicle is seen at most this late (half a second).
  */
-export const FOOTPRINT = { SPACING: 0.9, MAX_POINTS: 128, SWEEP_STEP: 0.8, MAX_SUBSTEPS: 4, SUPPORT_MAX_ROWS: 24, SUPPORT_MAX_COLS: 4 } as const;
+export const FOOTPRINT = { SPACING: 0.9, MAX_POINTS: 128, SWEEP_STEP: 0.8, MAX_SUBSTEPS: 4, SUPPORT_MAX_ROWS: 24, SUPPORT_MAX_COLS: 4, CELL_KEEP_TICKS: 10 } as const;
 export type FootprintParams = { readonly [K in keyof typeof FOOTPRINT]: number };
 
 /** Where a vehicle is for the footprint test: its reference point (the model's base centre), heading and nose-up pitch, degrees (Bedrock yaw). */
@@ -1462,21 +1471,26 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
   const dims = (): any[] => ['overworld', 'nether', 'the_end'].flatMap(id => { try { return [world.getDimension(id)]; } catch { return []; } });
   // Plants, torches, snow layers and light blocks are passed through; everything else solid is ground.
   const PASSABLE = /(^|:)(air|cave_air|void_air|light_block.*|short_grass|tall_grass|grass|fern|large_fern|.*_flower|dandelion|poppy|torch|.*_torch|snow_layer|vine|seagrass|kelp|kelp_plant|lily_pad)$/;
-  /** One tick's block lookups, by cell: a probe band re-reads the same cells many times. */
-  let cells = new Map<string, any>();
-  const blockOf = (dim: any, x: number, y: number, z: number): any => {
-    const bx = Math.floor(x), by = Math.floor(y), bz = Math.floor(z);
-    const key = `${dim.id}|${bx},${by},${bz}`;
-    if (cells.has(key)) return cells.get(key);
-    let b: any;
-    try { b = dim.getBlock({ x: bx, y: by, z: bz }); } catch { b = undefined; }
-    cells.set(key, b);
-    return b;
+  /**
+   * What the runtime read of each block cell - a SNAPSHOT `{ water, span }` (undefined: not loaded) - and the tick
+   * it was read, kept `FOOTPRINT.CELL_KEEP_TICKS` (the probes of one tick and of the next ticks re-read the same
+   * cells many times; each `getBlock` and each of a block's properties is a native call). Purged as it ages.
+   */
+  let cells = new Map<string, { t: number; b: any }>();
+  const KEEP = Math.max(1, Math.round(Number(FP.CELL_KEEP_TICKS) || 1));
+  let cellTick = 0;
+  /** Start a tick: the clock the kept cells age by, and every `KEEP` ticks the aged ones dropped. */
+  const ageCells = (tick: number): void => {
+    cellTick = tick;
+    if (tick % KEEP !== 0) return;
+    const kept = new Map<string, { t: number; b: any }>();
+    for (const [k, v] of cells) if (tick - v.t < KEEP) kept.set(k, v);
+    cells = kept;
   };
-  const isWater = (b: any): boolean => !!b && (b.isLiquid === true || /water/.test(String(b.typeId)));
-  /** The solid span of a block as fractions of its cell [lo, hi], or null (passable, air or water). */
-  const spanOf = (b: any): [number, number] | null => {
-    if (!b || b.isAir || isWater(b)) return null;
+  const liveWater = (b: any): boolean => !!b && (b.isLiquid === true || /water/.test(String(b.typeId)));
+  /** The solid span of a LIVE block as fractions of its cell [lo, hi], or null (passable, air or water). */
+  const liveSpan = (b: any): [number, number] | null => {
+    if (!b || b.isAir || liveWater(b)) return null;
     const id = String(b.typeId);
     if (PASSABLE.test(id)) return null;
     if (COL && id === COL.block) {
@@ -1492,6 +1506,21 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     }
     return [0, 1];
   };
+  const blockOf = (dim: any, x: number, y: number, z: number): any => {
+    const bx = Math.floor(x), by = Math.floor(y), bz = Math.floor(z);
+    const key = `${dim.id}|${bx},${by},${bz}`;
+    const had = cells.get(key);
+    if (had && cellTick - had.t < KEEP) return had.b;
+    let live: any;
+    try { live = dim.getBlock({ x: bx, y: by, z: bz }); } catch { live = undefined; }
+    let b: any;
+    try { b = live ? { water: liveWater(live), span: liveSpan(live) } : undefined; } catch { b = undefined; }
+    cells.set(key, { t: cellTick, b });
+    return b;
+  };
+  /** A cell snapshot's water / solid span (`blockOf`). */
+  const isWater = (b: any): boolean => !!b && b.water === true;
+  const spanOf = (b: any): [number, number] | null => (b ? b.span : null);
   /** Whether a point is inside a block's solid span. */
   const solidAt = (dim: any, x: number, y: number, z: number): boolean => {
     const s = spanOf(blockOf(dim, x, y, z));
@@ -2062,7 +2091,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
   let tick = 0, busyMs = 0, busyTicks = 0;
   system.runInterval(() => {
     tick++;
-    cells = new Map();
+    ageCells(tick);
     seen = new Set();
     const started = Date.now();
     if (tick - fleetScannedAt >= FLEET_RESCAN_TICKS) {
