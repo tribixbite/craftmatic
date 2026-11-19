@@ -24,8 +24,11 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   - 910032 Door 4 SEALED by its landing guard (`TODO(clearance-tight-910032)`: judge trims near a door by that door's
     walk). 11371 Doors 2/4 need collider corner forms (`TODO(collider-corner-forms)`, new block ids). 42670 Door 3
     tread across the ground route.
-  - Brick-built doors (10354, 42639 gate, 910049 gate): every candidate hinge line is held rigid
-    (`TODO(brick-hinge-holds)`, docs/bedrock-interactivity.md).
+  - Brick-built doors (10354, 42639, 910049): traced 2026-11-19 (gen-brickdoor), none hangs on a joint the geometry
+    shows - 10354's round leaf is built into the wall's courses, 42639's garage door hangs from nothing (its pins
+    miss the pegholes; a linkage, `TODO(garage-linkage)`), 910049's gate is the moulded 60621 already shipped.
+    `holds` lines name their chain now. Set aside, measured, no door to prove them: `TODO(stud-pivot)`.
+    docs/bedrock-interactivity.md "Brick-built doors".
   - Coplanar pairs on moving actors: parked coaster cars and lift cars are separated where they rest since 2026-11-19
     (10303 0.00, 10261 0.04, 10788 0.00 block faces at parked poses). Left: source-seated figures on their seats
     (`TODO(a17-moving)`, 10261 fig2 0.04), the fabricated grey cart (10341 0.40). 10337's car body: 5,543 pairs the
@@ -2051,9 +2054,8 @@ pass logs, sims), packs `output/base3/` (e7da6e47, built from `output/base-tree-
   1/16 square ships as a quarter-block band the cell's length (`TODO(collider-corner-forms)`, new block ids);
   42670 Door 3 - a threshold stair's treads across the ground route along the facade; 71040 Door 1 - an overhang's
   layer box 0.1 inside the drawn route.
-- OPEN `TODO(brick-hinge-holds)`: 10354 / 42639 / 910049 brick-built doors - no joint line splits them off (the
-  hinge lines are `holds`); 43267's 40066 are one-piece moulded doors (static is right). docs/bedrock-interactivity.md
-  "Brick-built doors": what a rule needs (which rigid edges cross a `holds` cut) before it can be measured.
+- TRACED 2026-11-19 (gen-brickdoor): 10354 / 42639 / 910049 brick-built doors have no provable hinge line (see
+  "Start here"); 43267's 40066 are one-piece moulded doors (static is right).
 - Pre-existing at e7da6e47, not this branch: `test/favourites-aabb.test.ts` and `test/favourites-floaters.test.ts`
   fail on this machine's corpus (75397's four boxed ids now resolve; same failure in the e7da6e47 archive).
 - OPEN (first wave, device): `_ix_passability` at 200 % shows 2 informational HOLE rows that START under the floor
