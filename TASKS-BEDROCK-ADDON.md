@@ -54,9 +54,13 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   ~5 mph the view holds on the car's rear - branch `gen-cockpit2` (camera trailing vs a facing flip, decided by
   `_cockpit_view.ts` frame matching). Round 19d (`saga-19d/notes.md`, gen-cockpit2 pack 32b0bb79): E PASS (dash and
   horizon ahead at 43 mph, CMCKP lag 0.5, 20 ticks/s); B 8097 hatch at 100 % PASS; C bus door eased ~0.4 s PASS;
-  K 10303 car 2 still grazes the car ahead from the drop through the loops plus a 1-2 frame hand-back sky flash
-  (gen-coast62). NEXT Saga round: K repeat after gen-coast62 merges (cars 1-3, reset pitch to 0 before boarding),
-  bus drive-shut, G 10303 riders. Foreground app is Bambu Handy: return to it after a round. 19d left the McLaren
+  K 10303 car 2 grazed car 3's rider (the car BEHIND) plus a 1-2 frame hand-back sky flash. Round 19e
+  (`saga-19e/notes.md`, packs `output/coast62-main-0d2fddc9/` from main 0d2fddc9, animLag 3): 10303 cars 2 and 3
+  (two laps each) and 10261 car 2 PASS - no pass-through, no washes, no sky frame at any hand-back; in 10303's loops
+  car 2 still sees car 1's rider large (~0.7 x its level distance by eye), close but never inside. World 925's
+  restored bindings name the OLD 10303/10261 uuids, whose dev folders the 19e deploy replaced: redeploy both packs
+  in the next round. NEXT Saga round: bus drive-shut, G 10303 riders, cars-1 spacing with a CMVT/coaster telemetry
+  line if one exists. Foreground app is Bambu Handy: return to it after a round. 19d left the McLaren
   wand at 90 / 100 %.
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
   --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
