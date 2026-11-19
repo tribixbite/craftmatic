@@ -333,6 +333,24 @@ describe('applyColliderClearance', () => {
     expect(walkIn(s.grid)).toBeLessThan(2.85);
   });
 
+  /**
+   * The corner-square forms (2026-11-19): a wall's top whose geometry fits a corner square frees TWO strips, and the
+   * rim exception needs every freed strip open beside it; the band the old kit shipped freed one. 76419 (8,5,7) and
+   * (11,8,6) kept full cells where main shipped the band (genclear-all5). A corner refused as a standing top tries
+   * its band before the cell stays whole.
+   */
+  it('narrows a wall top to its band where the corner square\'s second strip is walled, rather than keeping it whole', () => {
+    const s = scene(2, 3, 2);
+    s.solid(0, 0, 0, [[0, 16, 0, 16, 0, 4]]); // a wall along x at z 0..4 the row below
+    s.solid(1, 0, 0, [[0, 16, 0, 16, 0, 4]]);
+    s.solid(0, 1, 0, [[0, 1, 0, 16, 0, 1]]); // its top row: a post in the low-x/low-z corner
+    s.solid(1, 1, 0, [[0, 16, 0, 16, 0, 16]]); // and a solid cell beside it in x: the corner's x strip is walled
+    expect(K.VARIANTS[K.cover([[0, 1, 0, 16, 0, 1]])!.v]!.shape).toBeGreaterThan(14);
+    applyColliderClearance(s.input());
+    const f = s.form(0, 1, 0)!;
+    expect(K.formBoxes(f.v, f.lo, f.hi)).toEqual([[0, 16, 0, 16, 0, 4]]);
+  });
+
   it('keeps the wall\'s top whole when its rim leads onto a surface beside it, or when it is a floor on the ground', () => {
     const shelf = sweetStand(true);
     const r = applyColliderClearance(shelf.input());

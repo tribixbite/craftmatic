@@ -459,6 +459,25 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
   type Proposal = { i: number; x: number; y: number; z: number; rule: 'wall' | 'ceiling'; from: ColliderForm; to: ColliderForm; band?: ColliderForm };
   /** Whether a form's shape is a corner square (collider-form.ts, after the bands). */
   const cornerForm = (f: ColliderForm): boolean => f.v !== 0 && COLLIDER_KIT.VARIANTS[f.v]!.shape >= COLLIDER_KIT.BAND_SHAPES;
+  /**
+   * Rule 4's wall-top exception for a corner trim it refuses: a corner frees TWO strips beside its post and the
+   * exception needs every freed strip open, where the band the kit had before the corners freed one (76419 (8,5,7)
+   * kept a full cell where main shipped the band, genclear-all5). The bands holding the corner square, smallest first,
+   * same kind and span: the first that holds the geometry, stays in the old cell and passes the exception.
+   */
+  const rimBand = (x: number, y: number, z: number, to: ColliderForm, built: ColliderForm, bound: ColliderForm, geometry: readonly Box16[]): ColliderForm | undefined => {
+    const d = COLLIDER_KIT.VARIANTS[to.v]!, q = COLLIDER_KIT.SHAPES[d.shape]!;
+    const area = (s: number): number => { const r = COLLIDER_KIT.SHAPES[s]!; return (r[1] - r[0]) * (r[3] - r[2]); };
+    const bands: number[] = [];
+    for (let s = 1; s < COLLIDER_KIT.BAND_SHAPES; s++) { const r = COLLIDER_KIT.SHAPES[s]!; if (r[0] <= q[0] && r[1] >= q[1] && r[2] <= q[2] && r[3] >= q[3]) bands.push(s); }
+    bands.sort((a, b) => area(a) - area(b) || a - b);
+    for (const s of bands) {
+      const v = COLLIDER_KIT.VARIANTS.findIndex(e => e.kind === d.kind && e.shape === s);
+      const f: ColliderForm = { v, lo: to.lo, hi: to.hi };
+      if (v > 0 && formWithin(f, bound) && formContains(f, geometry) && wallTopRim(x, y, z, f, built)) return f;
+    }
+    return undefined;
+  };
   const proposals: Proposal[] = [];
   const proposedAt = new Map<number, Proposal>();
   const refuse = (p: Proposal, why: ClearanceRefusal): void => { refused[why]++; entries.push({ x: p.x, y: p.y, z: p.z, rule: p.rule, from: p.from, to: p.to, refused: why }); };
@@ -520,6 +539,10 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
         if (furniture) report.furnitureTops++;
         else if (approachTop(x, y, z, built)) report.approachTops++;
         else if (heldEdgeCells.has(i)) report.wallTops++;
+        else if (!wallTopRim(x, y, z, to, built) && cornerForm(to) && rimBand(x, y, z, to, built, bound, geometry)) {
+          to = rimBand(x, y, z, to, built, bound, geometry)!;
+          report.wallTops++;
+        }
         else if (!wallTopRim(x, y, z, to, built)) {
           refuse(p, 'walkable-top');
           // The landing guard's furniture form, when it kept one, is what the rescue tries (it is the tighter trim).
@@ -530,6 +553,7 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
         else report.wallTops++;
       }
     }
+    p.to = to;
     // A corner trim's band fallback (the leak check tries it before refusing): the same rules' cover with bands only.
     if (cornerForm(to)) {
       const b = COLLIDER_KIT.cover(geometry, lowGap || furniture ? 16 - built.hi : 0, true);
