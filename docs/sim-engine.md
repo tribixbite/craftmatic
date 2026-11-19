@@ -192,7 +192,7 @@ edit of the loop.
 - `input/steps.ts`: `INPUT_HANDLERS` (`drag`, `sneakToggle`, `sneakMode`, `tapScreen`), `dragOver`,
   `screenTap`, `viewportNamed`; `input/device-script.ts`: `runDeviceScript`, `PhoneScreen`,
   `PIXEL_LAYOUT`, `translateCommand`, `DeviceScriptError`.
-- `quirks/cost.ts`: `COST_FITS`, `COST_CALIBRATION_LOGS`, `parseCmvtSamples`, `fitCost`,
+- `quirks/cost.ts`: `COST_FITS`, `COST_CALIBRATION_LOGS`, `parseCmvtSamples`, `fitCost`, `SAGA_MS_PER_BLOCK_READ`, `predictedSagaMsFromReads`,
   `predictedMsPerTick`, `summarizeCost`, `TICK_BUDGET_WARN_MS`.
 - `script-host/host.ts` `ScriptHost`: `loadScripts(addon)`, `reloadScripts(addons)`,
   `builtin(name)`, `deliver`, `before`, `entity(sim)`, `simOf(api)`, `dimensionApi(id)`,
@@ -678,7 +678,12 @@ least-squares line through the rounds' own telemetry (Pixel 120 and Saga 491
 moving samples, 30j-30l: `ms = 4.14 + 0.0131 x checks` and `2.47 + 0.0160 x
 checks`; the Milano's 770-check cruise is 14.2 / 14.8 against the measured
 14.5 / 13.4). Reported p50 / p95 per scenario; `tick-budget` WARNS over 25 ms
-and never fails: it is a trend detector, not a measurement. Not counted:
+and never fails: it is a trend detector, not a measurement. The line sees only
+sweep probes: each script's `getBlock` per tick is printed beside it with a Saga
+floor of 2.47 + 0.054 ms a read (`SAGA_MS_PER_BLOCK_READ`, round 2026-11-19a:
+42172's runtime read 111 cells a tick at rest with its driver and the Saga
+measured 8.5 ms where the line said 2.5; driving, 127 reads and 19-27 ms against
+2.9), with the same `tick-budget` warning. Not counted:
 calls made through an entity's own facade other than `teleport` (`Block`
 writes, `Player.runCommand`): `TODO(sim-cost)`.
 

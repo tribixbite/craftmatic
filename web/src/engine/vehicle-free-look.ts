@@ -106,6 +106,13 @@ export const FREE_LOOK = {
    * tick at 43 mph), 4 and 1.5 are outside two each. Quirk
    * `cockpit-draw-lag`: the simulator's vehicle course fails a cockpit
    * camera off the drawn seat.
+   * TODO(cockpit-stall): Saga round 2026-11-19a (1.26.62.1) drew this camera BEHIND the McLaren at 13-43 mph (tail
+   * lights face-on, the rear deck, changing frame to frame) while the server ran ~16 ticks a second under an 8-27 ms
+   * vehicle runtime (cut since by `FOOTPRINT.CELL_KEEP_TICKS`) and the drawn car moved in bursts. A lag in TICKS
+   * assumes a steady tick: when ticks bunch, the client's drawn car catches up to the newest pose and a camera
+   * this many ticks back is left up to the whole lag behind (~3 blocks at 19 blocks/s) - the reading, not yet a
+   * measurement. If the repeat at 20 ticks a second still trails, the Saga's draw lag changed with the version and
+   * this needs a new bracket (and the Pixel's 0.5 a re-check on 1.26.60+).
    */
   COCKPIT_TICK_LAG: 3,
   /** The cockpit camera's ease, seconds (the coaster's measured `COASTER_RIDER_VIEW.ease`; `COCKPIT_TICK_LAG` was measured with it). */
