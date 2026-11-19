@@ -10,10 +10,9 @@
  */
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { loadAddonPreviewModel, placedPoint, entitySpawnsAt, readPackScriptConfig } from '../web/src/ui/addon-preview-data.ts';
-import { coasterParkedCarPoses, type CoasterRuntimeConfig } from '../web/src/engine/bedrock-coaster.ts';
-import { atRest, coasterRestingPoses, firstRestingPoses, liftCarRestingPoses } from '../web/src/engine/cross-entity-coplanar.ts';
-import type { RideRuntimeConfig } from '../web/src/engine/bedrock-rides.ts';
+import { loadAddonPreviewModel, placedPoint, entitySpawnsAt } from '../web/src/ui/addon-preview-data.ts';
+import { atRest } from '../web/src/engine/cross-entity-coplanar.ts';
+import { packRestingPoses } from './pack-resting-poses.ts';
 import { visibleCoplanarHits, thinCubes, worldFaces, type AuditActor, type CoplanarHit } from '../web/src/engine/bedrock-geometry-faces.ts';
 
 const args = process.argv.slice(2);
@@ -38,12 +37,7 @@ for (const file of files.sort()) {
   // A coaster car is measured where the runtime PARKS it (`coasterParkedCarPoses`), not at its record: every car of
   // a train is recorded at the station point; a lift car at every stop it rests at (`liftCarRestingPoses`). An actor
   // with no known resting pose stays at its record, as before.
-  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  const coaster = await readPackScriptConfig<CoasterRuntimeConfig>(buffer, 'coaster');
-  const rides = await readPackScriptConfig<RideRuntimeConfig>(buffer, 'rides');
-  const resting = firstRestingPoses(
-    coaster ? coasterRestingPoses(coasterParkedCarPoses(coaster)) : undefined,
-    rides ? liftCarRestingPoses(rides.rides, new Map(model.entities.flatMap(e => e.typeId === rides.seatType && e.ride !== undefined && e.ridePath ? [[e.ride, e.ridePath] as const] : []))) : undefined);
+  const resting = await packRestingPoses(bytes, model);
   const atRecord = new Set<number>();
   let rested = 0;
   for (const e of model.entities) {
