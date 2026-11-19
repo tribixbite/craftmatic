@@ -374,6 +374,17 @@ through: see "Known limits"). Not device-proven: the new ids are a pack-format
 change; a world whose packs do not know an id lays the full collider there
 (`lay`'s fallback), never no wall. Release encoding: 55 x 144 + 32 brick
 blocks = 7,952 permutations (limit 10,000); the dev pack 55 x 256 = 14,080.
+Two rules keep a corner from shipping MORE collider than the band it replaces
+(each found on a rebuilt favourite, genclear-all/all4): a split form (floor +
+wall, wall + ceiling) takes a corner square only where geometry fills the
+footprint under its full slab - else the corner made a phantom slab cheaper by
+volume (21318 Door 3's beam, (16,10,17)) - and when the corner is refused the
+band split form the old kit had stands (21318 (5,9,13) took a band the cell's
+height); and a corner trim near a leak falls back to its band before the leak
+loop refuses any trim within a block (11371: 14 band trims had been refused,
+3.9 blocks³). Rebuilt 11371, 910032 and 21318: no cell's collider larger than
+favgate-530b6d3f's, 121 smaller (`cornerFallbacks` in the report counts the
+leak fallbacks).
 
 **State spelling and the permutation limit (M03, BIZ-23).** Bedrock counts a block's registered permutations as the
 product of its states' value counts, and the Marketplace allows 10,000 per pack. The dev pack's `craftmatic:lo` (16
