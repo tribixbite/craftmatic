@@ -350,20 +350,37 @@ A collider cell is one of (`collider-clearance.ts`, `COLLIDER_VARIANTS`):
 - **full** `lo..hi` over the whole footprint (the old collider, variant 0);
 - **wall** `lo..hi` over a SHAPE: a band a quarter-block multiple wide along x
   or z - `[0,4] [0,8] [0,12] [4,16] [8,16] [12,16] [4,12]` sixteenths, 14
-  shapes, closed under the wand's quarter turns;
+  shapes - or, since 2026-11-19, a quarter-block CORNER square
+  (`[0,4]x[0,4]`, `[12,16]x[0,4]`, `[12,16]x[12,16]`, `[0,4]x[12,16]`, shapes
+  15-18); all 18 closed under the wand's quarter turns;
 - **floor + wall**: full `lo..hi` and the shape from `hi` to the top of the
   block - a wall standing on the floor plate in the same block row;
 - **wall + ceiling**: the shape from the bottom of the block to `lo` and full
   `lo..hi` - a wall's top under the ceiling plate in the same row.
 
-43 blocks, 5,848 condition entries in all (the old block had 136).
+55 blocks, 7,480 condition entries in all (the old block had 136). The corner
+squares (`collider_w15`..`w18`, `_f15`..`f18`, `_c15`..`c18`) are APPENDED after
+the 43 band forms, so every older id, file name and variant index is unchanged
+and a world an older pack laid keeps its blocks; the x-mirror rule
+(`collisionBox`) applies to them as to the bands
+(test/bedrock-building-shell.test.ts "corner post form at the MIRRORED x
+origin"). Why (TODO(collider-corner-forms), 11371 Doors 2 and 4): a lamp post a
+sixteenth square in the +x/+z corner of grid cell (20, 1..3, 5) shipped as the
+x band 12..16 the cell's whole length; with the next post's band (x 0..4) in
+(20, 1..3, 4) the 0.5-block gap the drawn route walks closed to the 0.6-wide
+player. With the corner square the sim's walked route passes that gap (the
+blame moves to the next cell, a part's bounding box the drawn route cuts
+through: see "Known limits"). Not device-proven: the new ids are a pack-format
+change; a world whose packs do not know an id lays the full collider there
+(`lay`'s fallback), never no wall. Release encoding: 55 x 144 + 32 brick
+blocks = 7,952 permutations (limit 10,000); the dev pack 55 x 256 = 14,080.
 
 **State spelling and the permutation limit (M03, BIZ-23).** Bedrock counts a block's registered permutations as the
 product of its states' value counts, and the Marketplace allows 10,000 per pack. The dev pack's `craftmatic:lo` (16
-values) x `craftmatic:hi` (16) is 256 per block, 43 x 256 = **11,008**, although only 136 (lo < hi) are ever used.
+values) x `craftmatic:hi` (16) is 256 per block, 43 x 256 = **11,008** (55 x 256 = 14,080 since the corner forms, 2026-11-19), although only 136 (lo < hi) are ever used.
 `PackProfile.flags.compactColliderStates` ships the compact spelling instead (`ColliderStateEncoding` `pair`,
 collider-form.ts): the 136 valid spans numbered in order and written as two states `craftmatic:cell_a` / `cell_b` of
-12 values (p = a x 12 + b), 144 per block, **6,192** in all, with the very same 136 condition entries, so every form's
+12 values (p = a x 12 + b), 144 per block, **6,192** in all (7,920 for 55 blocks), with the very same 136 condition entries, so every form's
 boxes are identical (test/marketplace-blocks.test.ts compares all 43 x 136). Two states, not plan A's single 0..135
 `pair` state, because a block state holds at most 16 values (see above). The kit's `encodeStates` / `decodeStates` are
 the one spelling (identity for `lo`/`hi`; the encoding is read from the state name, a name ending `_a` is compact) and
