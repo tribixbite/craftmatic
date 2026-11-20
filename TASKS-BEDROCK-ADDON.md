@@ -62,6 +62,9 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   in the next round. NEXT Saga round: bus drive-shut, G 10303 riders, cars-1 spacing with a CMVT/coaster telemetry
   line if one exists. Foreground app is Bambu Handy: return to it after a round. 19d left the McLaren
   wand at 90 / 100 %.
+- IN FLIGHT 2026-11-19 21:25: Pixel round 19f (brief `output/device-round-2026-11-19a/brief-pixel-19f.md`, world 924,
+  42172 gen-cockpit2 pack + 10303 from `output/coast62-main-0d2fddc9/`): E cockpit at speed, K 10303 cars 2/3. Notes
+  `pixel-19f/notes.md`; if `output/.phone-lock` is left, the round died mid-way.
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
   --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
   --out=output/gengate-6fa0afa6`): 60/60 built, child play 710/720 (fails: 5482 windows out of reach + doorway holes
