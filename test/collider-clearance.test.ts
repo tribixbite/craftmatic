@@ -267,6 +267,27 @@ describe('applyColliderClearance', () => {
     expect(K.VARIANTS[t.form(0, 1, 0)!.v]!.shape).toBeGreaterThanOrEqual(K.BAND_SHAPES);
   });
 
+  /**
+   * 11374 cells (5, 5, 4) and (6, 5, 4), and the same shape in 10261: a floor plate under furniture whose cheapest
+   * cover WITH corners is a floor + corner form with its floor 11 sixteenths up - no floor plate, so rule 4's furniture
+   * exception (floor within a step) no longer applied and the cell stayed full, where main shipped the band furniture
+   * form (floor 0..1, the band z 0..12 over it). The furniture exception tries the band cover when the corner cover is
+   * not furniture.
+   */
+  it('keeps the furniture exception where the corner cover is not furniture but the band cover is (11374, 10261)', () => {
+    const cell: Box16[] = [[0, 16, 0, 1, 0, 16], [0, 16, 1, 2, 0, 11], [0, 16, 2, 3, 0, 6], [10, 16, 3, 4, 0, 6], [1, 16, 4, 5, 0, 10], [0, 16, 5, 6, 0, 10], [0, 16, 6, 7, 0, 11], [0, 16, 7, 8, 0, 11], [0, 16, 8, 9, 0, 11], [1, 16, 9, 10, 0, 10], [8, 16, 10, 11, 0, 6], [13, 16, 11, 12, 0, 4], [13, 16, 12, 13, 0, 4], [13, 16, 13, 14, 0, 4], [13, 16, 14, 15, 0, 3]];
+    expect(K.VARIANTS[K.cover(cell, 1)!.v]!.shape).toBeGreaterThanOrEqual(K.BAND_SHAPES);
+    const s = scene(3, 3, 3);
+    s.solid(1, 0, 1, cell);
+    const r = applyColliderClearance(s.input());
+    const f = s.form(1, 0, 1)!;
+    expect(f.v).not.toBe(0);
+    expect(K.VARIANTS[f.v]!.kind).toBe(1);
+    expect(f.hi).toBeLessThanOrEqual(9);
+    expect(formContains(f, cell)).toBe(true);
+    expect(r.furnitureTops).toBe(1);
+  });
+
   it('never trims the frame beside a closed leaf, and does trim a wall away from it', () => {
     const s = scene(5, 3, 4);
     // A wall along z = 2 (geometry a thin slab on its -z side), a door leaf in column x = 2.

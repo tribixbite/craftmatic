@@ -509,7 +509,13 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     /** The furniture form a doorway's landing guard kept from this cell (the rescue may still apply it). */
     let landingKept: ColliderForm | undefined;
     if (standing) {
-      const t = 16 - built.hi <= FURNITURE_SLACK16 ? COLLIDER_KIT.cover(geometry, 16 - built.hi, bandsHere)! : to;
+      let t = 16 - built.hi <= FURNITURE_SLACK16 ? COLLIDER_KIT.cover(geometry, 16 - built.hi, bandsHere)! : to;
+      // A corner can make a split form with a high floor the cheapest cover where the band cover is furniture (a floor
+      // plate under it): 11374 (5,5,4), 10261 - the cell stayed full where main shipped the band furniture form.
+      if (!furnitureForm(t) && 16 - built.hi <= FURNITURE_SLACK16 && !bandsHere) {
+        const b = COLLIDER_KIT.cover(geometry, 16 - built.hi, true)!;
+        if (furnitureForm(b)) t = b;
+      }
       if (furnitureForm(t)) {
         if (!landingAt(x, z, y * 16 + built.hi)) { to = t; furniture = true; }
         else landingKept = t;
