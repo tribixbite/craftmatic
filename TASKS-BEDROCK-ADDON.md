@@ -68,6 +68,7 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   in the next round. NEXT Saga round: bus drive-shut, G 10303 riders, cars-1 spacing with a CMVT/coaster telemetry
   line if one exists. Foreground app is Bambu Handy: return to it after a round. 19d left the McLaren
   wand at 90 / 100 %.
+- IN FLIGHT SAGA ROUND 20a (2026-11-20, test Saga at 192.168.0.82:5555, world 925, brief `output/device-round-2026-11-20a/brief-saga-20a.md`, packs `packs-20cfc567/` from main 20cfc567, sim 24/24 pass + 10303 saga-26.62 cars 2/3 0 violations, `sim.txt`): C2 bus drive-shut, G2 10303 rider faces, K4 10303/10261 redeploy + car-1 spacing, X 11371 corner-square colliders (first device test of `_w/_f/_c15..18`). Evidence -> `saga/notes.md`. Pixel round 19g still waiting: the Pixel has shown another app's disclaimer screen (`com.android.yadayada`) since 2026-11-20 03:13. 10261 build took 77 min (19a: 30 min) beside a 33-min coaster sim - unmeasured whether the merge or the contention.
 - PIXEL ROUND 19f (2026-11-19, `output/device-round-2026-11-19a/pixel-19f/notes.md`, world 924): the Pixel is now on
   Minecraft 1.26.62.1 (was 1.26.60.4). E cockpit at speed PASS (40 mph, lag 0.5). K 10303 car 2 FAIL: the eye passes
   through a rider in the drop/loop 1 and loop 2 (`frames/k2a-12fps-t36.5.jpg`, `t39.5.jpg`); car 3 PASS (one
