@@ -242,6 +242,31 @@ describe('applyColliderClearance', () => {
     expect(reachable(s.grid)(3, 0, 1)).toBe(false);
   });
 
+  /**
+   * TODO(corner-tread-71040) closed: 71040 cell (9, 2, 8), a post under Door 2's raised landing in the door's
+   * approach column, shipped as a corner square where the band had stood; the freed space let the 400 % tread planner
+   * lay a run up to the door that walled its other column's line (sim place-400-90 failed; main passed; a cell
+   * bisect over the 129 cells the corners changed named this one alone). A doorway approach keeps the band forms its
+   * stairs and treads were planned around.
+   */
+  it('keeps the band, not a corner square, in a doorway approach column', () => {
+    // A post in the cell's low-x/high-z corner under a ceiling (no standing top: rule 4 does not enter).
+    const s = scene(2, 3, 2);
+    s.solid(0, 1, 0, [[0, 2, 0, 16, 12, 16]]);
+    s.full(0, 2, 0);
+    expect(K.VARIANTS[K.cover([[0, 2, 0, 16, 12, 16]])!.v]!.shape).toBeGreaterThan(14);
+    applyColliderClearance(s.input({ approaches: [{ columns: [[0, 0]], floor16: 3 * 16 }] }));
+    const f = s.form(0, 1, 0)!;
+    expect(K.VARIANTS[f.v]!.shape).toBeLessThan(K.BAND_SHAPES);
+    expect(formContains(f, [[0, 2, 0, 16, 12, 16]])).toBe(true);
+    // Outside any approach the corner square stands.
+    const t = scene(2, 3, 2);
+    t.solid(0, 1, 0, [[0, 2, 0, 16, 12, 16]]);
+    t.full(0, 2, 0);
+    applyColliderClearance(t.input());
+    expect(K.VARIANTS[t.form(0, 1, 0)!.v]!.shape).toBeGreaterThanOrEqual(K.BAND_SHAPES);
+  });
+
   it('never trims the frame beside a closed leaf, and does trim a wall away from it', () => {
     const s = scene(5, 3, 4);
     // A wall along z = 2 (geometry a thin slab on its -z side), a door leaf in column x = 2.

@@ -498,14 +498,18 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     const headroom = headroomAbove(x, z, y * 16 + built.hi);
     const lowGap = built.hi < 16 && headroom < SNEAK_NEED16;
     const standing = headroom >= SNEAK_NEED16;
-    let to = COLLIDER_KIT.cover(geometry, lowGap ? 16 - built.hi : 0)!;
+    // A doorway's approach column keeps the band forms (no corner squares): the access stairs and the treads that serve
+    // a door were planned and proved around them. A corner under 71040 Door 2's raised landing ((9, 2, 8)) freed room
+    // that let the 400 % tread planner lay a run up to the door walling its other column's line (sim place-400-90).
+    const bandsHere = approachFloor.has(`${x},${z}`);
+    let to = COLLIDER_KIT.cover(geometry, lowGap ? 16 - built.hi : 0, bandsHere)!;
     // Rule 4's third exception (`furnitureForm`): a standing top over a floor plate and sparse furniture. The floor
     // + wall form may then run its wall up to `FURNITURE_SLACK16` past the furniture's top.
     let furniture = false;
     /** The furniture form a doorway's landing guard kept from this cell (the rescue may still apply it). */
     let landingKept: ColliderForm | undefined;
     if (standing) {
-      const t = 16 - built.hi <= FURNITURE_SLACK16 ? COLLIDER_KIT.cover(geometry, 16 - built.hi)! : to;
+      const t = 16 - built.hi <= FURNITURE_SLACK16 ? COLLIDER_KIT.cover(geometry, 16 - built.hi, bandsHere)! : to;
       if (furnitureForm(t)) {
         if (!landingAt(x, z, y * 16 + built.hi)) { to = t; furniture = true; }
         else landingKept = t;
