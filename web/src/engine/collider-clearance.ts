@@ -435,6 +435,13 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     const key = `${cx},${cz}`;
     approachFloor.set(key, Math.min(approachFloor.get(key) ?? Infinity, a.floor16));
   }
+  /** Every doorway floor (absolute sixteenths) whose approach takes a column: the band rule under a landing reads them all. */
+  const approachFloors = new Map<string, number[]>();
+  for (const a of input.approaches ?? []) for (const [cx, cz] of a.columns) {
+    const key = `${cx},${cz}`;
+    const list = approachFloors.get(key);
+    if (list) list.push(a.floor16); else approachFloors.set(key, [a.floor16]);
+  }
   const approachTop = (x: number, y: number, z: number, built: ColliderForm): boolean => {
     const floor16 = approachFloor.get(`${x},${z}`);
     if (floor16 === undefined) return false;
@@ -498,13 +505,14 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     const headroom = headroomAbove(x, z, y * 16 + built.hi);
     const lowGap = built.hi < 16 && headroom < SNEAK_NEED16;
     const standing = headroom >= SNEAK_NEED16;
-    // UNDER a doorway's approach (a cell in its approach column wholly at or below the doorway's floor) the band forms
-    // stay (no corner squares): the access stairs and treads that serve a raised door were planned and proved around
-    // them. A corner under 71040 Door 2's raised landing ((9, 2, 8)) freed room that let the 400 % tread planner lay a
-    // run up to the door walling its other column's line (sim place-400-90). At body height in the approach the corners
-    // stay: that is where 11371's lamp post closed the walked gap.
-    const approachFloor16 = approachFloor.get(`${x},${z}`);
-    const bandsHere = approachFloor16 !== undefined && (y + 1) * 16 <= approachFloor16;
+    // The block row right UNDER a doorway's approach (a cell in its approach column whose top is at or within one
+    // block below that doorway's floor: the landing's support) keeps the band forms (no corner squares): the access
+    // stairs and treads that serve a raised door were planned and proved around them. A corner under 71040 Door 2's
+    // raised landing ((9, 2, 8), top 3.0 under a floor at 3.75) freed room that let the 400 % tread planner lay a run
+    // up to the door walling its other column's line (sim place-400-90). Anywhere else the corners stay - 11371's lamp
+    // post (rows 1..3) stands at body height in Doors 2/4's walk and 2-4 blocks under Door 6's approach at 5.8.
+    const top16 = (y + 1) * 16;
+    const bandsHere = (approachFloors.get(`${x},${z}`) ?? []).some(f => top16 <= f && top16 > f - 16);
     let to = COLLIDER_KIT.cover(geometry, lowGap ? 16 - built.hi : 0, bandsHere)!;
     // Rule 4's third exception (`furnitureForm`): a standing top over a floor plate and sparse furniture. The floor
     // + wall form may then run its wall up to `FURNITURE_SLACK16` past the furniture's top.

@@ -255,7 +255,8 @@ describe('applyColliderClearance', () => {
     s.solid(0, 1, 0, [[0, 2, 0, 16, 12, 16]]);
     s.full(0, 2, 0);
     expect(K.VARIANTS[K.cover([[0, 2, 0, 16, 12, 16]])!.v]!.shape).toBeGreaterThan(14);
-    applyColliderClearance(s.input({ approaches: [{ columns: [[0, 0]], floor16: 3 * 16 }] }));
+    // The doorway's floor 0.5 over the cell's top (71040 Door 2: 0.75 over (9, 2, 8)).
+    applyColliderClearance(s.input({ approaches: [{ columns: [[0, 0]], floor16: 2 * 16 + 8 }] }));
     const f = s.form(0, 1, 0)!;
     expect(K.VARIANTS[f.v]!.shape).toBeLessThan(K.BAND_SHAPES);
     expect(formContains(f, [[0, 2, 0, 16, 12, 16]])).toBe(true);
@@ -265,6 +266,12 @@ describe('applyColliderClearance', () => {
     u.full(0, 2, 0);
     applyColliderClearance(u.input({ approaches: [{ columns: [[0, 0]], floor16: 16 }] }));
     expect(K.VARIANTS[u.form(0, 1, 0)!.v]!.shape).toBeGreaterThanOrEqual(K.BAND_SHAPES);
+    // More than a block under an upper doorway's floor (11371's post under Door 6 at 5.8) the corner stands too.
+    const w = scene(2, 3, 2);
+    w.solid(0, 1, 0, [[0, 2, 0, 16, 12, 16]]);
+    w.full(0, 2, 0);
+    applyColliderClearance(w.input({ approaches: [{ columns: [[0, 0]], floor16: 93 }] }));
+    expect(K.VARIANTS[w.form(0, 1, 0)!.v]!.shape).toBeGreaterThanOrEqual(K.BAND_SHAPES);
     // Outside any approach the corner square stands.
     const t = scene(2, 3, 2);
     t.solid(0, 1, 0, [[0, 2, 0, 16, 12, 16]]);
