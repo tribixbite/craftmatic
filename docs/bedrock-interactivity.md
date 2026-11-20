@@ -384,7 +384,14 @@ height); and a corner trim near a leak falls back to its band before the leak
 loop refuses any trim within a block (11371: 14 band trims had been refused,
 3.9 blocks³). Rebuilt 11371, 910032 and 21318: no cell's collider larger than
 favgate-530b6d3f's, 121 smaller (`cornerFallbacks` in the report counts the
-leak fallbacks).
+leak fallbacks). Third: a corner wall top rule 4 refuses tries the bands that
+hold it through the same wall-top exception (`rimBand`) - a corner frees two
+strips and the exception needs each open, the band freed one (76419 (8,5,7),
+(11,8,6) had stayed full; rebuilt, 76419 has no cell larger than main's
+a09e8f70 build and 15 smaller). One device line moved: 76419's 200 % x 8.5
+lane still REACHES the shore at z 17.94, ending at feet 3.93 where it ended at
+4.25 - the corner (4,2,8) replaced a band whose phantom top over a 2 x 4
+sixteenth stub it had stood on.
 
 **State spelling and the permutation limit (M03, BIZ-23).** Bedrock counts a block's registered permutations as the
 product of its states' value counts, and the Marketplace allows 10,000 per pack. The dev pack's `craftmatic:lo` (16

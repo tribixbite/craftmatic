@@ -27,6 +27,10 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
     Doors 2/4: corner-square forms (gen-clear, new block ids `_w/_f/_c15..18`, device-unproven) fixed the lamp-post
     gap; the sim walk now stops at the next cell, a part box the drawn route cuts (turn 0) and a plate over the
     ground at turn 90 (`TODO(walk-attribution)`). 42670 Door 3 tread across the ground route.
+  - REGRESSED by gen-clear (corner forms), offline only: 71040 at 400 % turned 90 - the tread planner lays one new run
+    (2 treads, (36,31)->(36,30), top 15.4 up; `_tread_run_diff.py` main a09e8f70 vs genclear-all6) across Door 2's +
+    side column line; sim `place-400-90` fails there, main passes (`TODO(corner-tread-71040)`; the tread planner is
+    branch gen-reach's).
   - Brick-built doors (10354, 42639 gate, 910049 gate): every candidate hinge line is held rigid
     (`TODO(brick-hinge-holds)`, docs/bedrock-interactivity.md).
   - Coplanar pairs on moving actors: parked coaster cars and lift cars are separated where they rest since 2026-11-19

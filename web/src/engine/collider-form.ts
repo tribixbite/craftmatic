@@ -108,6 +108,8 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
   // grid (20, 1..3, 5): with the next post's band the gap the drawn route walks closed to under the 0.6-wide player).
   // Closed under the quarter turns (each turns onto the next). APPENDED after the bands' 43 variants, so every
   // earlier block id, file name and variant index is unchanged: a world laid by an older pack keeps its blocks.
+  // TODO(corner-tread-71040): with the corners in the 400 % carve the tread planner lays one new run (71040, turned
+  // 90, two treads to a top 15.4 up) across Door 2's + side column line (sim place-400-90 fails; main passes).
   const BAND_SHAPES = SHAPES.length;
   SHAPES.push([0, 4, 0, 4], [12, 16, 0, 4], [12, 16, 12, 16], [0, 4, 12, 16]);
   const TAG = ['w', 'f', 'c'];
