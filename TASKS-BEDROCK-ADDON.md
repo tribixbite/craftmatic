@@ -62,9 +62,12 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   in the next round. NEXT Saga round: bus drive-shut, G 10303 riders, cars-1 spacing with a CMVT/coaster telemetry
   line if one exists. Foreground app is Bambu Handy: return to it after a round. 19d left the McLaren
   wand at 90 / 100 %.
-- IN FLIGHT 2026-11-19 21:25: Pixel round 19f (brief `output/device-round-2026-11-19a/brief-pixel-19f.md`, world 924,
-  42172 gen-cockpit2 pack + 10303 from `output/coast62-main-0d2fddc9/`): E cockpit at speed, K 10303 cars 2/3. Notes
-  `pixel-19f/notes.md`; if `output/.phone-lock` is left, the round died mid-way.
+- PIXEL ROUND 19f (2026-11-19, `output/device-round-2026-11-19a/pixel-19f/notes.md`, world 924): the Pixel is now on
+  Minecraft 1.26.62.1 (was 1.26.60.4). E cockpit at speed PASS (40 mph, lag 0.5). K 10303 car 2 FAIL: the eye passes
+  through a rider in the drop/loop 1 and loop 2 (`frames/k2a-12fps-t36.5.jpg`, `t39.5.jpg`), whose rider unsettled;
+  car 3 PASS (one light-blue frame at the hand-back). NEXT (`TODO(pixel-2662-lag)`): match the Pixel 1.26.62 car-2
+  frames against the sim at `--client=pixel --entity-lag=N` (as gen-coast62 did for the Saga) and replan the Pixel
+  profile. Binding all 26 world packs + the round's 2 crashed Minecraft at load (OOM): bind only the round's packs.
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
   --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
   --out=output/gengate-6fa0afa6`): 60/60 built, child play 710/720 (fails: 5482 windows out of reach + doorway holes
