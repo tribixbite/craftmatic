@@ -21,13 +21,13 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
 - SENT 2026-11-16: `output/share-2026-11-16-530b6d3f/craftmatic-favourites-530b6d3f-part{1,2}of2.zip` (40 packs,
   `PACKS.md` with hashes; one 40.8 MiB zip exceeds the 30 MiB upload limit). Not yet on a device.
 - OPEN (offline):
-  - 910032 Door 4 SEALED, re-diagnosed 2026-11-19 (branch gen-clear): not the landing guard; its - side's only
+  - 910032 Door 4 SEALED, re-diagnosed 2026-11-19 (gen-clear, merged into main 1219a190): not the landing guard; its - side's only
     approach is a bench top reached by a jump under the lintel, which the COLUMN walk refuses
     (`TODO(clearance-tight-910032)`, an interactive-walk.ts question; scripts/favourite-sets.ts has the cells). 11371
-    Doors 2/4: corner-square forms (gen-clear, new block ids `_w/_f/_c15..18`, device-unproven) fixed the lamp-post
+    Doors 2/4: corner-square forms (gen-clear MERGED 1219a190, suite rc=0; new block ids `_w/_f/_c15..18`, device-unproven) fixed the lamp-post
     gap; the sim walk now stops at the next cell, a part box the drawn route cuts (turn 0) and a plate over the
     ground at turn 90 (`TODO(walk-attribution)`). 42670 Door 3 tread across the ground route.
-  - OPEN, on MAIN a91dac86 too (not gen-clear's): 71043 sim `place-400-0` and `place-400-90` fail, 32 violations -
+  - OPEN, on MAIN since a91dac86 (not gen-clear's): 71043 sim `place-400-0` and `place-400-90` fail, 32 violations -
     a TREAD at (50,-47..-45,-27) stands across Door 1's - side column lines (`output/genclear-main3/71043-*` built
     from an archive of a91dac86 fails identically; genclear-all6, before the merge, passed). Tread planner (gen-reach).
   - Brick-built doors (10354, 42639, 910049): traced 2026-11-19 (gen-brickdoor), none hangs on a joint the geometry
