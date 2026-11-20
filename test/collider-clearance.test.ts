@@ -249,7 +249,7 @@ describe('applyColliderClearance', () => {
    * bisect over the 129 cells the corners changed named this one alone). A doorway approach keeps the band forms its
    * stairs and treads were planned around.
    */
-  it('keeps the band, not a corner square, in a doorway approach column', () => {
+  it('keeps the band, not a corner square, under a doorway approach', () => {
     // A post in the cell's low-x/high-z corner under a ceiling (no standing top: rule 4 does not enter).
     const s = scene(2, 3, 2);
     s.solid(0, 1, 0, [[0, 2, 0, 16, 12, 16]]);
@@ -259,6 +259,12 @@ describe('applyColliderClearance', () => {
     const f = s.form(0, 1, 0)!;
     expect(K.VARIANTS[f.v]!.shape).toBeLessThan(K.BAND_SHAPES);
     expect(formContains(f, [[0, 2, 0, 16, 12, 16]])).toBe(true);
+    // At body height in an approach (the doorway's floor at the cell's bottom) the corner square stands: 11371's post.
+    const u = scene(2, 3, 2);
+    u.solid(0, 1, 0, [[0, 2, 0, 16, 12, 16]]);
+    u.full(0, 2, 0);
+    applyColliderClearance(u.input({ approaches: [{ columns: [[0, 0]], floor16: 16 }] }));
+    expect(K.VARIANTS[u.form(0, 1, 0)!.v]!.shape).toBeGreaterThanOrEqual(K.BAND_SHAPES);
     // Outside any approach the corner square stands.
     const t = scene(2, 3, 2);
     t.solid(0, 1, 0, [[0, 2, 0, 16, 12, 16]]);
