@@ -392,6 +392,18 @@ a09e8f70 build and 15 smaller). One device line moved: 76419's 200 % x 8.5
 lane still REACHES the shore at z 17.94, ending at feet 3.93 where it ended at
 4.25 - the corner (4,2,8) replaced a band whose phantom top over a 2 x 4
 sixteenth stub it had stood on.
+Two more, found against main a91dac86 builds of the same base (gen-clear merged
+it): the furniture exception tries the band cover when the corner cover is not
+furniture (11374 (5,5,4)/(6,5,4) and three 10261 cells had stayed full: the
+corner made a split form with its floor 11/16 up the cheapest); and the block row
+right under a doorway's landing (a cell in its approach column whose top is at
+or within one block below that doorway's floor) keeps the bands - 71040 Door 2
+at 400 % turned 90 (`place-400-90` failed): a cell bisect over the 129 cells the
+corners changed named (9,2,8), a post under Door 2's raised landing, whose corner
+let the 400 % tread planner lay a run up to the door that walled the door's other
+column's line; neither the carve's nor the scaled grid's corner use was the
+cause (both tried). 10261 and 11374 have no collider cell larger than main's
+build of the same base; 71040 passes place-400-90; 11371's post keeps its corner.
 
 **State spelling and the permutation limit (M03, BIZ-23).** Bedrock counts a block's registered permutations as the
 product of its states' value counts, and the Marketplace allows 10,000 per pack. The dev pack's `craftmatic:lo` (16
