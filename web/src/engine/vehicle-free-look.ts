@@ -106,15 +106,18 @@ export const FREE_LOOK = {
    * tick at 43 mph), 4 and 1.5 are outside two each. Quirk
    * `cockpit-draw-lag`: the simulator's vehicle course fails a cockpit
    * camera off the drawn seat.
-   * TODO(cockpit-stall): Saga round 2026-11-19a (1.26.62.1) drew this camera BEHIND the McLaren at 13-43 mph (tail
-   * lights face-on, the rear deck, changing frame to frame) while the server ran ~16 ticks a second under an 8-27 ms
-   * vehicle runtime (cut since by `FOOTPRINT.CELL_KEEP_TICKS`) and the drawn car moved in bursts. A lag in TICKS
-   * assumes a steady tick: when ticks bunch, the client's drawn car catches up to the newest pose and a camera
-   * this many ticks back is left up to the whole lag behind (~3 blocks at 19 blocks/s) - the reading, not yet a
-   * measurement. If the repeat at 20 ticks a second still trails, the Saga's draw lag changed with the version and
-   * this needs a new bracket (and the Pixel's 0.5 a re-check on 1.26.60+).
+   * That 3 was the Saga on Minecraft 26.52 (quirk `cockpit-draw-lag` `saga2652Ticks`). On 1.26.62.1 the same
+   * phone drew the camera at 3 BEHIND the seat: round 2026-11-19c at a steady 20 ticks a second (the HUD position
+   * smooth) held the McLaren's eye 2-2.5 blocks behind its seat at 43 mph, facing the nose (the
+   * `_cockpit_view.ts --shift=0,0,-2` / `-2.5` pictures match `saga-19c/shots/e3-speed-full.jpg`; facing backward
+   * matches no frame, `output/gen-cockpit2-1119/cands/`); round 19a's 2-4 blocks behind came with bunched ticks.
+   * The lag that cancels the 19c reading is 0.40-0.93 (+-0.31 for the read): 0.5, which is also the Pixel's own
+   * entry in `COCKPIT_CLIENT_LAGS` (its marker-measured coaster camera less the camera-first tick), so both phones
+   * now ride one lag. A client none of the table names takes this. Round 30k (26.52) would read 0.5 as ~2.4 blocks
+   * AHEAD over the hood: a phone still on 26.52 rides ahead (TODO(cockpit-lag-version): no API reports the client's
+   * version, so the lag cannot follow it).
    */
-  COCKPIT_TICK_LAG: 3,
+  COCKPIT_TICK_LAG: 0.5,
   /** The cockpit camera's ease, seconds (the coaster's measured `COASTER_RIDER_VIEW.ease`; `COCKPIT_TICK_LAG` was measured with it). */
   COCKPIT_EASE_SECONDS: 0.1,
   /** Poses of the vehicle kept per rider for the cockpit camera's lag (ticks; more than `COCKPIT_TICK_LAG` + 1). */
@@ -302,8 +305,8 @@ export interface CockpitClientLag { label: string; graphicsMode?: string; maxRen
 
 /**
  * The scripted vehicle camera's pose lag per CLIENT (A-14, 2026-11-15): the first entry whose graphics mode and render
- * distance the rider's client reports wins, else `FREE_LOOK.COCKPIT_TICK_LAG` (the Saga's bracket, the user's phone).
- * The 3 was read off two SAGA rounds; on the Pixel (entity lag 3.5, the 0.1 s ease played: quirks
+ * distance the rider's client reports wins, else `FREE_LOOK.COCKPIT_TICK_LAG` (the Saga's 1.26.62 bracket, the user's
+ * phone; the Saga's 26.52 rounds read 3 and the Saga at 1.26.62.1 0.40-0.93). Against 26.52's 3, on the Pixel (entity lag 3.5, the 0.1 s ease played: quirks
  * `client-entity-lag`, `camera-ease-lag`) it puts the eye 2.5 ticks BEHIND the drawn seat (the simulator's
  * `cockpit-eye-on-seat`: -2.4 blocks at 19 blocks/s). The Pixel's entry is its MARKER-measured per-tick coaster
  * camera (`COASTER_RIDER_VIEW.tickLag` 1.5, the same eased `setCamera` on a script-moved entity) less the

@@ -38,6 +38,15 @@ describe('joints', () => {
     expect(joints[0]!.turns).toBe(true);
     expect(Math.abs(joints[0]!.axis[1])).toBeCloseTo(1, 5);
   });
+  it('pairs two halves that straddle a spatial-hash cell boundary (42639: one at x 599.985, its mate at 600.666)', () => {
+    // The pair as 42639's first pick places it: the base square, the top left 28.6 degrees open.
+    const joints = findHingeJoints([
+      at('3831.dat', 599.985, -553, 219.954, [1, 0, 0.0015, 0, 1, 0, -0.0015, 0, 1]),
+      at('3830.dat', 600.666, -553, 219.779, [0.8776, 0, 0.4794, 0, 1, 0, -0.4794, 0, 0.8776]),
+    ]);
+    expect(joints).toHaveLength(1);
+    expect(joints[0]!.turns).toBe(true);
+  });
   it('does not pair two halves that stand apart', () => {
     expect(findHingeJoints([at('3831.dat', 0, 0, 0), at('3830.dat', 60, 0, 0)])).toHaveLength(0);
   });
@@ -99,6 +108,9 @@ describe('discoverBrickHinges', () => {
     const found = discoverBrickHinges({ bricks, meshOf: b => meshes.get(b.part) ?? null, taken: new Set() });
     expect(found.items).toHaveLength(0);
     expect(found.lines[0]!.verdict).toBe('holds');
+    // And it says WHAT holds it round the cut: the hinge top pressed onto the floor's studs.
+    expect(found.lines[0]!.reason).toMatch(/held round the cut by .* -stacked- /);
+    expect(found.lines[0]!.reason).toMatch(/3830 -stacked- floor|floor -stacked- 3830/);
   });
 
   it('leaves an assembly another rule owns alone', () => {

@@ -107,7 +107,9 @@ describe('the cockpit eye\'s lag (pure; Saga 30k: the eye ran ahead of the drawn
     { name: 'X-wing 30l', lag: 4, mph: 40, lead: [-1.55, -0.95] },  // flat grey faces inside the fuselage
   ] as const;
   const READ_SLACK_BLOCKS = 0.3;
-  it('the device readings at the coaster\'s 1.5 put the lag that keeps the eye on the seat in a bracket COCKPIT_TICK_LAG sits in, and the 30l readings at 4 another: 3 is inside or at the edge of all four', () => {
+  /** What the Saga's 26.52 rounds settled on (quirk `cockpit-draw-lag` `saga2652Ticks`); 1.26.62.1 reads 0.5 (round 19c, below). */
+  const LAG_2652 = quirkValue('cockpit-draw-lag', 'saga2652Ticks');
+  it('the device readings at the coaster\'s 1.5 put the lag that keeps the eye on the seat in a bracket the 26.52 lag sits in, and the 30l readings at 4 another: 3 is inside or at the edge of all four', () => {
     const brackets = READINGS.map(r => ({ ...r, lo: cockpitLagFromLead(r.lag, r.mph / MPH, r.lead[0]), hi: cockpitLagFromLead(r.lag, r.mph / MPH, r.lead[1]) }));
     const b = Object.fromEntries(brackets.map(r => [r.name, r]));
     expect(b['McLaren 30k']!.lo).toBeCloseTo(3.06, 2); expect(b['McLaren 30k']!.hi).toBeCloseTo(4.10, 2);
@@ -118,19 +120,35 @@ describe('the cockpit eye\'s lag (pure; Saga 30k: the eye ran ahead of the drawn
     // 3.18 against 2.94), and nearer their common centre than either round's old value.
     for (const r of brackets) {
       const slack = READ_SLACK_BLOCKS / (r.mph / MPH / 20);
-      expect(FREE_LOOK.COCKPIT_TICK_LAG).toBeGreaterThanOrEqual(r.lo - slack);
-      expect(FREE_LOOK.COCKPIT_TICK_LAG).toBeLessThanOrEqual(r.hi + slack);
+      expect(LAG_2652).toBeGreaterThanOrEqual(r.lo - slack);
+      expect(LAG_2652).toBeLessThanOrEqual(r.hi + slack);
     }
     const centre = brackets.reduce((a, r) => a + (r.lo + r.hi) / 2, 0) / brackets.length;
-    expect(Math.abs(FREE_LOOK.COCKPIT_TICK_LAG - centre)).toBeLessThan(0.5);
-    expect(Math.abs(4 - centre)).toBeGreaterThan(Math.abs(FREE_LOOK.COCKPIT_TICK_LAG - centre));
-    expect(Math.abs(1.5 - centre)).toBeGreaterThan(Math.abs(FREE_LOOK.COCKPIT_TICK_LAG - centre));
-    // The quirk the simulator judges by is the same number, and a reading at rest says nothing.
-    expect(quirkValue('cockpit-draw-lag', 'ticks')).toBe(FREE_LOOK.COCKPIT_TICK_LAG);
+    expect(Math.abs(LAG_2652 - centre)).toBeLessThan(0.5);
+    expect(Math.abs(4 - centre)).toBeGreaterThan(Math.abs(LAG_2652 - centre));
+    expect(Math.abs(1.5 - centre)).toBeGreaterThan(Math.abs(LAG_2652 - centre));
+    // The 26.52 value is 3; a reading at rest says nothing.
+    expect(LAG_2652).toBe(3);
     expect(cockpitLagFromLead(1.5, 0, 0)).toBe(1.5);
   });
+  it('Saga round 19c (Minecraft 1.26.62.1): at the shipped 3 the eye was drawn 2-2.5 blocks BEHIND the seat at 43 mph; the lag a client none of COCKPIT_CLIENT_LAGS names rides is inside that reading\'s bracket', () => {
+    // `output/device-round-2026-11-19a/saga-19c/shots/e3-speed-full.jpg` (20 ticks a second, the HUD position
+    // smooth): matched against `_cockpit_view.ts --shift=0,0,z` pictures facing the nose (`output/gen-cockpit2-1119/
+    // cands/bracket-sheet.jpg`): z -2 (the red lamp bar between the grey struts, the grey hub covers either side)
+    // to -2.5 (more of the body under them); -1.5 is the struts close up, -3 the yellow deck. Facing backward (yaw 180)
+    // matches no frame, so the view is the nose's from behind the seat, not a flipped facing.
+    const lo = cockpitLagFromLead(3, 43 / MPH, -2.5), hi = cockpitLagFromLead(3, 43 / MPH, -2.0);
+    expect(lo).toBeCloseTo(0.40, 1); expect(hi).toBeCloseTo(0.93, 1);
+    const slack = READ_SLACK_BLOCKS / (43 / MPH / 20);
+    expect(FREE_LOOK.COCKPIT_TICK_LAG).toBeGreaterThanOrEqual(lo - slack);
+    expect(FREE_LOOK.COCKPIT_TICK_LAG).toBeLessThanOrEqual(hi + slack);
+    // The Pixel's own entry (its marker-measured coaster camera) lies in the same bracket: both phones now ride one lag.
+    expect(cockpitLagFor('Deferred', 24, COCKPIT_CLIENT_LAGS, FREE_LOOK.COCKPIT_TICK_LAG)).toBeGreaterThanOrEqual(lo - slack);
+    expect(quirkValue('cockpit-draw-lag', 'ticks')).toBe(FREE_LOOK.COCKPIT_TICK_LAG);
+  });
   it('reproduces the 30k fault at the old lag and the 30l fault at 4, and keeps the eye on the seat at any speed at the new one', () => {
-    const draw = quirkValue('cockpit-draw-lag', 'ticks');
+    // On the 26.52 client the rounds rode (1.26.62.1 has its own draw lag: quirk `cockpit-draw-lag` `ticks`).
+    const draw = LAG_2652;
     // 30k at 1.5: 1.4 blocks ahead at 43 mph and 1.3 at 40 (the eye over the hood / up the nose, within a read of +1.5..+2.5 / +1.5..+2), on the seat at rest.
     expect(cockpitEyeLead(43 / MPH, 1.5, draw)).toBeCloseTo(1.44, 1);
     expect(cockpitEyeLead(40 / MPH, 1.5, draw)).toBeCloseTo(1.34, 1);
@@ -138,7 +156,11 @@ describe('the cockpit eye\'s lag (pure; Saga 30k: the eye ran ahead of the drawn
     // 30l at 4: a block BEHIND the seat at 43 mph (the grey pillars behind the cabin: -1.3..-0.7) and 0.9 at 40 (inside the X-wing's fuselage: -1.55..-0.95, within a read).
     expect(cockpitEyeLead(43 / MPH, 4, draw)).toBeCloseTo(-0.96, 1);
     expect(cockpitEyeLead(40 / MPH, 4, draw)).toBeCloseTo(-0.89, 1);
-    for (const speed of [0, 5, 12.5, 19.2, 26, 40.5]) expect(cockpitEyeLead(speed, FREE_LOOK.COCKPIT_TICK_LAG, draw)).toBe(0);
+    for (const speed of [0, 5, 12.5, 19.2, 26, 40.5]) expect(cockpitEyeLead(speed, LAG_2652, draw)).toBe(0);
+    // And on 1.26.62.1 the shipped lag keeps it on the seat; the 26.52 lag put it 2.4 blocks behind (round 19c: 2-2.5).
+    const now = quirkValue('cockpit-draw-lag', 'ticks');
+    for (const speed of [0, 5, 12.5, 19.2, 26, 40.5]) expect(cockpitEyeLead(speed, FREE_LOOK.COCKPIT_TICK_LAG, now)).toBe(0);
+    expect(cockpitEyeLead(43 / MPH, LAG_2652, now)).toBeCloseTo(-2.40, 1);
     expect(FREE_LOOK.COCKPIT_HISTORY).toBeGreaterThan(FREE_LOOK.COCKPIT_TICK_LAG + 1);
   });
 });
@@ -356,7 +378,9 @@ describe('the camera runtime with free look (scripts/vehicle-camera.js on the si
 
   it('reads its pose lag per CLIENT: the Pixel (Deferred, 24) on the pose COCKPIT_CLIENT_LAGS gives, another client on COCKPIT_TICK_LAG (A-14)', () => {
     const pixel = COCKPIT_CLIENT_LAGS.find(c => c.graphicsMode === 'Deferred' && c.maxRenderDistance === 24)!;
-    expect(pixel.lag).toBeLessThan(FREE_LOOK.COCKPIT_TICK_LAG);
+    // Since 1.26.62 (round 19c) the fallback is the Pixel's own number: the table still names it, so a change to
+    // either is a decision about one phone.
+    expect(pixel.lag).toBeLessThanOrEqual(FREE_LOOK.COCKPIT_TICK_LAG);
     expect(cockpitLagFor('Deferred', 24, COCKPIT_CLIENT_LAGS, FREE_LOOK.COCKPIT_TICK_LAG)).toBe(pixel.lag);
     expect(cockpitLagFor('Fancy', 22, COCKPIT_CLIENT_LAGS, FREE_LOOK.COCKPIT_TICK_LAG)).toBe(FREE_LOOK.COCKPIT_TICK_LAG);
     expect(cockpitLagFor('', NaN, COCKPIT_CLIENT_LAGS, FREE_LOOK.COCKPIT_TICK_LAG)).toBe(FREE_LOOK.COCKPIT_TICK_LAG);
@@ -556,6 +580,17 @@ describe('the camera runtime with free look (scripts/vehicle-camera.js on the si
     const last = JSON.parse(lines.at(-1)!.slice(6));
     expect(last).toMatchObject({ type: CAR, mode: 'chase' });
     expect(typeof last.yawOff).toBe('number');
+  });
+  it('logs what the cockpit camera was SENT with telemetry on: the lag, the client report, the eye in the vehicle frame (round 19c read the eye off pictures)', () => {
+    const { h, rider, drive } = cameraHost();
+    h.engine.emit('scriptEventReceive', { id: VEHICLE_TELEMETRY_EVENT, message: 'fast', sourceType: 'Server' });
+    drive(2, 0);
+    h.host.playerState(rider).selectedSlot = 8;
+    drive(30, 0);
+    const lines = h.lines('console').filter(l => l.startsWith('[warn] CMCKP ')).map(l => JSON.parse(l.slice('[warn] CMCKP '.length)) as Record<string, unknown>);
+    expect(lines.length).toBeGreaterThan(0);
+    // At rest the eye is the config's (0, 1.62, -0.4) in the vehicle frame, along the nose, at the fallback lag.
+    expect(lines.at(-1)).toMatchObject({ type: CAR, lag: FREE_LOOK.COCKPIT_TICK_LAG, camRight: 0, camUp: 1.62, camNose: -0.4, camPitch: 0 });
   });
 });
 

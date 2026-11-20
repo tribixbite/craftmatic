@@ -11,7 +11,7 @@ import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './m
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
 import type { PlacementDetail } from '../brickgen/levels/levels.js';
-import { boardPointsOf, buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, geometryEntityBoxes, geometryHitBox, hitTestAtSize, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsFor, withColliderTreadsAsync, withSizeGroups, type CarveSource, type HitTestBox, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
+import { boardPointsOf, buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, geometryEntityBoxes, geometryHitBox, hitTestAtSize, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, sizeHitBox, visibleBoundsFor, treadInputs, withColliderTreadsAsync, withSizeGroups, type CarveSource, type HitTestBox, type PlacementActor, type PlacementColliders, type ShellMigration } from './bedrock-placement-pack.js';
 import { FLYER, flyerScript, type FlyerRuntimeConfig } from './bedrock-flyer.js';
 import type { CanonMount } from './set-canon.js';
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
@@ -2685,6 +2685,19 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
         if (cam && ownHead) { try { cam.location = player.getHeadLocation(); } catch {} }
         let placed = false;
         if (cam) { try { player.camera.setCamera('minecraft:free', cut ? { location: cam.location, rotation: cam.rotation } : { location: cam.location, rotation: cam.rotation, easeOptions: { easeTime: config.freeLook.COCKPIT_EASE_SECONDS, easeType: 'Linear' } }); placed = true; } catch {} }
+        // What the cockpit camera was SENT (telemetry, once a second): the lag this client took, what it reports, the
+        // camera against the vehicle's live pose in the vehicle's frame (x right, z to the nose). Round 19c's CMCAM line
+        // had neither, so the eye's place had to be read off pictures (VEH-06).
+        if (cam && telemetry.on && Number(system.currentTick) % telemetry.every === 0) {
+          try {
+            const at = vehicle.location, vy = Number(vehicle.getRotation().y) || 0, r = vy * Math.PI / 180;
+            const dx = cam.location.x - at.x, dz = cam.location.z - at.z, rd = (n: number): number => Math.round(n * 100) / 100;
+            let graphicsMode = '', maxRenderDistance = NaN;
+            try { graphicsMode = String(player.graphicsMode); } catch { /* not reported */ }
+            try { maxRenderDistance = Number(player.clientSystemInfo.maxRenderDistance); } catch { /* not reported */ }
+            console.warn(`CMCKP ${JSON.stringify({ type: vehicle.typeId, t: Number(system.currentTick), lag: fl.lag, graphicsMode, maxRenderDistance, cut, camRight: rd(dx * Math.cos(r) + dz * Math.sin(r)), camUp: rd(cam.location.y - at.y), camNose: rd(-dx * Math.sin(r) + dz * Math.cos(r)), camYaw: rd(cam.rotation.y), camPitch: rd(cam.rotation.x), vehicleYaw: rd(vy) })}`);
+          } catch { /* gone */ }
+        }
         if (!placed && now && now.chase) { try { player.camera.clear(); } catch {} }
         if (now) now.chase = false;
         continue;
@@ -2773,7 +2786,7 @@ function palettePng(palette: string[]): Uint8Array { const w = 16, h = Math.max(
     p += len;
 } const z = concat(Uint8Array.of(0x78, 0x01), ...blocks, u32((b << 16) | a)); return concat(Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10), pngChunk('IHDR', concat(u32(w), u32(h), Uint8Array.of(8, 6, 0, 0, 0))), pngChunk('IDAT', z), pngChunk('IEND', new Uint8Array())); }
 /** What `emitCompiledEntity` reads of a compiled entity: a `CompiledLdrawGeometry` is one; so is a rail chunk (`coaster-pack.ts`). */
-export type EmittableGeometry = LodHullInput & { diagnostics: { cubeCount: number } };
+export type EmittableGeometry = LodHullInput & { diagnostics: { cubeCount: number; coplanar?: { offset?: number } } };
 
 /**
  * The quality a VEHICLE carved out of a model is compiled at (FID-02, audit 2026-11-15 A-03): the vehicle preset
@@ -4467,6 +4480,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // The doorways a 200 % doorway carve opens round (`planDoorwayCarve`): every leaf with a passable size.
     const carveDoorways = interactiveConfig ? interactiveConfig.items.filter(it => it.leaf && it.passSize && it.blocking.length).map(it => ({ cells: it.blocking, passSize: it.passSize! })) : [];
     const carveWith = carveSource && carveDoorways.length ? { ...carveSource, doorways: carveDoorways } : carveSource;
+    // `CRAFTMATIC_TREAD_INPUTS=<file>`: write the planner's inputs, to replay its plans without a rebuild (`scripts/_tread_replay.ts`).
+    const treadInputsFile = typeof process !== 'undefined' ? process.env?.['CRAFTMATIC_TREAD_INPUTS'] : undefined;
+    if (treadInputsFile && placementColliders) {
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(treadInputsFile, JSON.stringify(treadInputs(placementColliders, [], doorCells ?? [], fineReach, carveWith, doorApproaches)));
+    }
     const plannedTreads = placementColliders ? await withColliderTreadsAsync(placementColliders, [], doorCells ?? [], fineReach, carveWith, doorApproaches) : undefined;
     // Board points (bedrock-vehicle.ts `BOARD`, VEH-17): one invisible rideable type per size step for every scripted vehicle
     // with drawn extremities. Named here, before the placement script, because Undo must remove them with their vehicle.

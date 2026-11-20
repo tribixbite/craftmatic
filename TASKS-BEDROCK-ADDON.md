@@ -31,8 +31,11 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
     (2 treads, (36,31)->(36,30), top 15.4 up; `_tread_run_diff.py` main a09e8f70 vs genclear-all6) across Door 2's +
     side column line; sim `place-400-90` fails there, main passes (`TODO(corner-tread-71040)`; the tread planner is
     branch gen-reach's).
-  - Brick-built doors (10354, 42639 gate, 910049 gate): every candidate hinge line is held rigid
-    (`TODO(brick-hinge-holds)`, docs/bedrock-interactivity.md).
+  - Brick-built doors (10354, 42639, 910049): traced 2026-11-19 (gen-brickdoor), none hangs on a joint the geometry
+    shows - 10354's round leaf is built into the wall's courses, 42639's garage door hangs from nothing (its pins
+    miss the pegholes; a linkage, `TODO(garage-linkage)`), 910049's gate is the moulded 60621 already shipped.
+    `holds` lines name their chain now. Set aside, measured, no door to prove them: `TODO(stud-pivot)`.
+    docs/bedrock-interactivity.md "Brick-built doors".
   - Coplanar pairs on moving actors: parked coaster cars and lift cars are separated where they rest since 2026-11-19
     (10303 0.00, 10261 0.04, 10788 0.00 block faces at parked poses). Left: source-seated figures on their seats
     (`TODO(a17-moving)`, 10261 fig2 0.04), the fabricated grey cart (10341 0.40). 10337's car body: 5,543 pairs the
@@ -51,10 +54,21 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   speed REGRESSED (camera behind the drawn car; branch `gen-cockpit`: the car script read ~124 blocks a tick since
   A-12, the Saga server fell to ~16 ticks/s; fix caches cells 10 ticks, pack `output/gen-cockpit-1119/saga-6e57f9bd/`).
   Round 19b (`saga-19b/notes.md`): B PASS - 8097 hatches tap open/shut via the lifted board columns at 150/200 %; a
-  touch tap acts at the SCREEN CENTRE, not the finger (quirk to add); F as predicted - 10261 400 % draws only chunks
-  within ~70 blocks; G partial (31141 fig6 printed face). NEXT round 19c: E repeat with the gen-cockpit pack (CMVT
-  msPerTick, tick rate, fresh seat, no drag, 30 fps), C 41395 eased swing, A at 50 %, G faces (10303 + 31141 fig1-5
-  front-on), B at 100 %. The Saga's foreground app is Bambu Handy: return to it after a round.
+  touch tap acts at the SCREEN CENTRE, not the finger (quirk `touch-screen-pick`); F as predicted - 10261 400 % draws only chunks
+  within ~70 blocks; G partial. Round 19c (`saga-19c/notes.md`): A at 50 % PASS 4/4 (VEH-17 now proven 50/100/200);
+  C 41395 side section eases open/shut in ~0.35 s (door not hit, drive-shut not seen); G printed faces on 31141
+  fig1-4, 10303 fig2/4, none blank; E STILL FAILS with the gen-cockpit fix merged (20 ticks/s, 3.6-5.1 ms/tick): from
+  ~5 mph the view holds on the car's rear - branch `gen-cockpit2` (camera trailing vs a facing flip, decided by
+  `_cockpit_view.ts` frame matching). Round 19d (`saga-19d/notes.md`, gen-cockpit2 pack 32b0bb79): E PASS (dash and
+  horizon ahead at 43 mph, CMCKP lag 0.5, 20 ticks/s); B 8097 hatch at 100 % PASS; C bus door eased ~0.4 s PASS;
+  K 10303 car 2 grazed car 3's rider (the car BEHIND) plus a 1-2 frame hand-back sky flash. Round 19e
+  (`saga-19e/notes.md`, packs `output/coast62-main-0d2fddc9/` from main 0d2fddc9, animLag 3): 10303 cars 2 and 3
+  (two laps each) and 10261 car 2 PASS - no pass-through, no washes, no sky frame at any hand-back; in 10303's loops
+  car 2 still sees car 1's rider large (~0.7 x its level distance by eye), close but never inside. World 925's
+  restored bindings name the OLD 10303/10261 uuids, whose dev folders the 19e deploy replaced: redeploy both packs
+  in the next round. NEXT Saga round: bus drive-shut, G 10303 riders, cars-1 spacing with a CMVT/coaster telemetry
+  line if one exists. Foreground app is Bambu Handy: return to it after a round. 19d left the McLaren
+  wand at 90 / 100 %.
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
   --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
   --out=output/gengate-6fa0afa6`): 60/60 built, child play 710/720 (fails: 5482 windows out of reach + doorway holes
@@ -210,6 +224,35 @@ fly/drive/etc? with proper POV and camera movement?". Detection is part-based, b
   turn 90 -8; 10326 300 % turn 270 -1 (runs re-planned in a different order; 42670's turn 270 has a refused edge whose
   foot no plan reaches any more). 5482 at 300/400 % reaches less than the census pack whose four doors cut each
   other's floors. 76419 and 21063 identical to base apart from stamps; SCALE-06 lines identical.
+- 2026-11-19 branch `gen-reach` (NOT merged; worktree `.worktrees/gen-reach`, commits 901ec58c..): the dips above were
+  the tread planner's run ORDER and one lost run (docs/bedrock-interactivity.md "The per-plan dips after it"). Tool:
+  `CRAFTMATIC_TREAD_INPUTS=<f>.json` on any export records the planner's inputs; `bun scripts/_tread_replay.ts <f>.json
+  [--sizes= --turns= --against=<pack>]` replays plans in seconds (inputs of 10 sets: `output/gr/dump/`). Packs
+  `output/gr/after3/` (6b493fb4, clean stamp). Tread-plan surfaces over 16 plans, base build f134493e
+  (`.worktrees/gen-door2/output/gd2/base-packs2/`) / gen-door2 (`output/gr/d<set>/`) -> now: 10326 25,792 / 26,135 ->
+  28,556 (400 % turn 270 3318 vs 3319, one surface, the only favourite plan under base); 42670 52,846 / 52,950 ->
+  53,711; 41732 61,010 / 60,939 -> 61,511; 21318 73,496 -> 75,172; 910004 20,069 -> 20,977; 76419 29,923 -> 32,042;
+  21063 23,537 -> 25,551; every plan's highest equal or higher. Census vs gen-door2: 5582 36,992 -> 38,908; 5482
+  30,436 -> 34,171 (300 % = the old planner on today's inputs, 1,909: the gap to the census pack is the held-shut
+  stacked doors); 2504 35,574 -> 35,696 (400 % turn 0 4,758 vs 4,764, above the base planner's 4,754).
+  Walks (`output/gr/eval.sh`; `eval-base.txt` vs `eval-after3.txt`): the three SCALE-06 route lines identical blocked
+  and auto-jump, 21063 300 % flank lanes 30.5 / 31.5 identical. Fan lanes, lane by lane vs the base build
+  (`output/gr/fan/base-*` vs `after3-*`, scratch tool fan.ts = fan_walk.ts): 76419 200 % and 21063 200 % identical;
+  76419 300 % S 49.5 9.56 -> 7.20 (1 gain); 76419 400 % 8 lower (S 43.5 5.14 -> 4.00, S 61.5 5.88 -> 3.19, W 18.5/19.5
+  3.38 -> 2.50, W 36.5/37.5 4.75 -> 4.56/4.25, W 58.5 1.25 -> 0.94), 10 higher (S 26.5 1.25 -> 7.0 with a new 5.63
+  fall off what it reaches); 21063 300 % 4 lower (E 5.5 9.19 -> 7.88, S 10.5 3.88 -> 3.50, W 66.5 4.26 -> 2.19,
+  W 67.5 3.81 -> 2.88), 3 higher (S 2.5 2.19 -> 10.95); 21063 400 % S 36.5-38.5 back to base, no new fall, 4 lower
+  (E 91.5 2.06 -> 1.25, W 19.5 3.20 -> 2.50, W 89.5 4.25 -> 2.20, W 92.5 1.63 -> 1.25), 5 higher (N 2.5/3.5 2.5 ->
+  7.25/6.0). What each costs (same inputs, one mechanism off): without the run-order fix NONE of those lanes is lower,
+  and 76419 300 % reaches 2,241 surfaces / top 5.55 blocks instead of 2,292 / 5.83, 400 % 3,654 / 5.48 instead of
+  4,164 / 7.44, 21063 300 % 1,735 / 5.88 instead of 2,078 / 8.13, 21063 400 % 2,676 instead of 2,740, and the
+  favourite dips (41732 400 % 7,746) return; without the swap pass 76419 300 % S 49.5, 400 % W 18.5/19.5 and 21063
+  300 % E 5.5 / S 10.5 / W 67.5 are back but 76419 300 % loses 17 surfaces and 0.35 of top, 400 % 219 surfaces and
+  0.67 of top, 21063 300 % 3 surfaces, and 10326 150 % turn 180 its level (3.58 -> 2.62). Sim and regressions:
+  140 scenarios 0 failed (`output/gr/sim-after3.txt`), 0 failed / 11 tested (`regr-after3.txt`). Planning time (42670's 16 plans, replay): 149 s at gen-door2, 273 s
+  without the second plan, ~320 s with it (`TODO(tread-swap-cost)`: the second plan won 2 of 72 plans). NOT done:
+  42670 Door 3's 100 % threshold stair across the ground route (not the scaled planner); a device round on the
+  changed fan lanes.
 - Step 4: a per-vehicle drive check for every census vehicle: the sim's vehicles scenario (move 20 blocks, turn,
   camera follows, dismount gives the camera back, never inside a wall), plus `_cockpit_view.ts` renders
   (`driverSeesOut`). Then BDS 1.26.63.1 (`C:/git/bds/`) beside the sim for API fidelity, then one Pixel round.
@@ -228,6 +271,24 @@ dismounting vehicles leaves the camera "locked in one location - big bug"; pinba
   1.26.52 camprobe lag 5.5 and every car of a train drawn for its rider's client (20c: the Pixel's camera inside the car
   ahead's rider in every loop 1). The Pixel's probe (5.3) and ride (3.5) disagree: TODO(pixel-ride-lag).
   Rotation/position keyframes share one clock (Saga camprobe v9 `step`); `rotationLead` exists, unset.
+- COAST-06 on Minecraft 1.26.62.1 (2026-11-19, branch gen-coast62, OFFLINE): round 19d K's "grazing" on the Saga
+  (car 2, three 0.2-0.7 s episodes a lap through 10303's drop and loops) was the eye ~2.7 ticks BEHIND the drawn seat,
+  in car 3's grey-haired rider, because 1.26.62.1 draws entities at ~3 ticks where 26.52 drew 5.7 and the pack planned
+  5.7. Derived from the ride's frames (sim `--entity-lag=` sweep, `docs/coaster-loop-camera.md` section 5); default
+  `animLag` 3, `native` animations planned `animTail` past the clear (the 2-4 sky frames at the hand-back). Sim numbers
+  and packs: `output/coast62/` in the gen-coast62 worktree (packs `output/coast62-packs/`, `output/coast62-packs-10261/`,
+  stamp cba70d02). Sim, coaster-camera, `saga-26.62`: device packs (8ac40e70) 10303 car 2 one lap 74 frames within
+  0.3 block of car 3, a 2.1-block hand-back cut; 10261 car 2 one lap 39 frames, 4 violations. Rebuilt, 3 laps:
+  10303 cars 2 and 3 and 10261 car 2 pass, 0 frames within 0.3, worst eye jump <= 0.19, seat lead >= -0.2; the
+  Pixel profile (3.5, unchanged) passes the same rides. Child play `--sizes=50,100,150,200,400`: 12/12 each. NEXT SAGA RIDE (test Saga O1N1XT412200373, record
+  `versionName`): deploy the rebuilt 10303 + 10261 with `--exclusive --prune-stale`; place 10303 at 100 %, rotation 0;
+  before boarding `tp @s ~ ~ ~ 0 0` (boarding keeps the player's pitch, ride 1 of 19d started at -70); ride car 2 for
+  two laps, then car 3 for two, screen-recorded at 30 fps+; pull the content log. Pass: through the drop and both loops
+  the view sits in car 2's seat, car 1's pink-haired rider ~2.25 blocks ahead and never closer than ~1.5, NO grey-haired
+  rider at a block, no translucent washes; the hand-back after loop 2 shows no sky frame and no forward jump. If it
+  still grazes, name WHOSE rider fills the view: car 1's pink hair = the lag is now too LOW (eye ahead), car 3's grey
+  hair = still too HIGH; the head's width over the frame height then gives the lag (the sweep's 0.16 / 0.27 / 0.85 at
+  1.5 / 2.5 / 3.5). Then ride the Pixel (1.26.60.4) car 2 the same way: its 3.5 is a 26.52 reading.
 - OPEN (COAST-06): the camera grazes the car ahead - Saga car 2 0.1-0.3 s translucent washes at loop entries a lap
   (20c); Pixel on the 30zz timing (round 2026-10-20d, `output/device-round-2026-10-20d/pixel/notes.md`): loop 1 clear,
   car 2's loop 2 inside the rider ahead 0.4 / 1.0 / 1.3 s (as 30zz), car 3 clean, a 1-frame pale panel at 3 of 6
@@ -2032,9 +2093,8 @@ pass logs, sims), packs `output/base3/` (e7da6e47, built from `output/base-tree-
   inside) and at a plate 1.25 over the ground at turn 90 (world 13,-59,0);
   42670 Door 3 - a threshold stair's treads across the ground route along the facade; 71040 Door 1 - an overhang's
   layer box 0.1 inside the drawn route.
-- OPEN `TODO(brick-hinge-holds)`: 10354 / 42639 / 910049 brick-built doors - no joint line splits them off (the
-  hinge lines are `holds`); 43267's 40066 are one-piece moulded doors (static is right). docs/bedrock-interactivity.md
-  "Brick-built doors": what a rule needs (which rigid edges cross a `holds` cut) before it can be measured.
+- TRACED 2026-11-19 (gen-brickdoor): 10354 / 42639 / 910049 brick-built doors have no provable hinge line (see
+  "Start here"); 43267's 40066 are one-piece moulded doors (static is right).
 - Pre-existing at e7da6e47, not this branch: `test/favourites-aabb.test.ts` and `test/favourites-floaters.test.ts`
   fail on this machine's corpus (75397's four boxed ids now resolve; same failure in the e7da6e47 archive).
 - OPEN (first wave, device): `_ix_passability` at 200 % shows 2 informational HOLE rows that START under the floor

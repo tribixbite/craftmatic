@@ -68,6 +68,8 @@
  *   --client=    the client profile every client step reports for (default pixel; coaster-camera: both).
  *   --cars=      coaster-camera: ride each of these cars, 1 = the front car (`--cars=1,2,3`); default the nearest.
  *   --other-prop-lead= EXPERIMENT: the property lead for entities no player rides (COAST-06).
+ *   --entity-lag= ticks the client draws entities behind the server, overriding the profile's (a sweep to match device frames, COAST-06).
+ *   --laps=      coaster-camera: laps per ride (default 3).
  *   --prop-lead= ticks the client applies actor properties (a coaster car's pitch / roll / body bones) before
  *                the position sent with them, overriding the profile's (quirk `property-ahead-of-position`).
  *   --frames=    vehicles: `cockpitEye` judged from the DRAWN pose (always, since package B) also
@@ -104,7 +106,7 @@ import { TICK_BUDGET_WARN_MS, parseCmvtSamples, predictedSagaMsFromReads, summar
 import { COSTED_CALLS, type TickCost } from '../web/src/sim/script-host/host.ts';
 import type { Simulation } from '../web/src/sim/core/simulation.ts';
 import { VEHICLE_TELEMETRY_EVENT } from '../web/src/engine/bedrock-vehicle.ts';
-import { attachClient, clientProfile, type ClientProfileName } from '../web/src/sim/client/camera.ts';
+import { attachClient, clientProfile, type ClientProfile, type ClientProfileName } from '../web/src/sim/client/camera.ts';
 import { clientInvariants } from '../web/src/sim/client/invariants.ts';
 import { clientSteps, coasterCameraScenarios, craftmaticSeatCamera, craftmaticSeatEye, walkAwayScenarios, type ClientShot } from '../web/src/sim/adapters/craftmatic/client-steps.ts';
 import { packAppearance } from '../web/src/sim/adapters/craftmatic/drawn.ts';
@@ -125,8 +127,10 @@ const inputs = args.filter(a => !a.startsWith('--'));
 // ─── Package B: the client's eye (web/src/sim/client) ───
 const framesDir = flag('frames');
 const clientFlag = flag('client') ?? (mode === 'coaster-camera' ? 'both' : 'pixel');
-if (!['pixel', 'saga', 'both'].includes(clientFlag)) { console.error('--client= is pixel, saga or both'); process.exit(2); }
-const clientProfiles: ClientProfileName[] = clientFlag === 'both' ? ['pixel', 'saga'] : [clientFlag as ClientProfileName];
+if (!['pixel', 'saga', 'saga-26.62', 'both'].includes(clientFlag)) { console.error('--client= is pixel, saga, saga-26.62 or both'); process.exit(2); }
+/** `saga-26.62`: the Saga as Minecraft 1.26.62.1 draws it (`clientProfile('saga-26.62')`, derived from round 19c); `saga` is its 26.52 marker run. */
+type SimClient = ClientProfileName | 'saga-26.62';
+const clientProfiles: SimClient[] = clientFlag === 'both' ? ['pixel', 'saga'] : [clientFlag as SimClient];
 const uvFloorFlag = flag('uvfloor') as UvFloorModel | undefined;
 const hatchFlag = args.includes('--hatch'), lodFlag = args.includes('--lod');
 const lagsFlag = flag('lag')?.split(',').map(Number).filter(Number.isFinite);
@@ -141,9 +145,21 @@ const clientShots = !!(uvFloorFlag || hatchFlag || lodFlag);
 const fovFlag = Number(flag('fov'));
 const clientStepOptions = { ...(Number.isFinite(fovFlag) && fovFlag > 0 ? { fovDeg: fovFlag } : {}), ...(uvFloorFlag ? { uvFloor: uvFloorFlag } : {}), lod: lodFlag || mode === 'walk-away', paintHatch: hatchFlag, frames: !!framesDir, ...(lagsFlag?.length ? { lags: lagsFlag } : {}) };
 /** The run options that attach the client and its invariants to a scenario. */
-const clientRun = (profile: ClientProfileName, pack?: CraftmaticPack): Pick<RunOptions, 'invariants' | 'prepare'> => ({ invariants: clientInvariants({ seatCamera: craftmaticSeatCamera(), ...(pack ? { seatEye: craftmaticSeatEye(pack) } : {}) }), prepare: (sim, player) => { attachClient(sim, player, (propLeadFlag !== undefined && Number.isFinite(propLeadFlag)) || (otherPropLeadFlag !== undefined && Number.isFinite(otherPropLeadFlag))
-      ? { ...clientProfile(profile), ...(propLeadFlag !== undefined && Number.isFinite(propLeadFlag) ? { propertyLeadTicks: propLeadFlag } : {}), ...(otherPropLeadFlag !== undefined && Number.isFinite(otherPropLeadFlag) ? { otherPropertyLeadTicks: otherPropLeadFlag } : {}) }
-      : profile); } });
+/** A finite number flag, or undefined. */
+const numFlag = (name: string): number | undefined => { const v = flag(name); return v !== undefined && Number.isFinite(Number(v)) ? Number(v) : undefined; };
+/** `--entity-lag=N`: the client draws entities N ticks behind the server (quirk `client-entity-lag`), overriding the profile's: a sweep that matches device frames (COAST-06). */
+const entityLagFlag = numFlag('entity-lag');
+/** `--laps=N`: coaster-camera laps per ride (default 3). */
+const lapsFlag = numFlag('laps');
+/** The client profile a run attaches: the named one with any `--prop-lead` / `--other-prop-lead` / `--entity-lag` override. */
+const runProfile = (profile: SimClient): ClientProfile => ({
+  ...clientProfile(profile),
+  ...(propLeadFlag !== undefined && Number.isFinite(propLeadFlag) ? { propertyLeadTicks: propLeadFlag } : {}),
+  ...(otherPropLeadFlag !== undefined && Number.isFinite(otherPropLeadFlag) ? { otherPropertyLeadTicks: otherPropLeadFlag } : {}),
+  ...(entityLagFlag !== undefined ? { entityLagTicks: entityLagFlag } : {}),
+});
+/** The run options that attach the client and its invariants to a scenario. */
+const clientRun = (profile: SimClient, pack?: CraftmaticPack): Pick<RunOptions, 'invariants' | 'prepare'> => ({ invariants: clientInvariants({ seatCamera: craftmaticSeatCamera(), ...(pack ? { seatEye: craftmaticSeatEye(pack) } : {}) }), prepare: (sim, player) => { attachClient(sim, player, runProfile(profile)); } });
 /**
  * Two run-option sets in one: both `prepare` hooks run (cost telemetry, then the client camera) and the
  * invariants concatenate; every other key is taken from whichever set has it, the second winning.
@@ -351,7 +367,7 @@ if (mode === 'hop') {
   process.exit(failed || !report.results.length ? 1 : 0);
 }
 
-if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|coaster-camera|walk-away|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>] [--runtime=pack|tree] [--client=pixel|saga|both] [--frames=<dir>] [--lag=1.5,3,4] [--prop-lead=N] [--cars=1,2,3] [--uvfloor=v] [--hatch] [--lod] [--walk-away=a..b[:step]] [--size=200]'); process.exit(2); }
+if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|coaster-camera|walk-away|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>] [--runtime=pack|tree] [--client=pixel|saga|both] [--frames=<dir>] [--lag=1.5,3,4] [--prop-lead=N] [--entity-lag=N] [--laps=N] [--cars=1,2,3] [--uvfloor=v] [--hatch] [--lod] [--walk-away=a..b[:step]] [--size=200]'); process.exit(2); }
 
 // `coaster-camera` and `walk-away` (package B): the drawn camera judged every tick, per client profile.
 if (mode === 'coaster-camera' || mode === 'walk-away') {
@@ -368,7 +384,7 @@ if (mode === 'coaster-camera' || mode === 'walk-away') {
       if (!pack) { report.error = 'not a craftmatic pack'; failed++; reports.push(report); continue; }
       report.label = pack.placement.label;
       for (const profile of clientProfiles) {
-        const scenarios = (mode === 'coaster-camera' ? coasterCameraScenarios(pack, profile, 3, carsFlag) : walkAwayScenarios(pack, size, walk[0] ?? 40, walk[1] ?? 120, walk[2] ?? 10)).filter(s => !only || s.name.includes(only));
+        const scenarios = (mode === 'coaster-camera' ? coasterCameraScenarios(pack, profile, lapsFlag ?? 3, carsFlag) : walkAwayScenarios(pack, size, walk[0] ?? 40, walk[1] ?? 120, walk[2] ?? 10)).filter(s => !only || s.name.includes(only));
         if (!scenarios.length) { console.log(`${report.pack}: nothing to run for ${mode} (${mode === 'coaster-camera' ? 'no coaster cars' : `no ${size} percent size`})`); continue; }
         for (const s of scenarios) {
           const fresh = await load(file);

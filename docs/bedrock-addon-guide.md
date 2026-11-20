@@ -4794,6 +4794,21 @@ script's block reads with a Saga floor of 0.054 ms a read (`SAGA_MS_PER_BLOCK_RE
 predicted 2.9 ms for the tick the Saga measured at 19-27. Whether the overrun was the whole cause, or 1.26.62 also
 moved the Saga's draw lag, is the next ride's question (TODO(cockpit-stall)).
 
+### The cockpit at speed on 1.26.62: behind the seat, facing the nose (Saga 19c, 2026-11-19)
+
+With the car's tick cheap again (round 19c: 3.6-5.1 ms driving, 20 ticks a second, the HUD position smooth) the
+slot-9 view still left the cabin from ~5 mph and held on the car's rear deck at 43 mph. Grey parts close on both
+sides suggested the camera might face backward. `_cockpit_view.ts` pictures settled it: facing the nose with the eye
+shifted 2-2.5 blocks toward the tail (`--shift=0,0,-2` / `-2.5`) match `saga-19c/shots/e3-speed-full.jpg` (the red
+lamp bar between grey struts, a grey hub cover either side); facing backward (`--yaw=180`) matches no frame
+(`output/gen-cockpit2-1119/cands/`). So the eye trailed the drawn seat by about 2.2 ticks of travel: on
+Minecraft 1.26.62.1 the Saga needs a pose lag of 0.40-0.93, where its 26.52 rounds (30k, 30l) needed 3. The lag
+is now 0.5 for every client the table does not name, the Pixel's own entry, so both phones ride one number. No
+script API reports the client's version, so a phone still on 26.52 now rides ~2.4 blocks ahead
+(TODO(cockpit-lag-version)). With telemetry on, the cockpit camera logs `CMCKP` once a second: the lag it took,
+the graphics mode and render distance the client reports, and where the camera was SENT in the vehicle's frame
+(`camNose`, `camUp`, `camRight`, `camYaw`). Round 19c could not read the eye from the log.
+
 ### The driver's eye sees the road ahead (2026-09-30, `output/cockpit-0930/`)
 
 Pixel round 30f: 42639's car in the cockpit view (hotbar 9) was two thirds
@@ -5242,6 +5257,29 @@ the parked poses (2026-11-19) those leftovers were 0.28 (10303) and 0.13
 the shell where no car stands; after separating at the parked poses 0.00 and
 0.04 (the seated kiosk figure), 10788's lift car 0.57 -> 0.00 over its three
 stops, 42703 0.43 -> 0.00.
+
+**The push is sized under the entity's grain (2026-11-19).** Every face of a
+compiled part lies on a plane of its grain, and an entity compiled small has
+those planes closer together than the full 0.15-unit push: 10337's car is drawn
+at 0.084 units per LDU, so its 2-LDU grain is 0.168 units and each pushed face
+landed 0.02 from the next grain plane, on whatever face stood there. Every pass
+settled ~5,500 pairs and made as many; the 16-pass cap shipped 5,543, the
+compile spent ~11 of its 12 minutes in the separation (718 s; 47 s after), and the runaway pushes
+visibly mangled the wheels (`output/lambo/wheel-old.png` in the gen-lambo
+worktree). The push is now `coplanarSeparationOffset(finest shipped grain,
+units per LDU)` = min(0.15, a quarter of one grain step), so every full-size
+entity keeps 0.15 and a model compiled below minifig scale pushes less (a
+model drawn at a quarter of the size is seen at a quarter of the distance for
+the same picture). 10337 2,697 / 3.84 -> 4 / 0.00;
+42172 80 / 0.07 -> 41 / 0.03; non-favourites 6753 (0.25x) 3,309 pairs left ->
+0, 669 s -> 61 s; 8289 46 -> 0, 188 s -> 66 s. `buriedFaceTest` now rejects a
+neighbour by area and box before clipping (4 ms -> 0.3 ms a query on the car's
+wheels). The cross-entity pass (`separateEntitiesFromNeighbours`) pushes a
+placed entity against its neighbours by the same push, read from its compile
+record (`diagnostics.coplanar.offset`; a geometry without one, a rail chunk,
+keeps 0.15): only the rewritten entity's faces move, so only its grain bounds
+the step (gen-xoffset 2026-11-19: 42172's car moved 12 cubes, nothing else
+changed in 10337, 6753, 8289, 10303 or 31060).
 
 **What it does not fix**: the horizontal striping under 42703's arches and
 on round columns (Saga, `saga/after-42703-arch-b6c1c882.jpg`) is the stair-step

@@ -90,8 +90,20 @@ export interface ClientProfile {
  * applies actor properties 4.1 ticks early (`sagaLeadTicks`). The pair (4, no ease) derived before
  * from cockpit brackets and the 30g frame counts is superseded.
  */
-export function clientProfile(name: ClientProfileName | 'pixel-26.51'): ClientProfile {
+export function clientProfile(name: ClientProfileName | 'pixel-26.51' | 'saga-26.62'): ClientProfile {
   if (name === 'pixel-26.51') return { ...clientProfile('pixel'), entityLagTicks: quirkValue('client-entity-lag', 'pixel2651Ticks') };
+  // The Saga on 1.26.62.1, DERIVED from two readings (no marker run yet, TODO(client-lag-saga)):
+  //  - the coaster (round 19d K, 10303 car 2, the animation planned at 26.52's 5.7): the rider of the car BEHIND fills
+  //    the view through the drop at the size the simulator draws for an entity lag of ~3 (quirk `client-entity-lag`
+  //    `saga2662Ticks`; 2.5 draws it smaller, 3.5 fills the picture). The animation has no ease, so this is the lag;
+  //  - the cockpit (round 19c, quirk `cockpit-draw-lag` `ticks` 0.5), which pins entity lag - played ease - the
+  //    camera-first tick: the ease that reading leaves is 3 - 0.5 - 1 = 1.5 ticks, 0.75 of the 0.1 s ease.
+  if (name === 'saga-26.62') {
+    const saga = clientProfile('saga');
+    const entityLagTicks = quirkValue('client-entity-lag', 'saga2662Ticks');
+    const easeTicks = entityLagTicks - quirkValue('cockpit-draw-lag', 'ticks') - 1;
+    return { ...saga, basis: 'derived', entityLagTicks, easeFactor: easeTicks / easeSteadyLagTicks(0.1) };
+  }
   return name === 'saga'
     ? { name, entityLagTicks: quirkValue('client-entity-lag', 'sagaTicks'), easeFactor: quirkValue('camera-ease-lag', 'sagaFactor'), basis: 'measured', propertyLeadTicks: quirkValue('property-ahead-of-position', 'sagaLeadTicks'), device: { graphicsMode: 'Fancy', maxRenderDistance: 22, memoryTier: 4 } }
     : { name: 'pixel', entityLagTicks: quirkValue('client-entity-lag', 'ticks'), easeFactor: quirkValue('camera-ease-lag', 'pixelFactor'), basis: 'measured', propertyLeadTicks: quirkValue('property-ahead-of-position', 'pixelLeadTicks'), device: { graphicsMode: 'Deferred', maxRenderDistance: 24, memoryTier: 4 } };

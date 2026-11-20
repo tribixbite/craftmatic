@@ -6,10 +6,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  COPLANAR_SEPARATION_UNITS, apply, coplanarFaces, pivotRotation, separateCoplanarFaces, visibleCoplanarHits, worldFaces,
+  COPLANAR_SEPARATION_UNITS, apply, coplanarFaces, coplanarSeparationOffset, pivotRotation, separateCoplanarFaces, visibleCoplanarHits, worldFaces,
   type GeoEntryLike, type Vec3,
 } from '../web/src/engine/bedrock-geometry-faces.js';
-import { eulerZYX } from '../web/src/engine/ldraw-entity-compiler.js';
+import { BEDROCK_UNITS_PER_LDU, eulerZYX } from '../web/src/engine/ldraw-entity-compiler.js';
 import { buildAddonAppearance } from '../web/src/ui/addon-appearance.js';
 
 const DEG = Math.PI / 180;
@@ -195,6 +195,34 @@ describe('coplanar faces', () => {
     expect(r.pairsFound).toBe(1);
     expect(r.pairsLeft).toBe(0);
     expect(visibleCoplanarHits(self(entry))).toHaveLength(0);
+  });
+
+  it('pushes by a quarter of the entity grain when that is under the full push, so a push never lands on the next grain plane (A-17, FID-03)', () => {
+    // 10337's car is compiled at 0.084 units per LDU: its 2-LDU grain is 0.168 units, and the full 0.15-unit push put
+    // every pushed face within 0.02 of the next grain plane, where it met the face standing there. Each pass settled
+    // ~5,500 pairs and made as many; 5,543 shipped after the 16-pass cap and the compile took 12 minutes.
+    expect(coplanarSeparationOffset(2, BEDROCK_UNITS_PER_LDU)).toBe(COPLANAR_SEPARATION_UNITS);
+    expect(coplanarSeparationOffset(4, BEDROCK_UNITS_PER_LDU)).toBe(COPLANAR_SEPARATION_UNITS);
+    const scale = 0.084, grain = 2 * scale;
+    expect(coplanarSeparationOffset(2, scale)).toBeCloseTo(grain / 4, 9);
+    // A wheel's terraced hub at that grain: 24 nested rings of 24 colours, each top one grain above the last, and a
+    // cap sunk flush into the first ring. With the full push the cap climbs one ring per pass and runs out of passes.
+    const hub = (): GeoEntryLike => {
+      const entry: GeoEntryLike = { bones: [{ name: 'body', pivot: [0, 0, 0] }, { name: 'wheel_0', pivot: [0, 0, 0], parent: 'body' }], groups: [] };
+      const r2 = (v: number): number => Math.round(v * 100) / 100;
+      for (let k = 0; k < 24; k++) {
+        const inset = r2(k * 0.1), top = r2(k * grain);
+        entry.groups.push({ ldrawColor: k + 1, alpha: 1, cubes: [{ bone: 'wheel_0', origin: [inset, -1 - k, inset], size: [r2(10 - 2 * inset), r2(top + 1 + k), r2(10 - 2 * inset)] }] });
+      }
+      entry.groups.push({ ldrawColor: 40, alpha: 1, cubes: [{ bone: 'wheel_0', origin: [4.5, -0.5, 4.5], size: [1, 0.5, 1] }] });
+      return entry;
+    };
+    const full = hub();
+    expect(separateCoplanarFaces(full).pairsLeft).toBeGreaterThan(0);
+    const fine = hub();
+    const r = separateCoplanarFaces(fine, { offset: coplanarSeparationOffset(2, scale) });
+    expect(r.pairsLeft).toBe(0);
+    expect(visibleCoplanarHits(self(fine))).toHaveLength(0);
   });
 
   it('resolves a coplanar pair on a turned bone along that bone\'s own face', () => {

@@ -75,3 +75,27 @@ describe('coplanar faces of MOVING actors (A-17, TODO(a17-moving))', () => {
     expect(atRest(placements[1]!, both)?.[0]).toMatchObject({ x: 0, y: 0, z: 0 });
   });
 });
+
+describe('cross-entity push sized by the entity being rewritten (FID-03)', () => {
+  it('pushes a small-scale entity by its own compile push, not the full 0.15 units', () => {
+    // A car compiled below minifig scale: its compiler pass pushed by a quarter of its 0.168-unit grain step (0.042).
+    const geos = fixtures();
+    const own = 0.042;
+    geos.set(CAR, { ...geos.get(CAR)!, diagnostics: { coplanar: { offset: own } } });
+    const r = separateEntitiesFromNeighbours(placements, geos, t => t === SHELL, coasterRestingPoses(parked));
+    expect(r.changed).toEqual([CAR]);
+    expect(r.entities[CAR]!.offset).toBe(own);
+    expect(hitsBetween(geos, { x: 0, y: 0, z: 0, yaw: 0 })).toBe(0);
+    const cube = ((geos.get(CAR)!.value as any)['minecraft:geometry'][0].bones[0].cubes[0]) as { origin: number[]; size: number[] };
+    const top = cube.origin[1]! + cube.size[1]!;
+    expect(top).toBeGreaterThan(16);
+    // The JSON is written to 0.01 units, so the push lands within a rounding step of its own size.
+    expect(top - 16).toBeLessThanOrEqual(own + 0.01);
+  });
+
+  it('keeps the full push for an entity compiled at full size or with no recorded push', () => {
+    const geos = fixtures();
+    const r = separateEntitiesFromNeighbours(placements, geos, t => t === SHELL, coasterRestingPoses(parked));
+    expect(r.entities[CAR]!.offset).toBe(0.15);
+  });
+});
