@@ -61,8 +61,11 @@ function reachable(grid: BlockGrid, closed: ReadonlyArray<readonly number[]> = [
 }
 
 describe('collider forms (collider-form.ts)', () => {
-  it('43 block ids in the craftmatic namespace, the full collider first, shapes closed under the quarter turns', () => {
-    expect(K.VARIANTS.length).toBe(43);
+  it('55 block ids in the craftmatic namespace, the full collider first, shapes closed under the quarter turns', () => {
+    expect(K.VARIANTS.length).toBe(55);
+    // The 43 band forms keep their ids and indices (a world an older pack laid keeps its blocks).
+    expect(K.VARIANTS[42]!.id).toBe('craftmatic:collider_c14');
+    expect(K.VARIANTS[43]!.id).toBe('craftmatic:collider_w15');
     expect(K.VARIANTS[0]!.id).toBe('craftmatic:collider');
     for (let v = 1; v < K.VARIANTS.length; v++) for (const r of QUARTER_TURNS) {
       const t = K.turnForm({ v, lo: 3, hi: 12 }, r);
@@ -211,6 +214,93 @@ describe('applyColliderClearance', () => {
     expect(reachable(s.grid)(3, 0, 1)).toBe(false);
   });
 
+  /**
+   * The corner-square forms (2026-11-19): a corner trim frees both strips beside its post, where the band it replaced
+   * freed one, so it can leak where the band did not - and the leak loop then refused every trim within a block of
+   * it, band trims the old kit had shipped included (11371: 14 cells grew, 3.9 blocks³ more collider than before
+   * the corners, genclear-all4). A corner trim near a leak falls back to its band form first.
+   */
+  it('falls back from a leaking corner trim to the band trim that does not leak, before refusing anything', () => {
+    const s = scene(5, 3, 3);
+    for (let x = 0; x < 5; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) {
+      if (x === 0) continue;
+      if (x === 3 && z === 1 && y < 2) continue;
+      s.full(x, y, z);
+    }
+    for (let y = 0; y < 2; y++) s.grid.set(1, y, 1, 'minecraft:air');
+    // The partition: a post in its low-x/low-z corner. The corner square opens x 0.25..1 along z 0.25..1 (outside to
+    // the room); the x band 0..4 the cell long, which holds it too, closes the crossing.
+    for (let y = 0; y < 2; y++) {
+      const a = newCellLayers(); addLayerBox(a, 0, 4, 0, 16, 0, 4);
+      s.layers.set(s.idx(2, y, 1), a);
+      s.grid.set(2, y, 1, colliderState(0, 16));
+    }
+    expect(K.VARIANTS[K.cover([[0, 4, 0, 16, 0, 4]])!.v]!.shape).toBeGreaterThan(14);
+    applyColliderClearance(s.input());
+    const band = K.VARIANTS.findIndex(d => d.kind === 0 && d.shape === 1);
+    expect(s.form(2, 0, 1)).toEqual({ v: band, lo: 0, hi: 16 });
+    expect(reachable(s.grid)(3, 0, 1)).toBe(false);
+  });
+
+  /**
+   * TODO(corner-tread-71040) closed: 71040 cell (9, 2, 8), a post under Door 2's raised landing in the door's
+   * approach column, shipped as a corner square where the band had stood; the freed space let the 400 % tread planner
+   * lay a run up to the door that walled its other column's line (sim place-400-90 failed; main passed; a cell
+   * bisect over the 129 cells the corners changed named this one alone). A doorway approach keeps the band forms its
+   * stairs and treads were planned around.
+   */
+  it('keeps the band, not a corner square, under a doorway approach', () => {
+    // A post in the cell's low-x/high-z corner under a ceiling (no standing top: rule 4 does not enter).
+    const s = scene(2, 3, 2);
+    s.solid(0, 1, 0, [[0, 2, 0, 16, 12, 16]]);
+    s.full(0, 2, 0);
+    expect(K.VARIANTS[K.cover([[0, 2, 0, 16, 12, 16]])!.v]!.shape).toBeGreaterThan(14);
+    // The doorway's floor 0.5 over the cell's top (71040 Door 2: 0.75 over (9, 2, 8)).
+    applyColliderClearance(s.input({ approaches: [{ columns: [[0, 0]], floor16: 2 * 16 + 8 }] }));
+    const f = s.form(0, 1, 0)!;
+    expect(K.VARIANTS[f.v]!.shape).toBeLessThan(K.BAND_SHAPES);
+    expect(formContains(f, [[0, 2, 0, 16, 12, 16]])).toBe(true);
+    // At body height in an approach (the doorway's floor at the cell's bottom) the corner square stands: 11371's post.
+    const u = scene(2, 3, 2);
+    u.solid(0, 1, 0, [[0, 2, 0, 16, 12, 16]]);
+    u.full(0, 2, 0);
+    applyColliderClearance(u.input({ approaches: [{ columns: [[0, 0]], floor16: 16 }] }));
+    expect(K.VARIANTS[u.form(0, 1, 0)!.v]!.shape).toBeGreaterThanOrEqual(K.BAND_SHAPES);
+    // More than a block under an upper doorway's floor (11371's post under Door 6 at 5.8) the corner stands too.
+    const w = scene(2, 3, 2);
+    w.solid(0, 1, 0, [[0, 2, 0, 16, 12, 16]]);
+    w.full(0, 2, 0);
+    applyColliderClearance(w.input({ approaches: [{ columns: [[0, 0]], floor16: 93 }] }));
+    expect(K.VARIANTS[w.form(0, 1, 0)!.v]!.shape).toBeGreaterThanOrEqual(K.BAND_SHAPES);
+    // Outside any approach the corner square stands.
+    const t = scene(2, 3, 2);
+    t.solid(0, 1, 0, [[0, 2, 0, 16, 12, 16]]);
+    t.full(0, 2, 0);
+    applyColliderClearance(t.input());
+    expect(K.VARIANTS[t.form(0, 1, 0)!.v]!.shape).toBeGreaterThanOrEqual(K.BAND_SHAPES);
+  });
+
+  /**
+   * 11374 cells (5, 5, 4) and (6, 5, 4), and the same shape in 10261: a floor plate under furniture whose cheapest
+   * cover WITH corners is a floor + corner form with its floor 11 sixteenths up - no floor plate, so rule 4's furniture
+   * exception (floor within a step) no longer applied and the cell stayed full, where main shipped the band furniture
+   * form (floor 0..1, the band z 0..12 over it). The furniture exception tries the band cover when the corner cover is
+   * not furniture.
+   */
+  it('keeps the furniture exception where the corner cover is not furniture but the band cover is (11374, 10261)', () => {
+    const cell: Box16[] = [[0, 16, 0, 1, 0, 16], [0, 16, 1, 2, 0, 11], [0, 16, 2, 3, 0, 6], [10, 16, 3, 4, 0, 6], [1, 16, 4, 5, 0, 10], [0, 16, 5, 6, 0, 10], [0, 16, 6, 7, 0, 11], [0, 16, 7, 8, 0, 11], [0, 16, 8, 9, 0, 11], [1, 16, 9, 10, 0, 10], [8, 16, 10, 11, 0, 6], [13, 16, 11, 12, 0, 4], [13, 16, 12, 13, 0, 4], [13, 16, 13, 14, 0, 4], [13, 16, 14, 15, 0, 3]];
+    expect(K.VARIANTS[K.cover(cell, 1)!.v]!.shape).toBeGreaterThanOrEqual(K.BAND_SHAPES);
+    const s = scene(3, 3, 3);
+    s.solid(1, 0, 1, cell);
+    const r = applyColliderClearance(s.input());
+    const f = s.form(1, 0, 1)!;
+    expect(f.v).not.toBe(0);
+    expect(K.VARIANTS[f.v]!.kind).toBe(1);
+    expect(f.hi).toBeLessThanOrEqual(9);
+    expect(formContains(f, cell)).toBe(true);
+    expect(r.furnitureTops).toBe(1);
+  });
+
   it('never trims the frame beside a closed leaf, and does trim a wall away from it', () => {
     const s = scene(5, 3, 4);
     // A wall along z = 2 (geometry a thin slab on its -z side), a door leaf in column x = 2.
@@ -302,6 +392,24 @@ describe('applyColliderClearance', () => {
     expect(walkIn(s.grid)).toBeLessThan(2.85);
   });
 
+  /**
+   * The corner-square forms (2026-11-19): a wall's top whose geometry fits a corner square frees TWO strips, and the
+   * rim exception needs every freed strip open beside it; the band the old kit shipped freed one. 76419 (8,5,7) and
+   * (11,8,6) kept full cells where main shipped the band (genclear-all5). A corner refused as a standing top tries
+   * its band before the cell stays whole.
+   */
+  it('narrows a wall top to its band where the corner square\'s second strip is walled, rather than keeping it whole', () => {
+    const s = scene(2, 3, 2);
+    s.solid(0, 0, 0, [[0, 16, 0, 16, 0, 4]]); // a wall along x at z 0..4 the row below
+    s.solid(1, 0, 0, [[0, 16, 0, 16, 0, 4]]);
+    s.solid(0, 1, 0, [[0, 1, 0, 16, 0, 1]]); // its top row: a post in the low-x/low-z corner
+    s.solid(1, 1, 0, [[0, 16, 0, 16, 0, 16]]); // and a solid cell beside it in x: the corner's x strip is walled
+    expect(K.VARIANTS[K.cover([[0, 1, 0, 16, 0, 1]])!.v]!.shape).toBeGreaterThan(14);
+    applyColliderClearance(s.input());
+    const f = s.form(0, 1, 0)!;
+    expect(K.formBoxes(f.v, f.lo, f.hi)).toEqual([[0, 16, 0, 16, 0, 4]]);
+  });
+
   it('keeps the wall\'s top whole when its rim leads onto a surface beside it, or when it is a floor on the ground', () => {
     const shelf = sweetStand(true);
     const r = applyColliderClearance(shelf.input());
@@ -381,6 +489,100 @@ describe('applyColliderClearance', () => {
     const r = applyColliderClearance(s.input({ leaves: [leaf], leafPlanes: [null] }));
     expect(s.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 15 });
     expect(r.furnitureTops).toBe(0);
+  });
+  /**
+   * The doorway rescue (built for TODO(clearance-tight-910032)): the landing guard keeps 10326 Door 3 OK, and a local
+   * rule cannot tell where it seals a door instead. The rescue asks the doorway's own walk (here a stub that reads the
+   * grid): a refused walkable-top trim near a doorway not OK is applied when it makes the doorway OK and no OK doorway
+   * worse. On the packs it opened 6194's Door 1 (genclear-all); 910032 Door 4 is sealed by something else.
+   */
+  const leaf = { x0: 2.5, y0: 0.5, z0: 0.2, x1: 2.6, y1: 2.9, z1: 2.2 };
+  const trimmed = (s: ReturnType<typeof sparseFurniture>): boolean => s.form(1, 0, 1)!.v !== 0;
+  it('applies a landing the guard kept whole when the doorway walk says it seals the door, and only then', () => {
+    const s = sparseFurniture(false);
+    const r = applyColliderClearance(s.input({ leaves: [leaf], leafPlanes: [null], rescue: { doorways: [leaf], verdicts: () => [trimmed(s) ? 'OK' : 'SEALED'] } }));
+    expect(K.formBoxes(s.form(1, 0, 1)!.v, s.form(1, 0, 1)!.lo, s.form(1, 0, 1)!.hi)).toEqual([[0, 16, 0, 4, 0, 16], [0, 4, 4, 16, 0, 16]]);
+    expect(r.rescued).toEqual({ trims: 1, doorways: [0] });
+    expect(r.refused['walkable-top']).toBe(0);
+    // 10326 Door 3's case: the walk is OK only with the landing whole - the guard's outcome is kept.
+    const t = sparseFurniture(false);
+    const q = applyColliderClearance(t.input({ leaves: [leaf], leafPlanes: [null], rescue: { doorways: [leaf], verdicts: () => [trimmed(t) ? 'SEALED' : 'OK'] } }));
+    expect(t.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 15 });
+    expect(q.rescued.trims).toBe(0);
+  });
+
+  it('never rescues one doorway at the cost of another that was OK, nor a doorway too far from the trim', () => {
+    const s = sparseFurniture(false);
+    const other = { x0: 0, y0: 0.5, z0: 0, x1: 0.1, y1: 2.9, z1: 1 };
+    applyColliderClearance(s.input({ leaves: [leaf, other], leafPlanes: [null, null], rescue: { doorways: [leaf, other], verdicts: () => [trimmed(s) ? 'OK' : 'SEALED', trimmed(s) ? 'SEALED' : 'OK'] } }));
+    expect(s.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 15 });
+    const far = { x0: 30, y0: 0.5, z0: 0.2, x1: 30.1, y1: 2.9, z1: 2.2 };
+    const t = scene(40, 3, 3);
+    t.solid(1, 0, 1, [[0, 16, 0, 4, 0, 16], [0, 4, 6, 15, 11, 16]]);
+    applyColliderClearance(t.input({ leaves: [leaf], leafPlanes: [null], rescue: { doorways: [far], verdicts: () => [t.form(1, 0, 1)!.v ? 'OK' : 'SEALED'] } }));
+    expect(t.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 15 });
+  });
+});
+
+/**
+ * TODO(collider-corner-forms) closed: 11371 Doors 2 and 4 (grid (20, 1..3, 4..5), favgate-530b6d3f). A lamp post a
+ * sixteenth square in the +x/+z corner of a cell shipped as the kit's x band 12..16 the cell's whole length; with the
+ * neighbouring post's band (x 0..4) the 0.5-block gap between them was too narrow for the 0.6-wide player, though the
+ * drawn model leaves a whole block free beside each post.
+ */
+describe('corner forms: a post in a cell corner is a corner square, not a band the cell long', () => {
+  it('covers a post a sixteenth square in each corner with a corner square of at most 4 x 4 sixteenths', () => {
+    for (const [x0, z0] of [[0, 0], [15, 0], [15, 15], [0, 15]] as const) {
+      const post: Box16 = [x0, x0 + 1, 0, 16, z0, z0 + 1];
+      const f = K.cover([post])!;
+      expect(formContains(f, [post])).toBe(true);
+      const boxes = K.formBoxes(f.v, f.lo, f.hi);
+      expect(boxes.length).toBe(1);
+      const b = boxes[0]!;
+      expect((b[1] - b[0]) * (b[5] - b[4]), `post at ${x0},${z0}`).toBeLessThanOrEqual(16);
+    }
+    // A floor plate under a corner post: the floor stays whole, the wall over it is the corner square.
+    const f = K.cover([[0, 16, 0, 4, 0, 16], [15, 16, 4, 16, 15, 16]])!;
+    expect(K.formBoxes(f.v, f.lo, f.hi)).toEqual([[0, 16, 0, 4, 0, 16], [12, 16, 4, 16, 12, 16]]);
+  });
+
+  /**
+   * 21318 Door 3 (first build of the corner forms, genclear-all): cell (16, 10, 17) holds a corner post (x 14..16,
+   * z 0..1, layers 0..2) and a beam (z 0..5, layers 9..15). The band z 0..8 the whole height left z 8..16 free; the
+   * corner made a wall + ceiling form cheaper (a corner square 0..9, then the FULL footprint 9..16) though no layer of
+   * the geometry there needs the full footprint - a phantom slab across the door's approach, and the door SEALED.
+   */
+  it('never trades a free band for a full slab no geometry needs: a corner square enters a split form only under a full layer', () => {
+    const cell: Box16[] = [[14, 16, 0, 3, 0, 1], [0, 13, 9, 12, 0, 5], [0, 16, 12, 15, 0, 5], [14, 16, 15, 16, 0, 3]];
+    const f = K.cover(cell)!;
+    expect(formContains(f, cell)).toBe(true);
+    expect(K.formBoxes(f.v, f.lo, f.hi)).toEqual([[0, 16, 0, 16, 0, 8]]);
+    // 21318 cell (5, 9, 13): a plate x 7..16 two sixteenths high under a post in its +x/low-z corner. The corner split
+    // form is refused (no full layer under its slab), and the band split form the old kit shipped must stand, not a
+    // band the cell's whole height (x 4..16, 3072 against 1408 sixteenths cubed).
+    const plate: Box16[] = [[7, 16, 0, 2, 0, 16], [13, 16, 2, 16, 0, 3]];
+    const p = K.cover(plate)!;
+    expect(formContains(p, plate)).toBe(true);
+    expect(K.formBoxes(p.v, p.lo, p.hi)).toEqual([[0, 16, 0, 2, 0, 16], [12, 16, 2, 16, 0, 16]]);
+    // A floor plate under a corner post still takes the floor + corner form (the floor layers ARE full).
+    const g = K.cover([[0, 16, 0, 4, 0, 16], [15, 16, 4, 16, 15, 16]])!;
+    expect(K.formBoxes(g.v, g.lo, g.hi)).toEqual([[0, 16, 0, 4, 0, 16], [12, 16, 4, 16, 12, 16]]);
+  });
+
+  it('a player walks between two posts the bands had closed the gap between (11371 Doors 2 and 4)', () => {
+    // Column x = 0: cell z = 1 holds a post on its low-x edge (x 0..3, z 6..11), cell z = 2 a post in its +x/+z corner.
+    const s = scene(1, 3, 4);
+    for (let y = 0; y < 3; y++) {
+      s.solid(0, y, 1, [[0, 3, 0, 16, 6, 11]]);
+      s.solid(0, y, 2, [[15, 16, 0, 16, 15, 16]]);
+    }
+    applyColliderClearance(s.input());
+    const cells = colliderSourceCells({ width: 1, height: 3, length: 4, runs: encodeColliderRuns(s.grid, 'craftmatic:collider').runs });
+    const world = new WalkWorld({ cells, dims: { width: 1, height: 3, length: 4 }, sizePct: 100, rotation: 0, treads: 'none' });
+    let st: PlayerState = { x: 0.55, y: 0, z: -1, vx: 0, vy: 0, vz: 0, onGround: true, sneaking: false, tick: 0 };
+    for (let t = 0; t < 100; t++) st = tickPlayer(world, st, { move: { x: 0, z: 1 }, jump: false, sneak: false }).state;
+    // The band 12..16 in cell z = 2 stopped the player at z 1.7; the corner square lets it on to the post itself.
+    expect(st.z).toBeGreaterThan(2.3);
   });
 });
 

@@ -5,6 +5,7 @@ import {
 } from '../web/src/engine/bedrock-building-shell.js';
 import { SIZE_STEPS, collisionWorldBox } from '../web/src/engine/bedrock-placement-pack.js';
 import { BlockTypes } from '../web/src/sim/world/block-types.js';
+import { COLLIDER_KIT } from '../web/src/engine/collider-form.js';
 import { ACTOR_DRAW_CEILING_BLOCKS } from '../web/src/engine/bedrock-lod-hull.js';
 import { toBedrockBlock } from '../web/src/engine/bedrock-blocks.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
@@ -348,6 +349,18 @@ describe('the collider block', () => {
     const types = new BlockTypes();
     types.addDefinition('w2.json', def);
     expect(types.shape('craftmatic:collider_w2', { 'craftmatic:lo': 0, 'craftmatic:hi': 16 }).collision).toEqual([{ x0: 0, y0: 0, z0: 0, x1: 0.5, y1: 1, z1: 1 }]);
+  });
+
+  it('declares a corner post form at the MIRRORED x origin too, and the simulator reads it back in its corner (TODO collider-corner-forms)', () => {
+    // A corner square on the block's LOW-x, low-z corner (x 0..4, z 0..4 sixteenths) is declared at origin x 8 - 4.
+    const v = COLLIDER_BLOCK_IDS.findIndex((_, i) => { const q = COLLIDER_KIT.SHAPES[COLLIDER_KIT.VARIANTS[i]!.shape]!; return COLLIDER_KIT.VARIANTS[i]!.kind === 0 && q[0] === 0 && q[1] === 4 && q[2] === 0 && q[3] === 4; });
+    expect(v).toBeGreaterThan(0);
+    const id = COLLIDER_BLOCK_IDS[v]!;
+    const def = colliderBlockDefinition(v) as { 'minecraft:block': { components: { 'minecraft:collision_box': { origin: number[]; size: number[] } } } };
+    expect(def['minecraft:block'].components['minecraft:collision_box']).toEqual({ origin: [4, 0, -8], size: [4, 16, 4] });
+    const types = new BlockTypes();
+    types.addDefinition('corner.json', def);
+    expect(types.shape(id, { 'craftmatic:lo': 0, 'craftmatic:hi': 16 }).collision).toEqual([{ x0: 0, y0: 0, z0: 0, x1: 0.25, y1: 1, z1: 0.25 }]);
   });
 });
 

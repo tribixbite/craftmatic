@@ -107,7 +107,7 @@ export const FAVOURITE_DOORWAYS_NOT_OK_AT_100: Readonly<Record<string, Readonly<
   '10326': { 'Door 6': 'SEALED: model:route - the drawn model offers no way through from the + side' },
   '11371': { 'Door 8': 'SEALED: model:solid - drawn geometry a block inside the - side, 5.8 blocks up' },
   '21318': { 'Door 2': 'SEALED: model:solid - furniture a stud inside the - side (opens at 200 % with the doorway carve)' },
-  '42663': { 'Door 1': 'SEALED: model:solid - drawn geometry on the - side; the model is passed only by leaving the doorway sideways' },
+  // 42663 Door 1 and 75397 Gate 1 are OK at 100 % (already in favgate-530b6d3f, and in genclear-all): rows removed.
   // 42670 Garage door 1 is OK at 100 % since clearance's furniture exception (audit-doors2, 2026-11-15): row removed.
   '42670': {
     'Door 3': 'SEALED: model:solid - drawn geometry a block out on the + side, 1.3 blocks up',
@@ -117,7 +117,6 @@ export const FAVOURITE_DOORWAYS_NOT_OK_AT_100: Readonly<Record<string, Readonly<
     'Door 1': 'NO-APPROACH: model:drop - microscale: nothing drawn to stand on at either side at 100 %',
     'Door 2': 'NO-APPROACH: model:drop - microscale: nothing drawn to stand on at either side at 100 %',
   },
-  '75397': { 'Gate 1': 'SEALED: model:route - the drawn model offers no way through from the - side' },
   '76417': { 'Gate 1': 'SEALED: model:route - the gate opens 17 blocks over the grass, no drawn way down' },
   '80049': { 'Gate 1': 'SEALED: model:solid - drawn geometry a block out on the + side; still the model\'s at 200 % (model:route)' },
   '910004': {
@@ -127,14 +126,17 @@ export const FAVOURITE_DOORWAYS_NOT_OK_AT_100: Readonly<Record<string, Readonly<
     'Door 5': 'SEALED: model:solid - drawn geometry a block out on the - side, 4 blocks up',
   },
   '910049': { 'Gate 1': 'SEALED: model:route - the drawn model offers no way through from the - side' },
-  // TODO(clearance-tight-910032): the PACK's, not the model's (the drawn model lets the player through, `wide:OK`).
-  // Cells (2,0,5) and (2,0,6) - a floor plate under a round table's rim a quarter block wide - are now PROPOSED as
-  // floor + wall forms (clearance's furniture exception, audit-doors2) but kept whole as Door 4's LANDING (within 2
-  // blocks of the leaf, 0.63 over its foot): the same guard keeps 10326 Door 3 OK, whose - side has nothing drawn to
-  // stand on and whose only level spot is such a phantom top. Trimmed, they still leave Door 4 sealed by rule 4's
-  // refusals at the table top (1,1,6) and a floor sliver (1,0,7). Open until a trim near a doorway is judged by the
-  // doorway's own walk (its verdict before and after), not by a local rule.
-  '910032': { 'Door 4': 'SEALED: collider:tight - OUR colliders: a table on a floor plate a block out, kept whole as the landing (TODO)' },
+  // TODO(clearance-tight-910032) re-diagnosed 2026-11-19 (genclear branch): NOT the landing guard. The guard's cells
+  // (2,0,5)/(2,0,6) stand on the + side, which the walk already passes; trimming every walkable-top refusal near the
+  // door leaves it SEALED (scratch probe over genclear-fix1). The - side is a dining nook 0.75 block wide between a
+  // bench (3,*,1..3) and a table (4,0,2..3); the only spot the walk can call an approach there (0.9 past the leaf,
+  // `SIDE_CLEARANCE`) is the bench top at 1.125, reached by a jump from the doorway column (3,4), whose lintel
+  // (3,2,4: geometry z 4.19..5 at 2.75) leaves no 1.8 of headroom over the jump: the COLUMN walk refuses it, and it
+  // still does with the lintel trimmed to its z band (`ROOMY_FREE`); with no lintel at all the door reads OK. So it
+  // is the column walk's granularity at a lintel over furniture the player climbs - an interactive-walk.ts question,
+  // not a collider trim. The doorway rescue (collider-clearance.ts `DoorwayRescue`) was built for this and does not
+  // open it.
+  '910032': { 'Door 4': 'SEALED: walk:lintel - the - side is a dining nook; its only approach spot is the bench top, a jump under the lintel the column walk refuses (TODO)' },
 };
 
 /** A tap target's label that names a doorway leaf (a door, a gate, a garage door). */
@@ -149,9 +151,10 @@ export const DOOR_LABEL = /^(door|gate|garage door)\b/i;
  * counted. Triaged 2026-11-15 (audit-doors2, `TapReach.blame` names the edge): 10326 Door 4 was the sim's own - the
  * drawn route walked through the closed leaf to a tap spot behind it (the model route now treats closed leaves as
  * drawn, ceiling 0). TODO(walk-attribution): the three left are the pack's and open -
- *   11371 Doors 2 and 4: a lamp post 1/16 block square in the corner of grid cell (20, 1..3, 5) ships as a quarter-
- *     block x-band the cell's whole length (the form kit has bands only, no corner shapes); with a 3/16 post's band in
- *     the next cell the 0.6-wide player no longer fits the 0.5-block gap the drawn route walks;
+ *   11371 Doors 2 and 4: the lamp post in grid cell (20, 1..3, 5) that shipped as a band the cell long is a corner
+ *     square since 2026-11-19 (gen-clear) and the route passes it; it now leaves the colliders one cell on, at grid
+ *     (19, 2..3, 5), inside a part's layer box (x 0..13, z 0..12 sixteenths) the drawn route stands in - part box vs
+ *     drawn cubes, as 71040 Door 1 - and at turn 90 at a plate 1.25 over the ground (world 13,-59,0);
  *   42670 Door 3: a threshold stair's treads (grid (7..9, 0..1, 3), no geometry) stand across the ground route
  *     along the facade the drawn route takes (a tread run's side is a wall);
  *   71040 Door 1: the drawn route passes 0.1 block inside the box of an overhang's layer (grid (3, 1, 9), x 8..16
@@ -159,7 +162,7 @@ export const DOOR_LABEL = /^(door|gate|garage door)\b/i;
  *     drawn-cube tolerance, not a trim clearance missed.
  */
 export const FAVOURITE_DOOR_ROUTES_PACK_AT_100: Readonly<Record<string, number>> = {
-  '11371': 2, // Doors 2 and 4: a corner post's band (no corner forms in the kit)
+  '11371': 2, // Doors 2 and 4: a part's box past the lamp post (the post's band is fixed, 2026-11-19)
   '42670': 1, // Door 3: a threshold stair across the ground route
   '71040': 1, // Door 1: an overhang's layer box 0.1 inside the drawn route
 };

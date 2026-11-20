@@ -350,20 +350,67 @@ A collider cell is one of (`collider-clearance.ts`, `COLLIDER_VARIANTS`):
 - **full** `lo..hi` over the whole footprint (the old collider, variant 0);
 - **wall** `lo..hi` over a SHAPE: a band a quarter-block multiple wide along x
   or z - `[0,4] [0,8] [0,12] [4,16] [8,16] [12,16] [4,12]` sixteenths, 14
-  shapes, closed under the wand's quarter turns;
+  shapes - or, since 2026-11-19, a quarter-block CORNER square
+  (`[0,4]x[0,4]`, `[12,16]x[0,4]`, `[12,16]x[12,16]`, `[0,4]x[12,16]`, shapes
+  15-18); all 18 closed under the wand's quarter turns;
 - **floor + wall**: full `lo..hi` and the shape from `hi` to the top of the
   block - a wall standing on the floor plate in the same block row;
 - **wall + ceiling**: the shape from the bottom of the block to `lo` and full
   `lo..hi` - a wall's top under the ceiling plate in the same row.
 
-43 blocks, 5,848 condition entries in all (the old block had 136).
+55 blocks, 7,480 condition entries in all (the old block had 136). The corner
+squares (`collider_w15`..`w18`, `_f15`..`f18`, `_c15`..`c18`) are APPENDED after
+the 43 band forms, so every older id, file name and variant index is unchanged
+and a world an older pack laid keeps its blocks; the x-mirror rule
+(`collisionBox`) applies to them as to the bands
+(test/bedrock-building-shell.test.ts "corner post form at the MIRRORED x
+origin"). Why (TODO(collider-corner-forms), 11371 Doors 2 and 4): a lamp post a
+sixteenth square in the +x/+z corner of grid cell (20, 1..3, 5) shipped as the
+x band 12..16 the cell's whole length; with the next post's band (x 0..4) in
+(20, 1..3, 4) the 0.5-block gap the drawn route walks closed to the 0.6-wide
+player. With the corner square the sim's walked route passes that gap (the
+blame moves to the next cell, a part's bounding box the drawn route cuts
+through: see "Known limits"). Not device-proven: the new ids are a pack-format
+change; a world whose packs do not know an id lays the full collider there
+(`lay`'s fallback), never no wall. Release encoding: 55 x 144 + 32 brick
+blocks = 7,952 permutations (limit 10,000); the dev pack 55 x 256 = 14,080.
+Two rules keep a corner from shipping MORE collider than the band it replaces
+(each found on a rebuilt favourite, genclear-all/all4): a split form (floor +
+wall, wall + ceiling) takes a corner square only where geometry fills the
+footprint under its full slab - else the corner made a phantom slab cheaper by
+volume (21318 Door 3's beam, (16,10,17)) - and when the corner is refused the
+band split form the old kit had stands (21318 (5,9,13) took a band the cell's
+height); and a corner trim near a leak falls back to its band before the leak
+loop refuses any trim within a block (11371: 14 band trims had been refused,
+3.9 blocks³). Rebuilt 11371, 910032 and 21318: no cell's collider larger than
+favgate-530b6d3f's, 121 smaller (`cornerFallbacks` in the report counts the
+leak fallbacks). Third: a corner wall top rule 4 refuses tries the bands that
+hold it through the same wall-top exception (`rimBand`) - a corner frees two
+strips and the exception needs each open, the band freed one (76419 (8,5,7),
+(11,8,6) had stayed full; rebuilt, 76419 has no cell larger than main's
+a09e8f70 build and 15 smaller). One device line moved: 76419's 200 % x 8.5
+lane still REACHES the shore at z 17.94, ending at feet 3.93 where it ended at
+4.25 - the corner (4,2,8) replaced a band whose phantom top over a 2 x 4
+sixteenth stub it had stood on.
+Two more, found against main a91dac86 builds of the same base (gen-clear merged
+it): the furniture exception tries the band cover when the corner cover is not
+furniture (11374 (5,5,4)/(6,5,4) and three 10261 cells had stayed full: the
+corner made a split form with its floor 11/16 up the cheapest); and the block row
+right under a doorway's landing (a cell in its approach column whose top is at
+or within one block below that doorway's floor) keeps the bands - 71040 Door 2
+at 400 % turned 90 (`place-400-90` failed): a cell bisect over the 129 cells the
+corners changed named (9,2,8), a post under Door 2's raised landing, whose corner
+let the 400 % tread planner lay a run up to the door that walled the door's other
+column's line; neither the carve's nor the scaled grid's corner use was the
+cause (both tried). 10261 and 11374 have no collider cell larger than main's
+build of the same base; 71040 passes place-400-90; 11371's post keeps its corner.
 
 **State spelling and the permutation limit (M03, BIZ-23).** Bedrock counts a block's registered permutations as the
 product of its states' value counts, and the Marketplace allows 10,000 per pack. The dev pack's `craftmatic:lo` (16
-values) x `craftmatic:hi` (16) is 256 per block, 43 x 256 = **11,008**, although only 136 (lo < hi) are ever used.
+values) x `craftmatic:hi` (16) is 256 per block, 43 x 256 = **11,008** (55 x 256 = 14,080 since the corner forms, 2026-11-19), although only 136 (lo < hi) are ever used.
 `PackProfile.flags.compactColliderStates` ships the compact spelling instead (`ColliderStateEncoding` `pair`,
 collider-form.ts): the 136 valid spans numbered in order and written as two states `craftmatic:cell_a` / `cell_b` of
-12 values (p = a x 12 + b), 144 per block, **6,192** in all, with the very same 136 condition entries, so every form's
+12 values (p = a x 12 + b), 144 per block, **6,192** in all (7,920 for 55 blocks), with the very same 136 condition entries, so every form's
 boxes are identical (test/marketplace-blocks.test.ts compares all 43 x 136). Two states, not plan A's single 0..135
 `pair` state, because a block state holds at most 16 values (see above). The kit's `encodeStates` / `decodeStates` are
 the one spelling (identity for `lo`/`hi`; the encoding is read from the state name, a name ending `_a` is compact) and
@@ -441,10 +488,29 @@ with its reason (`craftmatic-diagnostics.json`, `clearance`):
    floor plate) and whose band holds everything above it (a table's rim, a
    post, a lamp), its wall raised at most 2/16 to the block top - unless the
    top is a doorway's LANDING (`landingAt`, the guard below), which kept 10326
-   Door 3 OK (its only level spot outside is such a phantom top) and keeps
-   910032 Door 4 SEALED (`TODO(clearance-tight-910032)`). Over 11 favourites
-   it trimmed 4-55 more cells a set; 42670 Garage door 1 became walkable at
-   100 %; the three device-proven SCALE-06 walk lines read identically.
+   Door 3 OK (its only level spot outside is such a phantom top). Over 11
+   favourites it trimmed 4-55 more cells a set; 42670 Garage door 1 became
+   walkable at 100 %; the three device-proven SCALE-06 walk lines read
+   identically.
+   **6. The doorway rescue** (2026-11-19, `DoorwayRescue`): a local rule cannot
+   tell a landing that keeps a door walkable (10326 Door 3) from one that
+   seals it, so the walk decides. After the leak check, for each doorway the
+   100 % walk (`doorwayWalkSummary`, turn 0, the build's own door count) calls
+   not OK, the walkable-top trims rule 4 refused within `RESCUE_REACH` 2.5
+   blocks of its leaf (the landing guard's furniture form where it kept one)
+   are leak-checked and applied when they make that doorway OK and no doorway
+   OK before is worse; then dropped one at a time while it stays OK. Over the
+   40 favourites and the regression packs (genclear-all) it opened ONE
+   doorway, 6194's Door 1 (a non-favourite), at ~1-2 s more clearance per set.
+   It does not open 910032 Door 4, whose cause was misread: the landing
+   guard's cells stand on the side the walk already passes, and all of the
+   refused trims together leave it SEALED. Its - side is a dining nook 0.75
+   block wide whose only spot past `SIDE_CLEARANCE` is a bench top (1.125),
+   reached by a jump from the doorway column under the lintel (geometry
+   z 4.19..5 at 2.75 in cell (3,2,4)); the column walk needs 1.8 of headroom
+   over that column and refuses, with the lintel trimmed to its band too
+   (`ROOMY_FREE`); with no lintel the door reads OK. A walk-harness question
+   (`TODO(clearance-tight-910032)`, scripts/favourite-sets.ts), not a trim.
    The first exception (`wallTopRim`,
    2026-09-26): the top cell of a WALL may be narrowed to the wall when all of
    these hold, counted as `wallTops` in the report:
@@ -550,6 +616,13 @@ the neighbour column (a route stepped off 42663's roof through the ceiling
 below); and an approach stands within a jump of the door's floor (a roof over
 the door is not an approach). None of these changes a verdict on the packs
 built before clearance (36 OK, 36 SEALED, 1 SMALL, as the audit found).
+A corner-square form (2026-11-19) is open to the route like a band: a box
+spanning neither axis that leaves half the column free along x or z
+(`roomy`), and it narrows the free part ACROSS the move that passes it. Read
+as filling, 21318 Door 3's bracket under a beam (cell (15, 12, 14), a corner
+square where the band x 0..4 had been) took the + side's onward column and the
+doorway read SEALED (test/doorway-reach.test.ts "reads a corner form as no
+more of a wall").
 
 ### Results over the 40 favourites (2026-09-25, final at `f6e24774`)
 

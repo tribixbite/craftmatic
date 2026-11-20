@@ -33,7 +33,7 @@ import { CREATOR_POSES, creatorPoseAnimations, ldrawColourName } from './minifig
 import { isTrackPart } from './coaster-track.js';
 import { coasterRestingPoses, firstRestingPoses, liftCarRestingPoses, separateEntitiesFromNeighbours } from './cross-entity-coplanar.js';
 import { isShellEntityId, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior, splitStaticShell, type ShellCell, type ColliderSourceBox } from './bedrock-building-shell.js';
-import { CLEARANCE_REFUSALS, applyColliderClearance, type ClearanceReport, type GridBox } from './collider-clearance.js';
+import { CLEARANCE_REFUSALS, applyColliderClearance, type ClearanceReport, type DoorwayRescue, type GridBox } from './collider-clearance.js';
 import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import { generateLegoMaterialSwatch, legoMaterialSwatchName } from './ldraw-entity-atlas.js';
@@ -3439,28 +3439,20 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 const W = colliders.grid.width, L = colliders.grid.length;
                 accessMarginUsed = ixPlans.some(pl => pl?.stairColumns?.some(([x, z]) => x < m.x0 || x >= W - m.x1 || z < m.z0 || z >= L - m.z1));
             }
-            if (options.colliderClearance !== false) {
-                // Clearance (collider-clearance.ts, docs/bedrock-interactivity.md):
-                // pull every wall back to its own geometry where it is certain,
-                // AFTER the doorway cut (which reasons on full cells) and with
-                // every passage leaf closed; then re-read each doorway's
-                // neighbours so a trimmed one is restored trimmed.
-                const frame = options.shell.frame;
-                const { leaves, leafPlanes, heldLeafPlanes } = clearanceLeaves(compiledIx.map(c => c.it), frame);
-                const approaches = ixPlans.flatMap(pl => pl?.approach.length ? [{ columns: pl.approach, floor16: pl.floor16 }] : []);
-                clearanceReport = applyColliderClearance({ grid: colliders.grid, layers: colliders.layers, leaves, leafPlanes, heldLeafPlanes, closedCells: ixPlans.flatMap(pl => pl?.blocking ?? []), approaches });
-                captureDoorwayNeighbours(colliders.grid, ixPlans);
-                const r = clearanceReport;
-                warnings.push(`${label}: clearance - ${r.applied.wall} collider${r.applied.wall === 1 ? '' : 's'} pulled back to the walls' own geometry and ${r.applied.ceiling} low ceiling${r.applied.ceiling === 1 ? '' : 's'} raised to standing height (${r.freedBlocks} blocks freed); refused where not certain: ${CLEARANCE_REFUSALS.filter(k => r.refused[k]).map(k => `${r.refused[k]} ${k}`).join(', ') || 'none'}${r.verified ? '' : ' (the leak check could not run on a grid this size: nothing trimmed)'}.`);
-            }
-            if (compiledIx.length) {
+            const shellIxFrame = options.shell.frame;
+            /**
+             * The runtime items of the compiled moving parts (blocking cells from the doorway plans, hinge, normal, leaf,
+             * tap boxes, double-door pairs). One builder for the pack's config and for clearance's doorway rescue, which
+             * walks the same doorways over trial grids (collider-clearance.ts `DoorwayRescue`).
+             */
+            const buildIxItems = (): InteractiveRuntimeItem[] => {
                 // Blocks per LDU of this model (its collider frame): the opening is measured at the model's own scale.
-                const ixBlocksPerLdu = options.shell.frame.scale / options.shell.frame.cellXZ;
+                const ixBlocksPerLdu = shellIxFrame.scale / shellIxFrame.cellXZ;
                 const items: InteractiveRuntimeItem[] = compiledIx.map((c, k) => interactiveRuntimeItem(c.it, c.typeId, c.label, ixPlans[k] ?? null, ixBlocksPerLdu));
                 linkSharedDoorways(items);
                 // The hinge in the model's block frame (the walk preview swings the leaf about it; the runtime ignores it).
                 items.forEach((item, k) => {
-                    const it = compiledIx[k]!.it, f = options.shell!.frame;
+                    const it = compiledIx[k]!.it, f = shellIxFrame;
                     const p = sceneGridPoint(f, it.pivotLdu), q = sceneGridPoint(f, [it.pivotLdu[0] + it.axisLdu[0] * LDU_PER_BLOCK, it.pivotLdu[1] + it.axisLdu[1] * LDU_PER_BLOCK, it.pivotLdu[2] + it.axisLdu[2] * LDU_PER_BLOCK]);
                     const d = [q[0] - p[0], q[1] - p[1], q[2] - p[2]], l = Math.hypot(d[0]!, d[1]!, d[2]!) || 1;
                     item.pivot = [p[0], p[1], p[2]].map(v => Math.round(v * 1e4) / 1e4) as [number, number, number];
@@ -3480,6 +3472,37 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     if (it.slide) item.slide = Math.round(l / LDU_PER_BLOCK * 1e5) / 1e5;
                 });
                 pairDoubleDoors(items);
+                return items;
+            };
+            if (options.colliderClearance !== false) {
+                // Clearance (collider-clearance.ts, docs/bedrock-interactivity.md):
+                // pull every wall back to its own geometry where it is certain,
+                // AFTER the doorway cut (which reasons on full cells) and with
+                // every passage leaf closed; then re-read each doorway's
+                // neighbours so a trimmed one is restored trimmed.
+                const frame = options.shell.frame;
+                const { leaves, leafPlanes, heldLeafPlanes } = clearanceLeaves(compiledIx.map(c => c.it), frame);
+                const approaches = ixPlans.flatMap(pl => pl?.approach.length ? [{ columns: pl.approach, floor16: pl.floor16 }] : []);
+                // The doorway rescue (collider-clearance.ts `DoorwayRescue`): a walkable-top trim refused near a doorway is
+                // judged by that doorway's own 100 % walk - the same walk the wand's door count reads below.
+                const rescueItems = compiledIx.length ? buildIxItems() : [];
+                const rescueDims = { width: colliders.grid.width, height: colliders.grid.height, length: colliders.grid.length };
+                const rescue: DoorwayRescue | undefined = rescueItems.some(it => it.passSize !== undefined && it.blocking.length) ? {
+                    // A held-shut door is no doorway (it is not in `leaves` either): only the working leaves are rescued.
+                    doorways: compiledIx.map(c => PASSAGE_KINDS.has(c.it.kind) && !c.it.fixed ? clearanceLeaves([c.it], frame).leaves[0] ?? null : null),
+                    verdicts: g => doorwayWalkSummary({
+                        cells: colliderSourceCells({ ...rescueDims, runs: encodeColliderRuns(g, COLLIDER_BLOCK_ID).runs }),
+                        dims: rescueDims,
+                        interactives: { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label, dims: rescueDims, colliders: { block: COLLIDER_BLOCK_ID, loState: colliderStates.lo, hiState: colliderStates.hi }, items: rescueItems, turnProperty: INTERACTIVE_TURN_PROPERTY, sizeProperty: INTERACTIVE_SIZE_PROPERTY },
+                    }).verdicts,
+                } : undefined;
+                clearanceReport = applyColliderClearance({ grid: colliders.grid, layers: colliders.layers, leaves, leafPlanes, heldLeafPlanes, closedCells: ixPlans.flatMap(pl => pl?.blocking ?? []), approaches, ...(rescue ? { rescue } : {}) });
+                captureDoorwayNeighbours(colliders.grid, ixPlans);
+                const r = clearanceReport;
+                warnings.push(`${label}: clearance - ${r.applied.wall} collider${r.applied.wall === 1 ? '' : 's'} pulled back to the walls' own geometry and ${r.applied.ceiling} low ceiling${r.applied.ceiling === 1 ? '' : 's'} raised to standing height (${r.freedBlocks} blocks freed); refused where not certain: ${CLEARANCE_REFUSALS.filter(k => r.refused[k]).map(k => `${r.refused[k]} ${k}`).join(', ') || 'none'}${r.rescued.trims ? `; ${r.rescued.trims} standing top${r.rescued.trims === 1 ? '' : 's'} trimmed to open ${r.rescued.doorways.map(d => compiledIx[d]?.label ?? `#${d}`).join(', ')} (its own walk)` : ''}${r.verified ? '' : ' (the leak check could not run on a grid this size: nothing trimmed)'}.`);
+            }
+            if (compiledIx.length) {
+                const items = buildIxItems();
                 interactiveConfig = { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label, dims: { width: colliders.grid.width, height: colliders.grid.height, length: colliders.grid.length }, colliders: { block: COLLIDER_BLOCK_ID, loState: colliderStates.lo, hiState: colliderStates.hi }, items, turnProperty: INTERACTIVE_TURN_PROPERTY, sizeProperty: INTERACTIVE_SIZE_PROPERTY };
                 interactiveReport = compiledIx.map((c, k) => ({
                     type: c.typeId, kind: c.it.kind, part: c.it.part, label: c.label, parts: c.it.bricks.length, angleDeg: items[k]!.angle,

@@ -15,12 +15,14 @@
  *   kind 2 (ceiling) `craftmatic:collider_c<s>`  shape s from the block bottom to lo, then full lo..hi
  *
  * Every form uses the same two states (`craftmatic:lo`, `craftmatic:hi`), so a
- * form is (variant, lo, hi) and a block is one of 43 ids. Bedrock allows a
+ * form is (variant, lo, hi) and a block is one of 55 ids. Bedrock allows a
  * collision box anywhere inside the block (origin -8,0,-8 to 8,16,8) and, since
  * format 1.26.0, an array of up to 16 boxes (Microsoft Learn,
  * minecraft:collision_box); a state holds at most 16 values, so shapes are ids
- * rather than a third state (43 x 256 registered permutations, 136 condition
- * entries each, instead of one block with 43 x 256 states and 5,848 entries).
+ * rather than a third state (55 x 256 registered permutations, 136 condition
+ * entries each, instead of one block with 55 x 256 states and 7,480 entries).
+ * The shapes are 14 bands and, since 2026-11-19, four quarter-block corner
+ * squares (ids `_w15`..`_w18`, `_f15`..`_f18`, `_c15`..`_c18`, appended).
  *
  * `colliderFormKit` is PLAIN JavaScript with no outside reference: the pack's
  * runtimes (the Brick Wand's re-lay, the doorway runtime) receive it
@@ -54,7 +56,9 @@ export interface ColliderFormKit {
    * block top: its wall then runs past the geometry to the block top. Only a caller that has proved no player's box
    * can take that strip passes it (collider-clearance.ts, rule 1's low-gap exception).
    */
-  cover(boxes: ReadonlyArray<readonly number[]>, topSlack?: number): ColliderForm | null;
+  cover(boxes: ReadonlyArray<readonly number[]>, topSlack?: number, bandsOnly?: boolean): ColliderForm | null;
+  /** Shapes below this index are the bands; from it on, the corner squares (`cover`'s `bandsOnly` keeps to the bands). */
+  BAND_SHAPES: number;
   /** The two state names a collider block of `encoding` carries (`COLLIDER_STATES` / `COLLIDER_PAIR_STATES`). */
   stateNames(encoding: ColliderStateEncoding): { lo: string; hi: string };
   /**
@@ -88,10 +92,6 @@ export interface ColliderFormKit {
   lay(block: { setPermutation(p: unknown): void }, form: ColliderForm, loState: string, hiState: string, resolve: (id: string, states: Record<string, number>) => unknown): boolean;
 }
 
-// TODO(collider-corner-forms): bands span the whole cell along the other axis, so a post a sixteenth square in a
-// cell's corner ships as a quarter-block wall the cell's whole length (11371's lamp post, grid (20, 1..3, 5): with
-// a post's band in the next cell the 0.5-block gap the drawn route walks closes to a 0.6-wide player). Corner
-// shapes would be new block ids (a pack-format change to prove on a device).
 /**
  * Build the kit. `bands` replaces the quarter-block bands (sixteenths, each
  * used along x and along z) - only for measuring what another vocabulary would
@@ -103,17 +103,31 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
   const SHAPES: Array<[number, number, number, number]> = [[0, 16, 0, 16]];
   for (const b of BANDS) SHAPES.push([b[0]!, b[1]!, 0, 16]);
   for (const b of BANDS) SHAPES.push([0, 16, b[0]!, b[1]!]);
+  // The corner squares (2026-11-19, TODO(collider-corner-forms) closed): a quarter block square in each corner, so a
+  // post a few sixteenths square in a cell's corner is no longer a band the cell's whole length (11371's lamp post,
+  // grid (20, 1..3, 5): with the next post's band the gap the drawn route walks closed to under the 0.6-wide player).
+  // Closed under the quarter turns (each turns onto the next). APPENDED after the bands' 43 variants, so every
+  // earlier block id, file name and variant index is unchanged: a world laid by an older pack keeps its blocks.
+  // A doorway's approach columns keep the bands (collider-clearance.ts `bandsHere`, 71040 Door 2 at 400 %).
+  const BAND_SHAPES = SHAPES.length;
+  SHAPES.push([0, 4, 0, 4], [12, 16, 0, 4], [12, 16, 12, 16], [0, 4, 12, 16]);
   const TAG = ['w', 'f', 'c'];
   const VARIANTS: ColliderVariant[] = [{ id: 'craftmatic:collider', kind: 0, shape: 0 }];
-  for (let k = 0; k < 3; k++) for (let s = 1; s < SHAPES.length; s++) VARIANTS.push({ id: 'craftmatic:collider_' + TAG[k] + s, kind: k as 0 | 1 | 2, shape: s });
+  /** Variant index by `kind * SHAPES.length + shape` (shape 0 is always variant 0). */
+  const VID: number[] = [];
+  const group = (s0: number, s1: number): void => {
+    for (let k = 0; k < 3; k++) for (let s = s0; s < s1; s++) { VID[k * SHAPES.length + s] = VARIANTS.length; VARIANTS.push({ id: 'craftmatic:collider_' + TAG[k] + s, kind: k as 0 | 1 | 2, shape: s }); }
+  };
+  group(1, BAND_SHAPES);
+  group(BAND_SHAPES, SHAPES.length);
   const byId: Record<string, number> = {};
   VARIANTS.forEach((d, i) => { byId[d.id] = i; });
-  const vid = (kind: number, s: number): number => s === 0 ? 0 : 1 + kind * (SHAPES.length - 1) + (s - 1);
+  const vid = (kind: number, s: number): number => s === 0 ? 0 : VID[kind * SHAPES.length + s]!;
   const area = (s: number): number => (SHAPES[s]![1] - SHAPES[s]![0]) * (SHAPES[s]![3] - SHAPES[s]![2]);
   /** The smallest shape containing a footprint (ties: lowest index). */
-  const smallest = (x0: number, x1: number, z0: number, z1: number): number => {
+  const smallest = (x0: number, x1: number, z0: number, z1: number, n: number = SHAPES.length): number => {
     let best = 0;
-    for (let s = 1; s < SHAPES.length; s++) {
+    for (let s = 1; s < n; s++) {
       const q = SHAPES[s]!;
       if (q[0] <= x0 && q[1] >= x1 && q[2] <= z0 && q[3] >= z1 && area(s) < area(best)) best = s;
     }
@@ -149,7 +163,9 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
     if (d.kind === 1) return hi < 16 ? [[0, 16, lo, hi, 0, 16], [q[0], q[1], hi, 16, q[2], q[3]]] : [[0, 16, lo, hi, 0, 16]];
     return lo > 0 ? [[q[0], q[1], 0, lo, q[2], q[3]], [0, 16, lo, hi, 0, 16]] : [[0, 16, lo, hi, 0, 16]];
   };
-  const cover = (boxes: ReadonlyArray<readonly number[]>, topSlack?: number): ColliderForm | null => {
+  const cover = (boxes: ReadonlyArray<readonly number[]>, topSlack?: number, bandsOnly?: boolean): ColliderForm | null => {
+    // `bandsOnly`: the shapes the kit had before the corner squares (clearance's fallback for a corner trim that leaks).
+    const n = bandsOnly ? BAND_SHAPES : SHAPES.length;
     let Y0 = 16, Y1 = 0, bx0 = 16, bx1 = 0, bz0 = 16, bz1 = 0, any = false;
     for (const b of boxes) {
       if (!(b[1]! > b[0]! && b[3]! > b[2]! && b[5]! > b[4]!)) continue;
@@ -162,7 +178,7 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
       if (b[5]! > bz1) bz1 = b[5]!;
     }
     if (!any) return null;
-    const s0 = smallest(bx0, bx1, bz0, bz1);
+    const s0 = smallest(bx0, bx1, bz0, bz1, n);
     let best: ColliderForm = { v: vid(0, s0), lo: Y0, hi: Y1 };
     let bestVol = area(s0) * (Y1 - Y0);
     /** The footprint bbox of the boxes' parts within the span [a, b). */
@@ -178,11 +194,25 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
       }
       return hit ? [x0, x1, z0, z1] : null;
     };
+    /**
+     * Whether a split form whose wall is shape `s` and whose FULL slab spans [a, b) may be chosen. A corner square
+     * (shape >= BAND_SHAPES) makes the narrow part of a split form so cheap that its full slab wins on volume where no
+     * geometry needs the full footprint, closing a band's free strip (21318 Door 3's beam, 2026-11-19): so when a
+     * band or corner already holds everything (s0 > 0), a corner split form needs a slab over geometry that fills
+     * the footprint. The band forms keep the choice they always had.
+     */
+    const slabOk = (s: number, a: number, b: number): boolean => {
+      if (s < BAND_SHAPES || s0 === 0) return true;
+      const q = within(a, b);
+      return !!q && smallest(q[0], q[1], q[2], q[3], n) === 0;
+    };
     // Floor + wall: full band Y0..m, shape m..16 (only when the geometry reaches the block top, or `topSlack` of it).
     if (Y1 >= 16 - (topSlack || 0)) for (let m = Y0 + 1; m <= Math.min(15, Y1 - 1); m++) {
       const up = within(m, 16);
       if (!up) continue;
-      const s = smallest(up[0], up[1], up[2], up[3]);
+      let s = smallest(up[0], up[1], up[2], up[3], n);
+      // A corner the slab rule refuses still leaves the band split form the kit had before the corners.
+      if (s !== 0 && !slabOk(s, Y0, m)) s = smallest(up[0], up[1], up[2], up[3], BAND_SHAPES);
       if (s === 0) continue;
       const vol = 256 * (m - Y0) + area(s) * (16 - m);
       if (vol < bestVol) { bestVol = vol; best = { v: vid(1, s), lo: Y0, hi: m }; }
@@ -191,7 +221,8 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
     if (Y0 === 0) for (let m = 1; m < Y1; m++) {
       const down = within(0, m);
       if (!down) continue;
-      const s = smallest(down[0], down[1], down[2], down[3]);
+      let s = smallest(down[0], down[1], down[2], down[3], n);
+      if (s !== 0 && !slabOk(s, m, Y1)) s = smallest(down[0], down[1], down[2], down[3], BAND_SHAPES);
       if (s === 0) continue;
       const vol = area(s) * m + 256 * (Y1 - m);
       if (vol < bestVol) { bestVol = vol; best = { v: vid(2, s), lo: m, hi: Y1 }; }
@@ -253,13 +284,13 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
       return false;
     }
   };
-  return { SHAPES, VARIANTS, variantOf: (id: string): number => (id in byId ? byId[id]! : -1), formBoxes, cover, stateNames, encodeStates, decodeStates, turnForm, cellPieces, lay };
+  return { SHAPES, BAND_SHAPES, VARIANTS, variantOf: (id: string): number => (id in byId ? byId[id]! : -1), formBoxes, cover, stateNames, encodeStates, decodeStates, turnForm, cellPieces, lay };
 }
 
 /** The kit, built once for the engine (the runtimes build their own from the serialised source). */
 export const COLLIDER_KIT: ColliderFormKit = colliderFormKit();
 
-/** Number of collider variants (43): block ids the pack defines. */
+/** Number of collider variants (55): block ids the pack defines. */
 export const COLLIDER_VARIANT_COUNT = COLLIDER_KIT.VARIANTS.length;
 
 /** The bounds of `ColliderBodyProbe.escape`, blocks unless named otherwise (`ESCAPE` gives the shipped values). */
@@ -555,10 +586,10 @@ export const COLLIDER_STATES = { lo: 'craftmatic:lo', hi: 'craftmatic:hi' } as c
 
 /**
  * How a collider block spells its span in block states.
- *   `legacy` - `craftmatic:lo` (0..15) and `craftmatic:hi` (1..16): 16 x 16 = 256 registered permutations per block, 43
- *              blocks, 11,008 in all: over the Marketplace's 10,000 (the dev pack, device-proven, keeps it).
+ *   `legacy` - `craftmatic:lo` (0..15) and `craftmatic:hi` (1..16): 16 x 16 = 256 registered permutations per block, 55
+ *              blocks, 14,080 in all (11,008 for the 43 band forms): over the Marketplace's 10,000 (the dev pack keeps it).
  *   `pair`   - the 136 valid (lo < hi) spans numbered 0..135 and written as two states, `craftmatic:cell_a` and
- *              `craftmatic:cell_b`, of 12 values each (p = a x 12 + b): 144 per block, 6,192 in all. Two states, not one
+ *              `craftmatic:cell_b`, of 12 values each (p = a x 12 + b): 144 per block, 7,920 in all. Two states, not one
  *              of 136 values: a block state holds at most 16 values (bedrock.dev, Block States), so plan A's single
  *              `pair` state 0..135 would be an invalid definition. The same 136 condition entries, so every form's boxes
  *              are exactly the legacy ones (test/marketplace-blocks.test.ts).

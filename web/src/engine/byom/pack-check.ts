@@ -647,10 +647,7 @@ function checkDev(a: Archive): Findings {
     const ids = new Map<number, string>([[0, `${ns}:collider`]]);
     for (const v of used) {
       if (v === 0) continue;
-      const kind = Math.floor((v - 1) / 14);
-      const shape = ((v - 1) % 14) + 1;
-      if (kind > 2) throw new PyError('IndexError', 'string index out of range');
-      ids.set(v, `${ns}:collider_${'wfc'[kind]}${shape}`);
+      ids.set(v, colliderVariantId(v, ns));
     }
     for (const v of [...used].sort((x, y) => x - y)) {
       if (!blockIds.has(ids.get(v)!)) problems.push(`the collider runs use ${pyRepr(ids.get(v))} (variant ${v}) but the pack defines no such block`);
@@ -658,6 +655,18 @@ function checkDev(a: Archive): Findings {
     if (used.size > 1) notes.push(`${used.size - 1} collider forms in use`);
   }
   return { problems, notes };
+}
+
+/**
+ * The block id of collider variant `v` (> 0) under namespace `ns`, as `_mcaddon_check.py` derives it from a run value:
+ * 1..42 are the 14 bands x (w, f, c), 43.. the 4 corner squares (shapes 15..18) x (w, f, c) (collider-form.ts). A
+ * variant past the table is Python's IndexError.
+ */
+export function colliderVariantId(v: number, ns: string): string {
+  const kind = v <= 42 ? Math.floor((v - 1) / 14) : Math.floor((v - 43) / 4);
+  const shape = v <= 42 ? ((v - 1) % 14) + 1 : 15 + ((v - 43) % 4);
+  if (kind > 2) throw new PyError('IndexError', 'string index out of range');
+  return `${ns}:collider_${'wfc'[kind]}${shape}`;
 }
 
 /** Python `a > b` over JSON scalars (numbers, or two strings); anything else is a `TypeError`. */

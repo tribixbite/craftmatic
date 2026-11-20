@@ -127,7 +127,7 @@ describe('marketplace-blocks :: the compact collider encoding keeps every form\'
     expect(Object.keys(declared).sort()).toEqual([loName, hiName].sort());
     let product = 1;
     for (const s of Object.values(declared)) { const n = s.values.max - s.values.min + 1; expect(n).toBeLessThanOrEqual(16); product *= n; }
-    expect(product).toBeLessThanOrEqual(232); // 43 ids x 232 stays under 10,000 with room for the brick blocks
+    expect(product).toBeLessThanOrEqual(232); // 55 ids x 144 = 7,920 stays under 10,000 with room for the brick blocks
     expect(def['minecraft:block'].permutations.length).toBe(136);
     const seen = new Set<string>();
     for (let lo = 0; lo < 16; lo++) for (let hi = lo + 1; hi <= 16; hi++) {
