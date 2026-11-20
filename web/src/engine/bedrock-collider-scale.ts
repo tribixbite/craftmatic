@@ -754,6 +754,52 @@ export interface ReachTarget { label: string; x: number; y: number; z: number }
  */
 export interface DoorApproach { columns: ReadonlyArray<readonly [number, number]>; floor16: number; cells: ReadonlyArray<readonly (number | undefined)[]> }
 
+/** How far out (blocks at 100 %, scaled by max(1, f)) a doorway's column line starts: the harness's and the simulator's `LINE_OUT`. */
+export const DOOR_LINE_OUT = 1.5;
+/** The nearest (blocks at 100 %, scaled) a column line may start where `DOOR_LINE_OUT` has no room: `LINE_MIN_OUT`. */
+export const DOOR_LINE_MIN_OUT = 0.5;
+/** How far past its column's centre (blocks at 100 %, scaled) a line must walk to have CROSSED the doorway (the simulator's 0.7). */
+export const DOOR_LINE_CROSSED = 0.7;
+
+/**
+ * One doorway's column lines at a size and turn, from its 100 % approach (`DoorApproach`), as the simulator's
+ * `doorwayLines` walks them (sim/adapters/craftmatic/play.ts `deviceLine`): per SIDE of the leaf, one line per world
+ * column of its closed cells, starting `DOOR_LINE_OUT` out on that side and walking `dir` through the column.
+ * `floorY` is the doorway's floor (blocks) and `k` the distance scale (max(1, f)). The leaf's normal is not in the
+ * approach, so it is read from where the approach columns stand round the closed cells: their offsets from the
+ * cells' centre, folded onto one direction (a 45-degree door's approach is sampled along its diagonal, so it gives a
+ * diagonal normal). A side with no approach column has no line.
+ */
+export interface DoorLineSide { side: 1 | -1; dir: { x: number; z: number }; columns: Array<{ x: number; z: number }> }
+export function doorApproachLines(a: DoorApproach, dims: GridDims, f: number, rotation: QuarterTurn): { floorY: number; k: number; sides: DoorLineSide[] } {
+  const cells = a.cells.map(c => [c[0]!, c[2]!] as const);
+  const cx = cells.reduce((s, c) => s + c[0] + 0.5, 0) / Math.max(1, cells.length), cz = cells.reduce((s, c) => s + c[1] + 0.5, 0) / Math.max(1, cells.length);
+  const offsets = a.columns.map(([x, z]) => ({ x: x + 0.5 - cx, z: z + 0.5 - cz })).filter(v => Math.hypot(v.x, v.z) > 1e-9);
+  const sides: DoorLineSide[] = [];
+  const floorY = a.floor16 * f / 16, k = Math.max(1, f);
+  if (!cells.length || !offsets.length) return { floorY, k, sides };
+  const u0 = offsets[0]!;
+  let ux = 0, uz = 0;
+  for (const v of offsets) { const s = Math.sign(v.x * u0.x + v.z * u0.z) || 1; ux += v.x * s; uz += v.z * s; }
+  const len = Math.hypot(ux, uz) || 1;
+  ux /= len; uz /= len;
+  // The 100 % direction turned as `rotatedCell` turns a cell index.
+  const turn = (x: number, z: number): { x: number; z: number } =>
+    rotation === 90 ? { x: -z, z: x } : rotation === 180 ? { x: -x, z: -z } : rotation === 270 ? { x: z, z: -x } : { x, z };
+  const u = turn(ux, uz);
+  const columns = new Map<string, { x: number; z: number }>();
+  for (const [x, z] of cells) {
+    const t = rotatedCell(x, z, dims, rotation);
+    const [x0, x1] = cellColumns(t.x, f), [z0, z1] = cellColumns(t.z, f);
+    for (let i = x0; i <= x1; i++) for (let j = z0; j <= z1; j++) columns.set(`${i},${j}`, { x: i, z: j });
+  }
+  for (const side of [1, -1] as const) {
+    if (!offsets.some(v => (v.x * ux + v.z * uz) * side > 1e-9)) continue;
+    sides.push({ side, dir: { x: -u.x * side, z: -u.z * side }, columns: [...columns.values()] });
+  }
+  return { floorY, k, sides };
+}
+
 export interface ReachTargetResult extends ReachTarget {
   /** The world column the point lands in at this size and turn, and the columns around it searched (radius in blocks). */
   column: { x: number; z: number; radius: number };
@@ -917,8 +963,16 @@ interface RunGround {
  * the walk preview's world.
  */
 export type LaneWalk = (treads: readonly TreadBlock[], from: { x: number; y: number; z: number }, dir: { x: number; z: number }, limit: number) => number;
-/** The lane pass's inputs (`planColliderTreads` `lane`): the walk, and the source cells WITH their clearance forms. */
-export interface TreadLaneCheck { walk: LaneWalk; cells: readonly SourceCell[] }
+/**
+ * Whether a doorway column line crosses (bedrock-placement-pack.ts `colliderDoorLine` / `walkDoorLine`) over the shipped
+ * forms with `treads` laid: `col` a world column, `dir` the walk, `floorY` the doorway's floor (blocks), `k` the scale.
+ */
+export type DoorLineWalk = (treads: readonly TreadBlock[], col: { x: number; z: number }, dir: { x: number; z: number }, floorY: number, k: number) => boolean;
+/**
+ * The lane pass's inputs (`planColliderTreads` `lane`): the walk, and the source cells WITH their clearance forms;
+ * `doorLine`, the doorway column lines the door-line pass keeps open (`doorLinePass`).
+ */
+export interface TreadLaneCheck { walk: LaneWalk; cells: readonly SourceCell[]; doorLine?: DoorLineWalk }
 /**
  * A lane walk is judged from the run's LANDING column (where its lowest tread is climbed from) to `LANE_PAST`
  * blocks into the column past the riser's top: a run is kept only when the walk gets there with it and did not
@@ -1913,6 +1967,56 @@ function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: n
     }
   };
   /**
+   * THE DOOR-LINE PASS (IX-04, PROC-19). Last before the guards: every column line of every doorway (`doorApproachLines`,
+   * walked as the simulator's `doorwayLines` walks it, `lane.doorLine`) that crosses over the shipped forms WITHOUT a
+   * tread must still cross with every run laid. The rule above keeps a tread out of an approach only where it is a
+   * wall the 100 % model never had there (`newWallAt`), and reads that wall in 100 % sixteenths: a tread within a
+   * step of the model's own top at 100 % is a riser f times that at the wand's size. 71043 at 400 % (since gen-reach
+   * ceaec7f1 changed which run takes those columns first) laid an 8-tread run along the row in front of both leaves of
+   * its double door, up a carved ledge 4 blocks over the doorway's floor: each tread within 9/16 of the 100 % sill
+   * under it, 2 blocks over it at 400 %, and no line from that side reached either door (the simulator's place-400-0
+   * and place-400-90, 32 violations each). So, per doorway with a stopped line, the runs that write into its approach
+   * go, newest first, each only where its removal crosses a stopped line again and the full-cell walk loses nothing
+   * reached before it (`neverBlocks`, as the cross pass reverts); a run a later one writes over is that run's floor and
+   * stays. A reverted run is counted `verify`. Without a door-line walk (the grid-only callers) it checks nothing.
+   */
+  const doorLinePass = (): void => {
+    const walkLine = lane?.doorLine;
+    if (!walkLine || !approachAt.size) return;
+    const blocksOf = (list: readonly RunEdit[]): TreadBlock[] => {
+      const out = new Map<string, TreadBlock>();
+      for (const e of list) for (const w of e.writes) out.set(`${w.x},${w.block.row},${w.z}`, { x: w.x, y: w.block.row, z: w.z, lo: w.block.lo, hi: w.block.hi });
+      return [...out.values()];
+    };
+    let reverted = false;
+    approaches.forEach((a, d) => {
+      const { floorY, k, sides } = doorApproachLines(a, dims, f, rotation);
+      // The lines that cross with no tread laid: the doorway as the model and its forms leave it.
+      const open = sides.flatMap(s => s.columns.filter(c => walkLine([], c, s.dir, floorY, k)).map(c => ({ c, dir: s.dir })));
+      const stopped = (treads: readonly TreadBlock[]): number => open.reduce((n, l) => n + (walkLine(treads, l.c, l.dir, floorY, k) ? 0 : 1), 0);
+      let count = stopped(blocksOf(edits));
+      for (let i = edits.length - 1; i >= 0 && count > 0; i--) {
+        const e = edits[i]!;
+        if (!e.writes.some(w => (approachAt.get(colKey(w.x, w.z)) ?? []).some(x => x.d === d))) continue;
+        const mine = new Set(e.writes.map(w => `${w.x},${w.block.row},${w.z}`));
+        if (edits.slice(i + 1).some(o => o.writes.some(w => mine.has(`${w.x},${w.block.row},${w.z}`)))) continue;
+        const without = stopped(blocksOf(edits.filter(o => o !== e)));
+        if (without >= count) continue;
+        const prior = walkScaledColliders(grid);
+        revert(e); edits.splice(i, 1);
+        if (!neverBlocks(walkScaledColliders(grid), true, prior)) { edits.splice(i, 0, e); apply(e); continue; }
+        refuse(e.run.from, e.run.to, 'verify');
+        count = without;
+        reverted = true;
+      }
+    });
+    // The second guard pass reads the lane pass's form grid: lay it again without the reverted runs.
+    if (reverted && formGrid && lane) {
+      formGrid = new ScaledColliderGrid(lane.cells, dims, f, rotation, carve);
+      for (const e of edits) for (const w of e.writes) formGrid.write(w.x, w.z, { ...w.block });
+    }
+  };
+  /**
    * THE LANE PASS (2026-10-07). Every pass above restores a surface only where the grid walk does not reach
    * it, and the grid walk climbs a jump (1.25) and takes any detour; a child on touch climbs by AUTO-JUMP
    * alone (Bedrock's touch default: an obstacle over 0.5 and at most 1.2 over the feet, sim/physics/body.ts
@@ -2325,7 +2429,7 @@ function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: n
   // Fast path: one laying walk, then a single verification from scratch.
   layingWalk(false);
   let after = walkScaledColliders(grid);
-  if (holds(after)) { approachPass(); doorwayPass(); latePass(); if (swap) { swapPass(); stats.swaps = swapsKept; } lanePass(); crossPass(); guardPasses(); return report(walkScaledColliders(grid), edits, true); }
+  if (holds(after)) { approachPass(); doorwayPass(); latePass(); if (swap) { swapPass(); stats.swaps = swapsKept; } lanePass(); crossPass(); doorLinePass(); guardPasses(); return report(walkScaledColliders(grid), edits, true); }
   // Slow path: undo everything and re-plan one run at a time, each verified
   // against the unassisted walk, until a pass lays nothing new.
   for (let i = edits.length - 1; i >= 0; i--) revert(edits[i]!);
@@ -2337,7 +2441,7 @@ function planTreadsOnce(cells: readonly SourceCell[], dims: GridDims, sizePct: n
     if (edits.length === count) break;
   }
   after = walkScaledColliders(grid);
-  if (holds(after)) { approachPass(); doorwayPass(); latePass(); if (swap) { swapPass(); stats.swaps = swapsKept; } lanePass(); crossPass(); guardPasses(); return report(walkScaledColliders(grid), edits, true); }
+  if (holds(after)) { approachPass(); doorwayPass(); latePass(); if (swap) { swapPass(); stats.swaps = swapsKept; } lanePass(); crossPass(); doorLinePass(); guardPasses(); return report(walkScaledColliders(grid), edits, true); }
   for (let i = edits.length - 1; i >= 0; i--) revert(edits[i]!);
   edits.length = 0;
   return report(walkScaledColliders(grid), [], false);
