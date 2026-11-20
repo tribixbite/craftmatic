@@ -90,8 +90,21 @@ export interface ClientProfile {
  * applies actor properties 4.1 ticks early (`sagaLeadTicks`). The pair (4, no ease) derived before
  * from cockpit brackets and the 30g frame counts is superseded.
  */
-export function clientProfile(name: ClientProfileName | 'pixel-26.51' | 'saga-26.62'): ClientProfile {
+export function clientProfile(name: ClientProfileName | 'pixel-26.51' | 'pixel-26.62' | 'saga-26.62'): ClientProfile {
   if (name === 'pixel-26.51') return { ...clientProfile('pixel'), entityLagTicks: quirkValue('client-entity-lag', 'pixel2651Ticks') };
+  // The Pixel on 1.26.62.1, DERIVED as the Saga's below (no marker run yet, TODO(client-lag-pixel-2662)):
+  //  - the coaster (round 19f K, 10303 car 2, the animation planned at the 26.51 3.5): car 3's grey-haired rider (the
+  //    car BEHIND) seen from behind at the size the simulator draws for an entity lag of ~1.4 (quirk `client-entity-lag`
+  //    `pixel2662Ticks`; 1 draws it smaller, 1.5 at the eye); car 3, with no car behind it, rode clean;
+  //  - the cockpit (round 19f E, CMCKP lag 0.5 held the eye in the cabin at 40 mph; quirk `cockpit-draw-lag` `ticks`),
+  //    which pins entity lag - played ease - the camera-first tick = 0.5: at 1.5 the Pixel plays none of the ease.
+  //    The property lead is not re-measured (kept 3.3, TODO(body-lag-2662)); the snapshot reads at most the latest.
+  if (name === 'pixel-26.62') {
+    const pixel = clientProfile('pixel');
+    const entityLagTicks = quirkValue('client-entity-lag', 'pixel2662Ticks');
+    const easeTicks = Math.max(0, entityLagTicks - quirkValue('cockpit-draw-lag', 'ticks') - 1);
+    return { ...pixel, basis: 'derived', entityLagTicks, easeFactor: easeTicks / easeSteadyLagTicks(0.1) };
+  }
   // The Saga on 1.26.62.1, DERIVED from two readings (no marker run yet, TODO(client-lag-saga)):
   //  - the coaster (round 19d K, 10303 car 2, the animation planned at 26.52's 5.7): the rider of the car BEHIND fills
   //    the view through the drop at the size the simulator draws for an entity lag of ~3 (quirk `client-entity-lag`

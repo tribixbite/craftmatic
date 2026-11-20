@@ -127,9 +127,12 @@ const inputs = args.filter(a => !a.startsWith('--'));
 // ─── Package B: the client's eye (web/src/sim/client) ───
 const framesDir = flag('frames');
 const clientFlag = flag('client') ?? (mode === 'coaster-camera' ? 'both' : 'pixel');
-if (!['pixel', 'saga', 'saga-26.62', 'both'].includes(clientFlag)) { console.error('--client= is pixel, saga, saga-26.62 or both'); process.exit(2); }
-/** `saga-26.62`: the Saga as Minecraft 1.26.62.1 draws it (`clientProfile('saga-26.62')`, derived from round 19c); `saga` is its 26.52 marker run. */
-type SimClient = ClientProfileName | 'saga-26.62';
+if (!['pixel', 'pixel-26.62', 'saga', 'saga-26.62', 'both'].includes(clientFlag)) { console.error('--client= is pixel, pixel-26.62, saga, saga-26.62 or both'); process.exit(2); }
+/**
+ * `saga-26.62` / `pixel-26.62`: each phone as Minecraft 1.26.62.1 draws it (`clientProfile`, derived from rounds 19c/19d
+ * and 19f); `saga` is its 26.52 marker run, `pixel` its 26.51 one (both still what a phone on those versions draws).
+ */
+type SimClient = ClientProfileName | 'pixel-26.62' | 'saga-26.62';
 const clientProfiles: SimClient[] = clientFlag === 'both' ? ['pixel', 'saga'] : [clientFlag as SimClient];
 const uvFloorFlag = flag('uvfloor') as UvFloorModel | undefined;
 const hatchFlag = args.includes('--hatch'), lodFlag = args.includes('--lod');
@@ -367,7 +370,7 @@ if (mode === 'hop') {
   process.exit(failed || !report.results.length ? 1 : 0);
 }
 
-if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|coaster-camera|walk-away|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>] [--runtime=pack|tree] [--client=pixel|saga|both] [--frames=<dir>] [--lag=1.5,3,4] [--prop-lead=N] [--entity-lag=N] [--laps=N] [--cars=1,2,3] [--uvfloor=v] [--hatch] [--lod] [--walk-away=a..b[:step]] [--size=200]'); process.exit(2); }
+if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|coaster-camera|walk-away|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>] [--runtime=pack|tree] [--client=pixel|pixel-26.62|saga|saga-26.62|both] [--frames=<dir>] [--lag=1.5,3,4] [--prop-lead=N] [--entity-lag=N] [--laps=N] [--cars=1,2,3] [--uvfloor=v] [--hatch] [--lod] [--walk-away=a..b[:step]] [--size=200]'); process.exit(2); }
 
 // `coaster-camera` and `walk-away` (package B): the drawn camera judged every tick, per client profile.
 if (mode === 'coaster-camera' || mode === 'walk-away') {

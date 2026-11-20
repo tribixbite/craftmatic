@@ -69,12 +69,13 @@ describe('the client model: numbers and derivations', () => {
     expect(drawnCameraLead(23, 3.5, 0, old)).toBeCloseTo(0, 9);
   });
 
-  it('the Pixel on 1.26.52 rides as at 3.5 (round 2026-10-20c), though a camprobe run there read 5.3 (round 2026-10-20a, TODO(pixel-ride-lag)); the shipped Pixel animation lag rides its drawn seat', () => {
+  it('the Pixel on 1.26.52 rode as at 3.5 (round 2026-10-20c), though a camprobe run there read 5.3 (round 2026-10-20a, TODO(pixel-ride-lag)); the shipped Pixel animation lag is the 1.26.62 one, ~2 ticks ahead of a 26.52 Pixel (TODO(coaster-lag-version))', () => {
     const pixel = clientProfile('pixel');
     expect(pixel.entityLagTicks).toBe(3.5);
     expect(quirkValue('client-entity-lag', 'pixelProbe2652Ticks')).toBe(5.3);
     const pixelAnimLag = COASTER_RIDER_VIEW.clientTimings!.find(t => t.graphicsMode === pixel.device.graphicsMode && t.maxRenderDistance === pixel.device.maxRenderDistance)!.animLag;
-    expect(drawnCameraLead(23, pixelAnimLag, 0, pixel)).toBeCloseTo(0, 9);
+    expect(drawnCameraLead(23, pixelAnimLag, 0, clientProfile('pixel-26.62'))).toBeCloseTo(0, 9);
+    expect(drawnCameraLead(23, pixelAnimLag, 0, pixel)).toBeCloseTo(23 * TICK_SECONDS * (3.5 - pixelAnimLag), 9);
   });
 
   it('the Saga, MEASURED by marker (round 30zv): entity lag 5.7, half the ease, properties 4.1 early; the shipped default animation lag rides its drawn seat; of the older cockpit brackets it fits the 30k pair, the 30l pair read ~0.75 tick more lag', () => {
@@ -477,8 +478,8 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
     const pixelStarts = pixel.trace.rows.filter((r, i) => r.mode === 'animation' && i > 0 && pixel.trace.rows[i - 1]!.mode === 'free');
     for (const r of pixelStarts) expect(r.jumpBlocks, `pixel tick ${r.tick}`).toBeLessThan(0.5);
   }, 60_000);
-  // The Saga as it runs now (Minecraft 1.26.62.1, `saga-26.62`), which the defaults follow since round 19d.
-  for (const profile of ['pixel', 'saga-26.62'] as const) {
+  // Both phones as they run now (Minecraft 1.26.62.1): the defaults follow the Saga since round 19d, the Pixel's entry since 19f.
+  for (const profile of ['pixel-26.62', 'saga-26.62'] as const) {
     it(`native mode (the default) on the ${profile}: the player's own view, and one animation per inversion that leaves and rejoins it with no cut and rides the drawn seat (COAST-06, the user 2026-10-18)`, () => {
       const { trace, client } = rideLoop(clientProfile(profile));
       // No per-tick script camera: the own view (drawn from the drawn seat by the client) or an animation, and one
@@ -508,7 +509,7 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
       expect(anim.length).toBeGreaterThan(10);
       const bound = () => 0.75;
       for (const r of anim) expect(Math.abs(r.lead!), `${profile} anim tick ${r.tick}`).toBeLessThan(bound());
-      expect(client.profile.name).toBe(profile === 'pixel' ? 'pixel' : 'saga');
+      expect(client.profile.name).toBe(profile === 'pixel-26.62' ? 'pixel' : 'saga');
     }, 60_000);
   }
 
@@ -527,6 +528,34 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
     const oldAnim = old.trace.rows.filter(r => r.mode === 'animation' && (r.speed ?? 0) > 2 && r.lead !== undefined);
     expect(oldAnim.length).toBeGreaterThan(10);
     expect(median(oldAnim.map(ticksAhead))).toBeLessThan(-(quirkValue('client-entity-lag', 'sagaTicks') - clientProfile('saga-26.62').entityLagTicks) + 0.5);
+  }, 120_000);
+
+  it('native mode on the Pixel at Minecraft 1.26.62.1 (`pixel-26.62`, the same Deferred / 24 fingerprint): the shipped Pixel lag rides the drawn seat, where the 26.51/26.52 plan 3.5 put the eye ~2 ticks BEHIND it, into car 3\'s grey-haired rider (COAST-06, Pixel round 19f K)', () => {
+    const pixel2662 = clientProfile('pixel-26.62');
+    expect(pixel2662.device).toEqual(clientProfile('pixel').device);
+    expect(pixel2662.basis).toBe('derived');
+    // DERIVED from the 19f frames (car 3's rider seen from behind at the size the simulator draws for ~1.4) and the
+    // cockpit (quirk `cockpit-draw-lag` 0.5 = entity lag - played ease - the camera-first tick): 1.5 leaves no ease.
+    expect(pixel2662.entityLagTicks).toBe(quirkValue('client-entity-lag', 'pixel2662Ticks'));
+    expect(pixel2662.entityLagTicks).toBe(1.5);
+    expect(pixel2662.easeFactor).toBe(0);
+    expect(pixel2662.entityLagTicks - quirkValue('cockpit-draw-lag', 'ticks') - 1 - easeSteadyLagTicks(0.1, pixel2662.easeFactor)).toBeCloseTo(0, 9);
+    // The Pixel's shipped coaster timing is this client's lag (the fingerprint cannot see the version: TODO(coaster-lag-version)).
+    const timing = COASTER_RIDER_VIEW.clientTimings!.find(t => t.graphicsMode === pixel2662.device.graphicsMode && t.maxRenderDistance === pixel2662.device.maxRenderDistance)!;
+    expect(drawnCameraLead(23, timing.animLag, 0, pixel2662)).toBeCloseTo(0, 9);
+    const { trace, client } = rideLoop(pixel2662);
+    expect(client.profile.name).toBe('pixel');
+    const anim = trace.rows.filter(r => r.mode === 'animation' && (r.speed ?? 0) > 2 && r.lead !== undefined);
+    expect(anim.length).toBeGreaterThan(10);
+    const ticksAhead = (r: { lead?: number; speed?: number }) => r.lead! / ((r.speed ?? 0) * TICK_SECONDS);
+    const median = (xs: number[]): number => { const s = [...xs].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]!; };
+    for (const r of anim) expect(Math.abs(r.lead!), `pixel-26.62 anim tick ${r.tick}`).toBeLessThan(0.5);
+    expect(Math.abs(median(anim.map(ticksAhead)))).toBeLessThan(0.3);
+    // The 19f pack's plan (3.5, the 26.51 marker reading) on this client: the eye behind the drawn seat by the difference.
+    const old = rideLoop(pixel2662, { clientTimings: [{ ...timing, animLag: quirkValue('client-entity-lag', 'pixel2651Ticks') }] });
+    const oldAnim = old.trace.rows.filter(r => r.mode === 'animation' && (r.speed ?? 0) > 2 && r.lead !== undefined);
+    expect(oldAnim.length).toBeGreaterThan(10);
+    expect(median(oldAnim.map(ticksAhead))).toBeLessThan(-(quirkValue('client-entity-lag', 'pixel2651Ticks') - pixel2662.entityLagTicks) + 0.5);
   }, 120_000);
 
 });
