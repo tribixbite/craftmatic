@@ -364,7 +364,7 @@ the 43 band forms, so every older id, file name and variant index is unchanged
 and a world an older pack laid keeps its blocks; the x-mirror rule
 (`collisionBox`) applies to them as to the bands
 (test/bedrock-building-shell.test.ts "corner post form at the MIRRORED x
-origin"). Why (TODO(collider-corner-forms), 11371 Doors 2 and 4): a lamp post a
+origin"). Why (TODO(collider-corner-forms), 11371 Doors 2 and 4): the corner where two glazed 60596 door frames meet (a lamp post by name until 2026-11-20; it is not one), a
 sixteenth square in the +x/+z corner of grid cell (20, 1..3, 5) shipped as the
 x band 12..16 the cell's whole length; with the next post's band (x 0..4) in
 (20, 1..3, 4) the 0.5-block gap the drawn route walks closed to the 0.6-wide

@@ -525,7 +525,7 @@ describe('applyColliderClearance', () => {
 });
 
 /**
- * TODO(collider-corner-forms) closed: 11371 Doors 2 and 4 (grid (20, 1..3, 4..5), favgate-530b6d3f). A lamp post a
+ * TODO(collider-corner-forms) closed: 11371 Doors 2 and 4 (grid (20, 1..3, 4..5), favgate-530b6d3f). A door-frame corner (two glazed 60596 frames; once misnamed a lamp post) a
  * sixteenth square in the +x/+z corner of a cell shipped as the kit's x band 12..16 the cell's whole length; with the
  * neighbouring post's band (x 0..4) the 0.5-block gap between them was too narrow for the 0.6-wide player, though the
  * drawn model leaves a whole block free beside each post.

@@ -104,8 +104,8 @@ export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>
   for (const b of BANDS) SHAPES.push([b[0]!, b[1]!, 0, 16]);
   for (const b of BANDS) SHAPES.push([0, 16, b[0]!, b[1]!]);
   // The corner squares (2026-11-19, TODO(collider-corner-forms) closed): a quarter block square in each corner, so a
-  // post a few sixteenths square in a cell's corner is no longer a band the cell's whole length (11371's lamp post,
-  // grid (20, 1..3, 5): with the next post's band the gap the drawn route walks closed to under the 0.6-wide player).
+  // post a few sixteenths square in a cell's corner is no longer a band the cell's whole length (11371's door-frame
+  // corner behind Door 2, grid (20, 1..3, 5), long misnamed a lamp post: with the next post's band the gap the drawn route walks closed to under the 0.6-wide player).
   // Closed under the quarter turns (each turns onto the next). APPENDED after the bands' 43 variants, so every
   // earlier block id, file name and variant index is unchanged: a world laid by an older pack keeps its blocks.
   // A doorway's approach columns keep the bands (collider-clearance.ts `bandsHere`, 71040 Door 2 at 400 %).
