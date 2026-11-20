@@ -530,15 +530,17 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
     expect(median(oldAnim.map(ticksAhead))).toBeLessThan(-(quirkValue('client-entity-lag', 'sagaTicks') - clientProfile('saga-26.62').entityLagTicks) + 0.5);
   }, 120_000);
 
-  it('native mode on the Pixel at Minecraft 1.26.62.1 (`pixel-26.62`, the same Deferred / 24 fingerprint): the shipped Pixel lag rides the drawn seat, where the 26.51/26.52 plan 3.5 put the eye ~2 ticks BEHIND it, into car 3\'s grey-haired rider (COAST-06, Pixel round 19f K)', () => {
+  it('native mode on the Pixel at Minecraft 1.26.62.1 (`pixel-26.62`, the same Deferred / 24 fingerprint): the shipped Pixel lag 2.5 rides the drawn seat, between the two plans the phone rode: 3.5 put the eye BEHIND it, into car 3\'s grey-haired rider (round 19f K), 1.5 put it AHEAD, close behind or inside the rider ahead (round 19g K, K2) (COAST-06)', () => {
     const pixel2662 = clientProfile('pixel-26.62');
     expect(pixel2662.device).toEqual(clientProfile('pixel').device);
     expect(pixel2662.basis).toBe('derived');
-    // DERIVED from the 19f frames (car 3's rider seen from behind at the size the simulator draws for ~1.4) and the
-    // cockpit (quirk `cockpit-draw-lag` 0.5 = entity lag - played ease - the camera-first tick): 1.5 leaves no ease.
+    // DERIVED from rides on the same phone and version, plans on both sides of the seat: 19g 10303 (car 1's hair 1.76 x
+    // its station width in the drop: the simulator's 2.0), 19g 10261 (the eye inside the rider ahead: 2.9), and 19f (a
+    // graze into car 3's rider at a 3.5 plan: under ~2.3). 2.5 is the middle of 2.0-2.9. The cockpit (quirk
+    // `cockpit-draw-lag` 0.5 = entity lag - played ease - the camera-first tick) then leaves 1 tick of the 2-tick ease.
     expect(pixel2662.entityLagTicks).toBe(quirkValue('client-entity-lag', 'pixel2662Ticks'));
-    expect(pixel2662.entityLagTicks).toBe(1.5);
-    expect(pixel2662.easeFactor).toBe(0);
+    expect(pixel2662.entityLagTicks).toBe(2.5);
+    expect(pixel2662.easeFactor).toBeCloseTo(0.5, 9);
     expect(pixel2662.entityLagTicks - quirkValue('cockpit-draw-lag', 'ticks') - 1 - easeSteadyLagTicks(0.1, pixel2662.easeFactor)).toBeCloseTo(0, 9);
     // The Pixel's shipped coaster timing is this client's lag (the fingerprint cannot see the version: TODO(coaster-lag-version)).
     const timing = COASTER_RIDER_VIEW.clientTimings!.find(t => t.graphicsMode === pixel2662.device.graphicsMode && t.maxRenderDistance === pixel2662.device.maxRenderDistance)!;
@@ -551,11 +553,18 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
     const median = (xs: number[]): number => { const s = [...xs].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]!; };
     for (const r of anim) expect(Math.abs(r.lead!), `pixel-26.62 anim tick ${r.tick}`).toBeLessThan(0.5);
     expect(Math.abs(median(anim.map(ticksAhead)))).toBeLessThan(0.3);
+    const rideAt = (animLag: number) => rideLoop(pixel2662, { clientTimings: [{ ...timing, animLag }] }).trace.rows
+      .filter(r => r.mode === 'animation' && (r.speed ?? 0) > 2 && r.lead !== undefined);
     // The 19f pack's plan (3.5, the 26.51 marker reading) on this client: the eye behind the drawn seat by the difference.
-    const old = rideLoop(pixel2662, { clientTimings: [{ ...timing, animLag: quirkValue('client-entity-lag', 'pixel2651Ticks') }] });
-    const oldAnim = old.trace.rows.filter(r => r.mode === 'animation' && (r.speed ?? 0) > 2 && r.lead !== undefined);
-    expect(oldAnim.length).toBeGreaterThan(10);
-    expect(median(oldAnim.map(ticksAhead))).toBeLessThan(-(quirkValue('client-entity-lag', 'pixel2651Ticks') - pixel2662.entityLagTicks) + 0.5);
+    const plan19f = rideAt(quirkValue('client-entity-lag', 'pixel2651Ticks'));
+    expect(plan19f.length).toBeGreaterThan(10);
+    expect(median(plan19f.map(ticksAhead))).toBeLessThan(-(quirkValue('client-entity-lag', 'pixel2651Ticks') - pixel2662.entityLagTicks) + 0.5);
+    // The 19g packs' plan (1.5, the 19f derivation) on this client: the eye AHEAD of the drawn seat by the difference,
+    // which on the phone drew 10303's car 1 rider at 1.76 x its station width and put 10261's eye inside the rider ahead.
+    const plan19g = rideAt(1.5);
+    expect(plan19g.length).toBeGreaterThan(10);
+    expect(median(plan19g.map(ticksAhead))).toBeGreaterThan(pixel2662.entityLagTicks - 1.5 - 0.3);
+    expect(Math.min(...plan19g.map(r => r.lead!))).toBeGreaterThan(0);
   }, 120_000);
 
 });

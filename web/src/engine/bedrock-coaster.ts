@@ -528,7 +528,7 @@ export interface CoasterRiderViewConfig {
    * 2026-10-20a), but a coaster planned at 5.5 rode WORSE there (round 2026-10-20c: the camera inside the car ahead's
    * rider in every loop 1; at 3.5, 30zz, only late in loop 2 of car 2), so the Pixel keeps 3.5. TODO(pixel-ride-lag):
    * why the probe and the ride disagree on the Pixel (the Saga's 5.7 held in both on 26.52). Minecraft 1.26.62.1 moved the Saga
-   * to ~3 (round 2026-11-19d, `SAGA_2662_ANIM_LAG`) and the Pixel to ~1.5 (round 2026-11-19f, `PIXEL_2662_ANIM_LAG`;
+   * to ~3 (round 2026-11-19d, `SAGA_2662_ANIM_LAG`) and the Pixel to ~2-2.9 (rounds 2026-11-19f and 19g, `PIXEL_2662_ANIM_LAG`;
    * its 3.5 was the 26.51/26.52 reading). The defaults are the Saga's (the user's phone); an unknown client gets them, and
    * `debug` logs every client's fingerprint so a new phone can be measured and added.
    */
@@ -607,14 +607,24 @@ const SAGA_2662_ANIM_LAG = 3;
 
 /**
  * The Pixel 8 Pro's animation lag (its `clientTimings` entry, fingerprint Deferred / 24) on Minecraft 1.26.62.1. DERIVED
- * from round 2026-11-19f K (10303, car 2): planned at the 26.51 marker reading 3.5, the drop into loop 1 and loop 2 were
- * drawn ~2 ticks behind the drawn seat - car 3's grey-haired rider (the car BEHIND) seen from behind at about a block, then
- * the eye through its face - and car 3 (no car behind) rode clean. The simulator on that pack draws car 3's rider at the
- * device's size near an entity lag of 1.4 (quirk `client-entity-lag` `pixel2662Ticks`), and the Pixel's cockpit on the same
- * version (lag 0.5 in the cabin at 40 mph, round 19f E) needs at least 1.5: 1.5. A Pixel still on 1.26.52 shares the
- * fingerprint and now rides ~2 ticks AHEAD of its seat (TODO(coaster-lag-version)).
+ * from three rides on that version, one plan each side of the seat (quirk `client-entity-lag` `pixel2662Ticks`):
+ *  - round 2026-11-19f K, 10303 car 2 planned at the 26.51 marker reading 3.5: the eye passed through the grey-haired
+ *    rider of car 3 (the car BEHIND) in the drop and in loop 2. The simulator on that pack draws that graze at entity
+ *    lags 1, 1.5 and 2 and none at 2.5: that ride's lag was under ~2.3;
+ *  - round 2026-11-20 19g K, the same car planned at 1.5 (19f's derivation): car 1's pink-haired rider (the car AHEAD),
+ *    seen from behind, swelled to 1.76 x its station width in the drop and 1.8-2.4 x in loop 2. The simulator on that
+ *    pack draws the drop at none / 1.70 x / 3.36 x at entity lag 1.5 / 2 / 2.5: 1/width interpolation 2.0 (loop 2 2.1-2.4);
+ *  - round 19g K2, 10261 car 2 planned at 1.5: twice a lap the head of the rider ahead (1.25 blocks ahead) grew to ~0.92
+ *    of the frame height and went translucent (the eye inside it). The simulator draws it at 0.43 / 0.59 / 1.02 at 2 /
+ *    2.5 / 3: 2.9.
+ * So the phone drew between ~2.0 and ~2.9 ticks behind across one session's rides (a 26.52 camprobe run stepped by
+ * 0.5-1.9 ticks within a run as well). 2.5, the middle, keeps every reading within 0.5 tick of the seat: the 2.0 rides
+ * put the eye 0.5 tick behind (no car within reach at 10303's 2.25-block or 10261's 1.25-block spacing at those
+ * speeds), the 2.9 ride 0.4 tick ahead. The Pixel's cockpit on the same version (lag 0.5 in the cabin at 40 mph, round
+ * 19f E) then leaves 1 tick of the camera ease played. A Pixel still on 1.26.52 shares the fingerprint and now rides ~1
+ * tick AHEAD of its seat (TODO(coaster-lag-version)).
  */
-const PIXEL_2662_ANIM_LAG = 1.5;
+const PIXEL_2662_ANIM_LAG = 2.5;
 
 /**
  * The rider's baseline view is the car's own frame: the eye where the rider's
@@ -626,7 +636,7 @@ const PIXEL_2662_ANIM_LAG = 1.5;
  * "The rider's camera follows the track" section.
  */
 export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'native', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 8, animLag: SAGA_2662_ANIM_LAG, bodyLag: 4.1,
-  clientTimings: [{ label: 'Pixel 8 Pro (Deferred, render distance 24; Minecraft 1.26.62.1, round 2026-11-19f; body lag 30zt)', graphicsMode: 'Deferred', maxRenderDistance: 24, animLag: PIXEL_2662_ANIM_LAG, bodyLag: 3.3 }], animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
+  clientTimings: [{ label: 'Pixel 8 Pro (Deferred, render distance 24; Minecraft 1.26.62.1, rounds 2026-11-19f and 19g; body lag 30zt)', graphicsMode: 'Deferred', maxRenderDistance: 24, animLag: PIXEL_2662_ANIM_LAG, bodyLag: 3.3 }], animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
   steepTilt: 25, steepSpeed: 5, blendTicks: 6, sectionGap: 12, sectionHorizon: 160 };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */

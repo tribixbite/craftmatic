@@ -2573,8 +2573,10 @@ describe('the rider camera follows the track', () => {
     // is the Saga on 1.26.62.1 (~3, derived from round 19d's ride). This loop-mode test keeps the Pixel's 3.5 (LOOP_MODE).
     expect(COASTER_RIDER_VIEW.animLag).toBe(quirkValue('client-entity-lag', 'saga2662Ticks'));
     // The Pixel rode at 3.5 through 1.26.52 (planned at a probe's 5.5 it rode worse, round 2026-10-20c); 1.26.62.1 moved it
-    // to ~1.5 (round 19f: the eye in car 3's rider at 3.5).
+    // to ~2.5 (rides read 2.0-2.9), bracketed by plans on both sides: at 3.5 the eye sat in car 3's rider behind (round
+    // 19f), at 1.5 close behind or inside the rider ahead (round 19g).
     expect(COASTER_RIDER_VIEW.clientTimings?.find(t => t.graphicsMode === 'Deferred')?.animLag).toBe(quirkValue('client-entity-lag', 'pixel2662Ticks'));
+    expect(quirkValue('client-entity-lag', 'pixel2662Ticks')).toBe(2.5);
     expect(COASTER_RIDER_VIEW.tickLag).toBe(1.5);
     expect(COASTER_RIDER_VIEW.mode).toBe('native');
     // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.

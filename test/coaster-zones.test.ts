@@ -235,8 +235,9 @@ describe.skipIf(!existsSync(LDRAW_ROOT))('the rider camera on the 3x sketch (sim
       const { result } = await rideCamera(built.result.bytes, `3x-sketch-${profile}`, profile, 1);
       const cut = result.violations.filter(v => v.invariant === 'camera-continuous').map(v => v.message);
       if (profile === 'pixel-26.62') {
-        // TODO(c04-spin-2662): the same open case at the 1.26.62 Pixel's lag (1.5): the second of the two stretches
-        // hands back with a 40.6-degree turn in one frame (cap 40) and the eye on the seat (0.02 block). Planned at the
+        // TODO(c04-spin-2662): the same open case at the 1.26.62 Pixel's lag (2.5 since round 19g; pinned first at 1.5,
+        // where the second of the two stretches handed back with a 40.6-degree turn in one frame, cap 40, and the eye
+        // on the seat, 0.02 block): at most that one turn in the 40s, no eye jump. Planned at the
         // 26.51 3.5 the same client drew it as a 42-degree, 4.2-block cut, plus a 2-4 block cut at every other
         // hand-back (12 violations). One turn, no eye jump: the open case is pinned, not hidden.
         expect(cut.length, profile).toBeLessThanOrEqual(1);

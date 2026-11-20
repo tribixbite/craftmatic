@@ -34,7 +34,7 @@ rides recorded on screen.
 | A keyframe's rotation is in a **Z-mirrored** frame: `x` is the negated pitch and `y` is `180 − yaw` (the yaw `setCamera` would take). | Every keyframe is converted. Yaw ±90 is its own mirror, which is why probes along 10303's x-aligned loops missed this for a week. | `camera-keyframe-yaw-mirrored` |
 | A `playAnimation` sent while the player is on their own view (no script camera set) is never drawn. | Each animation is **armed**: one un-eased `setCamera` at the animation's first view, then `playAnimation` on the next tick. | `camera-animation-needs-camera` |
 | A `setCamera` sent while an animation plays takes over at once. An animation that **ends** before the next `setCamera` shows the player's own view for the gap. | The end of the hand-back is planned: the camera is cleared deliberately, not left to run out. | `camera-animation-cut` |
-| The client draws entities **behind** the server: Saga 5.7 ticks on 26.52 and ~3 on 1.26.62.1, Pixel 3.5 on 26.51 and ~1.5 on 1.26.62.1 (both 1.26.62 values derived, section 5). An actor property arrives **ahead** of the position sent with it: Saga 4.1 ticks (26.52), Pixel 3.3. | A camera on the server's schedule sits in the car ahead. Every pose the camera follows is shifted back to the **drawn** car, per client. | `client-entity-lag`, `property-ahead-of-position` |
+| The client draws entities **behind** the server: Saga 5.7 ticks on 26.52 and ~3 on 1.26.62.1, Pixel 3.5 on 26.51 and ~2.5 on 1.26.62.1 (rides read 2.0-2.9; both 1.26.62 values derived, section 5). An actor property arrives **ahead** of the position sent with it: Saga 4.1 ticks (26.52), Pixel 3.3. | A camera on the server's schedule sits in the car ahead. Every pose the camera follows is shifted back to the **drawn** car, per client. | `client-entity-lag`, `property-ahead-of-position` |
 | A rider's reported yaw (`getRotation`) is the client's, drawn on the drawn car and reported 7–9 ticks after the server's car yaw. | The player's head turn is measured against the car's yaw that far back, and fitted per rider. | `rider-yaw-lag` |
 
 The table rules out the obvious design. A per-tick `setCamera` cannot roll or
@@ -173,15 +173,15 @@ that matches:
 | Client | Fingerprint | `animLag` | `bodyLag` |
 |---|---|---|---|
 | Saga on 1.26.62.1 (default; the user's phone) | anything unmatched | 3 (5.7 on 26.52) | 4.1 (26.52; not re-measured) |
-| Pixel 8 Pro on 1.26.62.1 | Deferred, render distance 24 | 1.5 (3.5 on 26.51/26.52) | 3.3 (26.52; not re-measured) |
+| Pixel 8 Pro on 1.26.62.1 | Deferred, render distance 24 | 2.5 (3.5 on 26.51/26.52) | 3.3 (26.52; not re-measured) |
 
 This is a fingerprint of measured phones, not a model of the cause. An unknown
 client gets the Saga's values. A pack built with `debug` logs each client's
 fingerprint, so a new phone can be measured and added. The fingerprint does not
 see the game's VERSION, and a Minecraft update can move a phone's lag: 1.26.62.1
 moved the Saga from 5.7 to about 3 (round 2026-11-19d) and the Pixel from 3.5 to
-about 1.5 (round 2026-11-19f), so a phone still on 26.52 now rides ~2.7 (Saga) or
-~2 (Pixel) ticks ahead of its seat (TODO(coaster-lag-version)).
+about 2.5 (rounds 2026-11-19f and 19g), so a phone still on 26.52 now rides ~2.7 (Saga) or
+~1 (Pixel) tick ahead of its seat (TODO(coaster-lag-version)).
 
 ## 3. Approaches that were tried and replaced
 
@@ -287,10 +287,38 @@ about 1.5 (round 2026-11-19f), so a phone still on 26.52 now rides ~2.7 (Saga) o
   one over the width, that is an entity lag of 1.4. The cockpit on the same phone
   and version held its eye in the cabin at 40 mph with lag 0.5 (round 19f E),
   which needs entity lag − played ease − 1 = 0.5, so at least 1.5 with none of the
-  ease played. The Pixel's `animLag` is now 1.5 (`PIXEL_2662_ANIM_LAG`, quirk
-  `client-entity-lag` `pixel2662Ticks`, `clientProfile('pixel-26.62')`); `bodyLag`
-  stays 3.3, unmeasured on 1.26.62 (TODO(body-lag-2662)); a marker run would turn
-  the derivation into a measurement (TODO(client-lag-pixel-2662)).
+  ease played. The packs of round 19g planned the Pixel at 1.5.
+- **Round 19g bracketed the Pixel's 1.26.62 lag from the other side (2026-11-20).**
+  On the 1.5 packs (gen-pix62 9c31471b) car 2 of 10303 showed car 1's rider (pink
+  hair, yellow torso, the car AHEAD) from behind, swelling in the drop into loop 1
+  and in loop 2, with car-colour washes after; car 3 rode clean; in 10261's car 2
+  the head of the rider ahead swelled and went translucent (the eye inside it)
+  twice a lap. So 3.5 put the eye behind its seat and 1.5 ahead: the lag lies
+  between. Measured as the width of car 1's pink hair over the frame height
+  (`output/pix62g/pinkwidth.py`, gen-pix62 worktree): the device reads 0.195 at
+  the station and 0.34 in the drop (1.76 x), 0.35-0.48 in loop 2 (1.8-2.4 x). The
+  simulator on the same pack (`--client=pixel --cars=2 --entity-lag=N`) draws the
+  station at 0.183 and the drop at < 1.3 x / 1.70 x / 3.36 x / 8.5 x for entity lag
+  1.5 / 2 / 2.5 / 3 (loop 2 1.73 / 2.09 / 2.64 / 6.1 x): one over the width puts the
+  lag at 2.0 (drop) and 2.1-2.4 (loop 2). 10261 reads higher: its car 1 rides
+  1.25 blocks ahead, and the black hair of its rider grew to ~0.92 of the frame
+  height with the eye inside it (`darkwidth.py`), which the simulator draws at
+  0.34 / 0.43 / 0.59 / 1.02 for 1.5 / 2 / 2.5 / 3: 2.9. The 19f pack bounds the
+  10303 ride from above: the simulator draws its graze into car 3's rider at entity
+  lag 1, 1.5 and 2 and none at 2.5, so that ride drew under ~2.3. 19f's size
+  reading (1.4) took the head seen from behind as the eye fully past car 3's
+  rider; at 2 the simulator's eye reaches into that head, which is what the
+  device's yellow face wash just before showed. `--entity-lag` is the client's
+  draw lag and `animLag` the plan's guess of it, in the same ticks: an animation
+  sits `entity lag - animLag` ticks AHEAD of the drawn seat, so the 19f estimate
+  was on the right side of 3.5 but short. One session's rides span ~2.0-2.9 (a
+  26.52 camprobe run stepped 0.5-1.9 ticks within a run too), so the Pixel's
+  `animLag` is now their middle, 2.5 (`PIXEL_2662_ANIM_LAG`, quirk
+  `client-entity-lag` `pixel2662Ticks`, `clientProfile('pixel-26.62')`, which with
+  the cockpit's 0.5 plays 1 tick of the ease): every reading within 0.5 tick of
+  the seat. `bodyLag` stays 3.3, unmeasured on 1.26.62
+  (TODO(body-lag-2662)); a marker run would turn the derivation into a
+  measurement (TODO(client-lag-pixel-2662)).
 - **TODO(pixel-ride-lag):** a camprobe run on 1.26.52 reads the Pixel's entity
   lag at 5.1–5.4 ticks, yet the coaster planned at 5.5 rode worse than at 3.5.
   The cause is unexplained.
