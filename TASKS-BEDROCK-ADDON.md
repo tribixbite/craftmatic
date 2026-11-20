@@ -27,9 +27,14 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
     Doors 2/4: corner-square forms (gen-clear MERGED 1219a190, suite rc=0; new block ids `_w/_f/_c15..18`, device-unproven) fixed the lamp-post
     gap; the sim walk now stops at the next cell, a part box the drawn route cuts (turn 0) and a plate over the
     ground at turn 90 (`TODO(walk-attribution)`). 42670 Door 3 tread across the ground route.
-  - OPEN, on MAIN since a91dac86 (not gen-clear's): 71043 sim `place-400-0` and `place-400-90` fail, 32 violations -
-    a TREAD at (50,-47..-45,-27) stands across Door 1's - side column lines (`output/genclear-main3/71043-*` built
-    from an archive of a91dac86 fails identically; genclear-all6, before the merge, passed). Tread planner (gen-reach).
+  - FIXED on branch worktree-agent-ad455958f4541bd37 (NOT merged, 2026-11-20): 71043 sim `place-400-0`/`-90` (32 violations
+    since gen-reach ceaec7f1's run order). `newWallAt` reads a tread within 9/16 of the 100 % sill as the model's riser
+    (2 blocks at 400 %); a new door-line pass (`doorLinePass`) reverts runs that stop a doorway column line which
+    crosses with no tread. Evidence `output/t71/` in that worktree: sim 48/48 (71043, 76419, 21063, 21061 at 100-400 %),
+    `_ix_passability` 71043 Door 1 400 % SEALED -> OK (only change), microscale tread runs and the three SCALE-06 walk
+    lines identical to main. The pass also took 2 runs off 41732 at 300 % turn 90 (door lines of approaches 3 and 4;
+    4362 -> 4356 surfaces, replay test floor lowered 4359 -> 4356). Next: merge, then the favourites gate
+    (`_favourites_gate.ts --build`): other door sets may lose runs to the pass; unmeasured.
   - Brick-built doors (10354, 42639, 910049): traced 2026-11-19 (gen-brickdoor), none hangs on a joint the geometry
     shows - 10354's round leaf is built into the wall's courses, 42639's garage door hangs from nothing (its pins
     miss the pegholes; a linkage, `TODO(garage-linkage)`), 910049's gate is the moulded 60621 already shipped.

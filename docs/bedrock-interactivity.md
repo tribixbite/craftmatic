@@ -1921,6 +1921,17 @@ Unlike the first census, these were pipeline faults, one class each:
   Lesson: the planner's reach depends on the order it meets rises; a fix that changes the order moves runs in
   plans it never meant to touch, so judge it on every plan of every door favourite and on the device lanes, not on
   the plan it was written for.
+- **`newWallAt` reads a riser in 100 % sixteenths, and that let a staircase stand in front of a door** (2026-11-20,
+  `doorLinePass`). 71043 at 400 % (sim `place-400-0` / `place-400-90`, 32 violations each, since gen-reach's run
+  order) laid an 8-tread run along the row in front of both leaves of its double door (turn 0: x 32-39, z 43,
+  14.1-17.6 blocks over a 14-block floor) up to a carved ledge on the pillar beside it. Each tread stood within 9/16
+  of the 100 % sill under it, so `crossesApproach` called it the model's own riser; at 400 % that is 2 blocks, and no
+  line from that side reached either door. Rather than re-scale the riser test (it is what lets a run ramp a model
+  stair past a door), a last pass before the guards walks every doorway's column lines as the simulator does
+  (`doorApproachLines`, `walkDoorLine`): a line that crosses with no tread laid must cross with the plan, else the runs
+  writing into that approach go, newest first, each only where removing it re-opens a line and nothing reached before
+  any tread is lost. On 71043 it cost one surface (14779 -> 14778 at turn 0). Guard
+  `test/tread-reach-replay.test.ts :: never stops a doorway column line`.
 
 The fourth finding, 6194's 6.51-block fall, was a native rotorcraft left hovering: a rider who leaves a native mount
 with nothing under the feet now gets slow falling, as off the flyer's cloud (`dismountFloat`, vehicle-driver.js).

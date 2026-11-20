@@ -75,10 +75,13 @@ describe('the scaled tread planner never reaches less than the base build on the
     expect(plan.after.highestBlocks).toBeGreaterThanOrEqual(3);
   }, 300_000);
 
-  it('41732 at 300 % turn 90: a run refused across an approach is retried with the runs that took its columns lifted (4352 -> at least 4359)', async () => {
+  it('41732 at 300 % turn 90: a run refused across an approach is retried with the runs that took its columns lifted (4352 -> at least 4356)', async () => {
     const plan = await planOf('41732', 300, 90);
     expect(plan.verified).toBe(true);
-    expect(plan.after.surfaces).toBeGreaterThanOrEqual(4359);
+    // 4359 (the base build) until the door-line pass (2026-11-20): two of the runs it reached them with stood in Door
+    // approaches - one stopped 3 of the 9 lines into approach 4 from its + side, one 2 into approach 3 - and went, 6
+    // surfaces with them (4362 -> 4356). A doorway's lines are worth more than the surfaces (IX-04: never restrict).
+    expect(plan.after.surfaces).toBeGreaterThanOrEqual(4356);
     expect(plan.after.highestBlocks).toBeGreaterThanOrEqual(2.79);
   }, 300_000);
 
