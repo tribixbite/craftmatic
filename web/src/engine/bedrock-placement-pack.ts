@@ -1,4 +1,4 @@
-import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type DoorApproach, type FineReachColumns, type GridDims, type LaneWalk, type QuarterTurn, type ReachTarget, type SizeCarve, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
+import { DOOR_LINE_CROSSED, DOOR_LINE_MIN_OUT, DOOR_LINE_OUT, QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type DoorApproach, type DoorLineWalk, type FineReachColumns, type GridDims, type LaneWalk, type QuarterTurn, type ReachTarget, type SizeCarve, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
 import { DOOR_CARVE_SIZES, carvesAt, encodeSizeCarve, encodeTurnedCarve, planDoorwayCarve, planSizeCarve, sizeCarveAt, type CarveDoorway, type ModelBox, type ShippedCarves } from './collider-carve.js';
 import type { PlacementDetail } from '../brickgen/levels/levels.js';
 import { WalkWorld, tickPlayer, type PlayerState } from './addon-walk.js';
@@ -7,6 +7,8 @@ import { IDENTITY, boneTransforms, cubeCorners, drawnCubeBox } from './bedrock-g
 import type { BoxBlocks } from './cockpit-seat.js';
 import { isAxisAligned, parallelepipedFromCorners } from './oriented-box.js';
 import { BOARD, type BoardPoint } from './bedrock-vehicle.js';
+import { JUMP_HEIGHT_BLOCKS, PLAYER_WIDTH_BLOCKS } from './addon-scale.js';
+import { PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
 
 declare const world: any;
 declare const system: any;
@@ -856,7 +858,7 @@ function colliderTreadsJob(colliders: PlacementColliders, targets: readonly Reac
       // The carve first (over the shipped forms, as the runtime lays them); the treads are planned over it.
       const carve = sizeCarveFor(formCells, dims, pct, r, carveSource);
       if (carve?.size) carvesPlanned.set(`${pct}:${r}`, carve);
-      const plan = planColliderTreads(cells, dims, pct, r, targets, doorCells, { walk: colliderLaneWalk(formCells, dims, pct, r, carve), cells: formCells }, fineReach, carve, approaches);
+      const plan = planColliderTreads(cells, dims, pct, r, targets, doorCells, { walk: colliderLaneWalk(formCells, dims, pct, r, carve), cells: formCells, doorLine: colliderDoorLine(formCells, dims, pct, r, carve) }, fineReach, carve, approaches);
       const f = pct / 100;
       const { blocks, guardBlocks: _guardBlocks, before, after, ...rest } = plan;
       report.plans.push({ ...rest, blocks: blocks.length, before: { surfaces: before.surfaces, columns: before.columns, highestBlocks: blocksAt100(before.highest16, f) }, after: { surfaces: after.surfaces, columns: after.columns, highestBlocks: blocksAt100(after.highest16, f) } });
@@ -1004,6 +1006,65 @@ export function colliderLaneWalk(formCells: readonly SourceCell[], dims: GridDim
       if (best >= limit) return limit;
     }
     return best;
+  };
+}
+
+/**
+ * Whether a straight line walk through one doorway column CROSSES it, as the simulator's `doorwayLines` judges a line
+ * (sim/adapters/craftmatic/play.ts `deviceLine`): the start is the farthest spot from `DOOR_LINE_OUT` in to
+ * `DOOR_LINE_MIN_OUT` (scaled by `k`) on the side the line comes from where the player's box is free within a jump
+ * over the doorway's floor; the walk goes along `dir`, jumping where it is blocked on the ground (a sill, a step, a
+ * tread), and has crossed when its centre gets `DOOR_LINE_CROSSED` past the column's centre. No room to start, or a
+ * stall short of that, is not a crossing. `col` is a world column (its centre is `col + 0.5`).
+ */
+export function walkDoorLine(world: WalkWorld, col: { x: number; z: number }, dir: { x: number; z: number }, floorY: number, k: number): boolean {
+  const cx = col.x + 0.5, cz = col.z + 0.5, h = PLAYER_WIDTH_BLOCKS / 2;
+  const free = (x: number, y: number, z: number): boolean => {
+    const box = { x0: x - h, y0: y, z0: z - h, x1: x + h, y1: y + PLAYER_HEIGHT_BLOCKS, z1: z + h };
+    return !world.solidsNear(box, 0, 0, 0).some(s => s.x1 > box.x0 + 1e-3 && s.x0 < box.x1 - 1e-3 && s.y1 > box.y0 + 1e-3 && s.y0 < box.y1 - 1e-3 && s.z1 > box.z0 + 1e-3 && s.z0 < box.z1 - 1e-3);
+  };
+  let start: { x: number; y: number; z: number } | undefined;
+  for (let out = DOOR_LINE_OUT * k; out >= DOOR_LINE_MIN_OUT * k - 1e-9 && !start; out -= 1 / 8) {
+    for (let up = 0.01; up <= JUMP_HEIGHT_BLOCKS * k + 1e-9; up += 1 / 16) {
+      const x = cx - dir.x * out, z = cz - dir.z * out, y = floorY + up;
+      if (free(x, y, z)) { start = { x, y, z }; break; }
+    }
+  }
+  if (!start) return false;
+  const along = (s: { x: number; z: number }): number => (s.x - cx) * dir.x + (s.z - cz) * dir.z;
+  let s: PlayerState = { ...start, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 };
+  let jump = false, best = -Infinity, last = -Infinity, stall = 0;
+  for (let t = 0; t < 200; t++) {
+    const before = s;
+    s = tickPlayer(world, s, { move: dir, jump, sneak: false }).state;
+    jump = s.onGround && Math.hypot(s.x - before.x, s.z - before.z) < 0.1;
+    const a = along(s);
+    best = Math.max(best, a);
+    if (best >= DOOR_LINE_CROSSED * k) return true;
+    if (a > last + 1e-3) { last = a; stall = 0; } else if (++stall > 30) return false;
+  }
+  return false;
+}
+
+/**
+ * The tread planner's doorway-line check (`TreadLaneCheck.doorLine`, bedrock-collider-scale.ts): `walkDoorLine` over
+ * the colliders as the runtime lays them at this size and turn (every clearance form as itself), with the treads it
+ * is handed laid over them. One world per size and turn, built on the first call; each call re-lays only the treads.
+ */
+export function colliderDoorLine(formCells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, carve?: SizeCarve): DoorLineWalk {
+  let world: WalkWorld | undefined;
+  const laid = new Map<string, string>();
+  return (treads, col, dir, floorY, k) => {
+    world ??= new WalkWorld({ cells: formCells, dims, sizePct, rotation, treads: [], ...(carve ? { carve } : {}) });
+    const want = new Map<string, string>(treads.map(b => [`${b.x},${b.y},${b.z}`, `${b.lo},${b.hi}`]));
+    const changes = new Map<string, readonly number[] | null>();
+    for (const [key, v] of want) if (laid.get(key) !== v) changes.set(key, v.split(',').map(Number));
+    for (const key of laid.keys()) if (!want.has(key)) changes.set(key, null);
+    if (changes.size) {
+      world.patchOverlayBlocks(changes);
+      for (const [key, v] of changes) { if (v) laid.set(key, v.join(',')); else laid.delete(key); }
+    }
+    return walkDoorLine(world, col, dir, floorY, k);
   };
 }
 

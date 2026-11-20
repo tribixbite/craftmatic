@@ -20,9 +20,9 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { colliderSourceCells, decodeTreadPlan, sizeCarveFor, treadInputsRead, type PlacementTreadReport, type TreadInputs } from '../web/src/engine/bedrock-placement-pack.js';
+import { colliderSourceCells, decodeTreadPlan, sizeCarveFor, treadInputsRead, walkDoorLine, type PlacementTreadReport, type TreadInputs } from '../web/src/engine/bedrock-placement-pack.js';
 import { WalkWorld, tickPlayer, type PlayerState } from '../web/src/engine/addon-walk.js';
-import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.js';
+import { doorApproachLines, type QuarterTurn } from '../web/src/engine/bedrock-collider-scale.js';
 
 const fixture = (set: string): string => fileURLToPath(new URL(`./fixtures/treads/${set}-inputs.json.gz`, import.meta.url));
 const inputsOf = (set: string): TreadInputs => JSON.parse(gunzipSync(readFileSync(fixture(set))).toString('utf8')) as TreadInputs;
@@ -75,10 +75,13 @@ describe('the scaled tread planner never reaches less than the base build on the
     expect(plan.after.highestBlocks).toBeGreaterThanOrEqual(3);
   }, 300_000);
 
-  it('41732 at 300 % turn 90: a run refused across an approach is retried with the runs that took its columns lifted (4352 -> at least 4359)', async () => {
+  it('41732 at 300 % turn 90: a run refused across an approach is retried with the runs that took its columns lifted (4352 -> at least 4356)', async () => {
     const plan = await planOf('41732', 300, 90);
     expect(plan.verified).toBe(true);
-    expect(plan.after.surfaces).toBeGreaterThanOrEqual(4359);
+    // 4359 (the base build) until the door-line pass (2026-11-20): two of the runs it reached them with stood in Door
+    // approaches - one stopped 3 of the 9 lines into approach 4 from its + side, one 2 into approach 3 - and went, 6
+    // surfaces with them (4362 -> 4356). A doorway's lines are worth more than the surfaces (IX-04: never restrict).
+    expect(plan.after.surfaces).toBeGreaterThanOrEqual(4356);
     expect(plan.after.highestBlocks).toBeGreaterThanOrEqual(2.79);
   }, 300_000);
 
@@ -137,4 +140,39 @@ describe('the scaled tread planner never reaches less than the base build on the
     expect(fanLane(world, 'S', 2.5).top).toBeGreaterThanOrEqual(3.25 - 0.01);
     expect(fanLane(world, 'W', 15.5).top).toBeGreaterThanOrEqual(4.83 - 0.01);
   }, 300_000);
+});
+
+/**
+ * 71043 (fixture recorded at main 0499ce42): the simulator's `place-400-0` and `place-400-90` failed with 32
+ * violations each since gen-reach (ceaec7f1): a run refused across Door 1's and Door 2's approach was retried by the
+ * approach pass with the runs holding its columns lifted, and kept because it opened the floor over the doors - an
+ * 8-tread run along the row in front of both leaves (turn 0: x 32-39, z 43, 14.1-17.6 blocks) that left no line in
+ * from their - side.
+ */
+describe('the scaled tread planner never stops a doorway column line that crosses without treads', () => {
+  for (const r of [0, 90] as const) {
+    it(`71043 at 400 % turn ${r}: every column line of Door 1 and Door 2 that crosses over the bare colliders still crosses with the plan's treads (sim place-400-${r})`, async () => {
+      const inputs = inputsOf('71043');
+      const { plan, blocks } = await replayed('71043', 400, r);
+      expect(plan.verified).toBe(true);
+      const cells = colliderSourceCells(inputs.colliders);
+      const dims = { width: inputs.colliders.width, height: inputs.colliders.height, length: inputs.colliders.length };
+      const carve = sizeCarveFor(cells, dims, 400, r, treadInputsRead(inputs).carve);
+      const world = (treads: ReturnType<typeof decodeTreadPlan>): WalkWorld => new WalkWorld({ cells, dims, sizePct: 400, rotation: r, treads, ...(carve ? { carve } : {}) });
+      const bare = world([]), laid = world(decodeTreadPlan(blocks));
+      let crossing = 0;
+      const stopped: string[] = [];
+      for (const [d, a] of inputs.approaches.entries()) {
+        const { floorY, k, sides } = doorApproachLines(a, dims, 4, r);
+        for (const s of sides) for (const c of s.columns) {
+          if (!walkDoorLine(bare, c, s.dir, floorY, k)) continue;
+          crossing++;
+          if (!walkDoorLine(laid, c, s.dir, floorY, k)) stopped.push(`approach ${d} side ${s.side} column ${c.x},${c.z}`);
+        }
+      }
+      expect(stopped).toEqual([]);
+      // The - side lines of both doors (the ones the simulator found stopped) cross over the bare colliders: not vacuous.
+      expect(crossing).toBeGreaterThanOrEqual(32);
+    }, 300_000);
+  }
 });
