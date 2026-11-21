@@ -1851,6 +1851,7 @@ one of these files fails the check until its row is written.
 | `COASTER_RIDE_PACE`, `COASTER_PHYSICS` | const | The ride's time scale and every physics constant; `COASTER_PHYSICS` is JSON-serialised into `config.physics` (§4.1, §9). |
 | `CoasterPhysics` | type | Type of `COASTER_PHYSICS`. |
 | `COASTER_RIDER_VIEW` | const | Rider camera defaults (§4.1). |
+| `COASTER_DEBUG_ENV` | const | `CRAFTMATIC_COASTER_DEBUG`: a CLI build with it `=1` ships `COASTER_RIDER_VIEW` plus `debug` (the `native-debug` content-log lines: the matched client timing at every arm, the seat eye each tick); no timing changes (COAST-06). |
 | `CoasterRiderViewMode` | type | `roll` / `rollover` / `clamp` / `over` / `off`. |
 | `CoasterRiderViewConfig` | interface | Camera constants the runtime reads from `config.camera`. |
 | `CoasterClientTiming` | interface | One measured client's `animLag` / `bodyLag`, matched on its reported `graphicsMode` and render distance (`COASTER_RIDER_VIEW.clientTimings`; a fingerprint of measured phones, round 30zv). |

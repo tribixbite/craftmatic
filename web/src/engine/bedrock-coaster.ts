@@ -639,6 +639,20 @@ export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'nat
   clientTimings: [{ label: 'Pixel 8 Pro (Deferred, render distance 24; Minecraft 1.26.62.1, rounds 2026-11-19f and 19g; body lag 30zt)', graphicsMode: 'Deferred', maxRenderDistance: 24, animLag: PIXEL_2662_ANIM_LAG, bodyLag: 3.3 }], animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
   steepTilt: 25, steepSpeed: 5, blendTicks: 6, sectionGap: 12, sectionHorizon: 160 };
 
+/**
+ * The environment variable a CLI build sets (`=1`) to ship `COASTER_RIDER_VIEW.debug`: the camera's `native-debug`
+ * content-log lines (the matched client timing and its `animLag` at every arm, one line a tick with the seat's eye).
+ * DIAGNOSTICS ONLY - no timing changes. Added for COAST-06: the Pixel rounds 2026-11-20 19g and 20b, planned 1.5 and
+ * 2.5, drew the same eye-ahead graze, and nothing in their content logs said which `clientTimings` entry had matched.
+ */
+export const COASTER_DEBUG_ENV = 'CRAFTMATIC_COASTER_DEBUG';
+
+/** The camera config a pack ships: `COASTER_RIDER_VIEW`, plus `debug` when `COASTER_DEBUG_ENV` is `1` (never mutated). */
+function exportedCoasterCamera(): CoasterRiderViewConfig {
+  const flag = typeof process !== 'undefined' ? process.env?.[COASTER_DEBUG_ENV] : undefined;
+  return flag === '1' ? { ...COASTER_RIDER_VIEW, debug: true } : { ...COASTER_RIDER_VIEW };
+}
+
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
 const STATION_FLAT_GRADE = 0.08;
 /** A station sits low: only flat runs inside this fraction of the route's
@@ -1675,7 +1689,7 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
     };
   });
   return { typeId, routes: runtimeRoutes, types, physics: COASTER_PHYSICS,
-    ...(runtimeRoutes.some(route => route.zonePlan?.blocks.length) ? { blockGap: COASTER_ZONES.BLOCK_GAP } : {}), camera: { ...COASTER_RIDER_VIEW }, hopTags: { train: HOP_TAGS.train, rank: HOP_TAGS.rank },
+    ...(runtimeRoutes.some(route => route.zonePlan?.blocks.length) ? { blockGap: COASTER_ZONES.BLOCK_GAP } : {}), camera: exportedCoasterCamera(), hopTags: { train: HOP_TAGS.train, rank: HOP_TAGS.rank },
     dismountFloat: { dropBlocks: FLYER.DISMOUNT_DROP_BLOCKS, ticks: FLYER.DISMOUNT_SLOW_FALL_TICKS },
     cameraRelease: { tag: CAMERA_OWNER_TAG, hidden: HOP_TAGS.hidden, every: CAMERA_SWEEP_TICKS },
     ...(runtimeRoutes.some(route => route.physics?.DRIVER) ? { inputEvent: FLIGHT_INPUT_EVENT } : {}) };

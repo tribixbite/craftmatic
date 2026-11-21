@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import {
   COASTER_MAX_CARS, PARKED_SIDING_FACTOR, TRACK_TWIST_RATE_DEG_PER_BLOCK, buildCoasterRideAssets, canonicalCoasterCar, coasterCarWheelbaseLdu, coasterCartAssets, coasterMaxSpacing, coasterRoutesFromAssemblies,
   coasterRuntimeConfig, coasterScript, coasterTrackUps, findCoasterStation, planCoasterVehicles, resolveCoasterCars, COASTER_CAR_LENGTH,
-  COASTER_PHYSICS, COASTER_RIDE_PACE, COASTER_RIDER_VIEW, coasterCarAttitude, coasterLoopRadius, coasterParkedCarPoses, coasterRiderLook, coasterRiderView,
+  COASTER_DEBUG_ENV, COASTER_PHYSICS, COASTER_RIDE_PACE, COASTER_RIDER_VIEW, coasterCarAttitude, coasterLoopRadius, coasterParkedCarPoses, coasterRiderLook, coasterRiderView,
 } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterRiderViewConfig, CoasterRoute, CoasterRouteCar, CoasterRuntimeConfig } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterCar } from '../web/src/engine/coaster-assemblies.js';
@@ -2999,6 +2999,25 @@ describe('the rider camera follows the track', () => {
       expect(d.e).toHaveLength(3);
     }
     expect(ticks.some((d: any) => d.s === 'a') && ticks.some((d: any) => d.s === 'p')).toBe(true);
+  });
+
+  it('a CLI build with CRAFTMATIC_COASTER_DEBUG=1 ships camera.debug, every other build does not (COAST-06: the Pixel 1.26.62 rounds 19g and 20b could not show which timing entry matched)', () => {
+    const before = process.env[COASTER_DEBUG_ENV];
+    try {
+      delete process.env[COASTER_DEBUG_ENV];
+      expect(coasterRuntimeConfig('craftmatic:x', [loopRoute()]).camera!.debug).toBeUndefined();
+      process.env[COASTER_DEBUG_ENV] = '0';
+      expect(coasterRuntimeConfig('craftmatic:x', [loopRoute()]).camera!.debug).toBeUndefined();
+      process.env[COASTER_DEBUG_ENV] = '1';
+      const camera = coasterRuntimeConfig('craftmatic:x', [loopRoute()]).camera!;
+      expect(camera.debug).toBe(true);
+      // Diagnostics only: every timing the device rides with is the shipped one.
+      expect({ ...camera, debug: undefined }).toEqual({ ...COASTER_RIDER_VIEW, debug: undefined });
+      // And the shared constant is never mutated by a debug build.
+      expect(COASTER_RIDER_VIEW.debug).toBeUndefined();
+    } finally {
+      if (before === undefined) delete process.env[COASTER_DEBUG_ENV]; else process.env[COASTER_DEBUG_ENV] = before;
+    }
   });
 
   it('native mode hands the view back the tick the train leaves its plan, instead of riding the animation on without it (COAST-06, round 30zq: the camera sat at the top of the drop while the train fell away)', () => {
