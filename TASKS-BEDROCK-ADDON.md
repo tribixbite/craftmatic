@@ -62,19 +62,16 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   in the next round. NEXT Saga round: bus drive-shut, G 10303 riders, cars-1 spacing with a CMVT/coaster telemetry
   line if one exists. Foreground app is Bambu Handy: return to it after a round. 19d left the McLaren
   wand at 90 / 100 %.
-- PIXEL ROUND 19f (2026-11-19, `output/device-round-2026-11-19a/pixel-19f/notes.md`, world 924): the Pixel is now on
-  Minecraft 1.26.62.1 (was 1.26.60.4). E cockpit at speed PASS (40 mph, lag 0.5). K 10303 car 2 FAIL: the eye passes
-  through a rider in the drop/loop 1 and loop 2 (`frames/k2a-12fps-t36.5.jpg`, `t39.5.jpg`); car 3 PASS (one
-  light-blue frame at the hand-back). Binding all 26 world packs + the round's 2 crashed Minecraft at load (OOM): bind
-  only the round's packs. FIXED OFFLINE (branch gen-pix62, 9c31471b): the rider is car 3's (grey hair, pink torso, the
-  car BEHIND; car 1's is pink hair over a yellow face), and the Pixel on 1.26.62.1 draws at ~1.5 ticks (sim frame match
-  1.4 by the head's width; the 19f cockpit needs >= 1.5), so the 3.5 plan put the eye ~2 ticks behind its seat. Pixel
-  `animLag` 1.5 (`PIXEL_2662_ANIM_LAG`, `clientProfile('pixel-26.62')`, quirk `client-entity-lag` `pixel2662Ticks`);
-  `docs/coaster-loop-camera.md` section 5. Sim: device pack `pixel-26.62` 10303 car 2 99 frames within 0.3 block of
-  another car (car 3 0, a 1.83-block hand-back cut); rebuilt, 3 laps, 10303 cars 2 and 3 pass on `pixel-26.62` and
-  `saga-26.62` (0 frames, eye jump <= 0.19); 10261 cars 2 and 3 pass on both (0 frames, jump <= 0.03); a 26.52 Pixel (`--client=pixel`) would now ride ~2 ticks ahead (10303 car 2 96 frames within 0.3). Sweep frames and logs: `output/pix62/` in the
-  gen-pix62 worktree. NEXT: Pixel ride, brief `output/pix62/brief-pixel-19g.md` (gen-pix62 worktree; packs
-  `output/pix62-packs-9c31471b/`).
+- PIXEL 1.26.62.1 COASTER LAG (COAST-06, branch gen-pix62, NOT merged): round 19f (planned 3.5) put 10303 car 2's eye
+  in car 3's rider BEHIND; round 19g (2026-11-20, `output/device-round-2026-11-19a/pixel-19g/notes.md`, packs
+  9c31471b planned 1.5) put it AHEAD - 10303 car 2 saw car 1's rider swell in the drop and loop 2, 10261 car 2 went
+  inside the rider ahead twice a lap; 10303 car 3 PASS; 19f E cockpit PASS. The simulator reads the rides as 2.0
+  (10303) to 2.9 (10261) ticks: Pixel `animLag` 2.5 (5f3d8d79; `output/pix62g/` holds the sweeps, `pinkwidth.py`,
+  `darkwidth.py`, `series*.py`, the previews and gates). Rebuilt packs `output/pix62-packs-5f3d8d79/` (gen-pix62
+  worktree): 10303 sha256 c01549dd8f4812eb..., 10261 a4864a8a63f4ca07...; 3-lap gates: 10303 cars 2/3 pass on
+  pixel-26.62 and saga-26.62 (0 frames within 0.3 block); 10261 cars 2/3 pass on both (0 frames, eye jump <= 0.03). NEXT: Pixel round 20b, brief
+  `output/device-round-2026-11-19a/brief-pixel-20b.md` (main checkout; evidence `pixel-20b/`). If 20b passes,
+  merge gen-pix62 into main. Bind only the round's packs on the Pixel (all 26 + the round OOM-crash at load).
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
   --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
   --out=output/gengate-6fa0afa6`): 60/60 built, child play 710/720 (fails: 5482 windows out of reach + doorway holes
