@@ -15,9 +15,11 @@ all favourite packs sent, then "modularization - making any set as high quality 
 tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`).
 - DONE: audit `output/audit-1115/AUDIT.md` (22 findings, scorecard, "does not generalise" section 4). Fixed in
   waves 1-3 (branches `audit-*`, all merged into main by `530b6d3f`; history in `git log --merges --grep=audit-`).
-- FINAL GATE `530b6d3f`: `bun scripts/_favourites_gate.ts --build --with-gabby --faces=C:/git/craftmatic/output/faces-art-1115
-  --out=output/favgate-530b6d3f` (sweep now also builds every regression pack): 47/47 built, child play 564/564 at
-  50-400 %, vehicles PASS, regressions 0 failed / 2 not tested. Report `output/favgate-530b6d3f/gate.md`.
+- GATE `41e9850b` (2026-11-20, after the door-line tread pass 81bdd85b and the 11371 corner squares): `bun scripts/_favourites_gate.ts
+  --build --with-gabby --faces=C:/git/craftmatic/output/faces-art-1115 --out=output/favgate-41e9850b`: PASS - 57/57 packs
+  built (337 min), child play 684/684 at 50-400 %, vehicles PASS, regressions 55 selected / 0 failed / 0 not tested
+  (530b6d3f's two not-tested 76417 cases now judged). 10337's car body 4 coplanar pairs, 0.00 block faces (fixed by
+  a486b95d; the 3.84 reading was the 530b6d3f build). Report `output/favgate-41e9850b/gate.md`.
 - SENT 2026-11-16: `output/share-2026-11-16-530b6d3f/craftmatic-favourites-530b6d3f-part{1,2}of2.zip` (40 packs,
   `PACKS.md` with hashes; one 40.8 MiB zip exceeds the 30 MiB upload limit). Not yet on a device.
 - OPEN (offline):
@@ -27,14 +29,6 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
     Doors 2/4: corner-square forms (gen-clear MERGED 1219a190, suite rc=0; new block ids `_w/_f/_c15..18`, device-unproven) fixed the door-frame
     corner gap (grid (20,1..3,5) = world origin + that offset, inside the shop behind Door 2; NOT a lamp post); the sim walk now stops at the next cell, a part box the drawn route cuts (turn 0) and a plate over the
     ground at turn 90 (`TODO(walk-attribution)`). 42670 Door 3 tread across the ground route.
-  - FIXED on branch worktree-agent-ad455958f4541bd37 (NOT merged, 2026-11-20): 71043 sim `place-400-0`/`-90` (32 violations
-    since gen-reach ceaec7f1's run order). `newWallAt` reads a tread within 9/16 of the 100 % sill as the model's riser
-    (2 blocks at 400 %); a new door-line pass (`doorLinePass`) reverts runs that stop a doorway column line which
-    crosses with no tread. Evidence `output/t71/` in that worktree: sim 48/48 (71043, 76419, 21063, 21061 at 100-400 %),
-    `_ix_passability` 71043 Door 1 400 % SEALED -> OK (only change), microscale tread runs and the three SCALE-06 walk
-    lines identical to main. The pass also took 2 runs off 41732 at 300 % turn 90 (door lines of approaches 3 and 4;
-    4362 -> 4356 surfaces, replay test floor lowered 4359 -> 4356). Next: merge, then the favourites gate
-    (`_favourites_gate.ts --build`): other door sets may lose runs to the pass; unmeasured.
   - Brick-built doors (10354, 42639, 910049): traced 2026-11-19 (gen-brickdoor), none hangs on a joint the geometry
     shows - 10354's round leaf is built into the wall's courses, 42639's garage door hangs from nothing (its pins
     miss the pegholes; a linkage, `TODO(garage-linkage)`), 910049's gate is the moulded 60621 already shipped.
@@ -42,8 +36,7 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
     docs/bedrock-interactivity.md "Brick-built doors".
   - Coplanar pairs on moving actors: parked coaster cars and lift cars are separated where they rest since 2026-11-19
     (10303 0.00, 10261 0.04, 10788 0.00 block faces at parked poses). Left: source-seated figures on their seats
-    (`TODO(a17-moving)`, 10261 fig2 0.04), the fabricated grey cart (10341 0.40). 10337's car body: 5,543 pairs the
-    per-entity pass leaves (3.84 block faces; was 0.24 at the audit) - regression on its wheel bones, unowned.
+    (`TODO(a17-moving)`, 10261 fig2 0.04), the fabricated grey cart (10341 0.40).
   - Boxed parts on `test/fixtures/favourites-aabb-allowlist.json` (76417 1004705 wand sprue, 3469/68503/104814 no mould,
     43267 28705 bl_ frame unmeasured); flexible strings/tubes/chains (`TODO(mb-flexible-other)`).
   - Faces: 100-ish heads with no print in any source; the web app ships LDraw prints only (route-2 art is local,
