@@ -2576,7 +2576,7 @@ describe('the rider camera follows the track', () => {
     // to ~2.5 (rides read 2.0-2.9), bracketed by plans on both sides: at 3.5 the eye sat in car 3's rider behind (round
     // 19f), at 1.5 close behind or inside the rider ahead (round 19g).
     expect(COASTER_RIDER_VIEW.clientTimings?.find(t => t.graphicsMode === 'Deferred')?.animLag).toBe(quirkValue('client-entity-lag', 'pixel2662Ticks'));
-    expect(quirkValue('client-entity-lag', 'pixel2662Ticks')).toBe(2.5);
+    expect(quirkValue('client-entity-lag', 'pixel2662Ticks')).toBe(3);
     expect(COASTER_RIDER_VIEW.tickLag).toBe(1.5);
     expect(COASTER_RIDER_VIEW.mode).toBe('native');
     // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.

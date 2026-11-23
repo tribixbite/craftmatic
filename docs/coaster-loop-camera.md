@@ -34,7 +34,7 @@ rides recorded on screen.
 | A keyframe's rotation is in a **Z-mirrored** frame: `x` is the negated pitch and `y` is `180 − yaw` (the yaw `setCamera` would take). | Every keyframe is converted. Yaw ±90 is its own mirror, which is why probes along 10303's x-aligned loops missed this for a week. | `camera-keyframe-yaw-mirrored` |
 | A `playAnimation` sent while the player is on their own view (no script camera set) is never drawn. | Each animation is **armed**: one un-eased `setCamera` at the animation's first view, then `playAnimation` on the next tick. | `camera-animation-needs-camera` |
 | A `setCamera` sent while an animation plays takes over at once. An animation that **ends** before the next `setCamera` shows the player's own view for the gap. | The end of the hand-back is planned: the camera is cleared deliberately, not left to run out. | `camera-animation-cut` |
-| The client draws entities **behind** the server: Saga 5.7 ticks on 26.52 and ~3 on 1.26.62.1, Pixel 3.5 on 26.51 and ~2.5 on 1.26.62.1 (rides read 2.0-2.9; both 1.26.62 values derived, section 5). An actor property arrives **ahead** of the position sent with it: Saga 4.1 ticks (26.52), Pixel 3.3. | A camera on the server's schedule sits in the car ahead. Every pose the camera follows is shifted back to the **drawn** car, per client. | `client-entity-lag`, `property-ahead-of-position` |
+| The client draws entities **behind** the server: Saga 5.7 ticks on 26.52 and ~3 on 1.26.62.1, Pixel 3.5 on 26.51 and ~3 on 1.26.62.1 (camprobe marker 3.2-3.6 over two sessions, rides 3.0-3.3, round 20c; the Saga's 1.26.62 value derived, section 5). An actor property arrives **ahead** of the position sent with it: Saga 4.1 ticks (26.52), Pixel 3.3. | A camera on the server's schedule sits in the car ahead. Every pose the camera follows is shifted back to the **drawn** car, per client. | `client-entity-lag`, `property-ahead-of-position` |
 | A rider's reported yaw (`getRotation`) is the client's, drawn on the drawn car and reported 7–9 ticks after the server's car yaw. | The player's head turn is measured against the car's yaw that far back, and fitted per rider. | `rider-yaw-lag` |
 
 The table rules out the obvious design. A per-tick `setCamera` cannot roll or
@@ -313,12 +313,18 @@ about 2.5 (rounds 2026-11-19f and 19g), so a phone still on 26.52 now rides ~2.7
   sits `entity lag - animLag` ticks AHEAD of the drawn seat, so the 19f estimate
   was on the right side of 3.5 but short. One session's rides span ~2.0-2.9 (a
   26.52 camprobe run stepped 0.5-1.9 ticks within a run too), so the Pixel's
-  `animLag` is now their middle, 2.5 (`PIXEL_2662_ANIM_LAG`, quirk
-  `client-entity-lag` `pixel2662Ticks`, `clientProfile('pixel-26.62')`, which with
-  the cockpit's 0.5 plays 1 tick of the ease): every reading within 0.5 tick of
-  the seat. `bodyLag` stays 3.3, unmeasured on 1.26.62
-  (TODO(body-lag-2662)); a marker run would turn the derivation into a
-  measurement (TODO(client-lag-pixel-2662)).
+  `animLag` became their middle, 2.5. Round 2026-11-20 20c replaced that
+  derivation with a measurement (`output/device-round-2026-11-19a/pixel-20c/notes.md`):
+  a debug build (`CRAFTMATIC_COASTER_DEBUG=1`) logged that the Pixel entry matched
+  and that the plan's per-tick yaws equal the server car's (no drift); a camprobe v9
+  marker run read E 3.23 / 3.33 in one session and 3.59 in the next; the 2.5 plan
+  drew the FRONT car's rider (10303 runs backwards: `_vehicle_3` leads) growing to
+  1.2-1.6 x and 2-3 x in those two sessions, ~3.0 and ~3.3 on the simulator's scale.
+  So `animLag` is 3 (`PIXEL_2662_ANIM_LAG`, quirk `client-entity-lag`
+  `pixel2662Ticks`, `clientProfile('pixel-26.62')`, which with the cockpit's 0.5
+  plays 1.5 ticks of the ease), the low end because the 3.5 plan (19f) rode behind.
+  The session-to-session spread (~0.4 tick) is the remaining risk. `bodyLag` stays 3.3, unmeasured on 1.26.62
+  (TODO(body-lag-2662)).
 - **TODO(pixel-ride-lag):** a camprobe run on 1.26.52 reads the Pixel's entity
   lag at 5.1–5.4 ticks, yet the coaster planned at 5.5 rode worse than at 3.5.
   The cause is unexplained.

@@ -530,7 +530,7 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
     expect(median(oldAnim.map(ticksAhead))).toBeLessThan(-(quirkValue('client-entity-lag', 'sagaTicks') - clientProfile('saga-26.62').entityLagTicks) + 0.5);
   }, 120_000);
 
-  it('native mode on the Pixel at Minecraft 1.26.62.1 (`pixel-26.62`, the same Deferred / 24 fingerprint): the shipped Pixel lag 2.5 rides the drawn seat, between the two plans the phone rode: 3.5 put the eye BEHIND it, into car 3\'s grey-haired rider (round 19f K), 1.5 put it AHEAD, close behind or inside the rider ahead (round 19g K, K2) (COAST-06)', () => {
+  it('native mode on the Pixel at Minecraft 1.26.62.1 (`pixel-26.62`, the same Deferred / 24 fingerprint): the shipped Pixel lag 3 rides the drawn seat: a camprobe marker run read 3.2-3.6 in two sessions (round 20c), the 2.5 plan rode 0.4-0.9 tick ahead (rounds 20b, 20c) and 3.5 put the eye BEHIND, into the tail car\'s grey-haired rider (round 19f K) (COAST-06)', () => {
     const pixel2662 = clientProfile('pixel-26.62');
     expect(pixel2662.device).toEqual(clientProfile('pixel').device);
     expect(pixel2662.basis).toBe('derived');
@@ -539,8 +539,8 @@ describe('the coaster camera drawn on each client (synthetic loop course)', () =
     // graze into car 3's rider at a 3.5 plan: under ~2.3). 2.5 is the middle of 2.0-2.9. The cockpit (quirk
     // `cockpit-draw-lag` 0.5 = entity lag - played ease - the camera-first tick) then leaves 1 tick of the 2-tick ease.
     expect(pixel2662.entityLagTicks).toBe(quirkValue('client-entity-lag', 'pixel2662Ticks'));
-    expect(pixel2662.entityLagTicks).toBe(2.5);
-    expect(pixel2662.easeFactor).toBeCloseTo(0.5, 9);
+    expect(pixel2662.entityLagTicks).toBe(3);
+    expect(pixel2662.easeFactor).toBeCloseTo(0.75, 9);
     expect(pixel2662.entityLagTicks - quirkValue('cockpit-draw-lag', 'ticks') - 1 - easeSteadyLagTicks(0.1, pixel2662.easeFactor)).toBeCloseTo(0, 9);
     // The Pixel's shipped coaster timing is this client's lag (the fingerprint cannot see the version: TODO(coaster-lag-version)).
     const timing = COASTER_RIDER_VIEW.clientTimings!.find(t => t.graphicsMode === pixel2662.device.graphicsMode && t.maxRenderDistance === pixel2662.device.maxRenderDistance)!;

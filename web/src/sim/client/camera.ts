@@ -92,7 +92,9 @@ export interface ClientProfile {
  */
 export function clientProfile(name: ClientProfileName | 'pixel-26.51' | 'pixel-26.62' | 'saga-26.62'): ClientProfile {
   if (name === 'pixel-26.51') return { ...clientProfile('pixel'), entityLagTicks: quirkValue('client-entity-lag', 'pixel2651Ticks') };
-  // The Pixel on 1.26.62.1, DERIVED as the Saga's below (no marker run yet, TODO(client-lag-pixel-2662)):
+  // The Pixel on 1.26.62.1: 3 (quirk `client-entity-lag` `pixel2662Ticks`), from round 20c's camprobe marker runs
+  // (E 3.2-3.6 over two sessions) and its 10303 car-2 rides on a 2.5 plan (0.4-0.9 tick ahead); at 3 the cockpit
+  // reading leaves 1.5 ticks of the ease played (0.75). Earlier derivation, kept for its evidence:
   //  - the coaster on two plans (quirk `client-entity-lag` `pixel2662Ticks`): at the 26.51 3.5 (round 19f K, 10303 car
   //    2) the eye went into car 3's grey-haired rider (the car BEHIND), which the simulator draws at entity lags 1-2
   //    and not at 2.5; at 1.5 (round 19g) 10303 car 2 drew car 1's pink-haired rider (the car AHEAD) at 1.76 x its

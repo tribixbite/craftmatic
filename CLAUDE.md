@@ -384,8 +384,8 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   entities behind the server, and PHONES DIFFER**: Pixel 3.5 ticks, Saga 5.7
   (marker runs, `camprobe`; property lead 3.3 vs 4.1; round 30zv). **And
   VERSIONS differ**: Minecraft 1.26.62.1 moved the Saga to ~3 (cockpit 3 -> 0.5,
-  coaster 5.7 -> 3; round 2026-11-19c/d) and the Pixel to ~2.5 (coaster 3.5 -> 2.5,
-  rides read 2.0-2.9, bracketed by rounds 2026-11-19f at 3.5 and 19g at 1.5), and the fingerprint cannot see a
+  coaster 5.7 -> 3; round 2026-11-19c/d) and the Pixel to ~3 (coaster 3.5 -> 3,
+  camprobe 3.2-3.6 and rides 3.0-3.3 in round 2026-11-20 20c; 19f's 3.5 rode behind, 19g's 1.5 and 20b's 2.5 ahead), and the fingerprint cannot see a
   version, so a lag that suddenly "grazes" after an update is the client, not
   the pack. On 10303 the wrong lag put the eye in the car BEHIND's rider, which
   looks like the car ahead from inside. A 1.26.52

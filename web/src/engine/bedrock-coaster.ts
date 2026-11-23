@@ -528,7 +528,7 @@ export interface CoasterRiderViewConfig {
    * 2026-10-20a), but a coaster planned at 5.5 rode WORSE there (round 2026-10-20c: the camera inside the car ahead's
    * rider in every loop 1; at 3.5, 30zz, only late in loop 2 of car 2), so the Pixel keeps 3.5. TODO(pixel-ride-lag):
    * why the probe and the ride disagree on the Pixel (the Saga's 5.7 held in both on 26.52). Minecraft 1.26.62.1 moved the Saga
-   * to ~3 (round 2026-11-19d, `SAGA_2662_ANIM_LAG`) and the Pixel to ~2-2.9 (rounds 2026-11-19f and 19g, `PIXEL_2662_ANIM_LAG`;
+   * to ~3 (round 2026-11-19d, `SAGA_2662_ANIM_LAG`) and the Pixel to ~2-2.9 (rounds 2026-11-19f, 19g and 20c, `PIXEL_2662_ANIM_LAG`;
    * its 3.5 was the 26.51/26.52 reading). The defaults are the Saga's (the user's phone); an unknown client gets them, and
    * `debug` logs every client's fingerprint so a new phone can be measured and added.
    */
@@ -606,8 +606,15 @@ export interface CoasterRiderViewConfig {
 const SAGA_2662_ANIM_LAG = 3;
 
 /**
- * The Pixel 8 Pro's animation lag (its `clientTimings` entry, fingerprint Deferred / 24) on Minecraft 1.26.62.1. DERIVED
- * from three rides on that version, one plan each side of the seat (quirk `client-entity-lag` `pixel2662Ticks`):
+ * The Pixel 8 Pro's animation lag (its `clientTimings` entry, fingerprint Deferred / 24) on Minecraft 1.26.62.1: 3.
+ * MEASURED in round 2026-11-20 20c (`output/device-round-2026-11-19a/pixel-20c/notes.md`): a camprobe v9 animation over the moving marker read
+ * E 3.23 / 3.33 (sd 0.14 / 0.26, two spots) in one Minecraft session and 3.59 (sd 0.13) in the next; the debug pack's
+ * log proved the Pixel entry matched (animLag 2.5 on every `arm` line) and that the plan's per-tick track yaws equal
+ * the server car's (no drift), and 10303 car 2 on that 2.5 plan drew the FRONT car's pink-haired rider growing to
+ * 1.2-1.6 x its station width (session 1, ~0.4-0.5 tick ahead on the simulator's scale) and 2-3 x with washes
+ * (session 2, ~0.8 ahead): the rides read ~3.0 and ~3.3, the probe ~0.25 higher. 3 sits at the low end because a
+ * 3.5 plan put the eye BEHIND (round 19f, the tail car's grey-haired rider). Earlier derivation, three rides (the
+ * "car 3" there is 10303's FRONT car, `_vehicle_3`: that train runs backwards, round 20b):
  *  - round 2026-11-19f K, 10303 car 2 planned at the 26.51 marker reading 3.5: the eye passed through the grey-haired
  *    rider of car 3 (the car BEHIND) in the drop and in loop 2. The simulator on that pack draws that graze at entity
  *    lags 1, 1.5 and 2 and none at 2.5: that ride's lag was under ~2.3;
@@ -624,7 +631,7 @@ const SAGA_2662_ANIM_LAG = 3;
  * 19f E) then leaves 1 tick of the camera ease played. A Pixel still on 1.26.52 shares the fingerprint and now rides ~1
  * tick AHEAD of its seat (TODO(coaster-lag-version)).
  */
-const PIXEL_2662_ANIM_LAG = 2.5;
+const PIXEL_2662_ANIM_LAG = 3;
 
 /**
  * The rider's baseline view is the car's own frame: the eye where the rider's
