@@ -23,6 +23,7 @@ import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometr
 import { setLDrawRoot } from '../web/src/engine/ldraw-geometry.js';
 import { sceneGridPoint } from '../web/src/engine/bedrock-scene-actors.js';
 import { BEDROCK_UNITS_PER_LDU, SEATED_EYE_HEIGHT_BLOCKS as EYE } from '../web/src/engine/lego-scale.js';
+import { compileMolang } from '../web/src/ui/addon-preview-data.js';
 import { renderSeatToEntity } from '../web/src/engine/cockpit-seat.js';
 import { buildCoasterFrames, buildCoasterPath } from '../web/src/engine/coaster-path.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
@@ -2039,6 +2040,27 @@ describe.skipIf(!HAVE_CORPUS)('10303 Loop Coaster: its own three cars, its platf
       const [hit] = (car.behavior as any)['minecraft:entity'].components['minecraft:custom_hit_test'].hitboxes;
       expect(hit.width).toBeGreaterThan((car.behavior as any)['minecraft:entity'].components['minecraft:collision_box'].width);
       expect(hit.pivot[1] - hit.height / 2).toBeLessThan(0);
+    }
+    // Another car's posed rider leaves the picture once the camera is past HALF the car spacing towards it (COAST-06,
+    // Pixel rounds 19f-20c: the Pixel's draw lag moved ~1 tick between days, and every miss put the eye into the rider
+    // of the car ahead or behind). The hide reads the camera-to-ROOT distance (quirk `lod-switch-camera-root`) over the
+    // car's scale: at the seat a neighbour's root is a whole spacing away and its rider stays.
+    for (const car of assets.compiled.filter(e => e.role === 'car')) {
+      const anim = JSON.parse(new TextDecoder().decode(assets.files.find(f => f.name === `RP/animations/${car.id}.animation.json`)!.data));
+      const expr: string = (Object.values(anim.animations)[0] as any).bones.rider_0.scale;
+      expect(expr).toMatch(/query\.distance_from_camera > [0-9.]+ \* query\.model_scale/);
+      const hide = Number(/distance_from_camera > ([0-9.]+)/.exec(expr)![1]);
+      const seat = assets.types[car.typeId]!.seat!;
+      const eye = Math.hypot(seat[0], seat[1] + EYE, seat[2]);
+      const spacing = runtime!.cars.spacing;
+      expect(hide).toBeGreaterThan(eye);
+      expect(hide).toBeLessThan(Math.hypot(spacing - Math.abs(seat[2]), seat[1] + EYE));
+      const at = (d: number, s: number) => compileMolang(expr)({ property: n => n === 'craftmatic:rider' ? 0 : n === 'craftmatic:occupied' ? false : undefined, query: q => q === 'distance_from_camera' ? d : q === 'model_scale' ? s : undefined, vars: new Map() });
+      expect(at(spacing, 1)).toBe(1);
+      expect(at(hide * 0.9, 1)).toBe(0);
+      // At 200 % the spacing doubles and so does the hide; a client without `model_scale` (0) never hides.
+      expect(at(hide * 1.5, 2)).toBe(0);
+      expect(at(hide * 0.5, 0)).toBe(1);
     }
     // Two trains: six car actors (indices 0..5), the second train a copy of the first's types.
     expect(runtime!.cars.trains).toBe(2);

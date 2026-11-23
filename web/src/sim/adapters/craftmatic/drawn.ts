@@ -44,10 +44,18 @@ export function packClientAnimations(addon: Addon, notes: string[] = []): Map<st
   return readClientAnimations(entities, animations, notes);
 }
 
-/** One entity's animated bone poses this frame, evaluated on the properties the client applies (`ClientView.drawnProperties`). */
-export function animatedPoses(set: ClientAnimationSet | undefined, properties: Readonly<Record<string, number | boolean | string>>): Map<string, BonePose> | undefined {
+/** The client queries a drawn frame answers: the camera-to-ROOT distance in blocks and the entity's `minecraft:scale`. */
+export interface DrawnQueries { distanceFromCamera?: number; modelScale?: number }
+
+/**
+ * One entity's animated bone poses this frame, evaluated on the properties the client applies (`ClientView.drawnProperties`)
+ * and, where the caller knows them, `query.distance_from_camera` (quirk `lod-switch-camera-root`) and `query.model_scale`
+ * (a coaster car's neighbour-rider hide, quirk `rider-hide-camera-distance`). An unanswered query reads 0, as before.
+ */
+export function animatedPoses(set: ClientAnimationSet | undefined, properties: Readonly<Record<string, number | boolean | string>>, queries: DrawnQueries = {}): Map<string, BonePose> | undefined {
   if (!set) return undefined;
-  const env: MolangEnv = { property: name => properties[name], query: () => undefined, vars: new Map() };
+  const query = (name: string): number | undefined => name === 'distance_from_camera' ? queries.distanceFromCamera : name === 'model_scale' ? queries.modelScale : undefined;
+  const env: MolangEnv = { property: name => properties[name], query, vars: new Map() };
   initializeClientAnimations(set, env);
   return evaluateClientAnimations(set, env);
 }

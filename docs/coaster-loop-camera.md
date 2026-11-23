@@ -323,7 +323,14 @@ about 2.5 (rounds 2026-11-19f and 19g), so a phone still on 26.52 now rides ~2.7
   So `animLag` is 3 (`PIXEL_2662_ANIM_LAG`, quirk `client-entity-lag`
   `pixel2662Ticks`, `clientProfile('pixel-26.62')`, which with the cockpit's 0.5
   plays 1.5 ticks of the ease), the low end because the 3.5 plan (19f) rode behind.
-  The session-to-session spread (~0.4 tick) is the remaining risk. `bodyLag` stays 3.3, unmeasured on 1.26.62
+  The spread between days is larger: 19f and 19g (2026-11-19/20) rode as ~2.0,
+  20b and 20c that night as ~3.0-3.3, so no single value holds every day. Each
+  car's posed rider is therefore also hidden while the camera is within
+  `neighbourRiderHide` of that car's root (half a car spacing from the seat eye,
+  `query.distance_from_camera > D * query.model_scale` on the `rider_k` bones):
+  a miss shows the car ahead or behind without the inside of its rider's head.
+  That the query follows an animated camera on the device is assumed (quirk
+  `rider-hide-camera-distance`, TODO(rider-hide-device)). `bodyLag` stays 3.3, unmeasured on 1.26.62
   (TODO(body-lag-2662)).
 - **TODO(pixel-ride-lag):** a camprobe run on 1.26.52 reads the Pixel's entity
   lag at 5.1–5.4 ticks, yet the coaster planned at 5.5 rode worse than at 3.5.
