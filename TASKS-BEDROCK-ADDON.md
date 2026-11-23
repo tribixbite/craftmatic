@@ -62,34 +62,18 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   in the next round. NEXT Saga round: bus drive-shut, G 10303 riders, cars-1 spacing with a CMVT/coaster telemetry
   line if one exists. Foreground app is Bambu Handy: return to it after a round. 19d left the McLaren
   wand at 90 / 100 %.
-- PIXEL 1.26.62.1 COASTER LAG (COAST-06, branch gen-pix62, NOT merged; do NOT merge until a ride passes): rides of
-  10303 in the MIDDLE car (`_vehicle_2`; the train runs BACKWARDS: front->back vehicle_3 pink hair, vehicle_2 blue,
-  vehicle_1 grey hair; 10261 runs forwards, vehicle_1 front) read the Pixel's draw lag ~2.0 on 2026-11-19/20 (19f
-  planned 3.5: eye behind, in the tail rider; 19g planned 1.5: ahead) and ~3.0-3.3 that night (20b, 20c planned 2.5:
-  front rider 1.2-3 x its station width, washes). Probe round 20c (`output/device-round-2026-11-19a/pixel-20c/notes.md`):
-  the Pixel timing entry MATCHED, the plan's yaws equal the server car's (no drift: scratchpad-style check = the
-  `play` line's `yaws` vs the `t` lines' `car`), camprobe E 3.23/3.33 (session 1) and 3.59 (session 2). So the lag
-  moves ~1 tick between days. On gen-pix62: b0aa30aa Pixel animLag 2.5 -> 3; d750f1de every car's posed rider hidden
-  while the camera is within half a car spacing of its root (`neighbourRiderHide`, Molang
-  `query.distance_from_camera > D * query.model_scale`; quirk `rider-hide-camera-distance` ASSUMED on the device; side
-  effect: a player standing within ~D of a stopped car sees its rider vanish). Pixel round 20d (2026-11-23,
-  `output/device-round-2026-11-19a/pixel-20d/notes.md`, packs `output/pix62-packs-d750f1de-debug/`): FAIL. Timing
-  matched (56 `client` lines, 11 `arm` lines, animLag 3), camprobe E 3.54/3.37/3.21/3.27/3.15 (mean 3.31) - the plan's
-  lag equals the day's - yet 10303 `_vehicle_2` drew the FRONT rider at 2.2/2.9/2.5 x in each lap's first drop, under
-  the armed animation, and it was NOT hidden (1.4-1.7 x at later loops; one 2-frame own-body wash). So (1) the hide does
-  not fire on the device (model_scale 0, or distance_from_camera ignores an animated camera: one probe ride splits them,
-  `TODO(rider-hide-device)`), and (2) with lag matched the eye still reaches the car ahead: lag mismatch is NOT the
-  whole cause - suspect the neighbour car's drawn pose (property lead vs position lag, cf. `--other-prop-lead`, memory
-  2026-11-06: lead 0 gave the phone's car-2 shape). 10303 tail car: rider ahead ~1.3 x (eyeballed), one cyan/yellow
-  wash. 10261 car 2: rider ahead constant (0.8 fps sheet only). Station: neighbours' riders drawn. Station 1-block side
-  effect: unread (cars kept moving). Offline: the sim reproduces 20d's first drop (eye 0.2 from the car AHEAD, ride
-  ticks 334-423) only with the unridden cars' property lead at 0 (`--other-prop-lead=0`; 1.5 passes;
-  `output/pix62g/sim-opl/`), the open lead `TODO(body-lag-2662)`. 783e1cc4: the runtime hides every posed rider of the
-  train while any of its riders is on a set camera and `NEIGHBOUR_HIDE_TAIL` ticks after (`trainOnSetCamera`); the
-  Molang hide stays until that is proven, then remove it. Pack `output/pix62-packs-783e1cc4-debug/` (sha256 5bc2665a...),
-  sim car 2 lag 3 PASS. Pixel round 20e RUNNING (brief `output/device-round-2026-11-19a/brief-pixel-20e.md`, main
-  checkout; evidence `pixel-20e/`). Merge gen-pix62 only if 20e passes (full suite, push, CI). Bind only the
-  round's packs on the Pixel (all 26 + the round OOM-crash at load).
+- PIXEL 1.26.62.1 COASTER (COAST-06), MERGED from gen-pix62 2026-11-23: Pixel animLag 3 (b0aa30aa) and the train's
+  posed riders hidden by script property while any of its riders is on a set camera (`trainOnSetCamera`, 783e1cc4).
+  Pixel round 20e (`output/device-round-2026-11-19a/pixel-20e/notes.md`, pack `pix62-packs-783e1cc4-debug`, camprobe
+  E mean 3.49) PASS: 10303 middle car, 3 laps - the front rider gone during every animation (91.5-97.6 s etc.) and back
+  on level track (<= 1.29 x at the return), drawn at the station; tail car the same. Round 20d (same lag, Molang
+  camera-distance hide only) had drawn it at 2.2-2.9 x. OPEN: (1) WHY the animated eye reaches the car ahead with the
+  lag matched - the sim reproduces it only with the unridden cars' property lead at 0 (`--other-prop-lead=0`,
+  `output/pix62g/sim-opl/` in the gen-pix62 worktree), `TODO(body-lag-2662)`; (2) remove the Molang
+  `query.distance_from_camera` hide (`neighbourRiderHide`, quirk `rider-hide-camera-distance`: refuted on the Pixel),
+  `TODO(rider-hide-device)`; (3) the front rider reads up to 1.36 x on level track just after a return (own view);
+  (4) 10261 with the property hide not ridden (20d's 10261 ride was steady without it). Bind only the round's packs on
+  the Pixel (all 26 + the round OOM-crash at load).
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
   --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
   --out=output/gengate-6fa0afa6`): 60/60 built, child play 710/720 (fails: 5482 windows out of reach + doorway holes
