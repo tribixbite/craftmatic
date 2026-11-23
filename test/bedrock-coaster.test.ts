@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import {
   COASTER_MAX_CARS, PARKED_SIDING_FACTOR, TRACK_TWIST_RATE_DEG_PER_BLOCK, buildCoasterRideAssets, canonicalCoasterCar, coasterCarWheelbaseLdu, coasterCartAssets, coasterMaxSpacing, coasterRoutesFromAssemblies,
   coasterRuntimeConfig, coasterScript, coasterTrackUps, findCoasterStation, planCoasterVehicles, resolveCoasterCars, COASTER_CAR_LENGTH,
-  COASTER_PHYSICS, COASTER_RIDE_PACE, COASTER_RIDER_VIEW, coasterCarAttitude, coasterLoopRadius, coasterParkedCarPoses, coasterRiderLook, coasterRiderView,
+  COASTER_DEBUG_ENV, COASTER_PHYSICS, COASTER_RIDE_PACE, COASTER_RIDER_VIEW, coasterCarAttitude, coasterLoopRadius, coasterParkedCarPoses, coasterRiderLook, coasterRiderView,
 } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterRiderViewConfig, CoasterRoute, CoasterRouteCar, CoasterRuntimeConfig } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterCar } from '../web/src/engine/coaster-assemblies.js';
@@ -23,6 +23,7 @@ import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometr
 import { setLDrawRoot } from '../web/src/engine/ldraw-geometry.js';
 import { sceneGridPoint } from '../web/src/engine/bedrock-scene-actors.js';
 import { BEDROCK_UNITS_PER_LDU, SEATED_EYE_HEIGHT_BLOCKS as EYE } from '../web/src/engine/lego-scale.js';
+import { compileMolang } from '../web/src/ui/addon-preview-data.js';
 import { renderSeatToEntity } from '../web/src/engine/cockpit-seat.js';
 import { buildCoasterFrames, buildCoasterPath } from '../web/src/engine/coaster-path.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
@@ -137,7 +138,9 @@ const LOOP_MODE = { mode: 'loop' as const, animLag: 3.5, clientTimings: [] };
 
 interface RideHostOptions extends CoasterSimOptions { riders?: boolean; scale?: number; wheelbase?: number; seat?: [number, number, number]; camera?: Partial<CoasterRiderViewConfig>;
   /** A pack built before the rider camera existed: its config carries no `camera`. */
-  noCamera?: boolean }
+  noCamera?: boolean;
+  /** Every car carries one posed rider (slot rider 0), as a set's own cars do: the runtime then writes `craftmatic:rider`. */
+  posedRiders?: boolean }
 
 /** One host per placement. A route that declares a train gets that many car
  * entities, all spawned at the same station point the placement uses. The
@@ -148,6 +151,10 @@ function rideHost(route: CoasterRoute, options: RideHostOptions = {}) {
   // read where the bricks are drawn from the position and body offset of ONE tick. The shipped 3.3 has its own test.
   const config: CoasterRuntimeConfig = { ...bare, camera: { ...bare.camera!, bodyLag: 0, ...(options.camera ?? {}) }, types: { ...bare.types, 'craftmatic:test_cart': { ...bare.types['craftmatic:test_cart']!, ...(options.wheelbase !== undefined ? { wheelbase: options.wheelbase } : {}), ...(options.seat ? { seat: options.seat } : {}) } } };
   if (options.noCamera) delete config.camera;
+  if (options.posedRiders) {
+    config.types['craftmatic:test_cart'] = { ...config.types['craftmatic:test_cart']!, riders: 1 };
+    config.routes[0] = { ...config.routes[0]!, cars: { ...config.routes[0]!.cars, slots: Array.from({ length: config.routes[0]!.cars.count }, (_, k) => ({ type: 'craftmatic:test_cart', rider: 0, label: `Car ${k + 1}`, train: 0 })) } };
+  }
   const count = config.routes[0]!.cars.count;
   const world = coasterSim(config, options);
   const { h } = world;
@@ -2040,6 +2047,27 @@ describe.skipIf(!HAVE_CORPUS)('10303 Loop Coaster: its own three cars, its platf
       expect(hit.width).toBeGreaterThan((car.behavior as any)['minecraft:entity'].components['minecraft:collision_box'].width);
       expect(hit.pivot[1] - hit.height / 2).toBeLessThan(0);
     }
+    // Another car's posed rider leaves the picture once the camera is past HALF the car spacing towards it (COAST-06,
+    // Pixel rounds 19f-20c: the Pixel's draw lag moved ~1 tick between days, and every miss put the eye into the rider
+    // of the car ahead or behind). The hide reads the camera-to-ROOT distance (quirk `lod-switch-camera-root`) over the
+    // car's scale: at the seat a neighbour's root is a whole spacing away and its rider stays.
+    for (const car of assets.compiled.filter(e => e.role === 'car')) {
+      const anim = JSON.parse(new TextDecoder().decode(assets.files.find(f => f.name === `RP/animations/${car.id}.animation.json`)!.data));
+      const expr: string = (Object.values(anim.animations)[0] as any).bones.rider_0.scale;
+      expect(expr).toMatch(/query\.distance_from_camera > [0-9.]+ \* query\.model_scale/);
+      const hide = Number(/distance_from_camera > ([0-9.]+)/.exec(expr)![1]);
+      const seat = assets.types[car.typeId]!.seat!;
+      const eye = Math.hypot(seat[0], seat[1] + EYE, seat[2]);
+      const spacing = runtime!.cars.spacing;
+      expect(hide).toBeGreaterThan(eye);
+      expect(hide).toBeLessThan(Math.hypot(spacing - Math.abs(seat[2]), seat[1] + EYE));
+      const at = (d: number, s: number) => compileMolang(expr)({ property: n => n === 'craftmatic:rider' ? 0 : n === 'craftmatic:occupied' ? false : undefined, query: q => q === 'distance_from_camera' ? d : q === 'model_scale' ? s : undefined, vars: new Map() });
+      expect(at(spacing, 1)).toBe(1);
+      expect(at(hide * 0.9, 1)).toBe(0);
+      // At 200 % the spacing doubles and so does the hide; a client without `model_scale` (0) never hides.
+      expect(at(hide * 1.5, 2)).toBe(0);
+      expect(at(hide * 0.5, 0)).toBe(1);
+    }
     // Two trains: six car actors (indices 0..5), the second train a copy of the first's types.
     expect(runtime!.cars.trains).toBe(2);
     expect(runtime!.dispatch).toMatchObject({ ahead: expect.any(Number) });
@@ -2573,8 +2601,10 @@ describe('the rider camera follows the track', () => {
     // is the Saga on 1.26.62.1 (~3, derived from round 19d's ride). This loop-mode test keeps the Pixel's 3.5 (LOOP_MODE).
     expect(COASTER_RIDER_VIEW.animLag).toBe(quirkValue('client-entity-lag', 'saga2662Ticks'));
     // The Pixel rode at 3.5 through 1.26.52 (planned at a probe's 5.5 it rode worse, round 2026-10-20c); 1.26.62.1 moved it
-    // to ~1.5 (round 19f: the eye in car 3's rider at 3.5).
+    // to ~2.5 (rides read 2.0-2.9), bracketed by plans on both sides: at 3.5 the eye sat in car 3's rider behind (round
+    // 19f), at 1.5 close behind or inside the rider ahead (round 19g).
     expect(COASTER_RIDER_VIEW.clientTimings?.find(t => t.graphicsMode === 'Deferred')?.animLag).toBe(quirkValue('client-entity-lag', 'pixel2662Ticks'));
+    expect(quirkValue('client-entity-lag', 'pixel2662Ticks')).toBe(3);
     expect(COASTER_RIDER_VIEW.tickLag).toBe(1.5);
     expect(COASTER_RIDER_VIEW.mode).toBe('native');
     // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
@@ -2999,6 +3029,25 @@ describe('the rider camera follows the track', () => {
     expect(ticks.some((d: any) => d.s === 'a') && ticks.some((d: any) => d.s === 'p')).toBe(true);
   });
 
+  it('a CLI build with CRAFTMATIC_COASTER_DEBUG=1 ships camera.debug, every other build does not (COAST-06: the Pixel 1.26.62 rounds 19g and 20b could not show which timing entry matched)', () => {
+    const before = process.env[COASTER_DEBUG_ENV];
+    try {
+      delete process.env[COASTER_DEBUG_ENV];
+      expect(coasterRuntimeConfig('craftmatic:x', [loopRoute()]).camera!.debug).toBeUndefined();
+      process.env[COASTER_DEBUG_ENV] = '0';
+      expect(coasterRuntimeConfig('craftmatic:x', [loopRoute()]).camera!.debug).toBeUndefined();
+      process.env[COASTER_DEBUG_ENV] = '1';
+      const camera = coasterRuntimeConfig('craftmatic:x', [loopRoute()]).camera!;
+      expect(camera.debug).toBe(true);
+      // Diagnostics only: every timing the device rides with is the shipped one.
+      expect({ ...camera, debug: undefined }).toEqual({ ...COASTER_RIDER_VIEW, debug: undefined });
+      // And the shared constant is never mutated by a debug build.
+      expect(COASTER_RIDER_VIEW.debug).toBeUndefined();
+    } finally {
+      if (before === undefined) delete process.env[COASTER_DEBUG_ENV]; else process.env[COASTER_DEBUG_ENV] = before;
+    }
+  });
+
   it('native mode hands the view back the tick the train leaves its plan, instead of riding the animation on without it (COAST-06, round 30zq: the camera sat at the top of the drop while the train fell away)', () => {
     let held = -1;
     const { log, plays } = nativeRide(undefined, undefined, 600, (tick, h, events) => {
@@ -3015,6 +3064,31 @@ describe('the rider camera follows the track', () => {
     expectArmedPlays(log);
     // The ride goes on, and a later steep stretch is animated again.
     expect(plays.some(play => play.tick > clears[0]!.tick)).toBe(true);
+  });
+
+  it('native mode hides the train\'s other posed riders by property while a rider\'s animation plays, and shows them again after (COAST-06, Pixel round 20d: the camera-distance hide never fired and the front rider swelled 2.9 x)', () => {
+    // A three-car train, each car carrying one posed rider (slot rider 0); the camera rider boards the MIDDLE car.
+    const route: CoasterRoute = { ...loopCourse(), cars: { count: 3, spacing: 2.25 } };
+    const h = rideHost(route, { seat: [0, 0.35, 0], spline: true, posedRiders: true });
+    const { player } = cameraRider(h.cars[1]!.entity);
+    const plays: number[] = [];
+    let tick = 0;
+    (player.camera as any).playAnimation = vi.fn((_spline: unknown, options: any) => { plays.push(tick); plays.push(tick + Math.round(options.totalTimeSeconds / 0.05)); });
+    h.run(1); h.seat(player, 1);
+    /** The posed rider each car shows after a tick: its last `craftmatic:rider` write (1 = none, the type's rider count). */
+    const shown = (car: number) => (h.cars[car]!.entity.setProperty.mock.calls as Array<[string, number]>).filter(([n]) => n === 'craftmatic:rider').at(-1)?.[1];
+    const during: number[] = [], after: number[] = [], before: number[] = [];
+    for (tick = 0; tick < 1200; tick++) {
+      h.run(1);
+      if (plays.length === 0) before.push(shown(0)!, shown(2)!);
+      else if (tick > plays[0]! + 2 && tick < plays[1]!) during.push(shown(0)!, shown(2)!);
+      else if (plays.length === 2 && tick > plays[1]! + 40) { after.push(shown(0)!, shown(2)!); if (after.length > 20) break; }
+    }
+    expect(plays.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(before)).toEqual(new Set([0]));
+    expect(during.length).toBeGreaterThan(0);
+    expect(new Set(during)).toEqual(new Set([1]));
+    expect(new Set(after)).toEqual(new Set([0]));
   });
 
   it('native mode carries the rider\'s head turn into the animation and back out of it', () => {

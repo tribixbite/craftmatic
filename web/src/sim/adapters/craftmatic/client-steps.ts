@@ -156,8 +156,9 @@ export function eyeInsideCoasterCars(engine: InvariantContext['engine'] | StepCo
     const entry = appearance.byType.get(e.typeId);
     if (!entry) continue;
     const p = view.drawnPose(e);
-    if (Math.hypot(p.x - eye.x, p.y - eye.y, p.z - eye.z) > reach * Math.max(1, p.scale)) continue;
-    const poses = animatedPoses(appearance.animations?.get(e.typeId), view.drawnProperties(e));
+    const fromCamera = Math.hypot(p.x - eye.x, p.y - eye.y, p.z - eye.z);
+    if (fromCamera > reach * Math.max(1, p.scale)) continue;
+    const poses = animatedPoses(appearance.animations?.get(e.typeId), view.drawnProperties(e), { distanceFromCamera: fromCamera, modelScale: p.scale });
     const boxes = drawnBoxes(entry, { x: p.x, y: p.y, z: p.z }, p.yaw, p.scale, 'near', poses).filter(d => !d.glass);
     const inside = boxes.some(d => drawnReaches(d, probe));
     if (inside) { if (e === own) out.own = true; else out.other = true; }

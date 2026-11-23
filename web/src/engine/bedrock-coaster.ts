@@ -528,7 +528,7 @@ export interface CoasterRiderViewConfig {
    * 2026-10-20a), but a coaster planned at 5.5 rode WORSE there (round 2026-10-20c: the camera inside the car ahead's
    * rider in every loop 1; at 3.5, 30zz, only late in loop 2 of car 2), so the Pixel keeps 3.5. TODO(pixel-ride-lag):
    * why the probe and the ride disagree on the Pixel (the Saga's 5.7 held in both on 26.52). Minecraft 1.26.62.1 moved the Saga
-   * to ~3 (round 2026-11-19d, `SAGA_2662_ANIM_LAG`) and the Pixel to ~1.5 (round 2026-11-19f, `PIXEL_2662_ANIM_LAG`;
+   * to ~3 (round 2026-11-19d, `SAGA_2662_ANIM_LAG`) and the Pixel to ~2-2.9 (rounds 2026-11-19f, 19g and 20c, `PIXEL_2662_ANIM_LAG`;
    * its 3.5 was the 26.51/26.52 reading). The defaults are the Saga's (the user's phone); an unknown client gets them, and
    * `debug` logs every client's fingerprint so a new phone can be measured and added.
    */
@@ -606,15 +606,32 @@ export interface CoasterRiderViewConfig {
 const SAGA_2662_ANIM_LAG = 3;
 
 /**
- * The Pixel 8 Pro's animation lag (its `clientTimings` entry, fingerprint Deferred / 24) on Minecraft 1.26.62.1. DERIVED
- * from round 2026-11-19f K (10303, car 2): planned at the 26.51 marker reading 3.5, the drop into loop 1 and loop 2 were
- * drawn ~2 ticks behind the drawn seat - car 3's grey-haired rider (the car BEHIND) seen from behind at about a block, then
- * the eye through its face - and car 3 (no car behind) rode clean. The simulator on that pack draws car 3's rider at the
- * device's size near an entity lag of 1.4 (quirk `client-entity-lag` `pixel2662Ticks`), and the Pixel's cockpit on the same
- * version (lag 0.5 in the cabin at 40 mph, round 19f E) needs at least 1.5: 1.5. A Pixel still on 1.26.52 shares the
- * fingerprint and now rides ~2 ticks AHEAD of its seat (TODO(coaster-lag-version)).
+ * The Pixel 8 Pro's animation lag (its `clientTimings` entry, fingerprint Deferred / 24) on Minecraft 1.26.62.1: 3.
+ * MEASURED in round 2026-11-20 20c (`output/device-round-2026-11-19a/pixel-20c/notes.md`): a camprobe v9 animation over the moving marker read
+ * E 3.23 / 3.33 (sd 0.14 / 0.26, two spots) in one Minecraft session and 3.59 (sd 0.13) in the next; the debug pack's
+ * log proved the Pixel entry matched (animLag 2.5 on every `arm` line) and that the plan's per-tick track yaws equal
+ * the server car's (no drift), and 10303 car 2 on that 2.5 plan drew the FRONT car's pink-haired rider growing to
+ * 1.2-1.6 x its station width (session 1, ~0.4-0.5 tick ahead on the simulator's scale) and 2-3 x with washes
+ * (session 2, ~0.8 ahead): the rides read ~3.0 and ~3.3, the probe ~0.25 higher. 3 sits at the low end because a
+ * 3.5 plan put the eye BEHIND (round 19f, the tail car's grey-haired rider). Earlier derivation, three rides (the
+ * "car 3" there is 10303's FRONT car, `_vehicle_3`: that train runs backwards, round 20b):
+ *  - round 2026-11-19f K, 10303 car 2 planned at the 26.51 marker reading 3.5: the eye passed through the grey-haired
+ *    rider of car 3 (the car BEHIND) in the drop and in loop 2. The simulator on that pack draws that graze at entity
+ *    lags 1, 1.5 and 2 and none at 2.5: that ride's lag was under ~2.3;
+ *  - round 2026-11-20 19g K, the same car planned at 1.5 (19f's derivation): car 1's pink-haired rider (the car AHEAD),
+ *    seen from behind, swelled to 1.76 x its station width in the drop and 1.8-2.4 x in loop 2. The simulator on that
+ *    pack draws the drop at none / 1.70 x / 3.36 x at entity lag 1.5 / 2 / 2.5: 1/width interpolation 2.0 (loop 2 2.1-2.4);
+ *  - round 19g K2, 10261 car 2 planned at 1.5: twice a lap the head of the rider ahead (1.25 blocks ahead) grew to ~0.92
+ *    of the frame height and went translucent (the eye inside it). The simulator draws it at 0.43 / 0.59 / 1.02 at 2 /
+ *    2.5 / 3: 2.9.
+ * So the phone drew between ~2.0 and ~2.9 ticks behind across one session's rides (a 26.52 camprobe run stepped by
+ * 0.5-1.9 ticks within a run as well). 2.5, the middle, keeps every reading within 0.5 tick of the seat: the 2.0 rides
+ * put the eye 0.5 tick behind (no car within reach at 10303's 2.25-block or 10261's 1.25-block spacing at those
+ * speeds), the 2.9 ride 0.4 tick ahead. The Pixel's cockpit on the same version (lag 0.5 in the cabin at 40 mph, round
+ * 19f E) then leaves 1 tick of the camera ease played. A Pixel still on 1.26.52 shares the fingerprint and now rides ~1
+ * tick AHEAD of its seat (TODO(coaster-lag-version)).
  */
-const PIXEL_2662_ANIM_LAG = 1.5;
+const PIXEL_2662_ANIM_LAG = 3;
 
 /**
  * The rider's baseline view is the car's own frame: the eye where the rider's
@@ -626,8 +643,22 @@ const PIXEL_2662_ANIM_LAG = 1.5;
  * "The rider's camera follows the track" section.
  */
 export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'native', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 8, animLag: SAGA_2662_ANIM_LAG, bodyLag: 4.1,
-  clientTimings: [{ label: 'Pixel 8 Pro (Deferred, render distance 24; Minecraft 1.26.62.1, round 2026-11-19f; body lag 30zt)', graphicsMode: 'Deferred', maxRenderDistance: 24, animLag: PIXEL_2662_ANIM_LAG, bodyLag: 3.3 }], animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
+  clientTimings: [{ label: 'Pixel 8 Pro (Deferred, render distance 24; Minecraft 1.26.62.1, rounds 2026-11-19f and 19g; body lag 30zt)', graphicsMode: 'Deferred', maxRenderDistance: 24, animLag: PIXEL_2662_ANIM_LAG, bodyLag: 3.3 }], animTail: 6, tickLag: 1.5, handbackBlend: 4, ratchet: false,
   steepTilt: 25, steepSpeed: 5, blendTicks: 6, sectionGap: 12, sectionHorizon: 160 };
+
+/**
+ * The environment variable a CLI build sets (`=1`) to ship `COASTER_RIDER_VIEW.debug`: the camera's `native-debug`
+ * content-log lines (the matched client timing and its `animLag` at every arm, one line a tick with the seat's eye).
+ * DIAGNOSTICS ONLY - no timing changes. Added for COAST-06: the Pixel rounds 2026-11-20 19g and 20b, planned 1.5 and
+ * 2.5, drew the same eye-ahead graze, and nothing in their content logs said which `clientTimings` entry had matched.
+ */
+export const COASTER_DEBUG_ENV = 'CRAFTMATIC_COASTER_DEBUG';
+
+/** The camera config a pack ships: `COASTER_RIDER_VIEW`, plus `debug` when `COASTER_DEBUG_ENV` is `1` (never mutated). */
+function exportedCoasterCamera(): CoasterRiderViewConfig {
+  const flag = typeof process !== 'undefined' ? process.env?.[COASTER_DEBUG_ENV] : undefined;
+  return flag === '1' ? { ...COASTER_RIDER_VIEW, debug: true } : { ...COASTER_RIDER_VIEW };
+}
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
 const STATION_FLAT_GRADE = 0.08;
@@ -1665,7 +1696,7 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
     };
   });
   return { typeId, routes: runtimeRoutes, types, physics: COASTER_PHYSICS,
-    ...(runtimeRoutes.some(route => route.zonePlan?.blocks.length) ? { blockGap: COASTER_ZONES.BLOCK_GAP } : {}), camera: { ...COASTER_RIDER_VIEW }, hopTags: { train: HOP_TAGS.train, rank: HOP_TAGS.rank },
+    ...(runtimeRoutes.some(route => route.zonePlan?.blocks.length) ? { blockGap: COASTER_ZONES.BLOCK_GAP } : {}), camera: exportedCoasterCamera(), hopTags: { train: HOP_TAGS.train, rank: HOP_TAGS.rank },
     dismountFloat: { dropBlocks: FLYER.DISMOUNT_DROP_BLOCKS, ticks: FLYER.DISMOUNT_SLOW_FALL_TICKS },
     cameraRelease: { tag: CAMERA_OWNER_TAG, hidden: HOP_TAGS.hidden, every: CAMERA_SWEEP_TICKS },
     ...(runtimeRoutes.some(route => route.physics?.DRIVER) ? { inputEvent: FLIGHT_INPUT_EVENT } : {}) };
@@ -1949,14 +1980,20 @@ function liftBehavior(typeId: string, collision: { width: number; height: number
   } }, collision);
 }
 
-/** The car's track animation: pitch/roll bones from the synced properties, rider variants shown by `craftmatic:rider` and hidden by `craftmatic:occupied`, and the `view` bone (`riderViewBricks`) hidden by it too. */
-function carAnimation(animationId: string, riders: number, view = false): unknown {
+/**
+ * The car's track animation: pitch/roll bones from the synced properties, rider variants shown by `craftmatic:rider`
+ * and hidden by `craftmatic:occupied`, and the `view` bone (`riderViewBricks`) hidden by it too. With `hideNear` (blocks
+ * at 100 %, `neighbourRiderHide`) a rider is also hidden while the camera is that close to the car's ROOT, scaled by
+ * the car's size (`query.model_scale`; a client that answers 0 never hides).
+ */
+function carAnimation(animationId: string, riders: number, view = false, hideNear?: number): unknown {
   const bones: Record<string, unknown> = {
     track_pitch: { position: bodyOffsetExpression(), rotation: [`query.property('${PROP_PITCH}')`, 0, 0] },
     track_roll: { rotation: [0, 0, `query.property('${PROP_ROLL}')`] },
   };
   for (let k = 0; k < riders; k++) {
-    bones[`rider_${k}`] = { scale: `query.property('${PROP_RIDER}') == ${k} && !query.property('${PROP_OCCUPIED}') ? 1.0 : 0.0` };
+    const near = hideNear !== undefined ? ` && query.distance_from_camera > ${hideNear} * query.model_scale` : '';
+    bones[`rider_${k}`] = { scale: `query.property('${PROP_RIDER}') == ${k} && !query.property('${PROP_OCCUPIED}')${near} ? 1.0 : 0.0` };
   }
   if (view) bones[RIDER_VIEW_BONE] = { scale: `query.property('${PROP_OCCUPIED}') ? 0.0 : 1.0` };
   return { format_version: '1.8.0', animations: { [animationId]: { loop: true, bones } } };
@@ -1972,6 +2009,24 @@ const COASTER_README = (own: boolean, lift: boolean): string => [
   ...(own ? ['Two trains share each track: the second waits in the loading bay behind the platform and leaves once the first is half a lap ahead; a train coming back to an occupied platform holds behind it. Through a loop the car turns over on its rails and your view goes over the top with it.'] : []),
   own ? "Cars with no track of their own stay where the set parked them. Undo/re-place removes the ride cars and lift. Motion pauses at unloaded chunks." : 'Imported display cars remain part of the source scenery; the grey cart is an added ride mechanism, not replacement LEGO geometry. Undo/re-place removes the old ride cart. Motion pauses at unloaded chunks.',
 ].join('\n');
+
+/**
+ * How close (blocks at 100 %, camera to the car's ROOT) the camera may come to ANOTHER car before that car's posed
+ * rider is hidden: the distance from the root to the point half a car spacing from the rider's seat eye towards it,
+ * the nearer of the two along the car (ahead or behind), so a camera at its own seat (a whole spacing away) still sees
+ * its neighbours' riders and one that has drifted past halfway into a neighbour does not draw the inside of its
+ * head. Why (COAST-06): the Pixel on 1.26.62.1 drew the train ~2.0 ticks behind on 2026-11-19/20 (rounds 19f, 19g)
+ * and ~3.0-3.3 on 2026-11-20 night (20b, 20c; camprobe 3.2-3.6), so no single `animLag` keeps the planned eye in its
+ * seat on every day: each miss put the eye into the rider ahead or behind (2-3 x its station width, then a wash).
+ * `eye` is the seat eye in the car's render frame (blocks; the nose at -Z), `spacing` the train's car spacing.
+ * Reads `query.distance_from_camera` as the camera-to-ROOT distance in blocks (quirk `lod-switch-camera-root`);
+ * that it follows an animated camera, and that `query.model_scale` reads the size group's `minecraft:scale`, are
+ * ASSUMED (quirk `rider-hide-camera-distance`, TODO(rider-hide-device)).
+ */
+export function neighbourRiderHide(eye: Vec3, spacing: number): number {
+  const toward = (dz: number): number => Math.hypot(eye[0], eye[1], eye[2] + dz);
+  return round3(Math.min(toward(-spacing / 2), toward(spacing / 2)));
+}
 
 /** The car bone holding its bricks in front of the rider's eye (`riderViewBricks`), hidden while a player rides. */
 export const RIDER_VIEW_BONE = 'view';
@@ -2063,6 +2118,9 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
     names.push({ identifier: config.typeId, label: `${label} Ride Cart` });
   }
   // ── The set's own cars, one compile per type ──
+  // The closest car spacing of any train (blocks at 100 %): what `neighbourRiderHide` measures half of.
+  const spacings = config.routes.filter(r => r.cars.count > 1 && r.cars.spacing > 0).map(r => r.cars.spacing);
+  const trainSpacing = spacings.length ? Math.min(...spacings) : undefined;
   const carFrame = ldrawToRenderRotation('+x');
   let viewProvider: PartGeometryProvider | undefined;
   for (const type of plan.types) {
@@ -2112,7 +2170,9 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
     if (type.wheelbase === undefined) warnings.push(`${label}: ${type.chassis} ride car has no measured wheelbase; it pitches on the track's local tangent instead of the chord between its wheels.`);
     types[type.typeId] = { ...(types[type.typeId] ?? { role: 'car', riders: type.riders.length }), seat, ...(type.wheelbase !== undefined ? { wheelbase: round3(type.wheelbase) } : {}), ...(viewHidden.length ? { view: true } : {}) };
     const animationId = `animation.${type.typeId.replace(':', '.')}.track`;
-    files.push({ name: `${rp}animations/${type.id}.animation.json`, data: jsonBytes(carAnimation(animationId, type.riders.length, viewHidden.length > 0)) });
+    // Another car's rider leaves the picture once this car's camera is past half the spacing towards it (COAST-06).
+    const hideNear = trainSpacing !== undefined && type.riders.length ? neighbourRiderHide([seat[0], seat[1] + SEATED_EYE_HEIGHT_BLOCKS, seat[2]], trainSpacing) : undefined;
+    files.push({ name: `${rp}animations/${type.id}.animation.json`, data: jsonBytes(carAnimation(animationId, type.riders.length, viewHidden.length > 0, hideNear)) });
     compiled.push({
       id: type.id, typeId: type.typeId, role: 'car', label: `${label} ${type.chassis.replace(/\.dat$/i, '')} car`, geo,
       // The runtime keeps `seat` in the car's RENDER frame (+X right, +Y up, +Z back; `carPose` reads it so),
@@ -2627,6 +2687,29 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   // Ticks after an inversion's hand-back over which the per-tick lag runs from
   // `animLag` to `tickLag` (`COASTER_RIDER_VIEW.handbackBlend`; see `aimRider`).
   const HANDBACK_BLEND = Math.max(1, Math.min(20, Number.isFinite(camera.handbackBlend) ? camera.handbackBlend : 4));
+  /**
+   * Ticks the train's other posed riders stay hidden after a rider's set camera (an armed or playing animation) ends:
+   * the hand-back blend runs from the animation's lagged pose back to the own view, and the property is drawn ~3 ticks
+   * ahead of the cars it hides (`property-ahead-of-position`), so they come back once the eye is on its own seat.
+   */
+  const NEIGHBOUR_HIDE_TAIL = HANDBACK_BLEND + 6;
+  /**
+   * Whether a player riding this train is on a SET camera now or within `NEIGHBOUR_HIDE_TAIL` ticks of one. While so,
+   * every car of the train shows no posed rider (`craftmatic:rider` = the type's rider count, the none variant): the
+   * animated eye is planned on the drawn seat, yet on the Pixel (round 20d, lag matched) it still reached the rider of
+   * the car ahead and drew it at 2.9 x, and the Molang camera-distance hide never fired under an animation (quirk
+   * `rider-hide-camera-distance`). The server knows when it set the camera, so it hides them itself.
+   */
+  const trainOnSetCamera = (frames: any[]): boolean => {
+    let on = false;
+    for (const frame of frames) for (const rider of frame.car.riders) {
+      const viewer = viewers.get(rider.id);
+      if (!viewer) continue;
+      if (viewer.armed || viewer.anim) viewer.hideUntil = ticks + NEIGHBOUR_HIDE_TAIL;
+      if (viewer.hideUntil >= ticks) on = true;
+    }
+    return on;
+  };
   /**
    * The pose at fractional index `t` of `seq` (poses one tick apart, oldest
    * first), interpolated between its neighbours and clamped to the ends. The
@@ -3784,6 +3867,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         // A car a player rides draws its body for that player's client; every other car for the default client.
         // (Drawing the whole train for its rider's client, efb13281, rode worse on the Pixel: round 2026-10-20c had
         // the camera inside the car ahead's rider in every loop 1, 30zz only late in loop 2. Reverted.)
+        const hideRiders = trainOnSetCamera(frames);
         for (const frame of frames) {
           // The body pose `bodyLag` ticks back (`CoasterRiderViewConfig.bodyLag`), from this car's recent poses.
           const st = frame.car.state, riderLag = st && ticks - st.bodyLagAt <= 40 ? st.bodyLag : undefined;
@@ -3798,7 +3882,9 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           const slot = cars.slots && cars.slots[frame.car.index];
           if (type && (type.riders > 0 || type.view) && slot) {
             const occupied = frame.car.riders.length > 0;
-            if (type.riders > 0 && frame.car.state.rider !== slot.rider) { frame.car.entity.setProperty('craftmatic:rider', slot.rider); frame.car.state.rider = slot.rider; }
+            // `hideRiders`: no posed rider while a rider of this train is on a set camera (`trainOnSetCamera`).
+            const want = hideRiders ? type.riders : slot.rider;
+            if (type.riders > 0 && frame.car.state.rider !== want) { frame.car.entity.setProperty('craftmatic:rider', want); frame.car.state.rider = want; }
             if (frame.car.state.occupied !== occupied) { frame.car.entity.setProperty('craftmatic:occupied', occupied); frame.car.state.occupied = occupied; }
           }
         }

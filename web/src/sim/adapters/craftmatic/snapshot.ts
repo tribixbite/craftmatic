@@ -199,7 +199,7 @@ export function clientSnapshot(engine: SimEngine, appearance: AddonAppearance, p
     entities.push({ typeId: e.typeId, id: e.id, dist3d, distHorizontal, cullBlocks, ...s });
     if (s.state === 'gone') continue;
     // Property-driven bones (a coaster car's pitch, roll and body offset) as the client applies them now.
-    const poses = animatedPoses(appearance.animations?.get(e.typeId), client.drawnProperties(e));
+    const poses = animatedPoses(appearance.animations?.get(e.typeId), client.drawnProperties(e), { distanceFromCamera: dist3d, modelScale: p.scale });
     (s.state === 'hull' ? hull : full).push({ typeId: e.typeId, kind: 'entity', entry, at: { x: p.x, y: p.y, z: p.z }, yawDeg: p.yaw, scale: p.scale, ...(poses?.size ? { poses } : {}) });
   }
   const { actors, faces } = lodFaces(full, hull);

@@ -92,12 +92,18 @@ export interface ClientProfile {
  */
 export function clientProfile(name: ClientProfileName | 'pixel-26.51' | 'pixel-26.62' | 'saga-26.62'): ClientProfile {
   if (name === 'pixel-26.51') return { ...clientProfile('pixel'), entityLagTicks: quirkValue('client-entity-lag', 'pixel2651Ticks') };
-  // The Pixel on 1.26.62.1, DERIVED as the Saga's below (no marker run yet, TODO(client-lag-pixel-2662)):
-  //  - the coaster (round 19f K, 10303 car 2, the animation planned at the 26.51 3.5): car 3's grey-haired rider (the
-  //    car BEHIND) seen from behind at the size the simulator draws for an entity lag of ~1.4 (quirk `client-entity-lag`
-  //    `pixel2662Ticks`; 1 draws it smaller, 1.5 at the eye); car 3, with no car behind it, rode clean;
+  // The Pixel on 1.26.62.1: 3 (quirk `client-entity-lag` `pixel2662Ticks`), from round 20c's camprobe marker runs
+  // (E 3.2-3.6 over two sessions) and its 10303 car-2 rides on a 2.5 plan (0.4-0.9 tick ahead); at 3 the cockpit
+  // reading leaves 1.5 ticks of the ease played (0.75). Earlier derivation, kept for its evidence:
+  //  - the coaster on two plans (quirk `client-entity-lag` `pixel2662Ticks`): at the 26.51 3.5 (round 19f K, 10303 car
+  //    2) the eye went into car 3's grey-haired rider (the car BEHIND), which the simulator draws at entity lags 1-2
+  //    and not at 2.5; at 1.5 (round 19g) 10303 car 2 drew car 1's pink-haired rider (the car AHEAD) at 1.76 x its
+  //    station width in the drop (the simulator's 2.0) and 10261 car 2 put the eye inside the rider ahead (the
+  //    simulator's 2.9). The rides span ~2.0-2.9; the profile takes their middle, 2.5 (the coaster's Pixel plan).
+  //    (19f's own size reading, 1.4, took the head seen from behind as the eye fully past car 3's rider; at 2 the
+  //    simulator's eye only reaches into that head, which is what the device's yellow face wash just before showed.)
   //  - the cockpit (round 19f E, CMCKP lag 0.5 held the eye in the cabin at 40 mph; quirk `cockpit-draw-lag` `ticks`),
-  //    which pins entity lag - played ease - the camera-first tick = 0.5: at 1.5 the Pixel plays none of the ease.
+  //    which pins entity lag - played ease - the camera-first tick = 0.5: at 2.5 the Pixel plays 1 tick of the ease.
   //    The property lead is not re-measured (kept 3.3, TODO(body-lag-2662)); the snapshot reads at most the latest.
   if (name === 'pixel-26.62') {
     const pixel = clientProfile('pixel');

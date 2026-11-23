@@ -67,19 +67,18 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   line if one exists. Foreground app is Bambu Handy: return to it after a round. 19d left the McLaren
   wand at 90 / 100 %.
 - SAGA ROUND 20a (2026-11-20, `output/device-round-2026-11-20a/saga/notes.md`, packs `packs-20cfc567/`, world 925 bindings restored byte-identical, Bambu Handy back in front): C2 bus drive-shut PASS (~0.5 s eased from the first motion); G2 10303 riders 1, 2 and car_1_fig1 printed on the front, rider 3 not framed; K4 10303 car 2 PASS with no car in view (car-1 spacing still unmeasured: NEXT needs car 1 to lead car 2), 10261 car 2 PASS; X 11371 INCONCLUSIVE - street walk and Door 2 open/closed fine, no collider log error, but there is no lamp post: grid (20,1..3,5) is a glazed door-frame corner inside the shop (mapping world = origin + grid is right, checked on both door roots); the NEXT round's walk to judge the corner square (teleport in, it is not reached from Door 2) and the Door 2/4 standing points are in `output/device-round-2026-11-20a/x-locate/where.md` and Door 4 not judged. Left on the phone: dev pack folders + `/data/local/tmp/craftmatic-deploy-20261120-072429-166352`. The agent hung 4 h on a final cleanup command (no adb timeout): give every adb call `timeout 60` in briefs.
-- PIXEL ROUND 19f (2026-11-19, `output/device-round-2026-11-19a/pixel-19f/notes.md`, world 924): the Pixel is now on
-  Minecraft 1.26.62.1 (was 1.26.60.4). E cockpit at speed PASS (40 mph, lag 0.5). K 10303 car 2 FAIL: the eye passes
-  through a rider in the drop/loop 1 and loop 2 (`frames/k2a-12fps-t36.5.jpg`, `t39.5.jpg`); car 3 PASS (one
-  light-blue frame at the hand-back). Binding all 26 world packs + the round's 2 crashed Minecraft at load (OOM): bind
-  only the round's packs. FIXED OFFLINE (branch gen-pix62, 9c31471b): the rider is car 3's (grey hair, pink torso, the
-  car BEHIND; car 1's is pink hair over a yellow face), and the Pixel on 1.26.62.1 draws at ~1.5 ticks (sim frame match
-  1.4 by the head's width; the 19f cockpit needs >= 1.5), so the 3.5 plan put the eye ~2 ticks behind its seat. Pixel
-  `animLag` 1.5 (`PIXEL_2662_ANIM_LAG`, `clientProfile('pixel-26.62')`, quirk `client-entity-lag` `pixel2662Ticks`);
-  `docs/coaster-loop-camera.md` section 5. Sim: device pack `pixel-26.62` 10303 car 2 99 frames within 0.3 block of
-  another car (car 3 0, a 1.83-block hand-back cut); rebuilt, 3 laps, 10303 cars 2 and 3 pass on `pixel-26.62` and
-  `saga-26.62` (0 frames, eye jump <= 0.19); 10261 cars 2 and 3 pass on both (0 frames, jump <= 0.03); a 26.52 Pixel (`--client=pixel`) would now ride ~2 ticks ahead (10303 car 2 96 frames within 0.3). Sweep frames and logs: `output/pix62/` in the
-  gen-pix62 worktree. NEXT: Pixel ride, brief `output/pix62/brief-pixel-19g.md` (gen-pix62 worktree; packs
-  `output/pix62-packs-9c31471b/`).
+- PIXEL 1.26.62.1 COASTER (COAST-06), MERGED from gen-pix62 2026-11-23: Pixel animLag 3 (b0aa30aa) and the train's
+  posed riders hidden by script property while any of its riders is on a set camera (`trainOnSetCamera`, 783e1cc4).
+  Pixel round 20e (`output/device-round-2026-11-19a/pixel-20e/notes.md`, pack `pix62-packs-783e1cc4-debug`, camprobe
+  E mean 3.49) PASS: 10303 middle car, 3 laps - the front rider gone during every animation (91.5-97.6 s etc.) and back
+  on level track (<= 1.29 x at the return), drawn at the station; tail car the same. Round 20d (same lag, Molang
+  camera-distance hide only) had drawn it at 2.2-2.9 x. OPEN: (1) WHY the animated eye reaches the car ahead with the
+  lag matched - the sim reproduces it only with the unridden cars' property lead at 0 (`--other-prop-lead=0`,
+  `output/pix62g/sim-opl/` in the gen-pix62 worktree), `TODO(body-lag-2662)`; (2) remove the Molang
+  `query.distance_from_camera` hide (`neighbourRiderHide`, quirk `rider-hide-camera-distance`: refuted on the Pixel),
+  `TODO(rider-hide-device)`; (3) the front rider reads up to 1.36 x on level track just after a return (own view);
+  (4) 10261 with the property hide not ridden (20d's 10261 ride was steady without it). Bind only the round's packs on
+  the Pixel (all 26 + the round OOM-crash at load).
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
   --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
   --out=output/gengate-6fa0afa6`): 60/60 built, child play 710/720 (fails: 5482 windows out of reach + doorway holes

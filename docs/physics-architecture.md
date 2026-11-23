@@ -1851,6 +1851,7 @@ one of these files fails the check until its row is written.
 | `COASTER_RIDE_PACE`, `COASTER_PHYSICS` | const | The ride's time scale and every physics constant; `COASTER_PHYSICS` is JSON-serialised into `config.physics` (§4.1, §9). |
 | `CoasterPhysics` | type | Type of `COASTER_PHYSICS`. |
 | `COASTER_RIDER_VIEW` | const | Rider camera defaults (§4.1). |
+| `COASTER_DEBUG_ENV` | const | `CRAFTMATIC_COASTER_DEBUG`: a CLI build with it `=1` ships `COASTER_RIDER_VIEW` plus `debug` (the `native-debug` content-log lines: the matched client timing at every arm, the seat eye each tick); no timing changes (COAST-06). |
 | `CoasterRiderViewMode` | type | `roll` / `rollover` / `clamp` / `over` / `off`. |
 | `CoasterRiderViewConfig` | interface | Camera constants the runtime reads from `config.camera`. |
 | `CoasterClientTiming` | interface | One measured client's `animLag` / `bodyLag`, matched on its reported `graphicsMode` and render distance (`COASTER_RIDER_VIEW.clientTimings`; a fingerprint of measured phones, round 30zv). |
@@ -1863,6 +1864,7 @@ one of these files fails the check until its row is written.
 | `coasterParkedCarPoses` | function | Export time: every car's datum, yaw, pitch and roll where the runtime parks a NEWLY placed train (platform stop, a second train at its dispatch hold) - the runtime's first-tick `carArc` / `chordAt` / `carPose`, restated because the runtime is serialised whole; `test/bedrock-coaster.test.ts` runs the real runtime against it. Feeds the cross-entity coplanar pass (`cross-entity-coplanar.ts`, A-17) and `_render_fault_audit.ts`. **Change it with the runtime's parked placement.** |
 | `CoasterParkedCarPose` | interface | Its result. |
 | `riderViewBricks`, `RIDER_VIEW`, `RIDER_VIEW_BONE` | function / const | Config time: the car's own parts in front of its rider's eye (the 10303 lap bar), put on the `view` bone the car hides while a player rides it; `RIDER_VIEW` the region in LDU. |
+| `neighbourRiderHide` | function | Config time: how close (blocks at 100 %, camera to a car ROOT) the camera may come to another car before that car's posed rider is hidden by its animation (`query.distance_from_camera > D * query.model_scale`): half a car spacing from the seat eye, the nearer way along the car. COAST-06: the Pixel's draw lag moved ~1 tick between days on 1.26.62.1 and each miss put the eye into a neighbour's rider. Device behaviour under an animated camera ASSUMED (quirk `rider-hide-camera-distance`). |
 | `coasterTrackUps` | function | Config time: per-sample physical up (gravity's where upright, the loop normal through a loop, bounded twist). |
 | `TRACK_TWIST_RATE_DEG_PER_BLOCK` | const | Twist bound of `coasterTrackUps`. |
 | `coasterLoopRadius` | function | Median radius over inverted samples; feeds the inversion floor. |
