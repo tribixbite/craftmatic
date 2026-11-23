@@ -62,25 +62,21 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   in the next round. NEXT Saga round: bus drive-shut, G 10303 riders, cars-1 spacing with a CMVT/coaster telemetry
   line if one exists. Foreground app is Bambu Handy: return to it after a round. 19d left the McLaren
   wand at 90 / 100 %.
-- PIXEL 1.26.62.1 COASTER LAG (COAST-06, branch gen-pix62, NOT merged; do NOT merge yet): three Pixel rides of 10303
-  car 2 (vehicle_2, the MIDDLE car) - 19f planned 3.5: eye >= 1.5 ticks BEHIND (inside the tail car's grey-haired rider);
-  19g planned 1.5 and 20b planned 2.5 (`output/device-round-2026-11-19a/pixel-20b/notes.md`, packs
-  `output/pix62-packs-5f3d8d79/`): eye ~0.5 tick AHEAD in both (front rider's hair 1.76 x / 2.0 x its station width in
-  the drop; the simulator's 19g sweep `output/pix62g/series-10303.txt` gives 1.70 x at +0.5 tick, 3.36 x at +1.0).
-  One tick of plan moved nothing between 19g and 20b, so no constant draw lag fits; loop 2 does not discriminate (the
-  sim draws 1.73 x there with the lag MATCHED). Car order (packs): 10303 front->back vehicle_3 (pink), vehicle_2
-  (blue), vehicle_1 (grey hair, pink torso); 10261 vehicle_1 (black/red), vehicle_2, vehicle_3 (orange). The device's
-  "car 3" (`/ride ..._vehicle_3`) is 10303's FRONT car (nothing ahead: its PASS says nothing about the lag) while the
-  sim's `--cars=3` is the TAIL. 20b's 10261 ride looked BACKWARD (the tail rider face-on), so it is not an eye-ahead
-  reading. Hypotheses: (a) the Pixel's `clientTimings` entry did not match in 19g/20b (both then planned the default
-  3: identical rides) - untestable from their 4 KB content logs; (b) the Pixel's draw lag varies by session/ride by
-  ~1-2 ticks (19g alone read 2.0 on 10303 and 2.9 on 10261). NEXT: Pixel round 20c, brief
-  `output/device-round-2026-11-19a/brief-pixel-20c.md` (main checkout): a 10303 DEBUG pack
-  (`output/pix62-packs-49dac53e-debug/`, built with `CRAFTMATIC_COASTER_DEBUG=1`, sha256 5b975d9750a82d6d...: `native-debug`
-  'client'/'arm' lines name the matched timing and animLag) ridden in vehicle_2 facing forward, plus camprobe v9
-  E runs in two Minecraft sessions. If (a): fix the fingerprint. If (b): a single animLag cannot work - consider
-  hiding other cars' riders by `query.distance_from_camera` (render controller) instead of chasing the lag.
-  Bind only the round's packs on the Pixel (all 26 + the round OOM-crash at load).
+- PIXEL 1.26.62.1 COASTER LAG (COAST-06, branch gen-pix62, NOT merged; do NOT merge until a ride passes): rides of
+  10303 in the MIDDLE car (`_vehicle_2`; the train runs BACKWARDS: front->back vehicle_3 pink hair, vehicle_2 blue,
+  vehicle_1 grey hair; 10261 runs forwards, vehicle_1 front) read the Pixel's draw lag ~2.0 on 2026-11-19/20 (19f
+  planned 3.5: eye behind, in the tail rider; 19g planned 1.5: ahead) and ~3.0-3.3 that night (20b, 20c planned 2.5:
+  front rider 1.2-3 x its station width, washes). Probe round 20c (`output/device-round-2026-11-19a/pixel-20c/notes.md`):
+  the Pixel timing entry MATCHED, the plan's yaws equal the server car's (no drift: scratchpad-style check = the
+  `play` line's `yaws` vs the `t` lines' `car`), camprobe E 3.23/3.33 (session 1) and 3.59 (session 2). So the lag
+  moves ~1 tick between days. On gen-pix62: b0aa30aa Pixel animLag 2.5 -> 3; d750f1de every car's posed rider hidden
+  while the camera is within half a car spacing of its root (`neighbourRiderHide`, Molang
+  `query.distance_from_camera > D * query.model_scale`; quirk `rider-hide-camera-distance` ASSUMED on the device; side
+  effect: a player standing within ~D of a stopped car sees its rider vanish). NEXT: Pixel round 20d, brief
+  `output/device-round-2026-11-19a/brief-pixel-20d.md` (main checkout), debug packs `output/pix62-packs-d750f1de-debug/`:
+  does the rider ahead/behind VANISH instead of swelling, are neighbours' riders drawn at the station, and the boarding
+  side effect. Then merge gen-pix62 (full suite, push, CI). Bind only the round's packs on the Pixel (all 26 + the
+  round OOM-crash at load).
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
   --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
   --out=output/gengate-6fa0afa6`): 60/60 built, child play 710/720 (fails: 5482 windows out of reach + doorway holes
