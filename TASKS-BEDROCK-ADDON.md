@@ -82,8 +82,13 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   whole cause - suspect the neighbour car's drawn pose (property lead vs position lag, cf. `--other-prop-lead`, memory
   2026-11-06: lead 0 gave the phone's car-2 shape). 10303 tail car: rider ahead ~1.3 x (eyeballed), one cyan/yellow
   wash. 10261 car 2: rider ahead constant (0.8 fps sheet only). Station: neighbours' riders drawn. Station 1-block side
-  effect: unread (cars kept moving). Do NOT merge gen-pix62. NEXT: reproduce 20d's lap shape offline
-  (`--runtime=tree --other-prop-lead=`), then a hide by a script-set property while the animation plays. Bind only the
+  effect: unread (cars kept moving). Offline: the sim reproduces 20d's first drop (eye 0.2 from the car AHEAD, ride
+  ticks 334-423) only with the unridden cars' property lead at 0 (`--other-prop-lead=0`; 1.5 passes;
+  `output/pix62g/sim-opl/`), the open lead `TODO(body-lag-2662)`. 783e1cc4: the runtime hides every posed rider of the
+  train while any of its riders is on a set camera and `NEIGHBOUR_HIDE_TAIL` ticks after (`trainOnSetCamera`); the
+  Molang hide stays until that is proven, then remove it. Pack `output/pix62-packs-783e1cc4-debug/` (sha256 5bc2665a...),
+  sim car 2 lag 3 PASS. Pixel round 20e RUNNING (brief `output/device-round-2026-11-19a/brief-pixel-20e.md`, main
+  checkout; evidence `pixel-20e/`). Merge gen-pix62 only if 20e passes (full suite, push, CI). Bind only the
   round's packs on the Pixel (all 26 + the round OOM-crash at load).
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
   --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
