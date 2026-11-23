@@ -1,24 +1,24 @@
 {
- "generated": "2026-11-16 16:10:54",
+ "generated": "2026-11-23 18:32:17",
  "model_index": {
   "source": "https://craftmatic.click/lego-models-index.json",
   "generated": "2026-09-20",
   "sets": 10177
  },
  "catalog": {
-  "sets": 28613,
-  "buildable": 16767
+  "sets": 28686,
+  "buildable": 16775
  },
  "channels": {
-  "dbix_skulist": 1986,
-  "omr_sets": 1419
+  "dbix_skulist": 1989,
+  "omr_sets": 1421
  },
  "sourceless": {
-  "total": 6273,
-  "recent": 555,
-  "harvestable_dbix": 29,
+  "total": 6281,
+  "recent": 563,
+  "harvestable_dbix": 31,
   "harvestable_omr": 1,
-  "no_known_channel": 6243
+  "no_known_channel": 6249
  },
  "harvest_dbix": [
   "21065-1",
@@ -44,8 +44,10 @@
   "40958-1",
   "40898-1",
   "40909-1",
+  "40914-1",
   "40899-1",
   "10371-1",
+  "40918-1",
   "40866-1",
   "40862-1",
   "40897-1",
@@ -94,6 +96,8 @@
   "5009934-1 Dragonfly Garden (2026, 154p)",
   "5010075-1 Dolphin (2026, 153p)",
   "6675837-1 Witch's Flight (2026, 153p)",
+  "6681246-1 Santa's Workshop (2026, 150p)",
+  "5011071-1 Gingerbread House (2026, 149p)",
   "6670939-1 Macy's Parade 100 Santa Soars (2026, 145p)",
   "6646282-1 Insiders Sports Stadium (2026, 143p)",
   "6626040-1 Mix-it-up Jersey (2026, 141p)",
@@ -146,6 +150,7 @@
   "6646741-1 The Rosy Crush (2026, 56p)",
   "30721-1 Flower Stand with Roses (2026, 55p)",
   "6626047-1 Landspeeder (2026, 55p)",
+  "6644855-1 The North-Pole Squad (2026, 55p)",
   "6644870-1 Dragon on Skateboard (2026, 55p)",
   "2D001184-1 Lloyd with Mech (2026, 54p)",
   "6669168-1 Sports Car (2026, 54p)",
@@ -231,6 +236,7 @@
   "2D001186-1 Valeria with Puppy (2026, 29p)",
   "6557640-13 Race Car (2026, 29p)",
   "L0002223-1 Street Sweeper (2026, 29p)",
+  "L0002258-1 Hero and Snow Golem (2026, 29p)",
   "L0002282-1 Venom with Mech (2026, 29p)",
   "122509-1 Guard with Incubator (2026, 28p)",
   "5010100-1 Buildable Ruler with Construction Worker Minifigure (2026, 28p)",
@@ -250,10 +256,6 @@
   "L0002221-1 Construction Worker (2026, 25p)",
   "L0002214-1 Jay and Mutation Monster (2026, 24p)",
   "L0002252-1 Space Sentinel, Enderman and Endermite (2026, 24p)",
-  "L0002253-1 Parrot Handler with Skeleton, Skeleton Spawner and Dungeon (2026, 24p)",
-  "L0002254-1 Hero, Zombie and TNT Launcher (2026, 24p)",
-  "L0002265-1 Kitten and Vet's Office (2026, 24p)",
-  "L0002283-1 Spider-Man with Spider-Crawler (2026, 24p)",
-  "30713-1 Fancy Restaurant with Bingo (2026, 23p)"
+  "L0002253-1 Parrot Handler with Skeleton, Skeleton Spawner and Dungeon (2026, 24p)"
  ]
 }
