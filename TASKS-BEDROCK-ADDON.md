@@ -72,11 +72,19 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   moves ~1 tick between days. On gen-pix62: b0aa30aa Pixel animLag 2.5 -> 3; d750f1de every car's posed rider hidden
   while the camera is within half a car spacing of its root (`neighbourRiderHide`, Molang
   `query.distance_from_camera > D * query.model_scale`; quirk `rider-hide-camera-distance` ASSUMED on the device; side
-  effect: a player standing within ~D of a stopped car sees its rider vanish). NEXT: Pixel round 20d, brief
-  `output/device-round-2026-11-19a/brief-pixel-20d.md` (main checkout), debug packs `output/pix62-packs-d750f1de-debug/`:
-  does the rider ahead/behind VANISH instead of swelling, are neighbours' riders drawn at the station, and the boarding
-  side effect. Then merge gen-pix62 (full suite, push, CI). Bind only the round's packs on the Pixel (all 26 + the
-  round OOM-crash at load).
+  effect: a player standing within ~D of a stopped car sees its rider vanish). Pixel round 20d (2026-11-23,
+  `output/device-round-2026-11-19a/pixel-20d/notes.md`, packs `output/pix62-packs-d750f1de-debug/`): FAIL. Timing
+  matched (56 `client` lines, 11 `arm` lines, animLag 3), camprobe E 3.54/3.37/3.21/3.27/3.15 (mean 3.31) - the plan's
+  lag equals the day's - yet 10303 `_vehicle_2` drew the FRONT rider at 2.2/2.9/2.5 x in each lap's first drop, under
+  the armed animation, and it was NOT hidden (1.4-1.7 x at later loops; one 2-frame own-body wash). So (1) the hide does
+  not fire on the device (model_scale 0, or distance_from_camera ignores an animated camera: one probe ride splits them,
+  `TODO(rider-hide-device)`), and (2) with lag matched the eye still reaches the car ahead: lag mismatch is NOT the
+  whole cause - suspect the neighbour car's drawn pose (property lead vs position lag, cf. `--other-prop-lead`, memory
+  2026-11-06: lead 0 gave the phone's car-2 shape). 10303 tail car: rider ahead ~1.3 x (eyeballed), one cyan/yellow
+  wash. 10261 car 2: rider ahead constant (0.8 fps sheet only). Station: neighbours' riders drawn. Station 1-block side
+  effect: unread (cars kept moving). Do NOT merge gen-pix62. NEXT: reproduce 20d's lap shape offline
+  (`--runtime=tree --other-prop-lead=`), then a hide by a script-set property while the animation plays. Bind only the
+  round's packs on the Pixel (all 26 + the round OOM-crash at load).
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60
   --out=output/gen-1116-sample.txt`, then `bun scripts/_favourites_gate.ts $(cat output/gen-1116-sample.txt) --build
   --out=output/gengate-6fa0afa6`): 60/60 built, child play 710/720 (fails: 5482 windows out of reach + doorway holes
