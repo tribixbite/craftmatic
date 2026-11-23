@@ -74,9 +74,8 @@ tested" favourites. The favourites list is 40 sets (memory `user-favorite-sets`)
   on level track (<= 1.29 x at the return), drawn at the station; tail car the same. Round 20d (same lag, Molang
   camera-distance hide only) had drawn it at 2.2-2.9 x. OPEN: (1) WHY the animated eye reaches the car ahead with the
   lag matched - the sim reproduces it only with the unridden cars' property lead at 0 (`--other-prop-lead=0`,
-  `output/pix62g/sim-opl/` in the gen-pix62 worktree), `TODO(body-lag-2662)`; (2) remove the Molang
-  `query.distance_from_camera` hide (`neighbourRiderHide`, quirk `rider-hide-camera-distance`: refuted on the Pixel),
-  `TODO(rider-hide-device)`; (3) the front rider reads up to 1.36 x on level track just after a return (own view);
+  `output/pix62g/sim-opl/` in the gen-pix62 worktree), `TODO(body-lag-2662)`; (2) the Molang camera-distance hide is REMOVED
+  (gen-hide2; it never fired under the animated camera and hid a parked car's rider from a player beside it); (3) the front rider reads up to 1.36 x on level track just after a return (own view);
   (4) 10261 with the property hide not ridden (20d's 10261 ride was steady without it). Bind only the round's packs on
   the Pixel (all 26 + the round OOM-crash at load).
 - GENERALITY 2026-11-16: census gate over 60 non-favourite sets (`bun scripts/_generality_sample.ts --n=60

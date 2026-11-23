@@ -1982,18 +1982,18 @@ function liftBehavior(typeId: string, collision: { width: number; height: number
 
 /**
  * The car's track animation: pitch/roll bones from the synced properties, rider variants shown by `craftmatic:rider`
- * and hidden by `craftmatic:occupied`, and the `view` bone (`riderViewBricks`) hidden by it too. With `hideNear` (blocks
- * at 100 %, `neighbourRiderHide`) a rider is also hidden while the camera is that close to the car's ROOT, scaled by
- * the car's size (`query.model_scale`; a client that answers 0 never hides).
+ * and hidden by `craftmatic:occupied`, and the `view` bone (`riderViewBricks`) hidden by it too. No camera query: a
+ * neighbour's rider is hidden by the runtime through `craftmatic:rider` while a rider is on a set camera
+ * (`trainOnSetCamera`; a Molang `query.distance_from_camera` hide never fired under the animated camera on the Pixel,
+ * round 20d, quirk `rider-hide-camera-distance`).
  */
-function carAnimation(animationId: string, riders: number, view = false, hideNear?: number): unknown {
+function carAnimation(animationId: string, riders: number, view = false): unknown {
   const bones: Record<string, unknown> = {
     track_pitch: { position: bodyOffsetExpression(), rotation: [`query.property('${PROP_PITCH}')`, 0, 0] },
     track_roll: { rotation: [0, 0, `query.property('${PROP_ROLL}')`] },
   };
   for (let k = 0; k < riders; k++) {
-    const near = hideNear !== undefined ? ` && query.distance_from_camera > ${hideNear} * query.model_scale` : '';
-    bones[`rider_${k}`] = { scale: `query.property('${PROP_RIDER}') == ${k} && !query.property('${PROP_OCCUPIED}')${near} ? 1.0 : 0.0` };
+    bones[`rider_${k}`] = { scale: `query.property('${PROP_RIDER}') == ${k} && !query.property('${PROP_OCCUPIED}') ? 1.0 : 0.0` };
   }
   if (view) bones[RIDER_VIEW_BONE] = { scale: `query.property('${PROP_OCCUPIED}') ? 0.0 : 1.0` };
   return { format_version: '1.8.0', animations: { [animationId]: { loop: true, bones } } };
@@ -2009,24 +2009,6 @@ const COASTER_README = (own: boolean, lift: boolean): string => [
   ...(own ? ['Two trains share each track: the second waits in the loading bay behind the platform and leaves once the first is half a lap ahead; a train coming back to an occupied platform holds behind it. Through a loop the car turns over on its rails and your view goes over the top with it.'] : []),
   own ? "Cars with no track of their own stay where the set parked them. Undo/re-place removes the ride cars and lift. Motion pauses at unloaded chunks." : 'Imported display cars remain part of the source scenery; the grey cart is an added ride mechanism, not replacement LEGO geometry. Undo/re-place removes the old ride cart. Motion pauses at unloaded chunks.',
 ].join('\n');
-
-/**
- * How close (blocks at 100 %, camera to the car's ROOT) the camera may come to ANOTHER car before that car's posed
- * rider is hidden: the distance from the root to the point half a car spacing from the rider's seat eye towards it,
- * the nearer of the two along the car (ahead or behind), so a camera at its own seat (a whole spacing away) still sees
- * its neighbours' riders and one that has drifted past halfway into a neighbour does not draw the inside of its
- * head. Why (COAST-06): the Pixel on 1.26.62.1 drew the train ~2.0 ticks behind on 2026-11-19/20 (rounds 19f, 19g)
- * and ~3.0-3.3 on 2026-11-20 night (20b, 20c; camprobe 3.2-3.6), so no single `animLag` keeps the planned eye in its
- * seat on every day: each miss put the eye into the rider ahead or behind (2-3 x its station width, then a wash).
- * `eye` is the seat eye in the car's render frame (blocks; the nose at -Z), `spacing` the train's car spacing.
- * Reads `query.distance_from_camera` as the camera-to-ROOT distance in blocks (quirk `lod-switch-camera-root`);
- * that it follows an animated camera, and that `query.model_scale` reads the size group's `minecraft:scale`, are
- * ASSUMED (quirk `rider-hide-camera-distance`, TODO(rider-hide-device)).
- */
-export function neighbourRiderHide(eye: Vec3, spacing: number): number {
-  const toward = (dz: number): number => Math.hypot(eye[0], eye[1], eye[2] + dz);
-  return round3(Math.min(toward(-spacing / 2), toward(spacing / 2)));
-}
 
 /** The car bone holding its bricks in front of the rider's eye (`riderViewBricks`), hidden while a player rides. */
 export const RIDER_VIEW_BONE = 'view';
@@ -2118,9 +2100,6 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
     names.push({ identifier: config.typeId, label: `${label} Ride Cart` });
   }
   // ── The set's own cars, one compile per type ──
-  // The closest car spacing of any train (blocks at 100 %): what `neighbourRiderHide` measures half of.
-  const spacings = config.routes.filter(r => r.cars.count > 1 && r.cars.spacing > 0).map(r => r.cars.spacing);
-  const trainSpacing = spacings.length ? Math.min(...spacings) : undefined;
   const carFrame = ldrawToRenderRotation('+x');
   let viewProvider: PartGeometryProvider | undefined;
   for (const type of plan.types) {
@@ -2170,9 +2149,7 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
     if (type.wheelbase === undefined) warnings.push(`${label}: ${type.chassis} ride car has no measured wheelbase; it pitches on the track's local tangent instead of the chord between its wheels.`);
     types[type.typeId] = { ...(types[type.typeId] ?? { role: 'car', riders: type.riders.length }), seat, ...(type.wheelbase !== undefined ? { wheelbase: round3(type.wheelbase) } : {}), ...(viewHidden.length ? { view: true } : {}) };
     const animationId = `animation.${type.typeId.replace(':', '.')}.track`;
-    // Another car's rider leaves the picture once this car's camera is past half the spacing towards it (COAST-06).
-    const hideNear = trainSpacing !== undefined && type.riders.length ? neighbourRiderHide([seat[0], seat[1] + SEATED_EYE_HEIGHT_BLOCKS, seat[2]], trainSpacing) : undefined;
-    files.push({ name: `${rp}animations/${type.id}.animation.json`, data: jsonBytes(carAnimation(animationId, type.riders.length, viewHidden.length > 0, hideNear)) });
+    files.push({ name: `${rp}animations/${type.id}.animation.json`, data: jsonBytes(carAnimation(animationId, type.riders.length, viewHidden.length > 0)) });
     compiled.push({
       id: type.id, typeId: type.typeId, role: 'car', label: `${label} ${type.chassis.replace(/\.dat$/i, '')} car`, geo,
       // The runtime keeps `seat` in the car's RENDER frame (+X right, +Y up, +Z back; `carPose` reads it so),
@@ -2698,7 +2675,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
    * every car of the train shows no posed rider (`craftmatic:rider` = the type's rider count, the none variant): the
    * animated eye is planned on the drawn seat, yet on the Pixel (round 20d, lag matched) it still reached the rider of
    * the car ahead and drew it at 2.9 x, and the Molang camera-distance hide never fired under an animation (quirk
-   * `rider-hide-camera-distance`). The server knows when it set the camera, so it hides them itself.
+   * `rider-hide-camera-distance`, removed). The server knows when it set the camera, so it hides them itself.
    */
   const trainOnSetCamera = (frames: any[]): boolean => {
     let on = false;

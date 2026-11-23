@@ -341,7 +341,7 @@ about 2.5 (rounds 2026-11-19f and 19g), so a phone still on 26.52 now rides ~2.7
   Now the runtime itself hides every posed rider of the train while any of its riders is on a set
   camera, and for `NEIGHBOUR_HIDE_TAIL` ticks after (`trainOnSetCamera`, `craftmatic:rider` = the
   none variant): the server knows when it set the camera, so this needs no device query. The Molang
-  hide stays until a device round shows the property one works (then remove it).
+  hide was REMOVED after round 20e passed on the property hide (the expression ships no camera query).
 - **TODO(pixel-ride-lag):** a camprobe run on 1.26.52 reads the Pixel's entity
   lag at 5.1–5.4 ticks, yet the coaster planned at 5.5 rode worse than at 3.5.
   The cause is unexplained.
