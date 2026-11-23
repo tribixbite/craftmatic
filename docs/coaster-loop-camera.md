@@ -332,6 +332,16 @@ about 2.5 (rounds 2026-11-19f and 19g), so a phone still on 26.52 now rides ~2.7
   That the query follows an animated camera on the device is assumed (quirk
   `rider-hide-camera-distance`, TODO(rider-hide-device)). `bodyLag` stays 3.3, unmeasured on 1.26.62
   (TODO(body-lag-2662)).
+  **Pixel round 20d (2026-11-23) refuted both as shipped:** with the timing matched (animLag 3) and
+  camprobe E 3.31 in the same session, 10303 car 2 still drew the front rider at 2.2-2.9 x in every
+  first drop, under the animation, and the Molang hide never fired. So a lag fit cannot close it.
+  The simulator reproduces the first-drop shape only when the cars NO player rides draw their body
+  pose without the property lead (`--other-prop-lead=0`: eye 0.2 from the car ahead at ride ticks
+  334-423; at 1.5 it passes) - a lead per entity on 1.26.62 is the open lead (TODO(body-lag-2662)).
+  Now the runtime itself hides every posed rider of the train while any of its riders is on a set
+  camera, and for `NEIGHBOUR_HIDE_TAIL` ticks after (`trainOnSetCamera`, `craftmatic:rider` = the
+  none variant): the server knows when it set the camera, so this needs no device query. The Molang
+  hide stays until a device round shows the property one works (then remove it).
 - **TODO(pixel-ride-lag):** a camprobe run on 1.26.52 reads the Pixel's entity
   lag at 5.1–5.4 ticks, yet the coaster planned at 5.5 rode worse than at 3.5.
   The cause is unexplained.

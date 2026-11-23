@@ -2688,6 +2688,29 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   // `animLag` to `tickLag` (`COASTER_RIDER_VIEW.handbackBlend`; see `aimRider`).
   const HANDBACK_BLEND = Math.max(1, Math.min(20, Number.isFinite(camera.handbackBlend) ? camera.handbackBlend : 4));
   /**
+   * Ticks the train's other posed riders stay hidden after a rider's set camera (an armed or playing animation) ends:
+   * the hand-back blend runs from the animation's lagged pose back to the own view, and the property is drawn ~3 ticks
+   * ahead of the cars it hides (`property-ahead-of-position`), so they come back once the eye is on its own seat.
+   */
+  const NEIGHBOUR_HIDE_TAIL = HANDBACK_BLEND + 6;
+  /**
+   * Whether a player riding this train is on a SET camera now or within `NEIGHBOUR_HIDE_TAIL` ticks of one. While so,
+   * every car of the train shows no posed rider (`craftmatic:rider` = the type's rider count, the none variant): the
+   * animated eye is planned on the drawn seat, yet on the Pixel (round 20d, lag matched) it still reached the rider of
+   * the car ahead and drew it at 2.9 x, and the Molang camera-distance hide never fired under an animation (quirk
+   * `rider-hide-camera-distance`). The server knows when it set the camera, so it hides them itself.
+   */
+  const trainOnSetCamera = (frames: any[]): boolean => {
+    let on = false;
+    for (const frame of frames) for (const rider of frame.car.riders) {
+      const viewer = viewers.get(rider.id);
+      if (!viewer) continue;
+      if (viewer.armed || viewer.anim) viewer.hideUntil = ticks + NEIGHBOUR_HIDE_TAIL;
+      if (viewer.hideUntil >= ticks) on = true;
+    }
+    return on;
+  };
+  /**
    * The pose at fractional index `t` of `seq` (poses one tick apart, oldest
    * first), interpolated between its neighbours and clamped to the ends. The
    * nose and up are lerped unnormalised: `coasterRiderView` normalises them.
@@ -3844,6 +3867,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         // A car a player rides draws its body for that player's client; every other car for the default client.
         // (Drawing the whole train for its rider's client, efb13281, rode worse on the Pixel: round 2026-10-20c had
         // the camera inside the car ahead's rider in every loop 1, 30zz only late in loop 2. Reverted.)
+        const hideRiders = trainOnSetCamera(frames);
         for (const frame of frames) {
           // The body pose `bodyLag` ticks back (`CoasterRiderViewConfig.bodyLag`), from this car's recent poses.
           const st = frame.car.state, riderLag = st && ticks - st.bodyLagAt <= 40 ? st.bodyLag : undefined;
@@ -3858,7 +3882,9 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           const slot = cars.slots && cars.slots[frame.car.index];
           if (type && (type.riders > 0 || type.view) && slot) {
             const occupied = frame.car.riders.length > 0;
-            if (type.riders > 0 && frame.car.state.rider !== slot.rider) { frame.car.entity.setProperty('craftmatic:rider', slot.rider); frame.car.state.rider = slot.rider; }
+            // `hideRiders`: no posed rider while a rider of this train is on a set camera (`trainOnSetCamera`).
+            const want = hideRiders ? type.riders : slot.rider;
+            if (type.riders > 0 && frame.car.state.rider !== want) { frame.car.entity.setProperty('craftmatic:rider', want); frame.car.state.rider = want; }
             if (frame.car.state.occupied !== occupied) { frame.car.entity.setProperty('craftmatic:occupied', occupied); frame.car.state.occupied = occupied; }
           }
         }

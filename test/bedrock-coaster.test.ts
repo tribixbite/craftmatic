@@ -138,7 +138,9 @@ const LOOP_MODE = { mode: 'loop' as const, animLag: 3.5, clientTimings: [] };
 
 interface RideHostOptions extends CoasterSimOptions { riders?: boolean; scale?: number; wheelbase?: number; seat?: [number, number, number]; camera?: Partial<CoasterRiderViewConfig>;
   /** A pack built before the rider camera existed: its config carries no `camera`. */
-  noCamera?: boolean }
+  noCamera?: boolean;
+  /** Every car carries one posed rider (slot rider 0), as a set's own cars do: the runtime then writes `craftmatic:rider`. */
+  posedRiders?: boolean }
 
 /** One host per placement. A route that declares a train gets that many car
  * entities, all spawned at the same station point the placement uses. The
@@ -149,6 +151,10 @@ function rideHost(route: CoasterRoute, options: RideHostOptions = {}) {
   // read where the bricks are drawn from the position and body offset of ONE tick. The shipped 3.3 has its own test.
   const config: CoasterRuntimeConfig = { ...bare, camera: { ...bare.camera!, bodyLag: 0, ...(options.camera ?? {}) }, types: { ...bare.types, 'craftmatic:test_cart': { ...bare.types['craftmatic:test_cart']!, ...(options.wheelbase !== undefined ? { wheelbase: options.wheelbase } : {}), ...(options.seat ? { seat: options.seat } : {}) } } };
   if (options.noCamera) delete config.camera;
+  if (options.posedRiders) {
+    config.types['craftmatic:test_cart'] = { ...config.types['craftmatic:test_cart']!, riders: 1 };
+    config.routes[0] = { ...config.routes[0]!, cars: { ...config.routes[0]!.cars, slots: Array.from({ length: config.routes[0]!.cars.count }, (_, k) => ({ type: 'craftmatic:test_cart', rider: 0, label: `Car ${k + 1}`, train: 0 })) } };
+  }
   const count = config.routes[0]!.cars.count;
   const world = coasterSim(config, options);
   const { h } = world;
@@ -3058,6 +3064,31 @@ describe('the rider camera follows the track', () => {
     expectArmedPlays(log);
     // The ride goes on, and a later steep stretch is animated again.
     expect(plays.some(play => play.tick > clears[0]!.tick)).toBe(true);
+  });
+
+  it('native mode hides the train\'s other posed riders by property while a rider\'s animation plays, and shows them again after (COAST-06, Pixel round 20d: the camera-distance hide never fired and the front rider swelled 2.9 x)', () => {
+    // A three-car train, each car carrying one posed rider (slot rider 0); the camera rider boards the MIDDLE car.
+    const route: CoasterRoute = { ...loopCourse(), cars: { count: 3, spacing: 2.25 } };
+    const h = rideHost(route, { seat: [0, 0.35, 0], spline: true, posedRiders: true });
+    const { player } = cameraRider(h.cars[1]!.entity);
+    const plays: number[] = [];
+    let tick = 0;
+    (player.camera as any).playAnimation = vi.fn((_spline: unknown, options: any) => { plays.push(tick); plays.push(tick + Math.round(options.totalTimeSeconds / 0.05)); });
+    h.run(1); h.seat(player, 1);
+    /** The posed rider each car shows after a tick: its last `craftmatic:rider` write (1 = none, the type's rider count). */
+    const shown = (car: number) => (h.cars[car]!.entity.setProperty.mock.calls as Array<[string, number]>).filter(([n]) => n === 'craftmatic:rider').at(-1)?.[1];
+    const during: number[] = [], after: number[] = [], before: number[] = [];
+    for (tick = 0; tick < 1200; tick++) {
+      h.run(1);
+      if (plays.length === 0) before.push(shown(0)!, shown(2)!);
+      else if (tick > plays[0]! + 2 && tick < plays[1]!) during.push(shown(0)!, shown(2)!);
+      else if (plays.length === 2 && tick > plays[1]! + 40) { after.push(shown(0)!, shown(2)!); if (after.length > 20) break; }
+    }
+    expect(plays.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(before)).toEqual(new Set([0]));
+    expect(during.length).toBeGreaterThan(0);
+    expect(new Set(during)).toEqual(new Set([1]));
+    expect(new Set(after)).toEqual(new Set([0]));
   });
 
   it('native mode carries the rider\'s head turn into the animation and back out of it', () => {
