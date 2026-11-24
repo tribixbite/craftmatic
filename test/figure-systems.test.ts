@@ -44,6 +44,9 @@ const LIBRARY: Record<string, string> = {
   '3820': part('Minifig Hand', [-6, 6, -7.65, 4.61, -15.52, 13]),
   '3901': part('Minifig Hair Male', [-17, 17, -10, 8, -17, 17]),
   '41879b': part('Minifig Hips and Legs Short with Hole', [-19, 19, -11, 24, -10, 10]),
+  // 11377 Minas Tirith (2026-11-24, PROC-20): Pippin's 2018 short legs and a robed figure's one-piece skirt.
+  '16709': part('Minifig Hips and Legs Short with Horizontal Stripe', [-19, 19, -11, 24, -10, 10]),
+  '36036': part('Lower Body, Skirt', [-20, 20, 0, 32, -12, 12], '0 FILE 36036.dat'),
   // Mini-doll (LEGO Friends), Studio's private torso and the official rest.
   '1006030': part('Figure Friends Girl Torso Dual Mould without Pattern', [-11, 11, -19.3, 17, -8.9, 6.4]),
   '92241': part('Figure Friends Girl Torso without Pattern', [-11, 11, -19.3, 17, -8.9, 6.4]),
@@ -136,6 +139,30 @@ describe('figure systems: classification', () => {
     expect(classifyFigurePart('minidoll', '2633', 'Minifig Hair Long with Parted Bangs')).toBe('headwear');
     expect(classifyFigurePart('minifig', '92198', 'Figure Friends Head without Pattern')).toBeNull();
     expect(classifyFigurePart('bigfig', '3820', 'Minifig Hand')).toBe('hand_right');
+  });
+});
+
+describe('figure systems: one-piece lower bodies keep their mould (11377, PROC-20)', () => {
+  // As the 37679 row converts 11377: Pippin's torso at y -55.97 with 16709 on its bottom (11377 Pippin, 10354's hobbits),
+  // and a robed figure whose 36036 skirt replaces hips and legs. Split into standard moulds, the hobbit stood on full
+  // legs and the robed figure grew legs under its skirt ('the source lacked the figure's hips, right leg, left leg').
+  const pippin = (): ParsedBrick[] => [at('973', 0, 1220, -55.97, 490), at('3626c', 78, 1220, -79.97, 490), at('16709', 308, 1220, -24, 490)];
+  const robed = (): ParsedBrick[] => [at('973', 326, 1620, -72, 470), at('3626c', 78, 1620, -96, 470), at('36036', 326, 1620, -40, 470)];
+  it('keeps the short legs whole on the hips joint and supplies no hips or legs', async () => {
+    const a = assembleMinifig(pippin(), await meshesFor(pippin()));
+    // (The test figures carry no arms, so arms and hands are supplied; nothing below the torso may be.)
+    expect(a.synthesized.filter(s => /hip|leg/.test(s))).toEqual([]);
+    expect(bySlot(a, 'hips_legs').map(b => b.part)).toEqual(['16709']);
+    expect(bySlot(a, 'leg_right')).toHaveLength(0);
+    expect(bySlot(a, 'leg_left')).toHaveLength(0);
+  });
+  it('reads a skirt lower body as the hips and legs and supplies no hips or legs', async () => {
+    expect(classifyMinifigPart('36036', 'Lower Body, Skirt')).toBe('hips_legs');
+    const a = assembleMinifig(robed(), await meshesFor(robed()));
+    // (The test figures carry no arms, so arms and hands are supplied; nothing below the torso may be.)
+    expect(a.synthesized.filter(s => /hip|leg/.test(s))).toEqual([]);
+    expect(bySlot(a, 'hips_legs').map(b => b.part)).toEqual(['36036']);
+    expect(bySlot(a, 'leg_right')).toHaveLength(0);
   });
 });
 

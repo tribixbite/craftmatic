@@ -423,6 +423,19 @@ export const mouldFamilyId = (part: string, description: string): string =>
   movedTo(description) ?? familyId(part);
 
 /**
+ * A minifig lower body that is ONE mould and cannot swing its legs: short legs (41879, 16968, 16709 - any
+ * `... Short` description), a skirt or robe (36036 `Lower Body, Skirt`, 75103), and a bare `Minifig Legs ...`
+ * piece that is not a hips-and-legs composite. Everything else in the `hips_legs` slot is a composite the rig
+ * rebuilds from three moulds so the legs walk.
+ */
+export function isOnePieceLowerBody(part: string, description: string): boolean {
+  const d = stripAlias(description);
+  if (/^(41879|16968|16709|36036|75103)(?![0-9])/.test(familyId(part))) return true;
+  if (/^(Minifig )?Lower Body\b/i.test(d) || /\b(Short|Skirt|Robe)\b/i.test(d)) return true;
+  return /^Minifig Legs\b/i.test(d) && !/Hips and Legs/i.test(d);
+}
+
+/**
  * Which slot a part of a torso group fills. The library description decides
  * (it names every minifig mould); ids cover the core body when a description
  * is missing (a custom-part torso, an unresolved mesh).
@@ -436,7 +449,9 @@ export function classifyMinifigPart(part: string, description: string): MinifigS
   if (/^(Arm Large\b.*\bLeft\b|Bigfig Arm Left\b)/i.test(d)) return 'arm_left';
   if (/^Bigfig Hand\b/i.test(d)) return 'hand_right'; // side decided by position
   if (/^Minifig Torso\b/i.test(d) || /^(973|3814|76382)(?![0-9])/.test(id) || /_torso$/.test(cleanId(part))) return 'torso';
-  if (/^Minifig Hips and Legs\b/i.test(d) || /^Minifig Legs\b/i.test(d) || /^(970c|3815c|41879|16968)/.test(id) || /_legs$/.test(cleanId(part))) return 'hips_legs';
+  // `Lower Body, Skirt` (36036) and `Minifig Lower Body with ... Robe` (75103) replace hips and legs in one piece
+  // (11377's robed figures grew standard legs under the skirt, PROC-20); `Figure Lower Body` (67644) is not a minifig's.
+  if (/^Minifig Hips and Legs\b/i.test(d) || /^Minifig Legs\b/i.test(d) || /^(Minifig )?Lower Body\b/i.test(d) || /^(970c|3815c|41879|16968|16709|36036|75103)/.test(id) || /_legs$/.test(cleanId(part))) return 'hips_legs';
   if (/^Minifig Hips\b/i.test(d) || /^(970|3815)(?![0-9])/.test(id) || /_hips$/.test(cleanId(part))) return 'hips';
   if (/^Minifig Leg Right\b/i.test(d) || /^3816(?![0-9])/.test(id)) return 'leg_right';
   if (/^Minifig Leg Left\b/i.test(d) || /^3817(?![0-9])/.test(id)) return 'leg_left';
@@ -822,9 +837,10 @@ export function assembleMinifig(sourceParts: ParsedBrick[], meshes: Map<string, 
   }
 
   if (system === 'minifig') {
-    // Short legs and other one-piece leg moulds keep their mould (they cannot
-    // swing); a hips-and-legs composite becomes three moulds so the legs can.
-    if (compositeSrc && /^(41879|16968)(?![0-9])/.test(familyId(compositeSrc.brick.part)) || (compositeSrc && /^Minifig Legs\b/i.test(stripAlias(compositeSrc.desc)) && !/Hips and Legs/i.test(compositeSrc.desc))) {
+    // Short legs, skirts, robes and other one-piece lower bodies keep their mould (they cannot swing); a
+    // hips-and-legs composite becomes three moulds so the legs can. Split, a short mould (16709, the 2018 short
+    // legs: 11377's Pippin, 10354's hobbits) became full-length legs (PROC-20).
+    if (compositeSrc && isOnePieceLowerBody(compositeSrc.brick.part, compositeSrc.desc)) {
       push(placeAt(compositeSrc!.brick.part, compositeSrc!.brick.color, MINIFIG_CANON.hips.position, MINIFIG_CANON.hips.rotation), 'hips_legs');
     } else {
       if (hipsSrc) push(placeAt(hipsSrc.brick.part, hipsSrc.brick.color, MINIFIG_CANON.hips.position, MINIFIG_CANON.hips.rotation), 'hips');
