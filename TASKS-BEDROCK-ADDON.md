@@ -9,6 +9,26 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
+### 2026-11-24: four new favourites (PROC-20) - IN PROGRESS
+The user (2026-11-24): add 21065, 11388, 11377 and 6167 to the favourites, audit, upgrade their exports, simulate,
+test in game, record every issue, teach the simulator to catch each, fix, retest in game. Evidence: `output/fav4-1124/`.
+- Sets: 21065 Sagrada Familia (2026, 12,076 parts) and 11388 Venetian Neighborhood (2026, 5,770) were NOT indexed:
+  onboarded from DBIX with clego `discovery/new_set.py <sku> --run` (live; craftmatic index commit 86c1a5c0). 11377
+  Minas Tirith (8,287 -> 8,367 parts re-converted), 6167 Deluxe Brick Box (2006).
+- FOUND + FIXED offline: (1) LDD 37679 short legs had no mapping row: hobbits/children stood 10 LDU aside, 24 low
+  (clego 17270e32; 14 DBIX sources incl. favourite 10354, whose pack drops the misplaced legs as debris "16709: 6").
+  (2) the rig split 16709 short legs into full-length standard moulds and read 36036 "Lower Body, Skirt" as a held
+  item, adding legs under robes (508c5814, `isOnePieceLowerBody`). (3) the gate over named sets failed falsely
+  (a7401d5c: sim `--sets=`, `--allow-none`).
+- IN FLIGHT: a clego agent re-converts the 14 sources, A/B grades and republishes (scoped R2); then rebuild 11377
+  and 10354 and record 11377's favourites-figures / stray-drops rows (computed by `output/fav4-1124/favrows.test.ts`,
+  copy into test/ to run). Gate builds: `output/fav4-1124/gate-a` (11377 old source, 6167), `gate-b` (21065, 11388).
+- OPEN: 6167 has NO buildable source (ReconV3 is an interpenetrating pile beside its baseplate; `IO/6167-1.io` is a
+  flat 706-part inventory at y 0) - it needs a PDF reconstruction; the baseplate guard (A-09) fails on it (5 parts on
+  3857h). 11377's great gate is not a door (the brick-hinge pass cut 99 joint lines, moved none; `TODO(stud-pivot)`).
+  11377 figure 2 stands 15 blocks off the model (a box-art line-up figure).
+- NEXT: device round on the Pixel (world 924, bind only the round's packs) per `.claude/skills/bedrock-device-round.md`.
+
 ### 2026-11-16: replica-set polish (PROC-19) - audit fixed, packs sent; NEXT generality
 The user (2026-11-15) asked for a Fable audit of the favourites' add-on generation, every finding fixed and tested,
 all favourite packs sent, then "modularization - making any set as high quality and functional as the individually
