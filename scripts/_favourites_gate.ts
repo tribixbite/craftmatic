@@ -43,8 +43,11 @@ export function gateSteps(o: { dir: string; sets: readonly string[]; withGabby: 
   // The simulator takes a directory or packs; with named sets, the packs of those sets in the directory.
   const packs = o.sets.length ? o.sets.map(s => `${o.dir}/${s}*.mcaddon`) : [o.dir];
   steps.push({ name: 'child-play', argv: ['scripts/sim.ts', ...packs, `--sizes=${FAVOURITES_GATE_SIZES.join(',')}`, json('child-play')] });
-  steps.push({ name: 'vehicles', argv: ['scripts/sim.ts', ...packs, '--scenario=vehicles', json('vehicles')] });
-  steps.push({ name: 'regressions', argv: ['scripts/sim.ts', '--scenario=regressions', `--new=${o.dir}`, json('regressions')] });
+  // Named sets: no vehicle among them is not a failure, and only their own regression cases have a pack here
+  // (fav4-1124: 47 cases NOT TESTED and 'no scripted vehicles' made two false FAILs, PROC-20).
+  const named = o.sets.length > 0;
+  steps.push({ name: 'vehicles', argv: ['scripts/sim.ts', ...packs, '--scenario=vehicles', ...(named ? ['--allow-none'] : []), json('vehicles')] });
+  steps.push({ name: 'regressions', argv: ['scripts/sim.ts', '--scenario=regressions', `--new=${o.dir}`, ...(named ? [`--sets=${o.sets.join(',')}`] : []), json('regressions')] });
   return steps;
 }
 

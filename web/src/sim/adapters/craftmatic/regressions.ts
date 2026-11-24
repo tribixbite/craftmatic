@@ -79,6 +79,14 @@ export interface RegressionVerdict { verdict: string; failing: boolean; notTeste
  *   - OK / FAIL: the old pack reproduced and the new one met (or missed) `expectNew`; a known-unreproduced case
  *     whose new pack fails is a FAIL too.
  */
+/**
+ * The cases whose pack is one of `sets` (a set number, `newStem` = `<set>-<name words>` or the bare number): what a
+ * gate over named sets can judge. A case for another set has no pack in that build and would only read NOT TESTED.
+ */
+export function regressionCasesForSets(cases: readonly RegressionCase[], sets: readonly string[]): RegressionCase[] {
+  return cases.filter(c => sets.some(s => c.newStem === s || c.newStem.startsWith(`${s}-`)));
+}
+
 export function regressionVerdict(c: Pick<RegressionCase, 'expectNew' | 'limits' | 'knownUnreproduced' | 'open'>, oldR: RegressionSide, newR: RegressionSide): RegressionVerdict {
   if ('error' in oldR || 'error' in newR) {
     const why = [['old', oldR] as const, ['new', newR] as const].flatMap(([side, r]) => ('error' in r ? [`${side}: ${r.error}`] : []));

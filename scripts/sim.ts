@@ -7,6 +7,8 @@
  *   bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|<file.ts>]
  *        [--json=<out.json>] [--md=<out.md>] [--quick] [--only=<scenario substring>] [--shots=<dir>]
  *        [--new=<dir>]   (regressions: the current tree's packs, `<dir>/<stem>.mcaddon`)
+ *        [--sets=a,b]    (regressions: only the cases whose pack is one of these sets; none = exit 0)
+ *        [--allow-none]  (vehicles: packs with no scripted vehicle exit 0, still reported NOT TESTED)
  *        [--runtime=pack|tree]   (tree: each pack's figures/rides/vehicles scripts rebuilt from its own
  *                                 CONFIG with THIS tree's runtimes; regressions: the new side only)
  *        [--sizes=100,150,...]   (child-play: the wand sizes placed; default 100,150)
@@ -93,7 +95,7 @@ import { runScenario, tapReachOf, type ScenarioResult } from '../web/src/sim/sce
 import { markdownReport, regressionMarkdown, unmodelledTotals, type PackReport, type RegressionRow } from '../web/src/sim/scenario/report.ts';
 import { childPlay, craftmaticHandlers, type Snapshot } from '../web/src/sim/adapters/craftmatic/child-play.ts';
 import { readCraftmaticPack, type CraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.ts';
-import { REGRESSIONS, regressionVerdict } from '../web/src/sim/adapters/craftmatic/regressions.ts';
+import { REGRESSIONS, regressionCasesForSets, regressionVerdict } from '../web/src/sim/adapters/craftmatic/regressions.ts';
 import { swapTreeRuntimes } from '../web/src/sim/adapters/craftmatic/runtime-swap.ts';
 import { runMarketplace } from '../web/src/sim/adapters/craftmatic/marketplace.ts';
 import { hopCases } from '../web/src/sim/adapters/craftmatic/hop.ts';
@@ -297,7 +299,11 @@ const withInput = (pack: CraftmaticPack, addon: Awaited<ReturnType<typeof readAd
 if (mode === 'regressions') {
   const newDir = flag('new');
   if (!newDir) { console.error('--scenario=regressions needs --new=<dir> (the current tree\'s packs)'); process.exit(2); }
-  const selected = REGRESSIONS.filter(c => !only || c.id.includes(only));
+  // `--sets=a,b`: only the cases whose pack is one of those sets (a gate over named sets builds only theirs).
+  const setsFlag = flag('sets');
+  const forSets = setsFlag ? regressionCasesForSets(REGRESSIONS, setsFlag.split(',').filter(Boolean)) : REGRESSIONS;
+  const selected = forSets.filter(c => !only || c.id.includes(only));
+  if (!selected.length && setsFlag) { console.log(`Regression selection: no case names a pack of --sets=${setsFlag}; nothing to judge`); process.exit(0); }
   if (!selected.length) { console.error(`--scenario=regressions selected no cases${only ? ` for --only=${only}` : ''}`); process.exit(2); }
   console.log(`Regression selection: ${selected.length}/${REGRESSIONS.length} case(s)${only ? ` (--only=${only})` : ''}`);
   const rows: RegressionRow[] = [];
@@ -504,7 +510,8 @@ if (mode === 'vehicles') {
   if (flag('json')) writeFileSync(flag('json')!, JSON.stringify({ course: rows, reports, ...(costOn ? { cost: costRows } : {}) }, null, 1));
   if (!selected) {
     console.error(`vehicles: NOT TESTED — no scripted vehicles matched${only ? ` --only=${only}` : ''} in ${reports.length} pack(s)`);
-    process.exit(1);
+    // `--allow-none`: packs with no vehicle are not a failure (a gate over named sets that may have none).
+    process.exit(args.includes('--allow-none') ? 0 : 1);
   }
   process.exit(failed ? 1 : 0);
 }
