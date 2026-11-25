@@ -33,6 +33,16 @@ describe('sim child play: the placed model stands on the ground (model-grounded,
     expect(v.hangBlocks).toBeLessThanOrEqual(2.81);
   });
 
+  it('a base 4 blocks up on one 2 x 2 post hangs, and a plate a whole block up on nothing does too (42652, 11388: Pixel round 24b)', () => {
+    // 42652: one misconverted quarter-cylinder (30987) stood 240 LDU low and held the tree house 4 blocks up; its
+    // footprint was 1.3 percent of the widest band, over the old 1 percent. 11388: the plate a whole block over the grass.
+    const post = groundedVerdict([box(0, 4, 0, 10, 4.4, 10), box(1, 4.4, 1, 9, 12, 9), box(4, 0, 4, 5.15, 4, 5.15)], 0, 1);
+    expect(post.groundShare).toBeGreaterThan(0.01);
+    expect(post.hanging).toBe(true);
+    const plate = groundedVerdict([box(0, 1, 0, 30, 1.4, 15), box(2, 1.4, 2, 28, 14, 13), box(10, 0.3, 5, 10.25, 1, 5.25)], 0, 1);
+    expect(plate.hanging).toBe(true);
+  });
+
   it('scales with the placement size: the same model at 400 percent hangs 24 blocks', () => {
     const s = 4;
     const v = groundedVerdict([box(0, 6 * s, 0, 30 * s, 6.4 * s, 15 * s), box(10 * s, 0.3 * s, 5 * s, 10.25 * s, 6 * s, 5.25 * s)], 0, s);

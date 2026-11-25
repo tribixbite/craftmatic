@@ -69,6 +69,7 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
     async modelGrounded(_step: AnyStep, ctx: StepContext) {
       const placed = placedOf(ctx);
       const v = groundedVerdict(staticDrawn(ctx, appearance, pack), placed.anchor.y, placed.sizePct / 100);
+      ctx.note(`model-grounded: broad base ${v.hangBlocks.toFixed(2)} blocks up, ${(v.groundShare * 100).toFixed(2)} percent of the widest band's footprint on the ground`);
       if (v.hanging) ctx.violate({ invariant: 'model-grounded', message: v.message!, evidence: { hangBlocks: v.hangBlocks, groundShare: v.groundShare, at: placed.anchor } });
     },
     /** A first-person picture: from where the child placed, looking at the model's centre (or from where it stands: `{ here: true }`). */
@@ -323,10 +324,12 @@ export interface GroundedVerdict { hanging: boolean; hangBlocks: number; groundS
 const GROUND_CELL = 0.25;
 /** A band whose footprint is at least this share of the model's widest band is its BROAD base. */
 const BROAD_SHARE = 0.25;
-/** A model is hanging when the ground band's footprint is under this share of the widest band... */
-const GROUND_SHARE_MIN = 0.01;
-/** ...and its broad base starts more than this over the ground (blocks at 100 %). 2 passed 11377's 2.8-block hover
- * on the Pixel (round 24a): the base was read in whole one-block bands, 2.81 -> 2. */
+/** A model is hanging when the ground band's footprint is under this share of the widest band... 1 percent passed
+ * 42652 on one 2 x 2 post (1.3 percent) 4 blocks up (Pixel round 24b); a tree trunk under its house keeps several. */
+const GROUND_SHARE_MIN = 0.02;
+/** ...and its broad base starts at least this far over the ground (blocks at 100 %). 2 passed 11377's 2.8-block hover
+ * on the Pixel (round 24a): the base was read in whole one-block bands, 2.81 -> 2; '> 1' passed 11388's plate a whole
+ * block over the grass, a gap the Pixel showed (round 24b). */
 const HANG_MIN_BLOCKS = 1;
 /** The height band the footprint is counted in (blocks at 100 %): a quarter block, so a base is read to within it. */
 const GROUND_BAND = 0.25;
@@ -355,7 +358,7 @@ export function groundedVerdict(boxes: readonly DrawnBox[], groundY: number, f: 
   if (!widest) return { hanging: false, hangBlocks: 0, groundShare: 1 };
   const broad = area.findIndex(a => a >= BROAD_SHARE * widest);
   const hangBlocks = broad * band, groundShare = area[0]! / widest;
-  const hanging = hangBlocks > HANG_MIN_BLOCKS * f && groundShare < GROUND_SHARE_MIN;
+  const hanging = hangBlocks >= HANG_MIN_BLOCKS * f && groundShare < GROUND_SHARE_MIN;
   return {
     hanging, hangBlocks, groundShare,
     ...(hanging ? { message: `the model hangs ${hangBlocks.toFixed(1)} blocks over the ground: its broad base starts there and only ${(groundShare * 100).toFixed(2)} percent of its footprint reaches the ground (thin parts under it)` } : {}),
