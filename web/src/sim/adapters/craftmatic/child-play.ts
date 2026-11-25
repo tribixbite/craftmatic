@@ -83,6 +83,9 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
      * pack's colliders too (`door-approach-on-foot`, `doorSideOnFoot`; PROC-20, 11388 Doors 4/6). Every part is still
      * closed here, as the child finds them; up to `DOOR_ON_FOOT_MAX_SIZE`.
      */
+    // TODO(door-on-foot-favourites): on packs built before `approachSliver` (gate-h/i) this also fails 42670 Garage
+    // door 1 and Door 3 (Door 3 is A-20's known threshold stair) and 76457 Gate 1 and Door 6 at 100 %: rebuild them and
+    // triage each (pack's or a drawn-world artefact) before the next full favourites gate.
     async doorwayOnFoot(_step: AnyStep, ctx: StepContext) {
       const ix = pack.interactives, placed = placedOf(ctx), from = ctx.state[START_KEY] as Vec3 | undefined;
       if (!ix || !from || placed.sizePct > DOOR_ON_FOOT_MAX_SIZE) return;
@@ -103,6 +106,13 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
         const floorY = placed.anchor.y + geo.centre.y;
         const columns = new Map<string, Vec3>();
         for (const b of geo.own) columns.set(`${b.x},${b.z}`, { x: placed.anchor.x + b.x + 0.5, y: floorY, z: placed.anchor.z + b.z + 0.5 });
+        // A double door is one doorway: one tap swings both leaves (`pairs`), so a side is reached when the child walks up
+        // to ANY leaf of it. 11388's Door 4 leaf stands behind the arcade's column; its pair Door 6 is the way in.
+        for (const j of it.pairs ?? []) {
+          const other = ix.items[j];
+          if (!other) continue;
+          for (const b of doorwayGeometry({ dims: ix.dims }, other, f, placed.rotation as QuarterTurn).own) columns.set(`${b.x},${b.z}`, { x: placed.anchor.x + b.x + 0.5, y: floorY, z: placed.anchor.z + b.z + 0.5 });
+        }
         for (const side of [-1, 1] as const) {
           const d = { columns: [...columns.values()], n: geo.n, side, floorY, k };
           const name = `${it.label} from ${side > 0 ? '+' : '-'} side`;
@@ -359,8 +369,13 @@ export function doorSideOnFoot(real: SimEngine, drawn: SimEngine, dim: string, f
 export const DOOR_LANE_OUT = 6;
 /** The lanes' spacing across a doorway (blocks at 100 %, x k): the leaf's columns and half a block either side. */
 const DOOR_LANE_STEP = 0.1;
-/** How far (blocks at 100 %, x k) short of its landing spot a lane may stop and still have arrived: the colliders' slack. */
-const DOOR_LANE_ARRIVE = 0.25;
+/**
+ * How far (blocks at 100 %, x k) short of its landing spot a lane may stop and still have arrived. The landing is
+ * the drawn spot nearest the leaf, from `LINE_MIN_OUT` out of the leaf's column centre - the face of its closed
+ * cells - and the player's centre stops half its width (0.3) short of that face, plus the colliders' slack: at 0.25
+ * the rebuilt 11388 Door 6 read as unreached while the per-tick walk stood on its sill (gate-j, `_walk_line.ts`).
+ */
+const DOOR_LANE_ARRIVE = 0.45;
 /** One straight lane toward a doorway side: where it starts, its landing spot, and whether each world lets a child walk it. */
 export interface DoorLane { lateral: number; start: Vec3; goal: Vec3; colliders: boolean; stop: Vec3 }
 /** A doorway side's straight lanes (`doorLanesOnFoot`): every lane the MODEL lets a child walk straight from its start, and how many of them the colliders do. */
