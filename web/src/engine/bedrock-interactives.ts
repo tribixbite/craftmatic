@@ -760,6 +760,45 @@ export function standingTop16(grid: BlockGrid, layers: CellLayers | undefined, x
   return y * 16 + Math.min(f.hi, cover.hi);
 }
 
+/** A floor plate's rectangle must cover at least this share of a cell's footprint (`layerFloorTop16`). */
+const PLATE_MIN_AREA_SHARE = 0.5;
+
+/**
+ * The top of a FLOOR PLATE in a cell's layers, sixteenths inside the cell, at or under `maxTop16`, or null.
+ *
+ * `standingTop16` reads a cell's floor through `COLLIDER_KIT.cover`, which can only say "a floor with something on
+ * it" as a floor + wall form: furniture standing on a plate away from the cell's sides, or reaching its top, makes
+ * the cover a whole block or a band, and the plate under it reads as no floor at all. 11388's Door 7 opens onto a
+ * balcony whose plate cells (40, 7, 6) and (41, 7, 6) also hold a planter and a rail up to their tops; the passage
+ * cut cleared both to air. At 100 % the player stood 1/4 block lower on the cell under them; at 300-400 % the
+ * per-size carve emptied that cell too (nothing is drawn in it) and the doorway's line fell 8-18 blocks (gate
+ * fav4-1124 gate-d, PROC-20).
+ *
+ * Read from the layers (one union rectangle per sixteenth): the run of layers from the cell's lowest one that keep
+ * the bottom layer's rectangle, when that rectangle covers at least `PLATE_MIN_AREA_SHARE` of the footprint and the
+ * layer over the run is smaller or empty - something stands ON the plate, or nothing does. A cell whose layers are
+ * one rectangle to its top (a wall, a pillar) has no layer over the run and no plate.
+ */
+export function layerFloorTop16(a: Uint8Array | undefined, maxTop16: number): number | null {
+  if (!a) return null;
+  const rect = (l: number): readonly [number, number, number, number] | null => a[4 * l] === EMPTY_LAYER ? null : [a[4 * l]!, a[4 * l + 1]!, a[4 * l + 2]!, a[4 * l + 3]!];
+  let bottom = 0;
+  while (bottom < 16 && !rect(bottom)) bottom++;
+  if (bottom >= 16) return null;
+  const base = rect(bottom)!;
+  if ((base[1] - base[0]) * (base[3] - base[2]) < PLATE_MIN_AREA_SHARE * 256) return null;
+  let top = bottom + 1;
+  for (; top < 16; top++) {
+    const r = rect(top);
+    if (!r || r[0] !== base[0] || r[1] !== base[1] || r[2] !== base[2] || r[3] !== base[3]) break;
+  }
+  if (top >= 16 || top > maxTop16) return null;
+  const over = rect(top);
+  // The layer over the run must lie within the plate (smaller): a wider one is the plate's own underside of more geometry.
+  if (over && (over[0] < base[0] || over[1] > base[1] || over[2] < base[2] || over[3] > base[3])) return null;
+  return top;
+}
+
 /** Headroom a sunken-sill tread keeps over its top in the doorway's own column and on each side's floor (sixteenths: a standing player, 1.8 blocks). */
 const SILL_HEAD16 = 29;
 
@@ -1048,7 +1087,11 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
           // The part under the band stays only where the cell's geometry has a FLOOR there
           // (`standingTop16` at or under the step line: a floor with a post or rail on it); a
           // wall's foot is not kept as a step - at 400 % a 9/16 ledge is a 2.25-block wall.
-          const below = floor16 !== null && floor16 <= lo16 && floor16 - y * 16 > s[0] ? [s[0], Math.min(16, floor16 - y * 16)] as const : null;
+          // Where that reading finds none, the cell's own layers may still hold a floor plate under its furniture
+          // (`layerFloorTop16`), kept only up to the doorway's own floor, so it never adds a rise in front of it.
+          const plate = floor16 !== null && floor16 <= lo16 ? null : layerFloorTop16(layers?.get((x * grid.height + y) * grid.length + z), door16 - y * 16);
+          const floorTop16 = floor16 !== null && floor16 <= lo16 ? floor16 : plate !== null ? y * 16 + plate : null;
+          const below = floorTop16 !== null && floorTop16 - y * 16 > s[0] ? [s[0], Math.min(16, floorTop16 - y * 16)] as const : null;
           const above = hi16 - y * 16 < s[1] ? [Math.max(0, hi16 - y * 16), s[1]] as const : null;
           const keep = above && below ? (above[1] - above[0] >= below[1] - below[0] ? above : below) : above ?? below;
           if (keep && keep[1] > keep[0]) grid.set(x, y, z, colliderState(keep[0], keep[1]));

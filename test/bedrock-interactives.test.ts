@@ -376,6 +376,51 @@ describe('planInteractiveColliders', () => {
     }
   });
 
+  it('keeps the floor plate of a passage cell under its furniture, up to the doorway\'s floor (11388 Door 7\'s balcony, PROC-20)', () => {
+    // The layers of 11388's two balcony cells in front of Door 7, as the export built them (cells 40,7,6 and 41,7,6,
+    // traced 2026-11-24): a plate at the bottom (the whole footprint, then 12/16 of it at the balcony's edge) and a
+    // planter and a rail standing on it to the cell's top. `COLLIDER_KIT.cover` reads the first as a whole block and
+    // the second as a band, so `standingTop16` gave no floor under the passage band and the cut cleared both to air.
+    // At 100 % the player stood 1/4 block lower on the cell under them; at 300-400 % the per-size carve emptied that
+    // cell too (nothing is drawn in it) and the doorway's line fell 8-18 blocks.
+    const balcony: Array<Array<[number, number, number, number]>> = [
+      [[0, 16, 0, 16], [0, 16, 0, 16], [0, 16, 0, 16], [8, 16, 6, 16], [7, 16, 5, 16], [7, 16, 5, 16], [7, 16, 5, 16], [7, 16, 5, 16], [7, 16, 5, 16], [7, 16, 0, 16], [8, 16, 0, 16], [0, 16, 0, 14], [0, 15, 0, 16], [0, 15, 0, 16], [0, 16, 0, 16], [0, 16, 9, 13]],
+      [[0, 12, 0, 16], [0, 12, 0, 16], [0, 12, 0, 16], [0, 12, 0, 16], [0, 12, 0, 16], [0, 11, 0, 16], [0, 11, 3, 16], [0, 11, 3, 16], [0, 11, 3, 16], [0, 11, 3, 16], [0, 12, 3, 16], [6, 12, 3, 13], [6, 12, 3, 13], [6, 12, 3, 13], [0, 12, 3, 13], [0, 12, 0, 16]],
+    ];
+    const layersOf = (rects: Array<[number, number, number, number]>): Uint8Array => {
+      const cell = newCellLayers();
+      rects.forEach(([x0, x1, z0, z1], l) => addLayerBox(cell, x0, x1, l, l + 1, z0, z1));
+      return cell;
+    };
+    // The doorway's floor 5/16 up row 1, as Door 7's is 5/16 up row 7 (117 sixteenths).
+    const g = wallGrid();
+    const layers: CellLayers = new Map();
+    for (const [k, x] of [3, 4].entries()) {
+      g.set(x, 1, 6, colliderState(0, 16));
+      layers.set((x * g.height + 1) * g.length + 6, layersOf(balcony[k]!));
+    }
+    const [plan] = planInteractiveColliders(g, [leafAt(3.25, 1.5, 5.5, 2.6, 1 + 5 / 16)], frame, layers);
+    expect(plan!.passageCleared).toBeGreaterThan(0);
+    expect(g.get(3, 1, 6)).toBe(colliderState(0, 3));
+    expect(g.get(4, 1, 6)).toBe(colliderState(0, 5));
+    // The plate is kept only up to the doorway's floor: the same cells under a doorway floor at the row's bottom
+    // keep nothing that would stand over it.
+    const low = wallGrid();
+    const lowLayers: CellLayers = new Map();
+    for (const [k, x] of [3, 4].entries()) {
+      low.set(x, 1, 6, colliderState(0, 16));
+      lowLayers.set((x * low.height + 1) * low.length + 6, layersOf(balcony[k]!));
+    }
+    planInteractiveColliders(low, [leafAt(3.25, 1.5, 5.5)], frame, lowLayers);
+    for (const x of [3, 4]) expect(low.get(x, 1, 6), `${x},1,6`).toBe('minecraft:air');
+    // A solid wall cell (every layer the whole footprint) is no plate: its foot is never kept as a step.
+    const w = wallGrid(4, 3);
+    const solid: CellLayers = new Map();
+    for (const x of [3, 4]) for (const z of [4, 6]) for (let y = 1; y <= 4; y++) { const full = newCellLayers(); addLayerBox(full, 0, 16, 0, 16, 0, 16); solid.set((x * w.height + y) * w.length + z, full); }
+    planInteractiveColliders(w, [leafAt(3.25, 1.5, 5.5, 2.6, 1 + 5 / 16)], frame, solid);
+    for (const z of [4, 6]) for (const x of [3, 4]) expect(w.get(x, 1, z), `${x},1,${z}`).toBe('minecraft:air');
+  });
+
   it('finds a passable size from the opening and says when none reaches the player\'s passage', () => {
     expect(passSizeFor('door', { width: 80, height: 144 })).toBe(100);
     expect(passSizeFor('door', { width: 40, height: 72 })).toBe(150);
