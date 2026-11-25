@@ -56,7 +56,7 @@ export interface SetCanon {
   /**
    * The set is a LANDMARK meant to be shown at 400 %: its shell is split on the finer landmark lattice
    * (bedrock-building-shell.ts `shellLatticeFor`, `LANDMARK_SHELL_LATTICE`), so a player standing near it at 400 %
-   * is within draw reach of the chunk roots of what they see (TODO(cull-400), the user 2026-11-25: "only do the 400%
+   * is within draw reach of the chunk roots of what they see (cull-400, the user 2026-11-25: "only do the 400%
    * fix for models we want 400% - like notre dame, sagrada familia, etc"). It costs ~2-3x the shell entities, so it
    * is named per set here, never inferred from a title.
    */

@@ -1,5 +1,5 @@
 /**
- * The walk-away table of a `sim.ts --scenario=walk-away` JSON report (TODO(cull-400), PROC-20): per pack, the share of
+ * The walk-away table of a `sim.ts --scenario=walk-away` JSON report (cull-400, PROC-20): per pack, the share of
  * the shell's cubes drawn at each distance off the model's edge, the WORST bearing and the mean over bearings, and
  * every `model-vanishes` verdict. Two reports side by side (`--before=`) print the change per pack.
  *

@@ -57,8 +57,10 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   fix, also 10354/11388; the 11388 door approach), rebuilds into `output/fav4-1124/gate-j`. It commits craftmatic
   locally (main session pushes) and clego locally (not pushed).
 - OPEN: 6167 has no buildable source (`TODO(6167-source)`); 11377's great gate is not a door (`TODO(stud-pivot)`);
-  at 400 % ten favourites draw nothing from 20 blocks off a corner (`TODO(cull-400)`: the 13-block lattice's roots
-  26 blocks deep; a finer lattice multiplies entities ~8x - the user's call); 10365's whole-model vehicle sits at
+  at 400 % ten non-landmark favourites draw nothing from 20 blocks off their grid's corner (`TODO(cull-400)`; the
+  user 2026-11-25 wants the finer lattice only for landmarks: 9-block landmark lattice for 21061 21063 21065 and
+  `PlacementDetail` packs, branch cull-400 agent, COL-03; the walk measures from the GRID's corner, which for 43267
+  is ~16 blocks (64 at 400 %) of non-shell grid away from its shell); 10365's whole-model vehicle sits at
   the grid centre, 11.5 blocks off its source origin (kept, grid widened); still sunk by a part under the base,
   untouched: 11371 (85941), 77092 (41751), non-DBIX 71040 (87601), 910047 (90981); kept back from the republish
   (a metric got worse): 11371 11374 42639 76269 21065 10786 10796 10797 60380 76435 77092_sm01.

@@ -2832,7 +2832,7 @@ export function vehicleEntityQuality(name: LegoEntityQualityName | undefined, ve
 }
 
 export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddonOptions): Promise<PlayableAddonResult> {
-    // The lattice the building shell is split on: the landmark one only for a model meant to be seen at 400 % (TODO(cull-400)).
+    // The lattice the building shell is split on: the landmark one only for a model meant to be seen at 400 % (cull-400).
     const shellLattice = shellLatticeFor({ landmarkDetail: !!options.detail, canonLandmark: !!options.landmark });
     // A pack of figures alone (a custom minifig from minifigFromSpec) has no blocks and is still a pack.
     if (!grid.countNonAir() && !options.components?.some(c => c.grid.countNonAir()) && !options.figures?.length && !options.minifigCreator)

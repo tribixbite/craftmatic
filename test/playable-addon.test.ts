@@ -984,7 +984,7 @@ describe('playable add-on — brick-compiled entities', () => {
     for (const actor of placed) expect(actor.yaw).toBe(0);
   });
 
-  it('splits a landmark shell on the 9-block landmark lattice and leaves an ordinary pack exactly as it was (TODO(cull-400))', async () => {
+  it('splits a landmark shell on the 9-block landmark lattice and leaves an ordinary pack exactly as it was (cull-400)', async () => {
     const C = LDU_PER_BLOCK, I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
     // The two-chunk shell above, built three ways: ordinary, a canon landmark, a landmark detail level.
     const build = async (extra: Record<string, unknown>) => {

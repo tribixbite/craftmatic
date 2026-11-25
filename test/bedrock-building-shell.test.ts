@@ -579,7 +579,7 @@ describe('splitStaticShell', () => {
   });
 
   /**
-   * TODO(cull-400), the user 2026-11-25 ("only do the 400% fix for models we want 400%"): a landmark at 400 % - a
+   * cull-400, the user 2026-11-25 ("only do the 400% fix for models we want 400%"): a landmark at 400 % - a
    * 52-block cathedral of 1-block cubes every 2 blocks, its faces on the standard lattice's cell planes (the worst
    * case: a face cube is half a cell from its root), 208 blocks across and tall at 400 % - judged from cameras all
    * round it and THROUGH it (at 400 % a child walks its nave, climbs onto its roof, flies past its towers). Every cube within `LANDMARK_VIEW_EDGE_BLOCKS` (30) of the camera must have its chunk's root within
@@ -619,7 +619,7 @@ describe('splitStaticShell', () => {
     return { cubes: undrawn, near, worstRoot };
   };
 
-  it('a landmark at 400 percent: every cube within 30 blocks of the camera is drawn, its root under the ceiling (TODO(cull-400))', async () => {
+  it('a landmark at 400 percent: every cube within 30 blocks of the camera is drawn, its root under the ceiling (cull-400)', async () => {
     const geo = await cathedral();
     // The standard 13-block lattice FAILS this: roots up to 54 blocks from their cubes leave near cubes undrawn.
     const standard = undrawnNearCubes(splitStaticShell('cathedral', geo));

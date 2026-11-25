@@ -318,6 +318,13 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   blocks from their cubes at 400 % and the phone drew no shell from 40 blocks
   west of the pin (round 30m, COL-03). A lattice per size group would
   multiply the resident cuboids; one lattice, sized for the largest.
+  **A LANDMARK gets a finer lattice, nothing else does** (cull-400, the user
+  2026-11-25: only models meant to be seen at 400 %): a landmark detail level
+  or set-canon `landmark` (21061, 21063, 21065) splits on 9-block cells,
+  reach 40 at 400 % = ceiling 70 less the 30-block view edge the sim's
+  `model-vanishes` judges, ids `_f<ix>_<iy>_<iz>` (`shellLatticeFor`). Add a
+  landmark to `SET_CANON`, never by title. The standard lattice only
+  guarantees a cube within 16 blocks of the camera (70 - 54) is drawn.
   **A lattice chunk ships NO distance hull** (FID-03, 2026-10-22): each chunk
   switches on ITS OWN root's distance, so the 13-block cells (small enough
   to pass `planLodSwitch`) drew a model's far chunks as 1-block voxels beside
