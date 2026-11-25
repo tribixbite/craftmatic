@@ -83,21 +83,25 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
      * pack's colliders too (`door-approach-on-foot`, `doorSideOnFoot`; PROC-20, 11388 Doors 4/6). Every part is still
      * closed here, as the child finds them; up to `DOOR_ON_FOOT_MAX_SIZE`.
      */
-    // TODO(door-on-foot-favourites): on packs built before `approachSliver` (gate-h/i) this also fails 42670 Garage
-    // door 1 and Door 3 (Door 3 is A-20's known threshold stair) and 76457 Gate 1 and Door 6 at 100 %: rebuild them and
-    // triage each (pack's or a drawn-world artefact) before the next full favourites gate.
+    // Triaged 2026-11-25 on packs rebuilt at 74984840 (`output/fav4-1124/k-base/`) and Pixel round 25e: 11388 Doors 4/6's
+    // centre lane and 76457 Gate 1 were walked on the phone where an exactly axis-aligned lane stopped (`LANE_HEADING_DEG`);
+    // 42670 Garage door 1's drawn route squeezed 0.03 past a planter (`judgeDoorSide` tight); 42670 Door 3 and 76457
+    // Door 6's inner side are reached by no drawn flood (the model's), and their lanes are no longer judged.
     async doorwayOnFoot(_step: AnyStep, ctx: StepContext) {
       const ix = pack.interactives, placed = placedOf(ctx), from = ctx.state[START_KEY] as Vec3 | undefined;
       if (!ix || !from || placed.sizePct > DOOR_ON_FOOT_MAX_SIZE) return;
       const f = placed.sizePct / 100, k = Math.max(1, f), dim = ctx.player.dimension;
       const boxes = [...staticDrawn(ctx, appearance, pack), ...closedLeavesDrawn(ctx, appearance, pack)];
+      // The same cubes widened by the colliders' own slack (`slackDrawn`): what the model leaves only by less than that.
+      const slack = slackDrawn(boxes);
       const drawn = drawnWalkEngine(new DrawnWalkWorld(boxes, placed.from.y, MODEL_FOOTHOLD * f * f)) as unknown as SimEngine;
+      const drawnSlack = drawnWalkEngine(new DrawnWalkWorld(slack, placed.from.y, MODEL_FOOTHOLD * f * f)) as unknown as SimEngine;
       // The straight lanes read every drawn top as footing: a part the export dices into small cubes (11388's 2 x 2
       // inverted corner slope in the arcade, 0.25-0.55 up) is no floor to the flood's foothold rule, yet the device's
       // player walks over it; a lane that crossed it read as the model's own wall.
-      const drawnAnyTop = drawnWalkEngine(new DrawnWalkWorld(boxes, placed.from.y, 0)) as unknown as SimEngine;
+      const anyTop = drawnWalkEngine(new DrawnWalkWorld(boxes, placed.from.y, 0)) as unknown as SimEngine;
       const area = { x0: Math.min(Math.floor(placed.from.x) - WALK_FLOOD_MARGIN, Math.floor(from.x) - 1), x1: Math.max(Math.ceil(placed.to.x) + WALK_FLOOD_MARGIN, Math.floor(from.x) + 1), z0: Math.min(Math.floor(placed.from.z) - WALK_FLOOD_MARGIN, Math.floor(from.z) - 1), z1: Math.max(Math.ceil(placed.to.z) + WALK_FLOOD_MARGIN, Math.floor(from.z) + 1) };
-      const floods = { real: walkFlood(ctx.sim.engine, dim, from, area), drawn: walkFlood(drawn, dim, from, area) };
+      const floods = { real: walkFlood(ctx.sim.engine, dim, from, area), drawn: walkFlood(drawn, dim, from, area), drawnSlack: walkFlood(drawnSlack, dim, from, area) };
       let judged = 0;
       for (const it of ix.items) {
         if (!it.leaf || !it.passSize || placed.sizePct < it.passSize || it.fixed) continue;
@@ -116,16 +120,20 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
         for (const side of [-1, 1] as const) {
           const d = { columns: [...columns.values()], n: geo.n, side, floorY, k };
           const name = `${it.label} from ${side > 0 ? '+' : '-'} side`;
-          const v = doorSideOnFoot(ctx.sim.engine, drawn, dim, from, floods, d);
+          const { side: v, lanes, tight } = judgeDoorSide(ctx.sim.engine, { drawn, drawnSlack, anyTop }, dim, from, floods, d);
           ctx.note(`door-approach-on-foot: ${name}: ${v.drawn ? `the model draws a walk to it, the colliders ${v.colliders ? 'too' : 'NOT'}` : 'no drawn walk to it (the model\'s, not judged)'}`);
           if (v.drawn) judged++;
+          if (v.drawn && !v.colliders && tight) {
+            ctx.note(`door-approach-on-foot: ${name}: the model's own walk to it clears its drawn geometry by less than the colliders' slack (${COLLIDER_SLACK} block) - the MODEL's squeeze, not judged${v.blame ? ` (${v.blame})` : ''}`);
+            continue;
+          }
           if (v.drawn && !v.colliders) {
             ctx.violate({ invariant: 'door-approach-on-foot', message: `${name}: the model draws a walk from the ground to the doorway, the pack's colliders do not${v.blame ? ` - ${v.blame}` : ''}`, evidence: { door: it.label, side, floorY, from } });
             continue;
           }
-          // The device's straight walk (`doorLanesOnFoot`): the flood's zig-zag is not what a child pushing forward takes.
-          const lanes = doorLanesOnFoot(ctx.sim.engine, drawnAnyTop, dim, floods, d);
-          if (!lanes.drawn) continue;
+          // The device's straight walk (`doorLanesOnFoot`, judged by `judgeDoorSide`): the flood's zig-zag is not what a
+          // child pushing forward takes.
+          if (!lanes?.drawn) continue;
           ctx.note(`door-approach-on-foot: ${name}: ${lanes.colliders} of ${lanes.drawn} straight lanes the model lets a child walk from ${DOOR_LANE_OUT} blocks out reach the landing over the colliders`);
           if (lanes.colliders) continue;
           const r2 = (q: Vec3): string => `${q.x.toFixed(2)},${q.y.toFixed(2)},${q.z.toFixed(2)}`;
@@ -365,6 +373,40 @@ export function doorSideOnFoot(real: SimEngine, drawn: SimEngine, dim: string, f
   return { drawn: true, colliders: false, ...(blame ? { blame } : {}) };
 }
 
+/**
+ * The drawn cubes widened horizontally by `slack` (`COLLIDER_SLACK`; a turned cube to its corner box). The colliders
+ * stand for the drawn geometry as supersets up to that slack, so a walk the model leaves only by less than it is the
+ * MODEL's to deny, as a doorway stop and a tap spot already are (`colliderIsModels`, `outOfReachByModel`).
+ */
+export function slackDrawn(boxes: readonly DrawnBox[], slack = COLLIDER_SLACK): DrawnBox[] {
+  return boxes.map(d => ({ box: { ...d.box, x0: d.box.x0 - slack, x1: d.box.x1 + slack, z0: d.box.z0 - slack, z1: d.box.z1 + slack }, glass: d.glass }));
+}
+
+/** The drawn worlds `judgeDoorSide` reads: the model as drawn, and widened by the colliders' slack (flood footing, and every top). */
+export interface DoorSideWorlds { drawn: SimEngine; drawnSlack: SimEngine; anyTop: SimEngine }
+
+/**
+ * One doorway side, judged as `doorwayOnFoot` does (PROC-20):
+ * - the flood over the model AS DRAWN (`doorSideOnFoot`): no drawn walk is the model's;
+ * - a drawn walk the colliders' flood misses is the pack's - unless the flood over the model widened by the colliders'
+ *   slack misses it too (`tight`): the model's own route squeezes past its geometry by less than a collider may stand
+ *   off it. 42670's Garage door 1 (+ side): the drawn route passed a planter and its lamp post 0.03 block clear, beside
+ *   the post's quarter-block collider band;
+ * - only where both floods reach the side, the straight lanes (`doorLanesOnFoot`) over the model as drawn, every top
+ *   footing. The lanes are NOT widened: tried, it dropped the lanes that pass and kept two that wander along a wall
+ *   (76457 Door 2, + side at turn 90: 6 of 9 lanes -> 0 of 2), and widened by 0.2 the 25d sheet read as the model's. A side the model's own flood never
+ *   reaches is not judged by its lanes: 42670's Door 3 (A-20's threshold stair, 3.4 blocks up) read "no drawn walk",
+ *   yet its lanes climbed diced tread tops and were judged against the colliders.
+ * The widening is applied only where it excuses: the drawn flood that GATES the lanes stays exact, or the 25d 11388
+ * pack's sheet (Doors 4/6, device-confirmed) reads as the model's (a 0.2 widening already closes its drawn flood).
+ */
+export function judgeDoorSide(real: SimEngine, worlds: DoorSideWorlds, dim: string, from: Vec3, floods: { real: readonly WalkNode[]; drawn: readonly WalkNode[]; drawnSlack: readonly WalkNode[] }, d: DoorwaySide): { side: DoorSideOnFoot; lanes?: DoorLanes; tight?: boolean } {
+  const side = doorSideOnFoot(real, worlds.drawn, dim, from, floods, d);
+  if (!side.drawn) return { side };
+  if (!side.colliders) return { side, tight: !doorSideOnFoot(real, worlds.drawnSlack, dim, from, { real: floods.real, drawn: floods.drawnSlack }, d).drawn };
+  return { side, lanes: doorLanesOnFoot(real, worlds.anyTop, dim, floods, d) };
+}
+
 /** How far out (blocks at 100 %, x k) a straight lane to a doorway starts: where a child lines up on the door and pushes forward. */
 export const DOOR_LANE_OUT = 6;
 /** The lanes' spacing across a doorway (blocks at 100 %, x k): the leaf's columns and half a block either side. */
@@ -387,19 +429,48 @@ export interface DoorLanes { drawn: number; colliders: number; lanes: DoorLane[]
  * lane and a step of its floor - or stalls. The same walk over the drawn world and over the colliders.
  */
 function walkLane(world: SolidQuery, start: Vec3, goal: Vec3, dir: { x: number; z: number }, k: number): { ok: boolean; s: PlayerState } {
+  let last: PlayerState | undefined;
+  // The push as given first, then a fraction of a degree either side of it (`LANE_HEADING_DEG`).
+  for (const deg of [0, LANE_HEADING_DEG, -LANE_HEADING_DEG]) {
+    const r = walkLaneHeading(world, start, goal, dir, deg * Math.PI / 180, k);
+    if (r.ok) return r;
+    last ??= r.s;
+  }
+  return { ok: false, s: last! };
+}
+
+/** One `walkLane` push, the stick turned `turn` radians off the lane's axis (`dir`); arrival is still judged along `dir`. */
+function walkLaneHeading(world: SolidQuery, start: Vec3, goal: Vec3, dir: { x: number; z: number }, turn: number, k: number): { ok: boolean; s: PlayerState } {
   const along = (p: { x: number; z: number }): number => (p.x - goal.x) * dir.x + (p.z - goal.z) * dir.z;
+  const c = Math.cos(turn), sn = Math.sin(turn);
+  const move = { x: dir.x * c - dir.z * sn, z: dir.x * sn + dir.z * c };
   let s: PlayerState = { ...start, vx: 0, vy: 0, vz: 0, onGround: true, sneaking: false, tick: 0 };
   let jump = false, best = -Infinity, stall = 0;
-  for (let t = 0; t < DOOR_LANE_OUT * k * 12 + 60; t++) {
-    const r: TickResult = tickPlayer(world, s, { move: dir, jump, sneak: false, autoJump: true });
+  for (let t = 0; t < DOOR_LANE_OUT * k * 12 + LANE_STALL_TICKS + 20; t++) {
+    const r: TickResult = tickPlayer(world, s, { move, jump, sneak: false, autoJump: true, facing: move });
     s = r.state;
     jump = (r.collided.x || r.collided.z) && s.onGround;
     const a = along(s);
     if (a >= -DOOR_LANE_ARRIVE * k && s.onGround && Math.abs(s.y - goal.y) <= STEP_HEIGHT * k + 1e-6) return { ok: true, s };
-    if (a > best + 1e-3) { best = a; stall = 0; } else if (++stall > 40) break;
+    if (a > best + 1e-3) { best = a; stall = 0; } else if (++stall > LANE_STALL_TICKS) break;
   }
   return { ok: false, s };
 }
+
+/**
+ * How far (degrees) off a lane's axis `walkLane` also pushes. A child's "straight" push is never exactly along a world
+ * axis, and against a face the off-axis part SLIDES the body along it: a lane stopped dead by a collider a fraction of a
+ * block into the player's box gets past it on the device. Pixel round 2026-11-25e (gate-j pack): 11388 Doors 4/6's lane
+ * z origin+6.6, stopped for good at the arcade column's head band by an exactly axis-aligned walk, reached the sill on
+ * the phone with the joystick held forward 8 s; 0.5-0.7 degrees reproduce the device's end (on the sill, Position z
+ * 6006), and no heading within a degree reaches the 25d pack's sill, which the phone could not walk onto either.
+ */
+export const LANE_HEADING_DEG = 1;
+/**
+ * Ticks a lane walk may go without getting closer before it is called stopped: the slide off a face at
+ * `LANE_HEADING_DEG` gains 0.075 block a second sideways, and the device rounds hold the stick 7-8 s (25d, 25e).
+ */
+const LANE_STALL_TICKS = 100;
 
 /**
  * The device's walk to a doorway (Pixel round 25d, 11388 Doors 4/6): a child lines up on the door from `DOOR_LANE_OUT`
@@ -444,7 +515,13 @@ export function doorLanesOnFoot(real: SimEngine, drawn: SimEngine, dim: string, 
 }
 
 /** The largest placed size (percent) `doorwayOnFoot` floods: a flood of the whole model is bounded at 100 %. */
-// TODO(door-on-foot-sizes): above 100 % the flood's node cap (`walkFlood`) cuts large models short; judge 150-400 % when it can be bounded.
+// TODO(door-on-foot-sizes): not judged above 100 % (checked 2026-11-25). The question it asks - does the pack serve a
+// walk the MODEL draws? - has no drawn reference there: the model's own steps scale with the wand (a 0.3-block step is
+// a 1.2-block wall at 400 %, past the player's jump), so above 100 % the drawn flood reaches almost nothing, while the
+// pack's planned treads and carved colliders add routes the drawn model never had (SCALE-06); the reference at those
+// sizes is the tread plan's own reach, which `_walk_line.ts` and the planner's reach gates already judge. The flood's
+// node cap (`WALK_MAX_NODES` 40,000 over a model 4 x as long and wide) also cuts large models short. A device-proven
+// per-size reference (a route a phone walked at 200-400 %) is what would make it honest.
 const DOOR_ON_FOOT_MAX_SIZE = 100;
 
 /** How short of the aim another part's pick box may start and still be behind the target (the aim lies ON its box). */

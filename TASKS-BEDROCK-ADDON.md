@@ -68,16 +68,27 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   the base (clego 47950cf9, R2 + index b4fd8c5f); 11388 Doors 4/6 - rule 4 kept the stair column's 1/16 sliver as a
   full sheet under the arcade ceiling, new clearance exception `approachSliver`. Gate `output/fav4-1124/gate-j`
   (11377 11388 10354, 36 scenarios) PASS; packs + SHA256SUMS in `gate-j/packs/` (stamp 759f4544+dirty: the other
-  agent's uncommitted minifig-rig.ts, since e0bcc1c1). The sim now also fails 21360 (0.75 up, 0 % on the ground) and,
-  on gate-h/i packs, 42670 Garage door 1 / Door 3 and 76457 Gate 1 / Door 6 (`TODO(door-on-foot-favourites)`).
+  agent's uncommitted minifig-rig.ts, since e0bcc1c1).
+- DONE 2026-11-25 (after round 25e; packs rebuilt at 74984840 in `output/fav4-1124/k-base/`, sim logs `sim100*.log`):
+  (1) 21360's float was the SOURCE: Brick 37364's medium legs 37365/37366 had a manual alias to 3816/3817 at their raw
+  LDD bone, 32 LDU under the hips, feet 24 under the base (`_lowest_parts.ts`: 32.0). clego e1b7a29b/d5450bf6 rows onto
+  LDraw 37365/37366 (corpus survey: 117 LXFMLs, 173 bricks, one offset in the hips' frame), 21360 republished (R2 +
+  index, read back by sha; index hash f234005d570e): lowest part now the base plates at 8, sim grounded 0.00.
+  `TODO(medium-legs-republish)`: the other 116 sets keep low medium legs until reconverted. (2) Sim, not colliders
+  (the device walked what the sim stopped): `door-approach-on-foot` lanes push within `LANE_HEADING_DEG` 1 degree and
+  slide off a face (0.5-0.7 reproduce the 25e end on 11388's centre lane; no heading reaches the 25d sill); a drawn
+  route that clears the model by less than `COLLIDER_SLACK` is the model's squeeze (42670 Garage door 1, 0.03 past a
+  planter); lanes are judged only where the model's own flood reaches the side (42670 Door 3, 76457 Door 6 inner side).
+  25d 11388 pack still FAILS Doors 4/6 (device-confirmed); k-base 11388 42670 76457 21360 pass at 100 %.
+  `_walk_line.ts --yaw=`. Above 100 % not judged: `TODO(door-on-foot-sizes)` has the reason.
 - Round 25e (Pixel, `output/device-round-2026-11-25e/pixel-25e/notes.md`, gate-j + gate-j10316 + gate-i packs):
   ON THE GROUND 11377 11388 10354 10316 76457; 11388 Doors 4/6 walked onto the sill on BOTH lanes (z +7.2 and the
   centre +6.6) and opened - the sim's centre-lane stop is a sim false positive; 76457 Gate 1 / Door 6 reached and
   opened (sim `door-approach-on-foot` false positive); 21360 floats ~1-1.3 blocks (confirmed). Not done: 10316 seat
   boarding (taps from 6+ blocks in Creative boarded nothing) and its moving parts. Transient lime-green shapes in the
   sky on one world reopen (`reopen-in.jpg`), gone on the next; cause unknown.
-- IN FLIGHT: (a) an agent on main fixes the sim's false door stops (11388 centre lane, 76457, 42670), 21360's float,
-  door-on-foot above 100 %, then gates all favourites into `output/fav4-1124/gate-k`. (b) Branch
+- IN FLIGHT: (a) full favourites gate on the commit after (1)-(2) into `output/fav4-1124/gate-k` (`gate.md` there).
+  (b) Branch
   `worktree-agent-a067ed10f99e4b7d3` (cull-400, the user 2026-11-25: only for models meant for 400 %): 9-block lattice
   for `landmark` sets (21061 21063 21065, brickgen landmark levels); 21065 mixed from outside (the ~70-block actor
   ceiling binds); merge after (a)'s gate, then rebuild the three landmarks clean for a device round.

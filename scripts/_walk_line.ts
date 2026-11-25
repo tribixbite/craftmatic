@@ -5,7 +5,7 @@
  * invisible edge here" from a device round.
  *
  * Usage: bun scripts/_walk_line.ts <pack.mcaddon> [--x=13.8,14.2,...] [--from=9.5] [--to=3.9] [--y=0.5] [--size=100] [--turn=0] [--open=Door 1,Door 2]
- *                                   [--dir=-z|+z|-x|+x] [--jump=blocked|auto|none] [--ticks=300]
+ *                                   [--dir=-z|+z|-x|+x] [--jump=blocked|auto|none] [--ticks=300] [--yaw=0]
  *   Walks along `--dir` (default -z) from `--from` toward `--to` on that axis, one line per LANE: `--x` lists the
  *   lanes' other coordinate (x for a z walk, z for an x walk), in model blocks from the pin (a device position
  *   minus the placement origin), the feet starting at `--y` (0.5, the ground; an upper storey's floor height to
@@ -13,7 +13,11 @@
  *   `--jump`: `blocked` (default) jumps whenever a move is clipped, as a player trying to get past would;
  *   `auto` presses nothing and lets Bedrock's AUTO-JUMP decide (`autoJumpWanted` in sim/physics/body.ts: an
  *   obstacle over 0.5 and at most 1.2 over the feet, with two clear cells over the head) - the Pixel's own
- *   climb (adb drives one finger, the stick) and a 5-year-old's on touch; `none` never jumps. Exits 0; read the table.
+ *   climb (adb drives one finger, the stick) and a 5-year-old's on touch; `none` never jumps. `--yaw` turns the push
+ *   that many degrees off the axis (toward +z for an x walk, +x for a z walk): a body pushed against a face slides
+ *   along it, as a phone's "straight" walk does (Pixel round 2026-11-25e, 11388 Doors 4/6 lane z 6.6 reached the sill
+ *   on the device; `--dir=+x --from=20.5 --x=6.6 --jump=auto --yaw=0.5` reaches it, `--yaw=0` stops at x 27.70).
+ *   Exits 0; read the table.
  *
  * Found 76457's sweet-stand rim (device round 2026-09-26a): the shipped pack
  * stopped at z 7.30 at x 13.8-15.0, the device's own reading
@@ -39,6 +43,7 @@ if (!/^[+-][xz]$/.test(dirFlag)) { console.error('--dir is one of -z, +z, -x, +x
 const jumpMode = flag('jump') ?? 'blocked';
 if (!['blocked', 'auto', 'none'].includes(jumpMode)) { console.error('--jump is blocked, auto or none'); process.exit(2); }
 const ticks = Number(flag('ticks') ?? 300);
+const yaw = Number(flag('yaw') ?? 0) * Math.PI / 180;
 const axis = dirFlag[1] as 'x' | 'z', sign = dirFlag[0] === '+' ? 1 : -1;
 
 const b = readFileSync(file);
@@ -46,8 +51,8 @@ const model = await loadAddonPreviewModel(b.buffer.slice(b.byteOffset, b.byteOff
 const world = new WalkWorld({ cells: model.cells, dims: model.dims, sizePct, rotation, treads: 'shipped', shippedTreads: (s, q) => treadBlocksAt(model, s, q), shippedCarve: (s, q) => carveAt(model, s, q) });
 const items = model.interactives?.items ?? [];
 if (model.interactives) world.setOverlayBlocks(ixClosedBlocks(items, model.dims, sizePct / 100, rotation, i => open.includes(items[i]!.label)));
-console.log(`${model.label}: walking ${dirFlag} from ${axis} ${from} to ${to}, feet from y ${startY}, at ${sizePct} % turn ${rotation}, jump ${jumpMode}${open.length ? `, open: ${open.join(', ')}` : ''}`);
-const move = axis === 'x' ? { x: sign, z: 0 } : { x: 0, z: sign };
+console.log(`${model.label}: walking ${dirFlag} from ${axis} ${from} to ${to}, feet from y ${startY}, at ${sizePct} % turn ${rotation}, jump ${jumpMode}${yaw ? `, push ${flag('yaw')} degrees off the axis` : ''}${open.length ? `, open: ${open.join(', ')}` : ''}`);
+const move = axis === 'x' ? { x: sign * Math.cos(yaw), z: Math.sin(yaw) } : { x: Math.sin(yaw), z: sign * Math.cos(yaw) };
 for (const lane of lanes) {
   let s: PlayerState = axis === 'x'
     ? { x: from, y: startY, z: lane, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 }

@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { simHost, solidBelow } from './_sim-host.js';
-import { doorLanesOnFoot, doorSideOnFoot, type DoorwaySide } from '../web/src/sim/adapters/craftmatic/child-play.js';
+import { doorLanesOnFoot, doorSideOnFoot, judgeDoorSide, slackDrawn, type DoorwaySide } from '../web/src/sim/adapters/craftmatic/child-play.js';
 import { DrawnWalkWorld, drawnWalkEngine, type DrawnBox } from '../web/src/sim/adapters/craftmatic/drawn.js';
 import { walkFlood } from '../web/src/sim/scenario/approach.js';
 import type { SimEngine } from '../web/src/sim/core/engine.js';
@@ -107,5 +107,65 @@ describe('sim child play: a doorway the model lets a child walk up to, the colli
     const v = lanes(false);
     expect(v.drawn).toBeGreaterThan(5);
     expect(v.colliders).toBe(v.drawn);
+  });
+
+  /**
+   * Pixel round 2026-11-25e (gate-j pack, `output/device-round-2026-11-25e/pixel-25e/notes.md`): the lane the
+   * simulator stopped dead at the arcade column's head band (z origin+6.6, a band 0.2 into the player's box) was walked
+   * onto the sill on the phone, joystick held forward 8 s. An exactly axis-aligned walk stops against the band's face
+   * for good; a push a fraction of a degree off the axis slides along that face and clears it (0.5-0.7 degrees
+   * reproduces the device's end, Position z 6006 on the sill), and no heading within a degree got the 25d pack's
+   * lanes onto the sill, which the phone could not walk either. The lanes are walked within `LANE_HEADING_DEG`.
+   */
+  it('a lane whose colliders stand a sliver past the drawn post into it slides off with the push a child gives (11388 Doors 4/6, Pixel round 25e)', () => {
+    // A post the model draws to z -0.4 in front of the steps (to -0.15 with the colliders' slack, `slackDrawn`); its
+    // collider fills the block to z 0.0, under the head.
+    const post = box(4, 5, 0, 4, -1, -0.4);
+    const { drawn, floods } = worlds(false, slackDrawn([...DRAWN, post]));
+    const h = colliders(false);
+    for (let y = 0; y <= 3; y++) h.setBlock(4, y, -1, COLLIDER, span(0, 16));
+    const real = { real: walkFlood(h.engine, 'overworld', FROM, AREA), drawn: floods.drawn };
+    const v = doorLanesOnFoot(h.engine, drawn, 'overworld', real, OUTSIDE);
+    // The lane whose box overlaps the collider by 0.1 but clears the drawn post (lateral -0.3: z 0.2, box -0.1..0.5).
+    const sliver = v.lanes.find(l => Math.abs(l.lateral - -0.3) < 1e-6);
+    expect(sliver).toBeDefined();
+    expect(sliver!.colliders).toBe(true);
+  });
+
+  it('with the colliders\' slack the 25d sheet still stops every lane the model lets a child walk', () => {
+    const v = lanes(true, slackDrawn(DRAWN));
+    expect(v.drawn).toBeGreaterThan(3);
+    expect(v.colliders).toBe(0);
+  });
+
+  /** `judgeDoorSide` over a drawn model and the 25d-style colliders (`sheet`). */
+  function side(sheet: boolean, drawnBoxes: readonly DrawnBox[]) {
+    const { h, drawn, floods } = worlds(sheet, drawnBoxes);
+    const widened = slackDrawn(drawnBoxes);
+    const drawnSlack = drawnWalkEngine(new DrawnWalkWorld(widened, 0, 0.0625)) as unknown as SimEngine;
+    const all = { ...floods, drawnSlack: walkFlood(drawnSlack, 'overworld', FROM, AREA) };
+    const anyTop = drawnWalkEngine(new DrawnWalkWorld(drawnBoxes, 0, 0)) as unknown as SimEngine;
+    return judgeDoorSide(h.engine, { drawn, drawnSlack, anyTop }, 'overworld', FROM, all, OUTSIDE);
+  }
+
+  it('a walk the model leaves only a sliver wide is the model\'s squeeze, not the pack\'s (judgeDoorSide tight; 42670 Garage door 1)', () => {
+    // A planter and a post either side of the only way to the steps, 0.63 apart: a 0.6-wide body passes them 0.015 clear.
+    const squeeze = [...DRAWN.slice(0, 4), box(0, 3, 0, 4, -6, 0.2), box(0, 3, 0, 4, 0.83, 8), ...DRAWN.slice(4)];
+    const v = side(true, squeeze);
+    expect(v.side.drawn).toBe(true);
+    expect(v.side.colliders).toBe(false);
+    expect(v.tight).toBe(true);
+    // The open approach under the same sheet stays the pack's.
+    const open = side(true, DRAWN);
+    expect(open.side.colliders).toBe(false);
+    expect(open.tight).toBe(false);
+  });
+
+  it('a side the model\'s own flood never reaches is not judged by its lanes (judgeDoorSide; 42670 Door 3)', () => {
+    const wall = [box(3, 5, 0, 0.3, -1, 3), box(5, 6, 0, 3, -1, 3), box(6, 9, 0, 1.05, -1, 3), ...DRAWN.slice(4)];
+    const v = side(true, wall);
+    expect(v.side.drawn).toBe(false);
+    expect(v.lanes).toBeUndefined();
+    expect(side(false, DRAWN).lanes?.colliders).toBeGreaterThan(5);
   });
 });
