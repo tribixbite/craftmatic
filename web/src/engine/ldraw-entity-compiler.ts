@@ -102,6 +102,9 @@ export function isFigurePart(part: string, description: string): boolean {
   const d = normaliseFigureDescription(description);
   if (/^Minifig\b/i.test(d)) return !/^Minifig (Seat|Chair|Steering|Stand|Display|Bench)\b/i.test(d);
   if (/^(Figure|Friends|Duplo Figure|Technic Figure)\b/i.test(d)) return true;
+  // A one-piece skirt or robe that replaces hips and legs (`36036 Lower Body, Skirt`): not one, it was dropped as
+  // loose debris from 11377 and 10354 before the rig saw it (PROC-20).
+  if (/^Lower Body\b/i.test(d)) return true;
   // Big-fig moulds: Studio's `Torso Large, …` / `Arm Large with Pin, …` and LDraw's `Bigfig …`.
   if (/^(Torso Large|Arm Large|Bigfig)\b/i.test(d)) return true;
   // BrickLink's mini-doll copies (`Mini Doll, Hair …`, `MINI WIG NO. 3`): the

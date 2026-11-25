@@ -158,6 +158,10 @@ describe('figure systems: one-piece lower bodies keep their mould (11377, PROC-2
   });
   it('reads a skirt lower body as the hips and legs and supplies no hips or legs', async () => {
     expect(classifyMinifigPart('36036', 'Lower Body, Skirt')).toBe('hips_legs');
+    // ...and is a FIGURE part, so grouping keeps it with its torso: as 'not a figure part' it was dropped from 11377
+    // and 10354 as loose source debris (favourites-floaters '36036': 1) before the rig ever saw it.
+    expect(isFigurePart('36036', 'Lower Body, Skirt')).toBe(true);
+    expect(isFigurePart('67644', 'Figure Lower Body  2 x  2 x  1.667 with Four Hollow Studs')).toBe(true);
     const a = assembleMinifig(robed(), await meshesFor(robed()));
     // (The test figures carry no arms, so arms and hands are supplied; nothing below the torso may be.)
     expect(a.synthesized.filter(s => /hip|leg/.test(s))).toEqual([]);
