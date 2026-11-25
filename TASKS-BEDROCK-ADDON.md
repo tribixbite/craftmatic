@@ -9,7 +9,7 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
-### 2026-11-24/25: four new favourites (PROC-20) - two Pixel rounds done, source repair in flight
+### 2026-11-24/25: four new favourites (PROC-20) - three Pixel rounds done, round 25d in flight
 The user (2026-11-24): add 21065, 11388, 11377 and 6167 to the favourites, audit, upgrade their exports, simulate,
 test in game, record every issue, teach the simulator to catch each, fix, retest in game. Evidence: `output/fav4-1124/`.
 - DONE: in `FAVOURITES` (580b4017); 21065/11388 onboarded from DBIX. Round 24a (Pixel, `output/device-round-2026-11-24a/
@@ -37,16 +37,28 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   (6565, 3662), 11371 (85941), 77092 (41751); non-DBIX 71040 (87601), 910047 (90981). Minor: the wand menu reopened
   on the Place form for four sets and on the main page for 10354; the HUD stayed hidden after a chat command until
   one Android Back (10354-um1.jpg) - not reproduced, not ours as far as known.
-- IN FLIGHT: a clego agent fixes that class and republishes 10354 11388 41703 42652 80049 (+ 11377 11371 77092 if
-  the same cause); clego commits local, craftmatic index copy left for the main session to commit.
+- DONE 2026-11-25: clego 6865df6d/49ee9496 (dropped wrong learned rows 6565/50015/35312, 60800 row inverse, 5649
+  from the authentic .io, `ALIAS_LEARNED`: a pure alias takes its target's learned row, under the floor 243 -> 0);
+  12 favourites republished, craftmatic index 4fa9c7ea (CI + Deploy green). Gate `output/fav4-1124/gate-h` (12 packs,
+  144 scenarios): 42652 80049 41703 10354 11388 11377 43267 10365 42663 42670 grounded at every size; FAIL 76457
+  (2 blocks, 0 % on the ground: two 7102 doors - an upstream alias of 5466 - 117 LDU under the floor) and 21360
+  (1.75 blocks: one 62360 windscreen 118 LDU under the base plate). 10354/11377/11388/76457 were published
+  WITHOUT the alias fix (their 3662s stay low; 11377 still grounds - its other parts reach the floor).
+- IN FLIGHT: (a) a clego agent finds and fixes the 7102 / 62360 causes, regenerates 76457 21360 (+ 10354 11377
+  11388 with the alias fix), republishes them scoped; clego commit local, not pushed. (b) Pixel round 25d
+  (`output/device-round-2026-11-25d/brief-pixel-25d.md`, gate-h packs of 42652 80049 41703 10354 11388 11377):
+  ground-level S/W shots against 24c, and 11388 Doors 4/6 in Survival (now 1.34 blocks over the grass).
 - OPEN: 6167 has no buildable source (`TODO(6167-source)`); 11377's great gate is not a door (`TODO(stud-pivot)`);
   at 400 % ten favourites draw nothing from 20 blocks off a corner (`TODO(cull-400)`: the 13-block lattice's roots
-  26 blocks deep; a finer lattice multiplies entities ~8x - the user's call); 11388 Doors 4/6 need a step onto the
-  plate; 10365's whole-model vehicle sits at the grid centre, 11.5 blocks off its source origin (kept, grid widened).
-- NEXT: commit the craftmatic index copy the clego agent lifts, rebuild the republished sets (`bun
-  scripts/_favourites_gate.ts <sets> --build --faces=C:/git/craftmatic/output/faces-art-1115
-  --out=output/fav4-1124/gate-h`), confirm model-grounded; then Pixel round 24d (gap shots of each republished set,
-  11388 Doors 4/6, which drop ~1.2 blocks with the 6565 fix), then REQUIREMENTS PROC-20, full suite, push, CI.
+  26 blocks deep; a finer lattice multiplies entities ~8x - the user's call); 10365's whole-model vehicle sits at
+  the grid centre, 11.5 blocks off its source origin (kept, grid widened); still sunk by a part under the base,
+  untouched: 11371 (85941), 77092 (41751), non-DBIX 71040 (87601), 910047 (90981); kept back from the republish
+  (a metric got worse): 11371 11374 42639 76269 21065 10786 10796 10797 60380 76435 77092_sm01.
+- NEXT: when the clego agent reports, lift its index entries into `web/public/lego-models-index.json` (commit
+  `fix(index)`), rebuild 76457 21360 (+ any republished) with `bun scripts/_favourites_gate.ts <sets> --build
+  --faces=C:/git/craftmatic/output/faces-art-1115 --out=output/fav4-1124/gate-i` and confirm model-grounded; read
+  round 25d; a short Pixel round for 76457/21360 if they changed; REQUIREMENTS PROC-20 (device rows 24c/25d, guards
+  `_lowest_parts`, the model-grounded sim tests); `bun run test`; push; `gh run list`.
 
 ### 2026-11-16: replica-set polish (PROC-19) - audit fixed, packs sent; NEXT generality
 The user (2026-11-15) asked for a Fable audit of the favourites' add-on generation, every finding fixed and tested,
