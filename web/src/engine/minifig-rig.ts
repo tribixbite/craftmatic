@@ -453,8 +453,10 @@ export function classifyMinifigPart(part: string, description: string): MinifigS
   // (11377's robed figures grew standard legs under the skirt, PROC-20); `Figure Lower Body` (67644) is not a minifig's.
   if (/^Minifig Hips and Legs\b/i.test(d) || /^Minifig Legs\b/i.test(d) || /^(Minifig )?Lower Body\b/i.test(d) || /^(970c|3815c|41879|16968|16709|36036|75103)/.test(id) || /_legs$/.test(cleanId(part))) return 'hips_legs';
   if (/^Minifig Hips\b/i.test(d) || /^(970|3815)(?![0-9])/.test(id) || /_hips$/.test(cleanId(part))) return 'hips';
-  if (/^Minifig Leg Right\b/i.test(d) || /^3816(?![0-9])/.test(id)) return 'leg_right';
-  if (/^Minifig Leg Left\b/i.test(d) || /^3817(?![0-9])/.test(id)) return 'leg_left';
+  // `Minifig Leg Medium Right/Left` (37365/37366, a dwarf's legs: 10316's Gimli and Gloin) share 3816/3817's hip-pivot
+  // frame, 8 LDU shorter; read as held items they left both dwarves on full-height synthesised legs (PROC-20).
+  if (/^Minifig Leg (Medium )?Right\b/i.test(d) || /^(3816|37365)(?![0-9])/.test(id)) return 'leg_right';
+  if (/^Minifig Leg (Medium )?Left\b/i.test(d) || /^(3817|37366)(?![0-9])/.test(id)) return 'leg_left';
   if (/^Minifig Arm Right\b/i.test(d) || /^3818(?![0-9])/.test(id)) return 'arm_right';
   if (/^Minifig Arm Left\b/i.test(d) || /^3819(?![0-9])/.test(id)) return 'arm_left';
   if (/^Minifig Hand\b/i.test(d) || /^(3820|983)(?![0-9])/.test(id)) return 'hand_right'; // side decided by position

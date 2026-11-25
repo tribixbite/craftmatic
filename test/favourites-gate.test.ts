@@ -57,12 +57,12 @@ describe('favourites gate', () => {
   });
 
   it('named sets judge only their own regression cases and pass when they have no vehicle (PROC-20)', () => {
-    // fav4-1124 gate-a (11377, 6167): the named-set build made only those packs, so 47 regression cases were NOT
+    // fav4-1124 gate-a (11377 and 6167, since corrected to 10316): the named-set build made only those packs, so 47 regression cases were NOT
     // TESTED for want of theirs and the vehicle course failed on 'no scripted vehicles' - two false FAILs.
-    const steps = gateSteps({ dir: 'd', sets: ['11377', '6167'], withGabby: false, build: true });
+    const steps = gateSteps({ dir: 'd', sets: ['11377', '10316'], withGabby: false, build: true });
     const vehicles = steps.find(s => s.name === 'vehicles')!, regressions = steps.find(s => s.name === 'regressions')!;
     expect(vehicles.argv).toContain('--allow-none');
-    expect(regressions.argv).toContain('--sets=11377,6167');
+    expect(regressions.argv).toContain('--sets=11377,10316');
     // The whole gate keeps both strict.
     const all = gateSteps({ dir: 'd', sets: [], withGabby: false, build: true });
     expect(all.find(s => s.name === 'vehicles')!.argv).not.toContain('--allow-none');
@@ -73,6 +73,6 @@ describe('favourites gate', () => {
     const picked = regressionCasesForSets(REGRESSIONS, ['10261']);
     expect(picked.length).toBeGreaterThan(0);
     for (const c of picked) expect(c.newStem.startsWith('10261-')).toBe(true);
-    expect(regressionCasesForSets(REGRESSIONS, ['6167'])).toEqual([]);
+    expect(regressionCasesForSets(REGRESSIONS, ['10316'])).toEqual([]);
   });
 });

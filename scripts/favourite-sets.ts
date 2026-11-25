@@ -3,7 +3,8 @@ import { indexedTryOrder, type IndexModel } from '../web/src/engine/lego-sources
 
 /**
  * The QA populations the sweeps and audits run over: the user's favourite sets (the priority population: 40 given
- * 2026-09-22, and 21065 Sagrada Familia, 11388, 11377 Minas Tirith and 6167 Deluxe Brick Box added 2026-11-24, PROC-20)
+ * 2026-09-22, and 21065 Sagrada Familia, 11388, 11377 Minas Tirith and 10316 Rivendell added 2026-11-24, PROC-20;
+ * the user corrected 6167 to 10316 on 2026-11-25)
  * and the five Gabby's Dollhouse sets added 2026-09-26 (mini-doll scale, scene boats, rides).
  */
 export const FAVOURITES: readonly string[] = [
@@ -12,7 +13,7 @@ export const FAVOURITES: readonly string[] = [
   '42639', '42652', '42663', '42670', '43267', '60380', '60446', '71040', '71043',
   '75397', '76269', '76286', '76417', '76419', '76435', '76457', '77092', '80049',
   '910004', '910032', '910047', '910049',
-  '21065', '11388', '11377', '6167',
+  '21065', '11388', '11377', '10316',
 ];
 
 export const GABBY_SETS: readonly string[] = ['10796', '10797', '10788', '10786', '11204'];

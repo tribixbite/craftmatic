@@ -14,6 +14,7 @@ import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometr
 import { withoutBuildTools } from '../web/src/engine/build-tools.js';
 import { figureRole, groupFigures, isTorso } from '../web/src/engine/ldraw-entity-compiler.js';
 import { discoverSceneActors } from '../web/src/engine/bedrock-scene-actors.js';
+import { assembleMinifig } from '../web/src/engine/minifig-rig.js';
 import { FAVOURITES } from '../scripts/favourite-sets.js';
 import { HAVE_FAVOURITES_CORPUS, STUDIO_LDRAW_ROOT, loadFavouriteSource } from './favourites-corpus-support.js';
 
@@ -51,4 +52,20 @@ describe.skipIf(!HAVE_FAVOURITES_CORPUS)('favourites-figures :: every torso walk
     }
     expect(got).toEqual(expected);
   }, 900_000);
+
+  it('10316 Rivendell walks every figure on its own legs or robe: the rig synthesises no lower body (PROC-20)', async () => {
+    // The Mecabricks source is the set's Council display: Frodo and Bilbo sit on headlamp bricks, Elrond and Gandalf on
+    // a bracket and a slope, their real 16709 legs and 36036 robes in a row beside the model. Walking, the rig gave
+    // them plain synthesised legs (full-height hobbits, robeless elves) until clego geograde/seated_alt_swap.py.
+    const source = await loadFavouriteSource('10316');
+    expect(source, '10316 first pick').not.toBeNull();
+    const bricks = withoutBuildTools(source!.doc.bricks).bricks;
+    const actors = await discoverSceneActors(bricks, createPartGeometryProvider({ embedded: source!.embedded }));
+    const lower = new Set(['hips', 'right leg', 'left leg', 'legs']);
+    const synthesised = actors.figures
+      .map(f => ({ at: f.centreLdu.map(Math.round).join(','), parts: assembleMinifig(f.bricks, actors.meshes).synthesized.filter(s => lower.has(s)) }))
+      .filter(f => f.parts.length);
+    expect(actors.figures.length).toBe(15);
+    expect(synthesised).toEqual([]);
+  }, 300_000);
 });

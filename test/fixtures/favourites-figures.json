@@ -203,8 +203,12 @@
   "torsos": 12,
   "walking": 12
  },
- "6167": {
-  "torsos": 1,
-  "walking": 1
+ "10316": {
+  "torsos": 21,
+  "walking": 15,
+  "statue": {
+   "count": 6,
+   "why": "Rivendell's six dark-grey elf statues (Rebrickable fig-013596/97/98/620: 2 + 2 + 1 + 1), one colour 71 with a 3626 head"
+  }
  }
 }

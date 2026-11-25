@@ -53,9 +53,8 @@ describe.skipIf(!HAVE_FAVOURITES_CORPUS)('favourites-floaters :: what each favou
         if (plate.standing < 100) light.push(`${set} ${plate.part} at ${plate.at.map(Math.round).join(',')}: ${plate.standing}`);
       }
     }
-    // Reviewed: 6167 Deluxe Brick Box has no buildable source (PROC-20, 2026-11-24). Its only model is a PDF
-    // reconstruction (ReconV3) that piles the box's bricks beside the 32 x 32 plate; the Studio `IO/6167-1.io` is a
-    // flat 706-part inventory at y 0. TODO(6167-source): a real reconstruction; drop this row when it lands.
-    expect(light).toEqual(['6167 3857h.dat at 110,0,270: 5']);
+    // 6167 Deluxe Brick Box (a pile beside its plate) was this test's one reviewed row; it was never a favourite: the
+    // user corrected it to 10316 Rivendell on 2026-11-25 (PROC-20), which places no baseplate.
+    expect(light).toEqual([]);
   }, 900_000);
 });

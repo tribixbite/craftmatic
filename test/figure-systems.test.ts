@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import {
-  BIGFIG_BONES, MINIDOLL_BONES, assembleMinifig, classifyFigurePart, classifyMinifigPart, figureAnchor, figureSystemOfTorso,
+  BIGFIG_BONES, MINIDOLL_BONES, MINIFIG_FEET_Y, assembleMinifig, classifyFigurePart, classifyMinifigPart, figureAnchor, figureSystemOfTorso,
 } from '../web/src/engine/minifig-rig.js';
 import { compileLdrawEntityGeometry, faceDecals, figureRole, groupFigures, isFigurePart, isTorso } from '../web/src/engine/ldraw-entity-compiler.js';
 import { discoverSceneActors, raiseFiguresToModelUnderside } from '../web/src/engine/bedrock-scene-actors.js';
@@ -47,6 +47,9 @@ const LIBRARY: Record<string, string> = {
   // 11377 Minas Tirith (2026-11-24, PROC-20): Pippin's 2018 short legs and a robed figure's one-piece skirt.
   '16709': part('Minifig Hips and Legs Short with Horizontal Stripe', [-19, 19, -11, 24, -10, 10]),
   '36036': part('Lower Body, Skirt', [-20, 20, 0, 32, -12, 12], '0 FILE 36036.dat'),
+  // 10316 Rivendell's dwarves (PROC-20): medium legs at their library bounds (3816/3817's frame, 8 LDU shorter).
+  '37365': part('Minifig Leg Medium Right', [-19.3, -1.5, -8.8, 20, -11.3, 8.8]),
+  '37366': part('Minifig Leg Medium Left', [1.5, 19.3, -8.8, 20, -11.3, 8.8]),
   // Mini-doll (LEGO Friends), Studio's private torso and the official rest.
   '1006030': part('Figure Friends Girl Torso Dual Mould without Pattern', [-11, 11, -19.3, 17, -8.9, 6.4]),
   '92241': part('Figure Friends Girl Torso without Pattern', [-11, 11, -19.3, 17, -8.9, 6.4]),
@@ -167,6 +170,21 @@ describe('figure systems: one-piece lower bodies keep their mould (11377, PROC-2
     expect(a.synthesized.filter(s => /hip|leg/.test(s))).toEqual([]);
     expect(bySlot(a, 'hips_legs').map(b => b.part)).toEqual(['36036']);
     expect(bySlot(a, 'leg_right')).toHaveLength(0);
+  });
+  it('wears a dwarf\'s medium legs (37365 / 37366) on the leg joints and supplies no legs (10316 Gimli, PROC-20)', async () => {
+    // 10316's Gimli and Gloin stand on 3815 hips with 37365/37366 "Minifig Leg Medium" moulds, which share 3816/3817's
+    // hip-pivot frame and are 8 LDU shorter. Read as held items they were left in the hands' frame and the rig gave
+    // both dwarves full-height synthesised legs.
+    expect(classifyMinifigPart('37365', 'Minifig Leg Medium Right')).toBe('leg_right');
+    expect(classifyMinifigPart('37366', 'Minifig Leg Medium Left')).toBe('leg_left');
+    const gimli = (): ParsedBrick[] => [at('973', 70, 150, -176, -99), at('3626c', 78, 150, -200, -99), at('3815', 308, 150, -144, -99),
+      at('37365', 308, 150, -132, -99), at('37366', 308, 150, -132, -99)];
+    const a = assembleMinifig(gimli(), await meshesFor(gimli()));
+    expect(a.synthesized.filter(s => /hip|leg/.test(s))).toEqual([]);
+    expect(bySlot(a, 'leg_right').map(b => b.part)).toEqual(['37365']);
+    expect(bySlot(a, 'leg_left').map(b => b.part)).toEqual(['37366']);
+    // The feet are the medium legs' own: 8 LDU above a standard figure's.
+    expect(a.feetY).toBe(MINIFIG_FEET_Y - 8);
   });
 });
 
