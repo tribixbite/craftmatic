@@ -348,7 +348,8 @@ export async function runSchemPipeline(
     if (bricksSource.kind === 'bricks') {
       const lineUp = await raiseFiguresToModelUnderside(bricksSource.bricks, createPartGeometryProvider());
       if (lineUp.raised.length) {
-        lineUpLine = `Ground: ${lineUp.raised.length} figure${lineUp.raised.length === 1 ? '' : 's'} stood below the model's base (up to ${Math.round(Math.max(...lineUp.raised.map(r => -r.dyLdu)))} LDU) and were raised onto it, so the model stands on the ground.`;
+        const one = lineUp.raised.length === 1;
+        lineUpLine = `Ground: ${lineUp.raised.length} figure${one ? '' : 's'} stood below the model's base (up to ${Math.round(Math.max(...lineUp.raised.map(r => -r.dyLdu)))} LDU) and ${one ? 'was' : 'were'} raised onto it, so the model stands on the ground.`;
         input = { ...input, source: { ...bricksSource, bricks: lineUp.bricks } };
       }
     }
