@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { compileLdrawEntityGeometry, figureRole, groupFigures, isFigurePart, baseMould, ldrawToRenderRotation } from '../web/src/engine/ldraw-entity-compiler.js';
-import { extraPlacement, snapFacing } from '../web/src/engine/playable-addon.js';
+import { buildPlayableAddon, extraPlacement, snapFacing } from '../web/src/engine/playable-addon.js';
+import { BlockGrid } from '../src/schem/types.js';
+import { extractFile } from '../web/src/engine/zip-utils.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDU_PER_BLOCK, SEATED_EYE_HEIGHT_BLOCKS } from '../web/src/engine/lego-scale.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
@@ -206,5 +208,44 @@ describe('extraPlacement', () => {
   it('never sinks an object below the vehicle floor', () => {
     const p = extraPlacement(primary('-z'), extra([0, 40, 0], 40), '-z', 0);
     expect(p.dy).toBe(0);
+  });
+});
+
+describe("a vehicle-only pack's figure line-up", () => {
+  const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  /** The placement runtime's CONFIG: the grid's footprint and every actor it places. */
+  const placementOf = async (bytes: Uint8Array, stem: string) => {
+    const text = new TextDecoder().decode(await extractFile(ab(bytes), `Craftmatic_${stem}_BP/scripts/placement.js`));
+    return JSON.parse(/const CONFIG = (\{.*?\});\n/s.exec(text)![1]!) as { width: number; height: number; length: number; actors: Array<{ typeId: string; x: number; y: number; z: number }> };
+  };
+
+  it('stands every figure of a box-art line-up beside the vehicle on the ground and inside the widened grid, the vehicle where the figures put it', async () => {
+    // A boat 40 x 840 LDU along Z, and three figures on a display stand 48 LDU over its floor, 300 LDU to its side
+    // (10365's line-up beside its hull, 2026-11-24): the grid holds the boat alone, as a vehicle-only grid may.
+    const bricks: ParsedBrick[] = [...body(), ...figure(300, -112, -100), ...figure(300, -112, 0), ...figure(300, -112, 100)];
+    const width = 2, length = Math.ceil(840 / LDU_PER_BLOCK) + 1;
+    const hull = new BlockGrid(width, 1, length);
+    hull.fill(0, 0, 0, width - 1, 0, length - 1, 'minecraft:red_concrete');
+    const pack = await buildPlayableAddon(new BlockGrid(width, 1, length), {
+      stem: 'lineup', label: 'Line-up Boat', partGeometry: provider(), pbr: false,
+      components: [{ id: 'boat', label: 'Line-up Boat', kind: 'boat', grid: hull, bricks, forwardDirection: '-z', provenance: 'test' }],
+    });
+    const config = await placementOf(pack.bytes, 'lineup');
+    const boat = config.actors.find(a => a.typeId.endsWith('_boat'))!;
+    const figures = config.actors.filter(a => /_fig\d+$/.test(a.typeId));
+    expect(figures).toHaveLength(3);
+    for (const f of figures) {
+      // On the ground the boat stands on, not hung 48 LDU up on the stand that was not exported.
+      expect(f.y).toBe(boat.y);
+      // Inside the footprint the wand places, with room for the figure's body.
+      expect(f.x).toBeGreaterThanOrEqual(0.3);
+      expect(f.x).toBeLessThanOrEqual(config.width - 0.3);
+      expect(f.z).toBeGreaterThanOrEqual(0.3);
+      expect(f.z).toBeLessThanOrEqual(config.length - 0.3);
+      // Still where the source put it beside the boat, across and along.
+      expect(Math.abs(f.x - boat.x)).toBeCloseTo(300 / LDU_PER_BLOCK, 1);
+    }
+    expect(config.width).toBeGreaterThan(width);
+    expect(pack.warnings.some(w => /line-up/i.test(w))).toBe(true);
   });
 });

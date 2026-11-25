@@ -20,6 +20,7 @@
  */
 
 import type { PlacementDetail } from '../brickgen/levels/levels.js';
+import { padGridXZ } from './grid-margin.js';
 import { withoutBuildTools } from './build-tools.js';
 import { labelHeuristicsAllowed, type PackProfile } from './pack-profile.js';
 import type { ParsedBrick } from './ldraw-parser.js';
@@ -1093,22 +1094,8 @@ export async function runSchemPipeline(
   return { grid, bytes, nonAir, lights, lightFill, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats };
 }
 
-/**
- * Widen a grid by `m` cells on each horizontal side (x0/z0 low, x1/z1 high):
- * the old cells keep their contents shifted by (x0, 0, z0), block entities
- * included, and the new columns are air. Its origin moves by the same amount
- * (the caller shifts the voxelizer's `gridOrigin`), so nothing measured on the
- * frame moves in the world.
- */
-export function padGridXZ(grid: BlockGrid, m: { x0: number; x1: number; z0: number; z1: number }): BlockGrid {
-  const out = new BlockGrid(grid.width + m.x0 + m.x1, grid.height, grid.length + m.z0 + m.z1);
-  for (let y = 0; y < grid.height; y++) for (let z = 0; z < grid.length; z++) for (let x = 0; x < grid.width; x++) {
-    const state = grid.get(x, y, z);
-    if (state !== 'minecraft:air') out.set(x + m.x0, y, z + m.z0, state);
-  }
-  for (const be of grid.blockEntities) out.blockEntities.push({ ...be, pos: [be.pos[0] + m.x0, be.pos[1], be.pos[2] + m.z0] });
-  return out;
-}
+/** Moved to `grid-margin.ts`, shared with the add-on builder; re-exported for existing callers. */
+export { padGridXZ };
 
 /** Keep separately voxelized assemblies in the original model's coordinate frame. */
 export function alignVoxelGrid(source: BlockGrid, from: NonNullable<VoxelizeResult['gridOrigin']>,

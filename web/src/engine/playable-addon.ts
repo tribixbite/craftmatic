@@ -1,4 +1,5 @@
 import { BlockGrid } from '@craft/schem/types.js';
+import { isGridMargin, marginToHold, padGridXZ, type GridMargin } from './grid-margin.js';
 import { getBlockColor } from '@craft/blocks/colors.js';
 import { createZip } from './zip-utils.js';
 import { deterministicUuid, packIdentity, PACK_NAMESPACE, toBedrockIdentifier } from './mcpack.js';
@@ -1272,6 +1273,16 @@ export function componentSpawnPoint(
     scene: { width: number; length: number },
 ): { x: number; y: number; z: number } {
     return { x: component.x ?? scene.width / 2, y: component.y ?? 0, z: component.z ?? scene.length / 2 };
+}
+
+/**
+ * Whether a footprint (`reach` blocks round `at`) overlaps a vehicle's: `size` (blocks, the vehicle's own frame:
+ * width across, length along) centred on `centre` and turned `yawDeg`, read as its axis-aligned bounds.
+ */
+export function overFootprint(at: { x: number; z: number }, reach: number, centre: { x: number; z: number }, size: { width: number; length: number }, yawDeg: number): boolean {
+    const th = yawDeg * Math.PI / 180, c = Math.abs(Math.cos(th)), s = Math.abs(Math.sin(th));
+    const hx = (c * size.width + s * size.length) / 2, hz = (s * size.width + c * size.length) / 2;
+    return Math.abs(at.x - centre.x) < hx + reach && Math.abs(at.z - centre.z) < hz + reach;
 }
 
 interface Box {
@@ -3642,6 +3653,16 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     }
     // Every placement the model's static and vehicle geometry is built from: a vehicle's cuboid budget is its share of the shell's (`vehicleEntityQuality`).
     const modelParts = components.reduce((n, c) => n + (c.bricks?.length ?? 0), 0) + (options.shell?.bricks.length ?? 0);
+    // A VEHICLE-ONLY pack (no shell, no colliders, nothing in the structure): what stands beside its vehicle stands
+    // on the world's ground, and the grid is the footprint the wand places. Its display line-up (10365's eight
+    // figures beside the hull, on a table the export does not ship) is set down on that ground and the grid widened
+    // to hold it after the loop (`marginToHold`), as a scene's line-up is set down on the surface below
+    // (`resolveFigureSpawn`), which needs colliders this pack does not have.
+    const vehicleOnly = !options.shell && !placementColliders && !structureGrid.countNonAir();
+    /** Each extra placed beside a vehicle-only pack's vehicle: its actor index and footprint (blocks, grid frame). */
+    const besideVehicle: Array<{ actor: number; halfX: number; halfZ: number }> = [];
+    /** The line-up figures set down on the ground, with the height they were lifted to (blocks), for the warning. */
+    const groundedLineUp: Array<{ label: string; drop: number }> = [];
     for (const c of components) {
         const rawCid = safe(`${id}_${c.id}`).length === `${id}_${c.id}`.length ? safe(`${id}_${c.id}`) : safe(`${id.slice(0, 24)}_${c.id.slice(0, 12)}_${deterministicUuid(`${id}:${c.id}`).slice(0, 8)}`);
         const cid = entityId(rawCid, 'v');
@@ -3799,7 +3820,19 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 }
                 // A rigged figure faces exactly where its torso pointed (not the nearest axis).
                 const place = extraPlacement(ldrawGeo, extra, egeo.facing, layout.actorYaw, egeo.figure?.facingLdu, lduPerBlock);
-                actors.push({ typeId: `${PACK_NAMESPACE}:${ecid}`, label: elabel, x: primaryPos.x + place.dx, y: primaryPos.y + place.dy, z: primaryPos.z + place.dz, yaw: place.yaw });
+                const at = { x: primaryPos.x + place.dx, y: primaryPos.y + place.dy, z: primaryPos.z + place.dz };
+                // A figure's footprint is its body (`figureCollisionBox`); a second vehicle's or prop's its whole
+                // reach, whichever way it is turned.
+                const reach = ekind === 'figure' ? figureCollisionBox(egeo.sizeBlocks, options.figureCollisionHeight).width / 2 : Math.max(egeo.sizeBlocks.width, egeo.sizeBlocks.length) / 2;
+                // A vehicle-only pack's figure clear of the vehicle's footprint stands on the ground the vehicle
+                // stands on: the display stand it was lifted on is not exported, and nothing would catch it (no
+                // colliders). One over the hull keeps its height (it may stand on deck).
+                if (vehicleOnly && ekind === 'figure' && place.dy > 0 && !overFootprint(at, reach, primaryPos, ldrawGeo.sizeBlocks, layout.actorYaw)) {
+                    groundedLineUp.push({ label: elabel, drop: place.dy });
+                    at.y = primaryPos.y;
+                }
+                actors.push({ typeId: `${PACK_NAMESPACE}:${ecid}`, label: elabel, ...at, yaw: place.yaw });
+                if (vehicleOnly) besideVehicle.push({ actor: actors.length - 1, halfX: reach, halfZ: reach });
                 extraComponents.push({ id: ecid, label: elabel, kind: ekind, provenance: `${extra.role} beside ${c.label} (${extra.reason})` });
             }
             const left = ldrawGeo.extras.length - extras.length;
@@ -3814,6 +3847,36 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         }
         addEntityName(fullTypeId, c.label, true);
         actors.push({ typeId: fullTypeId, label: c.label, ...componentSpawnPoint(c, grid), yaw: layout.actorYaw });
+    }
+    if (groundedLineUp.length) {
+        const r2 = (v: number): number => Math.round(v * 100) / 100;
+        warnings.push(`${label}: ${groundedLineUp.length} figure${groundedLineUp.length === 1 ? '' : 's'} of the line-up beside the vehicle stood on no part of it (set down on the ground: ${groundedLineUp.map(f => `${f.label.replace(`${label} `, '')} ${r2(f.drop)}`).join(', ')}).`);
+    }
+    /** How far the grid was widened to hold the line-up beside a vehicle-only pack's vehicle; undefined when it was not. */
+    let lineUpMargin: GridMargin | undefined;
+    if (vehicleOnly && besideVehicle.length) {
+        const m = marginToHold(besideVehicle.map(b => ({ x: actors[b.actor]!.x, z: actors[b.actor]!.z, halfX: b.halfX, halfZ: b.halfZ })), grid);
+        // Everything after this loop is measured on the grid's frame too (scene figures, seats, rides, screens,
+        // a coaster, doors); a pack carrying any of it is not vehicle-only in fact, and is left as it was.
+        const onFrame = (options.figures?.length ?? 0) + (options.seats?.length ?? 0) + (options.screens?.length ?? 0) + (options.coasterRoutes?.length ?? 0)
+            + (options.rides?.items.length ?? 0) + (options.funfair?.items.length ?? 0) + (options.mounts?.items.length ?? 0) + (options.leafActors?.length ?? 0)
+            + (options.runtimeDoorCandidates?.length ?? 0) + (options.interactives?.items.length ?? 0) + (options.pinball ? 1 : 0);
+        if (isGridMargin(m) && onFrame) {
+            warnings.push(`${label}: what stands beside the vehicle reaches past the grid (${m.x0}/${m.x1} blocks at its low/high x, ${m.z0}/${m.z1} at its low/high z), and the grid was not widened because the pack places scene content on it too.`);
+        } else if (isGridMargin(m)) {
+            // The grid and every actor move together, as `padGridXZ` moves the voxelizer's origin in the scene
+            // pipeline: the vehicle and its line-up keep their places relative to each other, a margin further in
+            // from the grid's low corner. A component placed at the grid's centre is pinned to its old centre first.
+            const before = grid;
+            components.forEach((c, i) => {
+                const p = componentSpawnPoint(c, before);
+                components[i] = { ...c, x: p.x + m.x0, z: p.z + m.z0 };
+            });
+            for (const a of actors) { a.x += m.x0; a.z += m.z0; }
+            grid = padGridXZ(grid, m);
+            lineUpMargin = m;
+            warnings.push(`${label}: the grid is widened ${m.x0}/${m.x1} blocks at its low/high x and ${m.z0}/${m.z1} at its low/high z to hold the line-up beside the vehicle, so every figure spawns inside the placed footprint.`);
+        }
     }
     // Flyer mounts (set-canon.ts, bedrock-flyer.ts): the mount's geometry as a
     // rideable `flyer` vehicle the player summons by tapping its figure, and -
@@ -4418,6 +4481,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(options.access ? { access: options.access } : {}),
         // The grid widened past the model for access stairs (blocks per side), when it was.
         ...(options.accessMargin ? { accessMargin: { ...options.accessMargin, used: accessMarginUsed } } : {}),
+        // Not an `accessMargin`: the line-up is part of the model, so the model's corner is the grid's (`Placed.corner`).
+        ...(lineUpMargin ? { lineUpMargin } : {}),
         entities: diagnostics,
         ...(spatialShell ? { spatialShell } : {}),
         ...(coasterConfig && coasterRide ? { coaster: coasterDiagnostics(coasterConfig, coasterRide) } : {}),
