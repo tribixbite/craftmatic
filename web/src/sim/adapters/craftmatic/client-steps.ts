@@ -123,6 +123,23 @@ export function craftmaticSeatEye(pack: CraftmaticPack): NonNullable<ClientInvar
 }
 
 const r2 = (v: number): number => Math.round(v * 100) / 100;
+
+/**
+ * How near the model's edge (blocks) a child may stand and still expect to see it (`model-vanishes`, PROC-20): the
+ * Pixel draws terrain and the 100 % favourites well past it, and round 24a lost 21065 at 400 % from 50 blocks.
+ */
+export const VANISH_EDGE_BLOCKS = 64;
+
+/** One walk-away distance as `vanishVerdict` reads it: how many of the model's shell actors draw (full or hull). */
+export interface VanishRow { distance: number; shellDrawn: number; shellTotal: number }
+
+/**
+ * The first walk-away distance within `maxEdge` blocks of the model's edge at which NONE of its shell actors draws
+ * (full or hull): the model has vanished whole while in plain sight. Undefined when it never does, or has no shell.
+ */
+export function vanishVerdict(rows: readonly VanishRow[], maxEdge = VANISH_EDGE_BLOCKS): VanishRow | undefined {
+  return rows.find(r => r.shellTotal > 0 && r.shellDrawn === 0 && r.distance <= maxEdge);
+}
 const pt = (p: Vec3): Vec3 => ({ x: r2(p.x), y: r2(p.y), z: r2(p.z) });
 
 /** Whether a pack has coaster cars (an entity declaring the coaster family). */
@@ -400,6 +417,10 @@ export function clientSteps(pack: CraftmaticPack, appearance: AddonAppearance, o
         rows.push({ distance: d, full: m.entities.filter(e => e.state === 'full').length, hull: m.entities.filter(e => e.state === 'hull').length, gone: m.entities.filter(e => e.state === 'gone').length, disagree: m.entities.filter(e => e.cullDisagree).length, entities: m.entities });
       }
       ctx.state['walkAway'] = rows.map(r => ({ distance: r.distance, full: r.full, hull: r.hull, gone: r.gone, disagree: r.disagree }));
+      // The model's own shell may not vanish whole while the child stands within sight of it (round 24a, 21065 at 400 %).
+      const isShell = (e: SnapshotEntity): boolean => /_shell(_|$)/.test(e.typeId);
+      const vanished = vanishVerdict(rows.map(r => ({ distance: r.distance, shellDrawn: r.entities.filter(e => isShell(e) && e.state !== 'gone').length, shellTotal: r.entities.filter(isShell).length })));
+      if (vanished) ctx.violate({ invariant: 'model-vanishes', message: `from ${vanished.distance} blocks off its edge none of the model's ${vanished.shellTotal} shell actors draws (each root past the actor draw ceiling): the model has vanished whole within ${VANISH_EDGE_BLOCKS} blocks`, evidence: { ...vanished } });
       // A hull is planned to be seen for a chunk of travel before its actor culls (bedrock-lod-hull.ts); a switch at or
       // past the REALISED cull (the box times the size) is a hull that never draws.
       for (const [id, h] of hulls) {

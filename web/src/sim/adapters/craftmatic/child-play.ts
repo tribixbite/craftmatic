@@ -325,20 +325,23 @@ const GROUND_CELL = 0.25;
 const BROAD_SHARE = 0.25;
 /** A model is hanging when the ground band's footprint is under this share of the widest band... */
 const GROUND_SHARE_MIN = 0.01;
-/** ...and its broad base starts more than this over the ground (blocks at 100 %). */
-const HANG_MIN_BLOCKS = 2;
+/** ...and its broad base starts more than this over the ground (blocks at 100 %). 2 passed 11377's 2.8-block hover
+ * on the Pixel (round 24a): the base was read in whole one-block bands, 2.81 -> 2. */
+const HANG_MIN_BLOCKS = 1;
+/** The height band the footprint is counted in (blocks at 100 %): a quarter block, so a base is read to within it. */
+const GROUND_BAND = 0.25;
 
 /**
  * Whether a placed model stands on the ground or hangs over it on thin parts (`model-grounded`, PROC-20). The drawn
- * boxes are rastered on a `GROUND_CELL` grid in one-block bands (both times the size factor `f`) from `groundY`: the
+ * boxes are rastered on a `GROUND_CELL` grid in `GROUND_BAND` height bands (both times the size factor `f`) from `groundY`: the
  * BROAD base is the lowest band whose footprint is a quarter of the widest band's. It
- * hangs when that base starts more than `HANG_MIN_BLOCKS` up and the ground band's footprint is under 1 % of the
+ * hangs when that base starts more than `HANG_MIN_BLOCKS` up and the lowest band's footprint is under 1 % of the
  * widest: 11388's two flexible axles drawn straight down from its bridge held the whole set 6 blocks up. A stilt house,
  * a tree house on its trunk and a car on its wheels keep far more than 1 % on the ground. Overlapping boxes count once.
  */
 export function groundedVerdict(boxes: readonly DrawnBox[], groundY: number, f: number): GroundedVerdict {
   if (!boxes.length) return { hanging: false, hangBlocks: 0, groundShare: 1 };
-  const cell = GROUND_CELL * f, band = f;
+  const cell = GROUND_CELL * f, band = GROUND_BAND * f;
   const top = Math.max(...boxes.map(d => d.box.y1));
   const bands = Math.max(1, Math.ceil((top - groundY) / band));
   const cells: Array<Set<string>> = Array.from({ length: bands }, () => new Set<string>());
