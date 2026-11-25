@@ -1961,9 +1961,18 @@ If your last placement is in the way, undo it first.`)
     const scripted = st.size !== 100 && config.tiles.length && config.colliders;
     // The measured walk-through size is stated here too, whenever the chosen
     // size is not it — the last moment at which changing it costs nothing.
-    const walkNote = recommendedSize && st.size !== recommendedSize ? `\n\nWalk-through size is ${percent(recommendedSize)}, not ${percent(st.size)}: ${access.reason}` : '';
-    const r = await show(p, new ActionFormData().title(`Place ${config.label}?`).body(`${summary(st)}\n\n${marketplace ? 'Only empty space is used; nothing is replaced.' : 'Blocks in this area will be replaced.'}${scripted ? `\nAt ${percent(st.size)} the invisible walkable blocks are re-laid to size; the ${config.colliders.keptCells} visible block${config.colliders.keptCells === 1 ? '' : 's'} (doors, lights) of the 100 percent export are left out.${stepsNote(st)}` : ''}${walkNote}`).button('Place now').button('Back'));
+    // One line: the reason is quoted whole in "About this build" and when the size step lands on it; here it pushed
+    // "Place now" below the fold (21065, Pixel round 24a).
+    const walkNote = recommendedSize && st.size !== recommendedSize ? `\n\nWalk-through size is ${percent(recommendedSize)}, not ${percent(st.size)}.` : '';
+    const r = await show(p, new ActionFormData().title(`Place ${config.label}?`).body(`${summary(st)}\n\n${marketplace ? 'Only empty space is used; nothing is replaced.' : 'Blocks in this area will be replaced.'}${scripted ? `\nWalkable blocks are re-laid at ${percent(st.size)}.${stepsNote(st)}` : ''}${walkNote}`).button('Place now').button('Back'));
     if (!r.canceled && r.selection === 0) return place(p);
+    return menu(p);
+  }
+  /** The build's advice (interaction scale, walk-through size, detail level, the preview), off the menu's body (PROC-20). */
+  async function about(p: any): Promise<any> {
+    const interaction = config.interactionNote ? `§eInteraction scale: ${config.interactionNote}§r` : '';
+    const text = `${interaction}${walkThroughLine()}${detailLine()}\n\nPreview first: ${config.preview ? 'a translucent ghost of the whole build stands at the pin, turned to the chosen rotation and size, with' : 'a full-size outline and model markers stay fixed at the pinned placement;'} red/green/blue marking +X/+Y/+Z and gold the model's -Z side. "Follow my aim" moves it to wherever you look until you pin. Place is always a separate confirmation.`;
+    await show(p, new ActionFormData().title(`${config.label} · About`).body(text.replace(/^\n+/, '')).button('Back'));
     return menu(p);
   }
   async function lighting(p: any): Promise<any> {
@@ -2185,7 +2194,7 @@ If your last placement is in the way, undo it first.`)
   const stepsAt = (st: any): number => (config.colliders && config.colliders.treads && config.colliders.treads.counts && config.colliders.treads.counts[`${st.size}:${st.rotation}`]) || 0;
   const stepsNote = (st: any): string => {
     const n = stepsAt(st);
-    return n ? ` ${n} invisible step${n === 1 ? '' : 's'} ${n === 1 ? 'is' : 'are'} added where the brick risers grew past a player's jump - the model's own stairs and ledges, climbable at 100 percent; nothing that was walkable is blocked.` : '';
+    return n ? ` ${n} invisible step${n === 1 ? '' : 's'} ${n === 1 ? 'is' : 'are'} added where risers grew past a jump.` : '';
   };
   async function place(p: any) {
     if (active) return tell(p, 'Another placement is running.');
@@ -2646,8 +2655,9 @@ If your last placement is in the way, undo it first.`)
   async function menu(p: any): Promise<any> {
     const st = state(p), running = active?.player === p.id;
     const nextSize = sizes[(sizes.indexOf(st.size) + 1) % sizes.length];
-    const interaction = config.interactionNote ? `\n\n§eInteraction scale: ${config.interactionNote}` : '';
-    const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(st)}${interaction}${walkThroughLine()}${detailLine()}\n\nPreview first: ${config.preview ? 'a translucent ghost of the whole build stands at the pin, turned to the chosen rotation and size, with' : 'a full-size outline and model markers stay fixed at the pinned placement;'} red/green/blue marking +X/+Y/+Z and gold the model's -Z side. "Follow my aim" moves it to wherever you look until you pin. Place is always a separate confirmation.`);
+    // The status only: a body past ~11 wrapped lines pushes the first button (Place) below the fold on a phone and a
+    // child's tap lands on the text (Pixel round 24a, quirk `form-body-hides-buttons`). The advice is "About this build".
+    const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(summary(st));
     // One list of [label, action]: the buttons are drawn from it and the
     // selection indexes it, so the order is changed here and nowhere else.
     const actions: Array<[string, () => any]> = [];
@@ -2687,6 +2697,7 @@ If your last placement is in the way, undo it first.`)
       actions.push(['View preview in world', () => { try { validate(p, st); } catch (e: any) { tell(p, e.message); return menu(p); } previews.add(p.id); return tell(p, config.preview ? "The ghost stands at the pin, turned to the chosen rotation and size, while you hold the wand. Putting the wand away hides it; select the wand again to rotate, resize or place." : "Full-size preview fixed at the pin while you hold the wand. Red/green/blue mark +X/+Y/+Z; gold marks the model's -Z side. Putting the wand away hides it; select the wand again to rotate or place."); }]);
       actions.push(['Hide preview', () => { endPreview(p); return tell(p, 'Preview hidden.'); }]);
       actions.push(['Undo last placement', () => undo(p)]);
+      actions.push(['About this build', () => about(p)]);
       actions.push(['Lighting / night vision', () => lighting(p)]);
       if (marketplace) actions.push(['Guide', () => guide(p)]);
       if (config.manualSeatTypeId) {

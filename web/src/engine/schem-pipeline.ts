@@ -330,6 +330,8 @@ export async function runSchemPipeline(
   // would lie on the grass and widen the grid. Not with creator hints, whose part selections index the source as
   // given. The loaded geometry is seeded first, so the census reads the same parts the voxelizer will.
   let strayLine: string | undefined;
+  /** The figures raised from below the model's base onto it (`raiseFiguresToModelUnderside`), for the warnings. */
+  let lineUpLine: string | undefined;
   if (input.source.kind === 'bricks' && input.format === 'mcaddon' && !byom) {
     if (input.datTexts && input.datTexts.size > 0) seedDatTexts(input.datTexts);
     const { withoutStrayFragments, describeStrayReport } = await import('./stray-fragments.js');
@@ -338,6 +340,18 @@ export async function runSchemPipeline(
     if (stray.report.parts) {
       strayLine = describeStrayReport(stray.report);
       input = { ...input, source: { ...input.source, bricks: stray.bricks } };
+    }
+    // A figure line-up standing BELOW the model's base would be the grid's floor and lift the shell off the ground
+    // (41703, 42652, 11377; sim `model-grounded`, Pixel round 24a): raise it onto the model's underside first (PROC-20).
+    const { raiseFiguresToModelUnderside } = await import('./bedrock-scene-actors.js');
+    const bricksSource = input.source;
+    if (bricksSource.kind === 'bricks') {
+      const lineUp = await raiseFiguresToModelUnderside(bricksSource.bricks, createPartGeometryProvider());
+      if (lineUp.raised.length) {
+        const one = lineUp.raised.length === 1;
+        lineUpLine = `Ground: ${lineUp.raised.length} figure${one ? '' : 's'} stood below the model's base (up to ${Math.round(Math.max(...lineUp.raised.map(r => -r.dyLdu)))} LDU) and ${one ? 'was' : 'were'} raised onto it, so the model stands on the ground.`;
+        input = { ...input, source: { ...bricksSource, bricks: lineUp.bricks } };
+      }
     }
   }
   const profile = getBlockProfile(input.profile);
@@ -465,6 +479,7 @@ export async function runSchemPipeline(
     const warnings: string[] = bedrockExportNotes(grid);
     if (buildToolsRemoved) warnings.push(`Left out ${buildToolsRemoved} brick separator${buildToolsRemoved === 1 ? '' : 's'}: a tool from the box, not part of the model.`);
     if (strayLine) warnings.push(strayLine);
+    if (lineUpLine) warnings.push(lineUpLine);
     const screens = [];
     const figures: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number]; seatIndex?: number; mountIndex?: number }> = [];
     /** Flyer mounts the set's canon names and the detector found (set-canon.ts, bedrock-flyer.ts), and the ones it did not. */

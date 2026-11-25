@@ -1003,6 +1003,35 @@ export function actorGroundLdu(frame: SceneGridFrame, groundLdu: number): number
   return groundLdu < gridBottomLdu - frame.cellY / 2 ? gridBottomLdu : groundLdu;
 }
 
+/** How far (LDU) a figure's floor may sit below the model's underside before it is raised: a plate's slack. */
+export const LINE_UP_RAISE_TOLERANCE_LDU = 4;
+
+/** What `raiseFiguresToModelUnderside` did: the bricks (raised figures' parts replaced by moved copies) and each move. */
+export interface LineUpRaise { bricks: ParsedBrick[]; raised: Array<{ dyLdu: number; parts: number; centreLdu: Vec3 }> }
+
+/**
+ * Raise every upright, unseated figure whose floor is BELOW the model's underside (`SceneActors.groundLdu`, which
+ * leaves figures out) onto it, before the grid is built (PROC-20). The voxel grid holds the figures, so a display
+ * line-up standing under the model's base was the grid's floor and the shell was laid above it: 41703 and 42652
+ * shipped hanging 1.1-2.0 blocks over the ground, 11377 2.8 (the simulator's `model-grounded`, Pixel round 24a).
+ * Nothing in the model is lower than its underside, so such a figure stands on nothing the model draws; on the
+ * underside it stands on the same ground as the model. The model's own parts never move.
+ */
+export async function raiseFiguresToModelUnderside(bricks: readonly ParsedBrick[], provider: PartGeometryProvider): Promise<LineUpRaise> {
+  const scene = await discoverSceneActors([...bricks], provider);
+  if (!Number.isFinite(scene.groundLdu)) return { bricks: [...bricks], raised: [] };
+  const moved = new Map<ParsedBrick, ParsedBrick>();
+  const raised: LineUpRaise['raised'] = [];
+  for (const figure of scene.figures) {
+    // LDraw y is down: a floor below the underside has the LARGER y.
+    if (figure.seated || figure.floorLdu <= scene.groundLdu + LINE_UP_RAISE_TOLERANCE_LDU) continue;
+    const dy = scene.groundLdu - figure.floorLdu;
+    for (const b of figure.bricks) moved.set(b, { ...b, y: b.y + dy });
+    raised.push({ dyLdu: dy, parts: figure.bricks.length, centreLdu: figure.centreLdu });
+  }
+  return { bricks: raised.length ? bricks.map(b => moved.get(b) ?? b) : [...bricks], raised };
+}
+
 /**
  * The export warning for an `actorGroundLdu` that moved the underside, or undefined when it did not. A scene with
  * no shell bricks (a whole-model vehicle: 7140, 76286, 42172, 60221, 10365) has no underside (`groundLdu` NaN);

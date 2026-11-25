@@ -11,7 +11,7 @@ import {
   BIGFIG_BONES, MINIDOLL_BONES, assembleMinifig, classifyFigurePart, classifyMinifigPart, figureAnchor, figureSystemOfTorso,
 } from '../web/src/engine/minifig-rig.js';
 import { compileLdrawEntityGeometry, faceDecals, figureRole, groupFigures, isFigurePart, isTorso } from '../web/src/engine/ldraw-entity-compiler.js';
-import { discoverSceneActors } from '../web/src/engine/bedrock-scene-actors.js';
+import { discoverSceneActors, raiseFiguresToModelUnderside } from '../web/src/engine/bedrock-scene-actors.js';
 import { worldFaces } from '../web/src/engine/bedrock-geometry-faces.js';
 import { createPartGeometryProvider, type LdrawPartMesh } from '../web/src/engine/ldraw-part-geometry.js';
 import { compilePartPrototype, resolveEntityQuality } from '../web/src/engine/ldraw-part-prototype.js';
@@ -354,6 +354,31 @@ describe('figure systems: grouping, role, scene floor', () => {
     // Head at −113.6 → torso −89.6 → feet 88 below: −1.6 (the source floats him 17.6 LDU; that is the source's).
     expect(scene.figures[0]!.floorLdu).toBeCloseTo(-1.6, 1);
     expect(scene.figures[0]!.centreLdu[0]).toBeCloseTo(794.3 + (scene.figures[0]!.centreLdu[0] - 794.3), 5);
+  });
+});
+
+describe('figure systems: a line-up below the model stands on its underside (PROC-20)', () => {
+  // 41703 and 42652 (Friendship tree houses) shipped hanging 1.1-2.0 blocks over the ground, 11377 2.8: the voxel
+  // grid holds the figures, so a display line-up standing BELOW the model's base was the grid's floor and the shell
+  // was laid above it (the sim's model-grounded, Pixel round 24a). The line-up is raised onto the model's underside
+  // before the grid is built, so the model's base is the floor.
+  const floor = Array.from({ length: 6 }, (_, i) => at('3001', 1, 700 + i * 80, 16, -770));
+  const goblin = (dy: number, x = 890): ParsedBrick[] => [at('973', 0, x, -56 + dy, -770), at('3626c', 78, x, -80 + dy, -770), at('93230p04', 72, x, -80 + dy, -770), at('41879b', 0, x, -24 + dy, -770)];
+  it('lifts a figure standing 40 LDU under the model onto its underside, and leaves one on the floor alone', async () => {
+    const low = goblin(56), onFloor = goblin(16, 800);
+    const before = await discoverSceneActors([...floor, ...low, ...onFloor], provider());
+    expect(before.groundLdu).toBeCloseTo(16, 1);
+    const r = await raiseFiguresToModelUnderside([...floor, ...low, ...onFloor], provider());
+    expect(r.raised).toHaveLength(1);
+    expect(r.raised[0]!.dyLdu).toBeCloseTo(-40, 1);
+    const after = await discoverSceneActors(r.bricks, provider());
+    for (const f of after.figures) expect(f.floorLdu).toBeCloseTo(16, 1);
+    // The model itself does not move.
+    expect(r.bricks.filter(b => b.part === '3001').map(b => b.y)).toEqual(floor.map(b => b.y));
+  });
+  it('changes nothing when no figure stands below the model', async () => {
+    const r = await raiseFiguresToModelUnderside([...floor, ...goblin(16)], provider());
+    expect(r.raised).toEqual([]);
   });
 });
 
