@@ -24,17 +24,25 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   gone (west plate edge ~1.5 blocks over the grass on short legs), 10354 hobbits OK. NOT FIXED: 11388 Doors 4/6 now 2
   blocks up but the plate face is too tall to jump; 21065 at 400 % gone from 50 blocks (the actor cull, expected).
   NEW: 42652 hangs ~4 blocks on one 30987 post converted 240 LDU low (a Studio row applied in the wrong direction).
-- IN FLIGHT: a clego agent builds a corpus table of designs whose Studio row direction is wrong (14395, 30987 class,
-  contacts A/B), overrides them, and republishes the favourites it touches. The tightened `model-grounded`
-  (f4970a1a) flags real hovers in 43267 (4.75 blocks), 42652, 71040, 77092, 21360, 41703, 5582, 76435, 910047, 10354,
-  11388 - re-check after that republish.
+- DONE 2026-11-25: clego table of 99 wrong-direction Studio rows (1769c18c/44f89afd), 9 favourites republished
+  (fa65bed1, craftmatic index baf638f7). Gate `output/fav4-1124/gate-g` (9 packs): 43267, 10365, 11377, 41732 now
+  grounded; still hanging at 100 %: 42652 1 block (1.95 % on the ground: maybe its own raised floor), 80049 1.75
+  (1.1 %), and three held up by ONE misplaced source part each: 11388 by a 6565 wedge 48 LDU low (its row's 24 LDU
+  applied backwards), 41703 by a 60800b shutter 145 LDU low (row 72.5 backwards) and a row-less 50015, 10354 by six
+  row-less upside-down 5649 (its authentic `lego_sets/IO/10354-1.io` places no 5649).
+- IN FLIGHT: (a) a clego agent fixes those four designs and republishes 10354/11388/41703 (clego commits local,
+  craftmatic index copy left for the main session to commit); (b) Pixel round 24c on the gate-g packs
+  (`output/device-round-2026-11-24c/brief-pixel-24c.md`, notes `pixel-24c/notes.md`): does each of 42652, 43267,
+  41703, 80049, 10354, 11388 stand on the grass, i.e. does `model-grounded` agree with the phone?
 - OPEN: 6167 has no buildable source (`TODO(6167-source)`); 11377's great gate is not a door (`TODO(stud-pivot)`);
   at 400 % ten favourites draw nothing from 20 blocks off a corner (`TODO(cull-400)`: the 13-block lattice's roots
   26 blocks deep; a finer lattice multiplies entities ~8x - the user's call); 11388 Doors 4/6 need a step onto the
   plate; 10365's whole-model vehicle sits at the grid centre, 11.5 blocks off its source origin (kept, grid widened).
-- NEXT: when the clego agent reports, rebuild the touched favourites (`bun scripts/_favourites_gate.ts <sets> --build
-  --faces=C:/git/craftmatic/output/faces-art-1115 --out=output/fav4-1124/gate-g`), confirm model-grounded passes, then
-  Pixel round 24c for 42652 / 43267 / 11388 Doors 4-6 (brief from `output/device-round-2026-11-24b/brief-pixel-24b.md`).
+- NEXT: commit the craftmatic index copy the clego agent lifts, rebuild 10354 11388 41703 (`bun
+  scripts/_favourites_gate.ts 10354 11388 41703 --build --faces=C:/git/craftmatic/output/faces-art-1115
+  --out=output/fav4-1124/gate-h`), confirm model-grounded; if round 24c calls 42652/80049 design-raised, record why
+  the verdict should pass them (or a quirk/threshold change); then Pixel round 24d for 10354/11388 (incl. Doors 4/6,
+  which drop ~1.2 blocks with the 6565 fix)/41703, then REQUIREMENTS PROC-20, full suite, push, CI.
 
 ### 2026-11-16: replica-set polish (PROC-19) - audit fixed, packs sent; NEXT generality
 The user (2026-11-15) asked for a Fable audit of the favourites' add-on generation, every finding fixed and tested,
