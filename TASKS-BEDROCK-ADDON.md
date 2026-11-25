@@ -9,25 +9,32 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
-### 2026-11-24: four new favourites (PROC-20) - IN PROGRESS
+### 2026-11-24/25: four new favourites (PROC-20) - two Pixel rounds done, source repair in flight
 The user (2026-11-24): add 21065, 11388, 11377 and 6167 to the favourites, audit, upgrade their exports, simulate,
 test in game, record every issue, teach the simulator to catch each, fix, retest in game. Evidence: `output/fav4-1124/`.
-- DONE: in `FAVOURITES` with reviewed rows (580b4017). 21065 Sagrada Familia and 11388 Venetian Neighborhood were not
-  indexed: onboarded from DBIX (clego `discovery/new_set.py <sku> --run`, live). Fixed offline: LDD 37679 short legs
-  unmapped (clego 17270e32; 11 of 14 sources republished, clego ccf4596e / index 4f4c1937, 11377 now PASS); the rig
-  splitting 16709 short legs and not keeping 36036 skirts (508c5814, b04cc676; also 10365/76435/76457's skirts);
-  the gate over named sets (a7401d5c); NEW sim invariant `model-grounded` (8777fb92: 11388 hangs, 57 favgate packs 0
-  false positives); pack stem folds accents.
-- IN FLIGHT: Pixel round 24a (`output/device-round-2026-11-24a/`, brief `brief-pixel-24a.md`, packs + SHA256SUMS:
-  11377/10354 from b04cc676, 21065/11388 from 508c5814, 6167 from c0dd3fc3) - its ISSUE LIST drives the next fixes.
-  A clego agent on branch `gen-flex` (worktree `C:/git/clego/.worktrees/flex`): LDD flexible parts (2,169 in 778
-  sources, 18 favourites) are drawn as one straight rigid part at their FIRST bone - 11388's two bridge-rail flex
-  axles hang 220 LDU under the base and ground the set 6 blocks up. Not merged, not republished until reviewed.
-- OPEN: 6167 has NO buildable source (ReconV3 pile; `IO/6167-1.io` flat inventory) - `TODO(6167-source)`. 11377's
-  great gate is not a door (brick-hinge pass cut 99 lines, moved none; `TODO(stud-pivot)`). 11388 Door 7 falls
-  through at 400 % (sim `doorway-line` HOLE; may be the hanging base). 41258/76992/76997 keep misplaced 16709 legs
-  (their re-conversion graded worse: LDD 20932 leg row lacks the 0.42 offset 3816 has - same bug class as 37679).
-- NEXT: read round 24a; teach the sim each device-only issue; fix; rebuild; retest round 24b.
+- DONE: in `FAVOURITES` (580b4017); 21065/11388 onboarded from DBIX. Round 24a (Pixel, `output/device-round-2026-11-24a/
+  pixel-24a/notes.md`) found 11377/11388 hanging on flex parts drawn straight down, 21065's Place form hiding "Place
+  now", 21065 at 400 % gone from 50 blocks, 6167 a pile. Fixed: clego 37679 legs, flex parts along their bones, 14395
+  arch row (republished 11+10 sources); rig keeps short legs/skirts; a line-up below the base is raised onto it; the
+  wand menu/Place bodies are short, advice in "About this build"; 11388 Door 7 floor plate (c9ff57df); 10365's
+  vehicle line-up grounded in a widened grid (veh-lineup). Sim: `model-grounded`, `form-button-visible`, walk-away
+  `model-vanishes` (30 blocks), the gate's named-set mode. Gate fav4-1124/gate-f: 6 packs, 72 scenarios, 0 failed.
+- Round 24b (Pixel retest, `output/device-round-2026-11-24b/pixel-24b/notes.md`, packs 23b4fc26): FIXED forms (Place
+  visible in every menu/Place form), 11388 hang (plate ~1 block over the grass left), bridge rails arch, 11377 pole
+  gone (west plate edge ~1.5 blocks over the grass on short legs), 10354 hobbits OK. NOT FIXED: 11388 Doors 4/6 now 2
+  blocks up but the plate face is too tall to jump; 21065 at 400 % gone from 50 blocks (the actor cull, expected).
+  NEW: 42652 hangs ~4 blocks on one 30987 post converted 240 LDU low (a Studio row applied in the wrong direction).
+- IN FLIGHT: a clego agent builds a corpus table of designs whose Studio row direction is wrong (14395, 30987 class,
+  contacts A/B), overrides them, and republishes the favourites it touches. The tightened `model-grounded`
+  (f4970a1a) flags real hovers in 43267 (4.75 blocks), 42652, 71040, 77092, 21360, 41703, 5582, 76435, 910047, 10354,
+  11388 - re-check after that republish.
+- OPEN: 6167 has no buildable source (`TODO(6167-source)`); 11377's great gate is not a door (`TODO(stud-pivot)`);
+  at 400 % ten favourites draw nothing from 20 blocks off a corner (`TODO(cull-400)`: the 13-block lattice's roots
+  26 blocks deep; a finer lattice multiplies entities ~8x - the user's call); 11388 Doors 4/6 need a step onto the
+  plate; 10365's whole-model vehicle sits at the grid centre, 11.5 blocks off its source origin (kept, grid widened).
+- NEXT: when the clego agent reports, rebuild the touched favourites (`bun scripts/_favourites_gate.ts <sets> --build
+  --faces=C:/git/craftmatic/output/faces-art-1115 --out=output/fav4-1124/gate-g`), confirm model-grounded passes, then
+  Pixel round 24c for 42652 / 43267 / 11388 Doors 4-6 (brief from `output/device-round-2026-11-24b/brief-pixel-24b.md`).
 
 ### 2026-11-16: replica-set polish (PROC-19) - audit fixed, packs sent; NEXT generality
 The user (2026-11-15) asked for a Fable audit of the favourites' add-on generation, every finding fixed and tested,
