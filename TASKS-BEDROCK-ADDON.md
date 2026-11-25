@@ -70,15 +70,26 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   (11377 11388 10354, 36 scenarios) PASS; packs + SHA256SUMS in `gate-j/packs/` (stamp 759f4544+dirty: the other
   agent's uncommitted minifig-rig.ts, since e0bcc1c1). The sim now also fails 21360 (0.75 up, 0 % on the ground) and,
   on gate-h/i packs, 42670 Garage door 1 / Door 3 and 76457 Gate 1 / Door 6 (`TODO(door-on-foot-favourites)`).
+- Round 25e (Pixel, `output/device-round-2026-11-25e/pixel-25e/notes.md`, gate-j + gate-j10316 + gate-i packs):
+  ON THE GROUND 11377 11388 10354 10316 76457; 11388 Doors 4/6 walked onto the sill on BOTH lanes (z +7.2 and the
+  centre +6.6) and opened - the sim's centre-lane stop is a sim false positive; 76457 Gate 1 / Door 6 reached and
+  opened (sim `door-approach-on-foot` false positive); 21360 floats ~1-1.3 blocks (confirmed). Not done: 10316 seat
+  boarding (taps from 6+ blocks in Creative boarded nothing) and its moving parts. Transient lime-green shapes in the
+  sky on one world reopen (`reopen-in.jpg`), gone on the next; cause unknown.
+- IN FLIGHT: (a) an agent on main fixes the sim's false door stops (11388 centre lane, 76457, 42670), 21360's float,
+  door-on-foot above 100 %, then gates all favourites into `output/fav4-1124/gate-k`. (b) Branch
+  `worktree-agent-a067ed10f99e4b7d3` (cull-400, the user 2026-11-25: only for models meant for 400 %): 9-block lattice
+  for `landmark` sets (21061 21063 21065, brickgen landmark levels); 21065 mixed from outside (the ~70-block actor
+  ceiling binds); merge after (a)'s gate, then rebuild the three landmarks clean for a device round.
 - OPEN: 11377's great gate is not a door (`TODO(stud-pivot)`);
   at 400 % ten favourites draw nothing from 20 blocks off a corner (`TODO(cull-400)`: the 13-block lattice's roots
   26 blocks deep; a finer lattice multiplies entities ~8x - the user's call); 10365's whole-model vehicle sits at
   the grid centre, 11.5 blocks off its source origin (kept, grid widened); still sunk by a part under the base,
   untouched: 11371 (85941), 77092 (41751), non-DBIX 71040 (87601), 910047 (90981); kept back from the republish
   (a metric got worse): 11371 11374 42639 76269 21065 10786 10796 10797 60380 76435 77092_sm01.
-- NEXT: rebuild 21360 42670 76457 and triage the new sim findings; Pixel round 25e on `gate-j/packs` (11377 ground
-  shots, 11388 Doors 4/6 walked in Survival on lane z ~7.0-7.3, 10354) and 76457, 21360 (ground shots S/W as 25d); REQUIREMENTS PROC-20 device
-  cell; `bun run test`; push; `gh run list`.
+- NEXT: when (a) reports, verify gate-k; merge (b), rebuild 21061 21063 21065 clean; Pixel round 25f: the three
+  landmarks at 400 % (walk-away from 10/20/30/40 blocks), 21360 ground, 10316 seat boarding (Survival, ~2 blocks)
+  and its moving parts; `bun run test`; push; `gh run list`.
 
 ### 2026-11-16: replica-set polish (PROC-19) - audit fixed, packs sent; NEXT generality
 The user (2026-11-15) asked for a Fable audit of the favourites' add-on generation, every finding fixed and tested,
