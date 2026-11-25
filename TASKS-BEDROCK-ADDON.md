@@ -26,23 +26,27 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   NEW: 42652 hangs ~4 blocks on one 30987 post converted 240 LDU low (a Studio row applied in the wrong direction).
 - DONE 2026-11-25: clego table of 99 wrong-direction Studio rows (1769c18c/44f89afd), 9 favourites republished
   (fa65bed1, craftmatic index baf638f7). Gate `output/fav4-1124/gate-g` (9 packs): 43267, 10365, 11377, 41732 now
-  grounded; still hanging at 100 %: 42652 1 block (1.95 % on the ground: maybe its own raised floor), 80049 1.75
-  (1.1 %), and three held up by ONE misplaced source part each: 11388 by a 6565 wedge 48 LDU low (its row's 24 LDU
+  grounded; still hanging at 100 %: 42652 1 block, 80049 1.75, and three held up by ONE misplaced source part each: 11388 by a 6565 wedge 48 LDU low (its row's 24 LDU
   applied backwards), 41703 by a 60800b shutter 145 LDU low (row 72.5 backwards) and a row-less 50015, 10354 by six
   row-less upside-down 5649 (its authentic `lego_sets/IO/10354-1.io` places no 5649).
-- IN FLIGHT: (a) a clego agent fixes those four designs and republishes 10354/11388/41703 (clego commits local,
-  craftmatic index copy left for the main session to commit); (b) Pixel round 24c on the gate-g packs
-  (`output/device-round-2026-11-24c/brief-pixel-24c.md`, notes `pixel-24c/notes.md`): does each of 42652, 43267,
-  41703, 80049, 10354, 11388 stand on the grass, i.e. does `model-grounded` agree with the phone?
+- Round 24c (Pixel, `output/device-round-2026-11-24c/pixel-24c/notes.md`, gate-g packs): `model-grounded` matched the
+  phone on all six - 43267 ON the ground; GAPS 42652 ~1.5-2 (on two 3662 windows drawn 72 LDU under the base top),
+  41703 ~2 (the 60800b shutter), 80049 ~1.75-2 (on one 35274 1x2x5 brick, 112 under), 10354 ~1 (5649s), 11388 ~1
+  (6565). Class: an LDD design placed by name with NO Studio row lands at its raw LDD origin; clego's `ld_bbox`
+  misses alias files (3662, 35274), `bun scripts/_lowest_parts.ts <ldr>` does not. A favourites scan adds 11377
+  (6565, 3662), 11371 (85941), 77092 (41751); non-DBIX 71040 (87601), 910047 (90981). Minor: the wand menu reopened
+  on the Place form for four sets and on the main page for 10354; the HUD stayed hidden after a chat command until
+  one Android Back (10354-um1.jpg) - not reproduced, not ours as far as known.
+- IN FLIGHT: a clego agent fixes that class and republishes 10354 11388 41703 42652 80049 (+ 11377 11371 77092 if
+  the same cause); clego commits local, craftmatic index copy left for the main session to commit.
 - OPEN: 6167 has no buildable source (`TODO(6167-source)`); 11377's great gate is not a door (`TODO(stud-pivot)`);
   at 400 % ten favourites draw nothing from 20 blocks off a corner (`TODO(cull-400)`: the 13-block lattice's roots
   26 blocks deep; a finer lattice multiplies entities ~8x - the user's call); 11388 Doors 4/6 need a step onto the
   plate; 10365's whole-model vehicle sits at the grid centre, 11.5 blocks off its source origin (kept, grid widened).
-- NEXT: commit the craftmatic index copy the clego agent lifts, rebuild 10354 11388 41703 (`bun
-  scripts/_favourites_gate.ts 10354 11388 41703 --build --faces=C:/git/craftmatic/output/faces-art-1115
-  --out=output/fav4-1124/gate-h`), confirm model-grounded; if round 24c calls 42652/80049 design-raised, record why
-  the verdict should pass them (or a quirk/threshold change); then Pixel round 24d for 10354/11388 (incl. Doors 4/6,
-  which drop ~1.2 blocks with the 6565 fix)/41703, then REQUIREMENTS PROC-20, full suite, push, CI.
+- NEXT: commit the craftmatic index copy the clego agent lifts, rebuild the republished sets (`bun
+  scripts/_favourites_gate.ts <sets> --build --faces=C:/git/craftmatic/output/faces-art-1115
+  --out=output/fav4-1124/gate-h`), confirm model-grounded; then Pixel round 24d (gap shots of each republished set,
+  11388 Doors 4/6, which drop ~1.2 blocks with the 6565 fix), then REQUIREMENTS PROC-20, full suite, push, CI.
 
 ### 2026-11-16: replica-set polish (PROC-19) - audit fixed, packs sent; NEXT generality
 The user (2026-11-15) asked for a Fable audit of the favourites' add-on generation, every finding fixed and tested,
