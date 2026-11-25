@@ -3,9 +3,12 @@
  * from a craftmatic pack's own facts. Per pack:
  *
  *   place-<size>-<turn>  for 100 % and 150 % at turns 0 and 90 (150 % only when
- *                        the pack's blocks resize): place with the wand, tap
- *                        every moving part, walk every doorway's device lines
- *                        from both sides, Undo (nothing may be left);
+ *                        the pack's blocks resize): place with the wand, judge
+ *                        it on the ground (`model-grounded`), walk from the
+ *                        ground to every doorway side the model draws a walk to
+ *                        (`door-approach-on-foot`, up to 100 %), tap every
+ *                        moving part, walk every doorway's device lines from
+ *                        both sides, Undo (nothing may be left);
  *   play-100-0           place at 100 %, board every ride by a tap and ride it
  *                        to the end, board every vehicle and drive 30 s (then
  *                        sneak off), summon and fly a flyer mount (sneak off in
@@ -16,7 +19,10 @@
 
 import type { Scenario, Step, StepContext, StepHandler, AnyStep } from '../../scenario/types.js';
 import { teleport } from '../../script-host/facades.js';
-import { approachSpots, findApproach, floorBelow, SIGHT_MARGIN, walkFlood, walkReaches, walkRoute, type WalkNode } from '../../scenario/approach.js';
+import { approachSpots, findApproach, floorBelow, SIGHT_MARGIN, standsAt, walkFlood, walkReaches, walkRoute, type WalkNode } from '../../scenario/approach.js';
+import { LINE_MIN_OUT, LINE_OUT, doorwayGeometry } from '../../../engine/interactive-walk.js';
+import type { QuarterTurn } from '../../../engine/bedrock-collider-scale.js';
+import { START_KEY } from './wand.js';
 import { APPROACH_KEY, MODEL_BLAME_KEY, MODEL_ROUTE_KEY, type ModelBlame, type ModelRoute } from '../../scenario/runner.js';
 import type { SimEngine } from '../../core/engine.js';
 import { DEV_NAMESPACE, ixKeys, nsId } from './namespace.js';
@@ -30,7 +36,7 @@ import { firstPersonSnapshot } from './snapshot.js';
 import { lookAt, pick } from '../../input/touch.js';
 import { pickBoxes } from '../../input/ray.js';
 import { rayBox, type Vec3 } from '../../core/vec.js';
-import { PLAYER_EYE_HEIGHT, PLAYER_HEIGHT } from '../../physics/body.js';
+import { PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, STEP_HEIGHT, tickPlayer, type PlayerState, type SolidQuery, type TickResult } from '../../physics/body.js';
 import { quirkValue } from '../../quirks/registry.js';
 import { relayRounding } from '../../../engine/bedrock-collider-scale.js';
 import { rayParallelepiped } from '../../../engine/oriented-box.js';
@@ -71,6 +77,53 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
       const v = groundedVerdict(staticDrawn(ctx, appearance, pack), placed.anchor.y, placed.sizePct / 100);
       ctx.note(`model-grounded: broad base ${v.hangBlocks.toFixed(2)} blocks up, ${(v.groundShare * 100).toFixed(2)} percent of the widest band's footprint on the ground`);
       if (v.hanging) ctx.violate({ invariant: 'model-grounded', message: v.message!, evidence: { hangBlocks: v.hangBlocks, groundShare: v.groundShare, at: placed.anchor } });
+    },
+    /**
+     * Every doorway side a child can WALK to from where it placed over what the model draws, it reaches over the
+     * pack's colliders too (`door-approach-on-foot`, `doorSideOnFoot`; PROC-20, 11388 Doors 4/6). Every part is still
+     * closed here, as the child finds them; up to `DOOR_ON_FOOT_MAX_SIZE`.
+     */
+    async doorwayOnFoot(_step: AnyStep, ctx: StepContext) {
+      const ix = pack.interactives, placed = placedOf(ctx), from = ctx.state[START_KEY] as Vec3 | undefined;
+      if (!ix || !from || placed.sizePct > DOOR_ON_FOOT_MAX_SIZE) return;
+      const f = placed.sizePct / 100, k = Math.max(1, f), dim = ctx.player.dimension;
+      const boxes = [...staticDrawn(ctx, appearance, pack), ...closedLeavesDrawn(ctx, appearance, pack)];
+      const drawn = drawnWalkEngine(new DrawnWalkWorld(boxes, placed.from.y, MODEL_FOOTHOLD * f * f)) as unknown as SimEngine;
+      // The straight lanes read every drawn top as footing: a part the export dices into small cubes (11388's 2 x 2
+      // inverted corner slope in the arcade, 0.25-0.55 up) is no floor to the flood's foothold rule, yet the device's
+      // player walks over it; a lane that crossed it read as the model's own wall.
+      const drawnAnyTop = drawnWalkEngine(new DrawnWalkWorld(boxes, placed.from.y, 0)) as unknown as SimEngine;
+      const area = { x0: Math.min(Math.floor(placed.from.x) - WALK_FLOOD_MARGIN, Math.floor(from.x) - 1), x1: Math.max(Math.ceil(placed.to.x) + WALK_FLOOD_MARGIN, Math.floor(from.x) + 1), z0: Math.min(Math.floor(placed.from.z) - WALK_FLOOD_MARGIN, Math.floor(from.z) - 1), z1: Math.max(Math.ceil(placed.to.z) + WALK_FLOOD_MARGIN, Math.floor(from.z) + 1) };
+      const floods = { real: walkFlood(ctx.sim.engine, dim, from, area), drawn: walkFlood(drawn, dim, from, area) };
+      let judged = 0;
+      for (const it of ix.items) {
+        if (!it.leaf || !it.passSize || placed.sizePct < it.passSize || it.fixed) continue;
+        const geo = doorwayGeometry({ dims: ix.dims }, it, f, placed.rotation as QuarterTurn);
+        if (!geo.own.length) continue;
+        const floorY = placed.anchor.y + geo.centre.y;
+        const columns = new Map<string, Vec3>();
+        for (const b of geo.own) columns.set(`${b.x},${b.z}`, { x: placed.anchor.x + b.x + 0.5, y: floorY, z: placed.anchor.z + b.z + 0.5 });
+        for (const side of [-1, 1] as const) {
+          const d = { columns: [...columns.values()], n: geo.n, side, floorY, k };
+          const name = `${it.label} from ${side > 0 ? '+' : '-'} side`;
+          const v = doorSideOnFoot(ctx.sim.engine, drawn, dim, from, floods, d);
+          ctx.note(`door-approach-on-foot: ${name}: ${v.drawn ? `the model draws a walk to it, the colliders ${v.colliders ? 'too' : 'NOT'}` : 'no drawn walk to it (the model\'s, not judged)'}`);
+          if (v.drawn) judged++;
+          if (v.drawn && !v.colliders) {
+            ctx.violate({ invariant: 'door-approach-on-foot', message: `${name}: the model draws a walk from the ground to the doorway, the pack's colliders do not${v.blame ? ` - ${v.blame}` : ''}`, evidence: { door: it.label, side, floorY, from } });
+            continue;
+          }
+          // The device's straight walk (`doorLanesOnFoot`): the flood's zig-zag is not what a child pushing forward takes.
+          const lanes = doorLanesOnFoot(ctx.sim.engine, drawnAnyTop, dim, floods, d);
+          if (!lanes.drawn) continue;
+          ctx.note(`door-approach-on-foot: ${name}: ${lanes.colliders} of ${lanes.drawn} straight lanes the model lets a child walk from ${DOOR_LANE_OUT} blocks out reach the landing over the colliders`);
+          if (lanes.colliders) continue;
+          const r2 = (q: Vec3): string => `${q.x.toFixed(2)},${q.y.toFixed(2)},${q.z.toFixed(2)}`;
+          const stops = lanes.lanes.slice(0, 3).map(l => `lane ${l.lateral}: from ${r2(l.start)} stopped at ${r2(l.stop)}, landing ${r2(l.goal)}`).join('; ');
+          ctx.violate({ invariant: 'door-approach-on-foot', message: `${name}: none of the ${lanes.drawn} straight lanes the model lets a child walk up to the doorway gets there over the pack's colliders (${stops})`, evidence: { door: it.label, side, floorY, lanes: lanes.lanes.map(l => ({ lateral: l.lateral, stop: l.stop, goal: l.goal })) } });
+        }
+      }
+      ctx.note(`door-approach-on-foot: ${judged} doorway side(s) the model's own walk reaches from the ground, judged over the colliders`);
     },
     /** A first-person picture: from where the child placed, looking at the model's centre (or from where it stands: `{ here: true }`). */
     async snapshot(step: AnyStep, ctx: StepContext) {
@@ -116,24 +169,7 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
           const k = `${from.x.toFixed(2)},${from.y.toFixed(2)},${from.z.toFixed(2)}`;
           let nodes = real.get(k);
           if (!nodes) real.set(k, nodes = walkFlood(ctx.sim.engine, dim, from, within(from)));
-          const reached = nodes;
-          for (const g of goals) {
-            const drawn = walkRoute(engine, dim, from, g);
-            if (!drawn) continue;
-            // A node is the colliders' too when their flood stands in its column within a step of its floor.
-            const i = drawn.findIndex(n => !reached.some(r => r.x === n.x && r.z === n.z && Math.abs(r.y - n.y) < BLAME_SAME_FLOOR));
-            if (i <= 0) continue;
-            const a = drawn[i - 1]!, b = drawn[i]!, w = ctx.sim.engine.dimension(dim);
-            const at = (n: WalkNode): string => `${n.px.toFixed(2)},${n.y.toFixed(3)},${n.pz.toFixed(2)}`;
-            const ours = floorBelow(ctx.sim.engine, dim, b.px, b.y + 1.3, b.pz, 3);
-            const cells: string[] = [];
-            for (let y = Math.floor(b.y) - 1; y <= Math.floor(b.y) + 2; y++) {
-              const pm = w.palette.get(w.rawId(b.x, y, b.z));
-              if (pm.typeId !== 'minecraft:air') cells.push(`${b.x},${y},${b.z} ${pm.typeId.replace(/^[a-z0-9_]+:/, '')}${Object.keys(pm.states).length ? JSON.stringify(pm.states) : ''}`);
-            }
-            return `the drawn route leaves the colliders' walk from ${at(a)} to ${at(b)}: the colliders stand ${ours === undefined ? 'nothing within 3' : `at ${ours.toFixed(3)}`} there; blocks ${cells.join('; ') || 'none'}`;
-          }
-          return undefined;
+          return colliderBlame(ctx.sim.engine, engine, dim, from, goals, nodes);
         };
         ctx.state[MODEL_BLAME_KEY] = blame;
       }
@@ -243,6 +279,159 @@ const BLAME_SAME_FLOOR = 9 / 16;
 /** How far round the placed model the MODEL route flood (`DrawnWalkWorld`) walks the ground (blocks). */
 const WALK_FLOOD_MARGIN = 6;
 
+/**
+ * Where a drawn route to one of `goals` (each a spot the colliders' walk did not reach) first leaves the colliders'
+ * walk `reached` from `from`: the two route nodes either side of the break, the floor the colliders stand there and
+ * the blocks of that column, or undefined when no drawn route leaves it (A-20's attribution, and
+ * `door-approach-on-foot`'s).
+ */
+export function colliderBlame(real: SimEngine, drawn: SimEngine, dim: string, from: Vec3, goals: readonly Vec3[], reached: readonly WalkNode[]): string | undefined {
+  for (const g of goals) {
+    const route = walkRoute(drawn, dim, from, g);
+    if (!route) continue;
+    // A node is the colliders' too when their flood stands in its column within a step of its floor.
+    const i = route.findIndex(n => !reached.some(r => r.x === n.x && r.z === n.z && Math.abs(r.y - n.y) < BLAME_SAME_FLOOR));
+    if (i <= 0) continue;
+    const a = route[i - 1]!, b = route[i]!, w = real.dimension(dim);
+    const at = (n: WalkNode): string => `${n.px.toFixed(2)},${n.y.toFixed(3)},${n.pz.toFixed(2)}`;
+    const ours = floorBelow(real, dim, b.px, b.y + 1.3, b.pz, 3);
+    const cells: string[] = [];
+    for (let y = Math.floor(b.y) - 1; y <= Math.floor(b.y) + 2; y++) {
+      const pm = w.palette.get(w.rawId(b.x, y, b.z));
+      if (pm.typeId !== 'minecraft:air') cells.push(`${b.x},${y},${b.z} ${pm.typeId.replace(/^[a-z0-9_]+:/, '')}${Object.keys(pm.states).length ? JSON.stringify(pm.states) : ''}`);
+    }
+    return `the drawn route leaves the colliders' walk from ${at(a)} to ${at(b)}: the colliders stand ${ours === undefined ? 'nothing within 3' : `at ${ours.toFixed(3)}`} there; blocks ${cells.join('; ') || 'none'}`;
+  }
+  return undefined;
+}
+
+/**
+ * One side of a doorway as `doorSideOnFoot` reads it: the centres of the leaf's closed columns at the doorway's floor
+ * (`floorY`), the walk's normal `n` (`doorwayGeometry`), which side (`-1` / `1`, as the doorway lines name them) and the
+ * distance scale `k` (max(1, size factor)).
+ */
+export interface DoorwaySide { columns: readonly Vec3[]; n: { x: number; z: number }; side: -1 | 1; floorY: number; k: number }
+
+/** Whether a side is walked to over the model's drawn geometry and over the pack's colliders, and where they part. */
+export interface DoorSideOnFoot { drawn: boolean; colliders: boolean; blame?: string }
+
+/**
+ * The spots in front of a doorway's leaf on one side, in `engine`'s world: per closed column, `LINE_OUT` in to
+ * `LINE_MIN_OUT` (x k) out along the normal in quarter blocks - where the doorway lines start - each at the floor
+ * under it within a jump of the doorway's floor, where the player's box stands free.
+ */
+function doorwaySideSpots(engine: SimEngine, dim: string, d: DoorwaySide): Vec3[] {
+  const out: Vec3[] = [];
+  for (const c of d.columns) {
+    for (let o = LINE_OUT * d.k; o >= LINE_MIN_OUT * d.k - 1e-9; o -= 0.25) {
+      const x = c.x + d.n.x * d.side * o, z = c.z + d.n.z * d.side * o;
+      const y = floorBelow(engine, dim, x, d.floorY + JUMP_RISE_BLOCKS * d.k, z, 2 * JUMP_RISE_BLOCKS * d.k);
+      if (y === undefined || Math.abs(y - d.floorY) > JUMP_RISE_BLOCKS * d.k) continue;
+      if (engine.dimension(dim).withAllLoaded(() => standsAt(engine, dim, { x, y, z }))) out.push({ x, y, z });
+    }
+  }
+  return out;
+}
+
+/** How far (blocks) a doorway's approach spot may sit over or under the doorway's floor: a jump (the lines' start rule). */
+const JUMP_RISE_BLOCKS = 1.25;
+
+/** Whether a walk flood stands in a spot's own column within a step of its floor (not a neighbour's: `walkReaches` is laxer). */
+const floodStandsAt = (nodes: readonly WalkNode[], g: Vec3): boolean =>
+  nodes.some(n => n.x === Math.floor(g.x) && n.z === Math.floor(g.z) && Math.abs(n.y - g.y) <= STEP_HEIGHT + 1e-6);
+
+/**
+ * A doorway side ON FOOT from `from` (`door-approach-on-foot`, PROC-20): does a walk over what the MODEL draws reach a
+ * spot in front of its leaf (`drawn`), and does the walk over the pack's colliders (`colliders`)? Both from floods
+ * made once per scenario (`walkFlood`). A side the model lets a child walk to and the colliders do not is the pack's,
+ * with `blame` naming where the drawn route leaves the colliders' walk. The doorway lines cannot see this: they START
+ * on the landing (11388's Doors 4/6, Pixel round 25d: OK through the leaf, unreachable up its own steps).
+ */
+export function doorSideOnFoot(real: SimEngine, drawn: SimEngine, dim: string, from: Vec3, floods: { real: readonly WalkNode[]; drawn: readonly WalkNode[] }, d: DoorwaySide): DoorSideOnFoot {
+  const drawnGoals = doorwaySideSpots(drawn, dim, d).filter(g => floodStandsAt(floods.drawn, g));
+  if (!drawnGoals.length) return { drawn: false, colliders: doorwaySideSpots(real, dim, d).some(g => floodStandsAt(floods.real, g)) };
+  if (doorwaySideSpots(real, dim, d).some(g => floodStandsAt(floods.real, g))) return { drawn: true, colliders: true };
+  const blame = colliderBlame(real, drawn, dim, from, drawnGoals, floods.real);
+  return { drawn: true, colliders: false, ...(blame ? { blame } : {}) };
+}
+
+/** How far out (blocks at 100 %, x k) a straight lane to a doorway starts: where a child lines up on the door and pushes forward. */
+export const DOOR_LANE_OUT = 6;
+/** The lanes' spacing across a doorway (blocks at 100 %, x k): the leaf's columns and half a block either side. */
+const DOOR_LANE_STEP = 0.1;
+/** How far (blocks at 100 %, x k) short of its landing spot a lane may stop and still have arrived: the colliders' slack. */
+const DOOR_LANE_ARRIVE = 0.25;
+/** One straight lane toward a doorway side: where it starts, its landing spot, and whether each world lets a child walk it. */
+export interface DoorLane { lateral: number; start: Vec3; goal: Vec3; colliders: boolean; stop: Vec3 }
+/** A doorway side's straight lanes (`doorLanesOnFoot`): every lane the MODEL lets a child walk straight from its start, and how many of them the colliders do. */
+export interface DoorLanes { drawn: number; colliders: number; lanes: DoorLane[] }
+
+/**
+ * A child pushing the stick straight along `dir` from `start` over `world` (the integrator, `tickPlayer`: auto-jump on,
+ * Jump pressed whenever the move is blocked), until it ARRIVES at `goal` - within `DOOR_LANE_ARRIVE` x k along the
+ * lane and a step of its floor - or stalls. The same walk over the drawn world and over the colliders.
+ */
+function walkLane(world: SolidQuery, start: Vec3, goal: Vec3, dir: { x: number; z: number }, k: number): { ok: boolean; s: PlayerState } {
+  const along = (p: { x: number; z: number }): number => (p.x - goal.x) * dir.x + (p.z - goal.z) * dir.z;
+  let s: PlayerState = { ...start, vx: 0, vy: 0, vz: 0, onGround: true, sneaking: false, tick: 0 };
+  let jump = false, best = -Infinity, stall = 0;
+  for (let t = 0; t < DOOR_LANE_OUT * k * 12 + 60; t++) {
+    const r: TickResult = tickPlayer(world, s, { move: dir, jump, sneak: false, autoJump: true });
+    s = r.state;
+    jump = (r.collided.x || r.collided.z) && s.onGround;
+    const a = along(s);
+    if (a >= -DOOR_LANE_ARRIVE * k && s.onGround && Math.abs(s.y - goal.y) <= STEP_HEIGHT * k + 1e-6) return { ok: true, s };
+    if (a > best + 1e-3) { best = a; stall = 0; } else if (++stall > 40) break;
+  }
+  return { ok: false, s };
+}
+
+/**
+ * The device's walk to a doorway (Pixel round 25d, 11388 Doors 4/6): a child lines up on the door from `DOOR_LANE_OUT`
+ * blocks out and pushes straight toward it, auto-jump on and Jump pressed when blocked. Per lane across the leaf's
+ * columns (every `DOOR_LANE_STEP`), the landing spot is the drawn standing spot nearest the leaf (`LINE_MIN_OUT` to
+ * `LINE_OUT` out, within a jump of the doorway's floor) and the start the floor `DOOR_LANE_OUT` out, no higher than
+ * the landing, that both floods reach from the ground. A lane is the MODEL's when the same straight walk over the drawn
+ * world (`drawn`, which must answer `solidsNear`: `DrawnWalkWorld`) arrives; it is then walked over the colliders. A
+ * side whose drawn lanes ALL stop over the colliders is the pack's: the planner's flood (`doorSideOnFoot`) may still
+ * find a zig-zag the device's straight walk never takes.
+ */
+export function doorLanesOnFoot(real: SimEngine, drawn: SimEngine, dim: string, floods: { real: readonly WalkNode[]; drawn: readonly WalkNode[] }, d: DoorwaySide): DoorLanes {
+  const lat = { x: -d.n.z, z: d.n.x }, out = { x: d.n.x * d.side, z: d.n.z * d.side }, inward = { x: -out.x, z: -out.z };
+  const lats = d.columns.map(c => c.x * lat.x + c.z * lat.z);
+  const centre = d.columns[0]!, base = centre.x * lat.x + centre.z * lat.z;
+  const lanes: DoorLane[] = [];
+  let drawnLanes = 0;
+  const w = real.dimension(dim), dw = drawn.dimension(dim) as unknown as SolidQuery;
+  for (let l = Math.min(...lats) - 0.5 * d.k; l <= Math.max(...lats) + 0.5 * d.k + 1e-9; l += DOOR_LANE_STEP * d.k) {
+    const at = (o: number) => ({ x: centre.x + lat.x * (l - base) + out.x * o, z: centre.z + lat.z * (l - base) + out.z * o });
+    // The landing spot: the drawn standing spot nearest the leaf, within a jump of the doorway's floor.
+    let goal: Vec3 | undefined;
+    for (let o = LINE_MIN_OUT * d.k; o <= LINE_OUT * d.k + 1e-9 && !goal; o += 0.25 * d.k) {
+      const q = at(o), y = floorBelow(drawn, dim, q.x, d.floorY + JUMP_RISE_BLOCKS * d.k, q.z, 2 * JUMP_RISE_BLOCKS * d.k);
+      if (y !== undefined && Math.abs(y - d.floorY) <= JUMP_RISE_BLOCKS * d.k && standsAt(drawn, dim, { ...q, y })) goal = { ...q, y };
+    }
+    if (!goal) continue;
+    // The start: the floor `DOOR_LANE_OUT` out, at or under the landing (the ground a child comes from), in each world.
+    const p = at(DOOR_LANE_OUT * d.k);
+    const drawnY = floorBelow(drawn, dim, p.x, goal.y + 0.05, p.z, 4 * d.k), realY = floorBelow(real, dim, p.x, goal.y + 0.05, p.z, 4 * d.k);
+    if (drawnY === undefined || realY === undefined) continue;
+    const startDrawn = { ...p, y: drawnY }, start = { ...p, y: realY };
+    if (!standsAt(drawn, dim, startDrawn) || !floodStandsAt(floods.drawn, startDrawn)) continue;
+    // A start the colliders' walk never reaches is the flood check's finding, not this lane's.
+    if (!w.withAllLoaded(() => standsAt(real, dim, start)) || !floodStandsAt(floods.real, start)) continue;
+    if (!walkLane(dw, startDrawn, goal, inward, d.k).ok) continue;
+    drawnLanes++;
+    const walked = w.withAllLoaded(() => walkLane(w as unknown as SolidQuery, start, goal!, inward, d.k));
+    lanes.push({ lateral: Math.round((l - base) * 100) / 100, start, goal, colliders: walked.ok, stop: { x: walked.s.x, y: walked.s.y, z: walked.s.z } });
+  }
+  return { drawn: drawnLanes, colliders: lanes.filter(x => x.colliders).length, lanes };
+}
+
+/** The largest placed size (percent) `doorwayOnFoot` floods: a flood of the whole model is bounded at 100 %. */
+// TODO(door-on-foot-sizes): above 100 % the flood's node cap (`walkFlood`) cuts large models short; judge 150-400 % when it can be bounded.
+const DOOR_ON_FOOT_MAX_SIZE = 100;
+
 /** How short of the aim another part's pick box may start and still be behind the target (the aim lies ON its box). */
 const OTHER_PART_EPSILON = 1e-3;
 
@@ -329,8 +518,10 @@ const BROAD_SHARE = 0.25;
 const GROUND_SHARE_MIN = 0.02;
 /** ...and its broad base starts at least this far over the ground (blocks at 100 %). 2 passed 11377's 2.8-block hover
  * on the Pixel (round 24a): the base was read in whole one-block bands, 2.81 -> 2; '> 1' passed 11388's plate a whole
- * block over the grass, a gap the Pixel showed (round 24b). */
-const HANG_MIN_BLOCKS = 1;
+ * block over the grass, a gap the Pixel showed (round 24b); 1 passed 11377's castle plate 0.75 blocks up on three
+ * window frames (0.32 percent on the ground), a float with a wide shadow on the Pixel (round 25d). Half a block is two
+ * bands: over every favourite gate run since the rule existed (gates f-i) no grounded model read 0.5-1 under 2 percent. */
+const HANG_MIN_BLOCKS = 0.5;
 /** The height band the footprint is counted in (blocks at 100 %): a quarter block, so a base is read to within it. */
 const GROUND_BAND = 0.25;
 
@@ -338,7 +529,7 @@ const GROUND_BAND = 0.25;
  * Whether a placed model stands on the ground or hangs over it on thin parts (`model-grounded`, PROC-20). The drawn
  * boxes are rastered on a `GROUND_CELL` grid in `GROUND_BAND` height bands (both times the size factor `f`) from `groundY`: the
  * BROAD base is the lowest band whose footprint is a quarter of the widest band's. It
- * hangs when that base starts more than `HANG_MIN_BLOCKS` up and the lowest band's footprint is under 1 % of the
+ * hangs when that base starts at least `HANG_MIN_BLOCKS` up and the lowest band's footprint is under `GROUND_SHARE_MIN` of the
  * widest: 11388's two flexible axles drawn straight down from its bridge held the whole set 6 blocks up. A stilt house,
  * a tree house on its trunk and a car on its wheels keep far more than 1 % on the ground. Overlapping boxes count once.
  */
@@ -388,7 +579,7 @@ export function childPlayScenarios(pack: CraftmaticPack, options: ChildPlayOptio
   const slideVehicles = scriptedVehicleTypes(pack).filter(t => t.slides.length);
   for (const [size, rot] of variants) {
     const steps: Step[] = [{ kind: 'place', size, rotation: rot }, { kind: 'wait', ticks: 40 }, { kind: 'modelGrounded' }];
-    if (pack.interactives?.items.length) steps.push({ kind: 'tapInteractives' }, { kind: 'doorwayLines' });
+    if (pack.interactives?.items.length) steps.push({ kind: 'doorwayOnFoot' }, { kind: 'tapInteractives' }, { kind: 'doorwayLines' });
     // A vehicle's own doors, lids and cupboards (vehicle-parts.ts, A-02): opened on the parked vehicle at this size and turn.
     if (partVehicles.length) steps.push({ kind: 'vehicleParts' });
     // A vehicle's slides: ridden from a tap while it is parked at this size and turn (A-02).

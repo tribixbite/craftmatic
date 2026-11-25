@@ -218,6 +218,18 @@ export class DrawnWalkWorld {
     if (box.y0 < this.groundY - eps) return { x0: box.x0, y0: this.groundY - 1, z0: box.z0, x1: box.x1, y1: this.groundY, z1: box.z1 };
     return this.near(box).find(d => drawnReaches(d, box, eps))?.box;
   }
+  /**
+   * The solids a box moving by (dx, dy, dz) may meet, for the integrator (`tickPlayer`, `SolidQuery`): the ground plane
+   * and every drawn cube near the sweep, a turned cube by its corner box (it blocks a little more than it draws). The
+   * same straight walk over what the model draws and over the pack's colliders (`doorLanesOnFoot`, child-play.ts).
+   */
+  solidsNear(box: Box, dx: number, dy: number, dz: number): Box[] {
+    const e = 1e-3;
+    const q = { x0: Math.min(box.x0, box.x0 + dx) - e, y0: Math.min(box.y0, box.y0 + dy) - e, z0: Math.min(box.z0, box.z0 + dz) - e, x1: Math.max(box.x1, box.x1 + dx) + e, y1: Math.max(box.y1, box.y1 + dy) + e, z1: Math.max(box.z1, box.z1 + dz) + e };
+    const out: Box[] = [{ x0: q.x0 - 1, y0: this.groundY - 1, z0: q.z0 - 1, x1: q.x1 + 1, y1: this.groundY, z1: q.z1 + 1 }];
+    for (const d of this.near(q)) if (d.box.y1 > q.y0 && d.box.y0 < q.y1) out.push(d.box);
+    return out;
+  }
   /** The highest drawn top (or the ground) at or under `y` at the point (x, z), or -Infinity. */
   supportBelow(x: number, y: number, z: number, maxDepth = 400): number {
     let top = y >= this.groundY - 1e-6 ? this.groundY : -Infinity;

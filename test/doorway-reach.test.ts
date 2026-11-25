@@ -152,6 +152,44 @@ describe('clearance lets a phantom top go in a doorway\'s approach (rule 4, appr
   });
 });
 
+describe('clearance trims a sliver top over the steps up to a doorway (rule 4, approachSliver; PROC-20, 11388 Doors 4/6)', () => {
+  /**
+   * 11388's double door (Pixel round 25d): the model's blue steps rise 0.30, 0.45, 0.60, 0.90 to the sill's lip at
+   * 1.05, in ONE column in front of the leaf, under the arcade's ceiling in the column before it. Only the lip pokes
+   * 1/16 into the next row, and rule 4 kept that row's whole footprint as a standing top: a 1/16 sheet at 1.00-1.06
+   * over the lower steps, in the head of a player on them. No stand point got the box from the step below up onto it
+   * under the ceiling, so the device's walk stopped two blocks short of the door.
+   */
+  const steps = (under: Box16[]) => {
+    const s = scene(3, 4, 3);
+    for (let z = 0; z < 3; z++) s.solid(0, 0, z, [[0, 16, 0, 8, 0, 16]]); // the step before, 0.5
+    s.solid(0, 2, 1, [[0, 8, 11, 16, 0, 16]]); // the arcade's ceiling band over it, 2.69-3.0
+    s.solid(1, 0, 1, under);
+    s.solid(1, 1, 1, [[14, 16, 0, 1, 0, 16]]); // the sill's lip, 1/16 into row 1
+    return s;
+  };
+  const STAIR: Box16[] = [[0, 2, 0, 5, 0, 16], [2, 8, 0, 7, 0, 16], [8, 14, 0, 15, 0, 16], [14, 16, 0, 16, 0, 16]];
+  const approaches = [{ columns: [[1, 1]] as Array<[number, number]>, floor16: 21 }];
+  it('narrows the sliver to its lip when the steps stand under all of it', () => {
+    const s = steps(STAIR);
+    const r = applyColliderClearance({ grid: s.grid, layers: s.layers, leaves: [], closedCells: [], approaches });
+    const f = s.form(1, 1, 1)!;
+    expect(f.v).not.toBe(0);
+    // Nothing of the sheet is left over the lower steps (x < 8).
+    expect(COLLIDER_KIT.formBoxes(f.v, f.lo, f.hi).every(b => b[0] >= 8 && b[3] <= 1)).toBe(true);
+    expect(r.approachSlivers).toBe(1);
+  });
+  it('keeps it whole where nothing of the model stands under part of it, or outside any approach', () => {
+    // The lip over open air on its near half: a player stepping off the sheet there falls, as at 31141's street rims.
+    const air = steps([[8, 14, 0, 15, 0, 16], [14, 16, 0, 16, 0, 16]]);
+    applyColliderClearance({ grid: air.grid, layers: air.layers, leaves: [], closedCells: [], approaches });
+    expect(air.form(1, 1, 1)).toEqual({ v: 0, lo: 0, hi: 1 });
+    const away = steps(STAIR);
+    applyColliderClearance({ grid: away.grid, layers: away.layers, leaves: [], closedCells: [], approaches: [{ columns: [[2, 2]], floor16: 21 }] });
+    expect(away.form(1, 1, 1)).toEqual({ v: 0, lo: 0, hi: 1 });
+  });
+});
+
 describe('the collider grid and its layer geometry round a box edge on a sixteenth alike', () => {
   it('a plate top at 12/16 with float noise spans [0, 12] in both, so clearance does not read the cell as cut', () => {
     const grid = new BlockGrid(1, 1, 1);

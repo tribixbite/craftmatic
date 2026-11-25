@@ -43,6 +43,28 @@ describe('sim child play: the placed model stands on the ground (model-grounded,
     expect(plate.hanging).toBe(true);
   });
 
+  it('a castle plate 0.75 blocks up on three window frames hangs (11377, Pixel round 25d: the 1-block rule passed it)', () => {
+    // 11377's broad base read 0.75 blocks up at every size and 0.32 percent of its footprint on the ground: three 3662
+    // window frames drawn 32-40 LDU under the base plate. The Pixel showed the plate floating with a wide shadow under
+    // it and short brown frame legs reaching the grass.
+    const legs = [[3, 4], [6, 4], [9, 4]].map(([x, z]) => box(x!, 0, z!, x! + 0.1, 0.75, z! + 0.4));
+    const v = groundedVerdict([box(0, 0.75, 0, 29, 1.1, 18), box(1, 1.1, 1, 28, 16, 17), ...legs], 0, 1);
+    expect(v.hangBlocks).toBeCloseTo(0.75, 2);
+    expect(v.groundShare).toBeLessThan(0.02);
+    expect(v.hanging).toBe(true);
+    // The same at 50 percent (0.38 blocks up).
+    const h = 0.5;
+    expect(groundedVerdict([box(0, 0.75 * h, 0, 29 * h, 1.1 * h, 18 * h), ...legs.map(d => box(d.box.x0 * h, 0, d.box.z0 * h, d.box.x1 * h, 0.75 * h, d.box.z1 * h))], 0, h).hanging).toBe(true);
+  });
+
+  it('a ship on its keel and a plate a quarter block up are not hanging', () => {
+    // 10365 at 100 percent: broad base 1 block up with 11 percent of its footprint (the keel and stand) on the ground.
+    const ship = groundedVerdict([box(0, 1, 0, 30, 1.4, 10), box(1, 1.4, 1, 29, 12, 9), box(2, 0, 4, 28, 1, 5.1)], 0, 1);
+    expect(ship.hanging).toBe(false);
+    // One quarter-block band of air under a base is within the band's own resolution.
+    expect(groundedVerdict([box(0, 0.25, 0, 20, 0.6, 10), box(1, 0.6, 1, 19, 8, 9)], 0, 1).hanging).toBe(false);
+  });
+
   it('scales with the placement size: the same model at 400 percent hangs 24 blocks', () => {
     const s = 4;
     const v = groundedVerdict([box(0, 6 * s, 0, 30 * s, 6.4 * s, 15 * s), box(10 * s, 0.3 * s, 5 * s, 10.25 * s, 6 * s, 5.25 * s)], 0, s);

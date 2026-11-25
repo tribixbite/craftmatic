@@ -160,6 +160,8 @@ export interface ClearanceReport {
   wallTops: number;
   /** Standing surfaces rule 4 let through because they stand in a doorway's approach at body height (`approachTop`). */
   approachTops: number;
+  /** Sliver tops over a doorway's steps rule 4 let through (`approachSliver`). */
+  approachSlivers: number;
   /** Standing surfaces rule 4 let through because they are furniture's phantom top over a floor plate (`furnitureForm`). */
   furnitureTops: number;
   /**
@@ -191,6 +193,8 @@ export const SNEAK_NEED16 = 24;
 /** The auto-step a player walks up without a jump (9/16): a surface higher than this over a doorway's floor is not its approach floor. */
 export const APPROACH_STEP16 = 9;
 export const STAND_NEED16 = 29;
+/** The tallest cell (sixteenths) rule 4's approach-sliver exception reads as a riser's lip poking into the row (`approachSliver`). */
+export const SLIVER16 = 2;
 export const CEILING_RAISE_MAX16 = STAND_NEED16 - SNEAK_NEED16;
 export const CEILING_KEEP16 = 2;
 /**
@@ -263,7 +267,7 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
   const idx = (x: number, y: number, z: number): number => (x * H + y) * L + z;
   const refused: Record<ClearanceRefusal, number> = { 'door-leaf': 0, 'door-cut': 0, 'walkable-top': 0, leak: 0, unverifiable: 0 };
   const entries: ClearanceEntry[] = [];
-  const report: ClearanceReport = { cells: 0, alreadyTight: 0, wallTops: 0, approachTops: 0, furnitureTops: 0, rescued: { trims: 0, doorways: [] }, cornerFallbacks: 0, applied: { wall: 0, ceiling: 0 }, refused, freedBlocks: 0, leakRounds: [], leaks: [], voxels: 0, millis: 0, verified: true, entries };
+  const report: ClearanceReport = { cells: 0, alreadyTight: 0, wallTops: 0, approachTops: 0, approachSlivers: 0, furnitureTops: 0, rescued: { trims: 0, doorways: [] }, cornerFallbacks: 0, applied: { wall: 0, ceiling: 0 }, refused, freedBlocks: 0, leakRounds: [], leaks: [], voxels: 0, millis: 0, verified: true, entries };
 
   /** The collider form the grid holds at a cell (pristine full form after the cut), or null. */
   const formAt = (x: number, y: number, z: number): ColliderForm | null => parseFormState(grid.get(x, y, z));
@@ -449,6 +453,33 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
   };
 
   /**
+   * Rule 4's fourth exception: a SLIVER top in a doorway's approach (PROC-20, 11388 Doors 4/6, Pixel round 25d). A
+   * cell at most `SLIVER16` tall whose geometry is a narrow band (a stair's last riser poking a sixteenth into the
+   * row above) kept its WHOLE footprint as a standing top: a 1/16 sheet over the lower steps, in the head of a player
+   * on them. Under the arcade's ceiling in the column before it no stand point got the player's box from the step
+   * below up onto the sheet, so the device's walk stopped two blocks short of the door, while the doorway's own walk
+   * (which starts ON the landing) passed. The sheet goes, the band stays, when the cell stands in a doorway's
+   * approach and the model draws something under EVERY sixteenth of the freed strips in the row below: a player
+   * stepping off the band lands on the model's own steps, under a jump down, never in a pit. The landing guard and
+   * the wall-top rim's open neighbour (`wallTopRim`) do not apply: a stair to a door is a landing with steps under it.
+   * Outside any approach, or over air anywhere under the strip (31141's rims over the street), the sheet stays.
+   */
+  const approachSliver = (x: number, y: number, z: number, to: ColliderForm, built: ColliderForm): boolean => {
+    if (y === 0 || built.lo !== 0 || built.hi > SLIVER16 || !approachFloor.has(`${x},${z}`)) return false;
+    const d = COLLIDER_KIT.VARIANTS[to.v]!;
+    if (d.kind !== 0 || to.lo !== 0) return false;
+    const q = COLLIDER_KIT.SHAPES[d.shape]!; // [x0, x1, z0, z1] sixteenths
+    const below = layers.get(idx(x, y - 1, z));
+    if (!below) return false;
+    const under = layerBoxes(below);
+    for (let sx = 0; sx < 16; sx++) for (let sz = 0; sz < 16; sz++) {
+      if (sx >= q[0] && sx < q[1] && sz >= q[2] && sz < q[3]) continue;
+      if (!under.some(b => b[0] <= sx && b[1] > sx && b[4] <= sz && b[5] > sz)) return false;
+    }
+    return true;
+  };
+
+  /**
    * Rule 4's third exception: furniture standing on a FLOOR. The proposal is a floor + wall form (kind 1) whose
    * floor - full footprint from the cell's geometry bottom to its top `hi` - ends within an auto-step
    * (`APPROACH_STEP16`) of the cell's bottom, and whose wall band holds every part of the geometry above it. Then
@@ -559,6 +590,7 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
       if (!top.some(b => b[0] === 0 && b[1] === 16 && b[4] === 0 && b[5] === 16)) {
         if (furniture) report.furnitureTops++;
         else if (approachTop(x, y, z, built)) report.approachTops++;
+        else if (approachSliver(x, y, z, to, built)) report.approachSlivers++;
         else if (heldEdgeCells.has(i)) report.wallTops++;
         else if (!wallTopRim(x, y, z, to, built) && cornerForm(to) && rimBand(x, y, z, to, built, bound, geometry)) {
           to = rimBand(x, y, z, to, built, bound, geometry)!;
