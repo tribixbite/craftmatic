@@ -65,6 +65,12 @@ export interface Snapshot { name: string; width: number; height: number; rgb: Ui
 
 function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Record<string, StepHandler> {
   return {
+    /** The placed model stands on the ground, not over it on thin parts (`groundedVerdict`, PROC-20). */
+    async modelGrounded(_step: AnyStep, ctx: StepContext) {
+      const placed = placedOf(ctx);
+      const v = groundedVerdict(staticDrawn(ctx, appearance, pack), placed.anchor.y, placed.sizePct / 100);
+      if (v.hanging) ctx.violate({ invariant: 'model-grounded', message: v.message!, evidence: { hangBlocks: v.hangBlocks, groundShare: v.groundShare, at: placed.anchor } });
+    },
     /** A first-person picture: from where the child placed, looking at the model's centre (or from where it stands: `{ here: true }`). */
     async snapshot(step: AnyStep, ctx: StepContext) {
       const placed = placedOf(ctx);
@@ -310,6 +316,49 @@ export function outOfReachByModel(ctx: StepContext, part: SimEntity, statics: re
     : `no floor the model draws puts the eye within reach of it (${floors} floors searched round it)`;
 }
 
+/** A placed model's footing: how far its broad base starts over the ground, and what share of it reaches the ground. */
+export interface GroundedVerdict { hanging: boolean; hangBlocks: number; groundShare: number; message?: string }
+
+/** The raster cell (blocks at 100 %) the footprint per height band is counted on. */
+const GROUND_CELL = 0.25;
+/** A band whose footprint is at least this share of the model's widest band is its BROAD base. */
+const BROAD_SHARE = 0.25;
+/** A model is hanging when the ground band's footprint is under this share of the widest band... */
+const GROUND_SHARE_MIN = 0.01;
+/** ...and its broad base starts more than this over the ground (blocks at 100 %). */
+const HANG_MIN_BLOCKS = 2;
+
+/**
+ * Whether a placed model stands on the ground or hangs over it on thin parts (`model-grounded`, PROC-20). The drawn
+ * boxes are rastered on a `GROUND_CELL` grid in one-block bands (both times the size factor `f`) from `groundY`: the
+ * BROAD base is the lowest band whose footprint is a quarter of the widest band's. It
+ * hangs when that base starts more than `HANG_MIN_BLOCKS` up and the ground band's footprint is under 1 % of the
+ * widest: 11388's two flexible axles drawn straight down from its bridge held the whole set 6 blocks up. A stilt house,
+ * a tree house on its trunk and a car on its wheels keep far more than 1 % on the ground. Overlapping boxes count once.
+ */
+export function groundedVerdict(boxes: readonly DrawnBox[], groundY: number, f: number): GroundedVerdict {
+  if (!boxes.length) return { hanging: false, hangBlocks: 0, groundShare: 1 };
+  const cell = GROUND_CELL * f, band = f;
+  const top = Math.max(...boxes.map(d => d.box.y1));
+  const bands = Math.max(1, Math.ceil((top - groundY) / band));
+  const cells: Array<Set<string>> = Array.from({ length: bands }, () => new Set<string>());
+  for (const { box: b } of boxes) {
+    const k0 = Math.max(0, Math.floor((b.y0 - groundY) / band)), k1 = Math.min(bands - 1, Math.floor((b.y1 - groundY - 1e-6) / band));
+    const i0 = Math.floor(b.x0 / cell), i1 = Math.ceil(b.x1 / cell), j0 = Math.floor(b.z0 / cell), j1 = Math.ceil(b.z1 / cell);
+    for (let k = k0; k <= k1; k++) for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) cells[k]!.add(`${i},${j}`);
+  }
+  const area = cells.map(s => s.size);
+  const widest = Math.max(...area);
+  if (!widest) return { hanging: false, hangBlocks: 0, groundShare: 1 };
+  const broad = area.findIndex(a => a >= BROAD_SHARE * widest);
+  const hangBlocks = broad * band, groundShare = area[0]! / widest;
+  const hanging = hangBlocks > HANG_MIN_BLOCKS * f && groundShare < GROUND_SHARE_MIN;
+  return {
+    hanging, hangBlocks, groundShare,
+    ...(hanging ? { message: `the model hangs ${hangBlocks.toFixed(1)} blocks over the ground: its broad base starts there and only ${(groundShare * 100).toFixed(2)} percent of its footprint reaches the ground (thin parts under it)` } : {}),
+  };
+}
+
 /** The Overworld build height the wand allows, blocks (-64..319). */
 const WORLD_HEIGHT_BLOCKS = 384;
 
@@ -332,7 +381,7 @@ export function childPlayScenarios(pack: CraftmaticPack, options: ChildPlayOptio
   const partVehicles = partVehicleTypes(pack);
   const slideVehicles = scriptedVehicleTypes(pack).filter(t => t.slides.length);
   for (const [size, rot] of variants) {
-    const steps: Step[] = [{ kind: 'place', size, rotation: rot }, { kind: 'wait', ticks: 40 }];
+    const steps: Step[] = [{ kind: 'place', size, rotation: rot }, { kind: 'wait', ticks: 40 }, { kind: 'modelGrounded' }];
     if (pack.interactives?.items.length) steps.push({ kind: 'tapInteractives' }, { kind: 'doorwayLines' });
     // A vehicle's own doors, lids and cupboards (vehicle-parts.ts, A-02): opened on the parked vehicle at this size and turn.
     if (partVehicles.length) steps.push({ kind: 'vehicleParts' });
