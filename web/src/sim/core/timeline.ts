@@ -22,6 +22,8 @@ export interface TimelineEntry {
   source?: string;
   /** The player or entity it concerns. */
   target?: string;
+  /** A `form` entry: its body's lines as the phone wraps them (`formBodyLines`). */
+  formBodyLines?: number;
 }
 
 /** An API member the game has and the simulator does not model, with how often scripts reached it. */
@@ -36,7 +38,7 @@ export class Timeline {
   /** The current tick, set by the engine. */
   tick = 0;
 
-  add(kind: TimelineKind, text: string, extra: { source?: string; target?: string } = {}): TimelineEntry {
+  add(kind: TimelineKind, text: string, extra: { source?: string; target?: string; formBodyLines?: number } = {}): TimelineEntry {
     const e: TimelineEntry = { tick: this.tick, kind, text, ...extra };
     this.entries.push(e);
     return e;

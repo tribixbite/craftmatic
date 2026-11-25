@@ -11,6 +11,31 @@ import { SERVER_UI_EXPORTS } from './api-catalog.js';
 import { guard, unmodelledExport } from './unmodelled.js';
 import { formRendered, messageText, plainText } from './text.js';
 
+/**
+ * The Pixel's form body wraps at about this many characters (round 24a, `p4-conf.jpg`: "floors are 3.6 blocks under
+ * the ceiling", 39, fits a line; "blocks at 100 percent; 200 percent makes", 40, wrapped). Quirk `form-body-hides-buttons`.
+ */
+export const FORM_CHARS_PER_LINE = 39;
+/**
+ * The body lines a form may wrap to and still show its FIRST button whole without scrolling (round 24a: 14 lines hid
+ * 21065's "Place now" below the fold and the tester's tap placed nothing; 5 showed both buttons).
+ */
+export const FORM_BODY_LINES_ABOVE_BUTTON = 11;
+
+/** A form body's lines as the phone wraps them: greedy word wrap at `FORM_CHARS_PER_LINE`; a blank line counts. */
+export function formBodyLines(body: string): number {
+  let lines = 0;
+  for (const paragraph of plainText(body).split('\n')) {
+    let width = 0, n = 1;
+    for (const word of paragraph.split(' ').filter(w => w.length)) {
+      const add = width ? word.length + 1 : word.length;
+      if (width && width + add > FORM_CHARS_PER_LINE) { n++; width = word.length; } else width += add;
+    }
+    lines += n;
+  }
+  return lines;
+}
+
 /** A form as the player sees it. */
 export interface ShownForm {
   kind: 'action' | 'modal' | 'message';
@@ -37,7 +62,7 @@ export function createUiModule(timeline: Timeline, choose: () => FormChooser, pl
     const drawn = (s: string): string => formRendered(plainText(s));
     const lost = [f.title, f.body, ...f.buttons].some(s => s.includes('%'));
     const src = timeline.callerSource();
-    timeline.add('form', `${drawn(f.title)} | ${f.buttons.map(drawn).join(' / ')}${lost ? '  [a bare % was deleted by the form renderer]' : ''}`, { ...(src ? { source: src } : {}), target: f.player });
+    timeline.add('form', `${drawn(f.title)} | ${f.buttons.map(drawn).join(' / ')}${lost ? '  [a bare % was deleted by the form renderer]' : ''}`, { ...(src ? { source: src } : {}), target: f.player, ...(f.kind !== 'modal' ? { formBodyLines: formBodyLines(f.body) } : {}) });
   };
   const answer = async (form: ShownForm, kind: ShownForm['kind']): Promise<Record<string, unknown>> => {
     record(form);
