@@ -1964,7 +1964,7 @@ If your last placement is in the way, undo it first.`)
     // One line: the reason is quoted whole in "About this build" and when the size step lands on it; here it pushed
     // "Place now" below the fold (21065, Pixel round 24a).
     const walkNote = recommendedSize && st.size !== recommendedSize ? `\n\nWalk-through size is ${percent(recommendedSize)}, not ${percent(st.size)}.` : '';
-    const r = await show(p, new ActionFormData().title(`Place ${config.label}?`).body(`${summary(st)}\n\n${marketplace ? 'Only empty space is used; nothing is replaced.' : 'Blocks in this area will be replaced.'}${scripted ? `\nWalkable blocks are re-laid at ${percent(st.size)}.${stepsNote(st)}` : ''}${walkNote}`).button('Place now').button('Back'));
+    const r = await show(p, new ActionFormData().title(`Place ${config.label}?`).body(`${summary(st)}\n\n${marketplace ? 'Only empty space is used; nothing is replaced.' : 'Blocks in this area will be replaced.'}${scripted ? `\nWalkable blocks are re-laid at ${percent(st.size)}.` : ''}${walkNote}`).button('Place now').button('Back'));
     if (!r.canceled && r.selection === 0) return place(p);
     return menu(p);
   }
@@ -2190,12 +2190,6 @@ If your last placement is in the way, undo it first.`)
     }
     return { placed, steps };
   }
-  // Invisible steps the pack adds at a size and turn (0 at 100 %, or when the model needs none).
-  const stepsAt = (st: any): number => (config.colliders && config.colliders.treads && config.colliders.treads.counts && config.colliders.treads.counts[`${st.size}:${st.rotation}`]) || 0;
-  const stepsNote = (st: any): string => {
-    const n = stepsAt(st);
-    return n ? ` ${n} invisible step${n === 1 ? '' : 's'} ${n === 1 ? 'is' : 'are'} added where risers grew past a jump.` : '';
-  };
   async function place(p: any) {
     if (active) return tell(p, 'Another placement is running.');
     const st = { ...state(p), anchor: { ...state(p).anchor } }, dim = p.dimension;
