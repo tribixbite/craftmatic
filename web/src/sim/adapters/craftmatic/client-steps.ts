@@ -37,6 +37,7 @@ import { extractJsonAfter } from '../../pack/script-config.js';
 import { PLAYER_EYE_HEIGHT } from '../../physics/body.js';
 import type { UvFloorModel } from '../../../engine/figure-holes.js';
 import { entityRenderCullBlocks } from '../../../engine/bedrock-lod-hull.js';
+import { LANDMARK_VIEW_EDGE_BLOCKS } from '../../../engine/bedrock-building-shell.js';
 import { attachClient, ClientView, drawnCameraLead, type ClientProfileName } from '../../client/camera.js';
 import { CameraTrace } from '../../client/steps.js';
 import { SEAT_EYE_SLACK, SEAT_SPEED_FLOOR, type ClientInvariantOptions } from '../../client/invariants.js';
@@ -129,10 +130,13 @@ const r2 = (v: number): number => Math.round(v * 100) / 100;
  * the ~64-block actor cull itself: past it EVERY actor goes (over the 57 favgate-41e9850b packs at 400 %, 48 vanish
  * within 64 blocks of a corner, the McLaren from 53). Within 30 the camera is near the model's own cubes, so a
  * vanishing shell is the lattice's roots sitting too deep: 10 favourites at 400 % draw nothing from 20 blocks off a
- * corner (TODO(cull-400): the 13-block lattice puts a 400 % root 26 blocks inside the model). Round 24a lost 21065
- * at 400 % from 50 blocks off its front, which the ceiling alone explains.
+ * corner (the 13-block lattice puts a 400 % root 26 blocks inside the model). Round 24a lost 21065 at 400 % from 50
+ * blocks off its front, which the ceiling alone explains. The user (2026-11-25) wants the 400 % fix only for models
+ * meant to be seen at 400 %: a landmark's shell is split on the landmark lattice, sized so a camera this far off any
+ * cube is within draw reach of its chunk's root (`LANDMARK_VIEW_EDGE_BLOCKS`, the same constant). Every other model
+ * keeps the standard lattice and may still vanish here at 400 % (TODO(cull-400), by the user's choice).
  */
-export const VANISH_EDGE_BLOCKS = 30;
+export const VANISH_EDGE_BLOCKS = LANDMARK_VIEW_EDGE_BLOCKS;
 
 /** One walk-away distance as `vanishVerdict` reads it: how many of the model's shell actors draw (full or hull). */
 export interface VanishRow { distance: number; shellDrawn: number; shellTotal: number }
@@ -393,45 +397,67 @@ export function clientSteps(pack: CraftmaticPack, appearance: AddonAppearance, o
     /**
      * Pictures from `from` to `to` blocks (every `step`) away from the placed model's centre, the child standing on
      * the ground, looking at it: each actor's full / hull / gone state from the drawn camera; `{ from, to, step }`.
+     * `bearings` (default 1) walks that many directions round the model, the first the low-x / low-z CORNER diagonal
+     * (as before), the others evenly spaced from it, each from where its ray leaves the model's footprint. Each row
+     * also counts the shell's CUBES drawn (`shellCubes` / `shellCubesDrawn`): the share of the model a child sees.
      */
     async walkAway(step: AnyStep, ctx: StepContext) {
       const from = Number(step['from'] ?? 40), to = Number(step['to'] ?? 120), stride = Math.max(1, Number(step['step'] ?? 10));
+      const bearings = Math.max(1, Math.floor(Number(step['bearings'] ?? 1)));
       const placed = placedOf(ctx);
       const centre = { x: (placed.from.x + placed.to.x + 1) / 2, y: (placed.from.y + placed.to.y) / 2, z: (placed.from.z + placed.to.z + 1) / 2 };
-      const half = Math.hypot(placed.to.x + 1 - placed.from.x, placed.to.z + 1 - placed.from.z) / 2;
-      const u = { x: -Math.SQRT1_2, z: -Math.SQRT1_2 };
-      const rows: Array<{ distance: number; full: number; hull: number; gone: number; disagree: number; entities: SnapshotEntity[] }> = [];
-      const hulls = new Map<string, { lodDistance: number; cullBlocks: number; seenHull: boolean }>();
-      for (let d = from; d <= to + 1e-9; d += stride) {
-        // `d` is the distance from the model's edge, as a child walks it; the camera-to-root distances are per actor.
-        const feet = { x: centre.x + u.x * (half + d), y: placed.from.y, z: centre.z + u.z * (half + d) };
-        teleport(ctx.sim.host, ctx.player, feet);
-        ctx.player.onGround = true;
-        lookAt(ctx.player, { x: centre.x, y: feet.y + PLAYER_EYE_HEIGHT, z: centre.z });
-        await ctx.run(1);
-        const shot = shotOf(ctx, `walk-away-${String(Math.round(d)).padStart(3, '0')}`);
-        keep(ctx, 'frames', shot);
-        const m = shot.metrics;
-        for (const e of m.entities) {
-          if (e.lodDistance === undefined) continue;
-          const h = hulls.get(e.id) ?? { lodDistance: e.lodDistance, cullBlocks: e.cullBlocks, seenHull: false };
-          if (e.state === 'hull') h.seenHull = true;
-          hulls.set(e.id, h);
-        }
-        rows.push({ distance: d, full: m.entities.filter(e => e.state === 'full').length, hull: m.entities.filter(e => e.state === 'hull').length, gone: m.entities.filter(e => e.state === 'gone').length, disagree: m.entities.filter(e => e.cullDisagree).length, entities: m.entities });
-      }
-      ctx.state['walkAway'] = rows.map(r => ({ distance: r.distance, full: r.full, hull: r.hull, gone: r.gone, disagree: r.disagree }));
-      // The model's own shell may not vanish whole while the child stands within sight of it (round 24a, 21065 at 400 %).
+      const halfX = (placed.to.x + 1 - placed.from.x) / 2, halfZ = (placed.to.z + 1 - placed.from.z) / 2;
+      const half = Math.hypot(halfX * 2, halfZ * 2) / 2;
       const isShell = (e: SnapshotEntity): boolean => /_shell(_|$)/.test(e.typeId);
-      const vanished = vanishVerdict(rows.map(r => ({ distance: r.distance, shellDrawn: r.entities.filter(e => isShell(e) && e.state !== 'gone').length, shellTotal: r.entities.filter(isShell).length })));
-      if (vanished) ctx.violate({ invariant: 'model-vanishes', message: `from ${vanished.distance} blocks off its edge none of the model's ${vanished.shellTotal} shell actors draws (each root past the actor draw ceiling): the model has vanished whole within ${VANISH_EDGE_BLOCKS} blocks`, evidence: { ...vanished } });
+      const cubesOf = (e: SnapshotEntity): number => appearance.byType.get(e.typeId)?.cubeCount ?? 0;
+      // Every shell cube the pack draws (each chunk type is placed once): an unloaded chunk counts as not drawn.
+      const packShellCubes = [...appearance.byType.values()].filter(t => /_shell(_|$)/.test(t.typeId)).reduce((n, t) => n + t.cubeCount, 0);
+      type Row = { bearing: number; distance: number; full: number; hull: number; gone: number; disagree: number; shellCubes: number; shellCubesDrawn: number; entities: SnapshotEntity[] };
+      const rows: Row[] = [];
+      const hulls = new Map<string, { lodDistance: number; cullBlocks: number; seenHull: boolean }>();
+      for (let b = 0; b < bearings; b++) {
+        // Bearing 0 is the low-x / low-z corner diagonal, `half` (the footprint's half diagonal) from the centre.
+        const a = Math.PI * 5 / 4 + b * 2 * Math.PI / bearings;
+        const u = b === 0 ? { x: -Math.SQRT1_2, z: -Math.SQRT1_2 } : { x: Math.cos(a), z: Math.sin(a) };
+        const edge = b === 0 ? half : Math.min(Math.abs(u.x) > 1e-9 ? halfX / Math.abs(u.x) : Infinity, Math.abs(u.z) > 1e-9 ? halfZ / Math.abs(u.z) : Infinity);
+        const bearingDeg = Math.round(((a * 180 / Math.PI) % 360 + 360) % 360);
+        for (let d = from; d <= to + 1e-9; d += stride) {
+          // `d` is the distance from the model's edge, as a child walks it; the camera-to-root distances are per actor.
+          const feet = { x: centre.x + u.x * (edge + d), y: placed.from.y, z: centre.z + u.z * (edge + d) };
+          teleport(ctx.sim.host, ctx.player, feet);
+          ctx.player.onGround = true;
+          lookAt(ctx.player, { x: centre.x, y: feet.y + PLAYER_EYE_HEIGHT, z: centre.z });
+          await ctx.run(1);
+          const shot = shotOf(ctx, `walk-away-${bearings > 1 ? `b${String(bearingDeg).padStart(3, '0')}-` : ''}${String(Math.round(d)).padStart(3, '0')}`);
+          keep(ctx, 'frames', shot);
+          const m = shot.metrics;
+          for (const e of m.entities) {
+            if (e.lodDistance === undefined) continue;
+            const h = hulls.get(e.id) ?? { lodDistance: e.lodDistance, cullBlocks: e.cullBlocks, seenHull: false };
+            if (e.state === 'hull') h.seenHull = true;
+            hulls.set(e.id, h);
+          }
+          const shells = m.entities.filter(isShell);
+          rows.push({ bearing: bearingDeg, distance: d, full: m.entities.filter(e => e.state === 'full').length, hull: m.entities.filter(e => e.state === 'hull').length, gone: m.entities.filter(e => e.state === 'gone').length, disagree: m.entities.filter(e => e.cullDisagree).length,
+            shellCubes: packShellCubes, shellCubesDrawn: shells.filter(e => e.state !== 'gone').reduce((n, e) => n + cubesOf(e), 0), entities: m.entities });
+        }
+      }
+      const share = (r: Row): number => (r.shellCubes ? r2(r.shellCubesDrawn / r.shellCubes) : 0);
+      ctx.state['walkAway'] = rows.map(r => ({ ...(bearings > 1 ? { bearing: r.bearing } : {}), distance: r.distance, full: r.full, hull: r.hull, gone: r.gone, disagree: r.disagree, shellCubeShare: share(r) }));
+      // The model's own shell may not vanish whole while the child stands within sight of it (round 24a, 21065 at 400 %),
+      // from any bearing walked.
+      for (const bearing of [...new Set(rows.map(r => r.bearing))]) {
+        const mine = rows.filter(r => r.bearing === bearing);
+        const vanished = vanishVerdict(mine.map(r => ({ distance: r.distance, shellDrawn: r.entities.filter(e => isShell(e) && e.state !== 'gone').length, shellTotal: r.entities.filter(isShell).length })));
+        if (vanished) ctx.violate({ invariant: 'model-vanishes', message: `from ${vanished.distance} blocks off its edge${bearings > 1 ? ` (bearing ${bearing} degrees)` : ''} none of the model's ${vanished.shellTotal} shell actors draws (each root past the actor draw ceiling): the model has vanished whole within ${VANISH_EDGE_BLOCKS} blocks`, evidence: { ...vanished, ...(bearings > 1 ? { bearing } : {}) } });
+      }
       // A hull is planned to be seen for a chunk of travel before its actor culls (bedrock-lod-hull.ts); a switch at or
       // past the REALISED cull (the box times the size) is a hull that never draws.
       for (const [id, h] of hulls) {
         if (h.lodDistance >= h.cullBlocks) ctx.violate({ invariant: 'lod-switch-under-cull', message: `${id}: the LOD hull switches at ${h.lodDistance} blocks but the actor culls at ${r2(h.cullBlocks)} (realised box): the hull is never drawn`, evidence: { id, lodDistance: h.lodDistance, cullBlocks: h.cullBlocks } });
       }
       const never = [...hulls].filter(([, h]) => !h.seenHull && h.lodDistance < h.cullBlocks).length;
-      ctx.note(`walk-away ${from}..${to} by ${stride} (client ${client(ctx).profile.name}): ${rows.map(r => `${r.distance}: ${r.full}/${r.hull}/${r.gone}${r.disagree ? ` (${r.disagree} cull 3-D/horizontal disagree)` : ''}`).join('; ')} (full/hull/gone); ${hulls.size} actor(s) with a hull${never ? `, ${never} whose hull the walk never reached (switch under the cull, but past ${to} blocks from the edge)` : ''}`);
+      ctx.note(`walk-away ${from}..${to} by ${stride} (client ${client(ctx).profile.name}): ${rows.map(r => `${bearings > 1 ? `b${r.bearing} ` : ''}${r.distance}: ${r.full}/${r.hull}/${r.gone}${r.disagree ? ` (${r.disagree} cull 3-D/horizontal disagree)` : ''}${r.shellCubes ? ` shell ${Math.round(share(r) * 100)} percent` : ''}`).join('; ')} (full/hull/gone); ${hulls.size} actor(s) with a hull${never ? `, ${never} whose hull the walk never reached (switch under the cull, but past ${to} blocks from the edge)` : ''}`);
     },
   };
 }
@@ -451,12 +477,12 @@ export function coasterCameraScenarios(pack: CraftmaticPack, profile: ClientProf
 }
 
 /** The `walk-away` scenario: place at `size`, walk from `from` to `to` blocks off the model's edge (COL-03 / FID-03). */
-export function walkAwayScenarios(pack: CraftmaticPack, size: number, from: number, to: number, stride = 10): Scenario[] {
+export function walkAwayScenarios(pack: CraftmaticPack, size: number, from: number, to: number, stride = 10, bearings = 1): Scenario[] {
   if (!pack.placement.sizes.includes(size)) return [];
   return [{
     name: `walk-away-${size}`,
-    description: `Place at ${size} percent and look back from ${from} to ${to} blocks off the edge: each actor full / hull / gone from the drawn camera.`,
-    steps: [{ kind: 'place', size, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'walkAway', from, to, step: stride }, { kind: 'undo' }],
+    description: `Place at ${size} percent and look back from ${from} to ${to} blocks off the edge${bearings > 1 ? ` on ${bearings} bearings` : ''}: each actor full / hull / gone from the drawn camera.`,
+    steps: [{ kind: 'place', size, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'walkAway', from, to, step: stride, ...(bearings > 1 ? { bearings } : {}) }, { kind: 'undo' }],
     allowLines: [...CRAFTMATIC_ALLOWED_LINES], yieldingLines: [...CRAFTMATIC_YIELDING_LINES],
   }];
 }

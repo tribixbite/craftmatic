@@ -15,7 +15,7 @@ import { CREATOR_POSES, minifigCreatorLibrary } from '../web/src/engine/minifig-
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { SceneGridFrame } from '../web/src/engine/bedrock-scene-actors.js';
 import { RIDE } from '../web/src/engine/bedrock-rides.js';
-import { STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, shellChunkCell } from '../web/src/engine/bedrock-building-shell.js';
+import { LANDMARK_SHELL_CELL_BLOCKS, LANDMARK_SHELL_RADIUS_LIMIT_BLOCKS, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, shellChunkCell } from '../web/src/engine/bedrock-building-shell.js';
 import { LOD_EMPTY_GEOMETRY_ID } from '../web/src/engine/bedrock-lod-hull.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -982,6 +982,48 @@ describe('playable add-on — brick-compiled entities', () => {
     const xs = placed.map(actor => actor.x).sort((a, b) => a - b);
     expect(xs[1]! - xs[0]!).toBeCloseTo((byX[1]!.cell[0] - byX[0]!.cell[0]) * S, 4);
     for (const actor of placed) expect(actor.yaw).toBe(0);
+  });
+
+  it('splits a landmark shell on the 9-block landmark lattice and leaves an ordinary pack exactly as it was (TODO(cull-400))', async () => {
+    const C = LDU_PER_BLOCK, I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    // The two-chunk shell above, built three ways: ordinary, a canon landmark, a landmark detail level.
+    const build = async (extra: Record<string, unknown>) => {
+      const grid = new BlockGrid(83, 2, 9);
+      grid.set(11, 0, 2, 'minecraft:red_concrete');
+      grid.set(71, 0, 8, 'minecraft:red_concrete');
+      const frame: SceneGridFrame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: C, cellY: C };
+      const result = await buildPlayableAddon(grid, {
+        stem: 'long-shell', partGeometry: await providerFor(), pbr: false,
+        shell: { bricks: [[11, -2], [71, -8]].map(([x, z]) => ({ part: '3001.dat', color: 4, x: x! * C, y: 0, z: z! * C, rot: I })), frame }, ...extra,
+      });
+      const buffer = ab(result.bytes);
+      const text = async (name: string) => new TextDecoder().decode(await extractFile(buffer, name));
+      const diag = JSON.parse(await text('Craftmatic_long_shell_BP/craftmatic-diagnostics.json')) as { spatialShell: Record<string, unknown> & { cellBlocks: number; radiusLimitBlocks: number; actors: Array<{ id: string; cell: [number, number, number]; radiusBlocks: number; offsetBlocks: [number, number, number] }> } };
+      return { result, diag, entries: listZipEntries(buffer), placement: await text('Craftmatic_long_shell_BP/scripts/placement.js') };
+    };
+    const plain = await build({});
+    expect(plain.diag.spatialShell.cellBlocks).toBe(STATIC_SHELL_CELL_BLOCKS);
+    expect(plain.diag.spatialShell.radiusLimitBlocks).toBe(STATIC_SHELL_RADIUS_LIMIT_BLOCKS);
+    expect('lattice' in plain.diag.spatialShell).toBe(false);
+    expect(plain.diag.spatialShell.actors.every(a => /_shell_c/.test(a.id))).toBe(true);
+    for (const extra of [{ landmark: true }, { detail: { studsPerMetre: 1, extentM: { x: 10, y: 10, z: 10 }, suggestion: { pct: 400, text: 'Try 400 percent.' }, otherLevels: [] } }]) {
+      const lm = await build(extra);
+      const shell = lm.diag.spatialShell;
+      expect(shell.cellBlocks).toBe(LANDMARK_SHELL_CELL_BLOCKS);
+      expect(shell.radiusLimitBlocks).toBe(LANDMARK_SHELL_RADIUS_LIMIT_BLOCKS);
+      expect(shell['lattice']).toBe('landmark');
+      expect(shell.actors).toHaveLength(2);
+      for (const a of shell.actors) {
+        expect(a.id).toMatch(/_shell_f/);
+        expect(shellChunkCell(a.id)).toEqual(a.cell);
+        expect(a.radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toBeLessThanOrEqual(LANDMARK_SHELL_RADIUS_LIMIT_BLOCKS);
+        expect(a.offsetBlocks[0]).toBe((a.cell[0] + 0.5) * LANDMARK_SHELL_CELL_BLOCKS);
+        expect(lm.entries).toContain(`Craftmatic_long_shell_BP/entities/${a.id}.json`);
+        expect(lm.placement).toContain(`"typeId":"craftmatic:${a.id}"`);
+      }
+      // The same cuboids, one draw each: the landmark lattice only moves where they are rooted.
+      expect(lm.result.diagnostics.long_shell_shell!.cubeCount).toBe(plain.result.diagnostics.long_shell_shell!.cubeCount);
+    }
   });
 
   it('ships no distance hull for a lattice chunk, so a far chunk never draws voxels beside a near one in full (FID-03)', async () => {
