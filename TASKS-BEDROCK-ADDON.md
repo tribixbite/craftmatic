@@ -10,7 +10,7 @@ Parallel agents append ONE section each at the end of this file.
 ## Start here
 
 ### 2026-11-24/25: four new favourites (PROC-20) - four Pixel rounds done, sim misses being fixed
-The user (2026-11-24): add 21065, 11388, 11377 and 6167 to the favourites, audit, upgrade their exports, simulate,
+The user (2026-11-24): add 21065, 11388, 11377 and 6167 (corrected to 10316 Rivendell on 2026-11-25) to the favourites, audit, upgrade their exports, simulate,
 test in game, record every issue, teach the simulator to catch each, fix, retest in game. Evidence: `output/fav4-1124/`.
 - DONE: in `FAVOURITES` (580b4017); 21065/11388 onboarded from DBIX. Round 24a (Pixel, `output/device-round-2026-11-24a/
   pixel-24a/notes.md`) found 11377/11388 hanging on flex parts drawn straight down, 21065's Place form hiding "Place
@@ -53,10 +53,19 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   has 6565/3662 32-56 LDU under its base, published without `ALIAS_LEARNED`); 11388 Doors 4/6 cannot be reached on
   foot - the walk from the grass stops ~4.4 blocks short at the pillars/blue steps (`11388-d4-w4.jpg`), the door
   opens from the sill. Content log clean.
+- DONE 2026-11-25 (10316 Rivendell replaces 6167): source = `MecabricksLDR/10316.ldr` (the only assembly: `IO/10316-1.io`
+  is a 6,173-part grid at identity, the pdf_recon has 1,254 duplicates). It is the set's Council display: Frodo/Bilbo
+  sit on headlamp bricks, Elrond/Gandalf on bracket+plate+slope, the real 16709 legs / 36036 robes in a row beside
+  the model. clego 6d1d67aa `geograde/seated_alt_swap.py` swaps them back (+ Bilbo's head 15 -> 78), republished,
+  index 23a1a2e5; the rig wears 37365/37366 medium legs (Gimli, Gloin) (e0bcc1c1). Gate `output/fav4-1124/gate-j10316`:
+  12 scenarios 0 failed (grounded 0.00 blocks at 50-400 %, 15 figures live, 7 seats), 0 unresolved/substituted, 58,185
+  cuboids (12 % of budget), shell 36 % coarsened. Pack `gate-j10316/10316-lord-of-the-rings-rivendell.mcaddon` sha256
+  33f89777... Open: 12 of 15 figures default faces (the Mecabricks file names 3 head prints, `TODO(10316-faces)`); no
+  doorway found (8 x 40066 arches static); not yet on a device.
 - IN FLIGHT: an agent teaches the sim both misses (test first), fixes them (11377 source republish with the alias
   fix, also 10354/11388; the 11388 door approach), rebuilds into `output/fav4-1124/gate-j`. It commits craftmatic
   locally (main session pushes) and clego locally (not pushed).
-- OPEN: 6167 has no buildable source (`TODO(6167-source)`); 11377's great gate is not a door (`TODO(stud-pivot)`);
+- OPEN: 11377's great gate is not a door (`TODO(stud-pivot)`);
   at 400 % ten favourites draw nothing from 20 blocks off a corner (`TODO(cull-400)`: the 13-block lattice's roots
   26 blocks deep; a finer lattice multiplies entities ~8x - the user's call); 10365's whole-model vehicle sits at
   the grid centre, 11.5 blocks off its source origin (kept, grid widened); still sunk by a part under the base,
