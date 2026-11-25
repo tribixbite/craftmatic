@@ -78,7 +78,7 @@ import { interactReachesRoot, pick, tap } from '../../input/touch.js';
 import { viewDirection } from '../../core/vec.js';
 import { floorBelow, standsAt } from '../../scenario/approach.js';
 import { teleport } from '../../script-host/facades.js';
-import { CORE_HANDLERS, findEntity } from '../../scenario/runner.js';
+import { CORE_HANDLERS, findEntity, unloadedMatches } from '../../scenario/runner.js';
 import { lookAt } from '../../input/touch.js';
 import { VEHICLE_PART, pickVehiclePart, pickVehicleTap, vehiclePartProperty, vehicleSlideWorldPath, type VehiclePartRuntime, type VehicleSlideRuntime } from '../../../engine/vehicle-parts.js';
 import { pivotRotation } from '../../../engine/bedrock-geometry-faces.js';
@@ -513,6 +513,20 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
       for (const f of wanted) {
         // The placed vehicle when the scenario placed one, else a fresh one on open ground (the vehicle course).
         let v = findEntity(ctx.sim, ctx.player, { type: f.typeId });
+        // A placed vehicle can stand past the simulation distance from where the child pinned the model: a large
+        // footprint at 400 % (10365 with its line-up beside it is 176 blocks wide) puts the hull 116 blocks from the
+        // pinned corner. The child walks over to it, as on the device, rather than opening a fresh one (which stayed
+        // behind after Undo with its board points, 2026-11-24).
+        const far = v ? undefined : unloadedMatches(ctx.sim, ctx.player, { type: f.typeId })[0];
+        if (far) {
+          const reach = Math.ceil((f.noseReach + f.halfWidth) * far.scale()) + 4;
+          teleport(ctx.sim.host, ctx.player, { x: Math.floor(far.location.x) + 0.5 + reach, y: far.location.y, z: Math.floor(far.location.z) + 0.5 });
+          await ctx.run(4);
+          if (ctx.sim.engine.isEntityLoaded(far)) {
+            v = far;
+            ctx.note(`${f.typeId}: the placed vehicle stood outside the loaded area from where the child placed it; the child walked over (${reach} blocks off its root)`);
+          }
+        }
         if (!v) {
           // On open ground beside the child (loaded: the course's own spots are far out), clear of its footprint.
           const at = { x: Math.floor(ctx.player.location.x) + 0.5 + Math.ceil(f.noseReach + f.halfWidth) + 4, y: FLAT_GROUND_Y, z: Math.floor(ctx.player.location.z) + 0.5 };
