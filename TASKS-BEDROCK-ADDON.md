@@ -62,17 +62,22 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   cuboids (12 % of budget), shell 36 % coarsened. Pack `gate-j10316/10316-lord-of-the-rings-rivendell.mcaddon` sha256
   33f89777... Open: 12 of 15 figures default faces (the Mecabricks file names 3 head prints, `TODO(10316-faces)`); no
   doorway found (8 x 40066 arches static); not yet on a device.
-- IN FLIGHT: an agent teaches the sim both misses (test first), fixes them (11377 source republish with the alias
-  fix, also 10354/11388; the 11388 door approach), rebuilds into `output/fav4-1124/gate-j`. It commits craftmatic
-  locally (main session pushes) and clego locally (not pushed).
+- DONE 2026-11-25 (round-25d misses): sim `model-grounded` hangs from 0.5 block (11377 read 0.75) and new
+  `door-approach-on-foot` (flood + straight lanes from 6 blocks out, up to 100 %; 759f4544, 9da11f37): both FAIL on the
+  25d packs. Root causes: 11377 (and 11388/10354) published without clego ALIAS_LEARNED - 3662 frames 32-40 LDU under
+  the base (clego 47950cf9, R2 + index b4fd8c5f); 11388 Doors 4/6 - rule 4 kept the stair column's 1/16 sliver as a
+  full sheet under the arcade ceiling, new clearance exception `approachSliver`. Gate `output/fav4-1124/gate-j`
+  (11377 11388 10354, 36 scenarios) PASS; packs + SHA256SUMS in `gate-j/packs/` (stamp 759f4544+dirty: the other
+  agent's uncommitted minifig-rig.ts, since e0bcc1c1). The sim now also fails 21360 (0.75 up, 0 % on the ground) and,
+  on gate-h/i packs, 42670 Garage door 1 / Door 3 and 76457 Gate 1 / Door 6 (`TODO(door-on-foot-favourites)`).
 - OPEN: 11377's great gate is not a door (`TODO(stud-pivot)`);
   at 400 % ten favourites draw nothing from 20 blocks off a corner (`TODO(cull-400)`: the 13-block lattice's roots
   26 blocks deep; a finer lattice multiplies entities ~8x - the user's call); 10365's whole-model vehicle sits at
   the grid centre, 11.5 blocks off its source origin (kept, grid widened); still sunk by a part under the base,
   untouched: 11371 (85941), 77092 (41751), non-DBIX 71040 (87601), 910047 (90981); kept back from the republish
   (a metric got worse): 11371 11374 42639 76269 21065 10786 10796 10797 60380 76435 77092_sm01.
-- NEXT: when the agent reports, verify its gate-j output and commits; Pixel round 25e on the gate-j packs of
-  11377, 11388 (Doors 4/6 walked in Survival), 76457, 21360 (ground shots S/W as 25d); REQUIREMENTS PROC-20 device
+- NEXT: rebuild 21360 42670 76457 and triage the new sim findings; Pixel round 25e on `gate-j/packs` (11377 ground
+  shots, 11388 Doors 4/6 walked in Survival on lane z ~7.0-7.3, 10354) and 76457, 21360 (ground shots S/W as 25d); REQUIREMENTS PROC-20 device
   cell; `bun run test`; push; `gh run list`.
 
 ### 2026-11-16: replica-set polish (PROC-19) - audit fixed, packs sent; NEXT generality
