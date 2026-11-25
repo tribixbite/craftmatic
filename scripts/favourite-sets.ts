@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs';
 import { indexedTryOrder, type IndexModel } from '../web/src/engine/lego-sources.ts';
 
 /**
- * The QA populations the sweeps and audits run over: the user's 40 favourite
- * sets (the priority population) and the five Gabby's Dollhouse sets added
- * 2026-09-26 (mini-doll scale, scene boats, rides).
+ * The QA populations the sweeps and audits run over: the user's favourite sets (the priority population: 40 given
+ * 2026-09-22, and 21065 Sagrada Familia, 11388, 11377 Minas Tirith and 6167 Deluxe Brick Box added 2026-11-24, PROC-20)
+ * and the five Gabby's Dollhouse sets added 2026-09-26 (mini-doll scale, scene boats, rides).
  */
 export const FAVOURITES: readonly string[] = [
   '10261', '10303', '10326', '10337', '10341', '10354', '10365', '11371', '11374',
@@ -12,6 +12,7 @@ export const FAVOURITES: readonly string[] = [
   '42639', '42652', '42663', '42670', '43267', '60380', '60446', '71040', '71043',
   '75397', '76269', '76286', '76417', '76419', '76435', '76457', '77092', '80049',
   '910004', '910032', '910047', '910049',
+  '21065', '11388', '11377', '6167',
 ];
 
 export const GABBY_SETS: readonly string[] = ['10796', '10797', '10788', '10786', '11204'];
@@ -63,10 +64,11 @@ export function legoTabLabel(set: string, name: string | undefined): string {
 
 /**
  * The file stem device rounds name a pack by, and the regression set's `newStem`: `<set>-<words of the name>`,
- * lower case, punctuation dropped inside words (`X-wing` -> `xwing`, `Gabby's` -> `gabbys`).
+ * lower case, accents folded (`Família` -> `familia`), punctuation dropped inside words (`X-wing` -> `xwing`, `Gabby's` -> `gabbys`).
  */
 export function packStem(set: string, name: string | undefined): string {
-  const words = (name ?? '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim().split(/\s+/).filter(Boolean);
+  // Accents fold to their base letter first ('Família' -> 'familia'), or the letter was dropped (PROC-20).
+  const words = (name ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim().split(/\s+/).filter(Boolean);
   return words.length ? `${set}-${words.join('-')}` : set;
 }
 

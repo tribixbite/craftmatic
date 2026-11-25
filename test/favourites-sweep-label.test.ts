@@ -29,6 +29,8 @@ describe('favourites sweep labels', () => {
     expect(packStem('10788', "Gabby's Dollhouse")).toBe('10788-gabbys-dollhouse');
     expect(packStem('7140', 'X-wing Fighter')).toBe('7140-xwing-fighter');
     expect(packStem('76286', 'The Milano Spaceship')).toBe('76286-the-milano-spaceship');
+    // An accented letter keeps its base letter (21065 'Sagrada Família' was written 21065-sagrada-famlia, PROC-20).
+    expect(packStem('21065', 'Sagrada Família')).toBe('21065-sagrada-familia');
     // Every set-numbered stem in the regression set has this shape.
     for (const c of REGRESSIONS) {
       if (!/^\d/.test(c.newStem)) continue;

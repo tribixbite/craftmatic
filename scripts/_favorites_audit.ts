@@ -8,24 +8,18 @@
  * it would have lost.
  *
  * Usage: bun scripts/_favorites_audit.ts [set…]
- *   No arguments audits Will's 40 favourites.
+ *   No arguments audits the favourites (`FAVOURITES`, scripts/favourite-sets.ts).
  * Output: output/favorites-audit.json (gitignored `output/`).
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { indexedTryOrder, type IndexModel } from '../web/src/engine/lego-sources.ts';
 import { partStem } from '../web/src/engine/part-id.ts';
+import { FAVOURITES } from './favourite-sets.ts';
 
 const INDEX = 'C:/git/clego/lego-models-index.json';
 const CORPUS = 'C:/git/clego/lego_sets';
 const LDRAW_PARTS = 'C:/git/clego/extracted/studio_release/app/ldraw/parts';
 
-const FAVOURITES = [
-  '10261', '10303', '10326', '10337', '10341', '10354', '10365', '11371', '11374',
-  '21061', '21063', '21318', '21360', '31141', '41395', '41703', '41732', '42172',
-  '42639', '42652', '42663', '42670', '43267', '60380', '60446', '71040', '71043',
-  '75397', '76269', '76286', '76417', '76419', '76435', '76457', '77092', '80049',
-  '910004', '910032', '910047', '910049',
-];
 
 const FAMILIES: ReadonlyArray<readonly [string, RegExp]> = [
   ['figure', /^(970|971|972|973|3624|3625|3626|3815|3816|3817|3818|3819|3820|3821|3822|3823|10048|10049|92198|92250|92251|92254|93061)/],

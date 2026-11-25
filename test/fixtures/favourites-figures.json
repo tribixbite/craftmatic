@@ -190,5 +190,21 @@
    "count": 1,
    "why": "1 figure lying at 90 degrees stays at its source pose"
   }
+ },
+ "21065": {
+  "torsos": 0,
+  "walking": 0
+ },
+ "11388": {
+  "torsos": 17,
+  "walking": 17
+ },
+ "11377": {
+  "torsos": 12,
+  "walking": 12
+ },
+ "6167": {
+  "torsos": 1,
+  "walking": 1
  }
 }
