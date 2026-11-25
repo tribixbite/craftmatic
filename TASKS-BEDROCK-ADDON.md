@@ -12,22 +12,22 @@ Parallel agents append ONE section each at the end of this file.
 ### 2026-11-24: four new favourites (PROC-20) - IN PROGRESS
 The user (2026-11-24): add 21065, 11388, 11377 and 6167 to the favourites, audit, upgrade their exports, simulate,
 test in game, record every issue, teach the simulator to catch each, fix, retest in game. Evidence: `output/fav4-1124/`.
-- Sets: 21065 Sagrada Familia (2026, 12,076 parts) and 11388 Venetian Neighborhood (2026, 5,770) were NOT indexed:
-  onboarded from DBIX with clego `discovery/new_set.py <sku> --run` (live; craftmatic index commit 86c1a5c0). 11377
-  Minas Tirith (8,287 -> 8,367 parts re-converted), 6167 Deluxe Brick Box (2006).
-- FOUND + FIXED offline: (1) LDD 37679 short legs had no mapping row: hobbits/children stood 10 LDU aside, 24 low
-  (clego 17270e32; 14 DBIX sources incl. favourite 10354, whose pack drops the misplaced legs as debris "16709: 6").
-  (2) the rig split 16709 short legs into full-length standard moulds and read 36036 "Lower Body, Skirt" as a held
-  item, adding legs under robes (508c5814, `isOnePieceLowerBody`). (3) the gate over named sets failed falsely
-  (a7401d5c: sim `--sets=`, `--allow-none`).
-- IN FLIGHT: a clego agent re-converts the 14 sources, A/B grades and republishes (scoped R2); then rebuild 11377
-  and 10354 and record 11377's favourites-figures / stray-drops rows (computed by `output/fav4-1124/favrows.test.ts`,
-  copy into test/ to run). Gate builds: `output/fav4-1124/gate-a` (11377 old source, 6167), `gate-b` (21065, 11388).
-- OPEN: 6167 has NO buildable source (ReconV3 is an interpenetrating pile beside its baseplate; `IO/6167-1.io` is a
-  flat 706-part inventory at y 0) - it needs a PDF reconstruction; the baseplate guard (A-09) fails on it (5 parts on
-  3857h). 11377's great gate is not a door (the brick-hinge pass cut 99 joint lines, moved none; `TODO(stud-pivot)`).
-  11377 figure 2 stands 15 blocks off the model (a box-art line-up figure).
-- NEXT: device round on the Pixel (world 924, bind only the round's packs) per `.claude/skills/bedrock-device-round.md`.
+- DONE: in `FAVOURITES` with reviewed rows (580b4017). 21065 Sagrada Familia and 11388 Venetian Neighborhood were not
+  indexed: onboarded from DBIX (clego `discovery/new_set.py <sku> --run`, live). Fixed offline: LDD 37679 short legs
+  unmapped (clego 17270e32; 11 of 14 sources republished, clego ccf4596e / index 4f4c1937, 11377 now PASS); the rig
+  splitting 16709 short legs and not keeping 36036 skirts (508c5814, b04cc676; also 10365/76435/76457's skirts);
+  the gate over named sets (a7401d5c); NEW sim invariant `model-grounded` (8777fb92: 11388 hangs, 57 favgate packs 0
+  false positives); pack stem folds accents.
+- IN FLIGHT: Pixel round 24a (`output/device-round-2026-11-24a/`, brief `brief-pixel-24a.md`, packs + SHA256SUMS:
+  11377/10354 from b04cc676, 21065/11388 from 508c5814, 6167 from c0dd3fc3) - its ISSUE LIST drives the next fixes.
+  A clego agent on branch `gen-flex` (worktree `C:/git/clego/.worktrees/flex`): LDD flexible parts (2,169 in 778
+  sources, 18 favourites) are drawn as one straight rigid part at their FIRST bone - 11388's two bridge-rail flex
+  axles hang 220 LDU under the base and ground the set 6 blocks up. Not merged, not republished until reviewed.
+- OPEN: 6167 has NO buildable source (ReconV3 pile; `IO/6167-1.io` flat inventory) - `TODO(6167-source)`. 11377's
+  great gate is not a door (brick-hinge pass cut 99 lines, moved none; `TODO(stud-pivot)`). 11388 Door 7 falls
+  through at 400 % (sim `doorway-line` HOLE; may be the hanging base). 41258/76992/76997 keep misplaced 16709 legs
+  (their re-conversion graded worse: LDD 20932 leg row lacks the 0.42 offset 3816 has - same bug class as 37679).
+- NEXT: read round 24a; teach the sim each device-only issue; fix; rebuild; retest round 24b.
 
 ### 2026-11-16: replica-set polish (PROC-19) - audit fixed, packs sent; NEXT generality
 The user (2026-11-15) asked for a Fable audit of the favourites' add-on generation, every finding fixed and tested,
