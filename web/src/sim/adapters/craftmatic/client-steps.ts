@@ -125,10 +125,14 @@ export function craftmaticSeatEye(pack: CraftmaticPack): NonNullable<ClientInvar
 const r2 = (v: number): number => Math.round(v * 100) / 100;
 
 /**
- * How near the model's edge (blocks) a child may stand and still expect to see it (`model-vanishes`, PROC-20): the
- * Pixel draws terrain and the 100 % favourites well past it, and round 24a lost 21065 at 400 % from 50 blocks.
+ * How near the model's edge (blocks) a child may stand and still expect to see it (`model-vanishes`, PROC-20). Not
+ * the ~64-block actor cull itself: past it EVERY actor goes (over the 57 favgate-41e9850b packs at 400 %, 48 vanish
+ * within 64 blocks of a corner, the McLaren from 53). Within 30 the camera is near the model's own cubes, so a
+ * vanishing shell is the lattice's roots sitting too deep: 10 favourites at 400 % draw nothing from 20 blocks off a
+ * corner (TODO(cull-400): the 13-block lattice puts a 400 % root 26 blocks inside the model). Round 24a lost 21065
+ * at 400 % from 50 blocks off its front, which the ceiling alone explains.
  */
-export const VANISH_EDGE_BLOCKS = 64;
+export const VANISH_EDGE_BLOCKS = 30;
 
 /** One walk-away distance as `vanishVerdict` reads it: how many of the model's shell actors draw (full or hull). */
 export interface VanishRow { distance: number; shellDrawn: number; shellTotal: number }
