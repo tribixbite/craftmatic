@@ -22,6 +22,7 @@
  *                           replaced by ANOTHER script within a second.
  */
 
+import { FORM_BODY_LINES_ABOVE_BUTTON } from '../script-host/ui-module.js';
 import type { SimEngine } from '../core/engine.js';
 import type { TimelineEntry } from '../core/timeline.js';
 import type { SimEntity } from '../entity/entity.js';
@@ -228,5 +229,7 @@ export function coreInvariants(): Invariant[] {
       return `${e.kind} from ${e.source ?? '?'}: "${t.slice(0, 160)}"`;
     }),
     actionbarNotStolen(),
+    timelineWatch('form-button-visible', `A form's first button shows without scrolling: its body wraps to at most ${FORM_BODY_LINES_ABOVE_BUTTON} lines (quirk form-body-hides-buttons).`, e =>
+      e.kind === 'form' && (e.formBodyLines ?? 0) > FORM_BODY_LINES_ABOVE_BUTTON ? `"${plainText(e.text).slice(0, 120)}": the body wraps to ${e.formBodyLines} lines, so its first button is below the fold (a child's tap lands on the text)` : undefined),
   ];
 }

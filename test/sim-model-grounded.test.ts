@@ -26,6 +26,13 @@ describe('sim child play: the placed model stands on the ground (model-grounded,
     expect(v.groundShare).toBeLessThan(0.01);
   });
 
+  it('a base 2.8 blocks up on one thin pole hangs (11377, Pixel round 24a: the 2-block whole-band rule passed it)', () => {
+    const v = groundedVerdict([box(0, 2.81, 0, 29, 3.2, 18), box(1, 3.2, 1, 28, 20, 17), box(14, 0, 9, 14.2, 2.81, 9.2)], 0, 1);
+    expect(v.hanging).toBe(true);
+    expect(v.hangBlocks).toBeGreaterThan(2.5);
+    expect(v.hangBlocks).toBeLessThanOrEqual(2.81);
+  });
+
   it('scales with the placement size: the same model at 400 percent hangs 24 blocks', () => {
     const s = 4;
     const v = groundedVerdict([box(0, 6 * s, 0, 30 * s, 6.4 * s, 15 * s), box(10 * s, 0.3 * s, 5 * s, 10.25 * s, 6 * s, 5.25 * s)], 0, s);
