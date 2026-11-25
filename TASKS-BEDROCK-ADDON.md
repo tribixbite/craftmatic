@@ -9,7 +9,7 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
-### 2026-11-24/25: four new favourites (PROC-20) - three Pixel rounds done, round 25d in flight
+### 2026-11-24/25: four new favourites (PROC-20) - four Pixel rounds done, sim misses being fixed
 The user (2026-11-24): add 21065, 11388, 11377 and 6167 to the favourites, audit, upgrade their exports, simulate,
 test in game, record every issue, teach the simulator to catch each, fix, retest in game. Evidence: `output/fav4-1124/`.
 - DONE: in `FAVOURITES` (580b4017); 21065/11388 onboarded from DBIX. Round 24a (Pixel, `output/device-round-2026-11-24a/
@@ -44,21 +44,27 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   (2 blocks, 0 % on the ground: two 7102 doors - an upstream alias of 5466 - 117 LDU under the floor) and 21360
   (1.75 blocks: one 62360 windscreen 118 LDU under the base plate). 10354/11377/11388/76457 were published
   WITHOUT the alias fix (their 3662s stay low; 11377 still grounds - its other parts reach the floor).
-- IN FLIGHT: (a) a clego agent finds and fixes the 7102 / 62360 causes, regenerates 76457 21360 (+ 10354 11377
-  11388 with the alias fix), republishes them scoped; clego commit local, not pushed. (b) Pixel round 25d
-  (`output/device-round-2026-11-25d/brief-pixel-25d.md`, gate-h packs of 42652 80049 41703 10354 11388 11377):
-  ground-level S/W shots against 24c, and 11388 Doors 4/6 in Survival (now 1.34 blocks over the grass).
+- DONE 2026-11-25: clego cd73e489/b3626f68 (7102 door row +136 LDU, 35298 learned row dropped), 76457/21360
+  republished, index ba60c5ad, stray-drop fixture 981c6ad7 (CI + Deploy green); gate `output/fav4-1124/gate-i`
+  (76457 21360): 24 scenarios, 0 failed. 21360's display minifig legs stay 32 LDU under its floor (gate passes).
+- Round 25d (Pixel 1.26.62.1, `output/device-round-2026-11-25d/pixel-25d/notes.md`, gate-h packs): ON THE GROUND
+  42652 41703 10354 11388 (plate), 80049 (body; a tilted tan wing plate on its west flank, `80049-wedge-S.jpg`,
+  also in 24c). SIM MISSED: 11377 floats ~1-1.5 blocks on short frame legs (`11377-under-W.jpg`; the source still
+  has 6565/3662 32-56 LDU under its base, published without `ALIAS_LEARNED`); 11388 Doors 4/6 cannot be reached on
+  foot - the walk from the grass stops ~4.4 blocks short at the pillars/blue steps (`11388-d4-w4.jpg`), the door
+  opens from the sill. Content log clean.
+- IN FLIGHT: an agent teaches the sim both misses (test first), fixes them (11377 source republish with the alias
+  fix, also 10354/11388; the 11388 door approach), rebuilds into `output/fav4-1124/gate-j`. It commits craftmatic
+  locally (main session pushes) and clego locally (not pushed).
 - OPEN: 6167 has no buildable source (`TODO(6167-source)`); 11377's great gate is not a door (`TODO(stud-pivot)`);
   at 400 % ten favourites draw nothing from 20 blocks off a corner (`TODO(cull-400)`: the 13-block lattice's roots
   26 blocks deep; a finer lattice multiplies entities ~8x - the user's call); 10365's whole-model vehicle sits at
   the grid centre, 11.5 blocks off its source origin (kept, grid widened); still sunk by a part under the base,
   untouched: 11371 (85941), 77092 (41751), non-DBIX 71040 (87601), 910047 (90981); kept back from the republish
   (a metric got worse): 11371 11374 42639 76269 21065 10786 10796 10797 60380 76435 77092_sm01.
-- NEXT: when the clego agent reports, lift its index entries into `web/public/lego-models-index.json` (commit
-  `fix(index)`), rebuild 76457 21360 (+ any republished) with `bun scripts/_favourites_gate.ts <sets> --build
-  --faces=C:/git/craftmatic/output/faces-art-1115 --out=output/fav4-1124/gate-i` and confirm model-grounded; read
-  round 25d; a short Pixel round for 76457/21360 if they changed; REQUIREMENTS PROC-20 (device rows 24c/25d, guards
-  `_lowest_parts`, the model-grounded sim tests); `bun run test`; push; `gh run list`.
+- NEXT: when the agent reports, verify its gate-j output and commits; Pixel round 25e on the gate-j packs of
+  11377, 11388 (Doors 4/6 walked in Survival), 76457, 21360 (ground shots S/W as 25d); REQUIREMENTS PROC-20 device
+  cell; `bun run test`; push; `gh run list`.
 
 ### 2026-11-16: replica-set polish (PROC-19) - audit fixed, packs sent; NEXT generality
 The user (2026-11-15) asked for a Fable audit of the favourites' add-on generation, every finding fixed and tested,
