@@ -598,6 +598,14 @@ export async function runSchemPipeline(
         const scene = await discoverSceneActors(source.bricks.filter(b => !movable.has(b)), partProvider);
         // Figures posed off upright stay in the geometry; say so rather than dropping them silently.
         warnings.push(...scene.warnings);
+        // A model its source holds up on thin parts under its broad base hangs over the ground in game: the shell is
+        // grounded on its lowest part. Named here with the sim's own rule (model-grounding.ts; PROC-20, gate-k's 5582
+        // 6243 76417 76435, each a source placement fault found by hand until now). Figures stand on their own.
+        if (sourceOrigin) {
+          const { hangingPartsWarning } = await import('./model-grounding.js');
+          const hanging = hangingPartsWarning(source.bricks.filter(b => !scene.figureBricks.has(b)), sourceMeshes, sourceOrigin);
+          if (hanging) warnings.push(hanging);
+        }
         // The display scatter: figure accessories outside every NPC that touch nothing (the
         // finished-model page's goblets and wands in front of 76417) are set down on the surface under them.
         const settled = settleLooseAccessories(source.bricks.filter(b => !movable.has(b)), scene.meshes, new Set([...scene.figureBricks, ...scene.doorBricks]),
