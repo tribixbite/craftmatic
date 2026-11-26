@@ -122,11 +122,23 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   the grid centre, 11.5 blocks off its source origin (kept, grid widened); still sunk by a part under the base,
   untouched: 11371 (85941), 77092 (41751), non-DBIX 71040 (87601), 910047 (90981); kept back from the republish
   (a metric got worse): 11371 11374 42639 76269 21065 10786 10796 10797 60380 76435 77092_sm01.
-- IN FLIGHT 2026-11-25 (worktree agent, not merged): `TODO(grounded-favourites)` - lowest parts traced in
-  `output/grounded-1125/` (5582: door 60623 ~97 LDU under its base, ReconV3 fault; 6243: straight flex hoses 76252 /
-  masts to 360 LDU, ReconV3; 76417: pitchfork 95345 41 LDU under the base; 76435: figure legs / Bigfig hands ~40 LDU).
-  Merge after its report is verified; rebuild + gate the touched sets. (The three gate-k doorways: merged, sim false positives.)
-- NEXT: `TODO(cull-400-sim)` (the sim's walk-away under-predicts 25f's draws:
+- DONE 2026-11-26 (`TODO(grounded-favourites)`, worktree branch `worktree-agent-a7ea570a1c52e1720`, evidence
+  `C:/git/craftmatic/.claude/worktrees/agent-a7ea570a1c52e1720/output/grounded-a7/`): all four were SOURCE faults - 5582 (ReconV3) a second 60623 door at line 405's doorway
+  98 LDU lower, through the base brick; 6243 (ReconV3) 14 masts/hoses/pillars hung from their origins (hull 6 blocks
+  up at EVERY size: the sim passed 100-400 % only because their drawn share was 3.8 % > 2 %, at 50 % 1.5 %); 76417 the
+  pitchfork 95345 at its raw LDD origin (Studio row identity; clego's learned row t=(0,-44,-40) fixes it); 76435 stale
+  30987 rows + a parked bigfig cluster 44 LDU under the base. Corrected copies `output/grounded-a7/src/*.ldr`, exact
+  edits `src/EDITS.txt` (`tools/fix_sources.py`): NOT applied to clego - apply there and republish. Rebuilt: 6243 76417
+  76435 42652 pass model-grounded at 50-400 % (76417 + 5582 + 6243 regressions 5/0 failed). Pipeline: the export warns
+  `Ground: the source holds the model up on thin parts` naming the parts (`engine/model-grounding.ts`, the sim's own rule;
+  4ceeaddc, 6398bf9a) - screened over gate-k it names 5582 6243 76417 11371 71040 910047 and no grounded set, misses
+  76435/77092 (`TODO(grounded-warning-aabb)`); a line-up figure is raised by its lowest SOURCE part (22e3a126: 76435's
+  short legs 24 LDU under their hips kept the shell a cell up). OPEN: 5582 still reads 0.5 block - the grid's half-cell
+  rounding of the lowest part (`TODO(grid-floor-half-cell)`, WAND-07); 6243's masts are stood up from the recon's points,
+  a guess (`TODO(6243-rigging)`, render `output/grounded-a7/render-6243.png`).
+- MERGED 2026-11-26: the three gate-k doorways (6194 Door 1, 76269 Door 3, 910032 Door 4) were sim false positives
+  - the model's own squeezes (812d0210, merge b2c6f246); 910032's - side is reached in the model only over a bench.
+- NEXT: apply `output/grounded-a7/src/EDITS.txt` in clego and republish 5582 6243 76417 76435 (`--only`); `TODO(cull-400-sim)` (the sim's walk-away under-predicts 25f's draws:
   calibrate, then explain 21061 E-40); a 10316 seat round: walk ONTO the terrace in Survival with an empty hand,
   tap a chair from ~1.5 blocks, then tap turnable_1..3 / lid_1 and watch them from outside.
 

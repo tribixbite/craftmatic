@@ -42,6 +42,7 @@ import { relayRounding } from '../../../engine/bedrock-collider-scale.js';
 import { rayParallelepiped } from '../../../engine/oriented-box.js';
 import type { SimEntity } from '../../entity/entity.js';
 import type { DrawnBox } from './drawn.js';
+import { groundedVerdict as modelGroundedVerdict, type GroundedVerdict } from '../../../engine/model-grounding.js';
 import type { AddonAppearance } from './appearance.js';
 
 /** Lines a craftmatic pack prints that are not faults (the wand's own progress and the pack's diagnostics it shows on purpose). */
@@ -690,54 +691,15 @@ export function outOfReachByModel(ctx: StepContext, part: SimEntity, statics: re
     : `no floor the model draws puts the eye within reach of it (${floors} floors searched round it)`;
 }
 
-/** A placed model's footing: how far its broad base starts over the ground, and what share of it reaches the ground. */
-export interface GroundedVerdict { hanging: boolean; hangBlocks: number; groundShare: number; message?: string }
-
-/** The raster cell (blocks at 100 %) the footprint per height band is counted on. */
-const GROUND_CELL = 0.25;
-/** A band whose footprint is at least this share of the model's widest band is its BROAD base. */
-const BROAD_SHARE = 0.25;
-/** A model is hanging when the ground band's footprint is under this share of the widest band... 1 percent passed
- * 42652 on one 2 x 2 post (1.3 percent) 4 blocks up (Pixel round 24b); a tree trunk under its house keeps several. */
-const GROUND_SHARE_MIN = 0.02;
-/** ...and its broad base starts at least this far over the ground (blocks at 100 %). 2 passed 11377's 2.8-block hover
- * on the Pixel (round 24a): the base was read in whole one-block bands, 2.81 -> 2; '> 1' passed 11388's plate a whole
- * block over the grass, a gap the Pixel showed (round 24b); 1 passed 11377's castle plate 0.75 blocks up on three
- * window frames (0.32 percent on the ground), a float with a wide shadow on the Pixel (round 25d). Half a block is two
- * bands: over every favourite gate run since the rule existed (gates f-i) no grounded model read 0.5-1 under 2 percent. */
-const HANG_MIN_BLOCKS = 0.5;
-/** The height band the footprint is counted in (blocks at 100 %): a quarter block, so a base is read to within it. */
-const GROUND_BAND = 0.25;
+/** A placed model's footing (`engine/model-grounding.ts`, the ONE rule the export's `hangingPartsWarning` uses too). */
+export type { GroundedVerdict };
 
 /**
- * Whether a placed model stands on the ground or hangs over it on thin parts (`model-grounded`, PROC-20). The drawn
- * boxes are rastered on a `GROUND_CELL` grid in `GROUND_BAND` height bands (both times the size factor `f`) from `groundY`: the
- * BROAD base is the lowest band whose footprint is a quarter of the widest band's. It
- * hangs when that base starts at least `HANG_MIN_BLOCKS` up and the lowest band's footprint is under `GROUND_SHARE_MIN` of the
- * widest: 11388's two flexible axles drawn straight down from its bridge held the whole set 6 blocks up. A stilt house,
- * a tree house on its trunk and a car on its wheels keep far more than 1 % on the ground. Overlapping boxes count once.
+ * Whether a placed model stands on the ground or hangs over it on thin parts (`model-grounded`, PROC-20): the engine's
+ * `groundedVerdict` over the drawn boxes (blocks, world frame) from `groundY`, at the size factor `f`.
  */
 export function groundedVerdict(boxes: readonly DrawnBox[], groundY: number, f: number): GroundedVerdict {
-  if (!boxes.length) return { hanging: false, hangBlocks: 0, groundShare: 1 };
-  const cell = GROUND_CELL * f, band = GROUND_BAND * f;
-  const top = Math.max(...boxes.map(d => d.box.y1));
-  const bands = Math.max(1, Math.ceil((top - groundY) / band));
-  const cells: Array<Set<string>> = Array.from({ length: bands }, () => new Set<string>());
-  for (const { box: b } of boxes) {
-    const k0 = Math.max(0, Math.floor((b.y0 - groundY) / band)), k1 = Math.min(bands - 1, Math.floor((b.y1 - groundY - 1e-6) / band));
-    const i0 = Math.floor(b.x0 / cell), i1 = Math.ceil(b.x1 / cell), j0 = Math.floor(b.z0 / cell), j1 = Math.ceil(b.z1 / cell);
-    for (let k = k0; k <= k1; k++) for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) cells[k]!.add(`${i},${j}`);
-  }
-  const area = cells.map(s => s.size);
-  const widest = Math.max(...area);
-  if (!widest) return { hanging: false, hangBlocks: 0, groundShare: 1 };
-  const broad = area.findIndex(a => a >= BROAD_SHARE * widest);
-  const hangBlocks = broad * band, groundShare = area[0]! / widest;
-  const hanging = hangBlocks >= HANG_MIN_BLOCKS * f && groundShare < GROUND_SHARE_MIN;
-  return {
-    hanging, hangBlocks, groundShare,
-    ...(hanging ? { message: `the model hangs ${hangBlocks.toFixed(1)} blocks over the ground: its broad base starts there and only ${(groundShare * 100).toFixed(2)} percent of its footprint reaches the ground (thin parts under it)` } : {}),
-  };
+  return modelGroundedVerdict(boxes.map(d => d.box), groundY, f);
 }
 
 /** The Overworld build height the wand allows, blocks (-64..319). */

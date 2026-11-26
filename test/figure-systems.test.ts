@@ -17,6 +17,7 @@ import { createPartGeometryProvider, type LdrawPartMesh } from '../web/src/engin
 import { compilePartPrototype, resolveEntityQuality } from '../web/src/engine/ldraw-part-prototype.js';
 import { resolveLdrawEntityMaterial } from '../web/src/engine/ldraw-entity-materials.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
+import { placementBox } from '../web/src/engine/scene-vehicles.js';
 
 // ─── A synthetic library: every mould a box at its real bounds, described as the library describes it ───
 
@@ -393,6 +394,19 @@ describe('figure systems: a line-up below the model stands on its underside (PRO
     for (const f of after.figures) expect(f.floorLdu).toBeCloseTo(16, 1);
     // The model itself does not move.
     expect(r.bricks.filter(b => b.part === '3001').map(b => b.y)).toEqual(floor.map(b => b.y));
+  });
+  it('lifts a figure whose source legs hang under the body it is assembled from, so no figure part stays under the model (76435)', async () => {
+    // 76435's published source parks its line-up 40 LDU under the base with short legs (16709) 24 LDU below their
+    // hips. The rig re-assembles the legs at the hips, so its floor was raised onto the base while the SOURCE legs -
+    // which the voxel grid holds - stayed 27 LDU under it, and the shell was laid a cell over the grid's bottom.
+    const sunkLegs = goblin(56).map(b => b.part === '41879b' ? { ...b, y: b.y + 24 } : b);
+    const r = await raiseFiguresToModelUnderside([...floor, ...sunkLegs], provider());
+    expect(r.raised).toHaveLength(1);
+    const p = provider();
+    for (const b of r.bricks.filter(b => b.part !== '3001')) {
+      const box = placementBox(b, await p.getPartMesh(b.part));
+      expect(box.max[1]).toBeLessThanOrEqual(16 + 0.01);
+    }
   });
   it('changes nothing when no figure stands below the model', async () => {
     const r = await raiseFiguresToModelUnderside([...floor, ...goblin(16)], provider());
