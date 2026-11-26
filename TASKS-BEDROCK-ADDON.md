@@ -138,7 +138,11 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   a guess (`TODO(6243-rigging)`, render `output/grounded-a7/render-6243.png`).
 - MERGED 2026-11-26: the three gate-k doorways (6194 Door 1, 76269 Door 3, 910032 Door 4) were sim false positives
   - the model's own squeezes (812d0210, merge b2c6f246); 910032's - side is reached in the model only over a bench.
-- NEXT: apply `output/grounded-a7/src/EDITS.txt` in clego and republish 5582 6243 76417 76435 (`--only`); `TODO(cull-400-sim)` (the sim's walk-away under-predicts 25f's draws:
+- PUBLISHED 2026-11-26: EDITS.txt applied in clego `lego_sets/` (untracked data; old lines in EDITS.txt, index before
+  in the session scratchpad) and republished `--only` ReconV3/5582 ReconV3/6243 DbixConvV3/76417 DbixConvV3/76435 + the
+  index (hashes 49602059da25 677627b53495 0087716a3c06 da2f493866a8; clego's index change is uncommitted beside another
+  agent's work there). Merged 54409368.
+- NEXT: rebuild 5582 6243 76417 76435 from main and sim them (expect model-grounded pass except 5582's half cell); `TODO(cull-400-sim)` (the sim's walk-away under-predicts 25f's draws:
   calibrate, then explain 21061 E-40); a 10316 seat round: walk ONTO the terrace in Survival with an empty hand,
   tap a chair from ~1.5 blocks, then tap turnable_1..3 / lid_1 and watch them from outside.
 
