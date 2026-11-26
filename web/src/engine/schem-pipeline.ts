@@ -994,6 +994,10 @@ export async function runSchemPipeline(
         screens.push({ id: anchor.id, label: anchor.label, x, y, z });
       }
     }
+    // A landmark set (set-canon.ts `landmark`) is split on the finer shell lattice so it draws near you at 400 %.
+    // Keyed on the set number like the canon's mounts, but not behind the label heuristics: it changes only how the
+    // shell is chunked, never what the export infers about the model.
+    const landmark = (await import('./set-canon.js')).canonFor(label, input.packStem, input.sourceProvenance?.setNum)?.landmark === true;
     const pack = await buildPlayableAddon(grid, {
       ...addonSettingsFromInput(input, railOnly),
       label,
@@ -1012,6 +1016,7 @@ export async function runSchemPipeline(
       ...(interactionNote ? { interactionNote } : {}),
       ...(access ? { access } : {}),
       ...(input.detail ? { detail: input.detail } : {}),
+      ...(landmark ? { landmark: true } : {}),
       ...(accessMargin ? { accessMargin } : {}),
       ...(accessReachLdu ? { accessReachLdu } : {}),
       ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}),

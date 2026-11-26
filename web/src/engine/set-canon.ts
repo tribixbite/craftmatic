@@ -53,6 +53,14 @@ export interface SetCanon {
   name: string;
   /** Mounts a figure of the set rides (each is found by `findMounts`, one figure each). */
   mounts?: CanonMount[];
+  /**
+   * The set is a LANDMARK meant to be shown at 400 %: its shell is split on the finer landmark lattice
+   * (bedrock-building-shell.ts `shellLatticeFor`, `LANDMARK_SHELL_LATTICE`), so a player standing near it at 400 %
+   * is within draw reach of the chunk roots of what they see (cull-400, the user 2026-11-25: "only do the 400%
+   * fix for models we want 400% - like notre dame, sagrada familia, etc"). It costs ~2-3x the shell entities, so it
+   * is named per set here, never inferred from a title.
+   */
+  landmark?: true;
 }
 
 /**
@@ -63,12 +71,18 @@ export interface SetCanon {
  * Nimbus (Kinto'un), a small brick-built golden cloud. The user's ask: the
  * cloud rideable like a flying carpet, Goku flying around the dragon on his
  * own cloud, and a new cloud for a player who taps him.
+ *
+ * 21061 Notre-Dame de Paris, 21063 Neuschwanstein Castle, 21065 Sagrada Familia (LEGO Architecture, the three
+ * landmark buildings among the favourites): `landmark`, the sets the user wants shown at 400 % (2026-11-25).
  */
 export const SET_CANON: Readonly<Record<string, SetCanon>> = {
   '11390': {
     setNumber: '11390', name: 'Dragon Ball: Shenron & Goku',
     mounts: [{ style: 'cloud', motion: 'flyer', companion: 'orbit', label: 'Nimbus', hud: 'NIMBUS' }],
   },
+  '21061': { setNumber: '21061', name: 'Notre-Dame de Paris', landmark: true },
+  '21063': { setNumber: '21063', name: 'Neuschwanstein Castle', landmark: true },
+  '21065': { setNumber: '21065', name: 'Sagrada Familia', landmark: true },
 };
 
 /** `... (11390-1)` at the end of a label, as the LEGO tab and the CLI write it. */

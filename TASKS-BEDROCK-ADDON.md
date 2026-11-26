@@ -96,13 +96,13 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   lanes), 910032 Door 4 (- side flood; its known `TODO(clearance-tight-910032)` nook) - untriaged. SCALE-06 lines on
   gate-k = favgate-41e9850b: 76419 x 8.5/9.5 REACHED 17.94; 21063 x 20.5/20.3 13.30 highest 8.13; 76419 300 % 6.44
   (the tracker's 7.25 predates 41e9850b).
-- IN FLIGHT: (b) Branch
-  `worktree-agent-a067ed10f99e4b7d3` (cull-400, the user 2026-11-25: only for models meant for 400 %): 9-block lattice
-  for `landmark` sets (21061 21063 21065, brickgen landmark levels); 21065 mixed from outside (the ~70-block actor
-  ceiling binds); merge after (a)'s gate, then rebuild the three landmarks clean for a device round.
+- MERGED 2026-11-25 (cull-400, 11e9e21c/90d371d6; the user: only for models meant for 400 %): 9-block lattice for
+  `landmark` sets (21061 21063 21065, brickgen landmark levels); 21065 mixed from outside (the ~70-block actor
+  ceiling binds). The three landmarks need a clean rebuild for a device round.
 - OPEN: 11377's great gate is not a door (`TODO(stud-pivot)`);
-  at 400 % ten favourites draw nothing from 20 blocks off a corner (`TODO(cull-400)`: the 13-block lattice's roots
-  26 blocks deep; a finer lattice multiplies entities ~8x - the user's call); 10365's whole-model vehicle sits at
+  at 400 % ten non-landmark favourites draw nothing from 20 blocks off their grid's corner (`TODO(cull-400)`; the
+  user 2026-11-25 wants the finer lattice only for landmarks; the walk measures from the GRID's corner, which for 43267
+  is ~16 blocks (64 at 400 %) of non-shell grid away from its shell); 10365's whole-model vehicle sits at
   the grid centre, 11.5 blocks off its source origin (kept, grid widened); still sunk by a part under the base,
   untouched: 11371 (85941), 77092 (41751), non-DBIX 71040 (87601), 910047 (90981); kept back from the republish
   (a metric got worse): 11371 11374 42639 76269 21065 10786 10796 10797 60380 76435 77092_sm01.

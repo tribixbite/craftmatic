@@ -52,7 +52,9 @@
  *                inversion and after every hand-back, plus the per-tick camera trace.
  *   walk-away    place at `--size=` (default 200) and look back from `--walk-away=a..b[:step]`
  *                blocks off the edge: each actor full / hull / gone from the drawn camera
- *                (`lod-switch-under-cull`, COL-03 / FID-03); `--frames=<dir>` keeps the pictures.
+ *                (`lod-switch-under-cull`, `model-vanishes`, COL-03 / FID-03) and the share of the shell's
+ *                cubes drawn; `--bearings=N` walks N directions round the model (default 1, the low
+ *                corner diagonal); `--frames=<dir>` keeps the pictures.
  *   <file.ts>    a module exporting `scenarios(pack: CraftmaticPack): Scenario[]`.
  *   --sneak-toggle  child-play runs only its doorway scenarios, with the touch
  *                sneak TOGGLE left on before the doorway lines (quirk
@@ -376,7 +378,7 @@ if (mode === 'hop') {
   process.exit(failed || !report.results.length ? 1 : 0);
 }
 
-if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|coaster-camera|walk-away|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>] [--runtime=pack|tree] [--client=pixel|pixel-26.62|saga|saga-26.62|both] [--frames=<dir>] [--lag=1.5,3,4] [--prop-lead=N] [--entity-lag=N] [--laps=N] [--cars=1,2,3] [--uvfloor=v] [--hatch] [--lod] [--walk-away=a..b[:step]] [--size=200]'); process.exit(2); }
+if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|coaster-camera|walk-away|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>] [--runtime=pack|tree] [--client=pixel|pixel-26.62|saga|saga-26.62|both] [--frames=<dir>] [--lag=1.5,3,4] [--prop-lead=N] [--entity-lag=N] [--laps=N] [--cars=1,2,3] [--uvfloor=v] [--hatch] [--lod] [--walk-away=a..b[:step]] [--bearings=N] [--size=200]'); process.exit(2); }
 
 // `coaster-camera` and `walk-away` (package B): the drawn camera judged every tick, per client profile.
 if (mode === 'coaster-camera' || mode === 'walk-away') {
@@ -393,7 +395,7 @@ if (mode === 'coaster-camera' || mode === 'walk-away') {
       if (!pack) { report.error = 'not a craftmatic pack'; failed++; reports.push(report); continue; }
       report.label = pack.placement.label;
       for (const profile of clientProfiles) {
-        const scenarios = (mode === 'coaster-camera' ? coasterCameraScenarios(pack, profile, lapsFlag ?? 3, carsFlag) : walkAwayScenarios(pack, size, walk[0] ?? 40, walk[1] ?? 120, walk[2] ?? 10)).filter(s => !only || s.name.includes(only));
+        const scenarios = (mode === 'coaster-camera' ? coasterCameraScenarios(pack, profile, lapsFlag ?? 3, carsFlag) : walkAwayScenarios(pack, size, walk[0] ?? 40, walk[1] ?? 120, walk[2] ?? 10, Number(flag('bearings') ?? 1))).filter(s => !only || s.name.includes(only));
         if (!scenarios.length) { console.log(`${report.pack}: nothing to run for ${mode} (${mode === 'coaster-camera' ? 'no coaster cars' : `no ${size} percent size`})`); continue; }
         for (const s of scenarios) {
           const fresh = await load(file);
@@ -411,7 +413,7 @@ if (mode === 'coaster-camera' || mode === 'walk-away') {
           const cc = r.state['coasterCamera'] as Record<string, unknown> | undefined;
           if (cc) summary.push(`| ${report.pack} | ${profile} | ${cc['entityLagTicks']} | ${cc['laps']} | ${cc['animations']} | ${Number(cc['worstTurnDeg']).toFixed(1)} | ${Number(cc['worstJumpBlocks']).toFixed(2)} | ${Number(cc['worstLead']).toFixed(2)} | ${cc['ownFrames']} | ${r.status} | ${r.violations.length} |`);
           const wa = r.state['walkAway'] as Array<Record<string, number>> | undefined;
-          if (wa) summary.push(`| ${report.pack} | ${profile} | ${size} | ${wa.map(x => `${x['distance']}: ${x['full']}/${x['hull']}/${x['gone']}`).join(', ')} | ${r.status} | ${r.violations.length} |`);
+          if (wa) summary.push(`| ${report.pack} | ${profile} | ${size} | ${wa.map(x => `${x['bearing'] !== undefined ? `b${x['bearing']} ` : ''}${x['distance']}: ${x['full']}/${x['hull']}/${x['gone']} (${Math.round(Number(x['shellCubeShare']) * 100)} percent)`).join(', ')} | ${r.status} | ${r.violations.length} |`);
         }
       }
     } catch (e) { failed++; report.error = (e as Error).message; console.log(`${report.pack}: ERROR ${report.error}`); }

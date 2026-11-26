@@ -603,6 +603,34 @@ standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
   53.9 / 57.2 blocks) where the 20-block lattice drew none of 6 (nearest
   87.1). Whether the phone draws a 400 % chunk out to the 70-block ceiling
   is unmeasured (`TODO(cull)`: the 300/400 % draw ceiling).
+- **A landmark is split on a finer lattice** (cull-400, the user 2026-11-25:
+  "only do the 400% fix for models we want 400%"). `shellLatticeFor` gives
+  `LANDMARK_SHELL_LATTICE` to a pack with a landmark detail level
+  (`PlacementDetail`, brickgen/levels) or a set marked `landmark` in
+  set-canon.ts (21061 Notre-Dame, 21063 Neuschwanstein, 21065 Sagrada
+  Familia); every other model keeps the 13-block lattice, its ids and roots
+  untouched. The landmark reach target is the 70-block ceiling less a 30-block
+  view edge (`LANDMARK_VIEW_EDGE_BLOCKS`, the same 30 the simulator's
+  `model-vanishes` uses): 40 blocks at 400 %, so 9-block cells
+  (`(40 / 4 - 2) / 0.866`). Then a camera within 30 blocks of ANY cube is
+  within 70 of the root that draws it - inside the nave, on the roof, flying
+  past a tower; the 13-block lattice guarantees that only within 16 blocks
+  (70 - 54). Its chunk ids spell the cell with `f`
+  (`<shell>_f<ix>_<iy>_<iz>`), so a world placed with the standard lattice
+  never draws landmark geometry at an old root: re-place the model. Cubes are
+  cut to the 40-block target as to 54 elsewhere (A-18). The chunks ship no
+  hull (FID-03) and no runtime script iterates them per tick (placement and
+  undo only), so the cost is entity count, not script time. Measured
+  2026-11-25 (`output/fav4-1124/cull400-1/`, `scripts/_lattice_view_share.ts`,
+  `sim.ts --scenario=walk-away --size=400 --bearings=8` +
+  `scripts/_walk_away_table.ts`): shell entities 21061 5->12, 21063 5->11,
+  21065 10->23 chunks, the same cubes (+5/+2/+6 cut pieces), packs +2-3 %
+  bytes; near guarantee 17-24 -> 30-31 blocks. Seen from outside it is NOT
+  uniformly better: a big standard chunk draws its far cubes too once its
+  root is in reach, so 21065 drew 33 -> 27 percent of its shell (mean of 8
+  bearings) from 20-30 blocks off, while 21061 / 21063 drew more at 10-30.
+  No lattice lets a 400 % landmark be seen whole from 50 blocks: that is the
+  70-block ceiling (`TODO(cull)`: whether a 400 % box lifts it).
 - **An old whole-model shell migrates into the chunks when it loads.** The old
   type `<shell>` stays defined with its behaviour document unchanged (so a
   saved actor's size group and `minecraft:scale` still read) and a client

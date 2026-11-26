@@ -25,7 +25,7 @@ describe('set canon', () => {
   it('every entry names its own set number and at least one hint', () => {
     for (const [k, c] of Object.entries(SET_CANON)) {
       expect(c.setNumber).toBe(k);
-      expect(c.mounts?.length ?? 0).toBeGreaterThan(0);
+      expect((c.mounts?.length ?? 0) > 0 || c.landmark === true).toBe(true);
       for (const m of c.mounts ?? []) expect(m.hud ?? '').not.toMatch(/%/);
     }
   });

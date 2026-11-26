@@ -3,6 +3,9 @@ import { BlockGrid } from '../src/schem/types.js';
 import {
   ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, SHELL_BOX_WIDTH, SHELL_FRAME, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, actorCullDistance, actorCullFit, buildColliderGrid, clipParallelepiped, colliderBlockDefinition, colliderCellIndex, colliderState, gridParallelepiped, isSceneBlock, isShellEntityId, isTiltedBox, shellBehavior, shellCellReachBlocks, shellChunkCell, shellChunkId, shellCollisionBox, splitStaticShell, yawStepKept, YAW_STEP_MAX_BLOCKS,
 } from '../web/src/engine/bedrock-building-shell.js';
+import { LANDMARK_SHELL_CELL_BLOCKS, LANDMARK_SHELL_LATTICE, LANDMARK_SHELL_RADIUS_LIMIT_BLOCKS, LANDMARK_VIEW_EDGE_BLOCKS, STANDARD_SHELL_LATTICE, shellLatticeFor } from '../web/src/engine/bedrock-building-shell.js';
+import { canonFor } from '../web/src/engine/set-canon.js';
+import { VANISH_EDGE_BLOCKS } from '../web/src/sim/adapters/craftmatic/client-steps.js';
 import { SIZE_STEPS, collisionWorldBox } from '../web/src/engine/bedrock-placement-pack.js';
 import { BlockTypes } from '../web/src/sim/world/block-types.js';
 import { COLLIDER_KIT } from '../web/src/engine/collider-form.js';
@@ -573,6 +576,92 @@ describe('splitStaticShell', () => {
       // Scaled by the wand (the root offset and every cube's reach grow with it), each chunk stays under the limit at 400 %.
       expect(chunk.radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toBeLessThanOrEqual(STATIC_SHELL_RADIUS_LIMIT_BLOCKS);
     }
+  });
+
+  /**
+   * cull-400, the user 2026-11-25 ("only do the 400% fix for models we want 400%"): a landmark at 400 % - a
+   * 52-block cathedral of 1-block cubes every 2 blocks, its faces on the standard lattice's cell planes (the worst
+   * case: a face cube is half a cell from its root), 208 blocks across and tall at 400 % - judged from cameras all
+   * round it and THROUGH it (at 400 % a child walks its nave, climbs onto its roof, flies past its towers). Every cube within `LANDMARK_VIEW_EDGE_BLOCKS` (30) of the camera must have its chunk's root within
+   * the 70-block draw ceiling, or the cube is not drawn while the child stands beside it.
+   */
+  const cathedral = () => compiledFixture([{ description: { identifier: 'geometry.craftmatic.cathedral_mesh_0' }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes:
+    Array.from({ length: 26 * 26 * 26 }, (_, k) => {
+      const i = k % 26, j = Math.floor(k / 26) % 26, l = Math.floor(k / 676);
+      return { origin: [(i * 2 - 25) * 16 - 7, (l * 2 + 1) * 16 - 7, (j * 2 - 25) * 16 - 7] as [number, number, number], size: [14, 14, 14] as [number, number, number] };
+    }) }] }], [{ color: 4 }]);
+  /** Cubes within the view edge of a camera whose chunk root is past the draw ceiling, over rings of cameras at 400 %. */
+  const undrawnNearCubes = (result: ReturnType<typeof splitStaticShell>): { cubes: number; near: number; worstRoot: number } => {
+    const f = STATIC_SHELL_CULL_MAX_SCALE;
+    const cubes = result.chunks.flatMap(chunk => {
+      const root = chunk.offsetBlocks.map(v => v * f);
+      return (chunk.geo.value as { 'minecraft:geometry': TestGeometry[] })['minecraft:geometry'].flatMap(g => g.bones.flatMap(b => b.cubes ?? [])).map(c => ({
+        // World centre at 400 %: the chunk's (JSON-frame) cube about its root, z mirrored like `offsetBlocks`.
+        x: root[0]! + (c.origin[0] + c.size[0] / 2) / 16 * f, y: root[1]! + (c.origin[1] + c.size[1] / 2) / 16 * f, z: root[2]! - (c.origin[2] + c.size[2] / 2) / 16 * f, root,
+      }));
+    });
+    let near = 0, undrawn = 0, worstRoot = 0;
+    const cameras: Array<{ x: number; y: number; z: number }> = [];
+    for (let b = 0; b < 16; b++) for (const off of [5, 15, 25]) for (const eye of [1.62, 50, 100, 150, 200]) {
+      const a = b * Math.PI / 8, edge = (26 * f + off) / Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a)));
+      cameras.push({ x: Math.cos(a) * edge, y: eye, z: Math.sin(a) * edge });
+    }
+    for (let x = -100; x <= 100; x += 20) for (let y = 2; y <= 202; y += 20) for (let z = -100; z <= 100; z += 20) cameras.push({ x: x + 0.5, y, z: z + 0.5 });
+    for (const cam of cameras) {
+      for (const c of cubes) {
+        if (Math.hypot(c.x - cam.x, c.y - cam.y, c.z - cam.z) > LANDMARK_VIEW_EDGE_BLOCKS) continue;
+        near++;
+        const toRoot = Math.hypot(c.root[0]! - cam.x, c.root[1]! - cam.y, c.root[2]! - cam.z);
+        worstRoot = Math.max(worstRoot, toRoot);
+        if (toRoot > ACTOR_DRAW_CEILING_BLOCKS) undrawn++;
+      }
+    }
+    return { cubes: undrawn, near, worstRoot };
+  };
+
+  it('a landmark at 400 percent: every cube within 30 blocks of the camera is drawn, its root under the ceiling (cull-400)', async () => {
+    const geo = await cathedral();
+    // The standard 13-block lattice FAILS this: roots up to 54 blocks from their cubes leave near cubes undrawn.
+    const standard = undrawnNearCubes(splitStaticShell('cathedral', geo));
+    expect(standard.near).toBeGreaterThan(0);
+    expect(standard.cubes, `standard lattice: worst root ${standard.worstRoot.toFixed(1)} blocks`).toBeGreaterThan(0);
+    // The landmark lattice: 9-block cells, every chunk within 40 blocks of its cubes at 400 %.
+    const split = splitStaticShell('cathedral', geo, LANDMARK_SHELL_LATTICE);
+    expect(split.chunks.every(c => c.radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE <= LANDMARK_SHELL_RADIUS_LIMIT_BLOCKS + 1e-8)).toBe(true);
+    const landmark = undrawnNearCubes(split);
+    expect(landmark.near).toBe(standard.near);
+    expect(landmark.cubes, `landmark lattice: worst root ${landmark.worstRoot.toFixed(1)} blocks`).toBe(0);
+    expect(landmark.worstRoot).toBeLessThanOrEqual(ACTOR_DRAW_CEILING_BLOCKS);
+    // Same cubes drawn, one draw each; ids on the `f` letter, read back by the shared classifiers.
+    expect(split.chunks.reduce((n, c) => n + c.geo.diagnostics.cubeCount, 0)).toBe(geo.diagnostics.cubeCount);
+    expect(split.chunks.every(c => /_f(n?\d+)_(n?\d+)_(n?\d+)$/.test(c.id) && isShellEntityId(`craftmatic:b_x_shell${c.id.slice("cathedral".length)}`) && shellChunkCell(c.id)!.join() === c.cell.join())).toBe(true);
+    expect(split.chunks.every(c => c.offsetBlocks[0] === (c.cell[0] + 0.5) * LANDMARK_SHELL_CELL_BLOCKS)).toBe(true);
+  });
+
+  it('sizes the landmark lattice from the draw ceiling and the 30-block view edge the simulator judges (model-vanishes)', () => {
+    expect(LANDMARK_VIEW_EDGE_BLOCKS).toBe(30);
+    expect(VANISH_EDGE_BLOCKS).toBe(LANDMARK_VIEW_EDGE_BLOCKS);
+    expect(LANDMARK_SHELL_RADIUS_LIMIT_BLOCKS).toBe(ACTOR_DRAW_CEILING_BLOCKS - LANDMARK_VIEW_EDGE_BLOCKS);
+    expect(LANDMARK_SHELL_CELL_BLOCKS).toBe(9);
+    expect(shellCellReachBlocks(STATIC_SHELL_CULL_MAX_SCALE, LANDMARK_SHELL_LATTICE)).toBeLessThanOrEqual(LANDMARK_SHELL_RADIUS_LIMIT_BLOCKS);
+    expect(shellCellReachBlocks(STATIC_SHELL_CULL_MAX_SCALE, LANDMARK_SHELL_LATTICE)).toBeGreaterThan(LANDMARK_SHELL_RADIUS_LIMIT_BLOCKS - Math.sqrt(3) / 2 * STATIC_SHELL_CULL_MAX_SCALE);
+  });
+
+  it('gives the landmark lattice only to a model meant to be seen at 400 percent; every other model keeps the standard one unchanged', async () => {
+    expect(shellLatticeFor({})).toBe(STANDARD_SHELL_LATTICE);
+    expect(shellLatticeFor({ landmarkDetail: true })).toBe(LANDMARK_SHELL_LATTICE);
+    expect(shellLatticeFor({ canonLandmark: true })).toBe(LANDMARK_SHELL_LATTICE);
+    for (const label of ['Sagrada Familia (21065-1)', 'Notre-Dame de Paris (21061-1)', 'Neuschwanstein Castle (21063-1)']) expect(canonFor(label)?.landmark, label).toBe(true);
+    for (const label of ['The Lord of the Rings: The Shire (10354-1)', 'Roller Coaster (10261-1)', 'Hogwarts Castle (71043-1)']) expect(canonFor(label)?.landmark, label).toBeUndefined();
+    // The default split IS the standard lattice: ids, roots and geometry byte for byte.
+    const geo = await cathedral();
+    const plain = splitStaticShell('cathedral', geo), standard = splitStaticShell('cathedral', geo, STANDARD_SHELL_LATTICE);
+    expect(JSON.stringify(standard.chunks.map(c => [c.id, c.offsetBlocks, c.geo.value]))).toBe(JSON.stringify(plain.chunks.map(c => [c.id, c.offsetBlocks, c.geo.value])));
+    expect(plain.chunks.every(c => /_c(n?\d+)_(n?\d+)_(n?\d+)$/.test(c.id))).toBe(true);
+    // ~2.4x the chunks of the standard lattice on this cube of a model ((13/9)^3 = 3.0 at most).
+    const landmark = splitStaticShell('cathedral', geo, LANDMARK_SHELL_LATTICE);
+    expect(landmark.chunks.length / plain.chunks.length).toBeLessThanOrEqual(Math.pow(13 / 9, 3) * 1.5);
+    expect(landmark.chunks.length).toBeGreaterThan(plain.chunks.length);
   });
 
   it('cuts a cube that straddles its cell past the reach target into pieces within reach that draw the same box (A-18)', async () => {

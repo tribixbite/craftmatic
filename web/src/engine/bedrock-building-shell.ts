@@ -85,6 +85,50 @@ export const STATIC_SHELL_STRADDLE_MARGIN_BLOCKS = 2;
  */
 export const STATIC_SHELL_CELL_BLOCKS = Math.floor((STATIC_SHELL_RADIUS_LIMIT_BLOCKS / STATIC_SHELL_CULL_MAX_SCALE - STATIC_SHELL_STRADDLE_MARGIN_BLOCKS) / (Math.sqrt(3) / 2));
 
+/**
+ * A lattice the static shell is split on: its cell edge (blocks at 100 %), the reach every chunk's cubes must keep
+ * from its root at `STATIC_SHELL_CULL_MAX_SCALE`, and the letter its chunk ids spell the cell with (`shellChunkId`).
+ * Two exist: `STANDARD_SHELL_LATTICE` for every model, and `LANDMARK_SHELL_LATTICE` for a model meant to be shown at
+ * 400 % (`shellLatticeFor`).
+ */
+export interface ShellLattice {
+  readonly kind: 'standard' | 'landmark';
+  readonly cellBlocks: number;
+  readonly radiusLimitBlocks: number;
+  /** The chunk id's cell letter: `c` (standard) or `f` (landmark), so the two lattices never share an id. */
+  readonly idLetter: 'c' | 'f';
+}
+
+/** The lattice every model is split on: 13-block cells, reach 54 blocks at 400 % (the ceiling less the LOD margin). */
+export const STANDARD_SHELL_LATTICE: ShellLattice = { kind: 'standard', cellBlocks: STATIC_SHELL_CELL_BLOCKS, radiusLimitBlocks: STATIC_SHELL_RADIUS_LIMIT_BLOCKS, idLetter: 'c' };
+
+/**
+ * How far (blocks) off a cube a player may stand at 400 % and still have that cube's chunk drawn, on a model meant to
+ * be seen at 400 % (the user 2026-11-25: "only do the 400% fix for models we want 400%"). The same 30 blocks the
+ * simulator's `model-vanishes` judges a walk-away by (`VANISH_EDGE_BLOCKS` is this constant).
+ */
+export const LANDMARK_VIEW_EDGE_BLOCKS = 30;
+/**
+ * A landmark chunk's reach target at 400 %: the measured draw ceiling less the view edge, so a camera within
+ * `LANDMARK_VIEW_EDGE_BLOCKS` of any cube is within `ACTOR_DRAW_CEILING_BLOCKS` of its chunk's root (camera-to-cube
+ * plus cube-to-root). No LOD margin: a lattice chunk ships no hull (FID-03).
+ */
+export const LANDMARK_SHELL_RADIUS_LIMIT_BLOCKS = ACTOR_DRAW_CEILING_BLOCKS - LANDMARK_VIEW_EDGE_BLOCKS;
+/** `(40 / 4 - 2) / 0.866` = 9 blocks: a 36-block cell at 400 %, reach 31.2 + 8 straddle. */
+export const LANDMARK_SHELL_CELL_BLOCKS = Math.floor((LANDMARK_SHELL_RADIUS_LIMIT_BLOCKS / STATIC_SHELL_CULL_MAX_SCALE - STATIC_SHELL_STRADDLE_MARGIN_BLOCKS) / (Math.sqrt(3) / 2));
+/** The lattice of a model meant to be shown at 400 % (a landmark): 9-block cells, reach 40 blocks at 400 %. */
+export const LANDMARK_SHELL_LATTICE: ShellLattice = { kind: 'landmark', cellBlocks: LANDMARK_SHELL_CELL_BLOCKS, radiusLimitBlocks: LANDMARK_SHELL_RADIUS_LIMIT_BLOCKS, idLetter: 'f' };
+
+/**
+ * The lattice an export's shell is split on. A model is meant to be shown at 400 % when it is a landmark: a pack
+ * generated at a landmark detail level (`PlacementDetail`, brickgen/levels: Notre-Dame and the other LSCALE
+ * landmarks), or a LEGO set the canon table marks `landmark` (set-canon.ts `SET_CANON`). Every other model keeps the
+ * standard lattice: its chunk ids, roots and entity count are unchanged.
+ */
+export function shellLatticeFor(o: { landmarkDetail?: boolean; canonLandmark?: boolean }): ShellLattice {
+  return o.landmarkDetail || o.canonLandmark ? LANDMARK_SHELL_LATTICE : STANDARD_SHELL_LATTICE;
+}
+
 /** A lattice cell's integer index on each axis (JSON frame, `STATIC_SHELL_CELL_BLOCKS` per step). */
 export type ShellCell = readonly [number, number, number];
 
@@ -94,19 +138,19 @@ export type ShellCell = readonly [number, number, number];
  * The id names the CELL, never a list position, so a compile that adds or
  * removes a cube elsewhere leaves every other chunk's id and root alone.
  */
-export function shellChunkId(shellId: string, cell: ShellCell): string {
+export function shellChunkId(shellId: string, cell: ShellCell, lattice: ShellLattice = STANDARD_SHELL_LATTICE): string {
   const part = (n: number): string => (n < 0 ? `n${-n}` : `${n}`);
-  return `${shellId}_c${part(cell[0])}_${part(cell[1])}_${part(cell[2])}`;
+  return `${shellId}_${lattice.idLetter}${part(cell[0])}_${part(cell[1])}_${part(cell[2])}`;
 }
 
 /**
  * A building shell's id, with or without its namespace: the whole-model actor
- * (`…_shell`) or one of its lattice chunks (`…_shell_c<ix>_<iy>_<iz>`, the
+ * (`…_shell`) or one of its lattice chunks (`…_shell_c<ix>_<iy>_<iz>`, `_f…` on the landmark lattice; the
  * three signed cell indices captured). The ONE pattern every reader of a
  * pack's actor list uses (the Walk preview, the geometry audit, the reports),
  * so a chunk is never mistaken for a prop with its own marker and label.
  */
-export const SHELL_ENTITY_ID_PATTERN = /_shell(?:_c(n?\d+)_(n?\d+)_(n?\d+))?$/;
+export const SHELL_ENTITY_ID_PATTERN = /_shell(?:_[cf](n?\d+)_(n?\d+)_(n?\d+))?$/;
 
 /** Whether an entity id names a building shell or one of its chunks (`SHELL_ENTITY_ID_PATTERN`). */
 export function isShellEntityId(typeId: string): boolean {
@@ -114,7 +158,7 @@ export function isShellEntityId(typeId: string): boolean {
 }
 
 /** The cell suffix `shellChunkId` writes, on any stem (a test splits a shell it did not name `…_shell`). */
-const SHELL_CHUNK_SUFFIX = /_c(n?\d+)_(n?\d+)_(n?\d+)$/;
+const SHELL_CHUNK_SUFFIX = /_[cf](n?\d+)_(n?\d+)_(n?\d+)$/;
 
 /** The lattice cell a chunk id names, or undefined for a whole-model shell or any other id. */
 export function shellChunkCell(typeId: string): ShellCell | undefined {
@@ -233,9 +277,10 @@ const shifted = (v: readonly number[] | undefined, delta: Vec3): [number, number
  * a base) gets cells under the floor, whose roots `shellChunkRoot` lifts to
  * the floor plane where reach allows.
  */
-export const shellCellOf = (center: Vec3, floorY: number): ShellCell => [
-  Math.floor(center[0] / STATIC_SHELL_CELL_BLOCKS), Math.floor((center[1] - floorY) / STATIC_SHELL_CELL_BLOCKS), Math.floor(center[2] / STATIC_SHELL_CELL_BLOCKS),
-];
+export const shellCellOf = (center: Vec3, floorY: number, lattice: ShellLattice = STANDARD_SHELL_LATTICE): ShellCell => {
+  const S = lattice.cellBlocks;
+  return [Math.floor(center[0] / S), Math.floor((center[1] - floorY) / S), Math.floor(center[2] / S)];
+};
 
 /**
  * A cell's root: its CENTRE, blocks in the JSON frame. Fixed by the cell and
@@ -251,9 +296,10 @@ export const shellCellOf = (center: Vec3, floorY: number): ShellCell => [
  * floor, and a cell under it is rooted on the floor plane (`shellChunkRoot`). A root inside a drawn cube is
  * reported, not avoided (`buriedRootCubes`).
  */
-export const shellCellRoot = (cell: ShellCell, floorY: number): Vec3 => [
-  (cell[0] + 0.5) * STATIC_SHELL_CELL_BLOCKS, floorY + (cell[1] + 0.5) * STATIC_SHELL_CELL_BLOCKS, (cell[2] + 0.5) * STATIC_SHELL_CELL_BLOCKS,
-];
+export const shellCellRoot = (cell: ShellCell, floorY: number, lattice: ShellLattice = STANDARD_SHELL_LATTICE): Vec3 => {
+  const S = lattice.cellBlocks;
+  return [(cell[0] + 0.5) * S, floorY + (cell[1] + 0.5) * S, (cell[2] + 0.5) * S];
+};
 
 /**
  * The root a chunk is actually given: its cell's centre (`shellCellRoot`),
@@ -265,11 +311,11 @@ export const shellCellRoot = (cell: ShellCell, floorY: number): Vec3 => [
  * `nothing-below-ground`), where Bedrock lights an entity by the solid block
  * at its root. A cell too deep for the lift keeps its centre.
  */
-export function shellChunkRoot(cell: ShellCell, floorY: number, cubes: readonly ShellCubeRecord[]): Vec3 {
-  const centre = shellCellRoot(cell, floorY);
+export function shellChunkRoot(cell: ShellCell, floorY: number, cubes: readonly ShellCubeRecord[], lattice: ShellLattice = STANDARD_SHELL_LATTICE): Vec3 {
+  const centre = shellCellRoot(cell, floorY, lattice);
   if (cell[1] >= 0) return centre;
   const lifted: Vec3 = [centre[0], floorY, centre[2]];
-  return shellRadius(cubes, lifted) * STATIC_SHELL_CULL_MAX_SCALE <= STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-9 ? lifted : centre;
+  return shellRadius(cubes, lifted) * STATIC_SHELL_CULL_MAX_SCALE <= lattice.radiusLimitBlocks + 1e-9 ? lifted : centre;
 }
 
 /**
@@ -279,7 +325,7 @@ export function shellChunkRoot(cell: ShellCell, floorY: number, cubes: readonly 
  * what the lattice is sized to keep under `STATIC_SHELL_RADIUS_LIMIT_BLOCKS`
  * at `STATIC_SHELL_CULL_MAX_SCALE` (asserted in test/bedrock-building-shell.test.ts).
  */
-export const shellCellReachBlocks = (f: number): number => (Math.sqrt(3) / 2 * STATIC_SHELL_CELL_BLOCKS + STATIC_SHELL_STRADDLE_MARGIN_BLOCKS) * f;
+export const shellCellReachBlocks = (f: number, lattice: ShellLattice = STANDARD_SHELL_LATTICE): number => (Math.sqrt(3) / 2 * lattice.cellBlocks + STATIC_SHELL_STRADDLE_MARGIN_BLOCKS) * f;
 
 /** Every drawn cube of a shell document, with its drawn centre and corners (blocks, JSON frame). */
 function shellCubeRecords(shellId: string, geometries: readonly ShellJsonGeometry[]): ShellCubeRecord[] {
@@ -334,13 +380,13 @@ const MIN_CUT_UNITS = 16;
  * piece judged in reach stays in reach. A face-UV (decal) cube is a head print, never this long, and is not cut.
  * The input is not mutated: a geometry with a cut cube is copied with new cube arrays.
  */
-function cutOversizedShellCubes(geometries: ShellJsonGeometry[], floorY: number): { geometries: ShellJsonGeometry[]; cutCubes: number; addedCubes: number } {
+function cutOversizedShellCubes(geometries: ShellJsonGeometry[], floorY: number, lattice: ShellLattice): { geometries: ShellJsonGeometry[]; cutCubes: number; addedCubes: number } {
   let cutCubes = 0, addedCubes = 0;
   const fits = (center: Vec3, corners: Vec3[]): boolean => {
-    const root = shellCellRoot(shellCellOf(center, floorY), floorY);
+    const root = shellCellRoot(shellCellOf(center, floorY, lattice), floorY, lattice);
     let reach = 0;
     for (const p of corners) reach = Math.max(reach, Math.hypot(p[0] - root[0], p[1] - root[1], p[2] - root[2]));
-    return reach * STATIC_SHELL_CULL_MAX_SCALE <= STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-9;
+    return reach * STATIC_SHELL_CULL_MAX_SCALE <= lattice.radiusLimitBlocks + 1e-9;
   };
   const out = geometries.map(geometry => {
     const transforms = jsonBoneTransforms(geometry.bones ?? []);
@@ -408,8 +454,11 @@ function cutOversizedShellCubes(geometries: ShellJsonGeometry[], floorY: number)
  * A bone with no cube in a chunk is dropped unless it is an ancestor of one
  * that has (the parent chain sets a cube's transform); a rotated cube must
  * carry its pivot, as the compiler always writes both.
+ *
+ * `lattice` is the standard 13-block one unless the model is meant to be shown at 400 % (`shellLatticeFor`): then
+ * 9-block cells whose ids spell the cell with `f`, so a saved world's standard chunks never take landmark geometry.
  */
-export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): StaticShellSplitResult {
+export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry, lattice: ShellLattice = STANDARD_SHELL_LATTICE): StaticShellSplitResult {
   const document = geo.value as ShellJsonDocument;
   let geometries = document?.['minecraft:geometry'];
   if (!Array.isArray(geometries) || geometries.length !== geo.meshes.length)
@@ -418,7 +467,7 @@ export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): S
   let records = shellCubeRecords(shellId, geometries);
   const originalRadius = shellRadius(records, [0, 0, 0]);
   const bonesOf = (g: ShellJsonGeometry[]): number => g.reduce((n, geometry) => n + geometry.bones.length, 0);
-  if (originalRadius * STATIC_SHELL_CULL_MAX_SCALE <= STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-9) {
+  if (originalRadius * STATIC_SHELL_CULL_MAX_SCALE <= lattice.radiusLimitBlocks + 1e-9) {
     return { chunks: [{ id: shellId, cell: [0, 0, 0], geo, offsetBlocks: [0, 0, 0], radiusBlocks: originalRadius, oversizedCubes: 0, buriedRootCubes: 0, bones: bonesOf(geometries) }], warnings: [], cutCubes: 0, addedCubes: 0 };
   }
 
@@ -426,13 +475,13 @@ export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): S
   const floorY = -(geo.originLiftBlocks ?? 0);
   // A cube whose centre is in a cell but which reaches past the draw target from that cell's root (a long rail, a
   // baseplate run merged across cells) is cut into pieces each within reach of its OWN cell's root (A-18).
-  const cut = cutOversizedShellCubes(geometries, floorY);
+  const cut = cutOversizedShellCubes(geometries, floorY, lattice);
   if (cut.cutCubes) { geometries = cut.geometries; records = shellCubeRecords(shellId, geometries); }
   // Cells in a fixed order (x, then y, then z), so the chunk list - and with it
   // every per-chunk warning and diagnostic - reads the same from one build to the next.
   const partitions = new Map<string, { cell: ShellCell; records: ShellCubeRecord[] }>();
   for (const record of records) {
-    const cell = shellCellOf(record.center, floorY), key = cell.join(',');
+    const cell = shellCellOf(record.center, floorY, lattice), key = cell.join(',');
     const hit = partitions.get(key);
     if (hit) hit.records.push(record); else partitions.set(key, { cell, records: [record] });
   }
@@ -440,8 +489,8 @@ export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): S
 
   const warnings: string[] = [];
   const chunks = ordered.map(({ cell, records: partition }): StaticShellChunk => {
-    const id = shellChunkId(shellId, cell);
-    const root = shellChunkRoot(cell, floorY, partition);
+    const id = shellChunkId(shellId, cell, lattice);
+    const root = shellChunkRoot(cell, floorY, partition, lattice);
     const delta: Vec3 = root.map(value => value * 16) as Vec3;
     const radiusBlocks = shellRadius(partition, root);
     const selected = new Set(partition.map(record => `${record.geometry}:${record.bone}:${record.cube}`));
@@ -498,8 +547,8 @@ export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): S
 
     // A cube that straddles the cell is drawn from this root all the same; one
     // that still reaches past the target at the max scale is counted and named.
-    const oversizedCubes = partition.filter(record => cubeReach(record, root) * STATIC_SHELL_CULL_MAX_SCALE > STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-9).length;
-    if (oversizedCubes) warnings.push(`${id}: ${oversizedCubes} final cube${oversizedCubes === 1 ? '' : 's'} reach${oversizedCubes === 1 ? 'es' : ''} up to ${(radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toFixed(2)} blocks from the cell root at ${STATIC_SHELL_CULL_MAX_SCALE}x, past the ${STATIC_SHELL_RADIUS_LIMIT_BLOCKS}-block target, though cut to pieces under ${2 * MIN_CUT_UNITS / 16} blocks long (cutOversizedShellCubes): a piece that short cannot reach that far from its own cell, so this is not the compiler's output.`);
+    const oversizedCubes = partition.filter(record => cubeReach(record, root) * STATIC_SHELL_CULL_MAX_SCALE > lattice.radiusLimitBlocks + 1e-9).length;
+    if (oversizedCubes) warnings.push(`${id}: ${oversizedCubes} final cube${oversizedCubes === 1 ? '' : 's'} reach${oversizedCubes === 1 ? 'es' : ''} up to ${(radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toFixed(2)} blocks from the cell root at ${STATIC_SHELL_CULL_MAX_SCALE}x, past the ${lattice.radiusLimitBlocks}-block target, though cut to pieces under ${2 * MIN_CUT_UNITS / 16} blocks long (cutOversizedShellCubes): a piece that short cannot reach that far from its own cell, so this is not the compiler's output.`);
     let buriedRootCubes = 0;
     for (const record of records) {
       const box = shellBounds([record]);
