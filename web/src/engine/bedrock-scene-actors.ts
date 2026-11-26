@@ -1024,8 +1024,12 @@ export async function raiseFiguresToModelUnderside(bricks: readonly ParsedBrick[
   const raised: LineUpRaise['raised'] = [];
   for (const figure of scene.figures) {
     // LDraw y is down: a floor below the underside has the LARGER y.
-    if (figure.seated || figure.floorLdu <= scene.groundLdu + LINE_UP_RAISE_TOLERANCE_LDU) continue;
-    const dy = scene.groundLdu - figure.floorLdu;
+    // The figure's lowest point is its rig floor or its lowest SOURCE part, whichever is lower: the rig re-assembles
+    // the limbs at the body, but the voxel grid holds the parts where the source put them, so legs a source left
+    // under their hips (76435's parked short legs, 24 LDU below) stayed under the base and laid the shell a cell up.
+    const lowest = Math.max(figure.floorLdu, ...figure.bricks.map(b => { const m = scene.meshes.get(b.part); return m && m.triangles.length ? worldBounds(b, m).max[1] : -Infinity; }));
+    if (figure.seated || lowest <= scene.groundLdu + LINE_UP_RAISE_TOLERANCE_LDU) continue;
+    const dy = scene.groundLdu - lowest;
     for (const b of figure.bricks) moved.set(b, { ...b, y: b.y + dy });
     raised.push({ dyLdu: dy, parts: figure.bricks.length, centreLdu: figure.centreLdu });
   }
