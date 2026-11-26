@@ -92,8 +92,18 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   11377 10354 10316. `model-grounded` (the 0.5-block rule of 759f4544, first full run) at 100 %: 11371 0.8, 5582 1.5,
   71040 1.0, 76417 0.8, 76435 1.0, 77092 2.0, 910047 1.0, 6243 (two sizes) - the known sunk parts (11371 85941, 77092
   41751, 71040 87601, 910047 90981) plus 76417/76435/5582/6243 to trace with `_lowest_parts.ts`
-  (`TODO(grounded-favourites)`). `door-approach-on-foot` at 100 %: 6194 Door 1 (- side lanes), 76269 Door 3 (+ side
-  lanes), 910032 Door 4 (- side flood; its known `TODO(clearance-tight-910032)` nook) - untriaged. SCALE-06 lines on
+  (`TODO(grounded-favourites)`). `door-approach-on-foot` at 100 %: 6194 Door 1, 76269 Door 3, 910032 Door 4 - TRIAGED
+  2026-11-26 (sim only, packs unchanged): all three the MODEL's squeeze. 76269 Door 3 (+): every lane passes 0.08 under
+  hanging glass and 0.01 beside a glass stand; 6194 Door 1 (-, a diagonal door at a corner): every lane arrives only
+  sliding along the facade, caught in a 0.25 collider pocket (Door 3's closed-leaf block 0.19 behind the drawn face, the
+  wall end's corner square at it); 910032 Door 4 (-): the drawn route steps 0.025 past a bench's end into the dining
+  nook and climbs the bench (the door opens from its + side, 25/25 lanes). New rules: lanes keep `COLLIDER_SLACK`
+  across / `LANE_HEADROOM` 2/16 overhead from what they cannot climb (`LaneOptions`, squeezed lanes never fail a side,
+  count when the colliders pass them), and a flood break inside the slack is tight (`routeSqueezedAt`). Rerun of all 61
+  gate-k packs at 100 % (scratch `all-after`): 0 door-approach fails, 14 model-grounded (unchanged); 25d 11388 still
+  FAILS Doors 4/6 (3 lanes with room); k-base 11388 42670 76457 21360 pass. Refused: stopping `slackDrawn` at cell
+  faces (read the 25d sheet fixture as tight), a quarter-block headroom (all 15 25d lanes squeezed), and "every landing
+  spot raised" (6194's column-normal spot is a table top). Open: `TODO(slack-phantom-footing)`. SCALE-06 lines on
   gate-k = favgate-41e9850b: 76419 x 8.5/9.5 REACHED 17.94; 21063 x 20.5/20.3 13.30 highest 8.13; 76419 300 % 6.44
   (the tracker's 7.25 predates 41e9850b).
 - MERGED 2026-11-25 (cull-400, 11e9e21c/90d371d6, merge 2fee3805; the user: only for models meant for 400 %): 9-block
@@ -112,12 +122,11 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   the grid centre, 11.5 blocks off its source origin (kept, grid widened); still sunk by a part under the base,
   untouched: 11371 (85941), 77092 (41751), non-DBIX 71040 (87601), 910047 (90981); kept back from the republish
   (a metric got worse): 11371 11374 42639 76269 21065 10786 10796 10797 60380 76435 77092_sm01.
-- IN FLIGHT 2026-11-25 (two worktree agents, not merged): (a) `TODO(grounded-favourites)` - lowest parts traced in
+- IN FLIGHT 2026-11-25 (worktree agent, not merged): `TODO(grounded-favourites)` - lowest parts traced in
   `output/grounded-1125/` (5582: door 60623 ~97 LDU under its base, ReconV3 fault; 6243: straight flex hoses 76252 /
-  masts to 360 LDU, ReconV3; 76417: pitchfork 95345 41 LDU under the base; 76435: figure legs / Bigfig hands ~40 LDU);
-  (b) the three gate-k doorways. Merge each after its report is verified; rebuild + gate the touched sets.
-- NEXT (after the agents): `TODO(grounded-favourites)` (76417 76435 5582 6243 via `_lowest_parts.ts`) and the three untriaged doorways (6194 Door 1,
-  76269 Door 3, 910032 Door 4) from gate-k; `TODO(cull-400-sim)` (the sim's walk-away under-predicts 25f's draws:
+  masts to 360 LDU, ReconV3; 76417: pitchfork 95345 41 LDU under the base; 76435: figure legs / Bigfig hands ~40 LDU).
+  Merge after its report is verified; rebuild + gate the touched sets. (The three gate-k doorways: merged, sim false positives.)
+- NEXT: `TODO(cull-400-sim)` (the sim's walk-away under-predicts 25f's draws:
   calibrate, then explain 21061 E-40); a 10316 seat round: walk ONTO the terrace in Survival with an empty hand,
   tap a chair from ~1.5 blocks, then tap turnable_1..3 / lid_1 and watch them from outside.
 

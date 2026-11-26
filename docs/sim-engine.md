@@ -339,6 +339,23 @@ colliders do not). A "pack" row is where to look, not a proven bug: at 11371's
 front (100 %) the drawn route steps onto a 1.07-block plate whose collider
 cell is 0.49 higher (a taller part in the same cell), a 1-block-grid superset.
 
+`door-approach-on-foot` (child-play.ts `judgeDoorSide`, PROC-20, up to 100 %)
+fails a doorway side the model lets a child walk up to from the ground and the
+colliders do not: by flood, then by straight lanes from 6 blocks out (pushed
+within `LANE_HEADING_DEG`, sliding off a face). What the colliders may deny
+because they are supersets of the geometry is the MODEL's, never failed: a
+drawn route that clears the model by less than `COLLIDER_SLACK` (0.25 across;
+`LANE_HEADROOM`, two sixteenths, overhead) - judged by the widened flood
+(`slackDrawn`), at the node where the drawn route leaves the colliders' walk
+(`routeSqueezedAt`: 910032 Door 4, 0.025 past a bench's end), and per lane
+(`LaneOptions`: a lane whose drawn walk brushes a cube it cannot climb is
+`squeezed` - never fails a side, still counts when the colliders pass it;
+76269 Door 3 passed 0.08 under hanging glass, 6194 Door 1 slid along a
+facade). The widened flood also widens tops into cells the colliders leave
+empty (`TODO(slack-phantom-footing)`). Calibrated on Pixel rounds 25d (11388's
+sheet: device FAIL, still failed by 3 lanes with room) and 25e (device walked
+what the sim had stopped).
+
 A doorway line that never stood at the doorway's level (the device's teleport
 past the model's edge: the porch line is 2.5 x size out, 10 blocks at 400 %)
 is judged by the drawn floor under its START (`holeFloor`), not 0.3 ahead:

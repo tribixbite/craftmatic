@@ -13,7 +13,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { simHost, solidBelow } from './_sim-host.js';
-import { doorLanesOnFoot, doorSideOnFoot, judgeDoorSide, slackDrawn, type DoorwaySide } from '../web/src/sim/adapters/craftmatic/child-play.js';
+import { LANE_HEADROOM, doorLanesOnFoot, doorSideOnFoot, judgeDoorSide, routeSqueezedAt, slackDrawn, type DoorwaySide } from '../web/src/sim/adapters/craftmatic/child-play.js';
+import { COLLIDER_SLACK } from '../web/src/sim/adapters/craftmatic/play.js';
 import { DrawnWalkWorld, drawnWalkEngine, type DrawnBox } from '../web/src/sim/adapters/craftmatic/drawn.js';
 import { walkFlood } from '../web/src/sim/scenario/approach.js';
 import type { SimEngine } from '../web/src/sim/core/engine.js';
@@ -159,6 +160,101 @@ describe('sim child play: a doorway the model lets a child walk up to, the colli
     const open = side(true, DRAWN);
     expect(open.side.colliders).toBe(false);
     expect(open.tight).toBe(false);
+  });
+
+  /**
+   * gate-k (2026-11-25), 910032 Door 4's - side, a dining nook: the drawn route steps into a pocket 0.025 past a bench's
+   * end, whose collider band fills the cell, and climbs the bench to the door. The widened world reached the side
+   * anyway, over a floor plate's top widened into a cell the colliders leave empty (TODO(slack-phantom-footing)), so the
+   * squeeze is read where the drawn route leaves the colliders' walk (`routeSqueezedAt`).
+   */
+  it('a drawn route that leaves the colliders\' walk within their slack of the model is the model\'s squeeze (routeSqueezedAt; 910032 Door 4, gate-k)', () => {
+    const anyTop = drawnWalkEngine(new DrawnWalkWorld([box(9.625, 10.375, 0, 1.125, -2.5, -0.25)], 0, 0)) as unknown as SimEngine;
+    const at = (px: number, pz: number, y = 0.225) => ({ x: Math.floor(px), z: Math.floor(pz), y, px, pz });
+    // 910032's pocket node: the box 10.4-11.0 stands 0.025 past the bench's end.
+    expect(routeSqueezedAt(anyTop, 'overworld', at(10.7, -2.7), 1)).toBe(true);
+    // Half a block clear of it, and the bench's own top, are not squeezes.
+    expect(routeSqueezedAt(anyTop, 'overworld', at(11.3, -1.5), 1)).toBe(false);
+    expect(routeSqueezedAt(anyTop, 'overworld', at(10, -1.5, 1.125), 1)).toBe(false);
+    // A step (no more than 9/16 over the feet) beside the node is walked onto, not squeezed past.
+    const step = drawnWalkEngine(new DrawnWalkWorld([box(9.625, 10.375, 0, 0.75, -2.5, -0.25)], 0, 0)) as unknown as SimEngine;
+    expect(routeSqueezedAt(step, 'overworld', at(10.7, -2.7), 1)).toBe(false);
+  });
+
+  it('judgeDoorSide reads a side tight where the route breaks in a squeeze, even when the widened world finds a way (910032 Door 4, gate-k)', () => {
+    // The planter and post 0.63 apart (42670), inside one cell, now with colliders: the cell holds both faces, and no
+    // form leaves a gap between two bands, so it is laid whole.
+    // The posts run past the flood's area, so the only way in is the gap; the child starts west of them.
+    const squeeze = [...DRAWN.slice(0, 4), box(0, 3, 0, 4, -20, 0.2), box(0, 3, 0, 4, 0.83, 20), ...DRAWN.slice(4)];
+    const west = { x: -1.5, y: 0, z: 0.5 };
+    const h = colliders(false);
+    for (let x = 0; x <= 2; x++) for (let y = 0; y <= 3; y++) {
+      for (let z = -20; z <= -1; z++) h.setBlock(x, y, z, COLLIDER, span(0, 16));
+      for (let z = 0; z <= 19; z++) h.setBlock(x, y, z, COLLIDER, span(0, 16));
+    }
+    const drawn = drawnWalkEngine(new DrawnWalkWorld(squeeze, 0, 0.0625)) as unknown as SimEngine;
+    const anyTop = drawnWalkEngine(new DrawnWalkWorld(squeeze, 0, 0)) as unknown as SimEngine;
+    const flood = walkFlood(drawn, 'overworld', west, AREA);
+    // The widened world stands in for one that found another way: the drawn world itself.
+    const floods = { real: walkFlood(h.engine, 'overworld', west, AREA), drawn: flood, drawnSlack: flood };
+    const v = judgeDoorSide(h.engine, { drawn, drawnSlack: drawn, anyTop }, 'overworld', west, floods, OUTSIDE);
+    expect(v.side.drawn).toBe(true);
+    expect(v.side.colliders).toBe(false);
+    expect(v.side.breakAt).toBeDefined();
+    expect(v.tight).toBe(true);
+    // The 25d sheet's break (the step under the sheet, clear of the model by more than the slack) stays the pack's.
+    expect(side(true, DRAWN).tight).toBe(false);
+  });
+
+  /**
+   * gate-k (2026-11-25): 76269 Door 3 (+ side) - every straight lane the model lets a child walk passes 0.08 under a
+   * hanging glass piece and 0.01 beside a glass stand, which the colliders (supersets by up to COLLIDER_SLACK, and a
+   * sixteenth up or down) close; 6194 Door 1 (- side, a diagonal door at a building's corner) - every lane runs into
+   * the facade and arrives only by sliding along it, where the colliders' pocket (a closed leaf's block 0.19 behind the
+   * drawn face, the wall end's corner square at the face) catches it. Neither is a straight walk the model leaves room
+   * for: a lane is the model's only where its walk keeps COLLIDER_SLACK clear of every drawn cube it cannot climb.
+   */
+  it('a lane that passes within the colliders\' slack under a hanging part is the model\'s squeeze, not a lane (76269 Door 3, gate-k)', () => {
+    const hang = box(1, 2, 1.88, 2.3, -1, 3);
+    const open = lanes(false, [...DRAWN, hang]);
+    expect(open.drawn).toBeGreaterThan(5);
+    const { h, drawn, floods } = worlds(false, [...DRAWN, hang]);
+    const v = doorLanesOnFoot(h.engine, drawn, 'overworld', floods, OUTSIDE, { clearance: COLLIDER_SLACK, headroom: LANE_HEADROOM });
+    expect(v.drawn).toBe(0);
+    expect(v.squeezed).toBe(open.drawn);
+    // Without the hanging part the same clearance keeps every lane.
+    const plain = doorLanesOnFoot(h.engine, worlds(false).drawn, 'overworld', worlds(false).floods, OUTSIDE, { clearance: COLLIDER_SLACK, headroom: LANE_HEADROOM });
+    expect(plain.drawn).toBe(lanes(false).drawn);
+  });
+
+  it('a lane that only grazes a wall face is dropped, the lanes clear of it are kept (6194 Door 1, gate-k)', () => {
+    const wall = box(0, 4, 0, 3, -1, 0.05);
+    const { h, drawn, floods } = worlds(false, [...DRAWN, wall]);
+    const v = doorLanesOnFoot(h.engine, drawn, 'overworld', floods, OUTSIDE, { clearance: COLLIDER_SLACK, headroom: LANE_HEADROOM });
+    expect(v.drawn).toBeGreaterThan(5);
+    expect(v.squeezed).toBeGreaterThan(0);
+    for (const l of v.lanes.filter(x => !x.squeezed)) expect(l.start.z - 0.3 - 0.05).toBeGreaterThanOrEqual(COLLIDER_SLACK - 1e-6);
+    // A squeezed lane is still walked over the colliders, and one they pass clears the side (6194 Door 2, + side).
+    expect(v.colliders).toBe(v.drawn + v.squeezed);
+  });
+
+  it('judgeDoorSide does not fail a side whose only lanes squeeze under a hanging part the colliders close (76269 Door 3, gate-k)', () => {
+    const hang = box(1, 2, 1.88, 2.3, -1, 3);
+    const drawnBoxes = [...DRAWN, hang];
+    const h = colliders(false);
+    // The hanging part's collider: a slab 1.75-2.0 over the cells the lanes cross; the flood still walks round at z -2..-1.
+    for (let z = -1; z <= 2; z++) h.setBlock(1, 1, z, COLLIDER, span(12, 16));
+    const drawn = drawnWalkEngine(new DrawnWalkWorld(drawnBoxes, 0, 0.0625)) as unknown as SimEngine;
+    const drawnSlack = drawnWalkEngine(new DrawnWalkWorld(slackDrawn(drawnBoxes), 0, 0.0625)) as unknown as SimEngine;
+    const anyTop = drawnWalkEngine(new DrawnWalkWorld(drawnBoxes, 0, 0)) as unknown as SimEngine;
+    const floods = { real: walkFlood(h.engine, 'overworld', FROM, AREA), drawn: walkFlood(drawn, 'overworld', FROM, AREA), drawnSlack: walkFlood(drawnSlack, 'overworld', FROM, AREA) };
+    const v = judgeDoorSide(h.engine, { drawn, drawnSlack, anyTop }, 'overworld', FROM, floods, OUTSIDE);
+    expect(v.side.drawn).toBe(true);
+    expect(v.side.colliders).toBe(true);
+    // Over the colliders no lane gets past the slab, and no lane the model leaves room for is left to judge.
+    expect(doorLanesOnFoot(h.engine, anyTop, 'overworld', floods, OUTSIDE).colliders).toBe(0);
+    expect(v.lanes?.drawn).toBe(0);
+    expect(v.lanes?.squeezed).toBeGreaterThan(5);
   });
 
   it('a side the model\'s own flood never reaches is not judged by its lanes (judgeDoorSide; 42670 Door 3)', () => {
