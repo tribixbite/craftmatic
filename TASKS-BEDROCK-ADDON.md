@@ -140,9 +140,10 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   - the model's own squeezes (812d0210, merge b2c6f246); 910032's - side is reached in the model only over a bench.
 - PUBLISHED 2026-11-26: EDITS.txt applied in clego `lego_sets/` (untracked data; old lines in EDITS.txt, index before
   in the session scratchpad) and republished `--only` ReconV3/5582 ReconV3/6243 DbixConvV3/76417 DbixConvV3/76435 + the
-  index (hashes 49602059da25 677627b53495 0087716a3c06 da2f493866a8; clego's index change is uncommitted beside another
-  agent's work there). Merged 54409368.
-- NEXT: rebuild 5582 6243 76417 76435 from main and sim them (expect model-grounded pass except 5582's half cell); `TODO(cull-400-sim)` (the sim's walk-away under-predicts 25f's draws:
+  index (hashes 49602059da25 677627b53495 0087716a3c06 da2f493866a8; clego a1a1bce0, local, not pushed). Merged 54409368.
+  Rebuilt from c7bb2181 (`output/fav4-1124/grounded-c7bb2181/`, sim.txt): 6243 76417 76435 pass all 6 scenarios; 5582
+  still hangs 0.5 (100 %) / 0.8 (150 %) blocks - `TODO(grid-floor-half-cell)`: its lowest geometry sits 0.40 over the pin.
+- NEXT: `TODO(grid-floor-half-cell)` (5582: why its lowest drawn geometry lands 0.40 over the pin when other models' sit on it); `TODO(cull-400-sim)` (the sim's walk-away under-predicts 25f's draws:
   calibrate, then explain 21061 E-40); a 10316 seat round: walk ONTO the terrace in Survival with an empty hand,
   tap a chair from ~1.5 blocks, then tap turnable_1..3 / lid_1 and watch them from outside.
 
