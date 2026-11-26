@@ -87,8 +87,16 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   opened (sim `door-approach-on-foot` false positive); 21360 floats ~1-1.3 blocks (confirmed). Not done: 10316 seat
   boarding (taps from 6+ blocks in Creative boarded nothing) and its moving parts. Transient lime-green shapes in the
   sky on one world reopen (`reopen-in.jpg`), gone on the next; cause unknown.
-- IN FLIGHT: (a) full favourites gate on the commit after (1)-(2) into `output/fav4-1124/gate-k` (`gate.md` there).
-  (b) Branch
+- GATE-K (ca7dfc65, clean stamp; `output/fav4-1124/gate-k/gate.md`): sweep 58/58 OK (309 min), vehicles PASS,
+  regressions 55 / 0 failed; child play FAIL 74 of 732 scenarios in 11 of 61 packs, none in 11388 21360 42670 76457
+  11377 10354 10316. `model-grounded` (the 0.5-block rule of 759f4544, first full run) at 100 %: 11371 0.8, 5582 1.5,
+  71040 1.0, 76417 0.8, 76435 1.0, 77092 2.0, 910047 1.0, 6243 (two sizes) - the known sunk parts (11371 85941, 77092
+  41751, 71040 87601, 910047 90981) plus 76417/76435/5582/6243 to trace with `_lowest_parts.ts`
+  (`TODO(grounded-favourites)`). `door-approach-on-foot` at 100 %: 6194 Door 1 (- side lanes), 76269 Door 3 (+ side
+  lanes), 910032 Door 4 (- side flood; its known `TODO(clearance-tight-910032)` nook) - untriaged. SCALE-06 lines on
+  gate-k = favgate-41e9850b: 76419 x 8.5/9.5 REACHED 17.94; 21063 x 20.5/20.3 13.30 highest 8.13; 76419 300 % 6.44
+  (the tracker's 7.25 predates 41e9850b).
+- IN FLIGHT: (b) Branch
   `worktree-agent-a067ed10f99e4b7d3` (cull-400, the user 2026-11-25: only for models meant for 400 %): 9-block lattice
   for `landmark` sets (21061 21063 21065, brickgen landmark levels); 21065 mixed from outside (the ~70-block actor
   ceiling binds); merge after (a)'s gate, then rebuild the three landmarks clean for a device round.
