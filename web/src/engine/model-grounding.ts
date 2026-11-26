@@ -90,6 +90,11 @@ export function partsUnderBroadBase<T>(items: ReadonlyArray<{ box: GroundBox; it
   return { verdict, under };
 }
 
+/** A part reaching at most this share of a voxel cell under the base sinks (fills no grid row): 10316's two 40239
+ * hairs 25-27 LDU under it at a 53.3-LDU cell (0.51) - the sim reads the shipped pack grounded, 0.00 blocks - while
+ * 11377's 3662 frames 32-40 LDU under (0.6-0.75) held its plate up on the Pixel (round 25d). Between the two. */
+const SINKS_WITHIN_CELLS = 0.55;
+
 /** How many of the parts under the base a warning names. */
 const WARNING_PARTS = 6;
 
@@ -106,7 +111,10 @@ export function hangingPartsWarning(bricks: readonly ParsedBrick[], meshes: Read
     const p = placementBox(b, meshes.get(b.part));
     return { box: { x0: p.min[0] * across, x1: p.max[0] * across, z0: p.min[2] * across, z1: p.max[2] * across, y0: -p.max[1] * up, y1: -p.min[1] * up }, item: b };
   });
-  const { verdict, under } = partsUnderBroadBase(items, 1);
+  const { verdict, under: all } = partsUnderBroadBase(items, 1);
+  // A part reaching about half a voxel cell or less under the base fills no grid row of its own (the voxelizer
+  // centres cells), so the shell still starts at the base and the part sinks.
+  const under = all.filter(u => u.depthBlocks / up > SINKS_WITHIN_CELLS * frame.cellY);
   if (!verdict.hanging || !under.length) return undefined;
   const named = under.slice(0, WARNING_PARTS).map(({ item: b, depthBlocks }) =>
     `${b.part.replace(/\.dat$/i, '')} (${Math.round(depthBlocks / up)} LDU under it, at LDU ${[b.x, b.y, b.z].map(v => Math.round(v)).join(',')})`);

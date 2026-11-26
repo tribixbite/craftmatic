@@ -65,4 +65,21 @@ describe('model grounding: one rule for the sim and the export (PROC-20, grounde
     // Without the pitchfork the model stands on its plate: no warning.
     expect(hangingPartsWarning(bricks.slice(0, 2), meshes, frame)).toBeUndefined();
   });
+
+  it('names nothing that reaches under the base by about half a voxel cell: the grid rounds it away (10316)', () => {
+    // 10316 Rivendell: two tilted 40239 hairs 25-27 LDU under the base at a 53.3-LDU cell. The voxel grid's row 0
+    // still starts at the base (the sim reads the shipped pack grounded, 0.00 blocks), so they sink in game.
+    const mesh = (min: [number, number, number], max: [number, number, number]): LdrawPartMesh =>
+      ({ partId: 'p', resolvedAs: 'p', triangles: [{} as never], studs: [], bounds: { min, max }, unresolvedRefs: [], description: 'p' } as unknown as LdrawPartMesh);
+    const meshes = new Map<string, LdrawPartMesh | null>([
+      ['plate.dat', mesh([-400, -8, -200], [400, 0, 200])],
+      ['wall.dat', mesh([-380, -300, -180], [380, 0, 180])],
+      ['40239.dat', mesh([-10, -20, -10], [10, 27, 10])],
+    ]);
+    const at = (part: string, x: number, y: number, z: number): ParsedBrick => ({ part, color: 16, x, y, z, rot: [1, 0, 0, 0, 1, 0, 0, 0, 1] } as ParsedBrick);
+    const frame: SceneGridFrame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: 53.33, cellY: 53.33 };
+    expect(hangingPartsWarning([at('plate.dat', 0, 0, 0), at('wall.dat', 0, -8, 0), at('40239.dat', -300, 0, 100)], meshes, frame)).toBeUndefined();
+    // 40 LDU under (11377's 3662 frames) is the hang the Pixel showed: named.
+    expect(hangingPartsWarning([at('plate.dat', 0, 0, 0), at('wall.dat', 0, -8, 0), at('40239.dat', -300, 13, 100)], meshes, frame)).toContain('40239');
+  });
 });
