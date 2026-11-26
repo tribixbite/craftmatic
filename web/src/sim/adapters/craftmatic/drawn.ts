@@ -230,6 +230,13 @@ export class DrawnWalkWorld {
     for (const d of this.near(q)) if (d.box.y1 > q.y0 && d.box.y0 < q.y1) out.push(d.box);
     return out;
   }
+  /**
+   * Whether a drawn cube reaches into `box` (by its own shape, `drawnReaches`) with its top over `minTop`: what a body
+   * there would brush and could not climb onto (the straight lanes' clearance, `doorLanesOnFoot`).
+   */
+  obstacleIn(box: Box, minTop: number): boolean {
+    return this.near(box).some(d => d.box.y1 > minTop && drawnReaches(d, box));
+  }
   /** The highest drawn top (or the ground) at or under `y` at the point (x, z), or -Infinity. */
   supportBelow(x: number, y: number, z: number, maxDepth = 400): number {
     let top = y >= this.groundY - 1e-6 ? this.groundY : -Infinity;
