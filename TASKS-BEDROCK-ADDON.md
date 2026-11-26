@@ -96,9 +96,11 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   lanes), 910032 Door 4 (- side flood; its known `TODO(clearance-tight-910032)` nook) - untriaged. SCALE-06 lines on
   gate-k = favgate-41e9850b: 76419 x 8.5/9.5 REACHED 17.94; 21063 x 20.5/20.3 13.30 highest 8.13; 76419 300 % 6.44
   (the tracker's 7.25 predates 41e9850b).
-- MERGED 2026-11-25 (cull-400, 11e9e21c/90d371d6; the user: only for models meant for 400 %): 9-block lattice for
-  `landmark` sets (21061 21063 21065, brickgen landmark levels); 21065 mixed from outside (the ~70-block actor
-  ceiling binds). The three landmarks need a clean rebuild for a device round.
+- MERGED 2026-11-25 (cull-400, 11e9e21c/90d371d6, merge 2fee3805; the user: only for models meant for 400 %): 9-block
+  lattice for `landmark` sets (21061 21063 21065, brickgen landmark levels). Clean rebuild `output/fav4-1124/landmarks-2fee3805`
+  (gate 36 scenarios 0 failed). Suite 4736 passed, CI green.
+- IN FLIGHT: Pixel round 25f (`output/device-round-2026-11-25f/brief-pixel-25f.md`, packs + SHA256SUMS there): landmarks at
+  400 % walked away 10/20/30/40 blocks on four sides, 21360 ground, 10316 seats (Survival, ~2 blocks) + moving parts.
 - OPEN: 11377's great gate is not a door (`TODO(stud-pivot)`);
   at 400 % ten non-landmark favourites draw nothing from 20 blocks off their grid's corner (`TODO(cull-400)`; the
   user 2026-11-25 wants the finer lattice only for landmarks; the walk measures from the GRID's corner, which for 43267
@@ -106,9 +108,9 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   the grid centre, 11.5 blocks off its source origin (kept, grid widened); still sunk by a part under the base,
   untouched: 11371 (85941), 77092 (41751), non-DBIX 71040 (87601), 910047 (90981); kept back from the republish
   (a metric got worse): 11371 11374 42639 76269 21065 10786 10796 10797 60380 76435 77092_sm01.
-- NEXT: when (a) reports, verify gate-k; merge (b), rebuild 21061 21063 21065 clean; Pixel round 25f: the three
-  landmarks at 400 % (walk-away from 10/20/30/40 blocks), 21360 ground, 10316 seat boarding (Survival, ~2 blocks)
-  and its moving parts; `bun run test`; push; `gh run list`.
+- NEXT: verify round 25f's notes against its shots; record in REQUIREMENTS PROC-20 / COL-03 device cells; then
+  `TODO(grounded-favourites)` (76417 76435 5582 6243 via `_lowest_parts.ts`) and the three untriaged doorways (6194 Door 1,
+  76269 Door 3, 910032 Door 4) from gate-k.
 
 ### 2026-11-16: replica-set polish (PROC-19) - audit fixed, packs sent; NEXT generality
 The user (2026-11-15) asked for a Fable audit of the favourites' add-on generation, every finding fixed and tested,
