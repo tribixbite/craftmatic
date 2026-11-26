@@ -99,8 +99,12 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
 - MERGED 2026-11-25 (cull-400, 11e9e21c/90d371d6, merge 2fee3805; the user: only for models meant for 400 %): 9-block
   lattice for `landmark` sets (21061 21063 21065, brickgen landmark levels). Clean rebuild `output/fav4-1124/landmarks-2fee3805`
   (gate 36 scenarios 0 failed). Suite 4736 passed, CI green.
-- IN FLIGHT: Pixel round 25f (`output/device-round-2026-11-25f/brief-pixel-25f.md`, packs + SHA256SUMS there): landmarks at
-  400 % walked away 10/20/30/40 blocks on four sides, 21360 ground, 10316 seats (Survival, ~2 blocks) + moving parts.
+- Round 25f (Pixel, `output/device-round-2026-11-25f/pixel-25f/notes.md`, verified against its montages): the
+  landmark lattice draws 21061/21063/21065 at 400 % whole or most from 10-40 blocks off every edge (more than the
+  sim predicted); nothing but the plate at 50 W (21061, 21065) and 40 E of 21061; 21360 on the ground. 10316 seats
+  NOT boarded: the tester tapped from the grass below the raised terraces (the seats sit on drawn chairs, checked
+  with `output/device-round-2026-09-30i/saga/tools/drawn_at.ts`); a wand in hand turns a tap into the wand menu,
+  so board with an empty slot. Five imported pack folders stay on the Pixel (deleting them would be recursive).
 - OPEN: 11377's great gate is not a door (`TODO(stud-pivot)`);
   at 400 % ten non-landmark favourites draw nothing from 20 blocks off their grid's corner (`TODO(cull-400)`; the
   user 2026-11-25 wants the finer lattice only for landmarks; the walk measures from the GRID's corner, which for 43267
@@ -108,9 +112,10 @@ test in game, record every issue, teach the simulator to catch each, fix, retest
   the grid centre, 11.5 blocks off its source origin (kept, grid widened); still sunk by a part under the base,
   untouched: 11371 (85941), 77092 (41751), non-DBIX 71040 (87601), 910047 (90981); kept back from the republish
   (a metric got worse): 11371 11374 42639 76269 21065 10786 10796 10797 60380 76435 77092_sm01.
-- NEXT: verify round 25f's notes against its shots; record in REQUIREMENTS PROC-20 / COL-03 device cells; then
-  `TODO(grounded-favourites)` (76417 76435 5582 6243 via `_lowest_parts.ts`) and the three untriaged doorways (6194 Door 1,
-  76269 Door 3, 910032 Door 4) from gate-k.
+- NEXT: `TODO(grounded-favourites)` (76417 76435 5582 6243 via `_lowest_parts.ts`) and the three untriaged doorways (6194 Door 1,
+  76269 Door 3, 910032 Door 4) from gate-k; `TODO(cull-400-sim)` (the sim's walk-away under-predicts 25f's draws:
+  calibrate, then explain 21061 E-40); a 10316 seat round: walk ONTO the terrace in Survival with an empty hand,
+  tap a chair from ~1.5 blocks, then tap turnable_1..3 / lid_1 and watch them from outside.
 
 ### 2026-11-16: replica-set polish (PROC-19) - audit fixed, packs sent; NEXT generality
 The user (2026-11-15) asked for a Fable audit of the favourites' add-on generation, every finding fixed and tested,
